@@ -1178,13 +1178,14 @@ Remember to cite your sources and provide actionable insights where possible."""
                     query += " ORDER BY sa.detected_at DESC LIMIT ?"
                     params.append(limit)
                 else:
-                    # If no topic filter, get alerts directly without JOIN to avoid missing data
+                    # If no topic filter, still JOIN to get article details
                     query = """
                     SELECT sa.id, sa.article_uri, sa.instruction_id, sa.instruction_name, 
                            sa.confidence, sa.threat_level, sa.summary, sa.detected_at,
                            sa.is_acknowledged, sa.acknowledged_at,
-                           NULL as title, NULL as news_source, NULL as publication_date
+                           a.title, a.news_source, a.publication_date
                     FROM signal_alerts sa
+                    LEFT JOIN articles a ON sa.article_uri = a.uri
                     WHERE 1=1
                     """
                     params = []
@@ -1295,6 +1296,68 @@ Remember to cite your sources and provide actionable insights where possible."""
                 logger.error(f"Error adding article tag: {e}")
                 conn.rollback()
                 return False
+
+    def create_incident_status_table(self) -> bool:
+        """Create the incident status tracking table."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS incident_status (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        incident_name TEXT NOT NULL,
+                        topic TEXT NOT NULL,
+                        status TEXT NOT NULL DEFAULT 'active',  -- 'active', 'seen', 'deleted'
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(incident_name, topic)
+                    )
+                """)
+                conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"Error creating incident_status table: {e}")
+                return False
+
+    def update_incident_status(self, incident_name: str, topic: str, status: str) -> bool:
+        """Update or create incident status."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                # Create table if it doesn't exist
+                self.create_incident_status_table()
+                
+                cursor.execute("""
+                    INSERT OR REPLACE INTO incident_status (incident_name, topic, status, updated_at)
+                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                """, (incident_name, topic, status))
+                
+                conn.commit()
+                logger.info(f"Updated incident status: {incident_name} -> {status}")
+                return True
+            except Exception as e:
+                logger.error(f"Error updating incident status: {e}")
+                conn.rollback()
+                return False
+
+    def get_incident_status(self, topic: str) -> Dict[str, str]:
+        """Get all incident statuses for a topic."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                # Create table if it doesn't exist
+                self.create_incident_status_table()
+                
+                cursor.execute("""
+                    SELECT incident_name, status FROM incident_status 
+                    WHERE topic = ? AND status != 'deleted'
+                """, (topic,))
+                
+                results = cursor.fetchall()
+                return {row[0]: row[1] for row in results}
+            except Exception as e:
+                logger.error(f"Error getting incident status: {e}")
+                return {}
 
     def search_articles(
         self,

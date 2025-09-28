@@ -487,7 +487,7 @@ class NewsFeedService:
                 'uri': article_dict.get('uri', ''),
                 'title': article_dict.get('title', 'Untitled'),
                 'summary': article_dict.get('summary', 'No summary available'),
-                'news_source': article_dict.get('news_source', 'Unknown Source'),
+                'news_source': article_dict.get('news_source'),  # Let frontend handle None/empty
                 'publication_date': article_dict.get('publication_date'),
                 'category': article_dict.get('category'),
                 'sentiment': article_dict.get('sentiment'),
@@ -1656,7 +1656,7 @@ Tags: {article.get('tags', '')}
                 
                 article = {
                     'title': article_data.get('title', 'Unknown Title'),
-                    'source': article_data.get('news_source', 'Unknown Source'),
+                    'source': article_data.get('news_source'),  # Let frontend handle None/empty
                     'date': article_data.get('publication_date', ''),
                     'summary': article_data.get('summary', 'No summary available'),
                     'why_interesting': f"Article #{i+1} - Selected from available articles for analysis",

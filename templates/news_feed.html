@@ -838,6 +838,10 @@
                         <span class="text-muted small">Category:</span>
                         <div id="category-filters" class="d-flex flex-wrap gap-1"></div>
                     </div>
+                    <div class="d-flex align-items-center gap-1">
+                        <span class="text-muted small">Signals:</span>
+                        <div id="signal-filters" class="d-flex flex-wrap gap-1"></div>
+                    </div>
                     <div class="d-flex align-items-center gap-2 ms-auto">
                         <label class="form-label small mb-0">Sort:</label>
                         <select id="sort-select" class="form-select form-select-sm" onchange="handleSortChange()">
@@ -941,12 +945,12 @@
             <ul class="nav nav-pills nav-fill mb-3" id="insights-nav">
                 <li class="nav-item">
                     <a class="nav-link active" id="article-insights-nav" data-bs-toggle="pill" href="#article-insights-panel">
-                        <i class="fas fa-newspaper me-1"></i>Article Insights
+                        <i class="fas fa-newspaper me-1"></i>AI Insights
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link" id="category-insights-nav" data-bs-toggle="pill" href="#category-insights-panel">
-                        <i class="fas fa-layer-group me-1"></i>Category Analysis
+                        <i class="fas fa-layer-group me-1"></i>Topic Analysis
                     </a>
                 </li>
                 <li class="nav-item">
@@ -1006,8 +1010,37 @@
                         <div class="d-flex align-items-center gap-2">
                             <strong class="small text-muted">Incident Options</strong>
                         </div>
-                        <div id="incident-toolbar-right" class="d-flex align-items-center gap-2"></div>
+                        <div id="incident-toolbar-right" class="d-flex align-items-center gap-2">
+                            <button class="btn btn-outline-secondary btn-sm" onclick="showIncidentConfigModal()" title="Configure incident tracking prompts and ontology">
+                                <i class="fas fa-cogs me-1"></i>Configure
+                            </button>
+                        </div>
                     </div>
+                    
+                    <!-- Incident Filters -->
+                    <div id="incident-filters" class="mb-3" style="display: none;">
+                        <div class="d-flex flex-wrap gap-2 align-items-center p-2 bg-light rounded">
+                            <span class="text-muted small fw-bold">Filter Incidents:</span>
+                            <div class="d-flex align-items-center gap-1">
+                                <span class="text-muted small">Type:</span>
+                                <div id="incident-type-filters" class="d-flex flex-wrap gap-1"></div>
+                            </div>
+                            <div class="d-flex align-items-center gap-1">
+                                <span class="text-muted small">Significance:</span>
+                                <div id="incident-significance-filters" class="d-flex flex-wrap gap-1"></div>
+                            </div>
+                            <div class="d-flex align-items-center gap-1">
+                                <span class="text-muted small">Status:</span>
+                                <div id="incident-status-filters" class="d-flex flex-wrap gap-1"></div>
+                            </div>
+                            <div class="d-flex align-items-center gap-2 ms-auto">
+                                <button class="btn btn-outline-secondary btn-sm" onclick="clearIncidentFilters()" title="Clear all filters">
+                                    <i class="fas fa-times me-1"></i>Clear
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <div id="incident-tracking-loading" class="loading" style="display: none;">
                         <div class="spinner-border" role="status">
                             <span class="visually-hidden">Loading...</span>
@@ -1094,6 +1127,26 @@
                             <button class="btn btn-outline-warning" onclick="acknowledgeAllAlerts()" title="Mark all as acknowledged">
                                 <i class="fas fa-check me-1"></i>Ack All
                             </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Signal Alert Filters -->
+                    <div id="signal-alert-filters" class="mb-3" style="display: none;">
+                        <div class="d-flex flex-wrap gap-2 align-items-center p-2 bg-light rounded">
+                            <span class="text-muted small fw-bold">Filter Alerts:</span>
+                            <div class="d-flex align-items-center gap-1">
+                                <span class="text-muted small">Instruction:</span>
+                                <div id="instruction-filters" class="d-flex flex-wrap gap-1"></div>
+                            </div>
+                            <div class="d-flex align-items-center gap-1">
+                                <span class="text-muted small">Threat Level:</span>
+                                <div id="threat-level-filters" class="d-flex flex-wrap gap-1"></div>
+                            </div>
+                            <div class="d-flex align-items-center gap-2 ms-auto">
+                                <button class="btn btn-outline-secondary btn-sm" onclick="clearAlertFilters()" title="Clear all filters">
+                                    <i class="fas fa-times me-1"></i>Clear
+                                </button>
+                            </div>
                         </div>
                     </div>
                     
@@ -1247,6 +1300,304 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                 <button type="button" class="btn btn-outline-danger" id="clearAllFeeds">Clear All</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Incident Tracking Configuration Modal -->
+<div class="modal fade" id="incidentConfigModal" tabindex="-1" aria-labelledby="incidentConfigModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="incidentConfigModalLabel">
+                    <i class="fas fa-cogs me-2"></i>
+                    Configure Incident Tracking
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Navigation tabs for different configuration sections -->
+                <ul class="nav nav-tabs" id="incidentConfigTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="prompt-tab" data-bs-toggle="tab" data-bs-target="#prompt-panel" type="button" role="tab">
+                            <i class="fas fa-comment-dots me-1"></i>System Prompt
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="ontology-tab" data-bs-toggle="tab" data-bs-target="#ontology-panel" type="button" role="tab">
+                            <i class="fas fa-sitemap me-1"></i>Ontology
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="guidance-tab" data-bs-toggle="tab" data-bs-target="#guidance-panel" type="button" role="tab">
+                            <i class="fas fa-lightbulb me-1"></i>AI Guidance
+                        </button>
+                    </li>
+                </ul>
+
+                <div class="tab-content mt-3" id="incidentConfigTabContent">
+                    <!-- System Prompt Panel -->
+                    <div class="tab-pane fade show active" id="prompt-panel" role="tabpanel">
+                        <div class="row">
+                            <div class="col-md-8">
+                                <h6 class="fw-bold">System Prompt Template</h6>
+                                <p class="text-muted small">
+                                    Customize the system prompt used for incident tracking analysis. Use {topic} and {ontology_text} as placeholders.
+                                </p>
+                                <textarea id="incidentSystemPrompt" class="form-control" rows="15" style="font-family: 'Consolas', 'Monaco', monospace; font-size: 12px;"></textarea>
+                                
+                                <div class="mt-3">
+                                    <h6 class="fw-bold">User Prompt Template</h6>
+                                    <p class="text-muted small">
+                                        Customize how articles are presented to the AI. Use {topic} and {articles_text} as placeholders.
+                                    </p>
+                                    <textarea id="incidentUserPrompt" class="form-control" rows="3" style="font-family: 'Consolas', 'Monaco', monospace; font-size: 12px;"></textarea>
+                                </div>
+                                
+                                <div class="mt-3">
+                                    <h6 class="fw-bold">Organizational Profile Integration</h6>
+                                    <p class="text-muted small">
+                                        Configure how organizational profiles are integrated into the analysis context.
+                                    </p>
+                                    <div class="mb-2">
+                                        <label class="form-label">Profile Context Template:</label>
+                                        <textarea id="profileContextTemplate" class="form-control" rows="4" style="font-family: 'Consolas', 'Monaco', monospace; font-size: 12px;" placeholder="Template for how profile information is included in prompts..."></textarea>
+                                        <small class="text-muted">Use {profile_name}, {industry}, {key_concerns}, {strategic_priorities}, etc. as placeholders</small>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="enableProfileIntegration" checked>
+                                        <label class="form-check-label" for="enableProfileIntegration">
+                                            Enable organizational profile integration
+                                        </label>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card bg-light">
+                                    <div class="card-header">
+                                        <h6 class="mb-0"><i class="fas fa-info-circle me-1"></i>Available Placeholders</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="mb-2">
+                                            <code>{topic}</code>
+                                            <small class="d-block text-muted">Current analysis topic</small>
+                                        </div>
+                                        <div class="mb-2">
+                                            <code>{ontology_text}</code>
+                                            <small class="d-block text-muted">Generated ontology guidance</small>
+                                        </div>
+                                        <div class="mb-2">
+                                            <code>{articles_text}</code>
+                                            <small class="d-block text-muted">Formatted article content</small>
+                                        </div>
+                                        <div class="mb-2">
+                                            <code>{profile_context}</code>
+                                            <small class="d-block text-muted">Organizational profile context</small>
+                                        </div>
+                                        <div class="mb-2">
+                                            <code>{analysis_instructions}</code>
+                                            <small class="d-block text-muted">AI analysis instructions</small>
+                                        </div>
+                                        <div class="mb-2">
+                                            <code>{quality_guidelines}</code>
+                                            <small class="d-block text-muted">Quality control guidelines</small>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="card bg-light mt-3">
+                                    <div class="card-header">
+                                        <h6 class="mb-0"><i class="fas fa-history me-1"></i>Template Actions</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <button class="btn btn-outline-primary btn-sm w-100 mb-2" onclick="loadDefaultPromptTemplate()">
+                                            <i class="fas fa-undo me-1"></i>Reset to Default
+                                        </button>
+                                        <button class="btn btn-outline-secondary btn-sm w-100 mb-2" onclick="previewPrompt()">
+                                            <i class="fas fa-eye me-1"></i>Preview with Sample Data
+                                        </button>
+                                        <button class="btn btn-outline-success btn-sm w-100" onclick="validatePromptTemplate()">
+                                            <i class="fas fa-check me-1"></i>Validate Template
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Ontology Panel -->
+                    <div class="tab-pane fade" id="ontology-panel" role="tabpanel">
+                        <div class="row">
+                            <div class="col-md-8">
+                                <h6 class="fw-bold">Ontology Configuration</h6>
+                                <p class="text-muted small">
+                                    Define the types, subtypes, and classification rules for incident tracking.
+                                </p>
+                                
+                                <!-- Base Ontology -->
+                                <div class="mb-4">
+                                    <h6>Base Ontology</h6>
+                                    <textarea id="baseOntology" class="form-control" rows="12" style="font-family: 'Consolas', 'Monaco', monospace; font-size: 12px;"></textarea>
+                                </div>
+                                
+                                <!-- Domain Overlays -->
+                                <div class="mb-4">
+                                    <h6>Domain-Specific Overlays</h6>
+                                    <div class="mb-3">
+                                        <label class="form-label">Domain Key:</label>
+                                        <input type="text" id="domainKey" class="form-control" placeholder="e.g., scientific_publisher, finance, healthcare">
+                                        <small class="text-muted">Use 'vanilla' for no domain-specific overlay</small>
+                                    </div>
+                                    <textarea id="domainOverlay" class="form-control" rows="8" style="font-family: 'Consolas', 'Monaco', monospace; font-size: 12px;" placeholder="Domain-specific rules and examples..."></textarea>
+                                </div>
+                                
+                                <!-- Examples -->
+                                <div class="mb-4">
+                                    <h6>Classification Examples</h6>
+                                    <textarea id="ontologyExamples" class="form-control" rows="6" style="font-family: 'Consolas', 'Monaco', monospace; font-size: 12px;"></textarea>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card bg-light">
+                                    <div class="card-header">
+                                        <h6 class="mb-0"><i class="fas fa-layer-group me-1"></i>Ontology Structure</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="mb-2">
+                                            <strong>Types:</strong>
+                                            <ul class="list-unstyled ms-2 small">
+                                                <li><code>incident</code> - Disruptive occurrences</li>
+                                                <li><code>event</code> - Noteworthy signals</li>
+                                                <li><code>entity</code> - Tracked organizations/people</li>
+                                            </ul>
+                                        </div>
+                                        <div class="mb-2">
+                                            <strong>Required Fields:</strong>
+                                            <ul class="list-unstyled ms-2 small">
+                                                <li>name, type, subtype</li>
+                                                <li>description, timeline</li>
+                                                <li>significance, plausibility</li>
+                                                <li>investigation_leads</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="card bg-light mt-3">
+                                    <div class="card-header">
+                                        <h6 class="mb-0"><i class="fas fa-tools me-1"></i>Ontology Actions</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <button class="btn btn-outline-primary btn-sm w-100 mb-2" onclick="loadDefaultOntology()">
+                                            <i class="fas fa-undo me-1"></i>Reset to Default
+                                        </button>
+                                        <button class="btn btn-outline-info btn-sm w-100 mb-2" onclick="addDomainOverlay()">
+                                            <i class="fas fa-plus me-1"></i>Add Domain Overlay
+                                        </button>
+                                        <button class="btn btn-outline-success btn-sm w-100 mb-2" onclick="validateOntology()">
+                                            <i class="fas fa-check me-1"></i>Validate Structure
+                                        </button>
+                                        <button class="btn btn-outline-warning btn-sm w-100" onclick="upgradeToExtendedOntology()">
+                                            <i class="fas fa-star me-1"></i>Upgrade to 7-Type Ontology
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- AI Guidance Panel -->
+                    <div class="tab-pane fade" id="guidance-panel" role="tabpanel">
+                        <div class="row">
+                            <div class="col-md-8">
+                                <h6 class="fw-bold">AI Analysis Guidance</h6>
+                                <p class="text-muted small">
+                                    Provide specific instructions and examples to guide the AI's analysis behavior.
+                                </p>
+                                
+                                <div class="mb-4">
+                                    <h6>Analysis Instructions</h6>
+                                    <textarea id="analysisInstructions" class="form-control" rows="8" style="font-family: 'Consolas', 'Monaco', monospace; font-size: 12px;" placeholder="Specific instructions for how the AI should analyze articles and classify incidents..."></textarea>
+                                </div>
+                                
+                                <div class="mb-4">
+                                    <h6>Quality Control Guidelines</h6>
+                                    <textarea id="qualityGuidelines" class="form-control" rows="6" style="font-family: 'Consolas', 'Monaco', monospace; font-size: 12px;" placeholder="Guidelines for assessing credibility, handling extraordinary claims, source quality evaluation..."></textarea>
+                                </div>
+                                
+                                <div class="mb-4">
+                                    <h6>Output Format Requirements</h6>
+                                    <textarea id="outputFormat" class="form-control" rows="4" style="font-family: 'Consolas', 'Monaco', monospace; font-size: 12px;" placeholder="Specific JSON structure and formatting requirements..."></textarea>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card bg-light">
+                                    <div class="card-header">
+                                        <h6 class="mb-0"><i class="fas fa-brain me-1"></i>Best Practices</h6>
+                                    </div>
+                                    <div class="card-body small">
+                                        <div class="mb-3">
+                                            <strong>Analysis Quality:</strong>
+                                            <ul class="list-unstyled ms-2">
+                                                <li>• Be specific about credibility assessment</li>
+                                                <li>• Include source quality indicators</li>
+                                                <li>• Flag extraordinary claims</li>
+                                                <li>• Provide investigation leads</li>
+                                                <li>• Be inclusive rather than restrictive</li>
+                                            </ul>
+                                        </div>
+                                        <div class="mb-3">
+                                            <strong>7-Type Classification:</strong>
+                                            <ul class="list-unstyled ms-2">
+                                                <li>• <strong>Incident</strong>: Immediate response needed</li>
+                                                <li>• <strong>Event</strong>: Significant developments</li>
+                                                <li>• <strong>Entity</strong>: Organizations/people tracked</li>
+                                                <li>• <strong>Expertise</strong>: Expert insights/warnings</li>
+                                                <li>• <strong>Informed Insider</strong>: Privileged information</li>
+                                                <li>• <strong>Trend Signal</strong>: Market/behavioral patterns</li>
+                                                <li>• <strong>Strategic Shift</strong>: Major strategic changes</li>
+                                            </ul>
+                                        </div>
+                                        <div class="mb-3">
+                                            <strong>Profile Context:</strong>
+                                            <ul class="list-unstyled ms-2">
+                                                <li>• Consider organizational priorities</li>
+                                                <li>• Align with risk tolerance</li>
+                                                <li>• Focus on relevant stakeholders</li>
+                                                <li>• Account for industry context</li>
+                                                <li>• Tailor investigation leads</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="card bg-light mt-3">
+                                    <div class="card-header">
+                                        <h6 class="mb-0"><i class="fas fa-flask me-1"></i>Testing</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <button class="btn btn-outline-warning btn-sm w-100 mb-2" onclick="testWithSampleArticles()">
+                                            <i class="fas fa-play me-1"></i>Test with Sample Articles
+                                        </button>
+                                        <button class="btn btn-outline-info btn-sm w-100" onclick="showGuidanceExamples()">
+                                            <i class="fas fa-book me-1"></i>View Examples
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-outline-warning" onclick="resetAllToDefaults()">
+                    <i class="fas fa-undo me-1"></i>Reset All to Defaults
+                </button>
+                <button type="button" class="btn btn-primary" onclick="saveIncidentConfiguration()">
+                    <i class="fas fa-save me-1"></i>Save Configuration
+                </button>
             </div>
         </div>
     </div>
@@ -2312,6 +2663,27 @@ function escapeHTML(str) {
     });
 }
 
+// Safe formatter for article source. Falls back to hostname from URI when missing
+function formatSource(newsSource, uri) {
+    if (newsSource && String(newsSource).trim()) return escapeHTML(newsSource);
+    try {
+        if (!uri) return 'Unknown';
+        const url = new URL(uri);
+        const host = url.hostname.replace(/^www\./i, '');
+        return host || 'Unknown';
+    } catch (_) {
+        return 'Unknown';
+    }
+}
+
+// Safe formatter for publication date
+function formatPubDate(dateStr, includeTime) {
+    if (!dateStr) return 'Unknown date';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return 'Unknown date';
+    return includeTime ? d.toLocaleString() : d.toLocaleDateString();
+}
+
 // Helper function to get bias CSS class
 function getBiasClass(bias) {
     if (!bias) return 'tag-bias-unknown';
@@ -3320,7 +3692,8 @@ let starredArticles = new Set();
 let activeFilters = {
     bias: new Set(),
     factuality: new Set(),
-    category: new Set()
+    category: new Set(),
+    signals: new Set()  // Add signal filtering
 };
 
 function renderArticles(articlesData) {
@@ -3390,9 +3763,9 @@ function renderArticles(articlesData) {
                         <span class="signal-flags" id="signal-flags-${article.uri.replace(/[^a-zA-Z0-9]/g, '_')}"></span>
                     </h6>
                     <p class="mb-1 small text-muted">
-                        <i class="fas fa-building me-1"></i>${escapeHTML(article.news_source)}
+                        <i class="fas fa-building me-1"></i>${formatSource(article.news_source, article.uri)}
                         <span class="ms-2">
-                            <i class="fas fa-calendar me-1"></i>${new Date(article.publication_date).toLocaleDateString()}
+                            <i class="fas fa-calendar me-1"></i>${formatPubDate(article.publication_date, false)}
                         </span>
                     </p>
                     <p class="mb-0 small text-secondary" style="line-height: 1.4;">
@@ -3629,11 +4002,33 @@ function buildFilterBadges(articles) {
     const biasValues = new Set();
     const factualityValues = new Set();
     const categoryValues = new Set();
+    const signalValues = new Set();
     
     articles.forEach(article => {
         if (article.bias) biasValues.add(article.bias);
         if (article.factual_reporting) factualityValues.add(article.factual_reporting);
         if (article.category) categoryValues.add(article.category);
+        
+        // Check for signal tags
+        if (article.tags && Array.isArray(article.tags)) {
+            article.tags.forEach(tag => {
+                if (tag.startsWith('signal:')) {
+                    // Extract signal name: "signal:SIGNAL_NAME" -> "NAME"
+                    const signalName = tag.replace('signal:SIGNAL_', '').replace(/_/g, ' ');
+                    signalValues.add(signalName);
+                }
+            });
+        } else if (article.tags && typeof article.tags === 'string') {
+            const tags = article.tags.split(',').map(tag => tag.trim()).filter(tag => tag);
+            tags.forEach(tag => {
+                if (tag.startsWith('signal:')) {
+                    // Extract signal name: "signal:SIGNAL_NAME" -> "NAME"
+                    const signalName = tag.replace('signal:SIGNAL_', '').replace(/_/g, ' ');
+                    signalValues.add(signalName);
+                }
+            });
+        }
+        
     });
     
     // Build bias filter badges
@@ -3669,8 +4064,21 @@ function buildFilterBadges(articles) {
         categoryContainer.appendChild(badge);
     });
     
+    // Build signal filter badges
+    const signalContainer = document.getElementById('signal-filters');
+    if (signalContainer) {
+        signalContainer.innerHTML = '';
+        signalValues.forEach(signal => {
+            const badge = document.createElement('button');
+            badge.className = `btn btn-sm bg-danger text-white filter-badge ${activeFilters.signals.has(signal) ? 'active' : ''}`;
+            badge.innerHTML = `<i class="fas fa-flag me-1"></i>${signal}`;
+            badge.onclick = () => toggleFilter('signals', signal);
+            signalContainer.appendChild(badge);
+        });
+    }
+    
     // Show filter section if we have any filters
-    if (biasValues.size > 0 || factualityValues.size > 0 || categoryValues.size > 0) {
+    if (biasValues.size > 0 || factualityValues.size > 0 || categoryValues.size > 0 || signalValues.size > 0) {
         document.getElementById('articles-filters').style.display = 'block';
     }
 }
@@ -3704,6 +4112,28 @@ function applyArticleFilters(articles) {
         // Check category filter
         if (activeFilters.category.size > 0 && !activeFilters.category.has(article.category)) {
             return false;
+        }
+        
+        // Check signal filter
+        if (activeFilters.signals.size > 0) {
+            let hasMatchingSignal = false;
+            if (article.tags) {
+                const tags = Array.isArray(article.tags) ? article.tags : 
+                            (typeof article.tags === 'string' ? article.tags.split(',').map(tag => tag.trim()).filter(tag => tag) : []);
+                
+                for (const tag of tags) {
+                    if (tag.startsWith('signal:')) {
+                        const signalName = tag.replace('signal:SIGNAL_', '').replace(/_/g, ' ');
+                        if (activeFilters.signals.has(signalName)) {
+                            hasMatchingSignal = true;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (!hasMatchingSignal) {
+                return false;
+            }
         }
         
         return true;
@@ -6969,7 +7399,7 @@ function renderArticleInsights(data) {
                         <a href="${article.uri}" target="_blank" rel="noopener" class="text-decoration-none">
                             ${article.title || 'Untitled Article'}
                         </a>
-                        <small class="text-muted d-block">${article.news_source || 'Unknown Source'} - ${pubDate}</small>
+                        <small class="text-muted d-block">${formatSource(article.news_source, article.uri)} - ${pubDate}</small>
                         ${article.summary ? `<p class="mb-0 fst-italic text-muted" style="font-size: 0.8rem;">${article.summary.substring(0, 100)}...</p>` : ''}
                     </li>`;
             });
@@ -7033,7 +7463,7 @@ function renderCategoryInsights(data) {
                                     <a href="${article.uri}" target="_blank" rel="noopener" class="text-decoration-none">
                                         ${article.title || 'Untitled Article'}
                                     </a>
-                                    <small class="text-muted d-block">${article.news_source || 'Unknown Source'} - ${pubDate}</small>
+                                    <small class="text-muted d-block">${formatSource(article.news_source, article.uri)} - ${pubDate}</small>
                                 </li>`;
                         }).join('')}
                     </ul>
@@ -7227,8 +7657,8 @@ function buildDatasetContext(insightTopic, articles, detailedLimit = 15, extraLi
     const topDetailed = positive.slice(0, detailedLimit);
     const remaining = positive.slice(detailedLimit, detailedLimit + extraLimit);
     const detailedLines = topDetailed.map((article, idx) => {
-        const date = article.publication_date ? new Date(article.publication_date).toISOString().slice(0,10) : 'Unknown date';
-        const source = article.news_source || 'Unknown Source';
+        const date = formatPubDate(article.publication_date, false);
+        const source = formatSource(article.news_source, article.uri);
         const brief = (article.summary || '').slice(0, 140).replace(/\n+/g, ' ');
         return `${idx + 1}. ${article.title} (${source}, ${date})\n   URI: ${article.uri}\n   Brief: ${brief}${brief.length >= 140 ? '...' : ''}`;
     }).join('\n');
@@ -7310,10 +7740,12 @@ Please use your tools to:
 1. First analyze the dataset articles above (cite URIs). Build connections and timelines across them.
 2. Identify key entities, organizations, and deal terms appearing repeatedly.
 3. Summarize developments, trends, and market implications specific to this dataset.
-4. Propose additional DATASET search terms/filters to expand coverage (no web search yet).
-5. Only if necessary, suggest external corroboration as follow-up.
+4. Suggest exactly 2-3 high-priority follow-up questions that users could ask to expand coverage.
+5. Only if necessary, suggest 1-2 external research angles as follow-up.
 
-Respond with sections: Dataset Findings, Key Entities, Timeline, Gaps, Dataset Search Suggestions, Optional External Leads.`;
+Write follow-up questions as natural language that users would ask, not as technical function calls.
+
+Respond with sections: Dataset Findings, Key Entities, Timeline, Gaps, Suggested Follow-up Questions (limit to 2-3), Optional Research Angles (limit to 1-2).`;
         } else if (insightType === 'thematic_cluster') {
             // Thematic cluster research prompt
             const { detailedLines, uriLines } = buildDatasetContext(insightTopic, currentArticles, 18, 42);
@@ -7331,8 +7763,10 @@ RESEARCH FOCUS: "${insightTopic}" thematic analysis
 Please use your tools to:
 1. Prioritize the dataset items above (cite URIs) and synthesize cross-article insights.
 2. Identify trends, entities, and relationships evidenced by these articles.
-3. Provide dataset-first analysis, then propose dataset search expansions (keywords, categories, time windows).
-4. Provide actionable insights for stakeholders.`;
+3. Provide dataset-first analysis, then suggest exactly 2-3 follow-up questions users could ask.
+4. Provide actionable insights for stakeholders.
+
+Write follow-up questions as natural language that users would ask, not as technical function calls.`;
         } else if (insightType === 'incident') {
             // Incident tracking research prompt
             const { detailedLines, uriLines } = buildDatasetContext(insightTopic, currentArticles, 18, 42);
@@ -7402,10 +7836,12 @@ Please use your tools to:
 4. Assess the significance and potential implications
 5. Track historical context and related developments
 6. Evaluate current status and recent activities
-7. Identify additional investigation angles or related leads
+7. Identify exactly 2-3 additional investigation angles or related leads
 8. Provide actionable intelligence and next steps
 
-Prioritize dataset-first analysis. Provide a short list of additional dataset search queries and filters to run next.`;
+Prioritize dataset-first analysis. Suggest exactly 2-3 follow-up questions users could ask to continue the investigation.
+
+Write follow-up questions as natural language that users would ask, not as technical function calls.`;
         } else {
             // Article theme research prompt
             const { detailedLines, uriLines } = buildDatasetContext(insightTopic, currentArticles, 18, 42);
@@ -7424,8 +7860,10 @@ TOPIC AREA: "${actualTopic}"
 Please use your tools to:
 1. Start with the dataset items above; synthesize cross-article findings and cite URIs.
 2. Identify trends, entities, relationships, and implications grounded in the dataset.
-3. Propose dataset search expansions (keywords, categories, time windows) for follow-up.
-4. Provide strategic recommendations for decision-makers.`;
+3. Suggest exactly 2-3 follow-up questions users could ask to expand analysis.
+4. Provide strategic recommendations for decision-makers.
+
+Write follow-up questions as natural language that users would ask, not as technical function calls.`;
         }
         
         // Use the same launch pattern as working article analysis
@@ -7912,6 +8350,10 @@ async function loadIncidentTracking(topic, startDate, endDate, daysLimit, forceR
         const modelSelect = document.getElementById('model-select');
         const selectedModel = modelSelect ? modelSelect.value : 'gpt-4o-mini';
         
+        // Get the selected organizational profile
+        const profileSelect = document.getElementById('profile-select');
+        const selectedProfileId = profileSelect && profileSelect.value ? parseInt(profileSelect.value) : null;
+        
         // Use passed parameters instead of reading from DOM
         let requestBody = {
             topic: topic,
@@ -7919,6 +8361,12 @@ async function loadIncidentTracking(topic, startDate, endDate, daysLimit, forceR
             model: selectedModel,
             force_regenerate: forceRegenerate || false
         };
+        
+        // Add profile_id if selected
+        if (selectedProfileId) {
+            requestBody.profile_id = selectedProfileId;
+            console.log(`Using organizational profile ID: ${selectedProfileId} for incident tracking`);
+        }
         
         // Use passed date parameters
         if (startDate && endDate) {
@@ -7964,6 +8412,15 @@ function renderIncidentTracking(incidents) {
     // Persist last set
     window._lastIncidents = Array.isArray(incidents) ? incidents.slice() : [];
     
+    // Store all incidents for filtering
+    allIncidents = Array.isArray(incidents) ? incidents.slice() : [];
+    
+    // Build filter badges
+    buildIncidentFilterBadges(allIncidents);
+    
+    // Apply current filters
+    const filteredIncidents = applyIncidentFilters(allIncidents);
+    
     // Toggle to hide implausible/low-quality
     const toggleId = 'incident-hide-low-toggle';
     let hideLow = true;
@@ -7974,19 +8431,26 @@ function renderIncidentTracking(incidents) {
             <label class="form-check-label small mb-0" for="${toggleId}">Hide implausible or low-quality source incidents</label>
         </div>
     `;
-    // Insert controls into top toolbar (overwrite to avoid duplicates); fallback into container
+    // Insert controls into top toolbar (preserve existing buttons); fallback into container
     const toolbar = document.getElementById('incident-toolbar-right');
     if (toolbar) {
-        toolbar.innerHTML = controlsHtml;
+        // Check if quality controls already exist to avoid duplicates
+        if (!toolbar.querySelector(`#${toggleId}`)) {
+            // Preserve existing buttons (like Configure) and add quality controls
+            toolbar.insertAdjacentHTML('beforeend', controlsHtml);
+        }
     } else {
         container.insertAdjacentHTML('afterbegin', `<div class="insight-item-card p-2 mb-2">${controlsHtml}</div>`);
     }
     
     const riskFlags = new Set(['extraordinary_claim','no_independent_verification','low_factuality_source','low_credibility_source','fringe_bias']);
-    const sourceIncidents = Array.isArray(incidents) ? incidents : [];
+    
+    // Apply filter badges first, then quality filter
+    let incidentsToRender = filteredIncidents;
+    
     // Compute global timeline range for ruler scaling
     let globalMin = null, globalMax = null;
-    sourceIncidents.forEach(inc => {
+    incidentsToRender.forEach(inc => {
         if (Array.isArray(inc?.timeline) && inc.timeline.length > 0) {
             const first = new Date(inc.timeline[0]).getTime();
             const last = new Date(inc.timeline[inc.timeline.length - 1]).getTime();
@@ -7999,8 +8463,10 @@ function renderIncidentTracking(incidents) {
     if (globalMin !== null && globalMax !== null && globalMax < globalMin) {
         const t = globalMin; globalMin = globalMax; globalMax = t;
     }
+    
+    // Apply quality filter (hide low quality) on top of badge filters
     const filtered = hideLow
-        ? sourceIncidents.filter(inc => {
+        ? incidentsToRender.filter(inc => {
             if (!inc) return false;
             const plaus = String(inc.plausibility || '').toLowerCase();
             const quality = String(inc.source_quality || '').toLowerCase();
@@ -8008,8 +8474,13 @@ function renderIncidentTracking(incidents) {
             const hasLowFlags = flags.some(f => f === 'low_factuality_source' || f === 'low_credibility_source' || f === 'fringe_bias');
             return plaus !== 'implausible' && quality !== 'low' && !hasLowFlags;
         })
-        : sourceIncidents;
+        : incidentsToRender;
     
+    // Use the new filtered rendering function
+    renderIncidentTrackingFiltered(filteredIncidents);
+    return;
+    
+    // Old rendering code below (kept for reference but not executed)
     if (!filtered || filtered.length === 0) {
         container.innerHTML = '<div class="text-muted p-2 small w-100 text-center">No incidents found for this period.</div>';
         return;
@@ -8157,15 +8628,56 @@ function renderIncidentTracking(incidents) {
             ${warningHtml}
             ${articlesHtml}
             ${leadsHtml}
-            <div class="mt-2 d-flex gap-2">
-                <button class="btn btn-sm btn-outline-primary" onclick="launchAuspexResearchFromInsight('${escapeHTML(incident.name)}', 'incident')">
-                    <i class="fas fa-search me-1"></i>Investigate
-                </button>
-                ${incident.article_uris && incident.article_uris.length > 0 ? `
-                    <button class="btn btn-sm btn-outline-secondary" onclick="launchConsensusAnalysis('${incident.article_uris[0]}')">
-                        <i class="fas fa-balance-scale me-1"></i>Consensus Analysis
+            <!-- Detailed Analysis Section (Initially Hidden) -->
+            <div class="incident-analysis" id="incident-analysis-${escapeHTML(incident.name).replace(/[^a-zA-Z0-9]/g, '_')}" style="display: none; margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #007bff;">
+                <h6 class="text-primary mb-3">
+                    <i class="fas fa-search-plus me-2"></i>Article Analysis
+                </h6>
+                <div class="analysis-content bg-white p-3 rounded border" id="incident-article-analysis-${escapeHTML(incident.name).replace(/[^a-zA-Z0-9]/g, '_')}">
+                    <div class="analysis-text bg-light p-2 rounded small text-muted">
+                        Analysis will be generated when you click "Show Analysis" below.
+                    </div>
+                </div>
+            </div>
+            
+            <div class="mt-2 d-flex justify-content-between">
+                <div class="d-flex gap-2">
+                    ${incident.article_uris && incident.article_uris.length > 0 ? `
+                        <button class="btn btn-sm btn-outline-primary" onclick="toggleIncidentAnalysis('${escapeHTML(incident.name)}', '${incident.article_uris[0]}', this)">
+                            <i class="fas fa-chevron-right me-1"></i>Show Analysis
+                        </button>
+                        <button class="btn btn-sm btn-outline-info" onclick="launchIncidentDeepDive('${escapeHTML(incident.name)}', '${incident.article_uris[0]}')">
+                            <i class="fas fa-microscope me-1"></i>Deep Dive
+                        </button>
+                        <button class="btn btn-sm btn-outline-warning" onclick="launchIncidentConsensus('${escapeHTML(incident.name)}', '${incident.article_uris[0]}')">
+                            <i class="fas fa-balance-scale me-1"></i>Consensus Check
+                        </button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="launchIncidentAdjacent('${escapeHTML(incident.name)}', '${incident.article_uris[0]}')">
+                            <i class="fas fa-project-diagram me-1"></i>Adjacent Topics
+                        </button>
+                        <button class="btn btn-sm btn-outline-success" onclick="openAnnotationModal('${incident.article_uris[0]}')">
+                            <i class="fas fa-sticky-note me-1"></i>Annotate
+                        </button>
+                    ` : `
+                        <button class="btn btn-sm btn-outline-primary" onclick="launchAuspexResearchFromInsight('${escapeHTML(incident.name)}', 'incident')">
+                            <i class="fas fa-search me-1"></i>Investigate
+                        </button>
+                    `}
+                </div>
+                <div class="btn-group btn-group-sm">
+                    ${status !== 'seen' ? `
+                        <button class="btn btn-outline-success" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'seen')" title="Mark as seen">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    ` : `
+                        <button class="btn btn-outline-secondary" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'active')" title="Mark as unseen">
+                            <i class="fas fa-eye-slash"></i>
+                        </button>
+                    `}
+                    <button class="btn btn-outline-danger" onclick="deleteIncident('${escapeHTML(incident.name)}')" title="Delete incident">
+                        <i class="fas fa-trash"></i>
                     </button>
-                ` : ''}
+                </div>
             </div>
         `;
         col.appendChild(card);
@@ -8177,7 +8689,9 @@ function renderIncidentTracking(incidents) {
     if (toggleEl) {
         toggleEl.addEventListener('change', () => {
             try { localStorage.setItem(toggleId, toggleEl.checked ? 'true' : 'false'); } catch(_) {}
-            renderIncidentTracking(window._lastIncidents || []);
+            // Re-render with current filters
+            const filteredIncidents = applyIncidentFilters(allIncidents);
+            renderIncidentTrackingFiltered(filteredIncidents);
         });
     }
 }
@@ -8820,6 +9334,21 @@ async function runAllSignals() {
 let currentAlertsPage = 1;
 const alertsPerPage = 10;
 
+// Alert filtering
+let alertFilters = {
+    instructions: new Set(),
+    threatLevels: new Set()
+};
+let allAlerts = []; // Store all alerts for filtering
+
+// Incident filtering
+let incidentFilters = {
+    types: new Set(),
+    significance: new Set(),
+    status: new Set()
+};
+let allIncidents = []; // Store all incidents for filtering
+
 async function loadSignalAlerts(page = 1) {
     currentAlertsPage = page;
     
@@ -8853,17 +9382,28 @@ async function loadSignalAlerts(page = 1) {
                     <br><small>Debug: API returned ${data.total || 0} alerts</small>
                 </div>
             `;
+            // Hide filter section when no alerts
+            document.getElementById('signal-alert-filters').style.display = 'none';
             return;
         }
         
-        console.log('Rendering', data.alerts.length, 'alerts');
+        // Store all alerts for filtering
+        allAlerts = data.alerts;
         
-        // Implement pagination
-        const totalAlerts = data.alerts.length;
+        // Build filter badges
+        buildAlertFilterBadges(data.alerts);
+        
+        // Apply current filters
+        const filteredAlerts = applyAlertFilters(data.alerts);
+        
+        console.log('Rendering', filteredAlerts.length, 'filtered alerts out of', data.alerts.length, 'total');
+        
+        // Implement pagination on filtered alerts
+        const totalAlerts = filteredAlerts.length;
         const totalPages = Math.ceil(totalAlerts / alertsPerPage);
         const start = (currentAlertsPage - 1) * alertsPerPage;
         const end = start + alertsPerPage;
-        const pageAlerts = data.alerts.slice(start, end);
+        const pageAlerts = filteredAlerts.slice(start, end);
         
         // Update pagination info
         document.getElementById('alerts-start').textContent = totalAlerts > 0 ? start + 1 : 0;
@@ -8905,7 +9445,7 @@ async function loadSignalAlerts(page = 1) {
                                     <a href="${alert.article_uri}" target="_blank" rel="noopener">
                                         ${(() => { try { if (alert.article_title) return escapeHTML(alert.article_title); const u = new URL(alert.article_uri); const last = decodeURIComponent((u.pathname.split('/').filter(Boolean).pop()||'').replace(/[-_]/g,' ')).trim(); return escapeHTML(last || 'Article'); } catch(_) { return 'Article'; } })()}
                                     </a>
-                                    <span class="ms-2">• ${alert.article_source || 'Unknown Source'}</span>
+                                    <span class="ms-2">• ${formatSource(alert.article_source, alert.article_uri)}</span>
                                     <span class="ms-2">• ${detectedTime}</span>
                                 </div>
                             </div>
@@ -9004,6 +9544,806 @@ function nextAlertsPage() {
     }
 }
 
+// Alert filter functions
+function buildAlertFilterBadges(alerts) {
+    // Collect unique values
+    const instructionNames = new Set();
+    const threatLevels = new Set();
+    
+    alerts.forEach(alert => {
+        if (alert.instruction_name) instructionNames.add(alert.instruction_name);
+        if (alert.threat_level) threatLevels.add(alert.threat_level);
+    });
+    
+    // Build instruction filter badges
+    const instructionContainer = document.getElementById('instruction-filters');
+    instructionContainer.innerHTML = '';
+    instructionNames.forEach(instruction => {
+        const badge = document.createElement('button');
+        badge.className = `btn btn-sm btn-outline-primary filter-badge ${alertFilters.instructions.has(instruction) ? 'active' : ''}`;
+        badge.textContent = instruction;
+        badge.onclick = () => toggleAlertFilter('instructions', instruction);
+        instructionContainer.appendChild(badge);
+    });
+    
+    // Build threat level filter badges
+    const threatContainer = document.getElementById('threat-level-filters');
+    threatContainer.innerHTML = '';
+    threatLevels.forEach(level => {
+        const badge = document.createElement('button');
+        const levelColor = level === 'high' ? 'btn-outline-danger' : 
+                          level === 'medium' ? 'btn-outline-warning' : 'btn-outline-success';
+        badge.className = `btn btn-sm ${levelColor} filter-badge ${alertFilters.threatLevels.has(level) ? 'active' : ''}`;
+        badge.textContent = level.toUpperCase();
+        badge.onclick = () => toggleAlertFilter('threatLevels', level);
+        threatContainer.appendChild(badge);
+    });
+    
+    // Show filter section if we have filters
+    if (instructionNames.size > 0 || threatLevels.size > 0) {
+        document.getElementById('signal-alert-filters').style.display = 'block';
+    }
+}
+
+function toggleAlertFilter(filterType, value) {
+    if (alertFilters[filterType].has(value)) {
+        alertFilters[filterType].delete(value);
+    } else {
+        alertFilters[filterType].add(value);
+    }
+    
+    // Re-render alerts with new filters
+    if (allAlerts.length > 0) {
+        const filteredAlerts = applyAlertFilters(allAlerts);
+        renderFilteredAlerts(filteredAlerts);
+        
+        // Update badge styling
+        buildAlertFilterBadges(allAlerts);
+    }
+}
+
+function applyAlertFilters(alerts) {
+    return alerts.filter(alert => {
+        // Check instruction filter
+        if (alertFilters.instructions.size > 0 && !alertFilters.instructions.has(alert.instruction_name)) {
+            return false;
+        }
+        
+        // Check threat level filter
+        if (alertFilters.threatLevels.size > 0 && !alertFilters.threatLevels.has(alert.threat_level)) {
+            return false;
+        }
+        
+        return true;
+    });
+}
+
+function renderFilteredAlerts(filteredAlerts) {
+    // Reset pagination to page 1 when filtering
+    currentAlertsPage = 1;
+    
+    const totalAlerts = filteredAlerts.length;
+    const totalPages = Math.ceil(totalAlerts / alertsPerPage);
+    const start = (currentAlertsPage - 1) * alertsPerPage;
+    const end = start + alertsPerPage;
+    const pageAlerts = filteredAlerts.slice(start, end);
+    
+    // Update pagination info
+    document.getElementById('alerts-start').textContent = totalAlerts > 0 ? start + 1 : 0;
+    document.getElementById('alerts-end').textContent = Math.min(end, totalAlerts);
+    document.getElementById('alerts-total').textContent = totalAlerts;
+    document.getElementById('current-alerts-page').textContent = currentAlertsPage;
+    document.getElementById('total-alerts-pages').textContent = Math.max(1, totalPages);
+    
+    // Update pagination buttons
+    document.getElementById('prev-alerts-btn').disabled = currentAlertsPage <= 1;
+    document.getElementById('next-alerts-btn').disabled = currentAlertsPage >= totalPages;
+    
+    // Show/hide pagination
+    const paginationEl = document.getElementById('signal-alerts-pagination');
+    if (totalAlerts > alertsPerPage) {
+        paginationEl.style.display = 'flex';
+    } else {
+        paginationEl.style.display = 'none';
+    }
+    
+    // Render alerts
+    const container = document.getElementById('signal-alerts-list');
+    if (totalAlerts === 0) {
+        container.innerHTML = `
+            <div class="text-center p-3 text-muted">
+                <i class="fas fa-filter me-2"></i>No alerts match the current filters.
+                <br><small>Try clearing some filters to see more results.</small>
+            </div>
+        `;
+        return;
+    }
+    
+    let html = '';
+    pageAlerts.forEach(alert => {
+        const threatBadgeColor = alert.threat_level === 'high' ? 'danger' : 
+                               alert.threat_level === 'medium' ? 'warning' : 'success';
+        
+        const detectedTime = new Date(alert.detected_at).toLocaleString();
+        
+        html += `
+            <div class="card mb-2 ${alert.threat_level === 'high' ? 'border-danger' : ''}">
+                <div class="card-body py-2">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div class="flex-grow-1">
+                            <div class="d-flex align-items-center mb-1">
+                                <h6 class="mb-0 me-2">${escapeHTML(alert.instruction_name)}</h6>
+                                <span class="badge bg-${threatBadgeColor}">${alert.threat_level.toUpperCase()}</span>
+                                <span class="badge bg-info ms-1">${Math.round(alert.confidence * 100)}%</span>
+                            </div>
+                            <p class="mb-1 small">${escapeHTML(alert.summary)}</p>
+                            <div class="small text-muted">
+                                <strong>Article:</strong> 
+                                <a href="${alert.article_uri}" target="_blank" rel="noopener">
+                                    ${(() => { try { if (alert.article_title) return escapeHTML(alert.article_title); const u = new URL(alert.article_uri); const last = decodeURIComponent((u.pathname.split('/').filter(Boolean).pop()||'').replace(/[-_]/g,' ')).trim(); return escapeHTML(last || 'Article'); } catch(_) { return 'Article'; } })()}
+                                </a>
+                                <span class="ms-2">• ${formatSource(alert.article_source, alert.article_uri)}</span>
+                                <span class="ms-2">• ${detectedTime}</span>
+                            </div>
+                        </div>
+                        <div class="btn-group-vertical btn-group-sm ms-2">
+                            <button class="btn btn-outline-success btn-sm" onclick="acknowledgeAlert(${alert.id})" title="Acknowledge">
+                                <i class="fas fa-check"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    
+    container.innerHTML = html;
+}
+
+function clearAlertFilters() {
+    alertFilters.instructions.clear();
+    alertFilters.threatLevels.clear();
+    
+    if (allAlerts.length > 0) {
+        buildAlertFilterBadges(allAlerts);
+        renderFilteredAlerts(allAlerts);
+    }
+}
+
+// Incident filter functions
+function buildIncidentFilterBadges(incidents) {
+    // Collect unique values
+    const types = new Set();
+    const significanceLevels = new Set();
+    const statusLevels = new Set();
+    
+    incidents.forEach(incident => {
+        if (incident.type) types.add(incident.type);
+        if (incident.significance) significanceLevels.add(incident.significance);
+        const status = incident.status || 'active';
+        statusLevels.add(status);
+    });
+    
+    // Build type filter badges
+    const typeContainer = document.getElementById('incident-type-filters');
+    typeContainer.innerHTML = '';
+    types.forEach(type => {
+        const badge = document.createElement('button');
+        const typeColor = type === 'incident' ? 'btn-outline-danger' : 
+                         type === 'entity' ? 'btn-outline-primary' : 'btn-outline-success';
+        badge.className = `btn btn-sm ${typeColor} filter-badge ${incidentFilters.types.has(type) ? 'active' : ''}`;
+        badge.textContent = type.charAt(0).toUpperCase() + type.slice(1);
+        badge.onclick = () => toggleIncidentFilter('types', type);
+        typeContainer.appendChild(badge);
+    });
+    
+    // Build significance filter badges in correct order: low, medium, high
+    const significanceContainer = document.getElementById('incident-significance-filters');
+    significanceContainer.innerHTML = '';
+    const orderedSignificance = ['low', 'medium', 'high'].filter(sig => significanceLevels.has(sig));
+    orderedSignificance.forEach(significance => {
+        const badge = document.createElement('button');
+        const sigColor = significance === 'high' ? 'btn-outline-danger' : 
+                        significance === 'medium' ? 'btn-outline-warning' : 'btn-outline-info';
+        badge.className = `btn btn-sm ${sigColor} filter-badge ${incidentFilters.significance.has(significance) ? 'active' : ''}`;
+        badge.textContent = significance.charAt(0).toUpperCase() + significance.slice(1);
+        badge.onclick = () => toggleIncidentFilter('significance', significance);
+        significanceContainer.appendChild(badge);
+    });
+    
+    // Build status filter badges
+    const statusContainer = document.getElementById('incident-status-filters');
+    statusContainer.innerHTML = '';
+    const orderedStatus = ['active', 'seen'].filter(status => statusLevels.has(status));
+    orderedStatus.forEach(status => {
+        const badge = document.createElement('button');
+        const statusColor = status === 'seen' ? 'btn-outline-secondary' : 'btn-outline-success';
+        const statusIcon = status === 'seen' ? 'fas fa-eye' : 'fas fa-circle';
+        badge.className = `btn btn-sm ${statusColor} filter-badge ${incidentFilters.status.has(status) ? 'active' : ''}`;
+        badge.innerHTML = `<i class="${statusIcon} me-1"></i>${status.charAt(0).toUpperCase() + status.slice(1)}`;
+        badge.onclick = () => toggleIncidentFilter('status', status);
+        statusContainer.appendChild(badge);
+    });
+    
+    // Show filter section if we have filters
+    if (types.size > 0 || significanceLevels.size > 0 || statusLevels.size > 0) {
+        document.getElementById('incident-filters').style.display = 'block';
+    }
+}
+
+function toggleIncidentFilter(filterType, value) {
+    if (incidentFilters[filterType].has(value)) {
+        incidentFilters[filterType].delete(value);
+    } else {
+        incidentFilters[filterType].add(value);
+    }
+    
+    // Re-render incidents with new filters
+    if (allIncidents.length > 0) {
+        const filteredIncidents = applyIncidentFilters(allIncidents);
+        renderIncidentTrackingFiltered(filteredIncidents);
+        
+        // Update badge styling
+        buildIncidentFilterBadges(allIncidents);
+    }
+}
+
+function applyIncidentFilters(incidents) {
+    console.log('Applying incident filters:', {
+        types: Array.from(incidentFilters.types),
+        significance: Array.from(incidentFilters.significance),
+        totalIncidents: incidents.length
+    });
+    
+    const filtered = incidents.filter(incident => {
+        // Check type filter - ensure exact match
+        if (incidentFilters.types.size > 0) {
+            const incidentType = String(incident.type || '').toLowerCase().trim();
+            const hasTypeMatch = Array.from(incidentFilters.types).some(filterType => 
+                String(filterType).toLowerCase().trim() === incidentType
+            );
+            if (!hasTypeMatch) {
+                console.log('Filtered out by type:', incident.name, 'type:', incident.type, 'expected:', Array.from(incidentFilters.types));
+                return false;
+            }
+        }
+        
+        // Check significance filter - ensure exact match
+        if (incidentFilters.significance.size > 0) {
+            const incidentSignificance = String(incident.significance || '').toLowerCase().trim();
+            const hasSignificanceMatch = Array.from(incidentFilters.significance).some(filterSig => 
+                String(filterSig).toLowerCase().trim() === incidentSignificance
+            );
+            if (!hasSignificanceMatch) {
+                console.log('Filtered out by significance:', incident.name, 'significance:', incident.significance, 'expected:', Array.from(incidentFilters.significance));
+                return false;
+            }
+        }
+        
+        // Check status filter - ensure exact match
+        if (incidentFilters.status.size > 0) {
+            const incidentStatus = String(incident.status || 'active').toLowerCase().trim();
+            const hasStatusMatch = Array.from(incidentFilters.status).some(filterStatus => 
+                String(filterStatus).toLowerCase().trim() === incidentStatus
+            );
+            if (!hasStatusMatch) {
+                console.log('Filtered out by status:', incident.name, 'status:', incident.status, 'expected:', Array.from(incidentFilters.status));
+                return false;
+            }
+        }
+        
+        return true;
+    });
+    
+    console.log('Filtered incidents:', filtered.length, 'out of', incidents.length);
+    return filtered;
+}
+
+function renderIncidentTrackingFiltered(filteredIncidents) {
+    const container = document.getElementById('incident-tracking-container');
+    
+    // Clear container but preserve controls
+    const existingControls = container.querySelector('.insight-item-card');
+    container.innerHTML = '';
+    if (existingControls) {
+        container.appendChild(existingControls);
+    }
+    
+    // Get quality toggle state
+    const toggleId = 'incident-hide-low-toggle';
+    let hideLow = true;
+    try { 
+        const saved = localStorage.getItem(toggleId); 
+        if (saved !== null) hideLow = saved === 'true'; 
+    } catch(_) {}
+    
+    // Apply quality filter on top of badge filters
+    const riskFlags = new Set(['extraordinary_claim','no_independent_verification','low_factuality_source','low_credibility_source','fringe_bias']);
+    const finalFiltered = hideLow
+        ? filteredIncidents.filter(inc => {
+            if (!inc) return false;
+            const plaus = String(inc.plausibility || '').toLowerCase();
+            const quality = String(inc.source_quality || '').toLowerCase();
+            const flags = Array.isArray(inc.misinfo_flags) ? inc.misinfo_flags.map(f => String(f).toLowerCase()) : [];
+            const hasLowFlags = flags.some(f => f === 'low_factuality_source' || f === 'low_credibility_source' || f === 'fringe_bias');
+            return plaus !== 'implausible' && quality !== 'low' && !hasLowFlags;
+        })
+        : filteredIncidents;
+    
+    if (!finalFiltered || finalFiltered.length === 0) {
+        const message = filteredIncidents.length === 0 ? 
+            'No incidents match the current filters.' : 
+            'No high-quality incidents match the current filters.';
+        container.insertAdjacentHTML('beforeend', `<div class="text-muted p-2 small w-100 text-center">${message}</div>`);
+        return;
+    }
+    
+    // Compute global timeline range for ruler scaling
+    let globalMin = null, globalMax = null;
+    finalFiltered.forEach(inc => {
+        if (Array.isArray(inc?.timeline) && inc.timeline.length > 0) {
+            const first = new Date(inc.timeline[0]).getTime();
+            const last = new Date(inc.timeline[inc.timeline.length - 1]).getTime();
+            if (!isNaN(first) && !isNaN(last)) {
+                globalMin = (globalMin === null) ? first : Math.min(globalMin, first);
+                globalMax = (globalMax === null) ? last : Math.max(globalMax, last);
+            }
+        }
+    });
+    if (globalMin !== null && globalMax !== null && globalMax < globalMin) {
+        const t = globalMin; globalMin = globalMax; globalMax = t;
+    }
+    
+    finalFiltered.forEach((incident, index) => {
+        const col = document.createElement('div');
+        col.className = 'col-12 col-md-6 col-lg-4';
+        const card = document.createElement('div');
+        card.className = 'insight-item-card h-100';
+        
+        // Determine badge color based on type and significance
+        const typeBadgeColor = incident.type === 'incident' ? 'danger' : 
+                              incident.type === 'entity' ? 'primary' : 'success';
+        const significanceBadgeColor = incident.significance === 'high' ? 'danger' : 
+                                     incident.significance === 'medium' ? 'warning' : 'info';
+        
+        // Build investigation leads HTML (clickable buttons)
+        let leadsHtml = '';
+        if (Array.isArray(incident.investigation_leads) && incident.investigation_leads.length > 0) {
+            leadsHtml = `
+                <div class="mt-2 mb-2">
+                    <small class="text-muted fw-bold">Investigation Leads:</small>
+                    <div class="d-flex gap-1 flex-wrap mt-1">
+                        ${incident.investigation_leads.map(lead => `
+                            <button class="btn btn-sm btn-outline-info" 
+                                    onclick="launchAuspexResearchFromInsight('${escapeHTML(lead)}', 'investigation_lead')">
+                                <i class="fas fa-search me-1"></i>${escapeHTML(lead)}
+                            </button>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Build timeline visualization
+        let timelineHtml = '';
+        if (Array.isArray(incident.timeline) && incident.timeline.length > 0) {
+            const events = incident.timeline.map(t => new Date(t).getTime()).filter(t => !isNaN(t)).sort((a,b) => a - b);
+            if (events.length > 0) {
+                if (events.length === 1) {
+                    // Single date - show as badge
+                    timelineHtml = `
+                        <div class="mt-2 mb-2">
+                            <small class="text-muted fw-bold">Date:</small>
+                            <span class="badge bg-primary ms-2">${new Date(events[0]).toLocaleDateString()}</span>
+                        </div>
+                    `;
+                } else if (globalMin !== null && globalMax !== null) {
+                    // Multiple dates - show timeline ruler
+                    const range = Math.max(1, globalMax - globalMin);
+                    const positions = events.map(t => Math.max(0, Math.min(100, ((t - globalMin) / range) * 100)));
+                    timelineHtml = `
+                        <div class="mt-2 mb-2">
+                            <small class="text-muted fw-bold">Timeline:</small>
+                            <div class="timeline-ruler" style="position: relative; height: 8px; background: #e9ecef; border-radius: 4px; margin-top: 4px;">
+                                ${positions.map(pos => `<div style="position: absolute; left: ${pos}%; width: 3px; height: 8px; background: #007bff; border-radius: 1px;"></div>`).join('')}
+                            </div>
+                            <div class="d-flex justify-content-between mt-1">
+                                <small class="text-muted">${new Date(events[0]).toLocaleDateString()}</small>
+                                <small class="text-muted">${new Date(events[events.length - 1]).toLocaleDateString()}</small>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+        }
+        
+        // Determine status styling
+        const status = incident.status || 'active';
+        const statusBadgeColor = status === 'seen' ? 'secondary' : 'success';
+        const cardOpacity = status === 'seen' ? 'opacity-75' : '';
+        
+        card.innerHTML = `
+            <div class="d-flex justify-content-between align-items-start mb-2">
+                <div class="d-flex align-items-center gap-2">
+                    <h6 class="mb-0">${escapeHTML(incident.name || 'Unnamed Incident')}</h6>
+                    ${status === 'seen' ? `<span class="badge bg-${statusBadgeColor}"><i class="fas fa-eye me-1"></i>Seen</span>` : ''}
+                </div>
+                <div class="d-flex gap-1">
+                    <span class="badge bg-${typeBadgeColor}">${incident.type || 'Unknown'}</span>
+                    <span class="badge bg-${significanceBadgeColor}">${incident.significance || 'Unknown'}</span>
+                </div>
+            </div>
+            <p class="mb-2 small">${escapeHTML(incident.description || 'No description available.')}</p>
+            ${timelineHtml}
+            ${leadsHtml}
+            <div class="mt-2 d-flex justify-content-between">
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-primary" onclick="launchAuspexResearchFromInsight('${escapeHTML(incident.name)}', 'incident')">
+                        <i class="fas fa-search me-1"></i>Investigate
+                    </button>
+                    ${incident.article_uris && incident.article_uris.length > 0 ? `
+                        <button class="btn btn-sm btn-outline-secondary" onclick="launchConsensusAnalysis('${incident.article_uris[0]}')">
+                            <i class="fas fa-balance-scale me-1"></i>Consensus Analysis
+                        </button>
+                    ` : ''}
+                </div>
+                <div class="btn-group btn-group-sm">
+                    ${status !== 'seen' ? `
+                        <button class="btn btn-outline-success" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'seen')" title="Mark as seen">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    ` : `
+                        <button class="btn btn-outline-secondary" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'active')" title="Mark as unseen">
+                            <i class="fas fa-eye-slash"></i>
+                        </button>
+                    `}
+                    <button class="btn btn-outline-danger" onclick="deleteIncident('${escapeHTML(incident.name)}')" title="Delete incident">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+        
+        // Apply opacity for seen incidents
+        if (status === 'seen') {
+            card.classList.add('opacity-75');
+        }
+        col.appendChild(card);
+        container.appendChild(col);
+    });
+}
+
+function clearIncidentFilters() {
+    incidentFilters.types.clear();
+    incidentFilters.significance.clear();
+    incidentFilters.status.clear();
+    
+    if (allIncidents.length > 0) {
+        buildIncidentFilterBadges(allIncidents);
+        renderIncidentTrackingFiltered(allIncidents);
+    }
+}
+
+// Incident status management functions
+async function updateIncidentStatus(incidentName, status) {
+    try {
+        const topicSelect = document.getElementById('topic-select');
+        const currentTopic = topicSelect ? topicSelect.value : 'AI and Machine Learning';
+        
+        const response = await fetch(`/api/incident-status/${encodeURIComponent(incidentName)}?status=${status}&topic=${encodeURIComponent(currentTopic)}`, {
+            method: 'POST'
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            // Update the incident in allIncidents array
+            const incident = allIncidents.find(inc => inc.name === incidentName);
+            if (incident) {
+                incident.status = status;
+            }
+            
+            // Re-render with current filters
+            const filteredIncidents = applyIncidentFilters(allIncidents);
+            renderIncidentTrackingFiltered(filteredIncidents);
+            
+            const statusText = status === 'seen' ? 'seen' : 'active';
+            showNotification(`Incident marked as ${statusText}`, 'success');
+        } else {
+            throw new Error(result.message || 'Failed to update status');
+        }
+        
+    } catch (error) {
+        console.error('Error updating incident status:', error);
+        showNotification(`Failed to update incident status: ${error.message}`, 'error');
+    }
+}
+
+async function deleteIncident(incidentName) {
+    if (!confirm(`Are you sure you want to delete the incident "${incidentName}"? This action cannot be undone.`)) {
+        return;
+    }
+    
+    try {
+        const topicSelect = document.getElementById('topic-select');
+        const currentTopic = topicSelect ? topicSelect.value : 'AI and Machine Learning';
+        
+        const response = await fetch(`/api/incident-status/${encodeURIComponent(incidentName)}?status=deleted&topic=${encodeURIComponent(currentTopic)}`, {
+            method: 'POST'
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            // Remove the incident from allIncidents array
+            const incidentIndex = allIncidents.findIndex(inc => inc.name === incidentName);
+            if (incidentIndex !== -1) {
+                allIncidents.splice(incidentIndex, 1);
+            }
+            
+            // Re-render with current filters
+            const filteredIncidents = applyIncidentFilters(allIncidents);
+            renderIncidentTrackingFiltered(filteredIncidents);
+            
+            // Update filter badges since we removed an incident
+            buildIncidentFilterBadges(allIncidents);
+            
+            showNotification('Incident deleted successfully', 'success');
+        } else {
+            throw new Error(result.message || 'Failed to delete incident');
+        }
+        
+    } catch (error) {
+        console.error('Error deleting incident:', error);
+        showNotification(`Failed to delete incident: ${error.message}`, 'error');
+    }
+}
+
+// Incident analysis functions
+async function toggleIncidentAnalysis(incidentName, articleUri, buttonElement) {
+    const analysisId = `incident-analysis-${incidentName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const analysisDiv = document.getElementById(analysisId);
+    const icon = buttonElement.querySelector('i');
+    
+    if (!analysisDiv) return;
+    
+    if (analysisDiv.style.display === 'none') {
+        // Expand
+        analysisDiv.style.display = 'block';
+        icon.className = 'fas fa-chevron-down';
+        buttonElement.innerHTML = '<i class="fas fa-chevron-down me-1"></i>Hide Analysis';
+        buttonElement.classList.remove('btn-outline-primary');
+        buttonElement.classList.add('btn-success');
+        
+        // Generate analysis
+        await generateIncidentArticleAnalysis(incidentName, articleUri);
+        
+    } else {
+        // Collapse
+        analysisDiv.style.display = 'none';
+        icon.className = 'fas fa-chevron-right';
+        buttonElement.innerHTML = '<i class="fas fa-chevron-right me-1"></i>Show Analysis';
+        buttonElement.classList.remove('btn-success');
+        buttonElement.classList.add('btn-outline-primary');
+    }
+}
+
+async function generateIncidentArticleAnalysis(incidentName, articleUri) {
+    const analysisContentId = `incident-article-analysis-${incidentName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const analysisDiv = document.getElementById(analysisContentId);
+    
+    if (!analysisDiv) return;
+    
+    // Show loading state
+    analysisDiv.innerHTML = `
+        <div class="analysis-text bg-light p-2 rounded small text-muted">
+            <i class="fas fa-spinner fa-spin me-2"></i>Generating analysis...
+        </div>
+    `;
+    
+    try {
+        const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
+        
+        // Use the same analysis endpoint as the Articles tab
+        const response = await fetch('/api/vector-summary-raw', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+                ids: [articleUri], 
+                model: selectedModel
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Analysis failed: ${response.status}`);
+        }
+        
+        const data = await response.json();
+        
+        if (data.analysis) {
+            // Convert markdown to HTML using marked.js
+            const htmlContent = marked.parse(data.analysis);
+            analysisDiv.innerHTML = `
+                <div class="analysis-text small">
+                    ${htmlContent}
+                </div>
+                <div class="mt-2 text-muted small">
+                    <i class="fas fa-robot me-1"></i>Analysis by ${selectedModel}
+                </div>
+            `;
+        } else {
+            throw new Error('No analysis content received');
+        }
+        
+    } catch (error) {
+        console.error('Error generating incident analysis:', error);
+        analysisDiv.innerHTML = `
+            <div class="analysis-text bg-danger text-white p-2 rounded small">
+                <i class="fas fa-exclamation-triangle me-2"></i>Failed to generate analysis: ${error.message}
+            </div>
+        `;
+    }
+}
+
+// Incident-specific Auspex research functions with well-formed prompts
+async function launchIncidentDeepDive(incidentName, articleUri) {
+    try {
+        const actualTopic = getCurrentTopic() || 'AI and Machine Learning';
+        const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
+        
+        // Create chat session
+        const response = await fetch('/api/auspex/chat/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                topic: actualTopic,
+                title: `Deep Dive: ${incidentName}`
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Failed to create chat session: ${response.status}`);
+        }
+        
+        const sessionData = await response.json();
+        const chatId = sessionData.chat_id;
+        
+        // Build focused deep dive prompt
+        const researchPrompt = `Conduct a comprehensive deep dive analysis of the incident/entity: "${incidentName}"
+
+CONTEXT:
+This incident was identified through AI-powered threat hunting analysis. The primary article URI is: ${articleUri}
+
+DEEP DIVE FOCUS: "${incidentName}"
+TOPIC AREA: "${actualTopic}"
+
+Please use your tools to:
+1. Search for comprehensive background information on "${incidentName}"
+2. Analyze the primary themes, entities, and implications involved
+3. Investigate historical context and related developments
+4. Assess current status, recent activities, and future implications
+5. Identify key stakeholders, organizations, and decision-makers
+6. Evaluate strategic risks, opportunities, and potential outcomes
+7. Provide actionable intelligence and strategic recommendations
+
+Conduct a thorough investigation using your structured analysis format. Focus on providing comprehensive strategic intelligence about this specific incident/entity.`;
+        
+        await launchAuspexWithPrompt(chatId, researchPrompt, selectedModel, actualTopic, 'Incident Deep Dive');
+        
+    } catch (error) {
+        console.error('Error launching incident deep dive:', error);
+        showNotification(`Failed to launch deep dive: ${error.message}`, 'error');
+    }
+}
+
+async function launchIncidentConsensus(incidentName, articleUri) {
+    try {
+        const actualTopic = getCurrentTopic() || 'AI and Machine Learning';
+        const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
+        
+        // Create chat session
+        const response = await fetch('/api/auspex/chat/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                topic: actualTopic,
+                title: `Consensus Check: ${incidentName}`
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Failed to create chat session: ${response.status}`);
+        }
+        
+        const sessionData = await response.json();
+        const chatId = sessionData.chat_id;
+        
+        // Build consensus analysis prompt
+        const researchPrompt = `Analyze the claims and assertions related to: "${incidentName}" and compare them to broader consensus
+
+CONTEXT:
+This incident was identified through threat hunting analysis. The primary article URI is: ${articleUri}
+
+CONSENSUS ANALYSIS FOCUS: "${incidentName}"
+TOPIC AREA: "${actualTopic}"
+
+Please use your tools to:
+1. Search for multiple sources reporting on "${incidentName}"
+2. Identify the key claims, assertions, or releases being made
+3. Compare these claims across different sources and perspectives
+4. Assess the credibility and consistency of the information
+5. Identify any contradictions, disputes, or verification issues
+6. Evaluate the overall consensus or lack thereof on key points
+7. Highlight any outlier claims that require additional verification
+
+Focus on fact-checking and consensus-building analysis. Provide a balanced assessment of information reliability and source agreement.`;
+        
+        await launchAuspexWithPrompt(chatId, researchPrompt, selectedModel, actualTopic, 'Consensus Analysis');
+        
+    } catch (error) {
+        console.error('Error launching incident consensus:', error);
+        showNotification(`Failed to launch consensus analysis: ${error.message}`, 'error');
+    }
+}
+
+async function launchIncidentAdjacent(incidentName, articleUri) {
+    try {
+        const actualTopic = getCurrentTopic() || 'AI and Machine Learning';
+        const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
+        
+        // Create chat session
+        const response = await fetch('/api/auspex/chat/sessions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                topic: actualTopic,
+                title: `Adjacent Topics: ${incidentName}`
+            })
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Failed to create chat session: ${response.status}`);
+        }
+        
+        const sessionData = await response.json();
+        const chatId = sessionData.chat_id;
+        
+        // Build adjacent topics analysis prompt
+        const researchPrompt = `Explore adjacent and related themes connected to: "${incidentName}"
+
+CONTEXT:
+This incident was identified through threat hunting analysis. The primary article URI is: ${articleUri}
+
+ADJACENT TOPICS FOCUS: "${incidentName}"
+TOPIC AREA: "${actualTopic}"
+
+Please use your tools to:
+1. Search for related themes and adjacent topics connected to "${incidentName}"
+2. Identify upstream causes, downstream effects, and parallel developments
+3. Explore connected entities, technologies, or policy areas
+4. Analyze broader ecosystem implications and interdependencies
+5. Investigate similar incidents or patterns in related domains
+6. Map the strategic landscape and competitive dynamics
+7. Identify emerging themes that intersect with this incident
+
+Focus on expanding the analysis beyond the immediate incident to understand the broader strategic context and related opportunities or threats.`;
+        
+        await launchAuspexWithPrompt(chatId, researchPrompt, selectedModel, actualTopic, 'Adjacent Topics Analysis');
+        
+    } catch (error) {
+        console.error('Error launching adjacent topics analysis:', error);
+        showNotification(`Failed to launch adjacent topics analysis: ${error.message}`, 'error');
+    }
+}
+
 // Update the realtime-signals-nav click handler to load alerts
 document.addEventListener('DOMContentLoaded', function() {
     // ... existing code ...
@@ -9015,6 +10355,1216 @@ document.addEventListener('DOMContentLoaded', function() {
         loadSignalAlerts(); // Also load alerts when tab is opened
     });
 });
+
+// ===== Incident Configuration Modal Functions =====
+
+// Global configuration state
+let incidentConfig = {
+    systemPrompt: '',
+    userPrompt: '',
+    baseOntology: '',
+    domainKey: '',
+    domainOverlay: '',
+    ontologyExamples: '',
+    analysisInstructions: '',
+    qualityGuidelines: '',
+    outputFormat: '',
+    profileContextTemplate: '',
+    enableProfileIntegration: true
+};
+
+// Default templates
+const DEFAULT_SYSTEM_PROMPT = `You are a threat intelligence analyst tracking incidents, entities, and events in {topic}.
+
+IMPORTANT: Assess credibility and plausibility. Treat extraordinary, self-reported breakthroughs with skepticism.
+Use factual_reporting, MBFC credibility, and bias indicators. Down-rank or flag items from low/mixed credibility or fringe bias sources.
+
+{profile_context}
+
+{analysis_instructions}
+
+{quality_guidelines}
+
+{ontology_text}
+
+Required fields for each item:
+- name
+- type: incident | entity | event | expertise | informed_insider | trend_signal | strategic_shift
+- subtype: from the allowed list for the chosen type
+- description
+- article_uris
+- timeline
+- significance: low | medium | high (reduce if credibility concerns exist)
+- investigation_leads
+- related_entities
+- plausibility: likely | questionable | implausible
+- source_quality: high | mixed | low
+- misinfo_flags: [] e.g., "extraordinary_claim", "no_independent_verification", "low_factuality_source", "fringe_bias"
+- credibility_summary: 1-2 sentence rationale
+
+Devil's Advocate Smell Test:
+- Add a "devils_advocate" field with brief caution if the claim appears hyperbolic or extraordinary relative to typical evidence.
+- Use label "Hyperbolic Claim" when applicable.
+
+Output a pure JSON array only.`;
+
+const DEFAULT_USER_PROMPT = `Analyze these {topic} articles for threat hunting incidents, entities, and events:
+
+{articles_text}`;
+
+const DEFAULT_BASE_ONTOLOGY = `ONTOLOGY — Types and Subtypes
+Valid types: incident | event | entity | expertise | informed_insider | trend_signal | strategic_shift
+
+Definitions:
+- incident: Discrete occurrence with material operational/strategic/risk impact that may warrant response, remediation, or escalation.
+- event: Noteworthy occurrence (signals, milestones, announcements) that informs context or trends but is not itself a disruptive incident.
+- entity: Organization, person, product, venue, dataset (things we track, not occurrences).
+- expertise: Expert analysis, predictions, or authoritative insights from recognized industry leaders, analysts, or researchers.
+- informed_insider: Insider perspectives, leaked information, or privileged insights from people with direct access to relevant information.
+- trend_signal: Market trends, behavioral shifts, or emerging patterns that indicate future developments.
+- strategic_shift: Major strategic changes, policy pivots, or directional changes by key organizations or governments.
+
+Recommended subtypes:
+- incident: regulatory_action, compliance_breach, data_security, legal_ip, mna, layoffs, funding_cut, rd_spend_change, governance_change, market_disruption
+- event: product_launch, feature_update, partnership_mou, funding_round, hiring, award, conference_announcement, roadmap_teaser, benchmark_result, pilot_program
+- entity: company, person, product, dataset, venue, regulator, research_institution, government_agency
+- expertise: industry_analysis, market_prediction, technical_assessment, strategic_forecast, expert_warning, research_finding
+- informed_insider: leaked_strategy, internal_memo, insider_trading, confidential_roadmap, private_meeting, executive_communication
+- trend_signal: adoption_trend, market_shift, behavioral_change, technology_uptake, regulatory_momentum, competitive_dynamic
+- strategic_shift: policy_pivot, strategic_realignment, market_repositioning, technology_focus_change, regulatory_approach_change
+
+Assignment rules:
+- Use 'incident' for events requiring immediate attention or response (layoffs, breaches, regulatory actions, major failures).
+- Use 'event' for announcements and developments (product launches, funding, partnerships, pilot programs).
+- Use 'entity' for organizations, people, or products being tracked.
+- Use 'expertise' when article features expert analysis, predictions, or authoritative insights from recognized leaders.
+- Use 'informed_insider' when article contains insider information, leaks, or privileged access insights.
+- Use 'trend_signal' when article identifies emerging patterns, market trends, or behavioral shifts.
+- Use 'strategic_shift' when article describes major strategic changes, policy pivots, or directional changes.
+- Always include a 'subtype' from the lists above.
+- Be inclusive rather than restrictive - classify newsworthy content appropriately.`;
+
+const DEFAULT_ONTOLOGY_EXAMPLES = `Labeling examples (JSON objects):
+{"name": "SoftBank Vision Fund layoffs amid AI strategy shift", "type": "incident", "subtype": "layoffs"}
+{"name": "US risks losing AI leadership to China", "type": "incident", "subtype": "governance_change"}
+{"name": "Citi launches agentic AI pilot program", "type": "event", "subtype": "pilot_program"}
+{"name": "OpenAI CEO discusses quantum computing partnership", "type": "event", "subtype": "partnership_mou"}
+{"name": "Eric Schmidt warns about AI competitiveness", "type": "expertise", "subtype": "expert_warning"}
+{"name": "Inside Tony Blair Institute AI strategy discussions", "type": "informed_insider", "subtype": "private_meeting"}
+{"name": "Growing enterprise adoption of agentic AI", "type": "trend_signal", "subtype": "adoption_trend"}
+{"name": "SoftBank shifts focus from consumer to enterprise AI", "type": "strategic_shift", "subtype": "strategic_realignment"}
+{"name": "SoftBank Vision Fund", "type": "entity", "subtype": "company"}
+{"name": "Eric Schmidt", "type": "entity", "subtype": "person"}
+{"name": "Tony Blair Institute", "type": "entity", "subtype": "research_institution"}`;
+
+const DEFAULT_ANALYSIS_INSTRUCTIONS = `Focus on extracting actionable intelligence from news articles. Prioritize:
+
+1. Material business impacts and strategic changes (layoffs, restructuring, major funding changes)
+2. Regulatory actions and compliance issues (government policies, regulatory warnings)
+3. Security incidents and data breaches (cybersecurity events, data leaks)
+4. Significant funding, M&A, or operational changes (acquisitions, major investments, closures)
+5. Technology launches and competitive developments (new products, platform launches, AI model releases)
+6. Leadership changes and strategic pivots (CEO changes, strategic direction shifts)
+7. Market warnings and competitive threats (expert warnings, competitive analysis)
+
+Classification Guidelines:
+- INCIDENT: Events requiring immediate attention or response (layoffs, breaches, regulatory actions, major failures)
+- EVENT: Significant announcements and developments (product launches, funding rounds, partnerships, strategic initiatives)  
+- ENTITY: Organizations, people, or products being tracked (companies mentioned, key executives, new technologies)
+
+Be inclusive rather than restrictive - if an article discusses something newsworthy, classify it appropriately.`;
+
+const DEFAULT_QUALITY_GUIDELINES = `Credibility Assessment:
+- High credibility: Major news outlets, verified sources, multiple independent confirmations
+- Mixed credibility: Single source reporting, unverified claims, industry blogs
+- Low credibility: Social media rumors, fringe sources, extraordinary claims without evidence
+
+Extraordinary Claims Protocol:
+- Flag claims that seem too good to be true or represent major breakthroughs
+- Require independent verification for significant technical achievements
+- Down-rank significance for self-reported successes without third-party validation`;
+
+const DEFAULT_OUTPUT_FORMAT = `Output must be a valid JSON array with each incident object containing all required fields.
+Ensure proper JSON escaping of quotes and special characters.
+Do not include any explanatory text outside the JSON array.`;
+
+const DEFAULT_PROFILE_CONTEXT_TEMPLATE = `ORGANIZATIONAL CONTEXT:
+Organization: {profile_name} ({organization_type} in {industry})
+Region: {region}
+Risk Tolerance: {risk_tolerance} | Innovation Appetite: {innovation_appetite}
+Decision Making: {decision_making_style}
+
+Key Concerns: {key_concerns}
+Strategic Priorities: {strategic_priorities}
+Key Stakeholders: {stakeholder_focus}
+Competitive Landscape: {competitive_landscape}
+Regulatory Environment: {regulatory_environment}
+
+Custom Context: {custom_context}
+
+ANALYSIS INSTRUCTIONS:
+- Prioritize incidents and events that align with the organization's key concerns and strategic priorities
+- Assess significance based on the organization's risk tolerance and decision-making style  
+- Consider impact on key stakeholders and competitive positioning
+- Account for relevant regulatory and compliance implications
+- Tailor investigation leads to organizational context and priorities`;
+
+// Show the incident configuration modal
+function showIncidentConfigModal() {
+    loadIncidentConfiguration();
+    const modal = new bootstrap.Modal(document.getElementById('incidentConfigModal'));
+    modal.show();
+}
+
+// Load configuration from localStorage or defaults
+async function loadIncidentConfiguration() {
+    try {
+        // Try to load from API first (future enhancement)
+        const response = await fetch('/api/incident-config');
+        if (response.ok) {
+            const config = await response.json();
+            incidentConfig = { ...incidentConfig, ...config };
+        }
+    } catch (error) {
+        console.log('No saved configuration found, using defaults');
+    }
+
+    // Load from localStorage as fallback
+    const saved = localStorage.getItem('incidentTrackingConfig');
+    if (saved) {
+        try {
+            const parsed = JSON.parse(saved);
+            incidentConfig = { ...incidentConfig, ...parsed };
+        } catch (error) {
+            console.error('Error parsing saved configuration:', error);
+        }
+    }
+
+    // Get the currently selected organizational profile from news feed
+    const currentProfile = await getCurrentOrganizationalProfile();
+    
+    // Populate form fields with current config or defaults
+    document.getElementById('incidentSystemPrompt').value = incidentConfig.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+    document.getElementById('incidentUserPrompt').value = incidentConfig.userPrompt || DEFAULT_USER_PROMPT;
+    document.getElementById('baseOntology').value = incidentConfig.baseOntology || DEFAULT_BASE_ONTOLOGY;
+    document.getElementById('domainKey').value = incidentConfig.domainKey || '';
+    document.getElementById('domainOverlay').value = incidentConfig.domainOverlay || '';
+    document.getElementById('ontologyExamples').value = incidentConfig.ontologyExamples || DEFAULT_ONTOLOGY_EXAMPLES;
+    document.getElementById('analysisInstructions').value = incidentConfig.analysisInstructions || DEFAULT_ANALYSIS_INSTRUCTIONS;
+    document.getElementById('qualityGuidelines').value = incidentConfig.qualityGuidelines || DEFAULT_QUALITY_GUIDELINES;
+    document.getElementById('outputFormat').value = incidentConfig.outputFormat || DEFAULT_OUTPUT_FORMAT;
+    
+    // Use profile-specific context template if we have a current profile
+    let profileTemplate = incidentConfig.profileContextTemplate || DEFAULT_PROFILE_CONTEXT_TEMPLATE;
+    if (currentProfile) {
+        profileTemplate = generateProfileContextFromData(currentProfile);
+    }
+    document.getElementById('profileContextTemplate').value = profileTemplate;
+    document.getElementById('enableProfileIntegration').checked = incidentConfig.enableProfileIntegration !== false;
+    
+    // Show profile info if one is selected
+    showCurrentProfileInfo(currentProfile);
+}
+
+// Save configuration
+async function saveIncidentConfiguration() {
+    try {
+        // Collect values from form
+        incidentConfig = {
+            systemPrompt: document.getElementById('incidentSystemPrompt').value,
+            userPrompt: document.getElementById('incidentUserPrompt').value,
+            baseOntology: document.getElementById('baseOntology').value,
+            domainKey: document.getElementById('domainKey').value,
+            domainOverlay: document.getElementById('domainOverlay').value,
+            ontologyExamples: document.getElementById('ontologyExamples').value,
+            analysisInstructions: document.getElementById('analysisInstructions').value,
+            qualityGuidelines: document.getElementById('qualityGuidelines').value,
+            outputFormat: document.getElementById('outputFormat').value,
+            profileContextTemplate: document.getElementById('profileContextTemplate').value,
+            enableProfileIntegration: document.getElementById('enableProfileIntegration').checked
+        };
+
+        // Save to localStorage
+        localStorage.setItem('incidentTrackingConfig', JSON.stringify(incidentConfig));
+
+        // Try to save to API (future enhancement)
+        try {
+            await fetch('/api/incident-config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(incidentConfig)
+            });
+        } catch (error) {
+            console.log('API save not available, using localStorage only');
+        }
+
+        showNotification('Incident configuration saved successfully', 'success');
+        
+        // Close modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById('incidentConfigModal'));
+        modal.hide();
+        
+    } catch (error) {
+        console.error('Error saving configuration:', error);
+        showNotification('Failed to save configuration: ' + error.message, 'error');
+    }
+}
+
+// Reset all to defaults
+function resetAllToDefaults() {
+    if (confirm('Are you sure you want to reset all configuration to defaults? This will overwrite your current settings.')) {
+        document.getElementById('incidentSystemPrompt').value = DEFAULT_SYSTEM_PROMPT;
+        document.getElementById('incidentUserPrompt').value = DEFAULT_USER_PROMPT;
+        document.getElementById('baseOntology').value = DEFAULT_BASE_ONTOLOGY;
+        document.getElementById('domainKey').value = '';
+        document.getElementById('domainOverlay').value = '';
+        document.getElementById('ontologyExamples').value = DEFAULT_ONTOLOGY_EXAMPLES;
+        document.getElementById('analysisInstructions').value = DEFAULT_ANALYSIS_INSTRUCTIONS;
+        document.getElementById('qualityGuidelines').value = DEFAULT_QUALITY_GUIDELINES;
+        document.getElementById('outputFormat').value = DEFAULT_OUTPUT_FORMAT;
+        document.getElementById('profileContextTemplate').value = DEFAULT_PROFILE_CONTEXT_TEMPLATE;
+        document.getElementById('enableProfileIntegration').checked = true;
+        
+        showNotification('Configuration reset to defaults', 'info');
+    }
+}
+
+// Load default prompt template
+function loadDefaultPromptTemplate() {
+    if (confirm('Reset prompt templates to defaults?')) {
+        document.getElementById('incidentSystemPrompt').value = DEFAULT_SYSTEM_PROMPT;
+        document.getElementById('incidentUserPrompt').value = DEFAULT_USER_PROMPT;
+        showNotification('Prompt templates reset to defaults', 'info');
+    }
+}
+
+// Load default ontology
+function loadDefaultOntology() {
+    if (confirm('Reset ontology to defaults?')) {
+        document.getElementById('baseOntology').value = DEFAULT_BASE_ONTOLOGY;
+        document.getElementById('domainKey').value = '';
+        document.getElementById('domainOverlay').value = '';
+        document.getElementById('ontologyExamples').value = DEFAULT_ONTOLOGY_EXAMPLES;
+        showNotification('Ontology reset to defaults', 'info');
+    }
+}
+
+// Preview prompt with sample data
+function previewPrompt() {
+    const systemPrompt = document.getElementById('incidentSystemPrompt').value;
+    const userPrompt = document.getElementById('incidentUserPrompt').value;
+    const baseOntology = document.getElementById('baseOntology').value;
+    
+    // Sample data for preview
+    const sampleTopic = 'AI and Machine Learning';
+    const sampleOntology = baseOntology || DEFAULT_BASE_ONTOLOGY;
+    const sampleArticles = `Article 1:
+Title: OpenAI Announces GPT-5 with Revolutionary Capabilities
+Source: TechCrunch
+Date: 2024-01-15
+Category: Technology | Sentiment: Positive
+Summary: OpenAI unveiled GPT-5, claiming breakthrough performance in reasoning and multimodal tasks.`;
+
+    // Get actual profile context (will use real profile data if available)
+    const profileTemplate = document.getElementById('profileContextTemplate').value || DEFAULT_PROFILE_CONTEXT_TEMPLATE;
+    
+    // If the template contains actual profile data, use it as-is
+    // Otherwise, use sample data for preview
+    let sampleProfileContext = profileTemplate;
+    if (profileTemplate === DEFAULT_PROFILE_CONTEXT_TEMPLATE) {
+        sampleProfileContext = profileTemplate
+            .replace(/{profile_name}/g, 'TechCorp Analytics (Sample)')
+            .replace(/{organization_type}/g, 'Enterprise')
+            .replace(/{industry}/g, 'Technology')
+            .replace(/{region}/g, 'North America')
+            .replace(/{risk_tolerance}/g, 'Medium')
+            .replace(/{innovation_appetite}/g, 'Moderate')
+            .replace(/{decision_making_style}/g, 'Data-driven')
+            .replace(/{key_concerns}/g, 'AI safety, competitive intelligence, regulatory compliance')
+            .replace(/{strategic_priorities}/g, 'Market leadership, innovation, risk management')
+            .replace(/{stakeholder_focus}/g, 'Executives, product teams, compliance')
+            .replace(/{competitive_landscape}/g, 'Google, Microsoft, OpenAI')
+            .replace(/{regulatory_environment}/g, 'EU AI Act, US AI governance frameworks')
+            .replace(/{custom_context}/g, 'Focus on enterprise AI applications and B2B market dynamics');
+    }
+    // If it's not the default template, it means we have real profile data, so use it as-is
+
+    // Get AI guidance components
+    const analysisInstructions = document.getElementById('analysisInstructions').value || DEFAULT_ANALYSIS_INSTRUCTIONS;
+    const qualityGuidelines = document.getElementById('qualityGuidelines').value || DEFAULT_QUALITY_GUIDELINES;
+
+    // Replace placeholders
+    const previewSystem = systemPrompt
+        .replace(/{topic}/g, sampleTopic)
+        .replace(/{ontology_text}/g, sampleOntology)
+        .replace(/{profile_context}/g, sampleProfileContext)
+        .replace(/{analysis_instructions}/g, analysisInstructions)
+        .replace(/{quality_guidelines}/g, qualityGuidelines);
+    
+    const previewUser = userPrompt
+        .replace(/{topic}/g, sampleTopic)
+        .replace(/{articles_text}/g, sampleArticles);
+
+    // Show preview in new modal or alert
+    const previewContent = `SYSTEM PROMPT:\n${previewSystem}\n\nUSER PROMPT:\n${previewUser}`;
+    
+    // Create a simple preview modal
+    const previewModal = document.createElement('div');
+    previewModal.innerHTML = `
+        <div class="modal fade" id="promptPreviewModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Prompt Preview</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <pre style="white-space: pre-wrap; font-size: 11px; max-height: 400px; overflow-y: auto;">${escapeHTML(previewContent)}</pre>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(previewModal);
+    const modal = new bootstrap.Modal(previewModal.querySelector('.modal'));
+    modal.show();
+    
+    // Clean up when modal is closed
+    previewModal.addEventListener('hidden.bs.modal', () => {
+        document.body.removeChild(previewModal);
+    });
+}
+
+// Validate prompt template
+async function validatePromptTemplate() {
+    try {
+        // Collect current configuration
+        const config = {
+            systemPrompt: document.getElementById('incidentSystemPrompt').value,
+            userPrompt: document.getElementById('incidentUserPrompt').value,
+            baseOntology: document.getElementById('baseOntology').value,
+            domainKey: document.getElementById('domainKey').value,
+            domainOverlay: document.getElementById('domainOverlay').value,
+            ontologyExamples: document.getElementById('ontologyExamples').value,
+            analysisInstructions: document.getElementById('analysisInstructions').value,
+            qualityGuidelines: document.getElementById('qualityGuidelines').value,
+            outputFormat: document.getElementById('outputFormat').value,
+            profileContextTemplate: document.getElementById('profileContextTemplate').value,
+            enableProfileIntegration: document.getElementById('enableProfileIntegration').checked
+        };
+        
+        const response = await fetch('/api/incident-config/validate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(config)
+        });
+        
+        const result = await response.json();
+        
+        if (result.valid) {
+            showNotification('Configuration validation passed', 'success');
+        } else {
+            showNotification(`Validation issues found:\\n• ${result.issues.join('\\n• ')}`, 'warning');
+        }
+        
+    } catch (error) {
+        console.error('Error validating configuration:', error);
+        showNotification('Failed to validate configuration: ' + error.message, 'error');
+    }
+}
+
+// Validate ontology structure
+function validateOntology() {
+    const baseOntology = document.getElementById('baseOntology').value;
+    const examples = document.getElementById('ontologyExamples').value;
+    
+    const issues = [];
+    
+    // Check for required types
+    if (!baseOntology.toLowerCase().includes('incident')) {
+        issues.push('Base ontology missing "incident" type definition');
+    }
+    if (!baseOntology.toLowerCase().includes('event')) {
+        issues.push('Base ontology missing "event" type definition');
+    }
+    if (!baseOntology.toLowerCase().includes('entity')) {
+        issues.push('Base ontology missing "entity" type definition');
+    }
+    
+    // Check examples format
+    if (examples) {
+        try {
+            const lines = examples.split('\\n').filter(line => line.trim());
+            for (const line of lines) {
+                if (line.trim().startsWith('{')) {
+                    JSON.parse(line.trim());
+                }
+            }
+        } catch (error) {
+            issues.push('Invalid JSON format in examples');
+        }
+    }
+    
+    if (issues.length === 0) {
+        showNotification('Ontology validation passed', 'success');
+    } else {
+        showNotification('Validation issues found:\\n• ' + issues.join('\\n• '), 'warning');
+    }
+}
+
+// Add domain overlay helper
+function addDomainOverlay() {
+    const domainKey = document.getElementById('domainKey').value.trim();
+    if (!domainKey) {
+        showNotification('Please enter a domain key first', 'warning');
+        return;
+    }
+    
+    const template = `
+Domain overlay — ${domainKey}:
+- Treat as incident: [specific incident criteria for this domain]
+- Treat as event: [specific event criteria for this domain]
+Examples:
+  - '[Example incident]' → type=incident, subtype=[subtype], significance=[level].
+  - '[Example event]' → type=event, subtype=[subtype], significance=[level].
+`;
+    
+    document.getElementById('domainOverlay').value = template;
+    showNotification('Domain overlay template added', 'info');
+}
+
+// Upgrade to extended 7-type ontology
+function upgradeToExtendedOntology() {
+    if (confirm('Upgrade to the new 7-type ontology with Expertise, Informed Insider, Trend Signal, and Strategic Shift types? This will replace your current ontology configuration.')) {
+        // Update to the new extended ontology
+        document.getElementById('baseOntology').value = DEFAULT_BASE_ONTOLOGY;
+        document.getElementById('ontologyExamples').value = DEFAULT_ONTOLOGY_EXAMPLES;
+        document.getElementById('analysisInstructions').value = DEFAULT_ANALYSIS_INSTRUCTIONS;
+        
+        showNotification('Upgraded to extended 7-type ontology! This should capture more nuanced intelligence from your articles.', 'success');
+    }
+}
+
+// Test with sample articles
+async function testWithSampleArticles() {
+    try {
+        showNotification('Running test analysis with sample articles...', 'info');
+        
+        // Get current configuration
+        const config = {
+            systemPrompt: document.getElementById('incidentSystemPrompt').value,
+            userPrompt: document.getElementById('incidentUserPrompt').value,
+            baseOntology: document.getElementById('baseOntology').value,
+            profileContextTemplate: document.getElementById('profileContextTemplate').value,
+            enableProfileIntegration: document.getElementById('enableProfileIntegration').checked
+        };
+        
+        // Get 5 most recent articles from current news feed
+        let sampleArticles = [];
+        
+        try {
+            // First try to use articles already loaded in the news feed
+            const currentArticles = window.lastArticlesData?.items || [];
+            if (currentArticles.length >= 5) {
+                sampleArticles = currentArticles.slice(0, 5).map(article => ({
+                    title: article.title || 'Untitled Article',
+                    news_source: article.news_source || 'Unknown Source', // Use news_source, not source
+                    summary: article.summary || 'No summary available',
+                    uri: article.uri || '',
+                    category: article.category || 'Uncategorized',
+                    sentiment: article.sentiment || 'Neutral',
+                    bias: article.bias || 'Unknown',
+                    factual_reporting: article.factual_reporting || 'Unknown',
+                    publication_date: article.publication_date || new Date().toISOString().split('T')[0]
+                }));
+                console.log('Using 5 most recent articles from current news feed for testing');
+            } else {
+                // Fallback: fetch fresh articles from API
+                console.log('Fetching fresh articles for testing...');
+                const currentTopic = document.getElementById('topic-select')?.value || 'AI and Machine Learning';
+                const response = await fetch(`/api/news-feed/articles?topic=${encodeURIComponent(currentTopic)}&per_page=5&page=1`);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    const articles = data.articles?.items || [];
+                    
+                    if (articles.length > 0) {
+                        sampleArticles = articles.map(article => ({
+                            title: article.title || 'Untitled Article',
+                            news_source: article.news_source || 'Unknown Source', // Use news_source, not source
+                            summary: article.summary || 'No summary available',
+                            uri: article.uri || '',
+                            category: article.category || 'Uncategorized',
+                            sentiment: article.sentiment || 'Neutral',
+                            bias: article.bias || 'Unknown',
+                            factual_reporting: article.factual_reporting || 'Unknown',
+                            publication_date: article.publication_date || new Date().toISOString().split('T')[0]
+                        }));
+                        console.log(`Fetched ${sampleArticles.length} fresh articles for testing`);
+                    }
+                }
+            }
+        } catch (error) {
+            console.warn('Failed to get real articles, using fallback samples:', error);
+        }
+        
+        // Fallback to mock data if we couldn't get real articles
+        if (sampleArticles.length === 0) {
+            console.log('Using fallback mock articles for testing');
+            sampleArticles = [
+                {
+                    title: "OpenAI Announces GPT-5 with Revolutionary Capabilities",
+                    news_source: "TechCrunch", // Use news_source, not source
+                    summary: "OpenAI unveiled GPT-5, claiming breakthrough performance in reasoning and multimodal tasks.",
+                    uri: "https://techcrunch.com/sample-gpt5",
+                    category: "Technology",
+                    sentiment: "Positive",
+                    bias: "Least Biased",
+                    factual_reporting: "High",
+                    publication_date: "2024-01-15"
+                },
+                {
+                    title: "EU Proposes Stricter AI Regulations Following Safety Concerns", 
+                    news_source: "Reuters", // Use news_source, not source
+                    summary: "European Union lawmakers are drafting additional AI safety regulations after reports of bias in large language models.",
+                    uri: "https://reuters.com/sample-eu-regs",
+                    category: "Policy",
+                    sentiment: "Critical", 
+                    bias: "Least Biased",
+                    factual_reporting: "Very High",
+                    publication_date: "2024-01-14"
+                },
+                {
+                    title: "Tesla's AI Chip Division Reports Record Quarterly Revenue",
+                    news_source: "Bloomberg", // Use news_source, not source
+                    summary: "Tesla's semiconductor division exceeded expectations with $2.1B in Q4 revenue, driven by demand for AI training chips.",
+                    uri: "https://bloomberg.com/sample-tesla",
+                    category: "Business",
+                    sentiment: "Positive",
+                    bias: "Least Biased", 
+                    factual_reporting: "High",
+                    publication_date: "2024-01-13"
+                }
+            ];
+        }
+        
+        // Show test results modal
+        showTestResults(config, sampleArticles);
+        
+    } catch (error) {
+        console.error('Error running test:', error);
+        showNotification('Test failed: ' + error.message, 'error');
+    }
+}
+
+// Show test results in modal
+function showTestResults(config, sampleArticles) {
+    // Create test modal to show results
+    const testModal = document.createElement('div');
+    testModal.innerHTML = `
+        <div class="modal fade" id="testResultsModal" tabindex="-1">
+            <div class="modal-dialog modal-xl">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">
+                            <i class="fas fa-flask me-2"></i>Test Analysis Results
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6 class="text-primary">Sample Articles Used</h6>
+                                <div class="bg-light p-3 rounded mb-3" style="max-height: 300px; overflow-y: auto;">
+                                    ${sampleArticles.map((article, index) => `
+                                        <div class="mb-2 pb-2 ${index < sampleArticles.length - 1 ? 'border-bottom' : ''}">
+                                            <strong>${index + 1}. ${article.title}</strong><br>
+                                            <small class="text-muted">${article.news_source}</small><br>
+                                            <small>${article.summary}</small>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <h6 class="text-success">Configuration Status</h6>
+                                <div class="mb-3">
+                                    <div class="alert alert-info py-2">
+                                        <strong>System Prompt:</strong> ${config.systemPrompt.length} characters<br>
+                                        <strong>Profile Integration:</strong> ${config.enableProfileIntegration ? 'Enabled' : 'Disabled'}<br>
+                                        <strong>Ontology:</strong> ${config.baseOntology.length} characters
+                                    </div>
+                                </div>
+                                
+                                <h6 class="text-warning">Expected Output</h6>
+                                <div class="bg-light p-3 rounded">
+                                    <small class="text-muted">
+                                        Expected classifications:
+                                        <ul class="mt-2 mb-0">
+                                            <li><strong>Incident:</strong> EU regulatory action</li>
+                                            <li><strong>Event:</strong> GPT-5 announcement</li>
+                                            <li><strong>Entity:</strong> Tesla AI division</li>
+                                        </ul>
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <hr>
+                        
+                        <div class="row">
+                            <div class="col-12">
+                                <h6 class="text-primary">Test Results</h6>
+                                <div id="testAnalysisResults" class="bg-white border rounded p-3">
+                                    <div class="text-center text-muted">
+                                        <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                                        Running analysis simulation...
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary" onclick="runAnotherTest()">
+                            <i class="fas fa-redo me-1"></i>Run Another Test
+                        </button>
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(testModal);
+    const modal = new bootstrap.Modal(testModal.querySelector('.modal'));
+    modal.show();
+    
+    // Clean up when modal is closed
+    testModal.addEventListener('hidden.bs.modal', () => {
+        document.body.removeChild(testModal);
+    });
+    
+    // Run actual test analysis with the real articles
+    setTimeout(() => runRealTestAnalysis(sampleArticles), 1500);
+}
+
+// Run actual test analysis with real articles
+async function runRealTestAnalysis(articles) {
+    const resultsDiv = document.getElementById('testAnalysisResults');
+    if (!resultsDiv || !articles || articles.length === 0) {
+        runSimulatedAnalysis(); // Fallback to simulation
+        return;
+    }
+    
+    try {
+        resultsDiv.innerHTML = `
+            <div class="text-center text-muted">
+                <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                Running real incident analysis on ${articles.length} articles...
+            </div>
+        `;
+        
+        // Get current topic and model
+        const currentTopic = document.getElementById('topic-select')?.value || 'AI and Machine Learning';
+        const currentModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
+        
+        // Get selected profile ID
+        const profileSelect = document.getElementById('profile-select');
+        const selectedProfileId = profileSelect && profileSelect.value ? parseInt(profileSelect.value) : null;
+        
+        // Build request for real incident tracking analysis
+        const testRequest = {
+            topic: currentTopic, // Use exact topic, not modified with "(Test)"
+            days_limit: 7,
+            max_articles: Math.max(10, Math.min(300, articles.length)), // Ensure within valid range
+            model: currentModel,
+            force_regenerate: true,
+            test_articles: articles // Pass the actual articles for testing
+        };
+        
+        // Add profile_id if selected
+        if (selectedProfileId) {
+            testRequest.profile_id = selectedProfileId;
+            console.log(`Running test with organizational profile ID: ${selectedProfileId}`);
+        }
+        
+        console.log('Test request payload:', testRequest);
+        console.log('Articles being tested:', articles.map(a => ({ title: a.title, news_source: a.news_source, category: a.category })));
+        
+        // Add timeout to prevent infinite waiting (increased for LLM processing)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+            controller.abort();
+            console.error('Test request timed out after 60 seconds');
+        }, 60000); // Increased to 60 seconds for LLM processing
+        
+        console.log('Calling /api/incident-tracking endpoint...');
+        
+        // Quick connectivity test first
+        try {
+            console.log('Testing API connectivity...');
+            const pingResponse = await fetch('/api/incident-config/defaults', { 
+                method: 'GET',
+                signal: AbortSignal.timeout(5000) 
+            });
+            console.log('API connectivity test:', pingResponse.ok ? 'SUCCESS' : 'FAILED');
+        } catch (pingError) {
+            console.warn('API connectivity test failed:', pingError.message);
+        }
+        
+        // Call the actual incident tracking API
+        const response = await fetch('/api/incident-tracking', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(testRequest),
+            signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        console.log('Response received:', response.status, response.statusText);
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            const errorDetail = errorData.detail || response.statusText;
+            console.error('API Error Details:', errorData);
+            throw new Error(`API call failed: ${response.status} - ${errorDetail}`);
+        }
+        
+        const result = await response.json();
+        console.log('Real incident analysis results:', result);
+        
+        // Display real results
+        if (result.incidents && result.incidents.length > 0) {
+            let html = '<div class="alert alert-success py-2 mb-3">';
+            html += `<strong>✅ Real Analysis Complete!</strong> Found ${result.incidents.length} incidents/entities/events from your actual articles`;
+            html += '<br><small class="text-muted">This analysis used real articles from your database with your current configuration</small>';
+            html += '</div>';
+            
+            html += '<div class="row g-2">';
+            result.incidents.forEach((incident, index) => {
+                const typeColor = incident.type === 'incident' ? 'danger' : 
+                                 incident.type === 'entity' ? 'primary' : 'success';
+                const sigColor = incident.significance === 'high' ? 'danger' : 
+                               incident.significance === 'medium' ? 'warning' : 'info';
+                
+                html += `
+                    <div class="col-md-6">
+                        <div class="card border-${typeColor} h-100">
+                            <div class="card-body p-2">
+                                <div class="d-flex justify-content-between align-items-start mb-2">
+                                    <h6 class="card-title mb-0 small">${escapeHTML(incident.name || 'Unnamed')}</h6>
+                                    <div>
+                                        <span class="badge bg-${typeColor}">${incident.type}</span>
+                                        <span class="badge bg-${sigColor}">${incident.significance}</span>
+                                    </div>
+                                </div>
+                                <p class="card-text small text-muted mb-2">${escapeHTML(incident.description || 'No description')}</p>
+                                
+                                ${incident.plausibility ? `
+                                    <div class="mb-2">
+                                        <small class="text-muted">
+                                            <strong>Plausibility:</strong> ${incident.plausibility} | 
+                                            <strong>Source Quality:</strong> ${incident.source_quality || 'Unknown'}
+                                        </small>
+                                    </div>
+                                ` : ''}
+                                
+                                ${incident.investigation_leads && incident.investigation_leads.length > 0 ? `
+                                    <div class="mb-2">
+                                        <small class="text-muted fw-bold">Investigation Leads:</small>
+                                        <div class="d-flex flex-wrap gap-1 mt-1">
+                                            ${incident.investigation_leads.map(lead => `
+                                                <span class="badge bg-light text-dark" style="font-size: 9px;">${escapeHTML(lead)}</span>
+                                            `).join('')}
+                                        </div>
+                                    </div>
+                                ` : ''}
+                                
+                                ${incident.article_uris && incident.article_uris.length > 0 ? `
+                                    <div class="mb-1">
+                                        <small class="text-muted">
+                                            <strong>Related Articles:</strong> ${incident.article_uris.length}
+                                        </small>
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `;
+            });
+            html += '</div>';
+            
+            // Add analysis summary with real data
+            html += '<div class="mt-3 alert alert-light">';
+            html += '<h6 class="text-primary">Real Analysis Summary</h6>';
+            html += `<div class="row text-center">`;
+            
+            const incidentCount = result.incidents.filter(i => i.type === 'incident').length;
+            const entityCount = result.incidents.filter(i => i.type === 'entity').length;
+            const eventCount = result.incidents.filter(i => i.type === 'event').length;
+            const highSigCount = result.incidents.filter(i => i.significance === 'high').length;
+            
+            html += `
+                <div class="col-3">
+                    <div class="h5 text-danger mb-0">${incidentCount}</div>
+                    <small class="text-muted">Incidents</small>
+                </div>
+                <div class="col-3">
+                    <div class="h5 text-primary mb-0">${entityCount}</div>
+                    <small class="text-muted">Entities</small>
+                </div>
+                <div class="col-3">
+                    <div class="h5 text-success mb-0">${eventCount}</div>
+                    <small class="text-muted">Events</small>
+                </div>
+                <div class="col-3">
+                    <div class="h5 text-warning mb-0">${highSigCount}</div>
+                    <small class="text-muted">High Priority</small>
+                </div>
+            `;
+            html += '</div></div>';
+            
+            resultsDiv.innerHTML = html;
+            showNotification('Real incident analysis completed successfully!', 'success');
+            
+        } else {
+            resultsDiv.innerHTML = `
+                <div class="alert alert-warning">
+                    <h6>⚠️ No Incidents Found in Real Articles</h6>
+                    <p class="mb-2">The analysis of your ${articles.length} real articles didn't identify any incidents. This could indicate:</p>
+                    <ul class="mb-2">
+                        <li>Your current articles don't contain incident-worthy events</li>
+                        <li>The ontology or quality guidelines are too restrictive</li>
+                        <li>The analysis instructions need adjustment for your content</li>
+                    </ul>
+                    <div class="mt-2">
+                        <small class="text-muted">
+                            <strong>Articles analyzed:</strong> ${articles.map(a => a.title.substring(0, 50) + '...').join(', ')}
+                        </small>
+                    </div>
+                </div>
+            `;
+            showNotification('Real analysis completed but found no incidents', 'warning');
+        }
+        
+    } catch (error) {
+        console.error('Error running real test analysis:', error);
+        
+        let errorMessage = error.message;
+        let errorAdvice = 'Check the browser console for detailed error information.';
+        
+        if (error.name === 'AbortError') {
+            errorMessage = 'Request timed out after 60 seconds';
+            errorAdvice = 'The LLM analysis is taking longer than expected. This can happen with complex articles or slower AI models. Try using a faster model like gpt-4o-mini or reduce the number of articles.';
+        } else if (errorMessage.includes('Failed to fetch')) {
+            errorMessage = 'Network connection failed';
+            errorAdvice = 'Check if the server is running and accessible. Verify the API endpoint is working.';
+        }
+        
+        resultsDiv.innerHTML = `
+            <div class="alert alert-danger">
+                <h6>❌ Real Analysis Failed</h6>
+                <p class="mb-2"><strong>Error:</strong> ${errorMessage}</p>
+                <p class="mb-2"><small class="text-muted">${errorAdvice}</small></p>
+                <p class="mb-2">Falling back to simulated analysis...</p>
+            </div>
+        `;
+        
+        // Fallback to simulation if real analysis fails
+        setTimeout(() => runSimulatedAnalysis(), 1000);
+        
+        showNotification('Real analysis failed, using simulation: ' + errorMessage, 'warning');
+    }
+}
+
+// Run simulated analysis for testing
+function runSimulatedAnalysis() {
+    const resultsDiv = document.getElementById('testAnalysisResults');
+    if (!resultsDiv) return;
+    
+    // Simulate successful analysis results
+    const mockResults = [
+        {
+            name: "EU AI Regulation Enforcement Action",
+            type: "incident",
+            description: "European Union implementing stricter AI safety regulations",
+            significance: "high",
+            investigation_leads: ["EU AI Act timeline", "Compliance costs", "Safety testing"]
+        },
+        {
+            name: "OpenAI GPT-5 Launch",
+            type: "event",
+            description: "Major AI model release with breakthrough capabilities",
+            significance: "high", 
+            investigation_leads: ["Performance benchmarks", "Market impact", "Competitive response"]
+        },
+        {
+            name: "Tesla AI Chip Division",
+            type: "entity",
+            description: "Tesla's semiconductor business unit in AI training chips",
+            significance: "medium",
+            investigation_leads: ["Chip technology", "Market trends", "Competition"]
+        }
+    ];
+    
+    let html = '<div class="alert alert-success py-2 mb-3">';
+    html += `<strong>✅ Test Simulation Complete!</strong> Found ${mockResults.length} classifications`;
+    html += '<br><small class="text-muted">This demonstrates how your configuration would classify the sample articles</small>';
+    html += '</div>';
+    
+    html += '<div class="row g-2">';
+    mockResults.forEach((result, index) => {
+        const typeColor = result.type === 'incident' ? 'danger' : 
+                         result.type === 'entity' ? 'primary' : 'success';
+        const sigColor = result.significance === 'high' ? 'danger' : 'warning';
+        
+        html += `
+            <div class="col-md-4">
+                <div class="card border-${typeColor} h-100">
+                    <div class="card-body p-2">
+                        <div class="d-flex justify-content-between align-items-start mb-2">
+                            <h6 class="card-title mb-0 small">${result.name}</h6>
+                            <div>
+                                <span class="badge bg-${typeColor}">${result.type}</span>
+                                <span class="badge bg-${sigColor}">${result.significance}</span>
+                            </div>
+                        </div>
+                        <p class="card-text small text-muted mb-2">${result.description}</p>
+                        <div class="mb-2">
+                            <small class="text-muted fw-bold">Investigation Leads:</small>
+                            <div class="d-flex flex-wrap gap-1 mt-1">
+                                ${result.investigation_leads.map(lead => `
+                                    <span class="badge bg-light text-dark" style="font-size: 9px;">${lead}</span>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    });
+    html += '</div>';
+    
+    // Add summary stats
+    const incidentCount = mockResults.filter(r => r.type === 'incident').length;
+    const entityCount = mockResults.filter(r => r.type === 'entity').length; 
+    const eventCount = mockResults.filter(r => r.type === 'event').length;
+    
+    html += `
+        <div class="mt-3 alert alert-light">
+            <div class="row text-center">
+                <div class="col-4">
+                    <div class="h5 text-danger mb-0">${incidentCount}</div>
+                    <small class="text-muted">Incidents</small>
+                </div>
+                <div class="col-4">
+                    <div class="h5 text-primary mb-0">${entityCount}</div>
+                    <small class="text-muted">Entities</small>
+                </div>
+                <div class="col-4">
+                    <div class="h5 text-success mb-0">${eventCount}</div>
+                    <small class="text-muted">Events</small>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    resultsDiv.innerHTML = html;
+    showNotification('Test simulation completed successfully!', 'success');
+}
+
+// Run another test helper
+function runAnotherTest() {
+    const modal = bootstrap.Modal.getInstance(document.getElementById('testResultsModal'));
+    if (modal) modal.hide();
+    setTimeout(() => testWithSampleArticles(), 500);
+}
+
+// Show guidance examples
+function showGuidanceExamples() {
+    const examples = `
+ANALYSIS QUALITY EXAMPLES:
+
+Good Analysis:
+- "Patent lawsuit filed by TechCorp against StartupAI for alleged IP infringement of neural network architecture patents filed 2019-2021"
+- Significance: high (potential injunction could halt product development)
+- Investigation leads: ["TechCorp patent portfolio analysis", "StartupAI product roadmap impact"]
+
+Poor Analysis:
+- "Legal issue between companies"
+- Significance: unknown
+- Investigation leads: []
+
+CLASSIFICATION EXAMPLES:
+
+Incident (Material Impact):
+- Data breach exposing customer information
+- Regulatory action resulting in fines
+- Major layoffs or restructuring
+- Significant funding cuts
+
+Event (Informational):
+- Product feature announcement
+- Conference presentation
+- Partnership MOU signing
+- Award recognition
+`;
+
+    // Show examples in modal
+    const examplesModal = document.createElement('div');
+    examplesModal.innerHTML = `
+        <div class="modal fade" id="guidanceExamplesModal" tabindex="-1">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Analysis Guidance Examples</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <pre style="white-space: pre-wrap; font-size: 12px;">${examples}</pre>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.appendChild(examplesModal);
+    const modal = new bootstrap.Modal(examplesModal.querySelector('.modal'));
+    modal.show();
+    
+    // Clean up when modal is closed
+    examplesModal.addEventListener('hidden.bs.modal', () => {
+        document.body.removeChild(examplesModal);
+    });
+}
+
+// Get the currently selected organizational profile
+async function getCurrentOrganizationalProfile() {
+    try {
+        const profileSelect = document.getElementById('profile-select');
+        if (!profileSelect || !profileSelect.value) {
+            return null;
+        }
+        
+        const profileId = profileSelect.value;
+        const response = await fetch('/api/organizational-profiles');
+        const data = await response.json();
+        
+        if (data.success && data.profiles) {
+            const profile = data.profiles.find(p => p.id.toString() === profileId);
+            if (profile) {
+                console.log('Found current organizational profile:', profile.name);
+                return profile;
+            }
+        }
+        
+        return null;
+    } catch (error) {
+        console.error('Error getting current organizational profile:', error);
+        return null;
+    }
+}
+
+// Generate profile context from profile data
+function generateProfileContextFromData(profile) {
+    if (!profile) return DEFAULT_PROFILE_CONTEXT_TEMPLATE;
+    
+    // Convert arrays to comma-separated strings
+    const keyConcerns = Array.isArray(profile.key_concerns) ? profile.key_concerns.join(', ') : (profile.key_concerns || '');
+    const strategicPriorities = Array.isArray(profile.strategic_priorities) ? profile.strategic_priorities.join(', ') : (profile.strategic_priorities || '');
+    const stakeholderFocus = Array.isArray(profile.stakeholder_focus) ? profile.stakeholder_focus.join(', ') : (profile.stakeholder_focus || '');
+    const competitiveLandscape = Array.isArray(profile.competitive_landscape) ? profile.competitive_landscape.join(', ') : (profile.competitive_landscape || '');
+    const regulatoryEnvironment = Array.isArray(profile.regulatory_environment) ? profile.regulatory_environment.join(', ') : (profile.regulatory_environment || '');
+    
+    return `ORGANIZATIONAL CONTEXT:
+Organization: ${profile.name} (${profile.organization_type || 'Organization'} in ${profile.industry || 'General'})
+Region: ${profile.region || 'Not specified'}
+Risk Tolerance: ${profile.risk_tolerance || 'Medium'} | Innovation Appetite: ${profile.innovation_appetite || 'Moderate'}
+Decision Making: ${profile.decision_making_style || 'Collaborative'}
+
+Key Concerns: ${keyConcerns || 'General business concerns'}
+Strategic Priorities: ${strategicPriorities || 'Growth and sustainability'}
+Key Stakeholders: ${stakeholderFocus || 'Customers and employees'}
+Competitive Landscape: ${competitiveLandscape || 'Industry competitors'}
+Regulatory Environment: ${regulatoryEnvironment || 'Standard regulations'}
+
+Custom Context: ${profile.custom_context || 'No additional context specified'}
+
+ANALYSIS INSTRUCTIONS:
+- Prioritize incidents and events that align with ${profile.name}'s key concerns: ${keyConcerns}
+- Assess significance based on ${profile.risk_tolerance || 'medium'} risk tolerance and ${profile.decision_making_style || 'collaborative'} decision-making style
+- Consider impact on key stakeholders: ${stakeholderFocus}
+- Account for competitive positioning relative to: ${competitiveLandscape}
+- Evaluate regulatory implications considering: ${regulatoryEnvironment}
+- Tailor investigation leads to ${profile.industry || 'industry'} context and organizational priorities`;
+}
+
+// Show current profile information in the modal
+function showCurrentProfileInfo(profile) {
+    // Add profile info section to the modal if profile exists
+    const promptPanel = document.getElementById('prompt-panel');
+    if (promptPanel && profile) {
+        // Check if profile info already exists
+        let profileInfo = promptPanel.querySelector('.current-profile-info');
+        if (!profileInfo) {
+            profileInfo = document.createElement('div');
+            profileInfo.className = 'current-profile-info alert alert-success py-2 mb-3';
+            promptPanel.insertBefore(profileInfo, promptPanel.firstChild);
+        }
+        
+        profileInfo.innerHTML = `
+            <div class="d-flex align-items-center justify-content-between">
+                <div>
+                    <strong><i class="fas fa-building me-2"></i>Using Profile: ${profile.name}</strong>
+                    <small class="d-block text-muted">${profile.industry || 'General'} • ${profile.organization_type || 'Organization'} • ${profile.risk_tolerance || 'Medium'} Risk Tolerance</small>
+                </div>
+                <button class="btn btn-outline-success btn-sm" onclick="refreshProfileIntegration()" title="Refresh profile integration">
+                    <i class="fas fa-sync me-1"></i>Refresh
+                </button>
+            </div>
+        `;
+    } else if (promptPanel) {
+        // Remove profile info if no profile selected
+        const existingInfo = promptPanel.querySelector('.current-profile-info');
+        if (existingInfo) {
+            existingInfo.remove();
+        }
+    }
+}
+
+// Refresh profile integration
+async function refreshProfileIntegration() {
+    try {
+        showNotification('Refreshing organizational profile integration...', 'info');
+        
+        const currentProfile = await getCurrentOrganizationalProfile();
+        if (currentProfile) {
+            // Update the profile context template with current profile data
+            const generatedContext = generateProfileContextFromData(currentProfile);
+            document.getElementById('profileContextTemplate').value = generatedContext;
+            
+            // Update the profile info display
+            showCurrentProfileInfo(currentProfile);
+            
+            showNotification(`Profile integration updated: ${currentProfile.name}`, 'success');
+        } else {
+            // Reset to default template if no profile selected
+            document.getElementById('profileContextTemplate').value = DEFAULT_PROFILE_CONTEXT_TEMPLATE;
+            showCurrentProfileInfo(null);
+            
+            showNotification('No profile selected - using default template', 'info');
+        }
+    } catch (error) {
+        console.error('Error refreshing profile integration:', error);
+        showNotification('Failed to refresh profile integration: ' + error.message, 'error');
+    }
+}
 
 </script>
 

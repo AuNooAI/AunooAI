@@ -1675,6 +1675,8 @@ class _IncidentTrackingRequest(BaseModel):
         None,
         description="Ontology domain key. Use 'vanilla' for default; e.g., 'scientific_publisher'"
     )
+    profile_id: Optional[int] = Field(None, description="Organizational profile ID for contextualized analysis")
+    test_articles: Optional[List[Dict]] = Field(None, description="Optional test articles to analyze instead of database query")
 
 @router.post("/incident-tracking")
 async def analyze_incidents(
@@ -1718,7 +1720,12 @@ async def analyze_incidents(
         query += " ORDER BY publication_date DESC LIMIT ?"
         params.append(req.max_articles)
         
-        articles = db.fetch_all(query, params)
+        # Use test articles if provided, otherwise query database
+        if req.test_articles:
+            logger.info(f"Using {len(req.test_articles)} test articles instead of database query")
+            articles = req.test_articles
+        else:
+            articles = db.fetch_all(query, params)
         
         if not articles:
             return {"incidents": [], "message": f"No articles found for topic '{req.topic}' in date range {start_date_dt.strftime('%Y-%m-%d')} to {end_date_dt.strftime('%Y-%m-%d')}"}
@@ -1779,19 +1786,33 @@ async def analyze_incidents(
 
             base = (
                 "\nONTOLOGY — Types and Subtypes\n"
-                "Valid types: incident | event | entity\n\n"
+                "Valid types: incident | event | entity | expertise | informed_insider | trend_signal | strategic_shift\n\n"
                 "Definitions:\n"
                 "- incident: Discrete occurrence with material operational/strategic/risk impact that may warrant response, remediation, or escalation.\n"
                 "- event: Noteworthy occurrence (signals, milestones, announcements) that informs context or trends but is not itself a disruptive incident.\n"
-                "- entity: Organization, person, product, venue, dataset (things we track, not occurrences).\n\n"
+                "- entity: Organization, person, product, venue, dataset (things we track, not occurrences).\n"
+                "- expertise: Expert analysis, predictions, or authoritative insights from recognized industry leaders, analysts, or researchers.\n"
+                "- informed_insider: Insider perspectives, leaked information, or privileged insights from people with direct access to relevant information.\n"
+                "- trend_signal: Market trends, behavioral shifts, or emerging patterns that indicate future developments.\n"
+                "- strategic_shift: Major strategic changes, policy pivots, or directional changes by key organizations or governments.\n\n"
                 "Recommended subtypes:\n"
-                "- incident: regulatory_action, compliance_breach, data_security, legal_ip, mna, layoffs, funding_cut, rd_spend_change, governance_change\n"
-                "- event: product_launch, feature_update, partnership_mou, funding_round, hiring, award, conference_announcement, roadmap_teaser, benchmark_result\n"
-                "- entity: company, person, product, dataset, venue, regulator\n\n"
+                "- incident: regulatory_action, compliance_breach, data_security, legal_ip, mna, layoffs, funding_cut, rd_spend_change, governance_change, market_disruption\n"
+                "- event: product_launch, feature_update, partnership_mou, funding_round, hiring, award, conference_announcement, roadmap_teaser, benchmark_result, pilot_program\n"
+                "- entity: company, person, product, dataset, venue, regulator, research_institution, government_agency\n"
+                "- expertise: industry_analysis, market_prediction, technical_assessment, strategic_forecast, expert_warning, research_finding\n"
+                "- informed_insider: leaked_strategy, internal_memo, insider_trading, confidential_roadmap, private_meeting, executive_communication\n"
+                "- trend_signal: adoption_trend, market_shift, behavioral_change, technology_uptake, regulatory_momentum, competitive_dynamic\n"
+                "- strategic_shift: policy_pivot, strategic_realignment, market_repositioning, technology_focus_change, regulatory_approach_change\n\n"
                 "Assignment rules:\n"
-                "- Prefer 'incident' only when direct impact or required action is likely within the analysis window.\n"
-                "- Prefer 'event' for announcements and market signals absent direct disruptions or obligations.\n"
+                "- Use 'incident' for events requiring immediate attention or response (layoffs, breaches, regulatory actions, major failures).\n"
+                "- Use 'event' for announcements and developments (product launches, funding, partnerships, pilot programs).\n"
+                "- Use 'entity' for organizations, people, or products being tracked.\n"
+                "- Use 'expertise' when article features expert analysis, predictions, or authoritative insights from recognized leaders.\n"
+                "- Use 'informed_insider' when article contains insider information, leaks, or privileged access insights.\n"
+                "- Use 'trend_signal' when article identifies emerging patterns, market trends, or behavioral shifts.\n"
+                "- Use 'strategic_shift' when article describes major strategic changes, policy pivots, or directional changes.\n"
                 "- Always include a 'subtype' from the lists above.\n"
+                "- Be inclusive rather than restrictive - classify newsworthy content appropriately.\n"
             )
 
             # Domain overlays (vanilla = no overlay)
@@ -1808,27 +1829,133 @@ async def analyze_incidents(
 
             examples = (
                 "\nLabeling examples (JSON objects):\n"
-                "{\"name\": \"Patent infringement suit filed against AlphaBio\", \"type\": \"incident\", \"subtype\": \"legal_ip\"}\n"
-                "{\"name\": \"Competitor releases LLM-based summarizer\", \"type\": \"event\", \"subtype\": \"product_launch\"}\n"
-                "{\"name\": \"AlphaBio\", \"type\": \"entity\", \"subtype\": \"company\"}\n"
+                "{\"name\": \"SoftBank Vision Fund layoffs amid AI strategy shift\", \"type\": \"incident\", \"subtype\": \"layoffs\"}\n"
+                "{\"name\": \"Citi launches agentic AI pilot program\", \"type\": \"event\", \"subtype\": \"pilot_program\"}\n"
+                "{\"name\": \"Eric Schmidt warns about AI competitiveness\", \"type\": \"expertise\", \"subtype\": \"expert_warning\"}\n"
+                "{\"name\": \"Inside Tony Blair Institute AI strategy discussions\", \"type\": \"informed_insider\", \"subtype\": \"private_meeting\"}\n"
+                "{\"name\": \"Growing enterprise adoption of agentic AI\", \"type\": \"trend_signal\", \"subtype\": \"adoption_trend\"}\n"
+                "{\"name\": \"SoftBank shifts focus from consumer to enterprise AI\", \"type\": \"strategic_shift\", \"subtype\": \"strategic_realignment\"}\n"
+                "{\"name\": \"SoftBank Vision Fund\", \"type\": \"entity\", \"subtype\": \"company\"}\n"
             )
 
             return base + overlay + examples
 
         ontology_text = _build_incident_event_ontology(req.topic, req.domain)
 
-        # Create incident tracking prompt
+        # Get organizational profile context if provided
+        profile_context = ""
+        if req.profile_id:
+            try:
+                from app.database_query_facade import DatabaseQueryFacade
+                profile_row = DatabaseQueryFacade(db, logger).get_organisational_profile(req.profile_id)
+                if profile_row:
+                    import json
+                    profile = {
+                        'name': profile_row[1],
+                        'industry': profile_row[3],
+                        'organization_type': profile_row[4],
+                        'region': profile_row[5],
+                        'key_concerns': json.loads(profile_row[6]) if profile_row[6] else [],
+                        'strategic_priorities': json.loads(profile_row[7]) if profile_row[7] else [],
+                        'risk_tolerance': profile_row[8],
+                        'innovation_appetite': profile_row[9],
+                        'decision_making_style': profile_row[10],
+                        'stakeholder_focus': json.loads(profile_row[11]) if profile_row[11] else [],
+                        'competitive_landscape': json.loads(profile_row[12]) if profile_row[12] else [],
+                        'regulatory_environment': json.loads(profile_row[13]) if profile_row[13] else [],
+                        'custom_context': profile_row[14]
+                    }
+                    
+                    # Build profile context
+                    key_concerns = ', '.join(profile['key_concerns']) if profile['key_concerns'] else 'General business concerns'
+                    strategic_priorities = ', '.join(profile['strategic_priorities']) if profile['strategic_priorities'] else 'Growth and sustainability'
+                    stakeholder_focus = ', '.join(profile['stakeholder_focus']) if profile['stakeholder_focus'] else 'Customers and employees'
+                    competitive_landscape = ', '.join(profile['competitive_landscape']) if profile['competitive_landscape'] else 'Industry competitors'
+                    regulatory_environment = ', '.join(profile['regulatory_environment']) if profile['regulatory_environment'] else 'Standard regulations'
+                    
+                    profile_context = f"""
+ORGANIZATIONAL CONTEXT:
+Organization: {profile['name']} ({profile.get('organization_type', 'Organization')} in {profile.get('industry', 'General')})
+Region: {profile.get('region', 'Not specified')}
+Risk Tolerance: {profile.get('risk_tolerance', 'Medium')} | Innovation Appetite: {profile.get('innovation_appetite', 'Moderate')}
+Decision Making: {profile.get('decision_making_style', 'Collaborative')}
+
+Key Concerns: {key_concerns}
+Strategic Priorities: {strategic_priorities}
+Key Stakeholders: {stakeholder_focus}
+Competitive Landscape: {competitive_landscape}
+Regulatory Environment: {regulatory_environment}
+
+Custom Context: {profile.get('custom_context', 'No additional context specified')}
+
+ANALYSIS INSTRUCTIONS:
+- Prioritize incidents and events that align with {profile['name']}'s key concerns: {key_concerns}
+- Assess significance based on {profile.get('risk_tolerance', 'medium')} risk tolerance and {profile.get('decision_making_style', 'collaborative')} decision-making style
+- Consider impact on key stakeholders: {stakeholder_focus}
+- Account for competitive positioning relative to: {competitive_landscape}
+- Evaluate regulatory implications considering: {regulatory_environment}
+- Tailor investigation leads to {profile.get('industry', 'industry')} context and organizational priorities
+
+"""
+                    logger.info(f"Using organizational profile: {profile['name']} ({profile.get('industry', 'General')})")
+            except Exception as e:
+                logger.error(f"Error loading organizational profile {req.profile_id}: {str(e)}")
+
+        # Try to get custom configuration from request or use defaults
+        # TODO: In future, load saved configuration from database
+        # For now, use the enhanced default configuration
+        
+        # Default analysis instructions (AI Guidance)
+        analysis_instructions = """Focus on extracting actionable intelligence from news articles. Prioritize:
+
+1. Material business impacts and strategic changes (layoffs, restructuring, major funding changes)
+2. Regulatory actions and compliance issues (government policies, regulatory warnings)
+3. Security incidents and data breaches (cybersecurity events, data leaks)
+4. Significant funding, M&A, or operational changes (acquisitions, major investments, closures)
+5. Technology launches and competitive developments (new products, platform launches, AI model releases)
+6. Leadership changes and strategic pivots (CEO changes, strategic direction shifts)
+7. Market warnings and competitive threats (expert warnings, competitive analysis)
+
+Classification Guidelines:
+- INCIDENT: Events requiring immediate attention or response (layoffs, breaches, regulatory actions, major failures)
+- EVENT: Significant announcements and developments (product launches, funding rounds, partnerships, strategic initiatives)  
+- ENTITY: Organizations, people, or products being tracked (companies mentioned, key executives, new technologies)
+- EXPERTISE: Expert analysis, predictions, or authoritative insights from recognized industry leaders
+- INFORMED_INSIDER: Insider perspectives, leaked information, or privileged insights
+- TREND_SIGNAL: Market trends, behavioral shifts, or emerging patterns
+- STRATEGIC_SHIFT: Major strategic changes, policy pivots, or directional changes
+
+Be inclusive rather than restrictive - if an article discusses something newsworthy, classify it appropriately."""
+
+        # Default quality guidelines (AI Guidance)
+        quality_guidelines = """Credibility Assessment:
+- High credibility: Major news outlets, verified sources, multiple independent confirmations
+- Mixed credibility: Single source reporting, unverified claims, industry blogs
+- Low credibility: Social media rumors, fringe sources, extraordinary claims without evidence
+
+Extraordinary Claims Protocol:
+- Flag claims that seem too good to be true or represent major breakthroughs
+- Require independent verification for significant technical achievements
+- Down-rank significance for self-reported successes without third-party validation"""
+
+        # Create incident tracking prompt with AI Guidance integration
         system_prompt = f"""
         You are a threat intelligence analyst tracking incidents, entities, and events in {req.topic}.
 
         IMPORTANT: Assess credibility and plausibility. Treat extraordinary, self-reported breakthroughs with skepticism.
         Use factual_reporting, MBFC credibility, and bias indicators. Down-rank or flag items from low/mixed credibility or fringe bias sources.
 
+        {profile_context}
+
+        {analysis_instructions}
+
+        {quality_guidelines}
+
         {ontology_text}
 
         Required fields for each item:
         - name
-        - type: incident | entity | event
+        - type: incident | entity | event | expertise | informed_insider | trend_signal | strategic_shift
         - subtype: from the allowed list for the chosen type
         - description
         - article_uris
@@ -2043,11 +2170,83 @@ async def analyze_incidents(
         except Exception as cache_error:
             logger.warning(f"Failed to cache incident tracking: {cache_error}")
         
+        # Get incident statuses and filter out deleted ones
+        incident_statuses = db.get_incident_status(req.topic)
+        
+        # Filter out deleted incidents and mark seen ones
+        filtered_incidents = []
+        for incident in incidents:
+            incident_name = incident.get('name', '')
+            status = incident_statuses.get(incident_name, 'active')
+            
+            if status != 'deleted':
+                incident['status'] = status
+                filtered_incidents.append(incident)
+        
+        result = {
+            "incidents": filtered_incidents,
+            "total_articles": len(articles),
+            "analysis_period": f"{start_date_dt.strftime('%Y-%m-%d')} to {end_date_dt.strftime('%Y-%m-%d')}",
+            "analysis_timestamp": datetime.now().isoformat()
+        }
+        
+        # Cache the results
+        try:
+            import json as json_module
+            cache_content = json_module.dumps(result, ensure_ascii=False, default=str)
+            cache_metadata = {
+                "cache_key": cache_key,
+                "topic": req.topic,
+                "start_date": req.start_date,
+                "end_date": req.end_date,
+                "days_limit": req.days_limit,
+                "analysis_type": "incident_tracking"
+            }
+            
+            success = db.save_article_analysis_cache(
+                article_uri=cache_uri,
+                analysis_type=f"incident_tracking_{req.topic}",
+                content=cache_content,
+                model_used="incident_analysis",
+                metadata=cache_metadata
+            )
+            
+            if success:
+                logger.info(f"Cache SAVE: incident tracking for {req.topic}")
+        except Exception as cache_error:
+            logger.warning(f"Failed to cache incident tracking: {cache_error}")
+        
         return result
         
     except Exception as exc:
         logger.error("Error in incident tracking: %s", exc)
         raise HTTPException(status_code=500, detail="Incident tracking error")
+
+@router.post("/incident-status/{incident_name}")
+async def update_incident_status(
+    incident_name: str,
+    status: str = Query(..., description="New status: seen, deleted, or active"),
+    topic: str = Query(..., description="Topic the incident belongs to"),
+    session=Depends(verify_session),
+):
+    """Update incident status (seen/deleted/active)."""
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+        
+        if status not in ['seen', 'deleted', 'active']:
+            raise HTTPException(status_code=400, detail="Invalid status. Must be 'seen', 'deleted', or 'active'")
+        
+        success = db.update_incident_status(incident_name, topic, status)
+        
+        if success:
+            return {"success": True, "message": f"Incident status updated to {status}"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to update incident status")
+            
+    except Exception as exc:
+        logger.error("Error updating incident status: %s", exc)
+        raise HTTPException(status_code=500, detail="Incident status update error")
 
 # ------------------------------------------------------------------
 # Signal instructions endpoints for threat hunting
@@ -3248,4 +3447,302 @@ async def vector_debug_info(
         return {
             "error": str(e),
             "message": "Could not retrieve vector database information"
+        }
+
+
+# ===== Incident Configuration Management =====
+
+class IncidentConfigRequest(BaseModel):
+    """Request model for incident tracking configuration."""
+    systemPrompt: str = Field(..., description="System prompt template")
+    userPrompt: str = Field(..., description="User prompt template")
+    baseOntology: str = Field(..., description="Base ontology definition")
+    domainKey: Optional[str] = Field("", description="Domain key for specialized overlays")
+    domainOverlay: Optional[str] = Field("", description="Domain-specific overlay rules")
+    ontologyExamples: str = Field(..., description="Classification examples")
+    analysisInstructions: str = Field(..., description="Analysis guidance")
+    qualityGuidelines: str = Field(..., description="Quality control guidelines")
+    outputFormat: str = Field(..., description="Output format requirements")
+    profileContextTemplate: str = Field(..., description="Organizational profile context template")
+    enableProfileIntegration: bool = Field(True, description="Enable organizational profile integration")
+
+
+@router.get("/incident-config")
+async def get_incident_configuration(session=Depends(verify_session_optional)):
+    """Get current incident tracking configuration."""
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+        
+        # Try to get user-specific configuration from database
+        # For now, we'll return a default structure that matches the frontend expectations
+        # In a full implementation, this would query a configurations table
+        
+        return {
+            "success": True,
+            "config": {
+                # Return empty config to let frontend use localStorage/defaults
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error retrieving incident configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve configuration: {str(e)}")
+
+
+@router.post("/incident-config")
+async def save_incident_configuration(
+    config: IncidentConfigRequest,
+    session=Depends(verify_session_optional)
+):
+    """Save incident tracking configuration."""
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+        
+        # For now, we'll just validate the configuration and return success
+        # In a full implementation, this would save to a configurations table
+        
+        # Validate required fields
+        if not config.systemPrompt or not config.userPrompt:
+            raise HTTPException(status_code=400, detail="System prompt and user prompt are required")
+        
+        if not config.baseOntology:
+            raise HTTPException(status_code=400, detail="Base ontology is required")
+        
+        # Validate placeholders in system prompt
+        required_placeholders = ['{topic}', '{ontology_text}']
+        if config.enableProfileIntegration:
+            required_placeholders.append('{profile_context}')
+        
+        missing_placeholders = []
+        for placeholder in required_placeholders:
+            if placeholder not in config.systemPrompt:
+                missing_placeholders.append(placeholder)
+        
+        if missing_placeholders:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"System prompt missing required placeholders: {', '.join(missing_placeholders)}"
+            )
+        
+        # Validate user prompt placeholders
+        user_required = ['{topic}', '{articles_text}']
+        missing_user = []
+        for placeholder in user_required:
+            if placeholder not in config.userPrompt:
+                missing_user.append(placeholder)
+        
+        if missing_user:
+            raise HTTPException(
+                status_code=400,
+                detail=f"User prompt missing required placeholders: {', '.join(missing_user)}"
+            )
+        
+        # TODO: Save to database
+        # For now, we rely on localStorage in the frontend
+        
+        return {
+            "success": True,
+            "message": "Incident configuration saved successfully"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving incident configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to save configuration: {str(e)}")
+
+
+@router.post("/incident-config/validate")
+async def validate_incident_configuration(
+    config: IncidentConfigRequest,
+    session=Depends(verify_session_optional)
+):
+    """Validate incident tracking configuration."""
+    try:
+        validation_issues = []
+        
+        # Check system prompt
+        if not config.systemPrompt:
+            validation_issues.append("System prompt is required")
+        else:
+            required_system_placeholders = ['{topic}', '{ontology_text}']
+            if config.enableProfileIntegration:
+                required_system_placeholders.append('{profile_context}')
+            
+            for placeholder in required_system_placeholders:
+                if placeholder not in config.systemPrompt:
+                    validation_issues.append(f"System prompt missing {placeholder} placeholder")
+            
+            if 'json' not in config.systemPrompt.lower():
+                validation_issues.append("System prompt should specify JSON output format")
+        
+        # Check user prompt
+        if not config.userPrompt:
+            validation_issues.append("User prompt is required")
+        else:
+            required_user_placeholders = ['{topic}', '{articles_text}']
+            for placeholder in required_user_placeholders:
+                if placeholder not in config.userPrompt:
+                    validation_issues.append(f"User prompt missing {placeholder} placeholder")
+        
+        # Check base ontology
+        if not config.baseOntology:
+            validation_issues.append("Base ontology is required")
+        else:
+            required_types = ['incident', 'event', 'entity']
+            for type_name in required_types:
+                if type_name.lower() not in config.baseOntology.lower():
+                    validation_issues.append(f"Base ontology missing '{type_name}' type definition")
+        
+        # Check ontology examples format
+        if config.ontologyExamples:
+            try:
+                lines = config.ontologyExamples.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    if line.startswith('{') and line.endswith('}'):
+                        json.loads(line)
+            except json.JSONDecodeError:
+                validation_issues.append("Invalid JSON format in ontology examples")
+        
+        # Check profile context template if enabled
+        if config.enableProfileIntegration and config.profileContextTemplate:
+            profile_placeholders = [
+                '{profile_name}', '{industry}', '{organization_type}', 
+                '{key_concerns}', '{strategic_priorities}'
+            ]
+            missing_profile = []
+            for placeholder in profile_placeholders:
+                if placeholder not in config.profileContextTemplate:
+                    missing_profile.append(placeholder)
+            
+            if missing_profile:
+                validation_issues.append(f"Profile context template missing recommended placeholders: {', '.join(missing_profile[:3])}...")
+        
+        return {
+            "valid": len(validation_issues) == 0,
+            "issues": validation_issues,
+            "message": "Configuration is valid" if len(validation_issues) == 0 else f"Found {len(validation_issues)} validation issues"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error validating incident configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to validate configuration: {str(e)}")
+
+
+@router.get("/incident-config/defaults")
+async def get_incident_configuration_defaults(session=Depends(verify_session_optional)):
+    """Get default incident tracking configuration templates."""
+    
+    default_system_prompt = """You are a threat intelligence analyst tracking incidents, entities, and events in {topic}.
+
+IMPORTANT: Assess credibility and plausibility. Treat extraordinary, self-reported breakthroughs with skepticism.
+Use factual_reporting, MBFC credibility, and bias indicators. Down-rank or flag items from low/mixed credibility or fringe bias sources.
+
+{profile_context}
+
+{ontology_text}
+
+Required fields for each item:
+- name
+- type: incident | entity | event
+- subtype: from the allowed list for the chosen type
+- description
+- article_uris
+- timeline
+- significance: low | medium | high (reduce if credibility concerns exist)
+- investigation_leads
+- related_entities
+- plausibility: likely | questionable | implausible
+- source_quality: high | mixed | low
+- misinfo_flags: [] e.g., "extraordinary_claim", "no_independent_verification", "low_factuality_source", "fringe_bias"
+- credibility_summary: 1-2 sentence rationale
+
+Devil's Advocate Smell Test:
+- Add a "devils_advocate" field with brief caution if the claim appears hyperbolic or extraordinary relative to typical evidence.
+- Use label "Hyperbolic Claim" when applicable.
+
+Output a pure JSON array only."""
+
+    default_user_prompt = """Analyze these {topic} articles for threat hunting incidents, entities, and events:
+
+{articles_text}"""
+
+    default_base_ontology = """ONTOLOGY — Types and Subtypes
+Valid types: incident | event | entity
+
+Definitions:
+- incident: Discrete occurrence with material operational/strategic/risk impact that may warrant response, remediation, or escalation.
+- event: Noteworthy occurrence (signals, milestones, announcements) that informs context or trends but is not itself a disruptive incident.
+- entity: Organization, person, product, venue, dataset (things we track, not occurrences).
+
+Recommended subtypes:
+- incident: regulatory_action, compliance_breach, data_security, legal_ip, mna, layoffs, funding_cut, rd_spend_change, governance_change
+- event: product_launch, feature_update, partnership_mou, funding_round, hiring, award, conference_announcement, roadmap_teaser, benchmark_result
+- entity: company, person, product, dataset, venue, regulator
+
+Assignment rules:
+- Prefer 'incident' only when direct impact or required action is likely within the analysis window.
+- Prefer 'event' for announcements and market signals absent direct disruptions or obligations.
+- Always include a 'subtype' from the lists above."""
+
+    default_profile_context_template = """ORGANIZATIONAL CONTEXT:
+Organization: {profile_name} ({organization_type} in {industry})
+Region: {region}
+Risk Tolerance: {risk_tolerance} | Innovation Appetite: {innovation_appetite}
+Decision Making: {decision_making_style}
+
+Key Concerns: {key_concerns}
+Strategic Priorities: {strategic_priorities}
+Key Stakeholders: {stakeholder_focus}
+Competitive Landscape: {competitive_landscape}
+Regulatory Environment: {regulatory_environment}
+
+Custom Context: {custom_context}
+
+ANALYSIS INSTRUCTIONS:
+- Prioritize incidents and events that align with the organization's key concerns and strategic priorities
+- Assess significance based on the organization's risk tolerance and decision-making style  
+- Consider impact on key stakeholders and competitive positioning
+- Account for relevant regulatory and compliance implications
+- Tailor investigation leads to organizational context and priorities"""
+
+    return {
+        "success": True,
+        "defaults": {
+            "systemPrompt": default_system_prompt,
+            "userPrompt": default_user_prompt,
+            "baseOntology": default_base_ontology,
+            "domainKey": "",
+            "domainOverlay": "",
+            "ontologyExamples": """Labeling examples (JSON objects):
+{"name": "Patent infringement suit filed against AlphaBio", "type": "incident", "subtype": "legal_ip"}
+{"name": "Competitor releases LLM-based summarizer", "type": "event", "subtype": "product_launch"}
+{"name": "AlphaBio", "type": "entity", "subtype": "company"}""",
+            "analysisInstructions": """Focus on extracting actionable intelligence from news articles. Prioritize:
+
+1. Material business impacts and strategic changes
+2. Regulatory actions and compliance issues
+3. Security incidents and data breaches
+4. Significant funding, M&A, or operational changes
+5. Technology launches and competitive developments
+
+Avoid over-classifying routine announcements as incidents unless they have clear material impact.""",
+            "qualityGuidelines": """Credibility Assessment:
+- High credibility: Major news outlets, verified sources, multiple independent confirmations
+- Mixed credibility: Single source reporting, unverified claims, industry blogs
+- Low credibility: Social media rumors, fringe sources, extraordinary claims without evidence
+
+Extraordinary Claims Protocol:
+- Flag claims that seem too good to be true or represent major breakthroughs
+- Require independent verification for significant technical achievements
+- Down-rank significance for self-reported successes without third-party validation""",
+            "outputFormat": """Output must be a valid JSON array with each incident object containing all required fields.
+Ensure proper JSON escaping of quotes and special characters.
+Do not include any explanatory text outside the JSON array.""",
+            "profileContextTemplate": default_profile_context_template,
+            "enableProfileIntegration": True
+        }
         } 

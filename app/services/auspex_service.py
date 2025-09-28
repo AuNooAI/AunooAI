@@ -226,6 +226,9 @@ Use markdown for better readability:
 
 Always provide thorough, insightful analysis backed by data with specific statistics and strategic breakdowns. When asked about trends or patterns, gather current information and apply strategic foresight methodology. Be concise but comprehensive, ensuring every claim is supported by specific data points and strategic reasoning.
 
+FOLLOW-UP SUGGESTIONS CONSTRAINT:
+If you include follow-up suggestions, limit them to exactly 2-3 high-priority natural language questions only. Write them as questions a user would ask, not as technical function calls. For example: "What are the latest developments in AI safety regulations?" NOT "search_articles_by_keywords('AI safety regulations')". Focus on the most strategic follow-up questions users would want to explore.
+
 Remember to cite your sources and provide actionable strategic insights where possible."""
 
 class OptimizedContextManager:
@@ -677,7 +680,9 @@ class AuspexService:
                 entity_lower = entity.lower()
                 # Skip common false positives and partial words
                 skip_patterns = ['the', 'and', 'for', 'with', 'from', 'about', 'articles', 'news', 'data', 'information',
-                               'n ai', 'in ai', 'te articles', 'le references', 'an ai', 'on ai', 'ai', 'to ai']
+                               'n ai', 'in ai', 'te articles', 'le references', 'an ai', 'on ai', 'ai', 'to ai',
+                               'these topics', 'this topic', 'the topic', 'topic area', 'research focus', 'analysis focus',
+                               'context from', 'research on', 'analysis of', 'focus on', 'investigation of']
                 
                 if (len(entity) > 2 and 
                     entity_lower not in skip_patterns and
@@ -687,10 +692,12 @@ class AuspexService:
                     entities.append(entity)
         
         # Additional check: if query contains "mentioning" or "about" followed by a capitalized name, extract it
-        simple_patterns = [
-            r'mentioning\s+([A-Z][A-Za-z]+(?:\s+[A-Z]\.?[A-Za-z]*)*(?:\s+[A-Z][A-Za-z]+)*)',
-            r'about\s+([A-Z][A-Za-z]+(?:\s+[A-Z]\.?[A-Za-z]*)*(?:\s+[A-Z][A-Za-z]+)*)',
-            r'regarding\s+([A-Z][A-Za-z]+(?:\s+[A-Z]\.?[A-Za-z]*)*(?:\s+[A-Z][A-Za-z]+)*)',
+        # But skip if it's part of a research prompt template
+        if not any(phrase in query.lower() for phrase in ['research focus:', 'topic area:', 'context from', 'please use your tools']):
+            simple_patterns = [
+                r'mentioning\s+([A-Z][A-Za-z]+(?:\s+[A-Z]\.?[A-Za-z]*)*(?:\s+[A-Z][A-Za-z]+)*)',
+                r'about\s+([A-Z][A-Za-z]+(?:\s+[A-Z]\.?[A-Za-z]*)*(?:\s+[A-Z][A-Za-z]+)*)',
+                r'regarding\s+([A-Z][A-Za-z]+(?:\s+[A-Z]\.?[A-Za-z]*)*(?:\s+[A-Z][A-Za-z]+)*)',
             # Special patterns for names with periods/initials (flexible)
             r'about\s+([A-Z]\.(?:[A-Z]\.)*[A-Z]\.?\s+[A-Z][A-Za-z]+)',  # "about J.R.R. Tolkien"
             r'mentioning\s+([A-Z]\.(?:[A-Z]\.)*[A-Z]\.?\s+[A-Z][A-Za-z]+)',  # "mentioning J.R.R. Tolkien"
@@ -699,16 +706,16 @@ class AuspexService:
             r'about\s+([A-Z]\.?[A-Z]\.?[A-Z]\.?\s+[A-Za-z]+)',  # "about J.R.R tolkien" or "about JRR Tolkien"
             r'mentioning\s+([A-Z]\.?[A-Z]\.?[A-Z]\.?\s+[A-Za-z]+)',  # "mentioning J.R.R tolkien"
             r'references to\s+([A-Z]\.?[A-Z]\.?[A-Z]\.?\s+[A-Za-z]+)',  # "references to J.R.R tolkien"
-        ]
-        
-        for pattern in simple_patterns:
-            matches = re.findall(pattern, query)
-            for match in matches:
-                entity = match.strip()
-                if (len(entity) > 2 and 
-                    not entity.lower() in ['the', 'and', 'for', 'with', 'from', 'articles', 'news'] and
-                    len(entity.split()) <= 4):
-                    entities.append(entity)
+            ]
+            
+            for pattern in simple_patterns:
+                matches = re.findall(pattern, query)
+                for match in matches:
+                    entity = match.strip()
+                    if (len(entity) > 2 and 
+                        not entity.lower() in ['the', 'and', 'for', 'with', 'from', 'articles', 'news', 'these topics', 'this topic'] and
+                        len(entity.split()) <= 4):
+                        entities.append(entity)
         
         return list(set(entities))  # Remove duplicates
 
