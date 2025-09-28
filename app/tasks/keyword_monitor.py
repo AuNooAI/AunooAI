@@ -217,7 +217,7 @@ class KeywordMonitor:
                         except Exception as e:
                             logger.error(f"Auto-ingest pipeline failed: {e}")
 
-                    # Process each article
+                    # Process each article with optimized database usage
                     for article in articles:
                         try:
                             article_url = article['url'].strip()
@@ -236,6 +236,7 @@ class KeywordMonitor:
                             if article_exists:
                                 logger.debug(f"Article already exists: {article_url}")
 
+                            # Use shorter transaction by processing article individually
                             (inserted_new_article, alert_inserted, match_updated) = (DatabaseQueryFacade(self.db, logger)).create_article(article_exists, article_url,article, topic, keyword_id)
                             # Only count as new if we actually inserted or updated something
                             if inserted_new_article or alert_inserted or match_updated:
@@ -384,9 +385,23 @@ async def run_keyword_monitor():
 
     # Sleep first before starting the checking loop
     await asyncio.sleep(monitor.check_interval)
+    
+    # Track checkpoint intervals
+    last_checkpoint = datetime.now()
+    checkpoint_interval = 300  # 5 minutes
 
     while True:
         try:
+            # Perform periodic WAL checkpoint to prevent WAL file growth
+            current_time = datetime.now()
+            if (current_time - last_checkpoint).total_seconds() >= checkpoint_interval:
+                try:
+                    db.perform_wal_checkpoint("PASSIVE")
+                    last_checkpoint = current_time
+                    logger.debug("Performed periodic WAL checkpoint")
+                except Exception as checkpoint_error:
+                    logger.warning(f"WAL checkpoint failed: {checkpoint_error}")
+            
             # Check if polling is enabled
             is_enabled = (DatabaseQueryFacade(db, logger)).get_keyword_monitor_polling_enabled()
 
@@ -402,6 +417,11 @@ async def run_keyword_monitor():
                             f"Scheduled keyword check completed successfully. "
                             f"Found {result.get('new_articles', 0)} new articles."
                         )
+                        # Perform WAL checkpoint after successful operations
+                        try:
+                            db.perform_wal_checkpoint("PASSIVE")
+                        except Exception as checkpoint_error:
+                            logger.warning(f"Post-operation WAL checkpoint failed: {checkpoint_error}")
                     else:
                         error_msg = result.get('error', 'Unknown error')
                         logger.error(f"Scheduled keyword check failed: {error_msg}")

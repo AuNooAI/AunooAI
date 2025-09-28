@@ -39,6 +39,11 @@ class Database:
     # TODO: Handle lost connections!!!
     _sqlalchemy_connections = {}
     
+    # Connection pool settings
+    MAX_CONNECTIONS = 20
+    CONNECTION_TIMEOUT = 5  # seconds
+    RETRY_ATTEMPTS = 3
+    
     @staticmethod
     def get_active_database():
         config_path = os.path.join(DATABASE_DIR, 'config.json')
@@ -85,40 +90,141 @@ class Database:
         return self._sqlalchemy_connections[thread_id]
 
     def get_connection(self):
-        """Get a thread-local database connection with optimized settings"""
+        """Get a thread-local database connection with optimized settings and retry logic"""
         thread_id = threading.get_ident()
         
+        # Check connection pool limits
+        if len(self._connections) >= self.MAX_CONNECTIONS:
+            logger.warning(f"Connection pool limit reached ({self.MAX_CONNECTIONS}). Cleaning up stale connections.")
+            self._cleanup_stale_connections()
+        
         if thread_id not in self._connections:
-            try:
-                self._connections[thread_id] = sqlite3.connect(self.db_path)
-
-                # Enable foreign key support
-                self._connections[thread_id].execute("PRAGMA foreign_keys = ON")
-                
-                # Optimize for concurrent operations - with error handling
+            for attempt in range(self.RETRY_ATTEMPTS):
                 try:
-                    self._connections[thread_id].execute("PRAGMA journal_mode = WAL")  # Write-Ahead Logging
-                except sqlite3.DatabaseError as e:
-                    logger.error(f"Failed to set WAL mode: {e}")
-                    logger.error("Database may be corrupted. Run scripts/fix_database_corruption.py to repair.")
-                    raise
+                    self._connections[thread_id] = sqlite3.connect(
+                        self.db_path, 
+                        timeout=self.CONNECTION_TIMEOUT
+                    )
+
+                    # Enable foreign key support
+                    self._connections[thread_id].execute("PRAGMA foreign_keys = ON")
                     
-                self._connections[thread_id].execute("PRAGMA synchronous = NORMAL")  # Balance safety and speed
-                self._connections[thread_id].execute("PRAGMA cache_size = 10000")  # 10MB cache
-                self._connections[thread_id].execute("PRAGMA temp_store = MEMORY")  # Store temp data in memory
-                self._connections[thread_id].execute("PRAGMA busy_timeout = 30000")  # 30 second timeout
-                
-            except sqlite3.DatabaseError as e:
-                logger.error(f"Database connection failed: {e}")
-                logger.error(f"Database path: {self.db_path}")
-                logger.error("This usually indicates database corruption.")
-                logger.error("To fix: python scripts/fix_database_corruption.py")
-                raise
+                    # Optimize for concurrent operations - with error handling
+                    try:
+                        # Core WAL mode configuration
+                        self._connections[thread_id].execute("PRAGMA journal_mode = WAL")  # Write-Ahead Logging
+                        self._connections[thread_id].execute("PRAGMA synchronous = NORMAL")  # Balance safety and speed
+                        self._connections[thread_id].execute("PRAGMA temp_store = MEMORY")  # Store temp data in memory
+                        
+                        # Performance optimizations from SQLite tuning article
+                        self._connections[thread_id].execute("PRAGMA mmap_size = 30000000000")  # 30GB memory mapping
+                        # Note: page_size can only be set when creating a new database
+                        # For existing databases, we'll work with the current page size
+                        self._connections[thread_id].execute("PRAGMA cache_size = 50000")  # 50MB cache (increased from 10MB)
+                        self._connections[thread_id].execute("PRAGMA busy_timeout = 30000")  # 30 second timeout
+                        
+                        # WAL checkpoint optimization
+                        self._connections[thread_id].execute("PRAGMA wal_autocheckpoint = 1000")  # More frequent checkpoints
+                        
+                        # Additional optimizations
+                        self._connections[thread_id].execute("PRAGMA optimize")  # Run query optimizer
+                        
+                    except sqlite3.DatabaseError as e:
+                        logger.error(f"Failed to set SQLite optimizations: {e}")
+                        logger.error("Database may be corrupted. Run scripts/fix_database_corruption.py to repair.")
+                        raise
+                    
+                    break  # Success, exit retry loop
+                    
+                except sqlite3.OperationalError as e:
+                    if "database is locked" in str(e).lower() and attempt < self.RETRY_ATTEMPTS - 1:
+                        logger.warning(f"Database locked, retrying in {self.CONNECTION_TIMEOUT}s (attempt {attempt + 1}/{self.RETRY_ATTEMPTS})")
+                        import time
+                        time.sleep(self.CONNECTION_TIMEOUT)
+                        continue
+                    else:
+                        logger.error(f"Database connection failed after {self.RETRY_ATTEMPTS} attempts: {e}")
+                        logger.error(f"Database path: {self.db_path}")
+                        logger.error("This usually indicates database corruption.")
+                        logger.error("To fix: python scripts/fix_database_corruption.py")
+                        raise
+                except sqlite3.DatabaseError as e:
+                    logger.error(f"Database connection failed: {e}")
+                    logger.error(f"Database path: {self.db_path}")
+                    logger.error("This usually indicates database corruption.")
+                    logger.error("To fix: python scripts/fix_database_corruption.py")
+                    raise
             
         return self._connections[thread_id]
 
+    def _cleanup_stale_connections(self):
+        """Clean up stale connections from the pool"""
+        import threading
+        current_threads = set(threading.enumerate())
+        stale_connections = []
+        
+        for thread_id, conn in self._connections.items():
+            # Check if thread is still alive
+            thread_alive = any(t.ident == thread_id for t in current_threads)
+            if not thread_alive:
+                stale_connections.append(thread_id)
+        
+        # Close and remove stale connections
+        for thread_id in stale_connections:
+            try:
+                self._connections[thread_id].close()
+                del self._connections[thread_id]
+                logger.info(f"Cleaned up stale connection for thread {thread_id}")
+            except Exception as e:
+                logger.error(f"Error cleaning up stale connection {thread_id}: {e}")
+
+    def perform_wal_checkpoint(self, mode="PASSIVE"):
+        """
+        Perform WAL checkpoint to prevent WAL file from growing indefinitely
+        
+        Args:
+            mode: Checkpoint mode - "PASSIVE", "FULL", or "RESTART"
+        """
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                if mode == "PASSIVE":
+                    cursor.execute("PRAGMA wal_checkpoint(PASSIVE)")
+                elif mode == "FULL":
+                    cursor.execute("PRAGMA wal_checkpoint(FULL)")
+                elif mode == "RESTART":
+                    cursor.execute("PRAGMA wal_checkpoint(RESTART)")
+                else:
+                    cursor.execute("PRAGMA wal_checkpoint")
+                
+                result = cursor.fetchone()
+                if result:
+                    logger.info(f"WAL checkpoint ({mode}) completed: {result}")
+                return result
+        except Exception as e:
+            logger.error(f"WAL checkpoint failed: {e}")
+            return None
+
+    def get_wal_info(self):
+        """Get WAL file information"""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("PRAGMA wal_checkpoint")
+                result = cursor.fetchone()
+                return result
+        except Exception as e:
+            logger.error(f"Failed to get WAL info: {e}")
+            return None
+
     def close_connections(self):
         """Close all database connections"""
+        # Perform final WAL checkpoint before closing
+        try:
+            self.perform_wal_checkpoint("FULL")
+        except Exception as e:
+            logger.error(f"Final WAL checkpoint failed: {e}")
+        
         for conn in self._connections.values():
             try:
                 conn.close()

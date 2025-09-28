@@ -153,7 +153,7 @@ class DatabaseQueryFacade:
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
 
-            conn.execute("BEGIN IMMEDIATE")
+            conn.execute("BEGIN")
 
             try:
                 inserted_new_article = False
