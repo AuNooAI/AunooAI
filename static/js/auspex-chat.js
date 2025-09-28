@@ -580,9 +580,23 @@ class FloatingChat {
         console.log(`DEBUG: createNewChatSession called for topic: ${topic}`);
         
         try {
+            // Get organizational profile ID from parent window (news feed)
+            let profileId = null;
+            try {
+                const parentWindow = window.parent || window.opener || window;
+                const profileSelect = parentWindow.document?.getElementById('profile-select');
+                if (profileSelect && profileSelect.value) {
+                    profileId = parseInt(profileSelect.value);
+                    console.log(`DEBUG: Creating chat session with organizational profile ID: ${profileId}`);
+                }
+            } catch (error) {
+                console.log('Could not access parent window profile selection for chat creation');
+            }
+            
             const requestBody = {
                 topic: topic,
-                title: `Chat about ${topic}`
+                title: `Chat about ${topic}`,
+                profile_id: profileId
             };
             console.log(`DEBUG: Creating chat session with body:`, requestBody);
             
@@ -699,6 +713,19 @@ class FloatingChat {
         });
 
         try {
+            // Get organizational profile ID from parent window (news feed)
+            let profileId = null;
+            try {
+                const parentWindow = window.parent || window.opener || window;
+                const profileSelect = parentWindow.document?.getElementById('profile-select');
+                if (profileSelect && profileSelect.value) {
+                    profileId = parseInt(profileSelect.value);
+                    console.log(`DEBUG: Using organizational profile ID: ${profileId}`);
+                }
+            } catch (error) {
+                console.log('Could not access parent window profile selection');
+            }
+            
             const response = await fetch('/api/auspex/chat/message', {
                 method: 'POST',
                 headers: {
@@ -709,6 +736,7 @@ class FloatingChat {
                     message: message,
                     model: model,
                     limit: limit,
+                    profile_id: profileId,
                     tools_config: this.toolsConfig
                 })
             });

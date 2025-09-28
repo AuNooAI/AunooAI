@@ -161,6 +161,7 @@ class ConsensusAnalysisRequest(BaseModel):
 class ChatSessionRequest(BaseModel):
     topic: str = Field(..., description="Topic for the chat session")
     title: str | None = Field(None, description="Optional title for the chat")
+    profile_id: int | None = Field(None, description="Organizational profile ID for contextualized analysis")
 
 class ChatMessageRequest(BaseModel):
     chat_id: int = Field(..., description="Chat session ID")
@@ -168,6 +169,7 @@ class ChatMessageRequest(BaseModel):
     model: str | None = Field(None, description="Model to use for response")
     limit: int | None = Field(50, description="Number of articles to analyze (auto-sized based on context)")
     tools_config: dict | None = Field(None, description="Individual tool configuration settings")
+    profile_id: int | None = Field(None, description="Organizational profile ID for contextualized analysis")
 
 class PromptRequest(BaseModel):
     name: str = Field(..., description="Unique prompt name")
@@ -192,8 +194,8 @@ async def suggest_block_options(req: SuggestRequest, session=Depends(verify_sess
 # Chat Session Management
 @router.post("/chat/sessions", status_code=status.HTTP_201_CREATED)
 async def create_chat_session(req: ChatSessionRequest, session=Depends(verify_session)):
-    """Create a new Auspex chat session."""
-    logger.info(f"Creating chat session for topic: {req.topic}, title: {req.title}")
+    """Create a new Auspex chat session with optional organizational profile."""
+    logger.info(f"Creating chat session for topic: {req.topic}, title: {req.title}, profile_id: {req.profile_id}")
     
     auspex = get_auspex_service()
     user_id = session.get('user')  # Get user from session
@@ -202,15 +204,17 @@ async def create_chat_session(req: ChatSessionRequest, session=Depends(verify_se
     chat_id = await auspex.create_chat_session(
         topic=req.topic,
         user_id=user_id,
-        title=req.title
+        title=req.title,
+        profile_id=req.profile_id
     )
     
-    logger.info(f"Created chat session with ID: {chat_id}")
+    logger.info(f"Created chat session with ID: {chat_id}, profile: {req.profile_id}")
     
     return {
         "chat_id": chat_id,
         "topic": req.topic,
         "title": req.title or f"Chat about {req.topic}",
+        "profile_id": req.profile_id,
         "message": "Chat session created successfully"
     }
 
@@ -296,10 +300,17 @@ async def send_chat_message(req: ChatMessageRequest, session=Depends(verify_sess
     logger.info(f"Chat verification successful - topic: {chat_info['topic']}, user: {user_id}")
     
     async def generate_response():
-        """Generate streaming response."""
+        """Generate streaming response with profile context."""
         try:
-            logger.info(f"Starting chat_with_tools for chat_id: {req.chat_id}")
-            async for chunk in auspex.chat_with_tools(req.chat_id, req.message, req.model, req.limit, req.tools_config):
+            logger.info(f"Starting chat_with_tools for chat_id: {req.chat_id}, profile_id: {req.profile_id}")
+            
+            # Update chat session with profile_id if provided
+            if req.profile_id and req.profile_id != chat_info.get('profile_id'):
+                logger.info(f"Updating chat session {req.chat_id} with profile_id: {req.profile_id}")
+                # Update the chat session to include the profile_id
+                auspex.db.update_auspex_chat_profile(req.chat_id, req.profile_id)
+            
+            async for chunk in auspex.chat_with_tools(req.chat_id, req.message, req.model, req.limit, req.tools_config, req.profile_id):
                 yield f"data: {json.dumps({'content': chunk})}\n\n"
             logger.info("Chat response completed successfully")
             yield f"data: {json.dumps({'done': True})}\n\n"

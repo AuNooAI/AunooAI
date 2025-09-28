@@ -2289,17 +2289,69 @@ Remember to cite your sources and provide actionable insights where possible."""
                 }
 
     # Auspex Chat Management Methods
-    def create_auspex_chat(self, topic: str, title: str = None, user_id: str = None, metadata: dict = None) -> int:
-        """Create a new Auspex chat session."""
+    def create_auspex_chat(self, topic: str, title: str = None, user_id: str = None, profile_id: int = None, metadata: dict = None) -> int:
+        """Create a new Auspex chat session with optional organizational profile."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             metadata_json = json.dumps(metadata) if metadata else None
-            cursor.execute("""
-                INSERT INTO auspex_chats (topic, title, user_id, metadata)
-                VALUES (?, ?, ?, ?)
-            """, (topic, title, user_id, metadata_json))
+            
+            # Check if profile_id column exists, if not, use old schema
+            try:
+                cursor.execute("""
+                    INSERT INTO auspex_chats (topic, title, user_id, profile_id, metadata)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (topic, title, user_id, profile_id, metadata_json))
+            except Exception:
+                # Fallback for old schema without profile_id column
+                logger.warning("profile_id column not found in auspex_chats, using old schema")
+                # Ensure the profile_id is stored in metadata for old schemas
+                try:
+                    md = metadata or {}
+                    if profile_id is not None:
+                        md = {**md, 'profile_id': profile_id}
+                    cursor.execute("""
+                        INSERT INTO auspex_chats (topic, title, user_id, metadata)
+                        VALUES (?, ?, ?, ?)
+                    """, (topic, title, user_id, json.dumps(md) if md else None))
+                except Exception:
+                    # As a last resort, insert without metadata
+                    cursor.execute("""
+                        INSERT INTO auspex_chats (topic, title, user_id, metadata)
+                        VALUES (?, ?, ?, ?)
+                    """, (topic, title, user_id, metadata_json))
+            
             conn.commit()
             return cursor.lastrowid
+
+    def update_auspex_chat_profile(self, chat_id: int, profile_id: int) -> bool:
+        """Update an existing chat session with a profile_id."""
+        try:
+            with self.get_connection() as conn:
+                cursor = conn.cursor()
+                # Try to update with profile_id column
+                try:
+                    cursor.execute("""
+                        UPDATE auspex_chats 
+                        SET profile_id = ?, updated_at = ?
+                        WHERE id = ?
+                    """, (profile_id, datetime.now().isoformat(), chat_id))
+                    conn.commit()
+                    logger.info(f"Updated chat {chat_id} with profile_id {profile_id}")
+                    return True
+                except Exception as e:
+                    # If profile_id column doesn't exist, update metadata instead
+                    logger.warning(f"Could not update profile_id column, updating metadata: {e}")
+                    cursor.execute("""
+                        UPDATE auspex_chats 
+                        SET metadata = json_set(COALESCE(metadata, '{}'), '$.profile_id', ?), 
+                            updated_at = ?
+                        WHERE id = ?
+                    """, (profile_id, datetime.now().isoformat(), chat_id))
+                    conn.commit()
+                    return True
+        except Exception as e:
+            logger.error(f"Error updating chat profile: {e}")
+            return False
 
     def get_auspex_chats(self, topic: str = None, user_id: str = None, limit: int = 50) -> List[Dict]:
         """Get Auspex chat sessions with message counts."""
@@ -2353,7 +2405,7 @@ Remember to cite your sources and provide actionable insights where possible."""
             if not row:
                 return None
                 
-            return {
+            chat = {
                 'id': row[0],
                 'topic': row[1],
                 'title': row[2],
@@ -2362,6 +2414,16 @@ Remember to cite your sources and provide actionable insights where possible."""
                 'user_id': row[5],
                 'metadata': json.loads(row[6]) if row[6] else None
             }
+            # If profile_id column exists, try to read it safely (column index may differ). Fallback to metadata.
+            try:
+                # Attempt to detect profile_id in row by column name via PRAGMA if needed (skip heavy lookup here)
+                # Prefer metadata for backward compatibility
+                md = chat['metadata'] or {}
+                if 'profile_id' in md:
+                    chat['profile_id'] = md['profile_id']
+            except Exception:
+                pass
+            return chat
 
     def update_auspex_chat(self, chat_id: int, title: str = None, metadata: dict = None) -> bool:
         """Update an Auspex chat."""

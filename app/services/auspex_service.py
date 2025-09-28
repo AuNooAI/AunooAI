@@ -857,8 +857,8 @@ class AuspexService:
         logger.info(f"Filtered {len(articles)} articles down to {len(filtered_articles)} articles containing specified entities")
         return filtered_articles
 
-    async def create_chat_session(self, topic: str, user_id: str = None, title: str = None) -> int:
-        """Create a new chat session."""
+    async def create_chat_session(self, topic: str, user_id: str = None, title: str = None, profile_id: int = None) -> int:
+        """Create a new chat session with optional organizational profile."""
         try:
             if not title:
                 title = f"Chat about {topic}"
@@ -867,7 +867,8 @@ class AuspexService:
                 topic=topic,
                 title=title,
                 user_id=user_id,
-                metadata={"created_at": datetime.now().isoformat()}
+                profile_id=profile_id,
+                metadata={"created_at": datetime.now().isoformat(), "profile_id": profile_id}
             )
             
             # Add system message with current prompt
@@ -908,7 +909,7 @@ class AuspexService:
             logger.error(f"Error deleting chat session: {e}")
             return False
 
-    async def chat_with_tools(self, chat_id: int, message: str, model: str = None, limit: int = 50, tools_config: Dict = None) -> AsyncGenerator[str, None]:
+    async def chat_with_tools(self, chat_id: int, message: str, model: str = None, limit: int = 50, tools_config: Dict = None, profile_id: int = None) -> AsyncGenerator[str, None]:
         """Chat with Auspex with optional tool usage."""
         if not model:
             model = DEFAULT_MODEL
@@ -942,7 +943,15 @@ class AuspexService:
                 content=message
             )
             
-            # Get system prompt and enhance it with topic information
+            # Update chat session with profile_id if provided
+            if profile_id:
+                try:
+                    self.db.update_auspex_chat_profile(chat_id, profile_id)
+                    logger.info(f"Updated chat {chat_id} with profile_id {profile_id}")
+                except Exception as e:
+                    logger.warning(f"Could not update chat profile: {e}")
+            
+            # Get system prompt and enhance it with topic information and profile context
             system_prompt = self.get_enhanced_system_prompt(chat_id, tools_config)
             
             # Prepare messages with system prompt
@@ -959,10 +968,10 @@ class AuspexService:
                 # Use tools to gather information
                 tool_results = await self._use_mcp_tools(message, chat_id, limit, tools_config)
                 if tool_results:
-                    # Add tool results to context
+                    # Add tool results as assistant context to avoid overriding system instructions
                     llm_messages.append({
-                        "role": "system",
-                        "content": f"Tool results: {tool_results}"
+                        "role": "assistant",
+                        "content": f"[TOOLS] {tool_results}"
                     })
             
             # Generate response using LLM
@@ -998,25 +1007,91 @@ class AuspexService:
                 pass
 
     def get_enhanced_system_prompt(self, chat_id: int, tools_config: Dict = None) -> Dict:
-        """Get enhanced system prompt with topic-specific information."""
+        """Get enhanced system prompt with topic-specific information and organizational profile."""
         try:
             # Get base prompt
             base_prompt = self.get_system_prompt()
             
-            # Get chat info to determine topic
+            # Get chat info to determine topic and profile
             chat = self.db.get_auspex_chat(chat_id)
             if not chat:
                 return base_prompt
                 
             topic = chat['topic']
+            # Support both new schema (column) and old schema (metadata.profile_id)
+            profile_id = chat.get('profile_id') or ((chat.get('metadata') or {}).get('profile_id'))
+            
+            # Get organizational profile context if available
+            profile_context = ""
+            if profile_id:
+                try:
+                    from app.database_query_facade import DatabaseQueryFacade
+                    profile_row = DatabaseQueryFacade(self.db, logger).get_organisational_profile(profile_id)
+                    if profile_row:
+                        import json
+                        profile = {
+                            'name': profile_row[1],
+                            'industry': profile_row[3],
+                            'organization_type': profile_row[4],
+                            'key_concerns': json.loads(profile_row[6]) if profile_row[6] else [],
+                            'strategic_priorities': json.loads(profile_row[7]) if profile_row[7] else [],
+                            'risk_tolerance': profile_row[8],
+                            'innovation_appetite': profile_row[9],
+                            'decision_making_style': profile_row[10],
+                            'stakeholder_focus': json.loads(profile_row[11]) if profile_row[11] else [],
+                            'competitive_landscape': json.loads(profile_row[12]) if profile_row[12] else [],
+                            'regulatory_environment': json.loads(profile_row[13]) if profile_row[13] else []
+                        }
+                        
+                        profile_context = f"""
+
+CRITICAL: You are analyzing from the perspective of {profile['name']} ({profile.get('organization_type', 'Organization')} in {profile.get('industry', 'General')}).
+
+ORGANIZATIONAL PRIORITIES:
+- Key Concerns: {', '.join(profile['key_concerns']) if profile['key_concerns'] else 'General business concerns'}
+- Strategic Priorities: {', '.join(profile['strategic_priorities']) if profile['strategic_priorities'] else 'Growth and sustainability'}
+- Risk Tolerance: {profile.get('risk_tolerance', 'Medium')} (adjust significance assessment accordingly)
+- Innovation Appetite: {profile.get('innovation_appetite', 'Moderate')}
+- Decision Making Style: {profile.get('decision_making_style', 'Collaborative')}
+- Key Stakeholders: {', '.join(profile['stakeholder_focus']) if profile['stakeholder_focus'] else 'Customers and employees'}
+- Competitive Landscape: {', '.join(profile['competitive_landscape']) if profile['competitive_landscape'] else 'Industry competitors'}
+- Regulatory Environment: {', '.join(profile['regulatory_environment']) if profile['regulatory_environment'] else 'Standard regulations'}
+
+MANDATORY ANALYSIS ADJUSTMENTS:
+1. PRIORITIZE insights directly relevant to {profile['name']}'s key concerns: {', '.join(profile['key_concerns']) if profile['key_concerns'] else 'general concerns'}
+2. FRAME all analysis in terms of impact on: {', '.join(profile['stakeholder_focus']) if profile['stakeholder_focus'] else 'key stakeholders'}
+3. ASSESS significance using {profile.get('risk_tolerance', 'medium')} risk tolerance (conservative = higher significance for regulatory/compliance issues)
+4. TAILOR recommendations to {profile.get('decision_making_style', 'collaborative')} decision-making approach
+5. FOCUS on {profile.get('industry', 'industry')}-specific implications, competitive positioning, and regulatory compliance
+6. HIGHLIGHT opportunities and threats specific to {profile['name']}'s strategic priorities and competitive landscape
+
+When analyzing sentiment patterns, trends, or providing insights, ALWAYS consider how they specifically impact {profile['name']}'s business model, stakeholder relationships, and strategic objectives.
+"""
+                        logger.info(f"Using organizational profile: {profile['name']} for Auspex chat")
+                except Exception as e:
+                    logger.error(f"Error loading organizational profile {profile_id}: {str(e)}")
             
             # Get topic options from database
             try:
                 analyze_db = AnalyzeDB(self.db)
                 topic_options = analyze_db.get_topic_options(topic)
                 
-                # Enhanced system prompt with topic-specific information
-                enhanced_content = f"""{base_prompt['content']}
+                # Enhanced system prompt with profile context prioritized
+                # Insert organizational context early in the prompt for maximum impact
+                base_content = base_prompt['content']
+                
+                # Find a good insertion point after the initial role definition
+                insertion_point = base_content.find("CRITICAL RESPONSE FORMAT REQUIREMENTS:")
+                if insertion_point == -1:
+                    insertion_point = base_content.find("STRATEGIC FORESIGHT FRAMEWORK:")
+                if insertion_point == -1:
+                    insertion_point = len(base_content) // 4  # Insert after first quarter if no markers found
+                
+                # Insert profile context prominently
+                enhanced_content = f"""{base_content[:insertion_point]}
+{profile_context}
+
+{base_content[insertion_point:]}
 
 TOPIC-SPECIFIC CONTEXT FOR {topic.upper()}:
 
@@ -1036,8 +1111,9 @@ TOOLS STATUS: {self._format_tools_status(tools_config)}
 
 CURRENT SESSION CONTEXT:
 - Topic: {topic}
+- Profile: {profile.get('name', 'None') if profile_id else 'None'}
 - Tools: {self._format_active_tools(tools_config)}
-- Focus: Apply strategic foresight methodology specific to {topic} using the available categories, sentiments, and future signals listed above."""
+- Focus: Apply strategic foresight methodology specific to {topic} with organizational context"""
 
                 return {
                     "name": f"enhanced_{topic.lower().replace(' ', '_')}",
@@ -1047,6 +1123,26 @@ CURRENT SESSION CONTEXT:
                 
             except Exception as e:
                 logger.warning(f"Could not get topic options for {topic}: {e}")
+                # Fallback: still inject organizational profile context even without topic options
+                try:
+                    base_content = base_prompt['content']
+                    if profile_context:
+                        insertion_point = base_content.find("CRITICAL RESPONSE FORMAT REQUIREMENTS:")
+                        if insertion_point == -1:
+                            insertion_point = base_content.find("STRATEGIC FORESIGHT FRAMEWORK:")
+                        if insertion_point == -1:
+                            insertion_point = len(base_content) // 4
+                        enhanced_content = f"""{base_content[:insertion_point]}
+{profile_context}
+
+{base_content[insertion_point:]}"""
+                        return {
+                            "name": f"enhanced_{topic.lower().replace(' ', '_')}",
+                            "title": f"Enhanced Auspex for {topic}",
+                            "content": enhanced_content
+                        }
+                except Exception:
+                    pass
                 return base_prompt
                 
         except Exception as e:

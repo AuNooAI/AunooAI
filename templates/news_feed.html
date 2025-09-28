@@ -5591,21 +5591,8 @@ async function launchAuspexResearch(theme, sourceArticleUri) {
         console.log(`Research setup: Theme="${theme}", Topic="${actualTopic}", Article="${article.title}"`);
         
         // Create Auspex chat session with the actual topic
-        const response = await fetch('/api/auspex/chat/sessions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                topic: actualTopic,
-                title: `Deep Research: ${theme}`
-            })
-        });
-        
-        if (!response.ok) {
-            throw new Error(`Failed to create chat session: ${response.status}`);
-        }
-        
-        const sessionData = await response.json();
-        const chatId = sessionData.chat_id;
+        // Create Auspex chat session with organizational profile
+        const chatId = await createAuspexChatSession(actualTopic, `Deep Research: ${theme}`);
         
         // Get the selected model from the news feed UI
         const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
@@ -5641,6 +5628,7 @@ Provide a thorough analysis using the structured format from your system prompt.
                 chat_id: chatId,
                 message: researchPrompt,
                 model: selectedModel,
+                profile_id: getCurrentProfileId(),
                 limit: 50,
                 tools_config: {
                     search_articles: true,
@@ -5903,7 +5891,7 @@ async function runFollowUpAction(actionText) {
         if (!chatId) { showNotification('Chat session not found', 'warning'); return; }
         const selectedModel = document.getElementById('floatingModelSelect')?.value || 'gpt-4o-mini';
         const prompt = `Follow-up action requested: ${actionText}\n\nPlease execute this action using dataset-first analysis. Cite URIs.`;
-        await fetch('/api/auspex/chat/message', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, message: prompt, model: selectedModel, limit: 50 }) });
+        await fetch('/api/auspex/chat/message', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, message: prompt, model: selectedModel, limit: 50, profile_id: getCurrentProfileId() }) });
         pollForAuspexResults(chatId, 'Follow-up');
         showNotification('Running follow-up action...', 'info');
     } catch (e) {
@@ -5922,7 +5910,7 @@ async function runDatasetQuery(queryText) {
         const currentArticles = window.lastArticlesData?.items || [];
         const { detailedLines } = buildDatasetContext(queryText, currentArticles, 12, 20);
         const prompt = `Dataset-first follow-up search: "${queryText}" in topic ${topic}.\n\nRelevant dataset items:\n${detailedLines || '(no strong matches; propose dataset search expansions)'}\n\nPlease analyze these items, cite URIs, and propose next dataset filters.`;
-        await fetch('/api/auspex/chat/message', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, message: prompt, model: selectedModel, limit: 50 }) });
+        await fetch('/api/auspex/chat/message', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chat_id: chatId, message: prompt, model: selectedModel, limit: 50, profile_id: getCurrentProfileId() }) });
         pollForAuspexResults(chatId, 'Dataset Search');
         showNotification('Running dataset search...', 'info');
     } catch (e) {
@@ -6399,10 +6387,47 @@ Use your search and analysis tools to gather comprehensive timeline evidence fro
     }
 }
 
+// Helper function to get current profile ID
+function getCurrentProfileId() {
+    const profileSelect = document.getElementById('profile-select');
+    return profileSelect && profileSelect.value ? parseInt(profileSelect.value) : null;
+}
+
+// Helper function to create Auspex chat session with profile
+async function createAuspexChatSession(topic, title) {
+    const profileId = getCurrentProfileId();
+    
+    const response = await fetch('/api/auspex/chat/sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            topic: topic,
+            title: title,
+            profile_id: profileId
+        })
+    });
+    
+    if (!response.ok) {
+        throw new Error(`Failed to create chat session: ${response.status}`);
+    }
+    
+    const data = await response.json();
+    
+    if (profileId) {
+        console.log(`Created Auspex chat session ${data.chat_id} with organizational profile ${profileId}`);
+    }
+    
+    return data.chat_id;
+}
+
 // Common function to launch Auspex with a specific prompt
 async function launchAuspexWithPrompt(chatId, prompt, model, topic, analysisType) {
     try {
-        // Send the analysis prompt
+        // Get the selected organizational profile
+        const profileSelect = document.getElementById('profile-select');
+        const selectedProfileId = profileSelect && profileSelect.value ? parseInt(profileSelect.value) : null;
+        
+        // Send the analysis prompt with profile context
         const messageResponse = await fetch('/api/auspex/chat/message', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -6411,6 +6436,7 @@ async function launchAuspexWithPrompt(chatId, prompt, model, topic, analysisType
                 message: prompt,
                 model: model,
                 limit: 50,
+                profile_id: selectedProfileId,
                 tools_config: {
                     search_articles: true,
                     get_sentiment_analysis: true,
@@ -6700,6 +6726,7 @@ I'm ready to discuss this article with you. You can use your tools to search for
                 chat_id: chatId,
                 message: contextPrompt,
                 model: selectedModel,
+                profile_id: getCurrentProfileId(),
                 limit: 50,
                 tools_config: {
                     search_articles: true,
