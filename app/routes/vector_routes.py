@@ -1967,6 +1967,7 @@ Extraordinary Claims Protocol:
         - source_quality: high | mixed | low
         - misinfo_flags: [] e.g., "extraordinary_claim", "no_independent_verification", "low_factuality_source", "fringe_bias"
         - credibility_summary: 1-2 sentence rationale
+        - organizational_relevance: 1-2 sentences explaining why this is specifically relevant to the organization's priorities, concerns, or strategic objectives
 
         Devil's Advocate Smell Test:
         - Add a "devils_advocate" field with brief caution if the claim appears hyperbolic or extraordinary relative to typical evidence.

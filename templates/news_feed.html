@@ -799,10 +799,10 @@
     <div class="news-nav">
         <ul class="nav nav-tabs" id="news-tabs">
             <li class="nav-item">
-                <a class="nav-link" id="insights-tab" data-bs-toggle="tab" href="#insights-content">Narrative Explorer</a>
+                <a class="nav-link active" id="insights-tab" data-bs-toggle="tab" href="#insights-content">Narrative Explorer</a>
             </li>
             <li class="nav-item">
-                <a class="nav-link active" id="articles-tab" data-bs-toggle="tab" href="#articles-content">Article Investigator</a>
+                <a class="nav-link" id="articles-tab" data-bs-toggle="tab" href="#articles-content">Article Investigator</a>
             </li>
             <li class="nav-item">
                 <a class="nav-link" id="six-articles-tab" data-bs-toggle="tab" href="#six-articles-content">Six Articles</a>
@@ -813,7 +813,7 @@
     <!-- Content -->
     <div class="tab-content" id="news-content">
         <!-- Articles Tab -->
-        <div class="tab-pane fade show active" id="articles-content">
+        <div class="tab-pane fade" id="articles-content">
             <div id="articles-loading" class="loading" style="display: none;">
                 <div class="spinner-border" role="status">
                     <span class="visually-hidden">Loading...</span>
@@ -921,7 +921,7 @@
         </div>
 
         <!-- Insights Tab -->
-        <div class="tab-pane fade" id="insights-content">
+        <div class="tab-pane fade show active" id="insights-content">
             <div class="d-flex justify-content-between align-items-center mb-3">
                 <h5 class="mb-0">
                     <i class="fas fa-chart-line me-2"></i>Article & Category Insights
@@ -944,12 +944,12 @@
             <!-- Insights Navigation -->
             <ul class="nav nav-pills nav-fill mb-3" id="insights-nav">
                 <li class="nav-item">
-                    <a class="nav-link" id="incident-tracking-nav" data-bs-toggle="pill" href="#incident-tracking-panel">
+                    <a class="nav-link active" id="incident-tracking-nav" data-bs-toggle="pill" href="#incident-tracking-panel">
                         <i class="fas fa-crosshairs me-1"></i>Incident Tracking
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link active" id="article-insights-nav" data-bs-toggle="pill" href="#article-insights-panel">
+                    <a class="nav-link" id="article-insights-nav" data-bs-toggle="pill" href="#article-insights-panel">
                         <i class="fas fa-newspaper me-1"></i>AI Insights
                     </a>
                 </li>
@@ -968,7 +968,7 @@
             <!-- Insights Content -->
             <div class="tab-content" id="insights-tab-content">
                 <!-- Article Insights Panel -->
-                <div class="tab-pane fade show active" id="article-insights-panel">
+                <div class="tab-pane fade" id="article-insights-panel">
                     <div id="article-insights-loading" class="loading" style="display: none;">
                         <div class="spinner-border" role="status">
                             <span class="visually-hidden">Loading...</span>
@@ -1005,10 +1005,28 @@
 
 
                 <!-- Incident Tracking Panel -->
-                <div class="tab-pane fade" id="incident-tracking-panel">
+                <div class="tab-pane fade show active" id="incident-tracking-panel">
                     <div id="incident-toolbar" class="d-flex align-items-center justify-content-between mb-2" style="gap: 8px;">
                         <div class="d-flex align-items-center gap-2">
                             <strong class="small text-muted">Incident Options</strong>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-primary active" id="incident-card-view-btn" onclick="toggleIncidentView('cards')" title="Card view">
+                                    <i class="fas fa-th-large"></i>
+                                </button>
+                                <button class="btn btn-outline-primary" id="incident-table-view-btn" onclick="toggleIncidentView('table')" title="Table view">
+                                    <i class="fas fa-table"></i>
+                                </button>
+                            </div>
+                            <select id="incident-sort-select" class="form-select form-select-sm" onchange="handleIncidentSortChange()" style="width: auto;">
+                                <option value="significance_desc">Significance (High → Low)</option>
+                                <option value="significance_asc">Significance (Low → High)</option>
+                                <option value="type_asc">Type (A → Z)</option>
+                                <option value="type_desc">Type (Z → A)</option>
+                                <option value="name_asc">Name (A → Z)</option>
+                                <option value="name_desc">Name (Z → A)</option>
+                                <option value="timeline_desc">Timeline (Recent → Old)</option>
+                                <option value="timeline_asc">Timeline (Old → Recent)</option>
+                            </select>
                         </div>
                         <div id="incident-toolbar-right" class="d-flex align-items-center gap-2">
                             <button class="btn btn-outline-secondary btn-sm" onclick="showIncidentConfigModal()" title="Configure incident tracking prompts and ontology">
@@ -1465,11 +1483,15 @@
                                     </div>
                                     <div class="card-body">
                                         <div class="mb-2">
-                                            <strong>Types:</strong>
+                                            <strong>7-Type Classification:</strong>
                                             <ul class="list-unstyled ms-2 small">
-                                                <li><code>incident</code> - Disruptive occurrences</li>
-                                                <li><code>event</code> - Noteworthy signals</li>
-                                                <li><code>entity</code> - Tracked organizations/people</li>
+                                                <li><code>incident</code> - Disruptive occurrences requiring response</li>
+                                                <li><code>event</code> - Noteworthy developments and announcements</li>
+                                                <li><code>entity</code> - Organizations, people, products tracked</li>
+                                                <li><code>expertise</code> - Expert analysis and authoritative insights</li>
+                                                <li><code>informed_insider</code> - Insider perspectives and leaks</li>
+                                                <li><code>trend_signal</code> - Market trends and behavioral shifts</li>
+                                                <li><code>strategic_shift</code> - Major strategic and policy changes</li>
                                             </ul>
                                         </div>
                                         <div class="mb-2">
@@ -1479,6 +1501,7 @@
                                                 <li>description, timeline</li>
                                                 <li>significance, plausibility</li>
                                                 <li>investigation_leads</li>
+                                                <li>source_quality, misinfo_flags</li>
                                             </ul>
                                         </div>
                                     </div>
@@ -1497,9 +1520,6 @@
                                         </button>
                                         <button class="btn btn-outline-success btn-sm w-100 mb-2" onclick="validateOntology()">
                                             <i class="fas fa-check me-1"></i>Validate Structure
-                                        </button>
-                                        <button class="btn btn-outline-warning btn-sm w-100" onclick="upgradeToExtendedOntology()">
-                                            <i class="fas fa-star me-1"></i>Upgrade to 7-Type Ontology
                                         </button>
                                     </div>
                                 </div>
@@ -2704,6 +2724,17 @@ function getFactualClass(factual) {
     if (factualLower.includes('mixed')) return 'tag-factual-mixed';
     if (factualLower.includes('low')) return 'tag-factual-low';
     return 'tag-factual-unknown';
+}
+
+// Helper function to get MBFC credibility CSS class
+function getMBFCCredibilityClass(credibility) {
+    if (!credibility) return 'bg-secondary';
+    const credLower = credibility.toLowerCase();
+    if (credLower.includes('high') || credLower === 'very high') return 'bg-success';
+    if (credLower.includes('mostly') || credLower.includes('moderate')) return 'bg-info';
+    if (credLower.includes('mixed')) return 'bg-warning text-dark';
+    if (credLower.includes('low')) return 'bg-danger';
+    return 'bg-secondary';
 }
 
 // Removed old renderArticles function - using new one with star and filter functionality
@@ -8570,7 +8601,7 @@ function renderIncidentTracking(incidents) {
             }
         }
         
-        // Build articles list
+        // Build articles list with MBFC quality indicators
         let articlesHtml = '';
         if (incident.article_uris && incident.article_uris.length > 0) {
             articlesHtml = `
@@ -8590,7 +8621,28 @@ function renderIncidentTracking(incidents) {
                                 return 'Article';
                             })(uri);
                             const title = article?.title || derivedTitle;
-                            return `<li class="mb-1"><a href="${uri}" target="_blank" rel="noopener">${escapeHTML(title)}</a></li>`;
+                            
+                            // Add MBFC quality indicators for each article
+                            let qualityIndicators = '';
+                            if (article) {
+                                const qualityBadges = [];
+                                if (article.factual_reporting) {
+                                    const factualClass = getFactualityClass(article.factual_reporting);
+                                    qualityBadges.push(`<span class="badge ${factualClass}" style="font-size: 8px;">${article.factual_reporting}</span>`);
+                                }
+                                if (article.mbfc_credibility_rating) {
+                                    const mbfcClass = getMBFCCredibilityClass(article.mbfc_credibility_rating);
+                                    qualityBadges.push(`<span class="badge ${mbfcClass}" style="font-size: 8px;">${article.mbfc_credibility_rating}</span>`);
+                                }
+                                if (qualityBadges.length > 0) {
+                                    qualityIndicators = `<br>${qualityBadges.join(' ')}`;
+                                }
+                            }
+                            
+                            return `<li class="mb-1">
+                                <a href="${uri}" target="_blank" rel="noopener" class="text-decoration-none">${escapeHTML(title)}</a>
+                                ${qualityIndicators}
+                            </li>`;
                         }).join('')}
                         ${incident.article_uris.length > 5 ? `<li class="text-muted">... and ${incident.article_uris.length - 5} more</li>` : ''}
                     </ul>
@@ -8650,6 +8702,10 @@ function renderIncidentTracking(incidents) {
                 </div>
             </div>
             <p class="mb-1 small">${incident.description}</p>
+            ${incident.organizational_relevance ? `
+            <div class="alert alert-info py-2 mb-2">
+                <small><strong><i class="fas fa-building me-1"></i>Why This Matters to Your Organization:</strong> ${incident.organizational_relevance}</small>
+            </div>` : ''}
             ${timelineSection}
             ${credibilitySummary}
             ${warningHtml}
@@ -8711,16 +8767,19 @@ function renderIncidentTracking(incidents) {
         container.appendChild(col);
     });
 
-    // Wire up toggle
-    const toggleEl = document.getElementById(toggleId);
-    if (toggleEl) {
-        toggleEl.addEventListener('change', () => {
-            try { localStorage.setItem(toggleId, toggleEl.checked ? 'true' : 'false'); } catch(_) {}
-            // Re-render with current filters
-            const filteredIncidents = applyIncidentFilters(allIncidents);
-            renderIncidentTrackingFiltered(filteredIncidents);
-        });
-    }
+    // Wire up toggle (moved to after rendering)
+    setTimeout(() => {
+        const toggleEl = document.getElementById(toggleId);
+        if (toggleEl && !toggleEl.dataset.wired) {
+            toggleEl.addEventListener('change', () => {
+                try { localStorage.setItem(toggleId, toggleEl.checked ? 'true' : 'false'); } catch(_) {}
+                // Re-render with current filters
+                const filteredIncidents = applyIncidentFilters(allIncidents);
+                renderIncidentTrackingFiltered(filteredIncidents);
+            });
+            toggleEl.dataset.wired = 'true';
+        }
+    }, 100);
 }
 
 // ===== ENHANCED TAB NAVIGATION =====
@@ -9886,7 +9945,7 @@ function renderIncidentTrackingFiltered(filteredIncidents) {
     
     // Apply quality filter on top of badge filters
     const riskFlags = new Set(['extraordinary_claim','no_independent_verification','low_factuality_source','low_credibility_source','fringe_bias']);
-    const finalFiltered = hideLow
+    const qualityFiltered = hideLow
         ? filteredIncidents.filter(inc => {
             if (!inc) return false;
             const plaus = String(inc.plausibility || '').toLowerCase();
@@ -9897,11 +9956,20 @@ function renderIncidentTrackingFiltered(filteredIncidents) {
         })
         : filteredIncidents;
     
+    // Apply sorting
+    const finalFiltered = sortIncidents([...qualityFiltered]);
+    
     if (!finalFiltered || finalFiltered.length === 0) {
         const message = filteredIncidents.length === 0 ? 
             'No incidents match the current filters.' : 
             'No high-quality incidents match the current filters.';
         container.insertAdjacentHTML('beforeend', `<div class="text-muted p-2 small w-100 text-center">${message}</div>`);
+        return;
+    }
+    
+    // Render based on current view
+    if (currentIncidentView === 'table') {
+        renderIncidentTable(finalFiltered);
         return;
     }
     
@@ -9927,9 +9995,44 @@ function renderIncidentTrackingFiltered(filteredIncidents) {
         const card = document.createElement('div');
         card.className = 'insight-item-card h-100';
         
-        // Determine badge color based on type and significance
+        // Check for low quality and add visual indicator
+        let isLowQuality = false;
+        if (incident.article_uris && incident.article_uris.length > 0) {
+            const firstUri = incident.article_uris[0];
+            const article = window.lastArticlesData?.items?.find(a => a.uri === firstUri);
+            if (article) {
+                const factual = (article.factual_reporting || '').toLowerCase();
+                const mbfc = (article.mbfc_credibility_rating || '').toLowerCase();
+                const bias = (article.bias || '').toLowerCase();
+                
+                isLowQuality = factual.includes('low') || factual.includes('mixed') ||
+                              mbfc.includes('low') || mbfc.includes('mixed') ||
+                              bias.includes('extreme') || bias.includes('conspiracy') || bias.includes('fringe');
+            }
+        }
+        
+        // Also check AI-derived quality
+        if (!isLowQuality) {
+            const sourceQuality = String(incident.source_quality || '').toLowerCase();
+            const plausibility = String(incident.plausibility || '').toLowerCase();
+            isLowQuality = sourceQuality === 'low' || plausibility === 'implausible' ||
+                          (Array.isArray(incident.misinfo_flags) && incident.misinfo_flags.some(f => 
+                              f.includes('low_factuality') || f.includes('low_credibility') || f.includes('fringe_bias')));
+        }
+        
+        // Add border styling for low quality incidents
+        if (isLowQuality) {
+            card.style.borderLeft = '4px solid #dc3545';
+            card.style.backgroundColor = '#fff5f5';
+        }
+        
+        // Determine badge color based on type and significance (updated for 7-type system)
         const typeBadgeColor = incident.type === 'incident' ? 'danger' : 
-                              incident.type === 'entity' ? 'primary' : 'success';
+                              incident.type === 'entity' ? 'primary' : 
+                              incident.type === 'expertise' ? 'warning' :
+                              incident.type === 'informed_insider' ? 'dark' :
+                              incident.type === 'trend_signal' ? 'info' :
+                              incident.type === 'strategic_shift' ? 'secondary' : 'success';
         const significanceBadgeColor = incident.significance === 'high' ? 'danger' : 
                                      incident.significance === 'medium' ? 'warning' : 'info';
         
@@ -10001,31 +10104,103 @@ function renderIncidentTrackingFiltered(filteredIncidents) {
                 </div>
             </div>
             <p class="mb-2 small">${escapeHTML(incident.description || 'No description available.')}</p>
+            ${incident.organizational_relevance ? `
+            <div class="alert alert-info py-2 mb-2">
+                <small><strong><i class="fas fa-building me-1"></i>Why This Matters:</strong> ${escapeHTML(incident.organizational_relevance)}</small>
+            </div>` : ''}
+            ${incident.credibility_summary ? `
+            <div class="mt-2 mb-2 p-2 bg-light rounded">
+                <small class="text-muted fw-bold">Credibility Assessment:</small>
+                <p class="small text-secondary mb-0">${escapeHTML(incident.credibility_summary)}</p>
+            </div>` : ''}
             ${timelineHtml}
+            ${incident.article_uris && incident.article_uris.length > 0 ? `
+            <div class="mt-2 mb-2">
+                <small class="text-muted fw-bold">Source Articles (${incident.article_uris.length}):</small>
+                <ul class="list-unstyled mt-1 mb-0 small">
+                    ${incident.article_uris.slice(0, 3).map(uri => {
+                        const article = window.lastArticlesData?.items?.find(a => a.uri === uri);
+                        
+                        // Extract title from URI if article not found in current dataset
+                        let title = 'View Article';
+                        let source = 'Unknown Source';
+                        let hasMBFC = false;
+                        
+                        if (article) {
+                            title = article.title || 'Untitled Article';
+                            source = article.news_source || 'Unknown Source';
+                            hasMBFC = !!(article.factual_reporting || article.mbfc_credibility_rating || article.bias);
+                        } else {
+                            // Try to extract meaningful title from URI
+                            try {
+                                const url = new URL(uri);
+                                const pathParts = url.pathname.split('/').filter(Boolean);
+                                const lastPart = pathParts[pathParts.length - 1] || '';
+                                const cleaned = decodeURIComponent(lastPart.replace(/[-_]/g, ' ')).trim();
+                                if (cleaned && cleaned.length > 5) {
+                                    title = cleaned.substring(0, 50) + (cleaned.length > 50 ? '...' : '');
+                                }
+                                source = url.hostname.replace(/^www\./, '');
+                            } catch (e) {
+                                console.warn('Could not parse URI for title:', uri);
+                            }
+                        }
+                        
+                        // Add MBFC quality indicators or AI-derived flag
+                        let qualityBadges = '';
+                        if (article && hasMBFC) {
+                            const badges = [];
+                            if (article.factual_reporting) {
+                                badges.push(`<span class="badge ${getFactualityClass(article.factual_reporting)}" style="font-size: 8px;" title="MBFC Factual Reporting">${article.factual_reporting} Factuality</span>`);
+                            }
+                            if (article.mbfc_credibility_rating) {
+                                badges.push(`<span class="badge ${getMBFCCredibilityClass(article.mbfc_credibility_rating)}" style="font-size: 8px;" title="MBFC Credibility Rating">${article.mbfc_credibility_rating} Credibility</span>`);
+                            }
+                            if (article.bias) {
+                                badges.push(`<span class="badge ${getBiasClass(article.bias)}" style="font-size: 8px;" title="MBFC Bias Rating">${article.bias}</span>`);
+                            }
+                            if (badges.length > 0) {
+                                qualityBadges = `<br>${badges.join(' ')}`;
+                            }
+                        } else {
+                            // Flag when MBFC is missing and AI is rating
+                            qualityBadges = `<br><span class="badge bg-warning text-dark" style="font-size: 8px;" title="No MBFC data available - quality assessment by AI">📊 AI-Rated</span>`;
+                        }
+                        
+                        return `<li class="mb-1">
+                            <a href="${uri}" target="_blank" rel="noopener" class="text-decoration-none">${escapeHTML(title)}</a>
+                            <small class="text-muted d-block">${escapeHTML(source)}</small>
+                            ${qualityBadges}
+                        </li>`;
+                    }).join('')}
+                    ${incident.article_uris.length > 3 ? `<li class="text-muted small">... and ${incident.article_uris.length - 3} more articles</li>` : ''}
+                </ul>
+            </div>` : ''}
             ${leadsHtml}
-            <div class="mt-2 d-flex justify-content-between">
-                <div class="d-flex gap-2">
+            <div class="mt-2">
+                <div class="d-flex flex-wrap gap-1 mb-2">
                     <button class="btn btn-sm btn-outline-primary" onclick="launchAuspexResearchFromInsight('${escapeHTML(incident.name)}', 'incident')">
                         <i class="fas fa-search me-1"></i>Investigate
                     </button>
                     ${incident.article_uris && incident.article_uris.length > 0 ? `
                         <button class="btn btn-sm btn-outline-secondary" onclick="launchConsensusAnalysis('${incident.article_uris[0]}')">
-                            <i class="fas fa-balance-scale me-1"></i>Consensus Analysis
+                            <i class="fas fa-balance-scale me-1"></i>Consensus
+                        </button>
+                        <button class="btn btn-sm btn-outline-success" onclick="openAnnotationModal('${incident.article_uris[0]}')" title="Annotate article">
+                            <i class="fas fa-sticky-note me-1"></i>Annotate
                         </button>
                     ` : ''}
-                </div>
-                <div class="btn-group btn-group-sm">
                     ${status !== 'seen' ? `
-                        <button class="btn btn-outline-success" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'seen')" title="Mark as seen">
-                            <i class="fas fa-eye"></i>
+                        <button class="btn btn-sm btn-outline-info" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'seen')" title="Mark as seen">
+                            <i class="fas fa-eye me-1"></i>Mark Seen
                         </button>
                     ` : `
-                        <button class="btn btn-outline-secondary" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'active')" title="Mark as unseen">
-                            <i class="fas fa-eye-slash"></i>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'active')" title="Mark as unseen">
+                            <i class="fas fa-eye-slash me-1"></i>Mark Unseen
                         </button>
                     `}
-                    <button class="btn btn-outline-danger" onclick="deleteIncident('${escapeHTML(incident.name)}')" title="Delete incident">
-                        <i class="fas fa-trash"></i>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteIncident('${escapeHTML(incident.name)}')" title="Delete incident">
+                        <i class="fas fa-trash me-1"></i>Delete
                     </button>
                 </div>
             </div>
@@ -10732,8 +10907,28 @@ Summary: OpenAI unveiled GPT-5, claiming breakthrough performance in reasoning a
         .replace(/{topic}/g, sampleTopic)
         .replace(/{articles_text}/g, sampleArticles);
 
-    // Show preview in new modal or alert
+    // Show preview in new modal with both prompt and expected output
     const previewContent = `SYSTEM PROMPT:\n${previewSystem}\n\nUSER PROMPT:\n${previewUser}`;
+    
+    // Expected output based on sample data
+    const expectedOutput = `EXPECTED OUTPUT (Sample):
+[
+  {
+    "name": "OpenAI GPT-5 Revolutionary Capabilities Announcement",
+    "type": "event",
+    "subtype": "product_launch",
+    "description": "OpenAI unveiled GPT-5 with claimed breakthrough performance in reasoning and multimodal tasks",
+    "article_uris": ["https://techcrunch.com/sample-gpt5"],
+    "timeline": ["2024-01-15"],
+    "significance": "high",
+    "investigation_leads": ["GPT-5 performance benchmarks", "competitive response analysis", "market impact assessment"],
+    "related_entities": ["OpenAI", "GPT-5"],
+    "plausibility": "likely",
+    "source_quality": "high",
+    "misinfo_flags": [],
+    "credibility_summary": "TechCrunch is a reputable technology publication with high factual reporting standards."
+  }
+]`;
     
     // Create a simple preview modal
     const previewModal = document.createElement('div');
@@ -10746,7 +10941,22 @@ Summary: OpenAI unveiled GPT-5, claiming breakthrough performance in reasoning a
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <div class="modal-body">
-                        <pre style="white-space: pre-wrap; font-size: 11px; max-height: 400px; overflow-y: auto;">${escapeHTML(previewContent)}</pre>
+                        <ul class="nav nav-tabs" id="previewTabs">
+                            <li class="nav-item">
+                                <a class="nav-link active" data-bs-toggle="tab" href="#preview-prompt">Prompt</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" data-bs-toggle="tab" href="#preview-output">Expected Output</a>
+                            </li>
+                        </ul>
+                        <div class="tab-content mt-3">
+                            <div class="tab-pane fade show active" id="preview-prompt">
+                                <pre style="white-space: pre-wrap; font-size: 11px; max-height: 400px; overflow-y: auto;">${escapeHTML(previewContent)}</pre>
+                            </div>
+                            <div class="tab-pane fade" id="preview-output">
+                                <pre style="white-space: pre-wrap; font-size: 11px; max-height: 400px; overflow-y: auto;">${escapeHTML(expectedOutput)}</pre>
+                            </div>
+                        </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -10784,18 +10994,76 @@ async function validatePromptTemplate() {
             enableProfileIntegration: document.getElementById('enableProfileIntegration').checked
         };
         
-        const response = await fetch('/api/incident-config/validate', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(config)
-        });
+        // Client-side validation
+        const issues = [];
         
-        const result = await response.json();
+        // Check for required placeholders in system prompt
+        const systemPrompt = config.systemPrompt;
+        if (!systemPrompt.includes('{topic}')) {
+            issues.push('System prompt missing {topic} placeholder');
+        }
+        if (!systemPrompt.includes('{ontology_text}')) {
+            issues.push('System prompt missing {ontology_text} placeholder');
+        }
         
-        if (result.valid) {
-            showNotification('Configuration validation passed', 'success');
+        // Check for required placeholders in user prompt
+        const userPrompt = config.userPrompt;
+        if (!userPrompt.includes('{topic}')) {
+            issues.push('User prompt missing {topic} placeholder');
+        }
+        if (!userPrompt.includes('{articles_text}')) {
+            issues.push('User prompt missing {articles_text} placeholder');
+        }
+        
+        // Validate ontology structure
+        const ontology = config.baseOntology;
+        if (!ontology.includes('incident') || !ontology.includes('event') || !ontology.includes('entity')) {
+            issues.push('Base ontology missing required types (incident, event, entity)');
+        }
+        
+        // Validate profile template if profile integration is enabled
+        if (config.enableProfileIntegration && config.profileContextTemplate) {
+            const template = config.profileContextTemplate;
+            const currentProfile = await getCurrentOrganizationalProfile();
+            
+            if (currentProfile) {
+                // For real profiles, template should already be populated (not contain placeholders)
+                const hasPlaceholders = template.includes('{profile_name}') || 
+                                      template.includes('{industry}') || 
+                                      template.includes('{organization_type}');
+                
+                if (hasPlaceholders) {
+                    // Template has placeholders but we have a real profile - try to populate it
+                    try {
+                        const testContext = generateProfileContextFromData(currentProfile);
+                        if (!testContext || testContext === template) {
+                            issues.push('Profile context template could not be populated with current profile data');
+                        }
+                    } catch (e) {
+                        issues.push('Profile context template has formatting errors');
+                    }
+                } else {
+                    // Template is already populated - check if it contains organization info
+                    if (!template.includes(currentProfile.name)) {
+                        issues.push('Profile context template does not appear to contain current organization information');
+                    }
+                }
+            } else {
+                // No profile selected - template should have placeholders for future use
+                const hasPlaceholders = template.includes('{profile_name}') || 
+                                      template.includes('{industry}') || 
+                                      template.includes('{organization_type}');
+                
+                if (!hasPlaceholders) {
+                    issues.push('No organizational profile selected. Template should contain placeholders like {profile_name}, {industry}, {organization_type} for future use.');
+                }
+            }
+        }
+        
+        if (issues.length === 0) {
+            showNotification('Configuration validation passed ✓', 'success');
         } else {
-            showNotification(`Validation issues found:\\n• ${result.issues.join('\\n• ')}`, 'warning');
+            showNotification(`Validation issues found:\\n• ${issues.join('\\n• ')}`, 'warning');
         }
         
     } catch (error) {
@@ -11563,6 +11831,253 @@ function showCurrentProfileInfo(profile) {
             existingInfo.remove();
         }
     }
+}
+
+// Incident view and sorting functions
+let currentIncidentView = 'cards';
+let currentIncidentSort = 'significance_desc';
+
+function toggleIncidentView(viewType) {
+    currentIncidentView = viewType;
+    
+    // Update button states
+    document.getElementById('incident-card-view-btn').classList.toggle('active', viewType === 'cards');
+    document.getElementById('incident-table-view-btn').classList.toggle('active', viewType === 'table');
+    
+    // Re-render with current view
+    if (allIncidents.length > 0) {
+        const filteredIncidents = applyIncidentFilters(allIncidents);
+        renderIncidentTrackingFiltered(filteredIncidents);
+    }
+}
+
+function handleIncidentSortChange() {
+    currentIncidentSort = document.getElementById('incident-sort-select').value;
+    
+    // Re-render with new sort order
+    if (allIncidents.length > 0) {
+        const filteredIncidents = applyIncidentFilters(allIncidents);
+        renderIncidentTrackingFiltered(filteredIncidents);
+    }
+}
+
+function sortIncidents(incidents) {
+    return incidents.sort((a, b) => {
+        switch (currentIncidentSort) {
+            case 'significance_desc':
+                const sigOrder = { 'high': 3, 'medium': 2, 'low': 1 };
+                return (sigOrder[b.significance] || 0) - (sigOrder[a.significance] || 0);
+            case 'significance_asc':
+                const sigOrderAsc = { 'high': 3, 'medium': 2, 'low': 1 };
+                return (sigOrderAsc[a.significance] || 0) - (sigOrderAsc[b.significance] || 0);
+            case 'type_asc':
+                return (a.type || '').localeCompare(b.type || '');
+            case 'type_desc':
+                return (b.type || '').localeCompare(a.type || '');
+            case 'name_asc':
+                return (a.name || '').localeCompare(b.name || '');
+            case 'name_desc':
+                return (b.name || '').localeCompare(a.name || '');
+            case 'timeline_desc':
+                const aDate = Array.isArray(a.timeline) && a.timeline.length > 0 ? new Date(a.timeline[0]) : new Date(0);
+                const bDate = Array.isArray(b.timeline) && b.timeline.length > 0 ? new Date(b.timeline[0]) : new Date(0);
+                return bDate - aDate;
+            case 'timeline_asc':
+                const aDateAsc = Array.isArray(a.timeline) && a.timeline.length > 0 ? new Date(a.timeline[0]) : new Date(0);
+                const bDateAsc = Array.isArray(b.timeline) && b.timeline.length > 0 ? new Date(b.timeline[0]) : new Date(0);
+                return aDateAsc - bDateAsc;
+            default:
+                return 0;
+        }
+    });
+}
+
+function renderIncidentTable(incidents) {
+    const container = document.getElementById('incident-tracking-container');
+    
+    if (!incidents || incidents.length === 0) {
+        container.innerHTML = '<div class="text-muted p-2 small w-100 text-center">No incidents match the current filters.</div>';
+        return;
+    }
+    
+    let html = `
+        <div class="table-responsive">
+            <table class="table table-hover table-sm">
+                <thead class="table-light">
+                    <tr>
+                        <th style="width: 20%;">Name</th>
+                        <th style="width: 8%;">Type</th>
+                        <th style="width: 8%;">Significance</th>
+                        <th style="width: 12%;">Timeline</th>
+                        <th style="width: 12%;">MBFC Quality</th>
+                        <th style="width: 15%;">Why Significant</th>
+                        <th style="width: 15%;">Description</th>
+                        <th style="width: 10%;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    incidents.forEach((incident, index) => {
+        const typeBadgeColor = incident.type === 'incident' ? 'danger' : 
+                              incident.type === 'entity' ? 'primary' : 
+                              incident.type === 'expertise' ? 'warning' :
+                              incident.type === 'informed_insider' ? 'dark' :
+                              incident.type === 'trend_signal' ? 'info' :
+                              incident.type === 'strategic_shift' ? 'secondary' : 'success';
+        const significanceBadgeColor = incident.significance === 'high' ? 'danger' : 
+                                     incident.significance === 'medium' ? 'warning' : 'info';
+        
+        const plausibility = String(incident.plausibility || '').toLowerCase();
+        const sourceQuality = String(incident.source_quality || '').toLowerCase();
+        const plausibilityBadge = plausibility === 'likely' ? 'success' : plausibility === 'questionable' ? 'warning' : 'danger';
+        const sourceQualityBadge = sourceQuality === 'high' ? 'success' : sourceQuality === 'mixed' ? 'warning' : 'danger';
+        
+        // Timeline display - handle both arrays and strings
+        let timelineDisplay = '';
+        if (Array.isArray(incident.timeline) && incident.timeline.length > 0) {
+            const validDates = incident.timeline.filter(Boolean);
+            if (validDates.length > 0) {
+                const start = validDates[0];
+                const end = validDates[validDates.length - 1];
+                timelineDisplay = start === end ? start : `${start} → ${end}`;
+            }
+        } else if (typeof incident.timeline === 'string' && incident.timeline.trim()) {
+            timelineDisplay = incident.timeline.trim();
+        } else if (incident.timeline && incident.timeline.summary) {
+            timelineDisplay = incident.timeline.summary;
+        }
+        
+        // MBFC Quality indicators - consistent format for both real and AI-derived
+        let qualityHtml = '';
+        let hasRealMBFC = false;
+        let isLowQuality = false;
+        
+        // Check if we have real MBFC data
+        if (incident.article_uris && incident.article_uris.length > 0) {
+            const firstUri = incident.article_uris[0];
+            const article = window.lastArticlesData?.items?.find(a => a.uri === firstUri);
+            if (article && (article.factual_reporting || article.mbfc_credibility_rating || article.bias)) {
+                hasRealMBFC = true;
+                
+                // Check for low quality indicators
+                const factual = (article.factual_reporting || '').toLowerCase();
+                const mbfc = (article.mbfc_credibility_rating || '').toLowerCase();
+                const bias = (article.bias || '').toLowerCase();
+                
+                isLowQuality = factual.includes('low') || factual.includes('mixed') ||
+                              mbfc.includes('low') || mbfc.includes('mixed') ||
+                              bias.includes('extreme') || bias.includes('conspiracy') || bias.includes('fringe');
+                
+                // Consistent badge format for real MBFC data with full labels
+                const factualBadge = article.factual_reporting ? 
+                    `<span class="badge ${getFactualityClass(article.factual_reporting)}" title="MBFC Factual Reporting">${article.factual_reporting} Factuality</span>` : '';
+                const mbfcBadge = article.mbfc_credibility_rating ? 
+                    `<span class="badge ${getMBFCCredibilityClass(article.mbfc_credibility_rating)}" title="MBFC Credibility Rating">${article.mbfc_credibility_rating} Credibility</span>` : '';
+                const biasBadge = article.bias ? 
+                    `<span class="badge ${getBiasClass(article.bias)}" title="MBFC Bias Rating">${article.bias}</span>` : '';
+                
+                qualityHtml = [factualBadge, mbfcBadge, biasBadge].filter(Boolean).join('<br>');
+            } else {
+                // Article found but no MBFC data - flag as AI-rated
+                hasRealMBFC = false;
+            }
+        }
+        
+        // AI-derived quality if no real MBFC data - use same format as MBFC
+        if (!hasRealMBFC) {
+            // Check if AI-derived quality indicates low quality
+            isLowQuality = sourceQuality === 'low' || plausibility === 'implausible' ||
+                          (Array.isArray(incident.misinfo_flags) && incident.misinfo_flags.some(f => 
+                              f.includes('low_factuality') || f.includes('low_credibility') || f.includes('fringe_bias')));
+            
+            // Convert AI-derived ratings to MBFC-equivalent format with full labels
+            const aiFactualRating = sourceQuality === 'high' ? 'High Factuality' : 
+                                   sourceQuality === 'mixed' ? 'Mixed Factuality' : 'Low Factuality';
+            const aiCredibilityRating = plausibility === 'likely' ? 'High Credibility' : 
+                                       plausibility === 'questionable' ? 'Mixed Credibility' : 'Low Credibility';
+            let aiBiasRating = 'Least Biased'; // Default assumption unless flags indicate otherwise
+            
+            // Check for bias flags
+            if (Array.isArray(incident.misinfo_flags) && incident.misinfo_flags.some(f => f.includes('fringe_bias'))) {
+                aiBiasRating = 'Mixed Bias';
+            }
+            
+            // Use same badge format as real MBFC but with AI indicator and full labels
+            const factualBadge = `<span class="badge ${getFactualityClass(aiFactualRating)}" title="📊 AI-derived factual assessment (no MBFC data)">📊 ${aiFactualRating}</span>`;
+            const credibilityBadge = `<span class="badge ${getMBFCCredibilityClass(aiCredibilityRating)}" title="📊 AI-derived credibility assessment (no MBFC data)">📊 ${aiCredibilityRating}</span>`;
+            const biasBadge = `<span class="badge ${getBiasClass(aiBiasRating)}" title="📊 AI-derived bias assessment (no MBFC data)">📊 ${aiBiasRating}</span>`;
+            
+            qualityHtml = [factualBadge, credibilityBadge, biasBadge].join('<br>');
+        }
+        
+        const status = incident.status || 'active';
+        let rowClass = status === 'seen' ? 'opacity-75' : '';
+        
+        // Add highlighting for low quality incidents in table view
+        if (isLowQuality) {
+            rowClass += ' table-danger';
+        }
+        
+        // Why significant explanation
+        const whySignificant = incident.organizational_relevance || 
+                              incident.credibility_summary || 
+                              `${incident.significance || 'medium'} significance incident`;
+        
+        html += `
+            <tr class="${rowClass}">
+                <td>
+                    <strong>${escapeHTML(incident.name || 'Unnamed Incident')}</strong>
+                    ${status === 'seen' ? `<br><span class="badge bg-secondary"><i class="fas fa-eye me-1"></i>Seen</span>` : ''}
+                </td>
+                <td><span class="badge bg-${typeBadgeColor}">${incident.type || 'Unknown'}</span></td>
+                <td><span class="badge bg-${significanceBadgeColor}">${incident.significance || 'Unknown'}</span></td>
+                <td><small>${timelineDisplay || 'No timeline'}</small></td>
+                <td>${qualityHtml || '<small class="text-muted">No quality data</small>'}</td>
+                <td><small class="text-info">${escapeHTML(whySignificant.substring(0, 80))}${whySignificant.length > 80 ? '...' : ''}</small></td>
+                <td>
+                    <small>${escapeHTML((incident.description || 'No description available.').substring(0, 80))}${(incident.description || '').length > 80 ? '...' : ''}</small>
+                    ${incident.article_uris && incident.article_uris.length > 0 ? `
+                        <br><a href="${incident.article_uris[0]}" target="_blank" rel="noopener" class="small text-primary text-decoration-none">
+                            <i class="fas fa-external-link-alt me-1"></i>View Article
+                        </a>
+                    ` : ''}
+                </td>
+                <td>
+                    <div class="btn-group btn-group-sm">
+                        <button class="btn btn-outline-primary btn-sm" onclick="launchAuspexResearchFromInsight('${escapeHTML(incident.name)}', 'incident')" title="Investigate">
+                            <i class="fas fa-search"></i>
+                        </button>
+                        ${incident.article_uris && incident.article_uris.length > 0 ? `
+                            <button class="btn btn-outline-success btn-sm" onclick="openAnnotationModal('${incident.article_uris[0]}')" title="Annotate">
+                                <i class="fas fa-sticky-note"></i>
+                            </button>
+                        ` : ''}
+                        ${status !== 'seen' ? `
+                            <button class="btn btn-outline-success btn-sm" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'seen')" title="Mark as seen">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        ` : `
+                            <button class="btn btn-outline-secondary btn-sm" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'active')" title="Mark as unseen">
+                                <i class="fas fa-eye-slash"></i>
+                            </button>
+                        `}
+                        <button class="btn btn-outline-danger btn-sm" onclick="deleteIncident('${escapeHTML(incident.name)}')" title="Delete incident">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    });
+    
+    html += `
+                </tbody>
+            </table>
+        </div>
+    `;
+    
+    container.innerHTML = html;
 }
 
 // Refresh profile integration
