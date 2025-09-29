@@ -34,10 +34,6 @@ def get_database_instance():
     return _db_instance
 
 class Database:
-    _connections = {}
-
-    # TODO: Handle lost connections!!!
-    _sqlalchemy_connections = {}
     
     # Connection pool settings
     MAX_CONNECTIONS = 20
@@ -55,6 +51,10 @@ class Database:
         if db_name is None:
             db_name = self.get_active_database()
         self.db_path = os.path.join(DATABASE_DIR, db_name)
+        
+        # Initialize instance variables for connection tracking
+        self._connections = {}
+        self._sqlalchemy_connections = {}
 
         # TODO: Lazy load?
         logger.info(f"Creating database connection... TODO: ADD DETAILS!")
@@ -68,7 +68,8 @@ class Database:
         # TODO: TEMPORARY PATCH FOR REPLACING DIRECT sqlite CONNECTIONS WITH SQLALCHEMY
         # TODO: FOR PGSL OR OTHER TYPES OF ENGINES RE-USE EXISTING CONNECTIONS TO AVOID EXHAUSTING RESOURCES!!!
         # TODO: MUST INCLUDE DEFAULT TABLE VALUES IN MIGRATIONS, SEE GIT COMMITS FOR WHAT HAS BEEN REMOVED!!!!!
-        if thread_id not in self._connections:
+        if thread_id not in self._sqlalchemy_connections:
+            logger.debug(f"Creating new SQLAlchemy connection for thread {thread_id}")
             from sqlalchemy import create_engine
             # Create SQLAlchemy engine and connection.
             # TODO: MAKE ENGINE CONFIGURABLE!!
@@ -77,6 +78,7 @@ class Database:
 
             # TODO: Rename this to a less verbose name.
             self._sqlalchemy_connections[thread_id] = connection
+            logger.debug(f"Created SQLAlchemy connection for thread {thread_id}")
 
             # from sqlalchemy import select
             #
@@ -87,6 +89,8 @@ class Database:
             # import pprint
             # pprint.pp([user for user in result])
             # TODO: END TEMPORARY PATCH
+        else:
+            logger.debug(f"Reusing existing SQLAlchemy connection for thread {thread_id}")
         return self._sqlalchemy_connections[thread_id]
 
     def get_connection(self):

@@ -3349,8 +3349,9 @@ function showPodcastDownload(audioUrl, title) {
     downloadLink.className = 'btn btn-success btn-sm';
     downloadLink.innerHTML = '<i class="fas fa-download me-2"></i>Download Podcast';
     
-    // Find the export dropdown area and add the download link
-    const exportArea = document.querySelector('.d-flex.gap-2');
+    // Find the Six Articles export area specifically
+    const sixArticlesTab = document.getElementById('six-articles-content');
+    const exportArea = sixArticlesTab ? sixArticlesTab.querySelector('.d-flex.gap-2') : null;
     if (exportArea) {
         // Remove any existing podcast download link
         const existingLink = exportArea.querySelector('.podcast-download-link');
@@ -3361,13 +3362,6 @@ function showPodcastDownload(audioUrl, title) {
         // Add new download link
         downloadLink.classList.add('podcast-download-link');
         exportArea.appendChild(downloadLink);
-        
-        // Auto-remove after 30 seconds
-        setTimeout(() => {
-            if (downloadLink.parentNode) {
-                downloadLink.remove();
-            }
-        }, 30000);
     }
     
     showNotification('Podcast generated successfully!', 'success');
