@@ -906,6 +906,8 @@
                         <ul class="dropdown-menu dropdown-menu-end">
                             <li><a class="dropdown-item" href="#" onclick="exportSixArticlesMarkdown()"><i class="fab fa-markdown me-2"></i>Download Markdown</a></li>
                             <li><a class="dropdown-item" href="#" onclick="exportSixArticlesHTML()"><i class="fas fa-code me-2"></i>Download HTML</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#" onclick="generateSixArticlesPodcast()"><i class="fas fa-microphone me-2"></i>Generate Podcast</a></li>
                         </ul>
                     </div>
                 </div>
@@ -3234,6 +3236,141 @@ function exportSixArticlesHTML() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(urlObj);
+}
+
+async function generateSixArticlesPodcast() {
+    const articles = window.lastSixArticles || [];
+    if (!articles.length) {
+        showNotification('No Six Articles available. Generate the report first.', 'warning');
+        return;
+    }
+    
+    // Show loading state
+    showPodcastLoading();
+    
+    try {
+        // Extract article URIs from the six articles data
+        const articleUris = articles.map(article => {
+            // Try different possible URI fields
+            return article.uri || article.url || article.article_uri;
+        }).filter(Boolean);
+        
+        if (!articleUris.length) {
+            throw new Error('No valid article URIs found in Six Articles data');
+        }
+        
+        const response = await fetch('/api/generate_tts_podcast', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                podcast_name: "Six Articles Briefing",
+                episode_title: `Six Articles - ${new Date().toLocaleDateString()}`,
+                mode: "bulletin",
+                duration: "long", // 7+ minutes
+                host_voice_id: "21m00Tcm4TlvDq8ikWAM", // Default voice (Rachel)
+                article_uris: articleUris
+            })
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const result = await response.json();
+        pollPodcastStatus(result.podcast_id);
+    } catch (error) {
+        hidePodcastLoading();
+        showNotification('Error generating podcast: ' + error.message, 'error');
+    }
+}
+
+function showPodcastLoading() {
+    // Find the export dropdown button and show loading state
+    const exportBtn = document.querySelector('.btn-group .dropdown-toggle');
+    if (exportBtn) {
+        exportBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Generating...';
+        exportBtn.disabled = true;
+    }
+    
+    // Show notification
+    showNotification('Generating podcast from Six Articles...', 'info');
+}
+
+function hidePodcastLoading() {
+    // Restore the export dropdown button
+    const exportBtn = document.querySelector('.btn-group .dropdown-toggle');
+    if (exportBtn) {
+        exportBtn.innerHTML = '<i class="fas fa-download me-2"></i>Export';
+        exportBtn.disabled = false;
+    }
+}
+
+function pollPodcastStatus(podcastId) {
+    const checkStatus = async () => {
+        try {
+            const response = await fetch(`/api/podcast/status/${podcastId}`);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+            
+            const data = await response.json();
+            
+            switch (data.status) {
+                case 'completed':
+                    hidePodcastLoading();
+                    showPodcastDownload(data.audio_url, data.title);
+                    break;
+                case 'failed':
+                    hidePodcastLoading();
+                    showNotification('Podcast generation failed', 'error');
+                    break;
+                case 'processing':
+                default:
+                    // Continue polling
+                    setTimeout(checkStatus, 5000);
+                    break;
+            }
+        } catch (error) {
+            hidePodcastLoading();
+            showNotification('Error checking podcast status: ' + error.message, 'error');
+        }
+    };
+    
+    // Start polling
+    checkStatus();
+}
+
+function showPodcastDownload(audioUrl, title) {
+    // Create download link
+    const downloadLink = document.createElement('a');
+    downloadLink.href = audioUrl;
+    downloadLink.download = `${title || 'six-articles-podcast'}.mp3`;
+    downloadLink.className = 'btn btn-success btn-sm';
+    downloadLink.innerHTML = '<i class="fas fa-download me-2"></i>Download Podcast';
+    
+    // Find the export dropdown area and add the download link
+    const exportArea = document.querySelector('.d-flex.gap-2');
+    if (exportArea) {
+        // Remove any existing podcast download link
+        const existingLink = exportArea.querySelector('.podcast-download-link');
+        if (existingLink) {
+            existingLink.remove();
+        }
+        
+        // Add new download link
+        downloadLink.classList.add('podcast-download-link');
+        exportArea.appendChild(downloadLink);
+        
+        // Auto-remove after 30 seconds
+        setTimeout(() => {
+            if (downloadLink.parentNode) {
+                downloadLink.remove();
+            }
+        }, 30000);
+    }
+    
+    showNotification('Podcast generated successfully!', 'success');
 }
 
 function getBiasBadge(bias) {
