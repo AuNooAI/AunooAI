@@ -122,6 +122,21 @@
                             <i class="fas fa-code-merge"></i> Merge Backup
                         </button>
                     </div>
+
+                    <div class="config-item">
+                        <h3>Topic Configuration Export/Import</h3>
+                        <p class="text-muted small mb-3">Export or import your topic monitoring configurations for backup or sharing.</p>
+                        <div class="database-operations">
+                            <button id="export-topics" onclick="exportTopicConfigurations()"
+                                    data-tooltip="Export topic configurations to JSON file">
+                                <i class="fas fa-download"></i> Export Topics
+                            </button>
+                            <button id="import-topics" onclick="showTopicImportDialog()"
+                                    data-tooltip="Import topic configurations from JSON file">
+                                <i class="fas fa-upload"></i> Import Topics
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 <div class="right-panel">
                     <h2>Database Information</h2>
@@ -418,12 +433,12 @@
                             <option value="">Select a backup...</option>
                         </select>
                     </div>
-                    
+
                     <div class="mb-3">
                         <h6>Or Upload File</h6>
-                        <input type="file" 
-                               id="database-upload" 
-                               class="form-control" 
+                        <input type="file"
+                               id="database-upload"
+                               class="form-control"
                                accept=".db,.sqlite,.sqlite3"
                                aria-label="Upload database file">
                         <small class="form-text text-muted mt-2">Select a SQLite database file to merge</small>
@@ -432,6 +447,53 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="button" class="btn btn-primary" onclick="mergeFromBackup()">Merge</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</template>
+
+<!-- Topic Import Dialog Template -->
+<template id="topic-import-dialog-template">
+    <div class="modal fade" tabindex="-1" role="dialog">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Import Topic Configurations</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-4">
+                        <h6>Upload Configuration File</h6>
+                        <input type="file"
+                               id="topic-config-upload"
+                               class="form-control"
+                               accept=".json"
+                               aria-label="Upload topic configuration file">
+                        <small class="form-text text-muted mt-2">Select a JSON file containing topic configurations</small>
+                    </div>
+
+                    <div class="mb-3">
+                        <h6>Import Mode</h6>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="importMode" id="replace-mode" value="replace" checked>
+                            <label class="form-check-label" for="replace-mode">
+                                <strong>Replace existing configurations</strong>
+                                <small class="form-text text-muted d-block">This will delete all current topic configurations and replace them with the imported ones.</small>
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="radio" name="importMode" id="merge-mode" value="merge">
+                            <label class="form-check-label" for="merge-mode">
+                                <strong>Merge with existing configurations</strong>
+                                <small class="form-text text-muted d-block">This will add new configurations without removing existing ones. Duplicates will be skipped.</small>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="importTopicConfigurations()">Import</button>
                 </div>
             </div>
         </div>
@@ -2181,18 +2243,149 @@
         }
     }
 
+    // Functions for topic export/import
+    async function exportTopicConfigurations() {
+        try {
+            const button = document.getElementById('export-topics');
+            const originalText = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Exporting...';
+
+            const response = await fetch('/api/export-topics');
+            if (!response.ok) {
+                throw new Error('Failed to export topic configurations');
+            }
+
+            const data = await response.json();
+
+            // Create and download JSON file
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `topic-configurations-${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+
+            showAlert('Topic configurations exported successfully', 'success');
+        } catch (error) {
+            console.error('Error exporting topic configurations:', error);
+            showAlert('Error exporting topic configurations: ' + error.message, 'danger');
+        } finally {
+            const button = document.getElementById('export-topics');
+            button.disabled = false;
+            button.innerHTML = '<i class="fas fa-download"></i> Export Topics';
+        }
+    }
+
+    async function showTopicImportDialog() {
+        try {
+            // Create modal from template
+            const template = document.getElementById('topic-import-dialog-template');
+            const modalContainer = template.content.cloneNode(true);
+            document.body.appendChild(modalContainer);
+
+            // Get the modal element - use the one we just added
+            const modalElement = document.body.querySelector('.modal:last-child');
+
+            // Create backdrop
+            const backdrop = document.createElement('div');
+            backdrop.className = 'modal-backdrop fade show';
+            document.body.appendChild(backdrop);
+
+            // Initialize Bootstrap modal
+            const modal = new bootstrap.Modal(modalElement);
+
+            // Add cleanup handler
+            modalElement.addEventListener('hidden.bs.modal', () => {
+                modal.dispose();
+                modalElement.remove();
+                backdrop.remove();
+            });
+
+            // Show modal
+            modal.show();
+
+        } catch (error) {
+            console.error('Error showing topic import dialog:', error);
+            showAlert('Failed to show topic import dialog: ' + error.message, 'danger');
+        }
+    }
+
+    async function importTopicConfigurations() {
+        const modalElement = document.querySelector('.modal');
+        if (!modalElement) {
+            console.error('Modal element not found');
+            return;
+        }
+
+        const fileInput = modalElement.querySelector('#topic-config-upload');
+        const importButton = modalElement.querySelector('.modal-footer .btn-primary');
+        const mergeMode = modalElement.querySelector('#merge-mode').checked;
+
+        if (!fileInput.files[0]) {
+            showAlert('Please select a configuration file to import', 'warning');
+            return;
+        }
+
+        try {
+            if (importButton) {
+                importButton.disabled = true;
+                importButton.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Importing...';
+            }
+
+            // Read the JSON file
+            const file = fileInput.files[0];
+            const fileContent = await file.text();
+            const configData = JSON.parse(fileContent);
+
+            // Send to API
+            const response = await fetch(`/api/import-topics?merge_mode=${mergeMode}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(configData)
+            });
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(errorText);
+            }
+
+            const result = await response.json();
+            showAlert(result.message || 'Successfully imported topic configurations', 'success');
+
+            // Close modal and refresh
+            const modal = bootstrap.Modal.getInstance(modalElement);
+            if (modal) modal.hide();
+            location.reload();
+
+        } catch (error) {
+            console.error('Error importing topic configurations:', error);
+            showAlert('Failed to import topic configurations: ' + error.message, 'danger');
+        } finally {
+            if (importButton) {
+                importButton.disabled = false;
+                importButton.innerHTML = 'Import';
+            }
+        }
+    }
+
     // Functions for cleaning orphaned data
     async function cleanOrphanedTopics() {
         if (!confirm('This will find and remove orphaned topic data from the system. Continue?')) {
             return;
         }
-        
+
         try {
             const button = document.getElementById('clean-topics-btn');
             const originalText = button.innerHTML;
             button.disabled = true;
             button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cleaning...';
-            
+
             const response = await fetch('/api/keyword-monitor/clean-orphaned-topics', {
                 method: 'POST'
             });
@@ -2203,7 +2396,7 @@
             }
 
             const result = await response.json();
-            
+
             if (result.orphaned_topics && result.orphaned_topics.length > 0) {
                 showAlert(`Successfully cleaned up ${result.orphaned_topics.length} orphaned topics`, 'success');
                 loadDatabaseInfo(); // Refresh database info

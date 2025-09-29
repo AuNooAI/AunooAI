@@ -280,29 +280,9 @@ class BulkResearch:
                 
                 logger.info(f"Successfully analyzed URL: {url}")
                 
-                # ✅ ADD AUTOMATIC VECTOR INDEXING FOR ANALYZED ARTICLES
-                try:
-                    from app.vector_store import upsert_article
-                    
-                    # Create a copy of result for vector indexing
-                    vector_article = result.copy()
-                    
-                    # Add raw article content if available (upsert_article looks for 'raw' field)
-                    if article_content and article_content.get('content'):
-                        vector_article['raw'] = article_content['content']
-                    
-                    # Ensure we have some content for indexing
-                    if vector_article.get('raw') or vector_article.get('summary') or vector_article.get('title'):
-                        # Index into vector database with correct function signature
-                        upsert_article(vector_article)
-                        logger.info(f"Successfully indexed analyzed article into vector database: {result.get('title', url)}")
-                    else:
-                        logger.warning(f"No content available for vector indexing during analysis: {url}")
-                        
-                except Exception as vector_error:
-                    logger.error(f"Failed to index analyzed article into vector database: {str(vector_error)}")
-                    # Don't fail the analysis if vector indexing fails
-                    logger.warning("Article analyzed but not indexed in vector store")
+                # Queue vector indexing for batch processing (non-blocking)
+                if article_content and article_content.get('content'):
+                    result['raw'] = article_content['content']
                 
                 results.append(result)
                 
@@ -331,6 +311,17 @@ class BulkResearch:
                 })
 
         logger.info(f"Completed analysis of {len(urls)} URLs")
+
+        # Batch index all analyzed articles into vector database (non-blocking)
+        vector_articles = [result for result in results if result.get('raw') or result.get('summary') or result.get('title')]
+        if vector_articles:
+            try:
+                await self._index_articles_vector(vector_articles)
+                logger.info(f"Successfully indexed {len(vector_articles)} analyzed articles into vector database")
+            except Exception as vector_error:
+                logger.error(f"Failed to batch index analyzed articles: {str(vector_error)}")
+                # Don't fail the entire analysis if vector indexing fails
+
         return results
 
     async def save_bulk_articles(self, articles: List[Dict]) -> Dict:
@@ -338,15 +329,48 @@ class BulkResearch:
             "success": [],
             "errors": []
         }
-        
+
         # Create MediaBias instance once for efficiency
         from app.models.media_bias import MediaBias
         media_bias = MediaBias(self.db)
-        
+
+        # Process articles in smaller batches to prevent database locks and blocking
+        BATCH_SIZE = 5  # Reduced batch size for better responsiveness
+        total_batches = (len(articles) + BATCH_SIZE - 1) // BATCH_SIZE
+
+        for batch_idx in range(total_batches):
+            start_idx = batch_idx * BATCH_SIZE
+            end_idx = min(start_idx + BATCH_SIZE, len(articles))
+            batch_articles = articles[start_idx:end_idx]
+
+            logger.info(f"Processing save batch {batch_idx + 1}/{total_batches} ({len(batch_articles)} articles)")
+
+            # Process batch with transaction management
+            batch_results = await self._save_articles_batch(batch_articles, media_bias)
+            results["success"].extend(batch_results["success"])
+            results["errors"].extend(batch_results["errors"])
+
+            # Longer pause between batches to allow other operations
+            if batch_idx < total_batches - 1:
+                await asyncio.sleep(0.2)
+
+        return results
+
+    async def _save_articles_batch(self, articles: List[Dict], media_bias) -> Dict:
+        """Save a batch of articles in a single transaction"""
+        batch_results = {
+            "success": [],
+            "errors": []
+        }
+
+        # Prepare all articles first (validation, enrichment)
+        prepared_articles = []
+        vector_articles = []
+
         for article in articles:
             try:
-                logger.debug(f'Attempting to save article: {article}')
-                
+                logger.debug(f'Preparing article: {article.get("title", "Unknown")}')
+
                 # Validate required fields
                 required_fields = [
                     'title', 'uri', 'news_source', 'summary', 'sentiment', 'time_to_impact',
@@ -354,31 +378,31 @@ class BulkResearch:
                     'sentiment_explanation', 'time_to_impact_explanation', 'tags', 'driver_type',
                     'driver_type_explanation', 'submission_date', 'topic', 'analyzed'
                 ]
-                
+
                 missing_fields = [field for field in required_fields if field not in article]
                 if missing_fields:
                     error_msg = f"Missing required fields: {', '.join(missing_fields)}"
                     logger.warning(error_msg)
-                    results["errors"].append({
+                    batch_results["errors"].append({
                         "uri": article.get('uri', 'Unknown'),
                         "error": error_msg
                     })
                     continue
-                
+
                 # Check for empty URI
                 if not article['uri']:
                     error_msg = "Empty URI provided"
                     logger.warning(error_msg)
-                    results["errors"].append({
+                    batch_results["errors"].append({
                         "uri": "Empty",
                         "error": error_msg
                     })
                     continue
-                
+
                 # Convert tags list to string if necessary
                 if isinstance(article.get('tags'), list):
                     article['tags'] = ', '.join(article['tags'])
-                    
+
                 # Add media bias data if not already present
                 if article.get('news_source') and not article.get('bias'):
                     try:
@@ -389,16 +413,16 @@ class BulkResearch:
                                 f"Media bias enrichment is enabled, "
                                 f"looking up data for {article['news_source']}"
                             )
-                            
+
                             # Get bias data for this source
                             bias_data = media_bias.get_bias_for_source(article['news_source'])
-                            
+
                             if bias_data:
                                 logger.debug(
                                     f"Found media bias data for {article['news_source']}: "
                                     f"{bias_data}"
                                 )
-                                
+
                                 # Add bias data to article
                                 article['bias'] = bias_data.get('bias', '')
                                 article['factual_reporting'] = bias_data.get('factual_reporting', '')
@@ -413,66 +437,197 @@ class BulkResearch:
                     except Exception as e:
                         logger.error(f"Error enriching article with media bias data: {str(e)}")
                         # Don't fail the entire process if bias enrichment fails
-                
-                # Save the article to the database
-                self.db.save_article(article)
-                
-                # Save raw markdown if available
-                if article.get('raw_markdown'):
-                    self.db.save_raw_article(
-                        article['uri'],
-                        article['raw_markdown'],
-                        article.get('topic', '')
-                    )
-                
-                # ✅ ADD AUTOMATIC VECTOR INDEXING
-                try:
-                    from app.vector_store import upsert_article
-                    
-                    # Create a copy of article for vector indexing
-                    vector_article = article.copy()
-                    
-                    # Add raw content if available (upsert_article looks for 'raw' field)
-                    raw_content = article.get('raw_markdown', '')
-                    if not raw_content:
-                        # Try to get from database
-                        try:
-                            raw_article = self.db.get_raw_article(article['uri'])
-                            if raw_article:
-                                raw_content = raw_article.get('raw_markdown', '')
-                        except Exception:
-                            pass
-                    
-                    if raw_content:
-                        vector_article['raw'] = raw_content
-                    
-                    # Ensure we have some content for indexing
-                    if vector_article.get('raw') or vector_article.get('summary') or vector_article.get('title'):
-                        # Index into vector database with correct function signature
-                        upsert_article(vector_article)
-                        logger.info(f"Successfully indexed bulk article into vector database: {article['title']}")
-                    else:
-                        logger.warning(f"No content available for vector indexing: {article['uri']}")
-                        
-                except Exception as vector_error:
-                    logger.error(f"Failed to index bulk article into vector database: {str(vector_error)}")
-                    # Don't fail the entire save operation if vector indexing fails
-                    logger.warning("Bulk article saved to database but not indexed in vector store")
-                
-                logger.info(f"Successfully saved article: {article['title']}")
-                results["success"].append({
-                    "uri": article['uri'], 
-                    "title": article['title']
-                })
-                
+
+                # Prepare vector article for later processing
+                vector_article = article.copy()
+                raw_content = article.get('raw_markdown', '')
+                if raw_content:
+                    vector_article['raw'] = raw_content
+
+                prepared_articles.append(article)
+                if vector_article.get('raw') or vector_article.get('summary') or vector_article.get('title'):
+                    vector_articles.append(vector_article)
+
             except Exception as e:
-                logger.error(f"Error saving article: {str(e)}")
-                results["errors"].append({
+                logger.error(f"Error preparing article: {str(e)}")
+                batch_results["errors"].append({
                     "uri": article.get('uri', 'Unknown'),
                     "error": str(e)
                 })
-        
-        return results
+
+        # Save all prepared articles in a single transaction
+        if prepared_articles:
+            try:
+                await self._save_articles_transaction(prepared_articles, batch_results)
+            except Exception as e:
+                logger.error(f"Batch transaction failed: {str(e)}")
+                # Add all articles to errors
+                for article in prepared_articles:
+                    batch_results["errors"].append({
+                        "uri": article.get('uri', 'Unknown'),
+                        "error": f"Transaction failed: {str(e)}"
+                    })
+
+        # Process vector indexing asynchronously (non-blocking)
+        if vector_articles:
+            try:
+                await self._index_articles_vector(vector_articles)
+            except Exception as vector_error:
+                logger.error(f"Vector indexing failed for batch: {str(vector_error)}")
+                # Don't fail the entire batch if vector indexing fails
+
+        return batch_results
+
+    async def _save_articles_transaction(self, articles: List[Dict], batch_results: Dict):
+        """Save articles in a single database transaction using connection pool"""
+        try:
+            from app.utils.database_pool import get_database_pool
+
+            # Use database pool for better concurrency
+            db_pool = get_database_pool(self.db.db_path)
+
+            # Prepare batch operations
+            operations = []
+
+            for article in articles:
+                try:
+                    # Prepare article insert operation
+                    article_sql = """
+                        INSERT OR REPLACE INTO articles (
+                            uri, title, news_source, publication_date, submission_date,
+                            summary, category, future_signal, future_signal_explanation,
+                            sentiment, sentiment_explanation, time_to_impact, time_to_impact_explanation,
+                            tags, driver_type, driver_type_explanation, topic, analyzed,
+                            bias, factual_reporting, mbfc_credibility_rating, bias_source,
+                            bias_country, press_freedom, media_type, popularity, auto_ingested,
+                            ingest_status
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """
+
+                    article_params = (
+                        article.get('uri', ''),
+                        article.get('title', ''),
+                        article.get('news_source', ''),
+                        article.get('publication_date', ''),
+                        article.get('submission_date', ''),
+                        article.get('summary', ''),
+                        article.get('category', ''),
+                        article.get('future_signal', ''),
+                        article.get('future_signal_explanation', ''),
+                        article.get('sentiment', ''),
+                        article.get('sentiment_explanation', ''),
+                        article.get('time_to_impact', ''),
+                        article.get('time_to_impact_explanation', ''),
+                        article.get('tags', ''),
+                        article.get('driver_type', ''),
+                        article.get('driver_type_explanation', ''),
+                        article.get('topic', ''),
+                        article.get('analyzed', False),
+                        article.get('bias', ''),
+                        article.get('factual_reporting', ''),
+                        article.get('mbfc_credibility_rating', ''),
+                        article.get('bias_source', ''),
+                        article.get('bias_country', ''),
+                        article.get('press_freedom', ''),
+                        article.get('media_type', ''),
+                        article.get('popularity', ''),
+                        article.get('auto_ingested', False),
+                        article.get('ingest_status', 'manual')
+                    )
+
+                    operations.append((article_sql, article_params))
+
+                    # Add raw article operation if available
+                    if article.get('raw_markdown'):
+                        raw_sql = """
+                            INSERT OR REPLACE INTO raw_articles (uri, raw_markdown, topic)
+                            VALUES (?, ?, ?)
+                        """
+                        raw_params = (
+                            article.get('uri', ''),
+                            article.get('raw_markdown', ''),
+                            article.get('topic', '')
+                        )
+                        operations.append((raw_sql, raw_params))
+
+                except Exception as e:
+                    logger.error(f"Error preparing article {article.get('uri')}: {str(e)}")
+                    batch_results["errors"].append({
+                        "uri": article.get('uri', 'Unknown'),
+                        "error": f"Preparation failed: {str(e)}"
+                    })
+
+            # Execute all operations in batch
+            if operations:
+                batch_operation_results = await db_pool.execute_batch(operations, batch_size=5)
+
+                # Process results
+                for i, (article, result) in enumerate(zip(articles, batch_operation_results[:len(articles)])):
+                    if result.get('success'):
+                        batch_results["success"].append({
+                            "uri": article['uri'],
+                            "title": article['title']
+                        })
+                    else:
+                        batch_results["errors"].append({
+                            "uri": article.get('uri', 'Unknown'),
+                            "error": result.get('error', 'Database operation failed')
+                        })
+
+                logger.info(f"Successfully processed batch of {len(articles)} articles using connection pool")
+
+        except Exception as e:
+            logger.error(f"Batch transaction failed: {str(e)}")
+            # Add all articles to errors if batch fails completely
+            for article in articles:
+                batch_results["errors"].append({
+                    "uri": article.get('uri', 'Unknown'),
+                    "error": f"Batch transaction failed: {str(e)}"
+                })
+
+    async def _index_articles_vector(self, vector_articles: List[Dict]):
+        """Index articles into vector database asynchronously with batching"""
+        if not vector_articles:
+            return
+
+        import asyncio
+        from concurrent.futures import ThreadPoolExecutor
+
+        # Process vector indexing in smaller batches to avoid blocking
+        VECTOR_BATCH_SIZE = 3
+        total_batches = (len(vector_articles) + VECTOR_BATCH_SIZE - 1) // VECTOR_BATCH_SIZE
+
+        for batch_idx in range(total_batches):
+            start_idx = batch_idx * VECTOR_BATCH_SIZE
+            end_idx = min(start_idx + VECTOR_BATCH_SIZE, len(vector_articles))
+            batch_articles = vector_articles[start_idx:end_idx]
+
+            def index_batch_sync():
+                try:
+                    from app.vector_store import upsert_article
+
+                    for article in batch_articles:
+                        try:
+                            upsert_article(article)
+                            logger.debug(f"Indexed article into vector database: {article.get('title', 'Unknown')}")
+                        except Exception as e:
+                            logger.error(f"Failed to index article {article.get('uri')}: {str(e)}")
+
+                    logger.debug(f"Successfully indexed batch of {len(batch_articles)} articles into vector database")
+
+                except Exception as e:
+                    logger.error(f"Vector indexing batch error: {str(e)}")
+
+            # Run vector indexing batch in thread pool
+            loop = asyncio.get_event_loop()
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                await loop.run_in_executor(executor, index_batch_sync)
+
+            # Brief pause between vector batches to allow other operations
+            if batch_idx < total_batches - 1:
+                await asyncio.sleep(0.05)
+
+        logger.info(f"Successfully indexed all {len(vector_articles)} articles into vector database")
     
     def extract_source(self, uri):
         domain = urlparse(uri).netloc
@@ -933,29 +1088,9 @@ class BulkResearch:
                 
                 logger.info(f"[stream] Finished URL: {url}")
                 
-                # ✅ ADD AUTOMATIC VECTOR INDEXING FOR STREAMING ANALYSIS
-                try:
-                    from app.vector_store import upsert_article
-                    
-                    # Create a copy of result for vector indexing
-                    vector_article = result.copy()
-                    
-                    # Add raw article content if available (upsert_article looks for 'raw' field)
-                    if article_content and article_content.get('content'):
-                        vector_article['raw'] = article_content['content']
-                    
-                    # Ensure we have some content for indexing
-                    if vector_article.get('raw') or vector_article.get('summary') or vector_article.get('title'):
-                        # Index into vector database with correct function signature
-                        upsert_article(vector_article)
-                        logger.info(f"[stream] Successfully indexed analyzed article into vector database: {result.get('title', url)}")
-                    else:
-                        logger.warning(f"[stream] No content available for vector indexing during analysis: {url}")
-                        
-                except Exception as vector_error:
-                    logger.error(f"[stream] Failed to index analyzed article into vector database: {str(vector_error)}")
-                    # Don't fail the analysis if vector indexing fails
-                    logger.warning("[stream] Article analyzed but not indexed in vector store")
+                # Queue vector indexing for later batch processing (for streaming, we defer indexing)
+                if article_content and article_content.get('content'):
+                    result['raw'] = article_content['content']
                 
                 yield result
                 # Give control back to event loop to flush stream quickly

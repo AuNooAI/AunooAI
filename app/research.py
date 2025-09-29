@@ -959,7 +959,7 @@ class Research:
                         
                         # Try to save the article but don't fail if it can't be saved
                         try:
-                            self.db.save_raw_article(uri, content, self.current_topic)
+                            self.db.save_raw_article(uri, content, self.current_topic, create_placeholder=True)
                             logger.info(
                                 f"Successfully saved Bluesky content: {self.current_topic}"
                             )
@@ -1059,7 +1059,7 @@ class Research:
                 
                 # Try to save the article but don't fail if it can't be saved
                 try:
-                    self.db.save_raw_article(uri, content, self.current_topic)
+                    self.db.save_raw_article(uri, content, self.current_topic, create_placeholder=True)
                     logger.info(f"Successfully saved raw article with topic: {self.current_topic}")
                 except Exception as save_error:
                     logger.error(f"Failed to save raw article: {str(save_error)}")

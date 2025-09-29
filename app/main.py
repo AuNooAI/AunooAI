@@ -48,6 +48,8 @@ from app.tasks.keyword_monitor import run_keyword_monitor
 import sqlite3
 from app.routes import database  # Make sure this import exists
 from app.routes.stats_routes import router as stats_router
+from app.routes.background_tasks import router as background_tasks_router
+from app.routes.auto_ingest import router as auto_ingest_router
 # from app.routes.news_feed_routes import router as news_feed_router  # Now registered via app factory
 from app.routes.chat_routes import router as chat_router
 from app.routes.database import router as database_router
@@ -205,6 +207,8 @@ app.include_router(websocket_router, prefix="/keyword-monitor")  # WebSocket rou
 app.include_router(forecast_chart_router)  # API routes
 app.include_router(forecast_chart_web_router)  # Web routes
 app.include_router(vector_router)  # Vector/AI analysis routes (already has /api prefix)
+app.include_router(background_tasks_router)  # Background task management routes
+app.include_router(auto_ingest_router)  # Auto-ingest pipeline routes
 # app.include_router(news_feed_router)  # News feed routes - Now registered via app factory
 
 def get_template_context(request: Request, additional_context: dict = None) -> dict:

@@ -1696,7 +1696,7 @@ Remember to cite your sources and provide actionable insights where possible."""
                 "last_entry": last_entry
             }
 
-    def save_raw_article(self, uri, raw_markdown, topic):
+    def save_raw_article(self, uri, raw_markdown, topic, create_placeholder=False):
         with self.get_connection() as conn:
             cursor = conn.cursor()
             current_time = datetime.now().isoformat()
@@ -1704,10 +1704,21 @@ Remember to cite your sources and provide actionable insights where possible."""
             # Ensure parent article exists before saving raw article
             cursor.execute("SELECT uri FROM articles WHERE uri = ?", (uri,))
             if not cursor.fetchone():
-                logger.warning(f"No article entry found for URI: {uri}. Raw article will not be saved.")
-                logger.warning("This means content extraction may have failed. Check extraction logic.")
-                # Don't create placeholder - let the calling code handle content extraction first
-                return {"error": "No article entry found - content extraction may have failed"}
+                if create_placeholder:
+                    # Create a minimal placeholder article entry
+                    logger.info(f"Creating placeholder article entry for URI: {uri}")
+                    from urllib.parse import urlparse
+                    source = urlparse(uri).netloc or "Unknown"
+                    cursor.execute("""
+                        INSERT INTO articles (uri, title, news_source, topic, submission_date, analyzed)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (uri, f"Article from {source}", source, topic, current_time, False))
+                    logger.info(f"Created placeholder article entry for URI: {uri}")
+                else:
+                    logger.warning(f"No article entry found for URI: {uri}. Raw article will not be saved.")
+                    logger.warning("This means content extraction may have failed. Check extraction logic.")
+                    # Don't create placeholder - let the calling code handle content extraction first
+                    raise ValueError(f"No article entry found for URI: {uri} - content extraction may have failed")
             
             cursor.execute("SELECT * FROM raw_articles WHERE uri = ?", (uri,))
             existing_raw_article = cursor.fetchone()

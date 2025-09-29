@@ -128,65 +128,6 @@
       ]
     },
     {
-      "name": "Cloud Repatriation",
-      "description": "IS there a Cloud Repatriation movement, and if so, how large is it?",
-      "categories": [
-        "Cost Analysis",
-        "Data Sovereignty",
-        "Performance Concerns",
-        "Regulatory Compliance",
-        "Security and Privacy",
-        "Vendor Lock-in Risks",
-        "Workload Suitability",
-        "Hybrid Cloud Strategies",
-        "SaaS",
-        "PaaS",
-        "IaaS",
-        "New Release"
-      ],
-      "future_signals": [
-        "Widespread cloud exit",
-        "Selective workload repatriation",
-        "Hybrid equilibrium emerges",
-        "Cloud dominance continues",
-        "Increased multi-cloud adoption"
-      ],
-      "sentiment": [
-        "Positive",
-        "Negative",
-        "Neutral"
-      ],
-      "time_to_impact": [
-        "Immediate (0-6 months)",
-        "Short-term (6-18 months)",
-        "Mid-term (18-60 months)",
-        "Long-term (60+ months)"
-      ],
-      "driver_types": [
-        "Initiator",
-        "Accelerator",
-        "Catalyst",
-        "Inhibitor",
-        "Blocker"
-      ],
-      "keywords": [
-        "IBM",
-        "Dell Technologies",
-        "HPE",
-        "AWS",
-        "GCP",
-        "Azure",
-        "Private Cloud",
-        "Hybrid Cloud",
-        "Data Center",
-        "Cloud Repatriation",
-        "Cloud Exit",
-        "Cloud Migration",
-        "Cloud Adoption",
-        "Cloud-First"
-      ]
-    },
-    {
       "name": "Climate Change",
       "description": "Tracking climate change news, research and impacts",
       "categories": [

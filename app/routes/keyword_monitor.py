@@ -219,7 +219,12 @@ class CheckNowRequest(BaseModel):
 
 
 @router.post("/check-now")
-async def check_now(request: CheckNowRequest = None, db=Depends(get_database_instance), session=Depends(verify_session_api)):
+async def check_now(
+    http_request: Request,
+    request: CheckNowRequest = None,
+    db=Depends(get_database_instance),
+    session=Depends(verify_session_api)
+):
     """Trigger an immediate keyword check"""
     try:
         # Handle both old-style (no body) and new-style (with body) requests
@@ -230,7 +235,7 @@ async def check_now(request: CheckNowRequest = None, db=Depends(get_database_ins
         else:
             topic = request.topic
             group_id = request.group_id
-        
+
         # Log number of keywords being monitored
         if group_id:
             keyword_count = (DatabaseQueryFacade(db, logger)).get_number_of_monitored_keywords_by_group_id(group_id)
@@ -239,24 +244,57 @@ async def check_now(request: CheckNowRequest = None, db=Depends(get_database_ins
             keyword_count = (DatabaseQueryFacade(db, logger)).get_total_number_of_keywords()
             logger.info(f"Running manual keyword check - {keyword_count} keywords configured")
 
-        monitor = KeywordMonitor(db)
-        
-        # Note: KeywordMonitor.check_keywords() doesn't support group_id parameter
-        # For now, we'll run the full check and filter results if needed
-        logger.info("Calling monitor.check_keywords()...")
-        result = await monitor.check_keywords()
-        logger.info(f"Result from check_keywords(): {result}")
-        
-        if result is None:
-            logger.error("check_keywords() returned None!")
-            raise HTTPException(status_code=500, detail="Keyword check returned None - check collector initialization")
-        
-        if result.get("success", False):
-            logger.info(f"Keyword check completed successfully: {result.get('new_articles', 0)} new articles found")
-            return result
+        # Check if this should be a background task (for operations likely to take >10 seconds)
+        request_type = http_request.headers.get('X-Request-Type', 'normal')
+        use_background_task = keyword_count > 10  # Lower threshold for background tasks
+
+        logger.info(f"Keyword check decision: count={keyword_count}, request_type={request_type}, use_background_task={use_background_task}")
+
+        if use_background_task:
+            # Use background task system for long-running operations
+            from app.services.background_task_manager import get_task_manager, run_keyword_check_task
+
+            task_manager = get_task_manager()
+            task_id = task_manager.create_task(
+                name="Keyword Check",
+                total_items=keyword_count,
+                metadata={"type": "keyword_check", "keyword_count": keyword_count}
+            )
+
+            # Start the task in background
+            import asyncio
+            logger.info(f"Starting background task {task_id} for keyword check")
+
+            task_coroutine = task_manager.run_task(task_id, run_keyword_check_task, group_id=group_id)
+            asyncio.create_task(task_coroutine)
+
+            logger.info(f"Background task {task_id} started successfully")
+
+            return JSONResponse({
+                "success": True,
+                "task_id": task_id,
+                "total_keywords": keyword_count,
+                "message": "Keyword check started as background task"
+            })
+
         else:
-            logger.error(f"Keyword check failed: {result.get('error', 'Unknown error')}")
-            raise HTTPException(status_code=500, detail=result.get('error', 'Unknown error'))
+            # Quick synchronous operation
+            monitor = KeywordMonitor(db)
+
+            logger.info("Calling monitor.check_keywords()...")
+            result = await monitor.check_keywords()
+            logger.info(f"Result from check_keywords(): {result}")
+
+            if result is None:
+                logger.error("check_keywords() returned None!")
+                raise HTTPException(status_code=500, detail="Keyword check returned None - check collector initialization")
+
+            if result.get("success", False):
+                logger.info(f"Keyword check completed successfully: {result.get('new_articles', 0)} new articles found")
+                return result
+            else:
+                logger.error(f"Keyword check failed: {result.get('error', 'Unknown error')}")
+                raise HTTPException(status_code=500, detail=result.get('error', 'Unknown error'))
             
     except ValueError as e:
         logger.error(f"Value error in check_now: {str(e)}")

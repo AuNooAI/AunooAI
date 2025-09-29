@@ -1732,7 +1732,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                             Auto-ingest disabled
                         </label>
                     </div>
-                    <button class="btn btn-sm btn-outline-primary" onclick="checkKeywords()">
+                    <button class="btn btn-sm btn-outline-primary" onclick="checkKeywords(event)">
                         <i class="fas fa-sync"></i> Update Now
                     </button>
                     <button class="btn btn-sm btn-outline-secondary" onclick="showAutoIngestSettings()">
@@ -3659,76 +3659,157 @@ function showAlert(message, type = 'danger') {
     }
 }
 
-async function checkKeywords() {
-    const button = event.target.closest('button');
+async function checkKeywords(event) {
+    const button = event?.target?.closest('button') || document.querySelector('button[onclick*="checkKeywords"]');
+
+    if (!button) {
+        console.error('Could not find checkKeywords button');
+        return;
+    }
+
     const originalHtml = button.innerHTML;
-    
+
     try {
+        // Set button state to loading
         button.disabled = true;
         button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...';
-        
-        console.log("Sending check-now request to API...");
+
+        console.log("Starting keyword check with background task tracking...");
+
+        // First, check if we should use background task system or direct call
         const response = await fetch('/api/keyword-monitor/check-now', {
             method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Request-Type': 'auto-detect'  // Let backend decide
+            },
             credentials: 'same-origin'
         });
-        
-        console.log("API response received:", response.status);
-        
-        if (response.status === 429) {
-            const errorData = await response.json().catch(() => ({}));
-            const message = errorData.detail || 'API daily request limit reached. Please try again tomorrow.';
-            showAlert(message, 'warning');
-            return;
-        }
-        
+
         if (!response.ok) {
-            const errorData = await response.json().catch(() => ({}));
-            console.error("API error:", errorData);
-            
-            // Check if the error message contains rate limit information
-            if (errorData.detail && errorData.detail.toLowerCase().includes('rate limit')) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const result = await response.json();
+        console.log("Check keywords response:", result);
+        console.log("Response has task_id:", !!result.task_id);
+        console.log("Response success:", result.success);
+
+        if (result.task_id) {
+            // Long-running operation - use progress tracking
+            console.log("Operation started as background task:", result.task_id);
+
+            // Restore button immediately since we're using progress modal
+            button.disabled = false;
+            button.innerHTML = originalHtml;
+
+            // Show progress modal
+            showProgressModal('Keyword Check', `Checking keywords across ${result.total_keywords || 'all'} groups`);
+
+            // Add timeout protection for stuck tasks
+            const taskTimeout = setTimeout(() => {
+                console.error("Task monitoring timeout - no updates received");
+                hideProgressModal();
+                showAlert('Keyword check is taking longer than expected. The operation may still be running in the background.', 'warning');
+            }, 60000); // 1 minute timeout
+
+            // Test task endpoint immediately
+            setTimeout(async () => {
+                try {
+                    const testResponse = await fetch(`/api/background-tasks/task/${result.task_id}`);
+                    const taskStatus = await testResponse.json();
+                    console.log("Initial task status check:", taskStatus);
+                } catch (e) {
+                    console.error("Failed to check initial task status:", e);
+                }
+            }, 1000);
+
+            // Monitor the background task
+            monitorBackgroundTask(
+                result.task_id,
+                (progress) => {
+                    console.log("Progress update received:", progress);
+                    clearTimeout(taskTimeout); // Cancel timeout on any progress
+                    updateProgressModal(progress);
+                },
+                (finalResult) => {
+                    console.log("Task completed:", finalResult);
+                    clearTimeout(taskTimeout);
+                    hideProgressModal();
+
+                    if (finalResult && finalResult.success) {
+                        const articlesFound = finalResult.new_articles || 0;
+                        showAlert(`Keyword check completed! Found ${articlesFound} new articles. Refreshing page...`, 'success');
+
+                        // Refresh page after short delay
+                        setTimeout(() => window.location.reload(), 1500);
+                    } else {
+                        showAlert(`Keyword check completed with issues: ${finalResult?.message || 'Unknown error'}`, 'warning');
+                    }
+                },
+                (error) => {
+                    console.error("Task failed:", error);
+                    clearTimeout(taskTimeout);
+                    hideProgressModal();
+                    showAlert(`Keyword check failed: ${error}`, 'danger');
+                }
+            );
+
+        } else if (result.success) {
+            // Quick operation completed immediately
+            console.log("Quick keyword check completed:", result);
+
+            // Restore button for quick operations
+            button.disabled = false;
+            button.innerHTML = originalHtml;
+
+            if (response.status === 429) {
+                const message = result.detail || 'API daily request limit reached. Please try again tomorrow.';
+                showAlert(message, 'warning');
+                return;
+            }
+
+            // Check for rate limit warnings
+            if (result.message && result.message.toLowerCase().includes('rate limit')) {
+                showAlert('Rate limit reached during keyword check. Some keywords may not have been processed.', 'warning');
+            } else if (result.error && result.error.toLowerCase().includes('rate limit')) {
+                showAlert('Rate limit reached during keyword check. Some keywords may not have been processed.', 'warning');
+            } else {
+                const articlesFound = result.new_articles || 0;
+                showAlert(`Keyword check completed successfully. Found ${articlesFound} new articles. Refreshing page...`, 'success');
+            }
+
+            // Refresh page after short delay
+            setTimeout(() => window.location.reload(), 1500);
+
+        } else {
+            // Handle error response - restore button first
+            button.disabled = false;
+            button.innerHTML = originalHtml;
+
+            if (response.status === 429) {
                 showAlert('Rate limit exceeded. Please try again later or upgrade your API plan.', 'warning');
             } else {
-            throw new Error(errorData.detail || 'Failed to check keywords');
+                throw new Error(result.error || result.detail || 'Failed to check keywords');
             }
-            return;
         }
-        
-        const result = await response.json();
-        console.log("API check complete:", result);
-        
-        // Check if the result indicates rate limiting or no articles due to limits
-        if (result.message && result.message.toLowerCase().includes('rate limit')) {
-            showAlert('Rate limit reached during keyword check. Some keywords may not have been processed.', 'warning');
-        } else if (result.error && result.error.toLowerCase().includes('rate limit')) {
-            showAlert('Rate limit reached during keyword check. Some keywords may not have been processed.', 'warning');
-        } else if (result.new_articles === 0 && result.warnings && result.warnings.some(w => w.toLowerCase().includes('rate limit'))) {
-            showAlert('Rate limit reached. No new articles found due to API limitations.', 'warning');
-        } else {
-        // Show success message
-            const articlesFound = result.new_articles || 0;
-            showAlert(`Keyword check completed successfully. Found ${articlesFound} new articles. Refreshing page...`, 'success');
-        }
-        
-        // Wait a moment to ensure database operations complete
-        setTimeout(() => {
-            console.log("Reloading page to show updated results");
-            window.location.reload();
-        }, 1500);
-        
+
     } catch (error) {
-        console.error('Error:', error);
-        
+        console.error('Error during keyword check:', error);
+
         // Check if the error message contains rate limit information
         if (error.message && error.message.toLowerCase().includes('rate limit')) {
             showAlert('Rate limit exceeded. Please try again later or upgrade your API plan.', 'warning');
         } else {
-        showAlert('Failed to check keywords: ' + error.message, 'danger');
+            showAlert('Failed to start keyword check: ' + error.message, 'danger');
         }
     } finally {
-        button.disabled = false;
-        button.innerHTML = originalHtml;
+        // Only restore button if it's not being used for background task progress
+        // (background task path restores button immediately after starting)
+        if (button.innerHTML.includes('Checking...')) {
+            button.disabled = false;
+            button.innerHTML = originalHtml;
+        }
     }
 }
 
@@ -4359,15 +4440,275 @@ async function changePageSize(topic, groupId, pageSize) {
     await refreshGroupArticles(topic, groupId, showRead, true, 1, statusFilter);
 }
 
+// Background Task Management
+let activeBackgroundTasks = new Map(); // task_id -> task info
+let taskPollingInterval = null;
+
+function startBackgroundTask(taskType, data, onProgress, onComplete, onError) {
+    console.log(`Starting background task: ${taskType}`);
+
+    // Create task via API
+    fetch(`/api/background-tasks/${taskType}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(data)
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            const taskId = result.task_id;
+
+            // Store task info
+            activeBackgroundTasks.set(taskId, {
+                id: taskId,
+                type: taskType,
+                onProgress: onProgress,
+                onComplete: onComplete,
+                onError: onError,
+                startTime: Date.now()
+            });
+
+            // Start polling if not already running
+            if (!taskPollingInterval) {
+                startTaskPolling();
+            }
+
+            console.log(`Background task started with ID: ${taskId}`);
+        } else {
+            throw new Error(result.message || 'Failed to start task');
+        }
+    })
+    .catch(error => {
+        console.error('Failed to start background task:', error);
+        if (onError) onError(error);
+    });
+}
+
+function startTaskPolling() {
+    taskPollingInterval = setInterval(() => {
+        if (activeBackgroundTasks.size === 0) {
+            stopTaskPolling();
+            return;
+        }
+
+        // Poll all active tasks
+        activeBackgroundTasks.forEach((taskInfo, taskId) => {
+            pollTaskStatus(taskId);
+        });
+    }, 2000); // Poll every 2 seconds
+}
+
+function stopTaskPolling() {
+    if (taskPollingInterval) {
+        clearInterval(taskPollingInterval);
+        taskPollingInterval = null;
+    }
+}
+
+function pollTaskStatus(taskId) {
+    fetch(`/api/background-tasks/task/${taskId}`)
+        .then(response => response.json())
+        .then(result => {
+            if (result.success) {
+                const task = result.task;
+                const taskInfo = activeBackgroundTasks.get(taskId);
+
+                if (!taskInfo) return;
+
+                // Call progress callback
+                if (taskInfo.onProgress) {
+                    taskInfo.onProgress(task);
+                }
+
+                // Check if task is complete
+                if (task.status === 'completed') {
+                    console.log(`Task ${taskId} completed`);
+                    if (taskInfo.onComplete) {
+                        taskInfo.onComplete(task.result);
+                    }
+                    activeBackgroundTasks.delete(taskId);
+                } else if (task.status === 'failed') {
+                    console.error(`Task ${taskId} failed:`, task.error);
+                    if (taskInfo.onError) {
+                        taskInfo.onError(new Error(task.error));
+                    }
+                    activeBackgroundTasks.delete(taskId);
+                } else if (task.status === 'cancelled') {
+                    console.log(`Task ${taskId} was cancelled`);
+                    activeBackgroundTasks.delete(taskId);
+                }
+            }
+        })
+        .catch(error => {
+            console.error(`Failed to poll task ${taskId}:`, error);
+        });
+}
+
+// Monitor a background task with callbacks (used by auto-ingest)
+function monitorBackgroundTask(taskId, onProgress, onComplete, onError) {
+    console.log(`Starting to monitor background task: ${taskId}`);
+
+    // Add task to active tasks map
+    activeBackgroundTasks.set(taskId, {
+        onProgress: onProgress,
+        onComplete: onComplete,
+        onError: onError
+    });
+
+    // Start polling if not already running
+    if (!taskPollingInterval) {
+        startTaskPolling();
+    }
+}
+
+function showProgressModal(title, message) {
+    // Create or update progress modal
+    let modal = document.getElementById('progressModal');
+
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'progressModal';
+        modal.className = 'modal fade';
+        modal.innerHTML = `
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="progressModalTitle">${title}</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <div id="progressMessage">${message}</div>
+                        </div>
+                        <div class="mb-3">
+                            <div class="progress">
+                                <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated"
+                                     role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                                    <span id="progressText">0%</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="text-muted small" id="progressDetails">
+                            Starting...
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <button type="button" class="btn btn-danger" id="cancelTaskBtn" style="display: none;">Cancel Task</button>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+    } else {
+        document.getElementById('progressModalTitle').textContent = title;
+        document.getElementById('progressMessage').textContent = message;
+        document.getElementById('progressBar').style.width = '0%';
+        document.getElementById('progressText').textContent = '0%';
+        document.getElementById('progressDetails').textContent = 'Starting...';
+    }
+
+    // Show modal
+    const bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
+
+    return modal;
+}
+
+function updateProgressModal(task) {
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    const progressDetails = document.getElementById('progressDetails');
+
+    if (progressBar && progressText && progressDetails) {
+        const progress = Math.round(task.progress || 0);
+        progressBar.style.width = `${progress}%`;
+        progressBar.setAttribute('aria-valuenow', progress);
+        progressText.textContent = `${progress}%`;
+
+        let details = `Status: ${task.status}`;
+        if (task.processed_items !== undefined && task.total_items) {
+            details += ` • ${task.processed_items}/${task.total_items} processed`;
+        }
+        if (task.current_item) {
+            details += ` • Current: ${task.current_item.substring(0, 50)}...`;
+        }
+
+        progressDetails.textContent = details;
+    }
+}
+
+function hideProgressModal() {
+    const modal = document.getElementById('progressModal');
+    if (modal) {
+        const bsModal = bootstrap.Modal.getInstance(modal);
+        if (bsModal) {
+            bsModal.hide();
+        }
+    }
+}
+
 function analyzeBulkArticles(topic, groupId) {
     const articles = selectedArticles.byGroup[groupId] || [];
     if (articles.length === 0) {
         showAlert('No articles selected for analysis', 'warning');
         return;
     }
-    
-    // Prepare articles for modal
-    openArticleAnalysisModal(articles, topic, groupId);
+
+    // Use background task for bulk analysis
+    const urls = articles.map(article => article.url);
+
+    const progressModal = showProgressModal(
+        'Bulk Article Analysis',
+        `Analyzing ${urls.length} articles for topic: ${topic}`
+    );
+
+    startBackgroundTask(
+        'bulk-analysis',
+        {
+            urls: urls,
+            topic: topic,
+            summary_type: 'curious_ai',
+            model_name: 'gpt-4',
+            summary_length: 50,
+            summary_voice: 'neutral'
+        },
+        // onProgress
+        (task) => {
+            updateProgressModal(task);
+        },
+        // onComplete
+        (result) => {
+            console.log('Bulk analysis completed:', result);
+
+            // Hide progress modal
+            const modal = bootstrap.Modal.getInstance(progressModal);
+            if (modal) modal.hide();
+
+            if (result.success) {
+                showAlert(`Successfully analyzed ${result.analyzed_count} articles! ${result.error_count > 0 ? `${result.error_count} errors occurred.` : ''}`, 'success');
+
+                // Refresh the page to show updated articles
+                setTimeout(() => {
+                    window.location.reload();
+                }, 2000);
+            } else {
+                showAlert(`Analysis failed: ${result.error}`, 'danger');
+            }
+        },
+        // onError
+        (error) => {
+            console.error('Bulk analysis failed:', error);
+
+            // Hide progress modal
+            const modal = bootstrap.Modal.getInstance(progressModal);
+            if (modal) modal.hide();
+
+            showAlert(`Analysis failed: ${error.message}`, 'danger');
+        }
+    );
 }
 
 // Function to analyze selected articles using checkboxes
@@ -7274,7 +7615,7 @@ document.addEventListener('DOMContentLoaded', function() {
 // Toggle auto-ingest on/off
 async function toggleAutoIngest(enabled) {
     try {
-        const response = await fetch('/api/keyword-monitor/auto-ingest/' + (enabled ? 'enable' : 'disable'), {
+        const response = await fetch('/api/auto-ingest/' + (enabled ? 'enable' : 'disable'), {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -7286,16 +7627,19 @@ async function toggleAutoIngest(enabled) {
         }
 
         const result = await response.json();
-        
+
         if (result.success) {
             const toggle = document.getElementById('autoIngestToggle');
             const label = toggle.nextElementSibling;
-            
+
             autoIngestSettings.auto_ingest_enabled = enabled;
             toggle.checked = enabled;
             label.textContent = `Auto-ingest ${enabled ? 'enabled' : 'disabled'}`;
-            
+
             showAlert(`Auto-ingest ${enabled ? 'enabled' : 'disabled'} successfully!`, 'success');
+
+            // Refresh status
+            await loadAutoIngestStatus();
         } else {
             throw new Error(result.error || 'Failed to toggle auto-ingest');
         }
@@ -7309,6 +7653,176 @@ async function toggleAutoIngest(enabled) {
     }
 }
 
+// Load auto-ingest status and update UI
+async function loadAutoIngestStatus() {
+    try {
+        const response = await fetch('/api/auto-ingest/status');
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        if (result.success) {
+            const status = result.status;
+
+            // Update main toggle
+            const toggle = document.getElementById('autoIngestToggle');
+            const label = toggle.nextElementSibling;
+            toggle.checked = status.enabled;
+            label.textContent = `Auto-ingest ${status.enabled ? 'enabled' : 'disabled'}`;
+
+            // Update modal settings if open
+            const modal = document.getElementById('autoIngestSettingsModal');
+            if (modal) {
+                const config = status.config;
+
+                // Update form fields
+                document.getElementById('autoIngestEnabled').checked = config.enabled;
+                document.getElementById('qualityControlEnabled').checked = config.quality_control_enabled;
+                document.getElementById('autoIngestRelevanceThreshold').value = config.min_relevance_threshold;
+                document.getElementById('autoIngestThresholdValue').textContent = Math.round(config.min_relevance_threshold * 100) + '%';
+                document.getElementById('llmTemperature').value = config.llm_temperature;
+
+                // Update model dropdown
+                const modelSelect = document.getElementById('defaultLlmModel');
+                if (modelSelect.options.length > 1) { // Has options loaded
+                    modelSelect.value = config.llm_model;
+                }
+            }
+
+            // Update pending articles count
+            const pendingCount = status.pending_articles_count || 0;
+            updatePendingArticlesDisplay(pendingCount);
+
+            console.log('Auto-ingest status loaded:', status);
+        }
+    } catch (error) {
+        console.error('Error loading auto-ingest status:', error);
+    }
+}
+
+// Update pending articles display
+function updatePendingArticlesDisplay(count) {
+    const pendingElements = document.querySelectorAll('.pending-articles-count');
+    pendingElements.forEach(el => {
+        el.textContent = count;
+    });
+}
+
+// Save auto-ingest settings
+async function saveAutoIngestSettings() {
+    try {
+        const config = {
+            enabled: document.getElementById('autoIngestEnabled').checked,
+            quality_control_enabled: document.getElementById('qualityControlEnabled').checked,
+            min_relevance_threshold: parseFloat(document.getElementById('autoIngestRelevanceThreshold').value),
+            llm_model: document.getElementById('defaultLlmModel').value,
+            llm_temperature: parseFloat(document.getElementById('llmTemperature').value)
+        };
+
+        const response = await fetch('/api/auto-ingest/config', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(config)
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+
+        if (result.success) {
+            showAlert('Auto-ingest settings saved successfully!', 'success');
+
+            // Update main toggle
+            await loadAutoIngestStatus();
+
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('autoIngestSettingsModal'));
+            if (modal) modal.hide();
+        } else {
+            throw new Error(result.error || 'Failed to save settings');
+        }
+    } catch (error) {
+        console.error('Error saving auto-ingest settings:', error);
+        showAlert(`Error: ${error.message}`, 'danger');
+    }
+}
+
+// Run auto-ingest manually with progress tracking
+async function runAutoIngestNow() {
+    try {
+        console.log("Starting auto-ingest request...");
+        const response = await fetch('/api/auto-ingest/run', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+
+        console.log("Auto-ingest response status:", response.status);
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error("Auto-ingest error response:", errorText);
+            throw new Error(`HTTP error! status: ${response.status} - ${errorText}`);
+        }
+
+        const result = await response.json();
+
+        if (result.success && result.task_id) {
+            // Show progress modal for auto-ingest
+            showProgressModal('Auto-Ingest Pipeline', result.total_articles || 0);
+
+            // Start monitoring the background task
+            monitorBackgroundTask(
+                result.task_id,
+                (progress) => {
+                    updateProgressModal(progress);
+                },
+                (finalResult) => {
+                    hideProgressModal();
+                    if (finalResult.results && finalResult.results.success) {
+                        const stats = finalResult.results.results;
+                        showAlert(
+                            `Auto-ingest completed! Ingested: ${stats.ingested || 0}, ` +
+                            `Rejected: ${(stats.rejected_relevance || 0) + (stats.rejected_quality || 0)}, ` +
+                            `Errors: ${stats.errors || 0}`,
+                            'success'
+                        );
+
+                        // Refresh the page to show new articles
+                        setTimeout(() => window.location.reload(), 2000);
+                    } else {
+                        showAlert('Auto-ingest completed with errors', 'warning');
+                    }
+                },
+                (error) => {
+                    hideProgressModal();
+                    showAlert(`Auto-ingest failed: ${error}`, 'danger');
+                }
+            );
+        } else if (result.success) {
+            // Fallback for non-task response
+            showAlert('Auto-ingest pipeline started! Check back in a few minutes for results.', 'info');
+        } else {
+            throw new Error(result.error || 'Failed to start auto-ingest');
+        }
+    } catch (error) {
+        console.error('Error running auto-ingest:', error);
+        showAlert(`Error: ${error.message}`, 'danger');
+    }
+}
+
+// Update threshold display
+function updateAutoIngestThresholdDisplay(value) {
+    const percentage = Math.round(value * 100);
+    document.getElementById('autoIngestThresholdValue').textContent = percentage + '%';
+}
+
 // Show auto-ingest settings modal
 function showAutoIngestSettings() {
     loadAutoIngestStatus();
@@ -7320,7 +7834,7 @@ function showAutoIngestSettings() {
 // Load available models from server
 async function loadAvailableModels() {
     try {
-        const response = await fetch('/api/available_models');
+        const response = await fetch('/api/auto-ingest/models');
         
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
@@ -7616,26 +8130,8 @@ async function saveAutoIngestSettings() {
 // Test auto-ingest functionality
 async function testAutoIngest() {
     try {
-        const response = await fetch('/api/keyword-monitor/auto-ingest/trigger', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ test_mode: true })
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const result = await response.json();
-        
-        if (result.success) {
-            showAlert('Auto-ingest test triggered successfully! Check the console for details.', 'success');
-            console.log('Auto-ingest test results:', result);
-        } else {
-            throw new Error(result.error || 'Test failed');
-        }
+        // Use the same progress-tracked auto-ingest endpoint
+        await runAutoIngestNow();
     } catch (error) {
         console.error('Error testing auto-ingest:', error);
         showAlert(`Test failed: ${error.message}`, 'danger');

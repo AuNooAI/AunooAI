@@ -9,6 +9,16 @@ import os
 import sqlite3
 from urllib.parse import unquote_plus
 import logging
+from sqlalchemy import select, insert, delete, text
+from app.database_models import (
+    t_keyword_groups as keyword_groups,
+    t_monitored_keywords as monitored_keywords,
+    t_feed_keyword_groups as feed_keyword_groups,
+    t_feed_group_sources as feed_group_sources,
+    t_keyword_monitor_settings as keyword_monitor_settings,
+    t_keyword_article_matches as keyword_article_matches,
+    t_keyword_alerts as keyword_alerts
+)
 try:
     from scripts.db_merge import DatabaseMerger
 except ImportError:
@@ -265,39 +275,51 @@ async def delete_article_annotation(
         raise HTTPException(status_code=404, detail="Annotation not found")
     return {"success": True}
 
+@router.post("/api/databases/backup")
+async def create_database_backup(db: Database = Depends(get_database_instance), session=Depends(verify_session)):
+    """Create a backup of the current database"""
+    try:
+        from scripts.db_merge import DatabaseMerger
+        merger = DatabaseMerger()
+        backup_path = merger.create_backup()
+        return {"message": f"Database backup created successfully", "backup_file": backup_path.name}
+    except Exception as e:
+        logger.error(f"Error creating database backup: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.post("/api/merge_backup")
 async def merge_backup_database(backup_name: str = None, uploaded_file: UploadFile = None, session=Depends(verify_session)):
     """Merge articles and settings from a backup database or uploaded file"""
     try:
-        db = get_database_instance()
+        from scripts.db_merge import DatabaseMerger
         merger = DatabaseMerger()
-        
+
         if uploaded_file:
             # Save uploaded file to temp location
-            temp_path = Path("app/data/temp") / uploaded_file.filename
+            temp_path = Path(DATABASE_DIR) / "temp" / uploaded_file.filename
             temp_path.parent.mkdir(exist_ok=True)
-            
+
             with temp_path.open("wb") as buffer:
                 shutil.copyfileobj(uploaded_file.file, buffer)
-            
+
             try:
                 merger.merge_databases(temp_path)
-                return {"message": f"Successfully merged uploaded database"}
+                return {"message": f"Successfully merged uploaded database: {uploaded_file.filename}"}
             finally:
                 # Cleanup temp file
                 temp_path.unlink(missing_ok=True)
-                
+
         elif backup_name:
-            backup_path = Path("app/data/backups") / backup_name
+            backup_path = Path(DATABASE_DIR) / "backups" / backup_name
             if not backup_path.exists():
-                raise HTTPException(status_code=404, detail="Backup database not found")
-                
+                raise HTTPException(status_code=404, detail=f"Backup database not found: {backup_name}")
+
             merger.merge_databases(backup_path)
             return {"message": f"Successfully merged data from {backup_name}"}
-            
+
         else:
             raise HTTPException(status_code=400, detail="No backup specified")
-            
+
     except Exception as e:
         logger.error(f"Error merging backup database: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -306,33 +328,31 @@ async def merge_backup_database(backup_name: str = None, uploaded_file: UploadFi
 async def get_backups(session=Depends(verify_session)):
     """Get list of database backups with sizes"""
     try:
-        # Use the correct backup directory path
-        backup_dir = Path("app/data/backups")
+        backup_dir = Path(DATABASE_DIR) / "backups"
+        backup_dir.mkdir(exist_ok=True)
         logger.info(f"Looking for backups in: {backup_dir}")
-        
+
         backups = []
-        
-        if backup_dir.exists():
-            logger.info(f"Backup directory exists")
-            for backup in backup_dir.glob("*.db"):
-                try:
-                    size = backup.stat().st_size
-                    size_mb = round(size / (1024 * 1024), 2)
-                    backup_info = {
-                        "name": backup.name,
-                        "size": f"{size_mb} MB",
-                        "date": datetime.fromtimestamp(backup.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-                    }
-                    backups.append(backup_info)
-                    logger.info(f"Found backup: {backup_info}")
-                except Exception as e:
-                    logger.warning(f"Error processing backup {backup}: {e}")
-                    continue
-                
+
+        for backup in backup_dir.glob("*.db"):
+            try:
+                size = backup.stat().st_size
+                size_mb = round(size / (1024 * 1024), 2)
+                backup_info = {
+                    "name": backup.name,
+                    "size": f"{size_mb} MB",
+                    "date": datetime.fromtimestamp(backup.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                }
+                backups.append(backup_info)
+                logger.info(f"Found backup: {backup_info}")
+            except Exception as e:
+                logger.warning(f"Error processing backup {backup}: {e}")
+                continue
+
         sorted_backups = sorted(backups, key=lambda x: x["date"], reverse=True)
         logger.info(f"Returning {len(sorted_backups)} backups")
         return sorted_backups
-        
+
     except Exception as e:
         logger.error(f"Error getting backups: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -341,9 +361,9 @@ async def get_backups(session=Depends(verify_session)):
 async def list_backups(session=Depends(verify_session)):
     """Get list of available database backups"""
     try:
-        backup_dir = Path("app/data/backups")
+        backup_dir = Path(DATABASE_DIR) / "backups"
         backups = []
-        
+
         if backup_dir.exists():
             for file in backup_dir.glob("*.db"):
                 stats = file.stat()
@@ -352,11 +372,245 @@ async def list_backups(session=Depends(verify_session)):
                     "size": f"{stats.st_size / (1024*1024):.1f}MB",
                     "date": datetime.fromtimestamp(stats.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
                 })
-        
+
         return backups
-        
+
     except Exception as e:
         logger.error(f"Error listing backups: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/api/export-topics")
+async def export_topic_configurations(db: Database = Depends(get_database_instance), session=Depends(verify_session)):
+    """Export all topic configurations to JSON"""
+    try:
+        conn = db._temp_get_connection()
+
+        # Export topic configurations including keyword groups, keywords, feed groups, and settings
+        export_data = {
+            "export_timestamp": datetime.now().isoformat(),
+            "version": "1.0",
+            "keyword_groups": [],
+            "monitored_keywords": [],
+            "feed_keyword_groups": [],
+            "feed_group_sources": [],
+            "keyword_monitor_settings": {}
+        }
+
+        # Export keyword groups using SQLAlchemy
+        result = conn.execute(select(keyword_groups))
+        for row in result.mappings():
+            export_data["keyword_groups"].append(dict(row))
+
+        # Export monitored keywords with group references
+        result = conn.execute(
+            select(
+                monitored_keywords.c.keyword,
+                monitored_keywords.c.created_at,
+                monitored_keywords.c.last_checked,
+                keyword_groups.c.name.label("group_name"),
+                keyword_groups.c.topic.label("group_topic")
+            ).select_from(
+                monitored_keywords.join(keyword_groups, monitored_keywords.c.group_id == keyword_groups.c.id)
+            )
+        )
+        for row in result.mappings():
+            export_data["monitored_keywords"].append(dict(row))
+
+        # Export feed keyword groups
+        result = conn.execute(select(feed_keyword_groups))
+        for row in result.mappings():
+            export_data["feed_keyword_groups"].append(dict(row))
+
+        # Export feed group sources with group names
+        result = conn.execute(
+            select(
+                feed_group_sources.c.source_type,
+                feed_group_sources.c.keywords,
+                feed_group_sources.c.enabled,
+                feed_group_sources.c.date_range_days,
+                feed_group_sources.c.custom_start_date,
+                feed_group_sources.c.created_at,
+                feed_keyword_groups.c.name.label("group_name")
+            ).select_from(
+                feed_group_sources.join(feed_keyword_groups, feed_group_sources.c.group_id == feed_keyword_groups.c.id)
+            )
+        )
+        for row in result.mappings():
+            export_data["feed_group_sources"].append(dict(row))
+
+        # Export keyword monitor settings
+        result = conn.execute(select(keyword_monitor_settings))
+        row = result.mappings().first()
+        if row:
+            export_data["keyword_monitor_settings"] = dict(row)
+
+        return export_data
+
+    except Exception as e:
+        logger.error(f"Error exporting topic configurations: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/api/import-topics")
+async def import_topic_configurations(
+    import_data: dict,
+    merge_mode: bool = False,
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session)
+):
+    """Import topic configurations from JSON"""
+    try:
+        conn = db._temp_get_connection()
+
+        # Begin transaction
+        trans = conn.begin()
+
+        try:
+            # If not merge mode, clear existing data
+            if not merge_mode:
+                conn.execute(delete(keyword_article_matches))
+                conn.execute(delete(keyword_alerts))
+                conn.execute(delete(monitored_keywords))
+                conn.execute(delete(keyword_groups))
+                conn.execute(delete(feed_group_sources))
+                conn.execute(delete(feed_keyword_groups))
+                conn.execute(delete(keyword_monitor_settings))
+
+            # Import keyword groups
+            if "keyword_groups" in import_data:
+                for group in import_data["keyword_groups"]:
+                    if merge_mode:
+                        # Check if group already exists
+                        existing = conn.execute(
+                            select(keyword_groups.c.id).where(
+                                (keyword_groups.c.name == group["name"]) &
+                                (keyword_groups.c.topic == group["topic"])
+                            )
+                        ).first()
+                        if existing:
+                            continue  # Skip if exists in merge mode
+
+                    conn.execute(
+                        insert(keyword_groups).values(
+                            name=group["name"],
+                            topic=group["topic"],
+                            created_at=group.get("created_at"),
+                            provider=group.get("provider", "news")
+                        )
+                    )
+
+            # Import monitored keywords
+            if "monitored_keywords" in import_data:
+                for keyword in import_data["monitored_keywords"]:
+                    # Get the group_id by name and topic
+                    group_result = conn.execute(
+                        select(keyword_groups.c.id).where(
+                            (keyword_groups.c.name == keyword.get("group_name")) &
+                            (keyword_groups.c.topic == keyword.get("group_topic"))
+                        )
+                    ).first()
+
+                    if group_result:
+                        group_id = group_result[0]
+                        if merge_mode:
+                            # Check if keyword already exists
+                            existing = conn.execute(
+                                select(monitored_keywords.c.id).where(
+                                    (monitored_keywords.c.group_id == group_id) &
+                                    (monitored_keywords.c.keyword == keyword["keyword"])
+                                )
+                            ).first()
+                            if existing:
+                                continue
+
+                        conn.execute(
+                            insert(monitored_keywords).values(
+                                group_id=group_id,
+                                keyword=keyword["keyword"],
+                                created_at=keyword.get("created_at"),
+                                last_checked=keyword.get("last_checked")
+                            )
+                        )
+
+            # Import feed keyword groups
+            if "feed_keyword_groups" in import_data:
+                for feed_group in import_data["feed_keyword_groups"]:
+                    if merge_mode:
+                        existing = conn.execute(
+                            select(feed_keyword_groups.c.id).where(
+                                feed_keyword_groups.c.name == feed_group["name"]
+                            )
+                        ).first()
+                        if existing:
+                            continue
+
+                    conn.execute(
+                        insert(feed_keyword_groups).values(
+                            name=feed_group["name"],
+                            description=feed_group.get("description"),
+                            color=feed_group.get("color", "#FF69B4"),
+                            is_active=feed_group.get("is_active", True)
+                        )
+                    )
+
+            # Import feed group sources
+            if "feed_group_sources" in import_data:
+                for source in import_data["feed_group_sources"]:
+                    # Get group_id by name
+                    group_result = conn.execute(
+                        select(feed_keyword_groups.c.id).where(
+                            feed_keyword_groups.c.name == source.get("group_name")
+                        )
+                    ).first()
+
+                    if group_result:
+                        group_id = group_result[0]
+                        if merge_mode:
+                            existing = conn.execute(
+                                select(feed_group_sources.c.id).where(
+                                    (feed_group_sources.c.group_id == group_id) &
+                                    (feed_group_sources.c.source_type == source["source_type"]) &
+                                    (feed_group_sources.c.keywords == source["keywords"])
+                                )
+                            ).first()
+                            if existing:
+                                continue
+
+                        conn.execute(
+                            insert(feed_group_sources).values(
+                                group_id=group_id,
+                                source_type=source["source_type"],
+                                keywords=source["keywords"],
+                                enabled=source.get("enabled", True),
+                                date_range_days=source.get("date_range_days", 7),
+                                custom_start_date=source.get("custom_start_date")
+                            )
+                        )
+
+            # Import keyword monitor settings
+            if "keyword_monitor_settings" in import_data and not merge_mode:
+                settings = import_data["keyword_monitor_settings"]
+                # Delete existing settings first
+                conn.execute(delete(keyword_monitor_settings))
+                conn.execute(
+                    insert(keyword_monitor_settings).values(
+                        check_interval=settings.get("check_interval", 15),
+                        interval_unit=settings.get("interval_unit", 60),
+                        search_fields=settings.get("search_fields", "title,description,content"),
+                        language=settings.get("language", "en")
+                    )
+                )
+
+            # Commit transaction
+            trans.commit()
+
+            return {"message": f"Successfully imported topic configurations ({'merged' if merge_mode else 'replaced'})"}
+
+        except Exception as e:
+            trans.rollback()
+            raise e
+
+    except Exception as e:
+        logger.error(f"Error importing topic configurations: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/databases/reset")
