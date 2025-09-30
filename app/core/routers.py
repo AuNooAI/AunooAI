@@ -22,16 +22,13 @@ def register_routers(app: FastAPI):
     from app.routes.podcast_routes import router as podcast_router
     from app.routes.vector_routes import router as vector_router
     from app.routes.saved_searches import router as saved_searches_router
-    from app.routes.scenario_routes import (
-        router as scenario_router,
-        page_router as scenario_page_router,
-    )
+    # Removed scenario routes - no longer needed
     from app.routes.topic_map_routes import (
         router as topic_map_api_router,
         page_router as topic_map_page_router,
     )
     from app.routes.auspex_routes import router as auspex_router
-    from app.routes.newsletter_routes import router as newsletter_router, page_router as newsletter_page_router
+    # Removed newsletter routes - no longer needed
     from app.routes.dataset_routes import router as dataset_router
     from app.routes.keyword_monitor_api import router as keyword_monitor_api_router
     from app.routes.keyword_monitor import router as keyword_monitor_router
@@ -84,9 +81,7 @@ def register_routers(app: FastAPI):
     # Saved searches
     app.include_router(saved_searches_router)
     
-    # Scenarios
-    app.include_router(scenario_router)
-    app.include_router(scenario_page_router)
+    # Scenarios - REMOVED
     
     # Topic maps (API + page)
     app.include_router(topic_map_api_router)
@@ -95,9 +90,7 @@ def register_routers(app: FastAPI):
     # Auspex service
     app.include_router(auspex_router)
     
-    # Newsletter functionality
-    app.include_router(newsletter_router)
-    app.include_router(newsletter_page_router)
+    # Newsletter functionality - REMOVED
     
     # Dataset management
     app.include_router(dataset_router)

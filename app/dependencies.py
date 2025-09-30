@@ -3,7 +3,7 @@ from app.research import Research
 from app.analytics import Analytics
 from app.report import Report
 from app.database import Database, get_database_instance
-from app.services.newsletter_service import NewsletterService
+# Removed newsletter service - no longer needed
 import logging
 
 # Set up logging
@@ -17,7 +17,7 @@ logging.basicConfig(
 _research_instance = None
 _analytics_instance = None
 _report_instance = None
-_newsletter_service_instance = None
+# Removed newsletter service instance - no longer needed
 
 def get_research(db: Database = Depends(get_database_instance)):
     global _research_instance
@@ -40,9 +40,4 @@ def get_report(db: Database = Depends(get_database_instance)):
         logger.debug("Created new Report instance")
     return _report_instance
 
-def get_newsletter_service(db: Database = Depends(get_database_instance)):
-    global _newsletter_service_instance
-    if _newsletter_service_instance is None:
-        _newsletter_service_instance = NewsletterService(db)
-        logger.debug("Created new NewsletterService instance")
-    return _newsletter_service_instance
+# Removed get_newsletter_service - no longer needed

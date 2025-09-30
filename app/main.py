@@ -62,16 +62,13 @@ from app.startup import initialize_application
 from app.routes.podcast_routes import router as podcast_router
 from app.routes.vector_routes import router as vector_router
 from app.routes.saved_searches import router as saved_searches_router
-from app.routes.scenario_routes import (
-    router as scenario_router,
-    page_router as scenario_page_router,
-)
+# Removed scenario routes - no longer needed
 from app.routes.topic_map_routes import (
     router as topic_map_api_router,
     page_router as topic_map_page_router,
 )
 from app.routes.auspex_routes import router as auspex_router
-from app.routes.newsletter_routes import router as newsletter_router, page_router as newsletter_page_router
+# Removed newsletter routes - no longer needed
 from app.routes.dataset_routes import router as dataset_router
 from app.routes.keyword_monitor_api import router as keyword_monitor_api_router
 from app.routes.oauth_routes import router as oauth_router
@@ -98,15 +95,12 @@ templates = app.state.templates
 # Initialize components (database is already in app.state)
 db = app.state.db
 
-# Add newsletter routers
-app.include_router(newsletter_router)
-app.include_router(newsletter_page_router)
+# Newsletter routers - REMOVED
 
 # Import media bias routes
 from app.routes import media_bias_routes
 
-# Import test routes for Auspex
-from app.routes import test_routes
+# Test routes - REMOVED
 
 # Add dataset router
 app.include_router(dataset_router)
@@ -114,8 +108,7 @@ app.include_router(dataset_router)
 # Register media bias routes
 app.include_router(media_bias_routes.router)  # Add the new media bias routes
 
-# Add test routes
-app.include_router(test_routes.router)
+# Test routes - REMOVED
 
 # Add Auspex routes
 app.include_router(auspex_router)
@@ -3778,13 +3771,6 @@ async def submit_article_page(request: Request, session=Depends(verify_session))
         get_template_context(request)
     )
 
-@app.get("/auspex-status", response_class=HTMLResponse)
-async def auspex_status_page(request: Request, session=Depends(verify_session)):
-    """Auspex status and testing page."""
-    return templates.TemplateResponse(
-        "auspex-status.html",
-        get_template_context(request, {"session": session})
-    )
-
+# Removed auspex-status route and test routes - no longer needed
 
 # Route moved to app/routes/forecast_chart_routes.py to avoid duplication

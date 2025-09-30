@@ -158,12 +158,22 @@ Article text:
                 raise ArticleAnalyzerError("Failed to generate analysis")
 
             result = self.parse_analysis(analysis)
-            
+
+            # Validate and sanitize the parsed result against the provided options
+            result = self._validate_analysis_fields(
+                result,
+                categories,
+                future_signals,
+                sentiment_options,
+                time_to_impact_options,
+                driver_types
+            )
+
             # Add uri and publication_date to result
             result["uri"] = uri
             # Extract publication date using only article_text
             result["publication_date"] = self.extract_publication_date(article_text)
-            
+
             logger.debug(f"Parsed analysis result: {json.dumps(result, indent=2)}")
 
             # When storing the result, include the model info
@@ -291,6 +301,61 @@ Article text:
             logger.error(f"Error parsing analysis: {str(e)}")
             logger.error(f"Full traceback: {traceback.format_exc()}")
             raise ArticleAnalyzerError(f"Failed to parse analysis: {str(e)}")
+
+    def _validate_analysis_fields(self, result: Dict, categories: List[str],
+                                  future_signals: List[str], sentiment_options: List[str],
+                                  time_to_impact_options: List[str], driver_types: List[str]) -> Dict:
+        """Validate that AI-generated fields match the allowed options from ontology.
+
+        This prevents AI hallucination from polluting the database with invalid values
+        like sentiment values in the future_signal field, or 'None', 'N/A', etc.
+        """
+        validated = result.copy()
+
+        # Validate future_signal (most critical - this is where most garbage appears)
+        if 'future_signal' in validated:
+            original_signal = validated['future_signal']
+            if original_signal and original_signal not in future_signals:
+                logger.warning(f"Invalid future_signal from AI: '{original_signal}'. "
+                             f"Valid options: {future_signals}. Setting to empty string.")
+                validated['future_signal'] = ""
+                validated['future_signal_explanation'] = (
+                    f"[VALIDATION ERROR: AI returned invalid signal '{original_signal}']"
+                )
+
+        # Validate sentiment
+        if 'sentiment' in validated:
+            original_sentiment = validated['sentiment']
+            if original_sentiment and original_sentiment not in sentiment_options:
+                logger.warning(f"Invalid sentiment from AI: '{original_sentiment}'. "
+                             f"Valid options: {sentiment_options}. Setting to empty string.")
+                validated['sentiment'] = ""
+
+        # Validate time_to_impact
+        if 'time_to_impact' in validated:
+            original_impact = validated['time_to_impact']
+            if original_impact and original_impact not in time_to_impact_options:
+                logger.warning(f"Invalid time_to_impact from AI: '{original_impact}'. "
+                             f"Valid options: {time_to_impact_options}. Setting to empty string.")
+                validated['time_to_impact'] = ""
+
+        # Validate category (allow "Other" as fallback even if not in list)
+        if 'category' in validated:
+            original_category = validated['category']
+            if original_category and original_category not in categories and original_category != "Other":
+                logger.warning(f"Invalid category from AI: '{original_category}'. "
+                             f"Valid options: {categories}. Setting to 'Other'.")
+                validated['category'] = "Other"
+
+        # Validate driver_type
+        if 'driver_type' in validated:
+            original_driver = validated['driver_type']
+            if original_driver and original_driver not in driver_types:
+                logger.warning(f"Invalid driver_type from AI: '{original_driver}'. "
+                             f"Valid options: {driver_types}. Setting to empty string.")
+                validated['driver_type'] = ""
+
+        return validated
 
     def truncate_text(self, text: str, max_chars: int = 65000) -> str:
         if not text:

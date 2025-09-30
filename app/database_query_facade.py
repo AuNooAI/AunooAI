@@ -760,18 +760,39 @@ class DatabaseQueryFacade:
 
     def get_topic_filtered_future_signals_with_counts_for_market_signal_analysis(self, topic_name):
         # We need actual counts, not just the config list
-        query = """
+        # Get the valid future signals from the topic ontology configuration
+        from app.config.settings import load_config
+        config = load_config()
+        topic_config = next((topic for topic in config['topics'] if topic['name'] == topic_name), None)
+
+        if not topic_config or 'future_signals' not in topic_config:
+            self.logger.warning(f"No future_signals configuration found for topic: {topic_name}")
+            return []
+
+        valid_signals = topic_config['future_signals']
+
+        if not valid_signals:
+            return []
+
+        # Create placeholders for the IN clause
+        placeholders = ','.join('?' * len(valid_signals))
+
+        query = f"""
                 SELECT future_signal, COUNT(*) as count
                 FROM articles
                 WHERE topic = ?
                   AND future_signal IS NOT NULL
                   AND future_signal != ''
                   AND analyzed = 1
+                  AND future_signal IN ({placeholders})
                 GROUP BY future_signal
-                ORDER BY count DESC \
+                ORDER BY count DESC
                 """
 
-        return self.db.fetch_all(query, (topic_name,))
+        # Combine topic_name with valid_signals for query parameters
+        params = (topic_name,) + tuple(valid_signals)
+
+        return self.db.fetch_all(query, params)
 
     #### TOPIC MAP ROUTES ####
     def get_unique_topics(self):
