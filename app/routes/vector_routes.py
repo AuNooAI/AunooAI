@@ -1653,6 +1653,9 @@ async def article_insights(
             logger.warning(f"Failed to cache themes analysis: {cache_exc}")
         
         return {"response": content, "generated_at": generated_at}
+    except HTTPException:
+        # Re-raise HTTPExceptions (like 404) without wrapping them
+        raise
     except Exception as exc:
         logger.error("LLM article-insights failed with model %s: %s", model_name, exc)
         raise HTTPException(status_code=500, detail=f"LLM error with model {model_name}: {str(exc)}")
@@ -2328,6 +2331,9 @@ async def delete_signal_instruction(
         else:
             raise HTTPException(status_code=404, detail="Signal instruction not found")
             
+    except HTTPException:
+        # Re-raise HTTPExceptions (like 404) without wrapping them
+        raise
     except Exception as exc:
         logger.error("Error deleting signal instruction: %s", exc)
         raise HTTPException(status_code=500, detail="Signal instruction deletion error")
@@ -2911,6 +2917,9 @@ async def acknowledge_alert(
         else:
             raise HTTPException(status_code=404, detail="Alert not found")
             
+    except HTTPException:
+        # Re-raise HTTPExceptions (like 404) without wrapping them
+        raise
     except Exception as exc:
         logger.error("Error acknowledging alert: %s", exc)
         raise HTTPException(status_code=500, detail="Alert acknowledgment error")
@@ -3152,6 +3161,9 @@ async def article_deep_dive(
         content = resp.choices[0].message.content
         logger.info("Article deep-dive generated successfully with model: %s", model_name)
         return {"response": content, "generated_at": generated_at}
+    except HTTPException:
+        # Re-raise HTTPExceptions (like 404) without wrapping them
+        raise
     except Exception as exc:
         logger.error("LLM article-deep-dive failed with model %s: %s", model_name, exc)
         raise HTTPException(status_code=500, detail=f"LLM error with model {model_name}: {str(exc)}")

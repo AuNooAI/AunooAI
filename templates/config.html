@@ -2397,7 +2397,7 @@
 
             const result = await response.json();
 
-            if (result.orphaned_topics && result.orphaned_topics.length > 0) {
+            if (result && result.orphaned_topics && result.orphaned_topics.length > 0) {
                 showAlert(`Successfully cleaned up ${result.orphaned_topics.length} orphaned topics`, 'success');
                 loadDatabaseInfo(); // Refresh database info
             } else {
@@ -2435,7 +2435,7 @@
 
             const result = await response.json();
             
-            if (result.orphaned_count > 0) {
+            if (result && result.orphaned_count > 0) {
                 showAlert(`Successfully cleaned up ${result.orphaned_count} orphaned articles and ${result.alerts_deleted} associated alerts`, 'success');
                 loadDatabaseInfo(); // Refresh database info
             } else {
@@ -2477,8 +2477,8 @@
             let message = 'Clean-up completed:\n\n';
             
             // Topics summary
-            const topicsResult = result.topics_result;
-            if (topicsResult.orphaned_topics && topicsResult.orphaned_topics.length > 0) {
+            const topicsResult = result && result.topics_result;
+            if (topicsResult && topicsResult.orphaned_topics && topicsResult.orphaned_topics.length > 0) {
                 message += `✅ Removed ${topicsResult.orphaned_topics.length} orphaned topics\n`;
                 
                 if (topicsResult.cleanup_results) {
@@ -2501,8 +2501,8 @@
             }
             
             // Articles summary
-            const articlesResult = result.articles_result;
-            if (articlesResult.orphaned_count > 0) {
+            const articlesResult = result && result.articles_result;
+            if (articlesResult && articlesResult.orphaned_count > 0) {
                 message += `✅ Removed ${articlesResult.orphaned_count} orphaned articles and ${articlesResult.alerts_deleted} associated alerts\n`;
             } else {
                 message += '✓ No orphaned articles found\n';

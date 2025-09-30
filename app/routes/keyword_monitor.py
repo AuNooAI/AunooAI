@@ -1381,56 +1381,56 @@ async def clean_orphaned_topics(db=Depends(get_database_instance), session=Depen
             logger.error(f"Error loading config: {str(e)}")
             active_topics = set()
 
-            # Check if keyword_groups table exists
-            if (DatabaseQueryFacade(db, logger)).check_if_keyword_groups_table_exists():
-                return {
-                    "status": "success",
-                    "message": "No keyword_groups table found",
-                    "orphaned_topics": []
-                }
-            
-            # Get all topics referenced in keyword groups
-            try:
-                keyword_topics = (DatabaseQueryFacade(db, logger)).get_all_topics_referenced_in_keyword_groups()
-            except sqlite3.OperationalError as e:
-                logger.error(f"Database error: {str(e)}")
-                return {
-                    "status": "error",
-                    "message": f"Database error: {str(e)}",
-                    "orphaned_topics": []
-                }
-            
-            # Find orphaned topics (in keyword_groups but not in active topics)
-            orphaned_topics = keyword_topics - active_topics
-            
-            if not orphaned_topics:
-                return {
-                    "status": "success",
-                    "message": "No orphaned topics found",
-                    "orphaned_topics": []
-                }
-            
-            # Clean up each orphaned topic
-            cleanup_results = {}
-            for topic in orphaned_topics:
-                # Clean up keyword groups
-                try:
-                    groups_result = await delete_groups_by_topic(topic, db)
-                    cleanup_results[topic] = {
-                        "groups_deleted": groups_result.get("groups_deleted", 0),
-                        "keywords_deleted": groups_result.get("keywords_deleted", 0),
-                        "alerts_deleted": groups_result.get("alerts_deleted", 0)
-                    }
-                except Exception as e:
-                    logger.error(f"Error cleaning up orphaned topic {topic}: {str(e)}")
-                    cleanup_results[topic] = {"error": str(e)}
-            
+        # Check if keyword_groups table exists
+        if not (DatabaseQueryFacade(db, logger)).check_if_keyword_groups_table_exists():
             return {
                 "status": "success",
-                "message": f"Cleaned up {len(orphaned_topics)} orphaned topics",
-                "orphaned_topics": list(orphaned_topics),
-                "cleanup_results": cleanup_results
+                "message": "No keyword_groups table found",
+                "orphaned_topics": []
             }
+
+        # Get all topics referenced in keyword groups
+        try:
+            keyword_topics = (DatabaseQueryFacade(db, logger)).get_all_topics_referenced_in_keyword_groups()
+        except sqlite3.OperationalError as e:
+            logger.error(f"Database error: {str(e)}")
+            return {
+                "status": "error",
+                "message": f"Database error: {str(e)}",
+                "orphaned_topics": []
+            }
+
+        # Find orphaned topics (in keyword_groups but not in active topics)
+        orphaned_topics = keyword_topics - active_topics
+
+        if not orphaned_topics:
+            return {
+                "status": "success",
+                "message": "No orphaned topics found",
+                "orphaned_topics": []
+            }
+
+        # Clean up each orphaned topic
+        cleanup_results = {}
+        for topic in orphaned_topics:
+            # Clean up keyword groups
+            try:
+                groups_result = await delete_groups_by_topic(topic, db)
+                cleanup_results[topic] = {
+                    "groups_deleted": groups_result.get("groups_deleted", 0),
+                    "keywords_deleted": groups_result.get("keywords_deleted", 0),
+                    "alerts_deleted": groups_result.get("alerts_deleted", 0)
+                }
+            except Exception as e:
+                logger.error(f"Error cleaning up orphaned topic {topic}: {str(e)}")
+                cleanup_results[topic] = {"error": str(e)}
+
+        return {
+            "status": "success",
+            "message": f"Cleaned up {len(orphaned_topics)} orphaned topics",
+            "orphaned_topics": list(orphaned_topics),
+            "cleanup_results": cleanup_results
+        }
             
     except Exception as e:
         logger.error(f"Error cleaning orphaned topics: {str(e)}")
@@ -1447,127 +1447,127 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
         except Exception as e:
             logger.error(f"Error loading config: {str(e)}")
             active_topics = set()
-        
-            # Check if articles table exists
-            if not (DatabaseQueryFacade(db, logger)).check_if_articles_table_exists():
-                return {
-                    "status": "success",
-                    "message": "No articles table found",
-                    "orphaned_count": 0
-                }
-            
-            # Get all article URIs that might be orphaned
-            orphaned_article_uris = set()
-            
-            # Check if articles table has a topic column
-            try:
-                has_topic_column = (DatabaseQueryFacade(db, logger)).check_if_articles_table_has_topic_column()
-                
-                # First, check direct topic references if the column exists
-                if has_topic_column:
-                    try:
-                        for row in (DatabaseQueryFacade(db, logger)).get_urls_and_topics_from_articles():
-                            uri, topic = row
-                            if topic not in active_topics:
-                                orphaned_article_uris.add(uri)
-                    except sqlite3.OperationalError as e:
-                        logger.error(f"Error querying articles table: {str(e)}")
-            except Exception as e:
-                logger.error(f"Error checking articles schema: {str(e)}")
-            
-            # Check if news_search_results table exists
-            if not (DatabaseQueryFacade(db, logger)).check_if_news_search_results_table_exists():
-                try:
-                    for row in (DatabaseQueryFacade(db, logger)).get_urls_and_topics_from_news_search_results():
-                        uri, topic = row
-                        if topic not in active_topics:
-                            orphaned_article_uris.add(uri)
-                except sqlite3.OperationalError as e:
-                    logger.error(f"Error querying news_search_results: {str(e)}")
-            
-            # Check if paper_search_results table exists
-            if not (DatabaseQueryFacade(db, logger)).check_if_paper_search_results_table_exists():
-                try:
-                    for row in (DatabaseQueryFacade(db, logger)).get_urls_and_topics_from_paper_search_results():
-                        uri, topic = row
-                        if topic not in active_topics:
-                            orphaned_article_uris.add(uri)
-                except sqlite3.OperationalError as e:
-                    logger.error(f"Error querying paper_search_results: {str(e)}")
-            
-            # Now check for articles that are not in any search results
-            try:
-                has_news_results = False
-                has_paper_results = False
-                
-                # Check if search result tables exist
-                has_news_results = (DatabaseQueryFacade(db, logger)).check_if_news_search_results_table_exists()
-                
-                has_paper_results = (DatabaseQueryFacade(db, logger)).check_if_paper_search_results_table_exists()
-                
-                if has_news_results or has_paper_results:
-                    orphaned_article_uris.update((DatabaseQueryFacade(db, logger)).get_orphaned_urls_from_news_results_and_or_paper_results(has_news_results, has_paper_results))
-            except sqlite3.OperationalError as e:
-                logger.error(f"Error checking articles without search results: {str(e)}")
-            
-            if not orphaned_article_uris:
-                return {
-                    "status": "success",
-                    "message": "No orphaned articles found",
-                    "orphaned_count": 0
-                }
-            
-            # Clean up the orphaned articles
-            alerts_deleted = 0
-            articles_deleted = 0
-            
-            # Check if keyword_article_matches table exists
-            use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
-            
-            # Process articles in smaller batches to avoid SQL parameter limits
-            batch_size = 100
-            article_batches = [list(orphaned_article_uris)[i:i+batch_size] 
-                               for i in range(0, len(orphaned_article_uris), batch_size)]
-            
-            # Delete associated alerts first
-            for batch in article_batches:
-                try:
-                    for uri in batch:
-                        if use_new_table:
-                            alerts_deleted += (DatabaseQueryFacade(db, logger)).delete_keyword_article_matches_from_new_table_structure_by_url(uri)
-                        else:
-                            alerts_deleted += (DatabaseQueryFacade(db, logger)).delete_keyword_article_matches_from_old_table_structure_by_url(uri)
-                except sqlite3.OperationalError as e:
-                    logger.error(f"Error deleting alerts: {str(e)}")
-            
-            # Delete from search results tables
-            for batch in article_batches:
-                try:
-                    placeholders = ','.join(['?'] * len(batch))
-                    
-                    # Check if tables exist before attempting delete
-                    if (DatabaseQueryFacade(db, logger)).check_if_news_search_results_table_exists():
-                        (DatabaseQueryFacade(db, logger)).delete_news_search_results_by_article_urls(placeholders, batch)
-                    
-                    if (DatabaseQueryFacade(db, logger)).check_if_paper_search_results_table_exists():
-                        (DatabaseQueryFacade(db, logger)).delete_paper_search_results_by_article_urls(placeholders, batch)
-                except sqlite3.OperationalError as e:
-                    logger.error(f"Error deleting search results: {str(e)}")
-            
-            # Finally delete the articles
-            for batch in article_batches:
-                try:
-                    placeholders = ','.join(['?'] * len(batch))
-                    articles_deleted += (DatabaseQueryFacade(db, logger)).delete_articles_by_article_urls(placeholders, batch)
-                except sqlite3.OperationalError as e:
-                    logger.error(f"Error deleting articles: {str(e)}")
-            
+
+        # Check if articles table exists
+        if not (DatabaseQueryFacade(db, logger)).check_if_articles_table_exists():
             return {
                 "status": "success",
-                "message": f"Cleaned up {articles_deleted} orphaned articles",
-                "orphaned_count": articles_deleted,
-                "alerts_deleted": alerts_deleted
+                "message": "No articles table found",
+                "orphaned_count": 0
             }
+
+        # Get all article URIs that might be orphaned
+        orphaned_article_uris = set()
+
+        # Check if articles table has a topic column
+        try:
+            has_topic_column = (DatabaseQueryFacade(db, logger)).check_if_articles_table_has_topic_column()
+
+            # First, check direct topic references if the column exists
+            if has_topic_column:
+                try:
+                    for row in (DatabaseQueryFacade(db, logger)).get_urls_and_topics_from_articles():
+                        uri, topic = row
+                        if topic not in active_topics:
+                            orphaned_article_uris.add(uri)
+                except sqlite3.OperationalError as e:
+                    logger.error(f"Error querying articles table: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error checking articles schema: {str(e)}")
+
+        # Check if news_search_results table exists
+        if (DatabaseQueryFacade(db, logger)).check_if_news_search_results_table_exists():
+            try:
+                for row in (DatabaseQueryFacade(db, logger)).get_urls_and_topics_from_news_search_results():
+                    uri, topic = row
+                    if topic not in active_topics:
+                        orphaned_article_uris.add(uri)
+            except sqlite3.OperationalError as e:
+                logger.error(f"Error querying news_search_results: {str(e)}")
+
+        # Check if paper_search_results table exists
+        if (DatabaseQueryFacade(db, logger)).check_if_paper_search_results_table_exists():
+            try:
+                for row in (DatabaseQueryFacade(db, logger)).get_urls_and_topics_from_paper_search_results():
+                    uri, topic = row
+                    if topic not in active_topics:
+                        orphaned_article_uris.add(uri)
+            except sqlite3.OperationalError as e:
+                logger.error(f"Error querying paper_search_results: {str(e)}")
+
+        # Now check for articles that are not in any search results
+        try:
+            has_news_results = False
+            has_paper_results = False
+
+            # Check if search result tables exist
+            has_news_results = (DatabaseQueryFacade(db, logger)).check_if_news_search_results_table_exists()
+
+            has_paper_results = (DatabaseQueryFacade(db, logger)).check_if_paper_search_results_table_exists()
+
+            if has_news_results or has_paper_results:
+                orphaned_article_uris.update((DatabaseQueryFacade(db, logger)).get_orphaned_urls_from_news_results_and_or_paper_results(has_news_results, has_paper_results))
+        except sqlite3.OperationalError as e:
+            logger.error(f"Error checking articles without search results: {str(e)}")
+
+        if not orphaned_article_uris:
+            return {
+                "status": "success",
+                "message": "No orphaned articles found",
+                "orphaned_count": 0
+            }
+
+        # Clean up the orphaned articles
+        alerts_deleted = 0
+        articles_deleted = 0
+
+        # Check if keyword_article_matches table exists
+        use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
+
+        # Process articles in smaller batches to avoid SQL parameter limits
+        batch_size = 100
+        article_batches = [list(orphaned_article_uris)[i:i+batch_size]
+                           for i in range(0, len(orphaned_article_uris), batch_size)]
+
+        # Delete associated alerts first
+        for batch in article_batches:
+            try:
+                for uri in batch:
+                    if use_new_table:
+                        alerts_deleted += (DatabaseQueryFacade(db, logger)).delete_keyword_article_matches_from_new_table_structure_by_url(uri)
+                    else:
+                        alerts_deleted += (DatabaseQueryFacade(db, logger)).delete_keyword_article_matches_from_old_table_structure_by_url(uri)
+            except sqlite3.OperationalError as e:
+                logger.error(f"Error deleting alerts: {str(e)}")
+
+        # Delete from search results tables
+        for batch in article_batches:
+            try:
+                placeholders = ','.join(['?'] * len(batch))
+
+                # Check if tables exist before attempting delete
+                if (DatabaseQueryFacade(db, logger)).check_if_news_search_results_table_exists():
+                    (DatabaseQueryFacade(db, logger)).delete_news_search_results_by_article_urls(placeholders, batch)
+
+                if (DatabaseQueryFacade(db, logger)).check_if_paper_search_results_table_exists():
+                    (DatabaseQueryFacade(db, logger)).delete_paper_search_results_by_article_urls(placeholders, batch)
+            except sqlite3.OperationalError as e:
+                logger.error(f"Error deleting search results: {str(e)}")
+
+        # Finally delete the articles
+        for batch in article_batches:
+            try:
+                placeholders = ','.join(['?'] * len(batch))
+                articles_deleted += (DatabaseQueryFacade(db, logger)).delete_articles_by_article_urls(placeholders, batch)
+            except sqlite3.OperationalError as e:
+                logger.error(f"Error deleting articles: {str(e)}")
+
+        return {
+            "status": "success",
+            "message": f"Cleaned up {articles_deleted} orphaned articles",
+            "orphaned_count": articles_deleted,
+            "alerts_deleted": alerts_deleted
+        }
             
     except Exception as e:
         logger.error(f"Error cleaning orphaned articles: {str(e)}")

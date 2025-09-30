@@ -1022,6 +1022,8 @@
                             <select id="incident-sort-select" class="form-select form-select-sm" onchange="handleIncidentSortChange()" style="width: auto;">
                                 <option value="significance_desc">Significance (High → Low)</option>
                                 <option value="significance_asc">Significance (Low → High)</option>
+                                <option value="entity_asc">Entity (A → Z)</option>
+                                <option value="entity_desc">Entity (Z → A)</option>
                                 <option value="type_asc">Type (A → Z)</option>
                                 <option value="type_desc">Type (Z → A)</option>
                                 <option value="name_asc">Name (A → Z)</option>
@@ -1533,7 +1535,7 @@
                     <div class="tab-pane fade" id="guidance-panel" role="tabpanel">
                         <div class="row">
                             <div class="col-md-8">
-                                <h6 class="fw-bold">AI Analysis Guidance</h6>
+                                <h6 class="fw-bold">Analysis Guidance</h6>
                                 <p class="text-muted small">
                                     Provide specific instructions and examples to guide the AI's analysis behavior.
                                 </p>
@@ -8614,6 +8616,7 @@ function renderIncidentTracking(incidents) {
     const toggleId = 'incident-hide-low-toggle';
     let hideLow = true;
     try { const saved = localStorage.getItem(toggleId); if (saved !== null) hideLow = saved === 'true'; } catch(_) {}
+
     const controlsHtml = `
         <div class="form-check form-switch d-flex align-items-center gap-2 m-0" id="incident-controls-switch">
             <input class="form-check-input" type="checkbox" id="${toggleId}" ${hideLow ? 'checked' : ''}>
@@ -8786,13 +8789,14 @@ function renderIncidentTracking(incidents) {
         if (incident.investigation_leads && incident.investigation_leads.length > 0) {
             leadsHtml = `
                 <div class="mt-2">
-                    <small class="text-muted fw-bold">Investigation Leads:</small>
-                    <div class="d-flex gap-1 flex-wrap mt-1">
+                    <small class="text-muted fw-bold">Leads:</small>
+                    <div class="d-flex gap-1 flex-wrap mt-1" style="max-width: 100%; overflow: hidden; word-break: break-word;">
                         ${incident.investigation_leads.map(lead => `
-                            <button class="btn btn-sm btn-outline-info" 
+                            <button class="btn btn-outline-primary btn-sm"
                                     onclick="launchAuspexResearchFromInsight('${escapeHTML(lead)}', 'investigation_lead')"
-                                    title="Launch Auspex research on: ${escapeHTML(lead)}">
-                                <i class="fas fa-search me-1"></i>${escapeHTML(lead)}
+                                    title="Launch Auspex research on: ${escapeHTML(lead)}"
+                                    style="font-size: 10px; padding: 2px 6px; border-radius: 12px; max-width: 100%; text-overflow: ellipsis; overflow: hidden;">
+                                <i class="fas fa-search me-1"></i>${escapeHTML(lead.length > 20 ? lead.substring(0, 20) + '...' : lead)}
                             </button>
                         `).join('')}
                     </div>
@@ -8854,43 +8858,56 @@ function renderIncidentTracking(incidents) {
                 </div>
             </div>
             
-            <div class="mt-2 d-flex justify-content-between">
-                <div class="d-flex gap-2">
-                    ${incident.article_uris && incident.article_uris.length > 0 ? `
-                        <button class="btn btn-sm btn-outline-primary" onclick="toggleIncidentAnalysis('${escapeHTML(incident.name)}', '${incident.article_uris[0]}', this)">
-                            <i class="fas fa-chevron-right me-1"></i>Show Analysis
-                        </button>
-                        <button class="btn btn-sm btn-outline-info" onclick="launchIncidentDeepDive('${escapeHTML(incident.name)}', '${incident.article_uris[0]}')">
-                            <i class="fas fa-microscope me-1"></i>Deep Dive
-                        </button>
-                        <button class="btn btn-sm btn-outline-warning" onclick="launchIncidentConsensus('${escapeHTML(incident.name)}', '${incident.article_uris[0]}')">
-                            <i class="fas fa-balance-scale me-1"></i>Consensus Check
-                        </button>
-                        <button class="btn btn-sm btn-outline-secondary" onclick="launchIncidentAdjacent('${escapeHTML(incident.name)}', '${incident.article_uris[0]}')">
-                            <i class="fas fa-project-diagram me-1"></i>Adjacent Topics
-                        </button>
-                        <button class="btn btn-sm btn-outline-success" onclick="openAnnotationModal('${incident.article_uris[0]}')">
-                            <i class="fas fa-sticky-note me-1"></i>Annotate
-                        </button>
-                    ` : `
-                        <button class="btn btn-sm btn-outline-primary" onclick="launchAuspexResearchFromInsight('${escapeHTML(incident.name)}', 'incident')">
-                            <i class="fas fa-search me-1"></i>Investigate
-                        </button>
-                    `}
+            <div class="mt-2">
+                <!-- Analysis Tools -->
+                <div class="mb-2">
+                    <small class="text-muted fw-bold d-block mb-1">Analysis</small>
+                    <div class="d-flex flex-wrap gap-1">
+                        ${incident.article_uris && incident.article_uris.length > 0 ? `
+                            <button class="btn btn-sm btn-outline-primary" onclick="toggleIncidentAnalysis('${escapeHTML(incident.name)}', '${incident.article_uris[0]}', this)" title="Show Analysis">
+                                <i class="fas fa-chevron-right"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-info" onclick="launchIncidentDeepDive('${escapeHTML(incident.name)}', '${incident.article_uris[0]}')" title="Deep Dive">
+                                <i class="fas fa-microscope"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-warning" onclick="launchIncidentConsensus('${escapeHTML(incident.name)}', '${incident.article_uris[0]}')" title="Consensus Check">
+                                <i class="fas fa-balance-scale"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-secondary" onclick="launchIncidentAdjacent('${escapeHTML(incident.name)}', '${incident.article_uris[0]}')" title="Adjacent Topics">
+                                <i class="fas fa-project-diagram"></i>
+                            </button>
+                        ` : `
+                            <button class="btn btn-sm btn-outline-primary" onclick="launchAuspexResearchFromInsight('${escapeHTML(incident.name)}', 'incident')" title="Investigate">
+                                <i class="fas fa-search"></i>
+                            </button>
+                        `}
+                    </div>
                 </div>
-                <div class="btn-group btn-group-sm">
-                    ${status !== 'seen' ? `
-                        <button class="btn btn-outline-success" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'seen')" title="Mark as seen">
-                            <i class="fas fa-eye"></i>
-                        </button>
-                    ` : `
-                        <button class="btn btn-outline-secondary" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'active')" title="Mark as unseen">
-                            <i class="fas fa-eye-slash"></i>
-                        </button>
-                    `}
-                    <button class="btn btn-outline-danger" onclick="deleteIncident('${escapeHTML(incident.name)}')" title="Delete incident">
-                        <i class="fas fa-trash"></i>
-                    </button>
+
+                <!-- Admin Actions -->
+                <div class="d-flex justify-content-between align-items-center">
+                    <div>
+                        <small class="text-muted fw-bold d-block mb-1">Actions</small>
+                        <div class="d-flex flex-wrap gap-1">
+                            ${incident.article_uris && incident.article_uris.length > 0 ? `
+                                <button class="btn btn-sm btn-outline-success" onclick="openAnnotationModal('${incident.article_uris[0]}')" title="Annotate">
+                                    <i class="fas fa-sticky-note"></i>
+                                </button>
+                            ` : ''}
+                            ${status !== 'seen' ? `
+                                <button class="btn btn-sm btn-outline-info" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'seen')" title="Mark as seen">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            ` : `
+                                <button class="btn btn-sm btn-outline-secondary" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'active')" title="Mark as unseen">
+                                    <i class="fas fa-eye-slash"></i>
+                                </button>
+                            `}
+                            <button class="btn btn-sm btn-outline-danger" onclick="deleteIncident('${escapeHTML(incident.name)}')" title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
         `;
@@ -8898,8 +8915,9 @@ function renderIncidentTracking(incidents) {
         container.appendChild(col);
     });
 
-    // Wire up toggle (moved to after rendering)
+    // Wire up toggles (moved to after rendering)
     setTimeout(() => {
+        // Quality toggle
         const toggleEl = document.getElementById(toggleId);
         if (toggleEl && !toggleEl.dataset.wired) {
             toggleEl.addEventListener('change', () => {
@@ -8910,6 +8928,7 @@ function renderIncidentTracking(incidents) {
             });
             toggleEl.dataset.wired = 'true';
         }
+
     }, 100);
 }
 
@@ -9566,6 +9585,107 @@ let incidentFilters = {
 };
 let allIncidents = []; // Store all incidents for filtering
 
+// Entity grouping function
+function groupIncidentsByEntity(incidents) {
+    if (!incidents || incidents.length === 0) return [];
+
+    const entityGroups = new Map();
+
+    incidents.forEach(incident => {
+        const entityName = extractPrimaryEntity(incident);
+
+        if (!entityGroups.has(entityName)) {
+            entityGroups.set(entityName, {
+                entityName: entityName,
+                incidents: [],
+                totalArticles: 0,
+                maxSignificance: 'low',
+                timelineRange: null
+            });
+        }
+
+        const group = entityGroups.get(entityName);
+        group.incidents.push(incident);
+
+        // Update group metadata
+        if (incident.article_uris) {
+            group.totalArticles += incident.article_uris.length;
+        }
+
+        // Track highest significance
+        if (incident.significance === 'high' ||
+            (incident.significance === 'medium' && group.maxSignificance === 'low')) {
+            group.maxSignificance = incident.significance;
+        }
+
+        // Track timeline range
+        if (Array.isArray(incident.timeline) && incident.timeline.length > 0) {
+            const startDate = new Date(incident.timeline[0]);
+            const endDate = new Date(incident.timeline[incident.timeline.length - 1]);
+
+            if (!group.timelineRange) {
+                group.timelineRange = { start: startDate, end: endDate };
+            } else {
+                if (startDate < group.timelineRange.start) group.timelineRange.start = startDate;
+                if (endDate > group.timelineRange.end) group.timelineRange.end = endDate;
+            }
+        }
+    });
+
+    // Convert to array and sort by significance and incident count
+    return Array.from(entityGroups.values()).sort((a, b) => {
+        // Sort by significance first
+        const sigOrder = { 'high': 3, 'medium': 2, 'low': 1 };
+        const sigDiff = sigOrder[b.maxSignificance] - sigOrder[a.maxSignificance];
+        if (sigDiff !== 0) return sigDiff;
+
+        // Then by number of incidents
+        return b.incidents.length - a.incidents.length;
+    });
+}
+
+function extractPrimaryEntity(incident) {
+    if (!incident) return 'Unknown Entity';
+
+    // Try to extract from related_entities first
+    if (Array.isArray(incident.related_entities) && incident.related_entities.length > 0) {
+        console.log('Entity from related_entities:', incident.related_entities[0]);
+        return incident.related_entities[0];
+    }
+
+    // Extract from incident name using common patterns
+    const name = incident.name || '';
+    console.log('Extracting entity from name:', name);
+
+    // Enhanced entity patterns to extract - more comprehensive
+    const entityPatterns = [
+        /(Tesla|OpenAI|Microsoft|Google|Amazon|Apple|Meta|Netflix|Uber|SpaceX|Elon\s+Musk|ChatGPT|X\.com)/i,  // Known entities - expanded
+        /^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+(?:launches|announces|reports|develops|releases|faces|customers|caught|fires?|sues?|delivers?)/i,  // Company action patterns
+        /([A-Z][A-Za-z]+)(?:'s|\s+(?:CEO|CFO|CTO|executives?|shareholders?|Megapacks?))/i,  // Possessive or related patterns
+        /^([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s+/,  // Any capitalized words at start
+    ];
+
+    for (const pattern of entityPatterns) {
+        const match = name.match(pattern);
+        if (match && match[1]) {
+            const entity = match[1].trim();
+            console.log('Extracted entity:', entity, 'from pattern:', pattern);
+            return entity;
+        }
+    }
+
+    // Fallback: use first significant word that looks like a company name
+    const words = name.split(/\s+/).filter(word =>
+        word.length > 2 &&
+        word[0] === word[0].toUpperCase() &&
+        !['The', 'And', 'For', 'With', 'From', 'Two', 'Three'].includes(word)
+    );
+
+    const entity = words[0] || 'Other';
+    console.log('Fallback entity:', entity, 'from words:', words);
+    return entity;
+}
+
 async function loadSignalAlerts(page = 1) {
     currentAlertsPage = page;
     
@@ -10089,15 +10209,15 @@ function renderIncidentTrackingFiltered(filteredIncidents) {
     
     // Apply sorting
     const finalFiltered = sortIncidents([...qualityFiltered]);
-    
+
     if (!finalFiltered || finalFiltered.length === 0) {
-        const message = filteredIncidents.length === 0 ? 
-            'No incidents match the current filters.' : 
+        const message = filteredIncidents.length === 0 ?
+            'No incidents match the current filters.' :
             'No high-quality incidents match the current filters.';
         container.insertAdjacentHTML('beforeend', `<div class="text-muted p-2 small w-100 text-center">${message}</div>`);
         return;
     }
-    
+
     // Render based on current view
     if (currentIncidentView === 'table') {
         renderIncidentTable(finalFiltered);
@@ -10119,12 +10239,19 @@ function renderIncidentTrackingFiltered(filteredIncidents) {
     if (globalMin !== null && globalMax !== null && globalMax < globalMin) {
         const t = globalMin; globalMin = globalMax; globalMax = t;
     }
-    
+
+    // Render individual incident cards (card view)
     finalFiltered.forEach((incident, index) => {
-        const col = document.createElement('div');
-        col.className = 'col-12 col-md-6 col-lg-4';
-        const card = document.createElement('div');
-        card.className = 'insight-item-card h-100';
+        const incidentCard = createIndividualIncidentCard(incident, globalMin, globalMax);
+        container.appendChild(incidentCard);
+    });
+}
+
+function createIndividualIncidentCard(incident, globalMin, globalMax) {
+    const col = document.createElement('div');
+    col.className = 'col-12 col-md-6 col-lg-4';
+    const card = document.createElement('div');
+    card.className = 'insight-item-card h-100';
         
         // Check for low quality and add visual indicator
         let isLowQuality = false;
@@ -10172,12 +10299,14 @@ function renderIncidentTrackingFiltered(filteredIncidents) {
         if (Array.isArray(incident.investigation_leads) && incident.investigation_leads.length > 0) {
             leadsHtml = `
                 <div class="mt-2 mb-2">
-                    <small class="text-muted fw-bold">Investigation Leads:</small>
-                    <div class="d-flex gap-1 flex-wrap mt-1">
+                    <small class="text-muted fw-bold">Leads:</small>
+                    <div class="d-flex gap-1 flex-wrap mt-1" style="max-width: 100%; overflow: hidden; word-break: break-word;">
                         ${incident.investigation_leads.map(lead => `
-                            <button class="btn btn-sm btn-outline-info" 
-                                    onclick="launchAuspexResearchFromInsight('${escapeHTML(lead)}', 'investigation_lead')">
-                                <i class="fas fa-search me-1"></i>${escapeHTML(lead)}
+                            <button class="btn btn-outline-primary btn-sm"
+                                    onclick="launchAuspexResearchFromInsight('${escapeHTML(lead)}', 'investigation_lead')"
+                                    title="Launch Auspex research on: ${escapeHTML(lead)}"
+                                    style="font-size: 10px; padding: 2px 6px; border-radius: 12px; max-width: 100%; text-overflow: ellipsis; overflow: hidden;">
+                                <i class="fas fa-search me-1"></i>${escapeHTML(lead.length > 20 ? lead.substring(0, 20) + '...' : lead)}
                             </button>
                         `).join('')}
                     </div>
@@ -10282,10 +10411,10 @@ function renderIncidentTrackingFiltered(filteredIncidents) {
                         if (article && hasMBFC) {
                             const badges = [];
                             if (article.factual_reporting) {
-                                badges.push(`<span class="badge ${getFactualityClass(article.factual_reporting)}" style="font-size: 8px;" title="MBFC Factual Reporting">${article.factual_reporting} Factuality</span>`);
+                                badges.push(`<span class="badge ${getFactualityClass(article.factual_reporting)}" style="font-size: 8px;" title="MBFC Factual Reporting">${article.factual_reporting}</span>`);
                             }
                             if (article.mbfc_credibility_rating) {
-                                badges.push(`<span class="badge ${getMBFCCredibilityClass(article.mbfc_credibility_rating)}" style="font-size: 8px;" title="MBFC Credibility Rating">${article.mbfc_credibility_rating} Credibility</span>`);
+                                badges.push(`<span class="badge ${getMBFCCredibilityClass(article.mbfc_credibility_rating)}" style="font-size: 8px;" title="MBFC Credibility Rating">${article.mbfc_credibility_rating}</span>`);
                             }
                             if (article.bias) {
                                 badges.push(`<span class="badge ${getBiasClass(article.bias)}" style="font-size: 8px;" title="MBFC Bias Rating">${article.bias}</span>`);
@@ -10309,42 +10438,56 @@ function renderIncidentTrackingFiltered(filteredIncidents) {
             </div>` : ''}
             ${leadsHtml}
             <div class="mt-2">
-                <div class="d-flex flex-wrap gap-1 mb-2">
-                    <button class="btn btn-sm btn-outline-primary" onclick="launchAuspexResearchFromInsight('${escapeHTML(incident.name)}', 'incident')">
-                        <i class="fas fa-search me-1"></i>Investigate
-                    </button>
-                    ${incident.article_uris && incident.article_uris.length > 0 ? `
-                        <button class="btn btn-sm btn-outline-secondary" onclick="launchConsensusAnalysis('${incident.article_uris[0]}')">
-                            <i class="fas fa-balance-scale me-1"></i>Consensus
+                <!-- Analysis Tools -->
+                <div class="mb-2">
+                    <small class="text-muted fw-bold d-block mb-1">Analysis</small>
+                    <div class="d-flex flex-wrap gap-1">
+                        <button class="btn btn-sm btn-outline-primary" onclick="launchAuspexResearchFromInsight('${escapeHTML(incident.name)}', 'incident')" title="Investigate">
+                            <i class="fas fa-search"></i>
                         </button>
-                        <button class="btn btn-sm btn-outline-success" onclick="openAnnotationModal('${incident.article_uris[0]}')" title="Annotate article">
-                            <i class="fas fa-sticky-note me-1"></i>Annotate
+                        ${incident.article_uris && incident.article_uris.length > 0 ? `
+                            <button class="btn btn-sm btn-outline-secondary" onclick="launchConsensusAnalysis('${incident.article_uris[0]}')" title="Consensus">
+                                <i class="fas fa-balance-scale"></i>
+                            </button>
+                        ` : ''}
+                    </div>
+                </div>
+
+                <!-- Admin Actions -->
+                <div>
+                    <small class="text-muted fw-bold d-block mb-1">Actions</small>
+                    <div class="d-flex flex-wrap gap-1">
+                        ${incident.article_uris && incident.article_uris.length > 0 ? `
+                            <button class="btn btn-sm btn-outline-success" onclick="openAnnotationModal('${incident.article_uris[0]}')" title="Annotate">
+                                <i class="fas fa-sticky-note"></i>
+                            </button>
+                        ` : ''}
+                        ${status !== 'seen' ? `
+                            <button class="btn btn-sm btn-outline-info" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'seen')" title="Mark as seen">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        ` : `
+                            <button class="btn btn-sm btn-outline-secondary" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'active')" title="Mark as unseen">
+                                <i class="fas fa-eye-slash"></i>
+                            </button>
+                        `}
+                        <button class="btn btn-sm btn-outline-danger" onclick="deleteIncident('${escapeHTML(incident.name)}')" title="Delete">
+                            <i class="fas fa-trash"></i>
                         </button>
-                    ` : ''}
-                    ${status !== 'seen' ? `
-                        <button class="btn btn-sm btn-outline-info" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'seen')" title="Mark as seen">
-                            <i class="fas fa-eye me-1"></i>Mark Seen
-                        </button>
-                    ` : `
-                        <button class="btn btn-sm btn-outline-secondary" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'active')" title="Mark as unseen">
-                            <i class="fas fa-eye-slash me-1"></i>Mark Unseen
-                        </button>
-                    `}
-                    <button class="btn btn-sm btn-outline-danger" onclick="deleteIncident('${escapeHTML(incident.name)}')" title="Delete incident">
-                        <i class="fas fa-trash me-1"></i>Delete
-                    </button>
+                    </div>
                 </div>
             </div>
         `;
         
-        // Apply opacity for seen incidents
-        if (status === 'seen') {
-            card.classList.add('opacity-75');
-        }
-        col.appendChild(card);
-        container.appendChild(col);
-    });
+    // Apply opacity for seen incidents
+    if (status === 'seen') {
+        card.classList.add('opacity-75');
+    }
+
+    col.appendChild(card);
+    return col;
 }
+
 
 function clearIncidentFilters() {
     incidentFilters.types.clear();
@@ -11600,7 +11743,7 @@ async function runRealTestAnalysis(articles) {
                                 
                                 ${incident.investigation_leads && incident.investigation_leads.length > 0 ? `
                                     <div class="mb-2">
-                                        <small class="text-muted fw-bold">Investigation Leads:</small>
+                                        <small class="text-muted fw-bold">Leads:</small>
                                         <div class="d-flex flex-wrap gap-1 mt-1">
                                             ${incident.investigation_leads.map(lead => `
                                                 <span class="badge bg-light text-dark" style="font-size: 9px;">${escapeHTML(lead)}</span>
@@ -11760,7 +11903,7 @@ function runSimulatedAnalysis() {
                         </div>
                         <p class="card-text small text-muted mb-2">${result.description}</p>
                         <div class="mb-2">
-                            <small class="text-muted fw-bold">Investigation Leads:</small>
+                            <small class="text-muted fw-bold">Leads:</small>
                             <div class="d-flex flex-wrap gap-1 mt-1">
                                 ${result.investigation_leads.map(lead => `
                                     <span class="badge bg-light text-dark" style="font-size: 9px;">${lead}</span>
@@ -12009,6 +12152,14 @@ function sortIncidents(incidents) {
                 return (a.name || '').localeCompare(b.name || '');
             case 'name_desc':
                 return (b.name || '').localeCompare(a.name || '');
+            case 'entity_asc':
+                const entityA = extractPrimaryEntity(a);
+                const entityB = extractPrimaryEntity(b);
+                return entityA.localeCompare(entityB);
+            case 'entity_desc':
+                const entityDescA = extractPrimaryEntity(a);
+                const entityDescB = extractPrimaryEntity(b);
+                return entityDescB.localeCompare(entityDescA);
             case 'timeline_desc':
                 const aDate = Array.isArray(a.timeline) && a.timeline.length > 0 ? new Date(a.timeline[0]) : new Date(0);
                 const bDate = Array.isArray(b.timeline) && b.timeline.length > 0 ? new Date(b.timeline[0]) : new Date(0);
@@ -12025,181 +12176,122 @@ function sortIncidents(incidents) {
 
 function renderIncidentTable(incidents) {
     const container = document.getElementById('incident-tracking-container');
-    
+
     if (!incidents || incidents.length === 0) {
         container.innerHTML = '<div class="text-muted p-2 small w-100 text-center">No incidents match the current filters.</div>';
         return;
     }
-    
+
+    // Check if we should group by entity (when entity sorting is selected)
+    const sortSelect = document.getElementById('incident-sort-select');
+    const currentSort = sortSelect ? sortSelect.value : 'significance_desc';
+    const groupByEntity = currentSort.startsWith('entity_');
+
+    console.log('Table render - Sort:', currentSort, 'Group by entity:', groupByEntity, 'View:', currentIncidentView);
+
+    if (groupByEntity) {
+        renderTableGroupedByEntity(incidents, container);
+    } else {
+        renderTableUngrouped(incidents, container);
+    }
+}
+
+function renderTableGroupedByEntity(incidents, container) {
+    // Group incidents by entity
+    console.log('Grouping incidents for table view:', incidents.length);
+    const entityGroups = groupIncidentsByEntity(incidents);
+    console.log('Created entity groups:', entityGroups.length, entityGroups);
+
     let html = `
-        <div class="table-responsive">
-            <table class="table table-hover table-sm">
-                <thead class="table-light">
+        <div class="table-responsive" style="max-height: 80vh; overflow-y: auto;">
+            <table class="table table-hover table-sm" style="min-width: 1400px;">
+                <thead class="table-light sticky-top">
                     <tr>
-                        <th style="width: 20%;">Name</th>
-                        <th style="width: 8%;">Type</th>
-                        <th style="width: 8%;">Significance</th>
-                        <th style="width: 12%;">Timeline</th>
-                        <th style="width: 12%;">MBFC Quality</th>
-                        <th style="width: 15%;">Why Significant</th>
-                        <th style="width: 15%;">Description</th>
-                        <th style="width: 10%;">Actions</th>
+                        <th style="width: 250px; min-width: 250px;">Entity/Incident</th>
+                        <th style="width: 80px; min-width: 80px;">Type</th>
+                        <th style="width: 90px; min-width: 90px;">Significance</th>
+                        <th style="width: 120px; min-width: 120px;">Timeline</th>
+                        <th style="width: 140px; min-width: 140px;">MBFC Quality</th>
+                        <th style="width: 400px; min-width: 400px;">Description</th>
+                        <th style="width: 120px; min-width: 120px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+
+    entityGroups.forEach((group, groupIndex) => {
+        // Entity group header row
+        const significanceBadgeColor = group.maxSignificance === 'high' ? 'danger' :
+                                     group.maxSignificance === 'medium' ? 'warning' : 'info';
+
+        html += `
+            <tr class="table-primary" style="background: linear-gradient(135deg, #e3f2fd 0%, #f8f9fa 100%);">
+                <td colspan="8">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <i class="fas fa-building me-2"></i>
+                            <strong>${escapeHTML(group.entityName)}</strong>
+                            <span class="badge bg-${significanceBadgeColor} ms-2">${group.maxSignificance.toUpperCase()}</span>
+                            <small class="text-muted ms-2">
+                                ${group.incidents.length} incident${group.incidents.length !== 1 ? 's' : ''} •
+                                ${group.totalArticles} article${group.totalArticles !== 1 ? 's' : ''}
+                            </small>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="toggleTableGroupExpansion('entity-group-${groupIndex}')">
+                            <i class="fas fa-chevron-down" id="entity-group-${groupIndex}-icon"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+
+        // Entity incidents (collapsible)
+        html += `<tbody id="entity-group-${groupIndex}" class="collapse show">`;
+
+        group.incidents.forEach(incident => {
+            html += renderTableRow(incident, true);
+        });
+
+        html += `</tbody>`;
+    });
+
+    html += `
+                </tbody>
+            </table>
+        </div>
+    `;
+
+    container.innerHTML = html;
+
+    // Initialize Bootstrap tooltips
+    setTimeout(() => {
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+    }, 100);
+}
+
+function renderTableUngrouped(incidents, container) {
+    let html = `
+        <div class="table-responsive" style="max-height: 80vh; overflow-y: auto;">
+            <table class="table table-hover table-sm" style="min-width: 1400px;">
+                <thead class="table-light sticky-top">
+                    <tr>
+                        <th style="width: 250px; min-width: 250px;">Name</th>
+                        <th style="width: 80px; min-width: 80px;">Type</th>
+                        <th style="width: 90px; min-width: 90px;">Significance</th>
+                        <th style="width: 120px; min-width: 120px;">Timeline</th>
+                        <th style="width: 140px; min-width: 140px;">MBFC Quality</th>
+                        <th style="width: 400px; min-width: 400px;">Description</th>
+                        <th style="width: 120px; min-width: 120px;">Actions</th>
                     </tr>
                 </thead>
                 <tbody>
     `;
     
     incidents.forEach((incident, index) => {
-        const typeBadgeColor = incident.type === 'incident' ? 'danger' : 
-                              incident.type === 'entity' ? 'primary' : 
-                              incident.type === 'expertise' ? 'warning' :
-                              incident.type === 'informed_insider' ? 'dark' :
-                              incident.type === 'trend_signal' ? 'info' :
-                              incident.type === 'strategic_shift' ? 'secondary' : 'success';
-        const significanceBadgeColor = incident.significance === 'high' ? 'danger' : 
-                                     incident.significance === 'medium' ? 'warning' : 'info';
-        
-        const plausibility = String(incident.plausibility || '').toLowerCase();
-        const sourceQuality = String(incident.source_quality || '').toLowerCase();
-        const plausibilityBadge = plausibility === 'likely' ? 'success' : plausibility === 'questionable' ? 'warning' : 'danger';
-        const sourceQualityBadge = sourceQuality === 'high' ? 'success' : sourceQuality === 'mixed' ? 'warning' : 'danger';
-        
-        // Timeline display - handle both arrays and strings
-        let timelineDisplay = '';
-        if (Array.isArray(incident.timeline) && incident.timeline.length > 0) {
-            const validDates = incident.timeline.filter(Boolean);
-            if (validDates.length > 0) {
-                const start = validDates[0];
-                const end = validDates[validDates.length - 1];
-                timelineDisplay = start === end ? start : `${start} → ${end}`;
-            }
-        } else if (typeof incident.timeline === 'string' && incident.timeline.trim()) {
-            timelineDisplay = incident.timeline.trim();
-        } else if (incident.timeline && incident.timeline.summary) {
-            timelineDisplay = incident.timeline.summary;
-        }
-        
-        // MBFC Quality indicators - consistent format for both real and AI-derived
-        let qualityHtml = '';
-        let hasRealMBFC = false;
-        let isLowQuality = false;
-        
-        // Check if we have real MBFC data
-        if (incident.article_uris && incident.article_uris.length > 0) {
-            const firstUri = incident.article_uris[0];
-            const article = window.lastArticlesData?.items?.find(a => a.uri === firstUri);
-            if (article && (article.factual_reporting || article.mbfc_credibility_rating || article.bias)) {
-                hasRealMBFC = true;
-                
-                // Check for low quality indicators
-                const factual = (article.factual_reporting || '').toLowerCase();
-                const mbfc = (article.mbfc_credibility_rating || '').toLowerCase();
-                const bias = (article.bias || '').toLowerCase();
-                
-                isLowQuality = factual.includes('low') || factual.includes('mixed') ||
-                              mbfc.includes('low') || mbfc.includes('mixed') ||
-                              bias.includes('extreme') || bias.includes('conspiracy') || bias.includes('fringe');
-                
-                // Consistent badge format for real MBFC data with full labels
-                const factualBadge = article.factual_reporting ? 
-                    `<span class="badge ${getFactualityClass(article.factual_reporting)}" title="MBFC Factual Reporting">${article.factual_reporting} Factuality</span>` : '';
-                const mbfcBadge = article.mbfc_credibility_rating ? 
-                    `<span class="badge ${getMBFCCredibilityClass(article.mbfc_credibility_rating)}" title="MBFC Credibility Rating">${article.mbfc_credibility_rating} Credibility</span>` : '';
-                const biasBadge = article.bias ? 
-                    `<span class="badge ${getBiasClass(article.bias)}" title="MBFC Bias Rating">${article.bias}</span>` : '';
-                
-                qualityHtml = [factualBadge, mbfcBadge, biasBadge].filter(Boolean).join('<br>');
-            } else {
-                // Article found but no MBFC data - flag as AI-rated
-                hasRealMBFC = false;
-            }
-        }
-        
-        // AI-derived quality if no real MBFC data - use same format as MBFC
-        if (!hasRealMBFC) {
-            // Check if AI-derived quality indicates low quality
-            isLowQuality = sourceQuality === 'low' || plausibility === 'implausible' ||
-                          (Array.isArray(incident.misinfo_flags) && incident.misinfo_flags.some(f => 
-                              f.includes('low_factuality') || f.includes('low_credibility') || f.includes('fringe_bias')));
-            
-            // Convert AI-derived ratings to MBFC-equivalent format with full labels
-            const aiFactualRating = sourceQuality === 'high' ? 'High Factuality' : 
-                                   sourceQuality === 'mixed' ? 'Mixed Factuality' : 'Low Factuality';
-            const aiCredibilityRating = plausibility === 'likely' ? 'High Credibility' : 
-                                       plausibility === 'questionable' ? 'Mixed Credibility' : 'Low Credibility';
-            let aiBiasRating = 'Least Biased'; // Default assumption unless flags indicate otherwise
-            
-            // Check for bias flags
-            if (Array.isArray(incident.misinfo_flags) && incident.misinfo_flags.some(f => f.includes('fringe_bias'))) {
-                aiBiasRating = 'Mixed Bias';
-            }
-            
-            // Use same badge format as real MBFC but with AI indicator and full labels
-            const factualBadge = `<span class="badge ${getFactualityClass(aiFactualRating)}" title="📊 AI-derived factual assessment (no MBFC data)">📊 ${aiFactualRating}</span>`;
-            const credibilityBadge = `<span class="badge ${getMBFCCredibilityClass(aiCredibilityRating)}" title="📊 AI-derived credibility assessment (no MBFC data)">📊 ${aiCredibilityRating}</span>`;
-            const biasBadge = `<span class="badge ${getBiasClass(aiBiasRating)}" title="📊 AI-derived bias assessment (no MBFC data)">📊 ${aiBiasRating}</span>`;
-            
-            qualityHtml = [factualBadge, credibilityBadge, biasBadge].join('<br>');
-        }
-        
-        const status = incident.status || 'active';
-        let rowClass = status === 'seen' ? 'opacity-75' : '';
-        
-        // Add highlighting for low quality incidents in table view
-        if (isLowQuality) {
-            rowClass += ' table-danger';
-        }
-        
-        // Why significant explanation
-        const whySignificant = incident.organizational_relevance || 
-                              incident.credibility_summary || 
-                              `${incident.significance || 'medium'} significance incident`;
-        
-        html += `
-            <tr class="${rowClass}">
-                <td>
-                    <strong>${escapeHTML(incident.name || 'Unnamed Incident')}</strong>
-                    ${status === 'seen' ? `<br><span class="badge bg-secondary"><i class="fas fa-eye me-1"></i>Seen</span>` : ''}
-                </td>
-                <td><span class="badge bg-${typeBadgeColor}">${incident.type || 'Unknown'}</span></td>
-                <td><span class="badge bg-${significanceBadgeColor}">${incident.significance || 'Unknown'}</span></td>
-                <td><small>${timelineDisplay || 'No timeline'}</small></td>
-                <td>${qualityHtml || '<small class="text-muted">No quality data</small>'}</td>
-                <td><small class="text-info">${escapeHTML(whySignificant.substring(0, 80))}${whySignificant.length > 80 ? '...' : ''}</small></td>
-                <td>
-                    <small>${escapeHTML((incident.description || 'No description available.').substring(0, 80))}${(incident.description || '').length > 80 ? '...' : ''}</small>
-                    ${incident.article_uris && incident.article_uris.length > 0 ? `
-                        <br><a href="${incident.article_uris[0]}" target="_blank" rel="noopener" class="small text-primary text-decoration-none">
-                            <i class="fas fa-external-link-alt me-1"></i>View Article
-                        </a>
-                    ` : ''}
-                </td>
-                <td>
-                    <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-primary btn-sm" onclick="launchAuspexResearchFromInsight('${escapeHTML(incident.name)}', 'incident')" title="Investigate">
-                            <i class="fas fa-search"></i>
-                        </button>
-                        ${incident.article_uris && incident.article_uris.length > 0 ? `
-                            <button class="btn btn-outline-success btn-sm" onclick="openAnnotationModal('${incident.article_uris[0]}')" title="Annotate">
-                                <i class="fas fa-sticky-note"></i>
-                            </button>
-                        ` : ''}
-                        ${status !== 'seen' ? `
-                            <button class="btn btn-outline-success btn-sm" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'seen')" title="Mark as seen">
-                                <i class="fas fa-eye"></i>
-                            </button>
-                        ` : `
-                            <button class="btn btn-outline-secondary btn-sm" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'active')" title="Mark as unseen">
-                                <i class="fas fa-eye-slash"></i>
-                            </button>
-                        `}
-                        <button class="btn btn-outline-danger btn-sm" onclick="deleteIncident('${escapeHTML(incident.name)}')" title="Delete incident">
-                            <i class="fas fa-trash"></i>
-                        </button>
-                    </div>
-                </td>
-            </tr>
-        `;
+        html += renderTableRow(incident, false);
     });
     
     html += `
@@ -12207,8 +12299,214 @@ function renderIncidentTable(incidents) {
             </table>
         </div>
     `;
-    
+
     container.innerHTML = html;
+
+    // Initialize Bootstrap tooltips
+    setTimeout(() => {
+        const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+        tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl);
+        });
+    }, 100);
+}
+
+// Render individual table row
+function renderTableRow(incident, isGrouped = false) {
+    const typeBadgeColor = incident.type === 'incident' ? 'danger' :
+                          incident.type === 'entity' ? 'primary' :
+                          incident.type === 'expertise' ? 'warning' :
+                          incident.type === 'informed_insider' ? 'dark' :
+                          incident.type === 'trend_signal' ? 'info' :
+                          incident.type === 'strategic_shift' ? 'secondary' : 'success';
+    const significanceBadgeColor = incident.significance === 'high' ? 'danger' :
+                                 incident.significance === 'medium' ? 'warning' : 'info';
+
+    const plausibility = String(incident.plausibility || '').toLowerCase();
+    const sourceQuality = String(incident.source_quality || '').toLowerCase();
+
+    // Helper function to format dates to human-readable format
+    function formatTimelineDate(dateStr) {
+        if (!dateStr || typeof dateStr !== 'string') return dateStr;
+
+        // Check if it looks like an ISO date (contains T and ends with Z or timezone)
+        if (dateStr.includes('T') && (dateStr.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(dateStr))) {
+            try {
+                const date = new Date(dateStr);
+                if (!isNaN(date.getTime())) {
+                    return date.toLocaleDateString('en-US', {
+                        year: 'numeric',
+                        month: 'short',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
+                }
+            } catch (e) {
+                console.warn('Error formatting date:', dateStr, e);
+            }
+        }
+
+        return dateStr; // Return original if not a recognizable ISO date
+    }
+
+    // Timeline display - handle both arrays and strings with date formatting
+    let timelineDisplay = '';
+    if (Array.isArray(incident.timeline) && incident.timeline.length > 0) {
+        const validDates = incident.timeline.filter(Boolean);
+        if (validDates.length > 0) {
+            const start = formatTimelineDate(validDates[0]);
+            const end = formatTimelineDate(validDates[validDates.length - 1]);
+            timelineDisplay = start === end ? start : `${start} → ${end}`;
+        }
+    } else if (typeof incident.timeline === 'string' && incident.timeline.trim()) {
+        timelineDisplay = formatTimelineDate(incident.timeline.trim());
+    } else if (incident.timeline && incident.timeline.summary) {
+        timelineDisplay = formatTimelineDate(incident.timeline.summary);
+    }
+
+    // MBFC Quality indicators - consistent format for both real and AI-derived
+    let qualityHtml = '';
+    let hasRealMBFC = false;
+    let isLowQuality = false;
+
+    // Check if we have real MBFC data
+    if (incident.article_uris && incident.article_uris.length > 0) {
+        const firstUri = incident.article_uris[0];
+        const article = window.lastArticlesData?.items?.find(a => a.uri === firstUri);
+        if (article && (article.factual_reporting || article.mbfc_credibility_rating || article.bias)) {
+            hasRealMBFC = true;
+
+            // Check for low quality indicators
+            const factual = (article.factual_reporting || '').toLowerCase();
+            const mbfc = (article.mbfc_credibility_rating || '').toLowerCase();
+            const bias = (article.bias || '').toLowerCase();
+
+            isLowQuality = factual.includes('low') || factual.includes('mixed') ||
+                          mbfc.includes('low') || mbfc.includes('mixed') ||
+                          bias.includes('extreme') || bias.includes('conspiracy') || bias.includes('fringe');
+
+            // Consistent badge format for real MBFC data with full labels
+            const factualBadge = article.factual_reporting ?
+                `<span class="badge ${getFactualityClass(article.factual_reporting)}" title="MBFC Factual Reporting">${article.factual_reporting}</span>` : '';
+            const mbfcBadge = article.mbfc_credibility_rating ?
+                `<span class="badge ${getMBFCCredibilityClass(article.mbfc_credibility_rating)}" title="MBFC Credibility Rating">${article.mbfc_credibility_rating}</span>` : '';
+            const biasBadge = article.bias ?
+                `<span class="badge ${getBiasClass(article.bias)}" title="MBFC Bias Rating">${article.bias}</span>` : '';
+
+            qualityHtml = [factualBadge, mbfcBadge, biasBadge].filter(Boolean).join('<br>');
+        } else {
+            // Article found but no MBFC data - flag as AI-rated
+            hasRealMBFC = false;
+        }
+    }
+
+    // AI-derived quality if no real MBFC data - use same format as MBFC
+    if (!hasRealMBFC) {
+        // Check if AI-derived quality indicates low quality
+        isLowQuality = sourceQuality === 'low' || plausibility === 'implausible' ||
+                      (Array.isArray(incident.misinfo_flags) && incident.misinfo_flags.some(f =>
+                          f.includes('low_factuality') || f.includes('low_credibility') || f.includes('fringe_bias')));
+
+        // Convert AI-derived ratings to MBFC-equivalent format with proper capitalization
+        const aiFactualRating = sourceQuality === 'high' ? 'High' :
+                               sourceQuality === 'mixed' ? 'Mixed' : 'Low';
+        const aiCredibilityRating = plausibility === 'likely' ? 'High' :
+                                   plausibility === 'questionable' ? 'Mixed' : 'Low';
+        let aiBiasRating = 'Least Biased'; // Default assumption unless flags indicate otherwise
+
+        // Check for bias flags
+        if (Array.isArray(incident.misinfo_flags) && incident.misinfo_flags.some(f => f.includes('fringe_bias'))) {
+            aiBiasRating = 'Mixed Bias';
+        }
+
+        // Use same badge format as real MBFC but with AI indicator
+        const factualBadge = `<span class="badge ${getFactualityClass(aiFactualRating)}" title="📊 AI-derived factual assessment (no MBFC data)">📊 ${aiFactualRating}</span>`;
+        const credibilityBadge = `<span class="badge ${getMBFCCredibilityClass(aiCredibilityRating)}" title="📊 AI-derived credibility assessment (no MBFC data)">📊 ${aiCredibilityRating}</span>`;
+        const biasBadge = `<span class="badge ${getBiasClass(aiBiasRating)}" title="📊 AI-derived bias assessment (no MBFC data)">📊 ${aiBiasRating}</span>`;
+
+        qualityHtml = [factualBadge, credibilityBadge, biasBadge].join('<br>');
+    }
+
+    const status = incident.status || 'active';
+    let rowClass = status === 'seen' ? 'opacity-75' : '';
+
+    // Add highlighting for low quality incidents in table view
+    if (isLowQuality) {
+        rowClass += ' table-danger';
+    }
+
+    // Why significant explanation
+    const whySignificant = incident.organizational_relevance ||
+                          incident.credibility_summary ||
+                          `${incident.significance || 'medium'} significance incident`;
+
+    const namePrefix = isGrouped ? '&nbsp;&nbsp;↳ ' : '';
+
+    return `
+        <tr class="${rowClass}">
+            <td>
+                ${namePrefix}<strong>${escapeHTML(incident.name || 'Unnamed Incident')}</strong>
+                ${status === 'seen' ? `<br><span class="badge bg-secondary"><i class="fas fa-eye me-1"></i>Seen</span>` : ''}
+            </td>
+            <td><span class="badge bg-${typeBadgeColor}">${incident.type || 'Unknown'}</span></td>
+            <td><span class="badge bg-${significanceBadgeColor}">${incident.significance || 'Unknown'}</span></td>
+            <td><small>${timelineDisplay || 'No timeline'}</small></td>
+            <td>${qualityHtml || '<small class="text-muted">No quality data</small>'}</td>
+            <td>
+                <div data-bs-toggle="tooltip" data-bs-placement="top" title="${escapeHTML(whySignificant)}" style="cursor: help;">
+                    <small>${escapeHTML((incident.description || 'No description available.').substring(0, 80))}${(incident.description || '').length > 80 ? '...' : ''}</small>
+                    ${incident.article_uris && incident.article_uris.length > 0 ? `
+                        <br><a href="${incident.article_uris[0]}" target="_blank" rel="noopener" class="small text-primary text-decoration-none">
+                            <i class="fas fa-external-link-alt me-1"></i>View Article
+                        </a>
+                    ` : ''}
+                </div>
+            </td>
+            <td>
+                <div class="d-grid gap-1" style="grid-template-columns: 1fr 1fr; max-width: 120px;">
+                    <button class="btn btn-outline-primary btn-sm" onclick="launchAuspexResearchFromInsight('${escapeHTML(incident.name)}', 'incident')" title="Investigate">
+                        <i class="fas fa-search"></i>
+                    </button>
+                    ${incident.article_uris && incident.article_uris.length > 0 ? `
+                        <button class="btn btn-outline-success btn-sm" onclick="openAnnotationModal('${incident.article_uris[0]}')" title="Annotate">
+                            <i class="fas fa-sticky-note"></i>
+                        </button>
+                    ` : `
+                        <div></div>
+                    `}
+                    ${status !== 'seen' ? `
+                        <button class="btn btn-outline-info btn-sm" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'seen')" title="Mark as seen">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                    ` : `
+                        <button class="btn btn-outline-secondary btn-sm" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'active')" title="Mark as unseen">
+                            <i class="fas fa-eye-slash"></i>
+                        </button>
+                    `}
+                    <button class="btn btn-outline-danger btn-sm" onclick="deleteIncident('${escapeHTML(incident.name)}')" title="Delete incident">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </td>
+        </tr>
+    `;
+}
+
+// Table group expansion toggle
+function toggleTableGroupExpansion(groupId) {
+    const groupBody = document.getElementById(groupId);
+    const icon = document.getElementById(groupId + '-icon');
+
+    if (groupBody.classList.contains('show')) {
+        groupBody.classList.remove('show');
+        icon.classList.remove('fa-chevron-down');
+        icon.classList.add('fa-chevron-right');
+    } else {
+        groupBody.classList.add('show');
+        icon.classList.remove('fa-chevron-right');
+        icon.classList.add('fa-chevron-down');
+    }
 }
 
 // Refresh profile integration
