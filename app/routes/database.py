@@ -287,41 +287,139 @@ async def create_database_backup(db: Database = Depends(get_database_instance), 
         logger.error(f"Error creating database backup: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/api/merge_backup")
-async def merge_backup_database(backup_name: str = None, uploaded_file: UploadFile = None, session=Depends(verify_session)):
-    """Merge articles and settings from a backup database or uploaded file"""
+@router.post("/api/reset-articles-data")
+async def reset_articles_data(
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session)
+):
+    """
+    Reset all article-related data including:
+    - articles and raw_articles
+    - article_annotations
+    - keyword_alerts, keyword_article_matches
+    - keyword_groups, monitored_keywords
+    - podcasts
+    - feed_items, feed_group_sources
+    - model_bias_arena_runs, model_bias_arena_results, model_bias_arena_articles
+    - analysis_versions, analysis_versions_v2, article_analysis_cache
+    - signal_alerts, incident_status
+    """
     try:
-        from scripts.db_merge import DatabaseMerger
-        merger = DatabaseMerger()
+        conn = db._temp_get_connection()
 
-        if uploaded_file:
-            # Save uploaded file to temp location
-            temp_path = Path(DATABASE_DIR) / "temp" / uploaded_file.filename
-            temp_path.parent.mkdir(exist_ok=True)
+        # Begin transaction
+        trans = conn.begin()
 
-            with temp_path.open("wb") as buffer:
-                shutil.copyfileobj(uploaded_file.file, buffer)
+        try:
+            # Disable foreign key checks temporarily for smoother deletion
+            conn.execute(text("PRAGMA foreign_keys = OFF"))
 
-            try:
-                merger.merge_databases(temp_path)
-                return {"message": f"Successfully merged uploaded database: {uploaded_file.filename}"}
-            finally:
-                # Cleanup temp file
-                temp_path.unlink(missing_ok=True)
+            # Delete in correct order to respect foreign key relationships
+            tables_to_clear = [
+                # Dependent tables first
+                'keyword_article_matches',
+                'keyword_alerts',
+                'article_annotations',
+                'model_bias_arena_articles',
+                'model_bias_arena_results',
+                'model_bias_arena_runs',
+                'feed_items',
+                'feed_group_sources',
+                'signal_alerts',
+                'incident_status',
+                'article_analysis_cache',
+                'analysis_versions_v2',
+                'analysis_versions',
+                'podcasts',
+                'raw_articles',
+                # Main tables
+                'monitored_keywords',
+                'keyword_groups',
+                'articles'
+            ]
 
-        elif backup_name:
-            backup_path = Path(DATABASE_DIR) / "backups" / backup_name
-            if not backup_path.exists():
-                raise HTTPException(status_code=404, detail=f"Backup database not found: {backup_name}")
+            deleted_counts = {}
+            for table in tables_to_clear:
+                try:
+                    # Get count before deletion
+                    count_result = conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
+                    count = count_result.scalar()
 
-            merger.merge_databases(backup_path)
-            return {"message": f"Successfully merged data from {backup_name}"}
+                    # Delete all rows
+                    conn.execute(text(f"DELETE FROM {table}"))
+                    deleted_counts[table] = count
+                    logger.info(f"Deleted {count} rows from {table}")
+                except Exception as e:
+                    logger.warning(f"Error clearing table {table}: {str(e)}")
+                    # Continue with other tables even if one fails
 
-        else:
-            raise HTTPException(status_code=400, detail="No backup specified")
+            # Re-enable foreign key checks
+            conn.execute(text("PRAGMA foreign_keys = ON"))
+
+            # Commit transaction
+            trans.commit()
+
+            total_deleted = sum(deleted_counts.values())
+            logger.info(f"Successfully reset articles data. Total rows deleted: {total_deleted}")
+
+            return {
+                "message": f"Successfully reset articles data. Deleted {total_deleted} total rows.",
+                "details": deleted_counts
+            }
+
+        except Exception as e:
+            trans.rollback()
+            logger.error(f"Transaction failed, rolling back: {str(e)}")
+            raise e
 
     except Exception as e:
-        logger.error(f"Error merging backup database: {str(e)}")
+        logger.error(f"Error resetting articles data: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/api/reset-auspex-chats")
+async def reset_auspex_chats(
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session)
+):
+    """Reset all Auspex chat history (messages and chats)"""
+    try:
+        conn = db._temp_get_connection()
+
+        # Begin transaction
+        trans = conn.begin()
+
+        try:
+            # Get counts before deletion
+            messages_result = conn.execute(text("SELECT COUNT(*) FROM auspex_messages"))
+            messages_count = messages_result.scalar()
+
+            chats_result = conn.execute(text("SELECT COUNT(*) FROM auspex_chats"))
+            chats_count = chats_result.scalar()
+
+            # Delete messages first (foreign key to chats)
+            conn.execute(text("DELETE FROM auspex_messages"))
+            logger.info(f"Deleted {messages_count} messages from auspex_messages")
+
+            # Delete chats
+            conn.execute(text("DELETE FROM auspex_chats"))
+            logger.info(f"Deleted {chats_count} chats from auspex_chats")
+
+            # Commit transaction
+            trans.commit()
+
+            return {
+                "message": f"Successfully reset Auspex chats. Deleted {chats_count} chats and {messages_count} messages.",
+                "chats_deleted": chats_count,
+                "messages_deleted": messages_count
+            }
+
+        except Exception as e:
+            trans.rollback()
+            logger.error(f"Transaction failed, rolling back: {str(e)}")
+            raise e
+
+    except Exception as e:
+        logger.error(f"Error resetting Auspex chats: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/backups")
@@ -619,40 +717,355 @@ async def reset_database(db: Database = Depends(get_database_instance), session=
     try:
         with db.get_connection() as conn:
             cursor = conn.cursor()
-            
+
             # Begin transaction
             cursor.execute("BEGIN IMMEDIATE")
-            
+
             try:
                 # Disable foreign key checks temporarily
                 cursor.execute("PRAGMA foreign_keys = OFF")
-                
+
                 # Drop existing tables
                 cursor.execute("""
-                    SELECT name FROM sqlite_master 
+                    SELECT name FROM sqlite_master
                     WHERE type='table' AND name NOT IN ('sqlite_sequence')
                 """)
                 tables = cursor.fetchall()
-                
+
                 for table in tables:
                     cursor.execute(f"DROP TABLE IF EXISTS {table[0]}")
-                
+
                 # Re-enable foreign key checks
                 cursor.execute("PRAGMA foreign_keys = ON")
-                
+
                 # Reinitialize database with new schema
                 db.init_db()
-                
+
                 cursor.execute("COMMIT")
                 return {"message": "Database reset successfully"}
-                
+
             except Exception as e:
                 cursor.execute("ROLLBACK")
                 raise HTTPException(
                     status_code=500,
                     detail=f"Failed to reset database: {str(e)}"
                 )
-                
+
     except Exception as e:
         logger.error(f"Error resetting database: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/api/export-articles-enriched")
+async def export_articles_enriched(
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session)
+):
+    """Export enriched article data (without raw markdown content)"""
+    try:
+        conn = db._temp_get_connection()
+
+        # Export enriched articles data
+        export_data = {
+            "export_timestamp": datetime.now().isoformat(),
+            "export_type": "enriched",
+            "version": "1.0",
+            "articles": []
+        }
+
+        # Query enriched articles from the articles table
+        result = conn.execute(text("""
+            SELECT
+                uri, title, news_source, publication_date, submission_date,
+                summary, category, future_signal, future_signal_explanation,
+                sentiment, sentiment_explanation, time_to_impact, time_to_impact_explanation,
+                tags, driver_type, driver_type_explanation, topic, analyzed,
+                bias, factual_reporting, mbfc_credibility_rating, bias_source,
+                bias_country, press_freedom, media_type, popularity,
+                topic_alignment_score, keyword_relevance_score, confidence_score,
+                overall_match_explanation, extracted_article_topics, extracted_article_keywords,
+                ingest_status, quality_score, quality_issues, auto_ingested
+            FROM articles
+            ORDER BY submission_date DESC
+        """))
+
+        for row in result.mappings():
+            export_data["articles"].append(dict(row))
+
+        export_data["total_articles"] = len(export_data["articles"])
+        logger.info(f"Exported {export_data['total_articles']} enriched articles")
+
+        return export_data
+
+    except Exception as e:
+        logger.error(f"Error exporting enriched articles: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/api/export-articles-raw")
+async def export_articles_raw(
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session)
+):
+    """Export complete article data including raw markdown content"""
+    try:
+        conn = db._temp_get_connection()
+
+        # Export complete article data
+        export_data = {
+            "export_timestamp": datetime.now().isoformat(),
+            "export_type": "raw",
+            "version": "1.0",
+            "articles": []
+        }
+
+        # Query all article data including raw content
+        result = conn.execute(text("""
+            SELECT
+                a.uri, a.title, a.news_source, a.publication_date, a.submission_date,
+                a.summary, a.category, a.future_signal, a.future_signal_explanation,
+                a.sentiment, a.sentiment_explanation, a.time_to_impact, a.time_to_impact_explanation,
+                a.tags, a.driver_type, a.driver_type_explanation, a.topic, a.analyzed,
+                a.bias, a.factual_reporting, a.mbfc_credibility_rating, a.bias_source,
+                a.bias_country, a.press_freedom, a.media_type, a.popularity,
+                a.topic_alignment_score, a.keyword_relevance_score, a.confidence_score,
+                a.overall_match_explanation, a.extracted_article_topics, a.extracted_article_keywords,
+                a.ingest_status, a.quality_score, a.quality_issues, a.auto_ingested,
+                r.raw_markdown, r.last_updated
+            FROM articles a
+            LEFT JOIN raw_articles r ON a.uri = r.uri
+            ORDER BY a.submission_date DESC
+        """))
+
+        for row in result.mappings():
+            export_data["articles"].append(dict(row))
+
+        export_data["total_articles"] = len(export_data["articles"])
+        logger.info(f"Exported {export_data['total_articles']} raw articles")
+
+        return export_data
+
+    except Exception as e:
+        logger.error(f"Error exporting raw articles: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+class ArticleImportRequest(BaseModel):
+    merge_mode: bool = True
+    skip_duplicates: bool = True
+    update_existing: bool = False
+
+@router.post("/api/import-articles")
+async def import_articles(
+    import_data: dict,
+    merge_mode: bool = True,
+    skip_duplicates: bool = True,
+    update_existing: bool = False,
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session)
+):
+    """
+    Import article data with robust validation and conflict resolution
+
+    Args:
+        import_data: JSON data containing articles to import
+        merge_mode: If True, keep existing articles; if False, clear before import
+        skip_duplicates: If True, skip articles with duplicate URIs
+        update_existing: If True, update existing articles with new data
+    """
+    try:
+        conn = db._temp_get_connection()
+
+        # Validate import data structure
+        if "articles" not in import_data:
+            raise HTTPException(status_code=400, detail="Invalid import data: missing 'articles' field")
+
+        articles = import_data.get("articles", [])
+        if not isinstance(articles, list):
+            raise HTTPException(status_code=400, detail="Invalid import data: 'articles' must be a list")
+
+        # Track import statistics
+        stats = {
+            "total_records": len(articles),
+            "imported": 0,
+            "updated": 0,
+            "skipped": 0,
+            "failed": 0,
+            "errors": []
+        }
+
+        # Begin transaction
+        trans = conn.begin()
+
+        try:
+            # If not merge mode, clear existing data (with confirmation required in UI)
+            if not merge_mode:
+                logger.warning("Clearing existing articles (non-merge mode)")
+                conn.execute(text("DELETE FROM raw_articles"))
+                conn.execute(text("DELETE FROM articles"))
+
+            # Process each article
+            for idx, article in enumerate(articles):
+                try:
+                    # Validate required field
+                    if not article.get("uri"):
+                        stats["failed"] += 1
+                        stats["errors"].append(f"Record {idx + 1}: Missing required field 'uri'")
+                        continue
+
+                    uri = article["uri"]
+
+                    # Check if article already exists
+                    existing = conn.execute(
+                        text("SELECT uri FROM articles WHERE uri = :uri"),
+                        {"uri": uri}
+                    ).first()
+
+                    if existing:
+                        if skip_duplicates and not update_existing:
+                            stats["skipped"] += 1
+                            continue
+                        elif update_existing:
+                            # Update existing article
+                            update_fields = []
+                            update_values = {"uri": uri}
+
+                            # Build update query dynamically for non-null fields
+                            for field in [
+                                "title", "news_source", "publication_date", "summary", "category",
+                                "future_signal", "future_signal_explanation", "sentiment", "sentiment_explanation",
+                                "time_to_impact", "time_to_impact_explanation", "tags", "driver_type",
+                                "driver_type_explanation", "topic", "analyzed", "bias", "factual_reporting",
+                                "mbfc_credibility_rating", "bias_source", "bias_country", "press_freedom",
+                                "media_type", "popularity", "topic_alignment_score", "keyword_relevance_score",
+                                "confidence_score", "overall_match_explanation", "extracted_article_topics",
+                                "extracted_article_keywords", "ingest_status", "quality_score", "quality_issues",
+                                "auto_ingested"
+                            ]:
+                                if field in article and article[field] is not None:
+                                    update_fields.append(f"{field} = :{field}")
+                                    update_values[field] = article[field]
+
+                            if update_fields:
+                                update_query = f"UPDATE articles SET {', '.join(update_fields)} WHERE uri = :uri"
+                                conn.execute(text(update_query), update_values)
+
+                            # Update raw_articles if raw_markdown is present
+                            if "raw_markdown" in article and article["raw_markdown"] is not None:
+                                raw_exists = conn.execute(
+                                    text("SELECT uri FROM raw_articles WHERE uri = :uri"),
+                                    {"uri": uri}
+                                ).first()
+
+                                if raw_exists:
+                                    conn.execute(
+                                        text("""
+                                            UPDATE raw_articles
+                                            SET raw_markdown = :raw_markdown,
+                                                last_updated = CURRENT_TIMESTAMP,
+                                                topic = :topic
+                                            WHERE uri = :uri
+                                        """),
+                                        {
+                                            "uri": uri,
+                                            "raw_markdown": article["raw_markdown"],
+                                            "topic": article.get("topic")
+                                        }
+                                    )
+                                else:
+                                    conn.execute(
+                                        text("""
+                                            INSERT INTO raw_articles (uri, raw_markdown, topic, submission_date, last_updated)
+                                            VALUES (:uri, :raw_markdown, :topic, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                        """),
+                                        {
+                                            "uri": uri,
+                                            "raw_markdown": article["raw_markdown"],
+                                            "topic": article.get("topic")
+                                        }
+                                    )
+
+                            stats["updated"] += 1
+                        else:
+                            stats["skipped"] += 1
+                            continue
+                    else:
+                        # Insert new article
+                        insert_fields = ["uri"]
+                        insert_placeholders = [":uri"]
+                        insert_values = {"uri": uri}
+
+                        # Build insert query for available fields
+                        for field in [
+                            "title", "news_source", "publication_date", "summary", "category",
+                            "future_signal", "future_signal_explanation", "sentiment", "sentiment_explanation",
+                            "time_to_impact", "time_to_impact_explanation", "tags", "driver_type",
+                            "driver_type_explanation", "topic", "analyzed", "bias", "factual_reporting",
+                            "mbfc_credibility_rating", "bias_source", "bias_country", "press_freedom",
+                            "media_type", "popularity", "topic_alignment_score", "keyword_relevance_score",
+                            "confidence_score", "overall_match_explanation", "extracted_article_topics",
+                            "extracted_article_keywords", "ingest_status", "quality_score", "quality_issues",
+                            "auto_ingested"
+                        ]:
+                            if field in article and article[field] is not None:
+                                insert_fields.append(field)
+                                insert_placeholders.append(f":{field}")
+                                insert_values[field] = article[field]
+
+                        insert_query = f"""
+                            INSERT INTO articles ({', '.join(insert_fields)})
+                            VALUES ({', '.join(insert_placeholders)})
+                        """
+                        conn.execute(text(insert_query), insert_values)
+
+                        # Insert raw_articles if raw_markdown is present
+                        if "raw_markdown" in article and article["raw_markdown"] is not None:
+                            conn.execute(
+                                text("""
+                                    INSERT INTO raw_articles (uri, raw_markdown, topic, submission_date, last_updated)
+                                    VALUES (:uri, :raw_markdown, :topic, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                                """),
+                                {
+                                    "uri": uri,
+                                    "raw_markdown": article["raw_markdown"],
+                                    "topic": article.get("topic")
+                                }
+                            )
+
+                        stats["imported"] += 1
+
+                except Exception as e:
+                    stats["failed"] += 1
+                    error_msg = f"Record {idx + 1} (URI: {article.get('uri', 'unknown')}): {str(e)}"
+                    stats["errors"].append(error_msg)
+                    logger.warning(f"Failed to import article: {error_msg}")
+                    continue
+
+            # Commit transaction
+            trans.commit()
+
+            # Build response message
+            message_parts = []
+            if stats["imported"] > 0:
+                message_parts.append(f"imported {stats['imported']}")
+            if stats["updated"] > 0:
+                message_parts.append(f"updated {stats['updated']}")
+            if stats["skipped"] > 0:
+                message_parts.append(f"skipped {stats['skipped']}")
+            if stats["failed"] > 0:
+                message_parts.append(f"failed {stats['failed']}")
+
+            message = f"Article import completed: {', '.join(message_parts)} of {stats['total_records']} records"
+
+            logger.info(message)
+            return {
+                "message": message,
+                "statistics": stats
+            }
+
+        except Exception as e:
+            trans.rollback()
+            raise e
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error importing articles: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e)) 

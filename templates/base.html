@@ -63,16 +63,108 @@
             color: var(--text-color);
             text-decoration: none;
             white-space: nowrap;
+            transition: all 0.2s ease;
         }
-        
+
         .menu-link:hover {
             color: var(--primary-dark);
         }
-        
+
         .menu-link i {
             margin-right: 0.5rem;
         }
-        
+
+        /* Primary menu items - highlighted and prominent */
+        .menu-link-primary {
+            font-weight: 600;
+            font-size: 1.05rem;
+            padding: 0.5rem 1.2rem;
+            color: var(--primary-color);
+            background: linear-gradient(135deg, rgba(255, 105, 180, 0.1), rgba(255, 20, 147, 0.05));
+            border-radius: 8px;
+            margin: 0 0.25rem;
+        }
+
+        .menu-link-primary:hover {
+            color: white;
+            background: linear-gradient(135deg, #FF69B4, #FF1493);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(255, 105, 180, 0.3);
+        }
+
+        .menu-link-primary i {
+            font-size: 1.1rem;
+        }
+
+        /* Status button - baby blue variant */
+        .menu-link-primary[href="/"] {
+            color: #5dade2;
+            background: linear-gradient(135deg, rgba(93, 173, 226, 0.1), rgba(52, 152, 219, 0.05));
+        }
+
+        .menu-link-primary[href="/"]:hover {
+            color: white;
+            background: linear-gradient(135deg, #5dade2, #3498db);
+            box-shadow: 0 4px 12px rgba(93, 173, 226, 0.3);
+        }
+
+        /* Secondary menu items - less prominent */
+        .menu-link-secondary {
+            font-size: 0.9rem;
+            color: #6c757d;
+            opacity: 0.8;
+        }
+
+        .menu-link-secondary:hover {
+            color: var(--primary-color);
+            opacity: 1;
+        }
+
+        .menu-link-secondary i {
+            font-size: 0.9rem;
+        }
+
+        /* Action button items (Topic Agent and Submit Articles) */
+        .menu-link-action {
+            padding: 0.6rem;
+            color: var(--primary-color);
+            font-size: 1.2rem;
+            border-radius: 8px;
+            margin: 0 0.25rem;
+            background: rgba(255, 105, 180, 0.08);
+            border: 1px solid rgba(255, 105, 180, 0.2);
+            transition: all 0.2s ease;
+        }
+
+        .menu-link-action:hover {
+            color: white;
+            background: var(--primary-color);
+            transform: scale(1.1);
+            box-shadow: 0 4px 12px rgba(255, 105, 180, 0.3);
+        }
+
+        .menu-link-action i {
+            margin: 0;
+        }
+
+        /* Icon-only menu items (config cogwheel and logout) */
+        .menu-link-icon {
+            padding: 0.5rem;
+            color: #6c757d;
+            font-size: 1.1rem;
+            border-radius: 6px;
+            margin: 0 0.15rem;
+        }
+
+        .menu-link-icon:hover {
+            color: var(--primary-color);
+            background: rgba(255, 105, 180, 0.1);
+        }
+
+        .menu-link-icon i {
+            margin: 0;
+        }
+
         /* Dropdown styles */
         .menu-dropdown {
             position: relative;
@@ -464,27 +556,19 @@
             <div class="menu-container">
                 <ul class="menu-items">
                     <li class="menu-item">
-                        <a class="menu-link" href="/" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Return to the main operations dashboard">
-                            <i class="fas fa-home"></i> See Status
+                        <a class="menu-link menu-link-primary" href="/" data-bs-toggle="tooltip" data-bs-placement="bottom" title="View system status and operations dashboard">
+                            <i class="fas fa-tachometer-alt"></i> Status
                         </a>
                     </li>
                     <li class="menu-item">
-                        <a class="menu-link" href="/news-feed" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Return to the main operations dashboard">
+                        <a class="menu-link menu-link-primary" href="/news-feed" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Browse and explore your news feed">
                             <i class="fas fa-newspaper"></i> Explore News
                         </a>
                     </li>
-                    <li class="menu-item menu-dropdown dropdown">
-                        <a class="menu-link dropdown-toggle" href="#" id="intelligenceDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-placement="bottom" title="Discover insights and research tools">
-                            <i class="fas fa-download"></i> News Collection
+                    <li class="menu-item">
+                        <a class="menu-link menu-link-secondary" href="/keyword-alerts" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Manage automated news collection">
+                            <i class="fas fa-download"></i> Collection
                         </a>
-                        <ul class="dropdown-menu" aria-labelledby="intelligenceDropdown">
-                            <small class="text-muted"> Topic Setup</small><br>
-                            <li><a class="dropdown-item" href="/onboarding?redo=true" data-bs-toggle="tooltip" data-bs-placement="right" title="AI-guided topic setup"><i class="fas fa-tasks"></i> New topic</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <small class="text-muted"> Collect News</small><br>
-                            <li><a class="dropdown-item" href="/keyword-alerts" data-bs-toggle="tooltip" data-bs-placement="right" title="News trend and keyword alerts"><i class="fas fa-chart-line"></i> Automate collection</a></li>
-                            <li><a class="dropdown-item" href="/submit-article" data-bs-toggle="tooltip" data-bs-placement="right" title="Submit new articles for analysis"><i class="fas fa-newspaper"></i> Submit articles</a></li>
-                        </ul>
                     </li>
                     
                     <li class="menu-item menu-dropdown dropdown">
@@ -506,18 +590,18 @@
                             <i class="fas fa-cog"></i> Settings
                         </a>
                         <ul class="dropdown-menu" aria-labelledby="configDropdown">
+                            <small class="text-muted">Topics</small><br>
+                            <li><a class="dropdown-item" href="/onboarding?redo=true" data-bs-toggle="tooltip" data-bs-placement="right" title="AI-guided topic setup"><i class="fas fa-hat-wizard"></i> Topic Agent (New Topic)</a></li>
+                            <li><a class="dropdown-item" href="/create_topic" data-bs-toggle="tooltip" data-bs-placement="right" title="Create and manage topics"><i class="fas fa-folder-plus"></i> Topic Editor</a></li>
+                            <li><hr class="dropdown-divider"></li>
                             <small class="text-muted">Context Engineering</small><br>
                             <li><a class="dropdown-item" href="/promptmanager" data-bs-toggle="tooltip" data-bs-placement="right" title="Manage AI prompts and templates"><i class="fas fa-brain"></i> Prompt Engineering</a></li>
                             <li><a class="dropdown-item" href="/model-bias-arena" data-bs-toggle="tooltip" data-bs-placement="right" title="Analyze model bias"><i class="fas fa-balance-scale"></i> Model Bias Arena</a></li>
-                            <li><a class="dropdown-item" href="/create_topic" data-bs-toggle="tooltip" data-bs-placement="right" title="Create and manage topics"><i class="fas fa-folder-plus"></i> Topic Editor</a></li>
                             <li><hr class="dropdown-divider"></li>
                             <small class="text-muted"> Knowledge Management</small><br>
                             <li><a class="dropdown-item" href="/vector-analysis-improved" data-bs-toggle="tooltip" data-bs-placement="right" title="Perform exploratory vector analysis"><i class="fas fa-vector-square"></i>Exploratory Analysis</a></li>
                             <li><a class="dropdown-item" href="/database-editor" data-bs-toggle="tooltip" data-bs-placement="right" title="Edit database entries"><i class="fas fa-edit"></i> Database Editor</a></li>
                             <li><a class="dropdown-item" href="/analytics" data-bs-toggle="tooltip" data-bs-placement="right" title="Statistical analytics"><i class="fas fa-chart-bar"></i> Analytics</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <small class="text-muted">App Configuration</small><br>
-                            <li><a class="dropdown-item" href="/config" data-bs-toggle="tooltip" data-bs-placement="right" title="Configure application settings"><i class="fas fa-sliders-h"></i> App Configuration</a></li>
                         </ul>
                     </li>
                     
@@ -581,8 +665,26 @@
                     </li>
                     
                     <li class="menu-item">
-                        <a class="menu-link" href="/logout">
-                            <i class="fas fa-sign-out-alt"></i> Logout
+                        <a class="menu-link menu-link-action" href="/onboarding?redo=true" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Topic Agent - AI-guided topic setup">
+                            <i class="fas fa-hat-wizard"></i>
+                        </a>
+                    </li>
+
+                    <li class="menu-item">
+                        <a class="menu-link menu-link-action" href="/submit-article" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Submit Articles - Manually add articles">
+                            <i class="fas fa-plus-circle"></i>
+                        </a>
+                    </li>
+
+                    <li class="menu-item">
+                        <a class="menu-link menu-link-icon" href="/config" data-bs-toggle="tooltip" data-bs-placement="bottom" title="App Configuration">
+                            <i class="fas fa-cog"></i>
+                        </a>
+                    </li>
+
+                    <li class="menu-item">
+                        <a class="menu-link menu-link-icon" href="/logout" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Logout">
+                            <i class="fas fa-sign-out-alt"></i>
                         </a>
                     </li>
                 </ul>
