@@ -107,6 +107,18 @@
             background: linear-gradient(135deg, #5dade2, #3498db);
             box-shadow: 0 4px 12px rgba(93, 173, 226, 0.3);
         }
+        /* Status button - lime green  variant */
+        .menu-link-primary[href="/keyword-alerts"] {
+            color: #95D96D;
+            background: linear-gradient(135deg, rgba(193, 221, 119, 0.1), rgba(193, 221, 119, 0.05));
+        }
+
+        .menu-link-primary[href="/keyword-alerts"]:hover {
+            color: white;
+            background: linear-gradient(135deg, #6AC634, #86d459);
+            box-shadow: 0 4px 12px rgba(106, 198, 52, 0.3);
+        }
+
 
         /* Secondary menu items - less prominent */
         .menu-link-secondary {
@@ -566,7 +578,7 @@
                         </a>
                     </li>
                     <li class="menu-item">
-                        <a class="menu-link menu-link-secondary" href="/keyword-alerts" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Manage automated news collection">
+                        <a class="menu-link menu-link-primary" href="/keyword-alerts" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Manage automated news collection">
                             <i class="fas fa-download"></i> Collection
                         </a>
                     </li>
@@ -651,8 +663,8 @@
                                 </a>
                             </li>
                             <li class="px-3 py-1">
-                                <a href="https://join.slack.com/t/newsaddictworkspace/shared_invite/zt-31xcnkc6d-2rGJdM~DjjVSuA5HYjWWOQ" target="_blank">
-                                    <i class="fab fa-slack"></i> Slack Community
+                                <a href="https://discord.gg/hEUNYDm5KH" target="_blank">
+                                    <i class="fab fa-discord"></i> Discord Community
                                 </a>
                             </li>
                             <li><hr class="dropdown-divider"></li>
@@ -667,12 +679,6 @@
                     <li class="menu-item">
                         <a class="menu-link menu-link-action" href="/onboarding?redo=true" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Topic Agent - AI-guided topic setup">
                             <i class="fas fa-hat-wizard"></i>
-                        </a>
-                    </li>
-
-                    <li class="menu-item">
-                        <a class="menu-link menu-link-action" href="/submit-article" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Submit Articles - Manually add articles">
-                            <i class="fas fa-plus-circle"></i>
                         </a>
                     </li>
 

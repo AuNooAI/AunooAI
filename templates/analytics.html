@@ -456,11 +456,15 @@
 document.addEventListener('DOMContentLoaded', function() {
     // First load topics
     loadTopics().then(() => {
-        // After topics are loaded, restore saved selections
-        const savedTopic = localStorage.getItem('analyticsTopic');
-        if (savedTopic) {
+        // Check for topic in URL parameters first
+        const urlParams = new URLSearchParams(window.location.search);
+        const topicFromUrl = urlParams.get('topic');
+
+        // After topics are loaded, restore from URL or localStorage
+        const topicToSelect = topicFromUrl || localStorage.getItem('analyticsTopic');
+        if (topicToSelect) {
             const topicSelect = document.getElementById('topicSelect');
-            topicSelect.value = savedTopic;
+            topicSelect.value = topicToSelect;
             // Trigger change event to load categories and charts
             topicSelect.dispatchEvent(new Event('change'));
         }
