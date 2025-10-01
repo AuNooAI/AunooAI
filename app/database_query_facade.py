@@ -1121,7 +1121,7 @@ class DatabaseQueryFacade:
                            time_to_impact,
                            submission_date
                     FROM articles
-                    WHERE analyzed = 1
+                    WHERE sentiment IS NOT NULL
                       AND summary IS NOT NULL
                       AND summary != ''
                 AND LENGTH(summary) > 50 \

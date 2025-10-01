@@ -63,10 +63,7 @@ from app.routes.podcast_routes import router as podcast_router
 from app.routes.vector_routes import router as vector_router
 from app.routes.saved_searches import router as saved_searches_router
 # Removed scenario routes - no longer needed
-from app.routes.topic_map_routes import (
-    router as topic_map_api_router,
-    page_router as topic_map_page_router,
-)
+# Removed topic_map routes - no longer needed
 from app.routes.auspex_routes import router as auspex_router
 # Removed newsletter routes - no longer needed
 from app.routes.dataset_routes import router as dataset_router
@@ -120,10 +117,6 @@ app.include_router(api_router, prefix="/api")  # Add this line to include the AP
 app.include_router(keyword_monitor_router)
 app.include_router(keyword_monitor_api_router, prefix="/api")
 app.include_router(onboarding_router)
-
-# Add topic map routes
-app.include_router(topic_map_api_router)  # API routes (already have /api prefix)
-app.include_router(topic_map_page_router)  # Page routes
 
 class ArticleData(BaseModel):
     title: str
