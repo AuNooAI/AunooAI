@@ -3336,43 +3336,60 @@ async function loadAvailableModels() {
     try {
         console.log('📡 Fetching models from /api/available_models');
         const response = await fetch('/api/available_models');
-        
+        console.log('📡 Fetch response received:', response.status);
+
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
+
         const models = await response.json();
-        console.log('📦 Models received:', models);
+        console.log('📦 Models received:', models.length, 'models');
+        console.log('📦 Models data:', models);
         availableModels = models;
-        
-        const modelSelect = document.getElementById('modelSelect');
-        console.log('🎯 Model select element:', modelSelect);
-        
-        if (modelSelect) {
+
+        // Update all model select dropdowns
+        const modelSelects = [
+            document.getElementById('modelSelect'),
+            document.getElementById('defaultLlmModel'),
+            document.getElementById('bulkLlmModel')
+        ];
+
+        console.log('🎯 Found model selects:', modelSelects.map((s, i) => s ? s.id : `null at ${i}`));
+
+        modelSelects.forEach((modelSelect, index) => {
+            if (!modelSelect) {
+                console.log(`⚠️ Model select ${index} not found (may not be in DOM yet)`);
+                return;
+            }
+
+            console.log(`🎯 Updating model select ${index}:`, modelSelect.id);
+
             if (models.length === 0) {
                 console.warn('⚠️ No models found');
                 modelSelect.innerHTML = '<option value="">No models configured</option>';
             } else {
-                console.log(`✅ Loading ${models.length} models into dropdown`);
-                modelSelect.innerHTML = '<option value="">Select a model...</option>';
+                console.log(`✅ Loading ${models.length} models into ${modelSelect.id}`);
+                modelSelect.innerHTML = modelSelect.id === 'bulkLlmModel'
+                    ? '<option value="">Use Default</option>'
+                    : '<option value="">Select a model...</option>';
+
                 models.forEach(model => {
                     const option = document.createElement('option');
                     option.value = model.name;
                     option.textContent = `${model.name} (${model.provider})`;
-                    
+
                     // Add data attributes for additional info
                     if (model.provider) {
                         option.dataset.provider = model.provider;
                     }
-                    
+
                     modelSelect.appendChild(option);
-                    console.log(`➕ Added model: ${model.name} (${model.provider})`);
                 });
-                console.log('🎉 Successfully loaded models into dropdown');
+                console.log(`🎉 Successfully loaded models into ${modelSelect.id}`);
             }
-        } else {
-            console.error('❌ modelSelect element not found in DOM');
-        }
+        });
+
+        console.log('🏁 loadAvailableModels completed');
     } catch (error) {
         console.error('❌ Error loading available models:', error);
         const modelSelect = document.getElementById('modelSelect');
@@ -3410,19 +3427,72 @@ async function analyzeRelevanceSelected(topic, groupId) {
         articleUris: articleUris,
         keywords: [] // Will be populated from backend
     };
-    
-    // Load models if not already loaded
-    if (availableModels.length === 0) {
-        loadAvailableModels();
-    }
-    
-    // Show the model selection modal
-    const modal = new bootstrap.Modal(document.getElementById('modelSelectionModal'));
+
+    // Get the modal element
+    const modalElement = document.getElementById('modelSelectionModal');
+
+    // Set up one-time event listener for when modal is fully shown
+    const onModalShown = async () => {
+        console.log('🎭 Relevance modal shown, loading models...');
+
+        // Update modal title
+        document.getElementById('modelSelectionModalLabel').textContent =
+            `Select AI Model for Relevance Analysis (${articleUris.length} articles)`;
+
+        // Get the modelSelect element
+        const modelSelect = document.getElementById('modelSelect');
+        console.log('🔍 Looking for modelSelect element:', modelSelect);
+
+        if (!modelSelect) {
+            console.error('❌ modelSelect not found in modal!');
+            modalElement.removeEventListener('shown.bs.modal', onModalShown);
+            return;
+        }
+
+        try {
+            console.log('🔧 Fetching models for relevance modal...');
+            const response = await fetch('/api/available_models');
+            console.log('📡 Response status:', response.status);
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const models = await response.json();
+            console.log('📦 Received', models.length, 'models:', models);
+
+            // Populate the dropdown
+            if (models.length === 0) {
+                modelSelect.innerHTML = '<option value="">No models configured</option>';
+            } else {
+                modelSelect.innerHTML = '<option value="">Select a model...</option>';
+                models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.name;
+                    option.textContent = `${model.name} (${model.provider})`;
+                    if (model.provider) {
+                        option.dataset.provider = model.provider;
+                    }
+                    modelSelect.appendChild(option);
+                    console.log(`➕ Added: ${model.name} (${model.provider})`);
+                });
+                console.log('✅ Successfully populated modelSelect with', models.length, 'models');
+            }
+        } catch (error) {
+            console.error('❌ Error loading models for relevance modal:', error);
+            modelSelect.innerHTML = '<option value="">Error loading models</option>';
+        }
+
+        // Remove this event listener after first use
+        modalElement.removeEventListener('shown.bs.modal', onModalShown);
+    };
+
+    // Add event listener
+    modalElement.addEventListener('shown.bs.modal', onModalShown);
+
+    // Show the modal
+    const modal = new bootstrap.Modal(modalElement);
     modal.show();
-    
-    // Update modal title
-    document.getElementById('modelSelectionModalLabel').textContent = 
-        `Select AI Model for Relevance Analysis (${articleUris.length} articles)`;
 }
 
 // Start relevance analysis with selected model (background processing)
