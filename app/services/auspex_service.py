@@ -1336,9 +1336,11 @@ CURRENT SESSION CONTEXT:
                         })
                 
                 logger.debug(f"Vector search found {len(vector_articles)} semantically relevant articles")
-                
+
                 # NEW: Add entity-specific filtering for queries asking about specific companies/vendors
-                detected_entities = self._extract_entity_names(message)
+                # SKIP entity filtering for system-generated thematic category queries
+                is_thematic_query = "comprehensive consensus analysis" in message.lower() or "comprehensive analysis" in message.lower()
+                detected_entities = self._extract_entity_names(message) if not is_thematic_query else []
                 if detected_entities:
                     logger.info(f"Detected entity-specific query. Entities: {detected_entities}")
                     vector_articles_before_filter = len(vector_articles)

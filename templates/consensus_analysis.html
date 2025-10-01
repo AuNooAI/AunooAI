@@ -1095,20 +1095,58 @@
             
             // Try to parse JSON from the category analysis text
             let parsedData = null;
-            try {
-                // First try to parse the entire response as JSON
-                parsedData = JSON.parse(categoryAnalysis);
-            } catch (e) {
-                try {
-                    // Look for JSON structure in the analysis
+
+            // Try multiple JSON extraction methods
+            const jsonExtractionMethods = [
+                // Method 1: Direct JSON parse
+                () => JSON.parse(categoryAnalysis),
+
+                // Method 2: Remove markdown code blocks and parse
+                () => {
+                    const cleaned = categoryAnalysis.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+                    return JSON.parse(cleaned);
+                },
+
+                // Method 3: Extract from markdown code block
+                () => {
+                    const codeBlockMatch = categoryAnalysis.match(/```json\s*(\{[\s\S]*?\})\s*```/);
+                    return codeBlockMatch ? JSON.parse(codeBlockMatch[1]) : null;
+                },
+
+                // Method 4: Extract from STRUCTURED ANALYSIS section
+                () => {
+                    const structuredMatch = categoryAnalysis.match(/STRUCTURED ANALYSIS:\s*```json\s*(\{[\s\S]*?\})\s*```/);
+                    return structuredMatch ? JSON.parse(structuredMatch[1]) : null;
+                },
+
+                // Method 5: Find last complete JSON object
+                () => {
+                    const matches = categoryAnalysis.match(/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/g);
+                    return matches ? JSON.parse(matches[matches.length - 1]) : null;
+                },
+
+                // Method 6: Simple regex for JSON in text
+                () => {
                     const jsonMatch = categoryAnalysis.match(/\{[\s\S]*\}/);
-                    if (jsonMatch) {
-                        parsedData = JSON.parse(jsonMatch[0]);
-                    }
-                } catch (e2) {
-                    console.log(`Could not parse JSON for ${categoryName}, using text analysis. Errors:`, e.message, e2.message);
-                    console.log('Raw analysis text:', categoryAnalysis.substring(0, 200) + '...');
+                    return jsonMatch ? JSON.parse(jsonMatch[0]) : null;
                 }
+            ];
+
+            for (const method of jsonExtractionMethods) {
+                try {
+                    parsedData = method();
+                    if (parsedData && typeof parsedData === 'object') {
+                        console.log(`Successfully parsed JSON for ${categoryName}`);
+                        break;
+                    }
+                } catch (e) {
+                    continue; // Try next method
+                }
+            }
+
+            if (!parsedData) {
+                console.log(`Could not parse JSON for ${categoryName}, using text analysis`);
+                console.log('Raw analysis text:', categoryAnalysis.substring(0, 200) + '...');
             }
             
             // Extract information from parsed data or text
@@ -1489,13 +1527,18 @@
             const timelineChart = createTimelineDistributionChart(timelineDistribution);
             const outliersHtml = createOutliersVisualization(optimisticOutliers, pessimisticOutliers, categoryName);
             const milestonesHtml = createMilestonesVisualization(milestones, categoryName);
-            
+
+            // Pre-compute timeline display text to avoid nested template literals
+            const timelineDisplayText = getTimelineDisplayText(timeline, consensusType) || 'MID-TERM';
+            const consensusTooltip = (getConsensusTooltip(consensusType, confidence, sentimentDistribution, timeline) || '').replace(/"/g, '&quot;');
+
             console.log(`Final visualization data for ${categoryName}:`, {
                 optimisticOutliers: optimisticOutliers.length,
                 pessimisticOutliers: pessimisticOutliers.length,
                 milestones: milestones.length,
                 outliersHtml: outliersHtml.length,
-                milestonesHtml: milestonesHtml.length
+                milestonesHtml: milestonesHtml.length,
+                timelineDisplayText
             });
             
             card.innerHTML = `
@@ -1528,13 +1571,13 @@
                     <!-- Combined Timeline/Consensus Container -->
                     <div class="timeline-container">
                         <div class="consensus-band" style="
-                            left: ${startPercent}%; 
-                            width: ${widthPercent}%; 
+                            left: ${startPercent}%;
+                            width: ${widthPercent}%;
                             background: ${color};
-                        " data-tooltip="${getConsensusTooltip(consensusType, confidence, sentimentDistribution, timeline)}">
-                            ${getTimelineDisplayText(timeline, consensusType)}
+                        " data-tooltip="${consensusTooltip}">
+                            ${timelineDisplayText}
                         </div>
-                        
+
                         ${outliersHtml}
                         ${milestonesHtml}
                     </div>
