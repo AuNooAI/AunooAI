@@ -623,12 +623,6 @@ def get_analytics_data(
         logger.error(f"Error in get_analytics_data: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/report", response_class=HTMLResponse)
-async def report_route(request: Request, session=Depends(verify_session)):
-    return templates.TemplateResponse(
-        "report.html", 
-        get_template_context(request)
-    )
 
 @app.get("/config", response_class=HTMLResponse)
 async def config_page(request: Request, session=Depends(verify_session)):
@@ -1848,29 +1842,6 @@ async def get_template(template_name: str):
         logger.error(f"Error getting template: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/report_templates")
-async def get_report_templates():
-    try:
-        with open('app/config/templates.json', 'r') as f:
-            templates = json.load(f)
-        return templates['report_sections']
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.post("/api/report_templates/{section}")
-async def update_report_template(section: str, template: dict = Body(...)):
-    try:
-        with open('app/config/templates.json', 'r') as f:
-            templates = json.load(f)
-        
-        templates['report_sections'][section] = template['content']
-        
-        with open('app/config/templates.json', 'w') as f:
-            json.dump(templates, f, indent=2)
-            
-        return {"message": "Template updated successfully"}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard(
@@ -3021,7 +2992,7 @@ async def create_podcast(
 
         # ------------------------------------------------------------------
         # ✨ Backwards‑compatibility shim
-        # Front‑end pages like report.html or podcastdirector.html may still
+        # Front‑end pages like podcastdirector.html may still
         # send a simple list of URIs under `article_uris` instead of the newer
         # `articles` list (each item is an object with a `uri` field).
         # If `articles` is missing but `article_uris` exists, convert the list
