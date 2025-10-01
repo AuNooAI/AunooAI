@@ -1549,11 +1549,11 @@ async def article_insights(
                 
                 # Extract research themes - try multiple header variations
                 themes_patterns = [
-                    r'## Research themes\n(.*?)(?=\n##|\n$)',
-                    r'## Research Themes\n(.*?)(?=\n##|\n$)', 
-                    r'##\s*Research\s*[Tt]hemes\s*\n(.*?)(?=\n##|\n$)',
-                    r'Research themes:?\n(.*?)(?=\n##|\n$)',
-                    r'Research Themes:?\n(.*?)(?=\n##|\n$)'
+                    r'## Research themes\n(.*?)(?=\n##|$)',
+                    r'## Research Themes\n(.*?)(?=\n##|$)',
+                    r'##\s*Research\s*[Tt]hemes\s*\n(.*?)(?=\n##|$)',
+                    r'Research themes:?\n(.*?)(?=\n##|$)',
+                    r'Research Themes:?\n(.*?)(?=\n##|$)'
                 ]
                 
                 research_themes = []
@@ -1589,24 +1589,19 @@ async def article_insights(
                         break
                 
                 if not research_themes:
-                    logger.warning(f"No research themes found in content. Content preview: {content[:500]}...")
-                    # Try a more aggressive extraction as last resort
-                    lines = content.split('\n')
-                    in_themes_section = False
-                    for line in lines:
-                        line = line.strip()
-                        if 'research themes' in line.lower():
-                            in_themes_section = True
-                            continue
-                        if in_themes_section and line.startswith('#'):
-                            break  # End of section
-                        if in_themes_section and (line.startswith('-') or line.startswith('*')):
-                            theme = line.lstrip('- *').strip()
-                            if theme and len(theme) > 2:
-                                research_themes.append(theme)
-                    
-                    if research_themes:
-                        logger.info(f"Fallback extraction found {len(research_themes)} themes: {research_themes}")
+                    logger.error(f"Failed to extract research themes from LLM response. Content: {content[:500]}...")
+                    # Return error with general follow-ups
+                    return {
+                        "error": "Failed to generate research themes",
+                        "message": "The AI response did not contain properly formatted research themes",
+                        "research_themes": [],
+                        "suggested_followups": [
+                            "Try searching for related articles manually",
+                            "Review the article summary for key topics"
+                        ],
+                        "raw_response": content,
+                        "generated_at": generated_at
+                    }
                 
                 # Cache the themes analysis
                 try:
@@ -3079,7 +3074,7 @@ async def article_deep_dive(
 
     # Load template content
     try:
-        template_path = (Path(__file__).parent.parent.parent / "deepdiveprompt.md").resolve()
+        template_path = (Path(__file__).parent.parent.parent / "data" / "prompts" / "deepdiveprompt.md").resolve()
         with open(template_path, "r", encoding="utf-8") as f:
             template_text = f.read()
     except Exception as exc:

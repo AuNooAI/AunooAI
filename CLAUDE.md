@@ -12,7 +12,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Docker Staging**: `docker-compose up aunooai-staging --profile staging` (port 5009)
 
 ### Database Management
-- **Initialize Database**: `python init_db.py`
 - **Run Migrations**: `python run_migration.py`
 - **Database Analysis**: `python app/analyze_db.py`
 - **Create New Database**: `python app/utils/create_new_db.py`

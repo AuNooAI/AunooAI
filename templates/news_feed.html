@@ -2687,6 +2687,20 @@ function escapeHTML(str) {
     });
 }
 
+// Escape string for use in JavaScript string literals (for onclick attributes)
+function escapeJS(str) {
+    if (str === null || typeof str === 'undefined') return '';
+    return String(str).replace(/[\\'"\r\n]/g, function (match) {
+        return {
+            '\\': '\\\\',
+            "'": "\\'",
+            '"': '\\"',
+            '\r': '\\r',
+            '\n': '\\n'
+        }[match];
+    });
+}
+
 // Safe formatter for article source. Falls back to hostname from URI when missing
 function formatSource(newsSource, uri) {
     if (newsSource && String(newsSource).trim()) return escapeHTML(newsSource);
@@ -3045,15 +3059,15 @@ function renderSixArticles(articles) {
                             <small class="text-muted fw-bold">Thematic Research:</small>
                             <div class="d-flex gap-1 flex-wrap mt-1">
                                 ${article.category ? `
-                                <button class="btn btn-sm btn-outline-success" onclick="launchAuspexResearchFromInsight('${escapeHTML(article.category)} developments in AI', 'category_deep')">
+                                <button class="btn btn-sm btn-outline-success" onclick="launchAuspexResearchFromInsight('${escapeJS(article.category)} developments in AI', 'category_deep')">
                                     <i class="fas fa-layer-group me-1"></i>${article.category} Trends
                                 </button>` : ''}
                                 ${article.strategic_relevance ? `
-                                <button class="btn btn-sm btn-outline-warning" onclick="launchAuspexResearchFromInsight('strategic implications of ${escapeHTML(article.title)}', 'strategic_analysis')">
+                                <button class="btn btn-sm btn-outline-warning" onclick="launchAuspexResearchFromInsight('strategic implications of ${escapeJS(article.title)}', 'strategic_analysis')">
                                     <i class="fas fa-chess me-1"></i>Strategic Impact
                                 </button>` : ''}
                                 ${article.time_horizon ? `
-                                <button class="btn btn-sm btn-outline-info" onclick="launchAuspexResearchFromInsight('${article.time_horizon.toLowerCase()} impact scenarios for ${escapeHTML(article.title)}', 'timeline_analysis')">
+                                <button class="btn btn-sm btn-outline-info" onclick="launchAuspexResearchFromInsight('${article.time_horizon.toLowerCase()} impact scenarios for ${escapeJS(article.title)}', 'timeline_analysis')">
                                     <i class="fas fa-hourglass me-1"></i>${article.time_horizon} Impact
                                 </button>` : ''}
                             </div>
@@ -6587,11 +6601,52 @@ async function createAuspexChatSession(topic, title) {
 // Common function to launch Auspex with a specific prompt
 async function launchAuspexWithPrompt(chatId, prompt, model, topic, analysisType) {
     try {
+        // Open Auspex modal IMMEDIATELY with loading state
+        const auspexModal = new bootstrap.Modal(document.getElementById('floatingChatModal'));
+
+        // Set the topic and model in the modal properly
+        const topicSelect = document.getElementById('floatingTopicSelect');
+        const modelSelect = document.getElementById('floatingModelSelect');
+
+        if (topicSelect) {
+            topicSelect.value = topic;
+            topicSelect.dispatchEvent(new Event('change'));
+        }
+
+        if (modelSelect) {
+            modelSelect.value = model;
+            modelSelect.dispatchEvent(new Event('change'));
+        }
+
+        // Clear existing messages and add our analysis status
+        const chatMessages = document.getElementById('floatingChatMessages');
+        if (chatMessages) {
+            chatMessages.innerHTML = `
+                <div class="floating-message assistant">
+                    <div class="floating-message-avatar">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <div class="floating-message-content">
+                        <strong>${analysisType} Starting</strong><br>
+                        Preparing comprehensive ${analysisType.toLowerCase()} analysis...
+                        <div class="mt-2">
+                            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+                            <small class="text-muted">Initializing analysis...</small>
+                        </div>
+                    </div>
+                </div>
+            `;
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        // Open the modal IMMEDIATELY
+        auspexModal.show();
+
         // Get the selected organizational profile
         const profileSelect = document.getElementById('profile-select');
         const selectedProfileId = profileSelect && profileSelect.value ? parseInt(profileSelect.value) : null;
-        
-        // Send the analysis prompt with profile context
+
+        // NOW send the analysis prompt with profile context (async, after modal is visible)
         const messageResponse = await fetch('/api/auspex/chat/message', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -6608,33 +6663,16 @@ async function launchAuspexWithPrompt(chatId, prompt, model, topic, analysisType
                 }
             })
         });
-        
+
         if (!messageResponse.ok) {
             throw new Error(`Failed to send analysis message: ${messageResponse.status}`);
         }
-        
-        // Open Auspex modal and set up the session
-        const auspexModal = new bootstrap.Modal(document.getElementById('floatingChatModal'));
-        
-        // Set the topic and model in the modal properly
-        const topicSelect = document.getElementById('floatingTopicSelect');
-        const modelSelect = document.getElementById('floatingModelSelect');
-        
-        if (topicSelect) {
-            topicSelect.value = topic;
-            topicSelect.dispatchEvent(new Event('change'));
-        }
-        
-        if (modelSelect) {
-            modelSelect.value = model;
-            modelSelect.dispatchEvent(new Event('change'));
-        }
-        
-        // Enable the chat input and send button
+
+        // Enable the chat input and send button after message is sent
         setTimeout(() => {
             const chatInput = document.getElementById('floatingChatInput');
             const sendButton = document.getElementById('floatingChatSend');
-            
+
             if (chatInput) {
                 chatInput.disabled = false;
                 chatInput.placeholder = `Continue ${analysisType.toLowerCase()}...`;
@@ -6643,31 +6681,6 @@ async function launchAuspexWithPrompt(chatId, prompt, model, topic, analysisType
                 sendButton.disabled = false;
             }
         }, 200);
-        
-        // Clear existing messages and add our analysis status
-        const chatMessages = document.getElementById('floatingChatMessages');
-        if (chatMessages) {
-            chatMessages.innerHTML = `
-                <div class="floating-message assistant">
-                    <div class="floating-message-avatar">
-                        <i class="fas fa-robot"></i>
-                    </div>
-                    <div class="floating-message-content">
-                        <strong>${analysisType} Active</strong><br>
-                        I'm conducting comprehensive ${analysisType.toLowerCase()} analysis. 
-                        The analysis has been started and results will appear here shortly...
-                        <div class="mt-2">
-                            <div class="spinner-border spinner-border-sm me-2" role="status"></div>
-                            <small class="text-muted">Analyzing articles and generating insights...</small>
-                        </div>
-                    </div>
-                </div>
-            `;
-            chatMessages.scrollTop = chatMessages.scrollHeight;
-        }
-        
-        // Open the modal
-        auspexModal.show();
         
         // Start polling for the analysis results
         pollForAuspexResults(chatId, analysisType);
