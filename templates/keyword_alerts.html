@@ -1680,7 +1680,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     <div class="d-flex justify-content-between align-items-start mb-4">
         <div class="flex-grow-1">
             <h2 class="mb-3">News Firehose</h2>
-            <div class="header-controls d-flex flex-column gap-2">
+            <div class="header-controls d-flex flex-column gap-3">
                 <div class="d-flex align-items-center gap-3">
                     <span class="text-muted">
                         <i class="fas fa-clock"></i> Last search: {{ last_check_time|default('Never', true) }}
@@ -1694,21 +1694,6 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                             <i class="fas fa-exclamation-circle"></i> {{ last_error }}
                         </span>
                     {% endif %}
-                </div>
-                <div class="d-flex align-items-center gap-3">
-                    <span class="text-muted">
-                        <i class="fas fa-sync"></i> Polling every {{ display_interval }}
-                    </span>
-                    <span class="text-muted">
-                        <i class="fas fa-hourglass-half"></i> 
-                        {% if not is_enabled %}
-                            Polling disabled
-                        {% elif next_check_time %}
-                            Next check: {{ next_check_time }}
-                        {% else %}
-                            Checking soon...
-                        {% endif %}
-                    </span>
                     <span class="text-muted" id="resetTimer" style="font-size: 0.9rem;">
                         <i class="fas fa-refresh"></i> Loading reset time...
                     </span>
@@ -1716,34 +1701,28 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                         <i class="fas fa-exclamation-triangle"></i> Rate limit reached
                     </span>
                 </div>
-                <div class="d-flex align-items-center gap-3 mt-1">
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="pollingToggle" 
-                               {% if is_enabled %}checked{% endif %}
-                               onchange="togglePolling(this.checked)">
-                        <label class="form-check-label" for="pollingToggle">
-                            Auto-polling {{ 'enabled' if is_enabled else 'disabled' }}
-                        </label>
-                    </div>
-                    <div class="form-check form-switch">
-                        <input class="form-check-input" type="checkbox" id="autoIngestToggle" 
-                               onchange="toggleAutoIngest(this.checked)">
-                        <label class="form-check-label" for="autoIngestToggle">
-                            Auto-ingest disabled
-                        </label>
-                    </div>
-                    <button class="btn btn-sm btn-outline-primary" onclick="checkKeywords(event)">
-                        <i class="fas fa-sync"></i> Update Now
-                    </button>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="showAutoIngestSettings()">
-                        <i class="fas fa-cog"></i> Auto-Ingest Settings
-                    </button>
-                    <a href="/keyword-monitor" class="btn btn-sm btn-primary">
-                        <i class="fas fa-cog"></i> Manage
-                    </a>
-                    <a href="/submit-article" class="btn btn-sm btn-outline-primary">
+                <div class="d-flex align-items-center gap-3">
+                    <!-- Prominent Submit Articles Button -->
+                    <a href="/submit-article" class="btn btn-primary">
                         <i class="fas fa-plus-circle"></i> Submit Articles
                     </a>
+                    <button class="btn btn-outline-primary" onclick="checkKeywords(event)">
+                        <i class="fas fa-sync"></i> Update Now
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="showAutoIngestSettings()">
+                        <i class="fas fa-cog"></i> Auto-Processing Settings
+                    </button>
+                    <a href="/keyword-monitor" class="btn btn-outline-secondary">
+                        <i class="fas fa-cog"></i> Manage Keywords
+                    </a>
+                    <div class="form-check form-switch ms-auto">
+                        <input class="form-check-input" type="checkbox" id="autoProcessToggle"
+                               {% if is_enabled %}checked{% endif %}
+                               onchange="toggleAutoProcessing(this.checked)">
+                        <label class="form-check-label" for="autoProcessToggle">
+                            <strong>Auto-Processing {{ 'ON' if is_enabled else 'OFF' }}</strong>
+                        </label>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1760,9 +1739,6 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                     </button>
                     <button class="btn btn-outline-primary btn-sm me-2" id="bulkAnalyzeBtn" style="display: none;">
                         <i class="fas fa-microscope"></i> Analyze Selected (<span id="selectedCount">0</span>)
-                    </button>
-                    <button class="btn btn-outline-secondary btn-sm" onclick="exportAlerts()">
-                        <i class="fas fa-file-export"></i> Export
                     </button>
                 </div>
             </div>
@@ -1889,34 +1865,22 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
         <div class="row">
             {% for group in groups %}
             <div class="col-12 mb-4">
-                <div class="card" id="group-{{ group.id }}">
+                <div class="card" id="group-{{ group.id }}" data-group-id="{{ group.id }}" data-topic="{{ group.topic }}">
                     <div class="card-header bg-light">
                         <div class="d-flex justify-content-between align-items-center">
-                            <div class="d-flex align-items-center gap-3">
-                                <div>
-                                    <h5 class="mb-0">{{ group.name }}</h5>
-                                    <div class="text-muted small">
-                                        Topic: <span class="badge bg-secondary">{{ group.topic }}</span>
-                                        {% if group.keywords %}
-                                            <span class="ms-2">Monitoring: 
-                                                {% for keyword in group.keywords %}
-                                                <span class="badge bg-info" title="{{ keyword }}">
-                                                    <i class="fas fa-tag me-1"></i>{{ keyword|truncate(12, True, '...') }}
-                                                </span>
-                                                {% endfor %}
+                            <div>
+                                <h5 class="mb-0">{{ group.name }}</h5>
+                                <div class="text-muted small">
+                                    Topic: <span class="badge bg-secondary">{{ group.topic }}</span>
+                                    {% if group.keywords %}
+                                        <span class="ms-2">Monitoring:
+                                            {% for keyword in group.keywords %}
+                                            <span class="badge bg-info" title="{{ keyword }}">
+                                                <i class="fas fa-tag me-1"></i>{{ keyword|truncate(12, True, '...') }}
                                             </span>
-                                        {% endif %}
-                                    </div>
-                                </div>
-                                <div class="form-check form-switch">
-                                    <input class="form-check-input show-read-toggle" 
-                                           type="checkbox" 
-                                           id="showReadToggle_{{ group.id }}"
-                                           data-topic="{{ group.topic }}"
-                                           data-group-id="{{ group.id }}">
-                                    <label class="form-check-label" for="showReadToggle_{{ group.id }}">
-                                        Show read articles (<span class="total-count">{{ group.total_count|default(0) }}</span> total)
-                                    </label>
+                                            {% endfor %}
+                                        </span>
+                                    {% endif %}
                                 </div>
                             </div>
                             <div class="d-flex gap-2 align-items-center" data-group-id="{{ group.id }}">
@@ -1985,17 +1949,147 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                         <i class="fas fa-check-circle me-1"></i>Added
                                     </label>
                                 </div>
-                                
-                                <!-- Detoxify Toggle -->
-                                <div class="detoxify-section ms-3">
-                                    <input type="checkbox" class="btn-check" id="detoxifyToggle_{{ group.id }}" data-group-id="{{ group.id }}">
-                                    <label class="btn btn-outline-danger detoxify-btn" for="detoxifyToggle_{{ group.id }}" 
-                                           title="Filter out low credibility sources, conspiracy theories, pseudoscience, and poor factual reporting">
-                                        <i class="fas fa-shield-virus me-1"></i>Detoxify
-                                    </label>
+
+                                <!-- Source Quality Filters -->
+                                <div class="source-filters-section ms-3">
+                                    <div class="dropdown">
+                                        <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button"
+                                                id="biasFilterDropdown_{{ group.id }}" data-bs-toggle="dropdown" aria-expanded="false">
+                                            <i class="fas fa-balance-scale me-1"></i>Bias
+                                        </button>
+                                        <ul class="dropdown-menu" aria-labelledby="biasFilterDropdown_{{ group.id }}">
+                                            <li><h6 class="dropdown-header">Political Bias</h6></li>
+                                            <li>
+                                                <div class="form-check px-3">
+                                                    <input class="form-check-input bias-filter" type="checkbox" value="left" id="biasLeft_{{ group.id }}" data-group-id="{{ group.id }}" onchange="applySourceFilters('{{ group.id }}')">
+                                                    <label class="form-check-label" for="biasLeft_{{ group.id }}">Left</label>
+                                                </div>
+                                            </li>
+                                            <li>
+                                                <div class="form-check px-3">
+                                                    <input class="form-check-input bias-filter" type="checkbox" value="left-center" id="biasLeftCenter_{{ group.id }}" data-group-id="{{ group.id }}" onchange="applySourceFilters('{{ group.id }}')">
+                                                    <label class="form-check-label" for="biasLeftCenter_{{ group.id }}">Left-Center</label>
+                                                </div>
+                                            </li>
+                                            <li>
+                                                <div class="form-check px-3">
+                                                    <input class="form-check-input bias-filter" type="checkbox" value="center" id="biasCenter_{{ group.id }}" data-group-id="{{ group.id }}" onchange="applySourceFilters('{{ group.id }}')">
+                                                    <label class="form-check-label" for="biasCenter_{{ group.id }}">Center</label>
+                                                </div>
+                                            </li>
+                                            <li>
+                                                <div class="form-check px-3">
+                                                    <input class="form-check-input bias-filter" type="checkbox" value="right-center" id="biasRightCenter_{{ group.id }}" data-group-id="{{ group.id }}" onchange="applySourceFilters('{{ group.id }}')">
+                                                    <label class="form-check-label" for="biasRightCenter_{{ group.id }}">Right-Center</label>
+                                                </div>
+                                            </li>
+                                            <li>
+                                                <div class="form-check px-3">
+                                                    <input class="form-check-input bias-filter" type="checkbox" value="right" id="biasRight_{{ group.id }}" data-group-id="{{ group.id }}" onchange="applySourceFilters('{{ group.id }}')">
+                                                    <label class="form-check-label" for="biasRight_{{ group.id }}">Right</label>
+                                                </div>
+                                            </li>
+                                            <li><hr class="dropdown-divider"></li>
+                                            <li>
+                                                <a class="dropdown-item" href="#" onclick="clearBiasFilters('{{ group.id }}'); return false;">
+                                                    <i class="fas fa-times me-1"></i>Clear All
+                                                </a>
+                                            </li>
+                                        </ul>
+                                    </div>
+                                </div>
+
+                                <div class="source-filters-section ms-2">
+                                    <div class="dropdown">
+                                        <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button"
+                                                id="factualFilterDropdown_{{ group.id }}" data-bs-toggle="dropdown" aria-expanded="false">
+                                            <i class="fas fa-check-circle me-1"></i>Factuality
+                                        </button>
+                                        <ul class="dropdown-menu" aria-labelledby="factualFilterDropdown_{{ group.id }}">
+                                            <li><h6 class="dropdown-header">Factual Reporting</h6></li>
+                                            <li>
+                                                <div class="form-check px-3">
+                                                    <input class="form-check-input factual-filter" type="checkbox" value="very-high" id="factualVeryHigh_{{ group.id }}" data-group-id="{{ group.id }}" onchange="applySourceFilters('{{ group.id }}')">
+                                                    <label class="form-check-label" for="factualVeryHigh_{{ group.id }}">Very High</label>
+                                                </div>
+                                            </li>
+                                            <li>
+                                                <div class="form-check px-3">
+                                                    <input class="form-check-input factual-filter" type="checkbox" value="high" id="factualHigh_{{ group.id }}" data-group-id="{{ group.id }}" onchange="applySourceFilters('{{ group.id }}')">
+                                                    <label class="form-check-label" for="factualHigh_{{ group.id }}">High</label>
+                                                </div>
+                                            </li>
+                                            <li>
+                                                <div class="form-check px-3">
+                                                    <input class="form-check-input factual-filter" type="checkbox" value="mostly-factual" id="factualMostly_{{ group.id }}" data-group-id="{{ group.id }}" onchange="applySourceFilters('{{ group.id }}')">
+                                                    <label class="form-check-label" for="factualMostly_{{ group.id }}">Mostly Factual</label>
+                                                </div>
+                                            </li>
+                                            <li>
+                                                <div class="form-check px-3">
+                                                    <input class="form-check-input factual-filter" type="checkbox" value="mixed" id="factualMixed_{{ group.id }}" data-group-id="{{ group.id }}" onchange="applySourceFilters('{{ group.id }}')">
+                                                    <label class="form-check-label" for="factualMixed_{{ group.id }}">Mixed</label>
+                                                </div>
+                                            </li>
+                                            <li>
+                                                <div class="form-check px-3">
+                                                    <input class="form-check-input factual-filter" type="checkbox" value="low" id="factualLow_{{ group.id }}" data-group-id="{{ group.id }}" onchange="applySourceFilters('{{ group.id }}')">
+                                                    <label class="form-check-label" for="factualLow_{{ group.id }}">Low</label>
+                                                </div>
+                                            </li>
+                                            <li><hr class="dropdown-divider"></li>
+                                            <li>
+                                                <a class="dropdown-item" href="#" onclick="clearFactualFilters('{{ group.id }}'); return false;">
+                                                    <i class="fas fa-times me-1"></i>Clear All
+                                                </a>
+                                            </li>
+                                        </ul>
+                                    </div>
+                                </div>
+
+                                <div class="source-filters-section ms-2">
+                                    <div class="dropdown">
+                                        <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button"
+                                                id="credibilityFilterDropdown_{{ group.id }}" data-bs-toggle="dropdown" aria-expanded="false">
+                                            <i class="fas fa-shield-alt me-1"></i>Credibility
+                                        </button>
+                                        <ul class="dropdown-menu" aria-labelledby="credibilityFilterDropdown_{{ group.id }}">
+                                            <li><h6 class="dropdown-header">Source Credibility</h6></li>
+                                            <li>
+                                                <div class="form-check px-3">
+                                                    <input class="form-check-input credibility-filter" type="checkbox" value="high" id="credHigh_{{ group.id }}" data-group-id="{{ group.id }}" onchange="applySourceFilters('{{ group.id }}')">
+                                                    <label class="form-check-label" for="credHigh_{{ group.id }}">High Credibility</label>
+                                                </div>
+                                            </li>
+                                            <li>
+                                                <div class="form-check px-3">
+                                                    <input class="form-check-input credibility-filter" type="checkbox" value="medium" id="credMedium_{{ group.id }}" data-group-id="{{ group.id }}" onchange="applySourceFilters('{{ group.id }}')">
+                                                    <label class="form-check-label" for="credMedium_{{ group.id }}">Medium Credibility</label>
+                                                </div>
+                                            </li>
+                                            <li>
+                                                <div class="form-check px-3">
+                                                    <input class="form-check-input credibility-filter" type="checkbox" value="low" id="credLow_{{ group.id }}" data-group-id="{{ group.id }}" onchange="applySourceFilters('{{ group.id }}')">
+                                                    <label class="form-check-label" for="credLow_{{ group.id }}">Low Credibility</label>
+                                                </div>
+                                            </li>
+                                            <li>
+                                                <div class="form-check px-3">
+                                                    <input class="form-check-input credibility-filter" type="checkbox" value="questionable" id="credQuestionable_{{ group.id }}" data-group-id="{{ group.id }}" onchange="applySourceFilters('{{ group.id }}')">
+                                                    <label class="form-check-label" for="credQuestionable_{{ group.id }}">Questionable</label>
+                                                </div>
+                                            </li>
+                                            <li><hr class="dropdown-divider"></li>
+                                            <li>
+                                                <a class="dropdown-item" href="#" onclick="clearCredibilityFilters('{{ group.id }}'); return false;">
+                                                    <i class="fas fa-times me-1"></i>Clear All
+                                                </a>
+                                            </li>
+                                        </ul>
+                                    </div>
                                 </div>
                             </div>
-                            
+
                             <!-- Center: Relevance Slider -->
                             <div class="relevance-section flex-grow-1 mx-4">
                                 <div class="slider-container-modern">
@@ -2150,10 +2244,10 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                             <tbody>
                                 {% for alert in group.alerts %}
                                 <tr data-alert-id="{{ alert.id }}" data-group-id="{{ group.id }}"
-                                    data-article-category="{{ alert.article.category|default('', true) }}"
-                                    data-article-sentiment="{{ alert.article.sentiment|default('', true) }}"
-                                    data-article-driver-type="{{ alert.article.driver_type|default('', true) }}"
-                                    data-article-time-to-impact="{{ alert.article.time_to_impact|default('', true) }}">
+                                    data-article-category="{{ alert.article.get('category', '') }}"
+                                    data-article-sentiment="{{ alert.article.get('sentiment', '') }}"
+                                    data-article-driver-type="{{ alert.article.get('driver_type', '') }}"
+                                    data-article-time-to-impact="{{ alert.article.get('time_to_impact', '') }}">
                                     <td>
                                         <input type="checkbox" class="article-checkbox" 
                                                data-alert-id="{{ alert.id }}"
@@ -2162,8 +2256,8 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                     </td>
                                     <td>
                                         <div class="d-flex align-items-center flex-wrap gap-1">
-                                            {% set has_enrichment = alert.article.category and alert.article.category|trim %}
-                                            DEBUG: {{ alert.article.category }}|{{ alert.article.sentiment }}|{{ alert.article.driver_type }}|{{ alert.article.time_to_impact }}|{{ has_enrichment }}
+                                            <!-- DEBUG: alert_id={{ alert.id }}, category={{ alert.article.get('category', 'MISSING') }}, has_key={{ 'category' in alert.article }} -->
+                                            {% set has_enrichment = alert.article.get('category', '')|trim %}
                                             {% if has_enrichment %}
                                             <span class="badge bg-success" title="Article has been analyzed">
                                                 <i class="fas fa-check-circle me-1"></i>Added
@@ -2515,65 +2609,193 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="autoIngestSettingsModalLabel">
-                    <i class="fas fa-magic me-2"></i>Auto-Ingest Settings
+                    <i class="fas fa-cogs me-2"></i>Auto-Processing Settings
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <!-- Auto-Ingest Configuration -->
+                <!-- Auto-Processing Configuration -->
                 <div class="auto-ingest-config mb-4">
                     <div class="alert alert-info">
                         <i class="fas fa-info-circle me-2"></i>
-                        <strong>Auto-Ingest Pipeline:</strong> Automatically process articles from keyword monitoring,
+                        <strong>Auto-Processing Pipeline:</strong> Automatically download articles from keyword monitoring,
                         score relevance, apply quality control, and save approved articles.
                     </div>
-                    
-                    <div class="row">
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label for="autoIngestEnabled" class="form-label">
-                                    <i class="fas fa-power-off me-1"></i>Enable Auto-Ingest
-                                </label>
-                                <div class="form-check form-switch">
-                                    <input class="form-check-input" type="checkbox" id="autoIngestEnabled">
+
+                    <!-- Polling Configuration -->
+                    <div class="card mb-3">
+                        <div class="card-header bg-light">
+                            <h6 class="mb-0"><i class="fas fa-sync me-2"></i>Article Collection</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="autoPollingEnabled" class="form-label">
+                                            <i class="fas fa-power-off me-1"></i>Enable Auto-Collection
+                                        </label>
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" id="autoPollingEnabled">
+                                        </div>
+                                        <div class="form-text">Automatically check for new articles</div>
+                                    </div>
                                 </div>
-                                <div class="form-text">Enable automated article processing pipeline</div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="pollingInterval" class="form-label">
+                                            <i class="fas fa-clock me-1"></i>Check Interval
+                                        </label>
+                                        <select class="form-select" id="pollingInterval">
+                                            <option value="15">Every 15 minutes</option>
+                                            <option value="30" selected>Every 30 minutes</option>
+                                            <option value="60">Every hour</option>
+                                            <option value="120">Every 2 hours</option>
+                                            <option value="240">Every 4 hours</option>
+                                            <option value="360">Every 6 hours</option>
+                                            <option value="480">Every 8 hours</option>
+                                            <option value="720">Every 12 hours</option>
+                                            <option value="1440">Every 24 hours</option>
+                                        </select>
+                                        <div class="form-text">How often to check for new articles</div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                        <div class="col-md-6">
-                            <div class="mb-3">
-                                <label for="qualityControlEnabled" class="form-label">
-                                    <i class="fas fa-shield-check me-1"></i>Quality Control
-                                </label>
-                                <div class="form-check form-switch">
-                                    <input class="form-check-input" type="checkbox" id="qualityControlEnabled" checked>
+                    </div>
+
+                    <!-- Processing Configuration -->
+                    <div class="card mb-3">
+                        <div class="card-header bg-light">
+                            <h6 class="mb-0"><i class="fas fa-magic me-2"></i>Article Processing</h6>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="autoIngestEnabled" class="form-label">
+                                            <i class="fas fa-power-off me-1"></i>Enable Auto-Processing
+                                        </label>
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" id="autoIngestEnabled">
+                                        </div>
+                                        <div class="form-text">Automatically analyze and enrich collected articles</div>
+                                    </div>
                                 </div>
-                                <div class="form-text">AI-powered quality review and filtering</div>
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="qualityControlEnabled" class="form-label">
+                                            <i class="fas fa-shield-check me-1"></i>Quality Control
+                                        </label>
+                                        <div class="form-check form-switch">
+                                            <input class="form-check-input" type="checkbox" id="qualityControlEnabled" checked>
+                                        </div>
+                                        <div class="form-text">AI-powered quality review and filtering</div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
                     
-                    <!-- Relevance Threshold Slider -->
-                    <div class="mb-4">
-                        <label for="autoIngestRelevanceThreshold" class="form-label">
-                            <i class="fas fa-filter me-1"></i>Auto-Ingest Minimum Relevance
-                        </label>
-                        <div class="slider-container-modern">
-                            <div class="d-flex align-items-center">
-                                <div class="slider-wrapper-modern flex-grow-1">
-                                    <input type="range" class="relevance-slider-modern" 
-                                           id="autoIngestRelevanceThreshold" 
-                                           min="0" max="1" step="0.01" value="0.3"
-                                           onchange="updateAutoIngestThresholdDisplay(this.value)">
-                                    <div class="slider-track-labels">
-                                        <span class="track-label start">All Articles</span>
-                                        <span class="track-label end">High Relevance Only</span>
+                    <!-- Source Quality Filters -->
+                    <div class="card mb-3">
+                        <div class="card-header bg-light">
+                            <h6 class="mb-0"><i class="fas fa-filter me-2"></i>Quality Filters</h6>
+                        </div>
+                        <div class="card-body">
+                            <!-- Relevance Threshold Slider -->
+                            <div class="mb-4">
+                                <label for="autoIngestRelevanceThreshold" class="form-label">
+                                    <i class="fas fa-chart-line me-1"></i>Minimum Relevance Score
+                                </label>
+                                <div class="slider-container-modern">
+                                    <div class="d-flex align-items-center">
+                                        <div class="slider-wrapper-modern flex-grow-1">
+                                            <input type="range" class="relevance-slider-modern"
+                                                   id="autoIngestRelevanceThreshold"
+                                                   min="0" max="1" step="0.01" value="0.3"
+                                                   onchange="updateAutoIngestThresholdDisplay(this.value)">
+                                            <div class="slider-track-labels">
+                                                <span class="track-label start">All Articles</span>
+                                                <span class="track-label end">High Relevance Only</span>
+                                            </div>
+                                        </div>
+                                        <span class="relevance-value-modern ms-2" id="autoIngestThresholdValue">30%</span>
                                     </div>
                                 </div>
-                                <span class="relevance-value-modern ms-2" id="autoIngestThresholdValue">30%</span>
+                                <div class="form-text">Articles below this threshold will not be auto-processed</div>
+                            </div>
+
+                            <!-- Source Credibility Filter -->
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    <i class="fas fa-shield-alt me-1"></i>Allowed Source Credibility
+                                </label>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="allowHighCred" checked>
+                                        <label class="form-check-label" for="allowHighCred">High</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="allowMediumCred" checked>
+                                        <label class="form-check-label" for="allowMediumCred">Medium</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="allowLowCred">
+                                        <label class="form-check-label" for="allowLowCred">Low</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="allowQuestionableCred">
+                                        <label class="form-check-label" for="allowQuestionableCred">Questionable</label>
+                                    </div>
+                                </div>
+                                <div class="form-text">Only process articles from sources with these credibility levels</div>
+                            </div>
+
+                            <!-- Factual Reporting Filter -->
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    <i class="fas fa-check-circle me-1"></i>Minimum Factual Reporting
+                                </label>
+                                <select class="form-select" id="minFactualReporting">
+                                    <option value="">No minimum (allow all)</option>
+                                    <option value="mixed">Mixed or better</option>
+                                    <option value="mostly">Mostly Factual or better</option>
+                                    <option value="high" selected>High or better</option>
+                                    <option value="very-high">Very High only</option>
+                                </select>
+                                <div class="form-text">Filter out sources below this factual reporting level</div>
+                            </div>
+
+                            <!-- Political Bias Filter -->
+                            <div class="mb-3">
+                                <label class="form-label">
+                                    <i class="fas fa-balance-scale me-1"></i>Allowed Political Bias
+                                </label>
+                                <div class="d-flex flex-wrap gap-2">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="allowLeft" checked>
+                                        <label class="form-check-label" for="allowLeft">Left</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="allowLeftCenter" checked>
+                                        <label class="form-check-label" for="allowLeftCenter">Left-Center</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="allowCenter" checked>
+                                        <label class="form-check-label" for="allowCenter">Center</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="allowRightCenter" checked>
+                                        <label class="form-check-label" for="allowRightCenter">Right-Center</label>
+                                    </div>
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="allowRight" checked>
+                                        <label class="form-check-label" for="allowRight">Right</label>
+                                    </div>
+                                </div>
+                                <div class="form-text">Only process articles from sources with these political biases</div>
                             </div>
                         </div>
-                        <div class="form-text">Articles below this threshold will not be auto-ingested</div>
                     </div>
                     
                     <!-- LLM Configuration -->
@@ -4270,7 +4492,8 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-async function togglePolling(enabled) {
+// Unified auto-processing toggle (combines polling and ingest)
+async function toggleAutoProcessing(enabled) {
     try {
         const response = await fetch('/api/keyword-monitor/toggle-polling', {
             method: 'POST',
@@ -4280,35 +4503,29 @@ async function togglePolling(enabled) {
             body: JSON.stringify({ enabled }),
             credentials: 'same-origin'
         });
-        
+
         if (!response.ok) {
-            throw new Error('Failed to toggle polling');
+            throw new Error('Failed to toggle auto-processing');
         }
-        
+
         // Update the label text
-        const label = document.querySelector('label[for="pollingToggle"]');
+        const label = document.querySelector('label[for="autoProcessToggle"]');
         if (label) {
-            label.textContent = `Auto-polling ${enabled ? 'enabled' : 'disabled'}`;
+            label.innerHTML = `<strong>Auto-Processing ${enabled ? 'ON' : 'OFF'}</strong>`;
         }
-        
-        // Update the next check time display
-        const nextCheckSpan = document.querySelector('span.text-muted i.fa-hourglass-half')?.parentElement;
-        if (nextCheckSpan) {
-            if (enabled) {
-                // Refresh the status to get accurate next check time
-                fetchMonitorStatus();
-            } else {
-                nextCheckSpan.innerHTML = `<i class="fas fa-hourglass-half"></i> Polling disabled`;
-            }
+
+        showAlert(`Auto-processing ${enabled ? 'enabled' : 'disabled'}`, 'success');
+
+        // Refresh the status to update next check time
+        if (enabled) {
+            fetchMonitorStatus();
         }
-        
-        showAlert(`Auto-polling ${enabled ? 'enabled' : 'disabled'}`, 'success');
-        
+
     } catch (error) {
         console.error('Error:', error);
-        showAlert('Failed to toggle polling');
+        showAlert('Failed to toggle auto-processing', 'error');
         // Revert the toggle if there was an error
-        const toggle = document.getElementById('pollingToggle');
+        const toggle = document.getElementById('autoProcessToggle');
         if (toggle) {
             toggle.checked = !enabled;
         }
@@ -5873,31 +6090,13 @@ function updateStatusDisplay(data) {
         }
     }
     
-    // Update next check time (keep the minutes format since it's more precise for upcoming events)
-    if (bgTask.next_check_time) {
-        const nextCheckElem = document.querySelector('.fas.fa-hourglass-half').parentElement;
-        if (nextCheckElem) {
-            const now = new Date();
-            const nextCheck = new Date(bgTask.next_check_time);
-            
-            if (settings.is_enabled) {
-                if (nextCheck <= now) {
-                    nextCheckElem.innerHTML = `<i class="fas fa-hourglass-half"></i> Checking soon...`;
-                } else {
-                    const timeDiff = nextCheck - now;
-                    if (timeDiff <= 60000) { // Less than a minute
-                        nextCheckElem.innerHTML = `<i class="fas fa-hourglass-half"></i> Next check: In less than a minute`;
-                    } else if (timeDiff < 3600000) { // Less than an hour
-                        const minutes = Math.floor(timeDiff / 60000);
-                        nextCheckElem.innerHTML = `<i class="fas fa-hourglass-half"></i> Next check: In ${minutes} minute${minutes > 1 ? 's' : ''}`;
-                    } else {
-                        const hours = Math.floor(timeDiff / 3600000);
-                        nextCheckElem.innerHTML = `<i class="fas fa-hourglass-half"></i> Next check: In ${hours} hour${hours > 1 ? 's' : ''}`;
-                    }
-                }
-            } else {
-                nextCheckElem.innerHTML = `<i class="fas fa-hourglass-half"></i> Polling disabled`;
-            }
+    // Update auto-processing toggle state based on backend settings
+    const autoProcessToggle = document.getElementById('autoProcessToggle');
+    if (autoProcessToggle && settings) {
+        autoProcessToggle.checked = settings.is_enabled || false;
+        const label = document.querySelector('label[for="autoProcessToggle"]');
+        if (label) {
+            label.innerHTML = `<strong>Auto-Processing ${settings.is_enabled ? 'ON' : 'OFF'}</strong>`;
         }
     }
     
@@ -5914,16 +6113,8 @@ function updateStatusDisplay(data) {
             lastErrorElem.style.display = 'none';
         }
     }
-    
-    // Update polling toggle status
-    const pollingToggle = document.getElementById('pollingToggle');
-    if (pollingToggle) {
-        pollingToggle.checked = settings.is_enabled;
-        const label = document.querySelector('label[for="pollingToggle"]');
-        if (label) {
-            label.textContent = `Auto-polling ${settings.is_enabled ? 'enabled' : 'disabled'}`;
-        }
-    }
+
+    // This section is now handled by the earlier auto-processing toggle update
     
     // Update API usage
     if (data.api_usage) {
@@ -6253,25 +6444,80 @@ function resetFilters(groupId) {
     const topicSlider = document.getElementById(`topicSlider_${groupId}`);
     const keywordSlider = document.getElementById(`keywordSlider_${groupId}`);
     const confidenceSlider = document.getElementById(`confidenceSlider_${groupId}`);
-    
+
     // Reset main slider
     if (mainSlider) mainSlider.value = 0;
-    
+
     // Reset advanced sliders
     if (topicSlider) topicSlider.value = 0;
     if (keywordSlider) keywordSlider.value = 0;
     if (confidenceSlider) confidenceSlider.value = 0;
-    
+
     // Reset status filter
     const statusAllRadio = document.getElementById(`statusAll_${groupId}`);
     if (statusAllRadio) statusAllRadio.checked = true;
-    
-    // Reset detoxify filter
-    const detoxifyToggle = document.getElementById(`detoxifyToggle_${groupId}`);
-    if (detoxifyToggle) detoxifyToggle.checked = false;
-    
+
+    // Reset source quality filters
+    clearBiasFilters(groupId);
+    clearFactualFilters(groupId);
+    clearCredibilityFilters(groupId);
+
     // Apply filters
     applyAllFilters(groupId);
+}
+
+// Source quality filter functions
+function applySourceFilters(groupId) {
+    applyAllFilters(groupId);
+}
+
+function clearBiasFilters(groupId) {
+    const biasFilters = document.querySelectorAll(`input.bias-filter[data-group-id="${groupId}"]`);
+    biasFilters.forEach(filter => filter.checked = false);
+    applyAllFilters(groupId);
+}
+
+function clearFactualFilters(groupId) {
+    const factualFilters = document.querySelectorAll(`input.factual-filter[data-group-id="${groupId}"]`);
+    factualFilters.forEach(filter => filter.checked = false);
+    applyAllFilters(groupId);
+}
+
+function clearCredibilityFilters(groupId) {
+    const credFilters = document.querySelectorAll(`input.credibility-filter[data-group-id="${groupId}"]`);
+    credFilters.forEach(filter => filter.checked = false);
+    applyAllFilters(groupId);
+}
+
+// Helper function to check if a row passes source quality filters
+function passesSourceQualityFilters(row, selectedBiases, selectedFactual, selectedCredibility) {
+    // Extract source metadata from the row
+    const sourceInfo = row.querySelector('.source-info');
+    if (!sourceInfo) return true; // If no source info, allow through
+
+    const biasText = sourceInfo.getAttribute('data-bias') || '';
+    const factualText = sourceInfo.getAttribute('data-factual') || '';
+    const credibilityText = sourceInfo.getAttribute('data-credibility') || '';
+
+    // Check bias filter
+    if (selectedBiases.length > 0) {
+        const matches = selectedBiases.some(bias => biasText.toLowerCase().includes(bias));
+        if (!matches) return false;
+    }
+
+    // Check factual filter
+    if (selectedFactual.length > 0) {
+        const matches = selectedFactual.some(factual => factualText.toLowerCase().includes(factual));
+        if (!matches) return false;
+    }
+
+    // Check credibility filter
+    if (selectedCredibility.length > 0) {
+        const matches = selectedCredibility.some(cred => credibilityText.toLowerCase().includes(cred));
+        if (!matches) return false;
+    }
+
+    return true;
 }
 
 // Apply status filter
@@ -6295,20 +6541,31 @@ function applyStatusFilter(groupId) {
     refreshGroupArticles(topic, groupId, showRead, true, 1, statusFilter);
 }
 
-// Combined function to apply all filters (relevance + status + detoxify)
+// Combined function to apply all filters (relevance + status + source quality)
 function applyAllFilters(groupId) {
-    // Get detoxify filter value
-    const detoxifyEnabled = document.getElementById(`detoxifyToggle_${groupId}`)?.checked || false;
-    
+    // Get status filter value
+    const statusFilter = document.querySelector(`input[name="statusFilter_${groupId}"]:checked`)?.value || 'all';
+
+    // Get source quality filter values
+    const selectedBiases = Array.from(document.querySelectorAll(`input.bias-filter[data-group-id="${groupId}"]:checked`))
+        .map(el => el.value.toLowerCase());
+    const selectedFactual = Array.from(document.querySelectorAll(`input.factual-filter[data-group-id="${groupId}"]:checked`))
+        .map(el => el.value.toLowerCase());
+    const selectedCredibility = Array.from(document.querySelectorAll(`input.credibility-filter[data-group-id="${groupId}"]:checked`))
+        .map(el => el.value.toLowerCase());
+
+    // Detoxify is no longer a single toggle - it's replaced by source quality filters
+    const detoxifyEnabled = selectedBiases.length > 0 || selectedFactual.length > 0 || selectedCredibility.length > 0;
+
     // Get relevance filter values
     const advancedFilters = document.getElementById(`advancedFilters_${groupId}`);
     const isAdvancedMode = advancedFilters && advancedFilters.style.display !== 'none';
-    
+
     let relevanceThreshold = 0;
     let topicThreshold = 0;
     let keywordThreshold = 0;
     let confidenceThreshold = 0;
-    
+
     if (isAdvancedMode) {
         topicThreshold = parseFloat(document.getElementById(`topicSlider_${groupId}`)?.value || 0);
         keywordThreshold = parseFloat(document.getElementById(`keywordSlider_${groupId}`)?.value || 0);
@@ -6316,24 +6573,21 @@ function applyAllFilters(groupId) {
     } else {
         relevanceThreshold = parseFloat(document.getElementById(`mainRelevanceSlider_${groupId}`)?.value || 0);
     }
-    
+
     // Get all rows in this group's table
     const table = document.getElementById(`articlesTable_${groupId}`);
     if (!table) return;
-    
+
     const rows = table.querySelectorAll('tbody tr[data-alert-id]');
     let visibleCount = 0;
     let totalCount = rows.length;
-    
+
     rows.forEach(row => {
         let showRow = true;
-        
-        // Apply detoxify filter (only if status filter passes)
-        if (showRow && detoxifyEnabled) {
-            const shouldDetoxify = isLowQualitySource(row);
-            if (shouldDetoxify) {
-                showRow = false;
-            }
+
+        // Apply source quality filters
+        if (showRow && (selectedBiases.length > 0 || selectedFactual.length > 0 || selectedCredibility.length > 0)) {
+            showRow = passesSourceQualityFilters(row, selectedBiases, selectedFactual, selectedCredibility);
         }
         
         // Apply relevance filter (only if status filter passes)
@@ -7704,45 +7958,10 @@ document.addEventListener('DOMContentLoaded', function() {
     loadAvailableModels();
 });
 
-// Toggle auto-ingest on/off
+// Legacy function - now redirects to unified auto-processing toggle
 async function toggleAutoIngest(enabled) {
-    try {
-        const response = await fetch('/api/auto-ingest/' + (enabled ? 'enable' : 'disable'), {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            }
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const result = await response.json();
-
-        if (result.success) {
-            const toggle = document.getElementById('autoIngestToggle');
-            const label = toggle.nextElementSibling;
-
-            autoIngestSettings.auto_ingest_enabled = enabled;
-            toggle.checked = enabled;
-            label.textContent = `Auto-ingest ${enabled ? 'enabled' : 'disabled'}`;
-
-            showAlert(`Auto-ingest ${enabled ? 'enabled' : 'disabled'} successfully!`, 'success');
-
-            // Refresh status
-            await loadAutoIngestStatus();
-        } else {
-            throw new Error(result.error || 'Failed to toggle auto-ingest');
-        }
-    } catch (error) {
-        console.error('Error toggling auto-ingest:', error);
-        showAlert(`Error: ${error.message}`, 'danger');
-        
-        // Revert toggle state
-        const toggle = document.getElementById('autoIngestToggle');
-        toggle.checked = !enabled;
-    }
+    // Redirect to the new unified toggle function
+    return toggleAutoProcessing(enabled);
 }
 
 // Load auto-ingest status and update UI
@@ -7757,27 +7976,27 @@ async function loadAutoIngestStatus() {
         if (result.success) {
             const status = result.status;
 
-            // Update main toggle
-            const toggle = document.getElementById('autoIngestToggle');
-            const label = toggle.nextElementSibling;
-            toggle.checked = status.enabled;
-            label.textContent = `Auto-ingest ${status.enabled ? 'enabled' : 'disabled'}`;
-
             // Update modal settings if open
             const modal = document.getElementById('autoIngestSettingsModal');
-            if (modal) {
+            if (modal && status.config) {
                 const config = status.config;
 
                 // Update form fields
-                document.getElementById('autoIngestEnabled').checked = config.enabled;
-                document.getElementById('qualityControlEnabled').checked = config.quality_control_enabled;
-                document.getElementById('autoIngestRelevanceThreshold').value = config.min_relevance_threshold;
-                document.getElementById('autoIngestThresholdValue').textContent = Math.round(config.min_relevance_threshold * 100) + '%';
-                document.getElementById('llmTemperature').value = config.llm_temperature;
+                const autoIngestEnabledEl = document.getElementById('autoIngestEnabled');
+                const qualityControlEnabledEl = document.getElementById('qualityControlEnabled');
+                const autoIngestRelevanceThresholdEl = document.getElementById('autoIngestRelevanceThreshold');
+                const autoIngestThresholdValueEl = document.getElementById('autoIngestThresholdValue');
+                const llmTemperatureEl = document.getElementById('llmTemperature');
+
+                if (autoIngestEnabledEl) autoIngestEnabledEl.checked = config.enabled;
+                if (qualityControlEnabledEl) qualityControlEnabledEl.checked = config.quality_control_enabled;
+                if (autoIngestRelevanceThresholdEl) autoIngestRelevanceThresholdEl.value = config.min_relevance_threshold;
+                if (autoIngestThresholdValueEl) autoIngestThresholdValueEl.textContent = Math.round(config.min_relevance_threshold * 100) + '%';
+                if (llmTemperatureEl) llmTemperatureEl.value = config.llm_temperature;
 
                 // Update model dropdown
                 const modelSelect = document.getElementById('defaultLlmModel');
-                if (modelSelect.options.length > 1) { // Has options loaded
+                if (modelSelect && modelSelect.options.length > 1) { // Has options loaded
                     modelSelect.value = config.llm_model;
                 }
             }
@@ -8083,13 +8302,6 @@ async function loadAutoIngestSettings() {
         
         if (result.settings) {
             autoIngestSettings = { ...autoIngestSettings, ...result.settings };
-            
-            // Update header toggle
-            const toggle = document.getElementById('autoIngestToggle');
-            const label = toggle.nextElementSibling;
-            
-            toggle.checked = autoIngestSettings.auto_ingest_enabled;
-            label.textContent = `Auto-ingest ${autoIngestSettings.auto_ingest_enabled ? 'enabled' : 'disabled'}`;
         }
     } catch (error) {
         console.error('Error loading auto-ingest settings:', error);
@@ -8198,19 +8410,15 @@ async function saveAutoIngestSettings() {
         
         if (result.success) {
             autoIngestSettings = { ...autoIngestSettings, ...settings };
-            
-            // Update header toggle
-            const toggle = document.getElementById('autoIngestToggle');
-            const label = toggle.nextElementSibling;
-            
-            toggle.checked = settings.auto_ingest_enabled;
-            label.textContent = `Auto-ingest ${settings.auto_ingest_enabled ? 'enabled' : 'disabled'}`;
-            
-            showAlert('Auto-ingest settings saved successfully!', 'success');
-            
+
+            showAlert('Auto-processing settings saved successfully!', 'success');
+
             // Close modal
             const modal = bootstrap.Modal.getInstance(document.getElementById('autoIngestSettingsModal'));
             if (modal) modal.hide();
+
+            // Refresh status to update toggle state
+            fetchMonitorStatus();
         } else {
             throw new Error(result.error || 'Failed to save settings');
         }

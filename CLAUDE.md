@@ -111,3 +111,4 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Users**: Authentication and user management
 - **Organizational Profiles**: Entity-specific configurations
 - **Vector Embeddings**: Stored in ChromaDB for semantic search
+- use venv under .venv

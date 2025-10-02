@@ -2476,7 +2476,7 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
                 alerts = []
 
                 for row in rows:
-                    alert_id, detected_at, article_uri, title, url, news_source, publication_date, summary, keyword_ids, matched_keywords = row
+                    alert_id, detected_at, article_uri, title, url, news_source, publication_date, summary, keyword_ids, matched_keywords, category, sentiment, driver_type, time_to_impact, future_signal, auto_ingested, ingest_status = row
 
                     # Convert the matched_keywords string to a list
                     keywords_list = matched_keywords.split('||') if matched_keywords else []
@@ -2490,7 +2490,14 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session))
                             'url': url,
                             'source': news_source,
                             'publication_date': publication_date,
-                            'summary': summary
+                            'summary': summary,
+                            'category': category or '',
+                            'sentiment': sentiment or '',
+                            'driver_type': driver_type or '',
+                            'time_to_impact': time_to_impact or '',
+                            'future_signal': future_signal or '',
+                            'auto_ingested': bool(auto_ingested) if auto_ingested is not None else False,
+                            'ingest_status': ingest_status or ''
                         },
                         'matched_keyword': keywords_list[0] if keywords_list else "",
                         'matched_keywords': keywords_list

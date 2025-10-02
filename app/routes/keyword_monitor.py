@@ -1,3 +1,5 @@
+print("🔥🔥🔥 keyword_monitor.py IS BEING LOADED!", flush=True)
+
 from fastapi import APIRouter, HTTPException, Depends, Request, Response
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
@@ -469,6 +471,7 @@ async def get_alerts(
 
 @router.get("/keyword-alerts", response_class=HTMLResponse)
 async def keyword_alerts_page(request: Request, session=Depends(verify_session), db: Database = Depends(get_database_instance)):
+    print("🚨🚨🚨 keyword_alerts_page function called!", flush=True)
     try:
         # Initialize media bias for article enrichment
         media_bias = MediaBias(db)
@@ -515,7 +518,14 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
 
             logger.info(f"GROUP DEBUG - Group {group_id} ({topic}): actual unread count without limit = {actual_unread_count}")
 
+            print(f"🔥🔥🔥 PRINT DEBUG: Processing {len(fetched_articles)} articles for group {group_id}", flush=True)
+            logger.info(f"Processing {len(fetched_articles)} articles for group {group_id}")
             for alert in fetched_articles:
+                # CRITICAL DEBUG: Check tuple length
+                if len(alert) != 33:
+                    logger.error(f"TUPLE LENGTH MISMATCH! Expected 33 fields, got {len(alert)} fields")
+                    logger.error(f"Alert tuple: {alert}")
+
                 (
                     alert_id, article_uri, keyword_ids, matched_keyword,
                     is_read, detected_at, title, summary, uri,
@@ -523,8 +533,18 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                     topic_alignment_score, keyword_relevance_score,
                     confidence_score, overall_match_explanation,
                     extracted_article_topics, extracted_article_keywords,
-                    category, sentiment, driver_type, time_to_impact
+                    category, sentiment, driver_type, time_to_impact,
+                    future_signal, bias, factual_reporting, mbfc_credibility_rating,
+                    bias_country, press_freedom, media_type, popularity,
+                    auto_ingested, ingest_status, quality_score, quality_issues
                 ) = alert
+
+                # CRITICAL DEBUG: Log what we got
+                if alert_id == 5558 or alert_id == 5445:
+                    logger.info(f"=== ALERT {alert_id} UNPACKED ===")
+                    logger.info(f"  category at index 17: {repr(alert[17])}")
+                    logger.info(f"  category variable: {repr(category)}")
+                    logger.info(f"  Total fields: {len(alert)}")
 
                 # Get all matched keywords for this article and group
                 if keyword_ids:
@@ -538,13 +558,19 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                     matched_keywords = (DatabaseQueryFacade(db, logger)).get_all_matched_keywords_for_article_and_group_by_article_url_and_group_id(article_uri, group_id)
 
 
-                # Try to get media bias data using both source name and URL
-                # First try with the source name as it's more reliable
-                bias_data = media_bias.get_bias_for_source(news_source)
+                # Check if we already have bias data from the database
+                has_db_bias_data = bias or factual_reporting or mbfc_credibility_rating or bias_country
 
-                # If no match with source name, try with the URL
-                if not bias_data and uri:
-                    bias_data = media_bias.get_bias_for_source(uri)
+                # Only fetch from media_bias if we don't have it in the database
+                bias_data = None
+                if not has_db_bias_data:
+                    # Try to get media bias data using both source name and URL
+                    # First try with the source name as it's more reliable
+                    bias_data = media_bias.get_bias_for_source(news_source)
+
+                    # If no match with source name, try with the URL
+                    if not bias_data and uri:
+                        bias_data = media_bias.get_bias_for_source(uri)
 
                 # Debug: Log if title is missing
                 if not title:
@@ -560,14 +586,46 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                 }
 
                 # Add enrichment fields directly from the query results
-                if category:
-                    article_data["category"] = category
-                if sentiment:
-                    article_data["sentiment"] = sentiment
-                if driver_type:
-                    article_data["driver_type"] = driver_type
-                if time_to_impact:
-                    article_data["time_to_impact"] = time_to_impact
+                # Debug log for first article
+                if title and "2510.00508" in uri:
+                    logger.info(f"DEBUG ARXIV ARTICLE - Raw values from query:")
+                    logger.info(f"  category={repr(category)} (type: {type(category).__name__})")
+                    logger.info(f"  sentiment={repr(sentiment)} (type: {type(sentiment).__name__})")
+                    logger.info(f"  driver_type={repr(driver_type)} (type: {type(driver_type).__name__})")
+                    logger.info(f"  time_to_impact={repr(time_to_impact)} (type: {type(time_to_impact).__name__})")
+
+                # Always add enrichment fields (use empty string if None to avoid Jinja issues)
+                article_data["category"] = category or ''
+                article_data["sentiment"] = sentiment or ''
+                article_data["driver_type"] = driver_type or ''
+                article_data["time_to_impact"] = time_to_impact or ''
+                article_data["future_signal"] = future_signal or ''
+
+                # Add auto-ingest status fields
+                article_data["auto_ingested"] = bool(auto_ingested) if auto_ingested is not None else False
+                article_data["ingest_status"] = ingest_status or ''
+                article_data["quality_score"] = quality_score if quality_score is not None else None
+                article_data["quality_issues"] = quality_issues or ''
+
+                # Add relevance scores directly from query
+                if topic_alignment_score is not None:
+                    article_data["topic_alignment_score"] = topic_alignment_score
+                if keyword_relevance_score is not None:
+                    article_data["keyword_relevance_score"] = keyword_relevance_score
+                if confidence_score is not None:
+                    article_data["confidence_score"] = confidence_score
+                if overall_match_explanation:
+                    article_data["overall_match_explanation"] = overall_match_explanation
+                if extracted_article_topics:
+                    try:
+                        article_data["extracted_article_topics"] = json.loads(extracted_article_topics)
+                    except:
+                        article_data["extracted_article_topics"] = []
+                if extracted_article_keywords:
+                    try:
+                        article_data["extracted_article_keywords"] = json.loads(extracted_article_keywords)
+                    except:
+                        article_data["extracted_article_keywords"] = []
 
                 # Debug: Log enriched article data
                 if category:
@@ -633,8 +691,25 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                     logger.debug(f"No enrichment data available for article {article_uri}: {e}")
                     pass
 
-                # Add bias data if found
-                if bias_data:
+                # Add bias data - prefer database values, fallback to bias_data lookup
+                if has_db_bias_data:
+                    # Use data from database
+                    if bias:
+                        article_data["bias"] = bias
+                    if factual_reporting:
+                        article_data["factual_reporting"] = factual_reporting
+                    if mbfc_credibility_rating:
+                        article_data["mbfc_credibility_rating"] = mbfc_credibility_rating
+                    if bias_country:
+                        article_data["bias_country"] = bias_country
+                    if press_freedom:
+                        article_data["press_freedom"] = press_freedom
+                    if media_type:
+                        article_data["media_type"] = media_type
+                    if popularity:
+                        article_data["popularity"] = popularity
+                elif bias_data:
+                    # Fallback to media_bias lookup
                     article_data["bias"] = bias_data.get("bias")
                     article_data["factual_reporting"] = bias_data.get("factual_reporting")
                     article_data["mbfc_credibility_rating"] = bias_data.get("mbfc_credibility_rating")
@@ -642,6 +717,15 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                     article_data["press_freedom"] = bias_data.get("press_freedom")
                     article_data["media_type"] = bias_data.get("media_type")
                     article_data["popularity"] = bias_data.get("popularity")
+
+                # Debug log article_data before adding to alerts
+                if title and ("2510.00508" in uri or "5558" in str(alert_id)):
+                    logger.info(f"DEBUG ARTICLE {alert_id} - URI: {uri}")
+                    logger.info(f"DEBUG ARTICLE {alert_id} - Raw category from query: {repr(category)}")
+                    logger.info(f"DEBUG ARTICLE {alert_id} - Final article_data keys: {list(article_data.keys())}")
+                    logger.info(f"DEBUG ARTICLE {alert_id} - category in article_data: {'category' in article_data}")
+                    if 'category' in article_data:
+                        logger.info(f"DEBUG ARTICLE {alert_id} - category value: {repr(article_data['category'])}")
 
                 alerts.append({
                     "id": alert_id,

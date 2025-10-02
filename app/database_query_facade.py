@@ -2167,7 +2167,14 @@ class DatabaseQueryFacade:
                                   (SELECT GROUP_CONCAT(keyword, '||')
                                    FROM monitored_keywords
                                    WHERE id IN (SELECT value
-                                                FROM json_each('[' || REPLACE(kam.keyword_ids, ',', ',') || ']'))) as matched_keywords
+                                                FROM json_each('[' || REPLACE(kam.keyword_ids, ',', ',') || ']'))) as matched_keywords,
+                                  a.category,
+                                  a.sentiment,
+                                  a.driver_type,
+                                  a.time_to_impact,
+                                  a.future_signal,
+                                  a.auto_ingested,
+                                  a.ingest_status
                            FROM keyword_article_matches kam
                                     JOIN articles a ON kam.article_uri = a.uri
                            WHERE kam.group_id = ?
@@ -2591,39 +2598,55 @@ class DatabaseQueryFacade:
             return cursor.fetchall()
 
     def get_most_recent_unread_alerts_for_group_id_new_table_structure(self, group_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        # Use SQLAlchemy ORM instead of raw SQL for consistency with filter queries
+        statement = select(
+            keyword_article_matches.c.id,
+            keyword_article_matches.c.article_uri,
+            keyword_article_matches.c.keyword_ids,
+            literal(None).label("matched_keyword"),
+            keyword_article_matches.c.is_read,
+            keyword_article_matches.c.detected_at,
+            articles.c.title,
+            articles.c.summary,
+            articles.c.uri,
+            articles.c.news_source,
+            articles.c.publication_date,
+            articles.c.topic_alignment_score,
+            articles.c.keyword_relevance_score,
+            articles.c.confidence_score,
+            articles.c.overall_match_explanation,
+            articles.c.extracted_article_topics,
+            articles.c.extracted_article_keywords,
+            articles.c.category,
+            articles.c.sentiment,
+            articles.c.driver_type,
+            articles.c.time_to_impact,
+            articles.c.future_signal,
+            articles.c.bias,
+            articles.c.factual_reporting,
+            articles.c.mbfc_credibility_rating,
+            articles.c.bias_country,
+            articles.c.press_freedom,
+            articles.c.media_type,
+            articles.c.popularity,
+            articles.c.auto_ingested,
+            articles.c.ingest_status,
+            articles.c.quality_score,
+            articles.c.quality_issues
+        ).select_from(
+            keyword_article_matches.join(
+                articles,
+                keyword_article_matches.c.article_uri == articles.c.uri
+            )
+        ).where(
+            keyword_article_matches.c.group_id == group_id
+        ).where(
+            keyword_article_matches.c.is_read == 0
+        ).order_by(
+            desc(keyword_article_matches.c.detected_at)
+        ).limit(25)
 
-            cursor.execute("""
-                           SELECT ka.id,
-                                  ka.article_uri,
-                                  ka.keyword_ids,
-                                  NULL as matched_keyword,
-                                  ka.is_read,
-                                  ka.detected_at,
-                                  a.title,
-                                  a.summary,
-                                  a.uri,
-                                  a.news_source,
-                                  a.publication_date,
-                                  a.topic_alignment_score,
-                                  a.keyword_relevance_score,
-                                  a.confidence_score,
-                                  a.overall_match_explanation,
-                                  a.extracted_article_topics,
-                                  a.extracted_article_keywords,
-                                  a.category,
-                                  a.sentiment,
-                                  a.driver_type,
-                                  a.time_to_impact
-                           FROM keyword_article_matches ka
-                                    JOIN articles a ON ka.article_uri = a.uri
-                           WHERE ka.group_id = ?
-                             AND ka.is_read = 0
-                           ORDER BY ka.detected_at DESC LIMIT 25
-                           """, (group_id,))
-
-            return cursor.fetchall()
+        return self.connection.execute(statement).fetchall()
 
     def get_most_recent_unread_alerts_for_group_id_old_table_structure(self, group_id):
         with self.db.get_connection() as conn:
