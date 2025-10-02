@@ -43,7 +43,7 @@ from app.routes.topic_routes import router as topic_router
 from app.routes.api_routes import router as api_router  # Add this line for api_routes
 from starlette.middleware.sessions import SessionMiddleware
 from app.security.session import verify_session
-from app.routes.keyword_monitor import router as keyword_monitor_router, get_alerts
+from app.routes.keyword_monitor import router as keyword_monitor_router, page_router as keyword_monitor_page_router, get_alerts
 from app.tasks.keyword_monitor import run_keyword_monitor
 import sqlite3
 from app.routes import database  # Make sure this import exists
@@ -115,6 +115,7 @@ app.include_router(api_router, prefix="/api")  # Add this line to include the AP
 
 # Add routes
 app.include_router(keyword_monitor_router)
+app.include_router(keyword_monitor_page_router)
 app.include_router(keyword_monitor_api_router, prefix="/api")
 app.include_router(onboarding_router)
 
@@ -187,6 +188,7 @@ logger.info("Prompt routes included")
 app.include_router(web_router)  # Web routes at root level
 app.include_router(topic_router)  # Topic routes
 app.include_router(keyword_monitor_router)
+app.include_router(keyword_monitor_page_router)
 app.include_router(onboarding_router)
 app.include_router(saved_searches_router)  # Saved searches
 app.include_router(websocket_router, prefix="/keyword-monitor")  # WebSocket routes for real-time updates
@@ -2412,148 +2414,6 @@ async def keyword_monitor_page(request: Request, session=Depends(verify_session)
     except Exception as e:
         logger.error(f"Error in keyword monitor page: {str(e)}")
         logger.error(traceback.format_exc())  # Add this to get full traceback
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/keyword-alerts", response_class=HTMLResponse)
-async def keyword_alerts_page(request: Request, session=Depends(verify_session)):
-    try:
-        # Define status colors mapping
-        status_colors = {
-            'NEW': 'primary',
-            'Exploding': 'danger',
-            'Surging': 'warning',
-            'Growing': 'success',
-            'Stable': 'secondary',
-            'Declining': 'info',
-            'No Data': 'secondary'
-        }
-
-        row = (DatabaseQueryFacade(db, logger)).get_monitored_keywords_for_keyword_alerts_page()
-        last_check = row[0]
-        check_interval = row[1] if row[1] else 15
-        interval_unit = row[2] if row[2] else 60  # Default to minutes
-        last_error = row[3]
-        is_enabled = row[4] if row[4] is not None else True  # Default to enabled
-
-        # Format the display interval
-        if interval_unit == 3600:  # Hours
-            display_interval = f"{check_interval} hour{'s' if check_interval != 1 else ''}"
-        elif interval_unit == 86400:  # Days
-            display_interval = f"{check_interval} day{'s' if check_interval != 1 else ''}"
-        else:  # Minutes
-            display_interval = f"{check_interval} minute{'s' if check_interval != 1 else ''}"
-
-        # Calculate next check time
-        now = datetime.now()
-        if last_check:
-            last_check_time = datetime.fromisoformat(last_check.replace('Z', '+00:00'))
-            next_check = last_check_time + timedelta(seconds=check_interval * interval_unit)
-
-            # Only show next check time if it's in the future
-            if next_check > now:
-                next_check_time = next_check.isoformat()
-            else:
-                next_check_time = now.isoformat()
-        else:
-            last_check_time = None
-            next_check_time = now.isoformat()
-
-        # Format the last_check_time for display
-        display_last_check = last_check_time.strftime('%Y-%m-%d %H:%M:%S') if last_check_time else None
-
-        # Get all groups with their alerts and status
-        groups_data = (DatabaseQueryFacade(db, logger)).get_all_groups_with_their_alerts_and_status()
-
-        # Get alerts for each group
-        groups = []
-        for group_id, name, topic, unread_count, keywords in groups_data:
-            # First, check if the keyword_article_matches table exists
-            use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
-
-            if use_new_table:
-                # Use the new table structure
-                rows = (DatabaseQueryFacade(db, logger)).get_keywords_and_articles_for_keywords_alert_page_using_new_structure(group_id)
-                alerts = []
-
-                for row in rows:
-                    alert_id, detected_at, article_uri, title, url, news_source, publication_date, summary, keyword_ids, matched_keywords, category, sentiment, driver_type, time_to_impact, future_signal, auto_ingested, ingest_status = row
-
-                    # Convert the matched_keywords string to a list
-                    keywords_list = matched_keywords.split('||') if matched_keywords else []
-
-                    alerts.append({
-                        'id': alert_id,
-                        'detected_at': detected_at,
-                        'article': {
-                            'uri': article_uri,
-                            'title': title,
-                            'url': url,
-                            'source': news_source,
-                            'publication_date': publication_date,
-                            'summary': summary,
-                            'category': category or '',
-                            'sentiment': sentiment or '',
-                            'driver_type': driver_type or '',
-                            'time_to_impact': time_to_impact or '',
-                            'future_signal': future_signal or '',
-                            'auto_ingested': bool(auto_ingested) if auto_ingested is not None else False,
-                            'ingest_status': ingest_status or ''
-                        },
-                        'matched_keyword': keywords_list[0] if keywords_list else "",
-                        'matched_keywords': keywords_list
-                    })
-            else:
-                # Fallback to the original query if the new table doesn't exist
-                alerts = [
-                    {
-                        'id': alert_id,
-                        'detected_at': detected_at,
-                        'article': {
-                            'uri': article_uri,
-                            'title': title,
-                            'url': url,
-                            'source': news_source,
-                            'publication_date': publication_date,
-                            'summary': summary
-                        },
-                        'matched_keyword': matched_keyword,
-                        'matched_keywords': [matched_keyword] if matched_keyword else []
-                    }
-                    for alert_id, detected_at, article_uri, title, url, news_source,
-                        publication_date, summary, matched_keyword in (DatabaseQueryFacade(db, logger)).get_keywords_and_articles_for_keywords_alert_page_using_old_structure(group_id)
-                ]
-
-            growth_status = 'No Data'
-            if unread_count:
-                growth_status = 'NEW'  # We'll make it more sophisticated later
-
-            groups.append({
-                'id': group_id,
-                'name': name,
-                'topic': topic,
-                'alerts': alerts,
-                'keywords': keywords.split('||') if keywords else [],
-                'growth_status': growth_status,
-                'unread_count': unread_count or 0
-            })
-
-        return templates.TemplateResponse(
-            "keyword_alerts.html",
-            get_template_context(request, {
-                "groups": groups,
-                "last_check_time": display_last_check,
-                "display_interval": display_interval,
-                "next_check_time": next_check_time,
-                "last_error": last_error,
-                "session": session,
-                "now": now.isoformat(),
-                "is_enabled": is_enabled,
-                "status_colors": status_colors  # Add this line
-            })
-        )
-
-    except Exception as e:
-        logger.error(f"Error loading keyword alerts page: {str(e)}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/config/thenewsapi")

@@ -689,7 +689,6 @@
     <!-- Header -->
     <div class="news-header">
         <h1 class="news-title">News Narrator</h1>
-        <div class="news-date" id="current-date"></div>
     </div>
 
     <!-- Controls -->
@@ -1657,14 +1656,18 @@
     };
 })();
 document.addEventListener('DOMContentLoaded', function() {
+    console.log('=== FIRST DOMContentLoaded handler executing ===');
     // Initialize with the selected date (September 15, 2025)
     const selectedDateObj = new Date(2025, 8, 15); // September 15, 2025
-    document.getElementById('current-date').textContent = selectedDateObj.toLocaleDateString('en-US', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-    });
+    const currentDateEl = document.getElementById('current-date');
+    if (currentDateEl) {
+        currentDateEl.textContent = selectedDateObj.toLocaleDateString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+    }
 
     // Persist selected model between sessions
     try {
@@ -1779,24 +1782,40 @@ document.addEventListener('DOMContentLoaded', function() {
     try {
         const sel = document.getElementById('topic-select');
         if (sel) {
+            console.log('Fetching topics for news feed dropdown...');
             fetch('/api/topics')
-                .then(r => r.json())
-                .then(topics => {
-                    sel.innerHTML = '<option value="">All Topics</option>' + topics.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
-                    const savedTopic = localStorage.getItem('newsFeedTopic');
-                    if (savedTopic && Array.from(sel.options).some(o => o.value === savedTopic)) sel.value = savedTopic;
+                .then(r => {
+                    console.log('Topics API response status:', r.status);
+                    return r.json();
                 })
-                .catch(() => {});
+                .then(topics => {
+                    console.log('Topics loaded:', topics);
+                    sel.innerHTML = '<option value="">All Topics</option>' + topics.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
+                    console.log('Topic dropdown populated with', topics.length, 'topics');
+                    const savedTopic = localStorage.getItem('newsFeedTopic');
+                    console.log('Saved topic from localStorage:', savedTopic);
+                    if (savedTopic && Array.from(sel.options).some(o => o.value === savedTopic)) {
+                        sel.value = savedTopic;
+                        console.log('Restored saved topic:', savedTopic);
+                    }
+                })
+                .catch(err => {
+                    console.error('Error loading topics:', err);
+                });
             sel.addEventListener('change', () => {
                 localStorage.setItem('newsFeedTopic', sel.value);
                 updateArticleCountForDateRange();
                 generateNewsFeed();
-                
+
                 // Clear insights when topic changes
                 clearInsightsContent();
             });
+        } else {
+            console.error('topic-select element not found');
         }
-    } catch (_) { /* best-effort */ }
+    } catch (err) {
+        console.error('Error in topic dropdown setup:', err);
+    }
 
     // Load saved feeds when modal is opened
     document.getElementById('savedFeedsModal').addEventListener('show.bs.modal', loadSavedFeeds);
@@ -5720,23 +5739,21 @@ function loadSavedDefaults() {
         const savedDefaults = localStorage.getItem('newsFeedDefaults');
         if (savedDefaults) {
             const settings = JSON.parse(savedDefaults);
-            
+
             // Apply saved settings
             if (settings.dateRange) {
                 const dateRangeEl = document.getElementById('date-range-select');
                 if (dateRangeEl) dateRangeEl.value = settings.dateRange;
             }
-            
-            if (settings.topic) {
-                const topicEl = document.getElementById('topic-select');
-                if (topicEl) topicEl.value = settings.topic;
-            }
-            
+
+            // Don't set topic here - the topic dropdown loading code handles this
+            // after topics are fetched from the API (line 1785-1786)
+
             if (settings.model) {
                 const modelEl = document.getElementById('model-select');
                 if (modelEl) modelEl.value = settings.model;
             }
-            
+
             console.log('Loaded saved defaults:', settings);
             return true;
         }

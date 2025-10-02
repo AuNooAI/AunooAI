@@ -5701,36 +5701,42 @@ function updateGroupAlerts(card, data, groupId) {
                            onchange="updateBulkActions('${groupId}')">
                 </td>
                 <td>
-                    <div class="d-flex align-items-center">
+                    <div class="d-flex align-items-center gap-1 flex-wrap">
                         ${(() => {
-                            // Debug logging for specific articles
-                            if (alert.article.title && alert.article.title.includes("AI Uncertainty")) {
-                                console.log('DEBUG: AI Uncertainty article in updateGroupAlerts:', {
-                                    alertId: alert.id,
-                                    article: alert.article,
-                                    hasCategory: !!alert.article.category,
-                                    hasSentiment: !!alert.article.sentiment,
-                                    hasDriverType: !!alert.article.driver_type,
-                                    hasTimeToImpact: !!alert.article.time_to_impact,
-                                    isEnriched: isArticleEnriched(alert.article)
-                                });
-                            }
-                            
+                            let badges = '';
+
+                            // Status badge
                             if (alert.is_read) {
-                                return '<span class="badge bg-secondary">Read</span>';
+                                badges += '<span class="badge bg-secondary">Read</span>';
                             } else if (isArticleEnriched(alert.article)) {
-                                console.log('updateGroupAlerts: Setting badge to Added for:', alert.article.title?.substring(0, 50) + '...', {
-                                    category: alert.article.category,
-                                    isEnriched: isArticleEnriched(alert.article)
-                                });
-                                return '<span class="badge bg-success">Added</span>';
+                                badges += '<span class="badge bg-success" title="Article has been analyzed"><i class="fas fa-check-circle me-1"></i>Added</span>';
                             } else {
-                                console.log('updateGroupAlerts: Setting badge to New for:', alert.article.title?.substring(0, 50) + '...', {
-                                    category: alert.article.category,
-                                    isEnriched: isArticleEnriched(alert.article)
-                                });
-                                return '<span class="badge bg-primary">New</span>';
+                                badges += '<span class="badge bg-warning text-dark" title="Article needs analysis"><i class="fas fa-exclamation-circle me-1"></i>New</span>';
                             }
+
+                            // Auto-ingest badge
+                            if (alert.article.auto_ingested) {
+                                badges += '<span class="badge bg-primary" title="Auto-ingested article"><i class="fas fa-magic me-1"></i>Auto</span>';
+                            }
+
+                            // QC status badge
+                            if (alert.article.ingest_status === 'approved') {
+                                badges += '<span class="badge bg-success" title="Passed quality control"><i class="fas fa-shield-check me-1"></i>QC Pass</span>';
+                            } else if (alert.article.ingest_status === 'failed') {
+                                badges += `<span class="badge bg-danger" title="Failed quality control: ${alert.article.quality_issues || ''}"><i class="fas fa-shield-times me-1"></i>QC Fail</span>`;
+                            } else if (alert.article.ingest_status === 'rejected') {
+                                badges += '<span class="badge bg-dark" title="Rejected during processing"><i class="fas fa-times me-1"></i>Rejected</span>';
+                            } else if (alert.article.ingest_status === 'pending') {
+                                badges += '<span class="badge bg-info" title="Processing in progress"><i class="fas fa-clock me-1"></i>Processing</span>';
+                            }
+
+                            // Quality score badge
+                            if (alert.article.quality_score != null && alert.article.quality_score !== undefined) {
+                                const scorePercent = Math.round(alert.article.quality_score * 100);
+                                badges += `<span class="badge bg-secondary" title="Quality score: ${alert.article.quality_score.toFixed(2)}"><i class="fas fa-star me-1"></i>${scorePercent}%</span>`;
+                            }
+
+                            return badges;
                         })()}
                     </div>
                 </td>
@@ -5854,8 +5860,24 @@ function updateGroupAlerts(card, data, groupId) {
         `;
     }
     
-    // If there are no alerts, show the "no alerts" message
+    // If there are no alerts, show appropriate message based on filters
     if (data.alerts.length === 0) {
+        const statusFilter = data.status_filter || data.status || 'all';
+        const filterApplied = statusFilter && statusFilter !== 'all';
+        let message = 'No alerts for this group';
+
+        if (filterApplied) {
+            if (statusFilter === 'new') {
+                message = 'No new articles found for this group';
+            } else if (statusFilter === 'added') {
+                message = 'No analyzed articles found for this group';
+            } else {
+                message = `No ${statusFilter} articles found for this group`;
+            }
+        }
+
+        console.log('Showing empty state:', {statusFilter, filterApplied, message, data});
+
         // Handle nested card structure
         const nestedCard = card.querySelector('.card.mb-4');
         if (nestedCard) {
@@ -5863,17 +5885,17 @@ function updateGroupAlerts(card, data, groupId) {
             nestedCard.innerHTML = `
                 <div class="card-body">
                     <div class="alert alert-info mb-0">
-                        <i class="fas fa-info-circle"></i> No new alerts for this group
+                        <i class="fas fa-info-circle"></i> ${message}
                     </div>
                 </div>
             `;
         } else {
             // Fallback to card body
-            const cardBody = tableBody.closest('.card-body') || card.querySelector('.card-body');
+            const cardBody = tableBody ? tableBody.closest('.card-body') : card.querySelector('.card-body');
             if (cardBody) {
                 cardBody.innerHTML = `
                     <div class="alert alert-info mb-0">
-                        <i class="fas fa-info-circle"></i> No new alerts for this group
+                        <i class="fas fa-info-circle"></i> ${message}
                     </div>
                 `;
             }
@@ -6002,14 +6024,23 @@ $(document).ready(function() {
             const topic = this.dataset.topic;
             const groupId = this.dataset.groupId;
             const showRead = this.checked;
-            
+
             // Refresh group articles and enhance with media bias
             refreshGroupArticles(topic, groupId, showRead).then(() => {
                 setTimeout(enhanceAllArticlesWithMediaBias, 500);
             });
         });
     });
-    
+
+    // Set up event listeners for status filter radio buttons using delegation
+    document.addEventListener('change', function(event) {
+        if (event.target.matches('input[name^="statusFilter_"]')) {
+            const groupId = event.target.name.replace('statusFilter_', '');
+            console.log('Status filter changed:', {groupId, value: event.target.value});
+            applyStatusFilter(groupId);
+        }
+    });
+
     // Set up event listener for single article analysis buttons
     document.addEventListener('click', function(event) {
         if (event.target.closest('.analyze-single-article-btn')) {
@@ -6525,18 +6556,20 @@ function applyStatusFilter(groupId) {
     // Get the topic from the data-topic attribute
     const groupElement = document.querySelector(`[data-group-id="${groupId}"][data-topic]`);
     const topic = groupElement ? groupElement.dataset.topic : null;
-    
+
     if (!topic) {
         console.error(`Could not find topic for group ${groupId}`);
         return;
     }
-    
+
     const showReadToggle = document.querySelector(`#showReadToggle_${groupId}`);
     const showRead = showReadToggle ? showReadToggle.checked : false;
-    
+
     // Get current status filter value
     const statusFilter = document.querySelector(`input[name="statusFilter_${groupId}"]:checked`)?.value || 'all';
-    
+
+    console.log(`applyStatusFilter: groupId=${groupId}, statusFilter=${statusFilter}, topic=${topic}`);
+
     // Refresh articles with the new status filter
     refreshGroupArticles(topic, groupId, showRead, true, 1, statusFilter);
 }

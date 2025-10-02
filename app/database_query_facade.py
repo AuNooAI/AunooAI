@@ -2168,13 +2168,19 @@ class DatabaseQueryFacade:
                                    FROM monitored_keywords
                                    WHERE id IN (SELECT value
                                                 FROM json_each('[' || REPLACE(kam.keyword_ids, ',', ',') || ']'))) as matched_keywords,
+                                  a.topic_alignment_score,
+                                  a.keyword_relevance_score,
+                                  a.confidence_score,
+                                  a.overall_match_explanation,
                                   a.category,
                                   a.sentiment,
                                   a.driver_type,
                                   a.time_to_impact,
                                   a.future_signal,
                                   a.auto_ingested,
-                                  a.ingest_status
+                                  a.ingest_status,
+                                  a.quality_score,
+                                  a.quality_issues
                            FROM keyword_article_matches kam
                                     JOIN articles a ON kam.article_uri = a.uri
                            WHERE kam.group_id = ?
@@ -3059,6 +3065,11 @@ class DatabaseQueryFacade:
             conn.commit()
 
     def get_alerts_by_group_id_from_new_table_structure(self, status, show_read, group_id, page_size, offset):
+        # Debug logging
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"get_alerts_by_group_id: status={repr(status)}, type={type(status)}, group_id={group_id}")
+
         # Create base statement.
         statement = select(
             keyword_article_matches.c.id,

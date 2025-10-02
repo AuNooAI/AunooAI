@@ -1,5 +1,3 @@
-print("🔥🔥🔥 keyword_monitor.py IS BEING LOADED!", flush=True)
-
 from fastapi import APIRouter, HTTPException, Depends, Request, Response
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
@@ -77,7 +75,11 @@ def build_analysis_url(article, topic):
     
     return urlencode(params)
 
+# API routes with prefix
 router = APIRouter(prefix="/api/keyword-monitor")
+
+# Page routes without prefix (for HTML pages)
+page_router = APIRouter()
 
 # Set up templates
 templates = Jinja2Templates(directory="templates")
@@ -385,33 +387,19 @@ async def get_alerts(
                      auto_ingested, ingest_status, quality_score, quality_issues) = enrichment_row
 
                     logger.info(f"API ENRICHMENT FOUND for {article_data['uri']}: category={category}, sentiment={sentiment}, driver_type={driver_type}, time_to_impact={time_to_impact}")
-                    if category:
-                        article_data["category"] = category
-                        logger.info(f"API CATEGORY ADDED to article_data: {category}")
-                        # Debug log to confirm it's in the article_data dictionary
-                        logger.info(f"VERIFIED: article_data now contains category: {article_data.get('category')}")
 
-                        # Special debugging for the Tom's Hardware article
-                        if "tomshardware.com" in article_data["url"] and "stargate" in article_data["url"]:
-                            logger.info(f"STARGATE ARTICLE DEBUG: Article data after adding category: {article_data}")
-                    if sentiment:
-                        article_data["sentiment"] = sentiment
-                    if driver_type:
-                        article_data["driver_type"] = driver_type
-                    if time_to_impact:
-                        article_data["time_to_impact"] = time_to_impact
+                    # Always add enrichment fields (use empty string if None to match page load behavior)
+                    article_data["category"] = category or ''
+                    article_data["sentiment"] = sentiment or ''
+                    article_data["driver_type"] = driver_type or ''
+                    article_data["time_to_impact"] = time_to_impact or ''
+                    article_data["future_signal"] = ''  # Not in enrichment_row, but needed for consistency
 
-                    # Add relevance data if available
-                    if topic_alignment_score is not None:
-                        article_data["topic_alignment_score"] = topic_alignment_score
-                        logger.debug(f"Added topic_alignment_score: {topic_alignment_score} for {article_data['uri']}")
-                    if keyword_relevance_score is not None:
-                        article_data["keyword_relevance_score"] = keyword_relevance_score
-                        logger.debug(f"Added keyword_relevance_score: {keyword_relevance_score} for {article_data['uri']}")
-                    if confidence_score is not None:
-                        article_data["confidence_score"] = confidence_score
-                    if overall_match_explanation:
-                        article_data["overall_match_explanation"] = overall_match_explanation
+                    # Always add relevance scores (even if None, for consistency)
+                    article_data["topic_alignment_score"] = topic_alignment_score
+                    article_data["keyword_relevance_score"] = keyword_relevance_score
+                    article_data["confidence_score"] = confidence_score
+                    article_data["overall_match_explanation"] = overall_match_explanation or ''
                     if extracted_article_topics:
                         try:
                             article_data["extracted_article_topics"] = json.loads(extracted_article_topics)
@@ -443,35 +431,26 @@ async def get_alerts(
                 logger.debug(f"No enrichment data available for article {article_data['uri']}: {e}")
                 pass
 
-                # Add bias data if found
-                if bias_data:
-                    article_data["bias"] = bias_data.get("bias")
-                    article_data["factual_reporting"] = bias_data.get("factual_reporting")
-                    article_data["mbfc_credibility_rating"] = bias_data.get("mbfc_credibility_rating")
-                    article_data["bias_country"] = bias_data.get("country")
-                    article_data["press_freedom"] = bias_data.get("press_freedom")
-                    article_data["media_type"] = bias_data.get("media_type")
-                    article_data["popularity"] = bias_data.get("popularity")
+            # Append alert to list (outside try/except, inside for loop)
+            alerts.append({
+                'id': alert_data.get("id", ""),
+                'is_read': bool(alert_data.get("is_read", 0)),
+                'detected_at': alert_data.get("detected_at", ""),
+                'article': article_data,
+                'matched_keyword': alert_data.get("matched_keyword", "")
+            })
 
-                alerts.append({
-                    'id': alert_data.get("id", ""),
-                    'is_read': bool(alert_data.get("is_read", 0)),
-                    'detected_at': alert_data.get("detected_at", ""),
-                    'article': article_data,
-                    'matched_keyword': alert_data.get("matched_keyword", "")
-                })
-            
-            return {
-                "alerts": alerts
-            }
+        # Return all alerts (outside for loop)
+        return {
+            "alerts": alerts
+        }
     except Exception as e:
         logger.error(f"Error fetching alerts: {str(e)}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/keyword-alerts", response_class=HTMLResponse)
+@page_router.get("/keyword-alerts", response_class=HTMLResponse)
 async def keyword_alerts_page(request: Request, session=Depends(verify_session), db: Database = Depends(get_database_instance)):
-    print("🚨🚨🚨 keyword_alerts_page function called!", flush=True)
     try:
         # Initialize media bias for article enrichment
         media_bias = MediaBias(db)
@@ -518,7 +497,6 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
 
             logger.info(f"GROUP DEBUG - Group {group_id} ({topic}): actual unread count without limit = {actual_unread_count}")
 
-            print(f"🔥🔥🔥 PRINT DEBUG: Processing {len(fetched_articles)} articles for group {group_id}", flush=True)
             logger.info(f"Processing {len(fetched_articles)} articles for group {group_id}")
             for alert in fetched_articles:
                 # CRITICAL DEBUG: Check tuple length
@@ -751,54 +729,55 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
             logger.info(f"GROUP FINAL - Group {group_id} '{name}' ({topic}): "
                       f"unread_count={unread_count}, total_count={total_count}, "
                       f"alerts_added={len(alerts)}, actual_unread={actual_unread_count}")
-                
-            # Debug: Log all groups being sent to template
-            logger.info(f"TEMPLATE DATA - Sending {len(groups)} groups to template:")
-            for i, group in enumerate(groups):
-                logger.info(f"  Group {i+1}: {group['topic']} - unread_count={group['unread_count']}, alerts={len(group['alerts'])}")
-                
-            # Define status colors
-            status_colors = {
-                "High growth": "danger",
-                "Growing": "warning",
-                "Stable": "success",
-                "Inactive": "secondary",
-                "No data": "light"
+
+        # Debug: Log all groups being sent to template
+        logger.info(f"TEMPLATE DATA - Sending {len(groups)} groups to template:")
+        for i, group in enumerate(groups):
+            logger.info(f"  Group {i+1}: {group['topic']} - unread_count={group['unread_count']}, alerts={len(group['alerts'])}")
+
+        # Define status colors
+        status_colors = {
+            "High growth": "danger",
+            "Growing": "warning",
+            "Stable": "success",
+            "Inactive": "secondary",
+            "No data": "light"
+        }
+
+        # Get current time for next check timer
+        current_time = datetime.now().isoformat()
+
+        # Get settings for interval display
+        interval_settings = await get_settings(db)
+        interval = interval_settings.get('check_interval', 60)
+        interval_unit = interval_settings.get('interval_unit', 1)
+
+        # Convert to minutes for display
+        if interval_unit == 1:  # minutes
+            display_interval = f"{interval} minutes"
+        elif interval_unit == 2:  # hours
+            display_interval = f"{interval} hours"
+        elif interval_unit == 3:  # days
+            display_interval = f"{interval} days"
+        else:
+            display_interval = f"{interval} minutes"
+
+        return templates.TemplateResponse(
+            "keyword_alerts.html",
+            {
+                "request": request,
+                "groups": groups,
+                "status_colors": status_colors,
+                "now": current_time,
+                "display_interval": display_interval,
+                "is_enabled": interval_settings.get('is_enabled', False),
+                "last_check_time": interval_settings.get('last_run_time'),
+                "next_check_time": interval_settings.get('next_run_time'),
+                "last_error": interval_settings.get('last_error'),
+                "session": session
             }
-            
-            # Get current time for next check timer
-            current_time = datetime.now().isoformat()
-            
-            # Get settings for interval display
-            interval_settings = await get_settings(db)
-            interval = interval_settings.get('check_interval', 60)
-            interval_unit = interval_settings.get('interval_unit', 1)
-            
-            # Convert to minutes for display
-            if interval_unit == 1:  # minutes
-                display_interval = f"{interval} minutes"
-            elif interval_unit == 2:  # hours
-                display_interval = f"{interval} hours"
-            elif interval_unit == 3:  # days
-                display_interval = f"{interval} days"
-            else:
-                display_interval = f"{interval} minutes"
-            
-            return templates.TemplateResponse(
-                "keyword_alerts.html",
-                {
-                    "request": request,
-                    "groups": groups,
-                    "status_colors": status_colors,
-                    "now": current_time,
-                    "display_interval": display_interval,
-                    "is_enabled": interval_settings.get('is_enabled', False),
-                    "last_check_time": interval_settings.get('last_run_time'),
-                    "next_check_time": interval_settings.get('next_run_time'),
-                    "last_error": interval_settings.get('last_error')
-                }
-            )
-            
+        )
+
     except Exception as e:
         logger.error(f"Error in keyword_alerts_page: {str(e)}")
         traceback.print_exc()
@@ -808,7 +787,8 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                 "request": request,
                 "groups": [],
                 "status_colors": {},
-                "error": str(e)
+                "error": str(e),
+                "session": session
             }
         )
 
