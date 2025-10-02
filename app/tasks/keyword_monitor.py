@@ -221,14 +221,18 @@ class KeywordMonitor:
                         logger.debug(f"Article {i+1}: title='{article.get('title', '')}', url='{article.get('url', '')}', published={article.get('published_date', '')}")
 
                     # Try auto-ingest pipeline if enabled (before processing individual articles)
-                    if self.should_auto_ingest():
+                    should_auto_ingest = self.should_auto_ingest()
+                    logger.info(f"Auto-ingest check: enabled={should_auto_ingest}, articles_count={len(articles)}")
+
+                    if should_auto_ingest:
                         try:
                             topic_keywords = (DatabaseQueryFacade(self.db, logger)).get_monitored_keywords_for_topic((topic,))
+                            logger.info(f"Starting auto-ingest pipeline for {len(articles)} articles with {len(topic_keywords)} keywords")
 
                             auto_ingest_results = await self.auto_ingest_pipeline(articles, topic, topic_keywords)
-                            logger.info(f"Auto-ingest results: {auto_ingest_results}")
+                            logger.info(f"Auto-ingest pipeline completed. Results: {auto_ingest_results}")
                         except Exception as e:
-                            logger.error(f"Auto-ingest pipeline failed: {e}")
+                            logger.error(f"Auto-ingest pipeline failed: {e}", exc_info=True)
 
                     # Process each article with optimized database usage
                     for article in articles:

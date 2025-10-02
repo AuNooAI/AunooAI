@@ -1709,6 +1709,9 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                     <button class="btn btn-outline-primary" onclick="checkKeywords(event)">
                         <i class="fas fa-sync"></i> Update Now
                     </button>
+                    <button class="btn btn-danger" id="cancelBackgroundTaskBtn" onclick="cancelBackgroundTask()" style="display: none;">
+                        <i class="fas fa-stop"></i> Cancel Running Task
+                    </button>
                     <button class="btn btn-outline-secondary" onclick="showAutoIngestSettings()">
                         <i class="fas fa-cog"></i> Auto-Processing Settings
                     </button>
@@ -1915,8 +1918,9 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                         title="Export alerts for this group">
                                     <i class="fas fa-download"></i>
                                 </button>
-                                <span class="badge bg-primary">{{ group.unread_count|default(0) }} alerts</span>
-                                {% set enriched_count = group.alerts|selectattr('article.category')|list|length + group.alerts|selectattr('article.analysis_complete')|list|length %}
+                                <span class="badge bg-primary">{{ group.alerts|length }} total</span>
+                                {% set enriched_articles = group.alerts|selectattr('article.category')|list %}
+                                {% set enriched_count = enriched_articles|length %}
                                 {% if enriched_count > 0 %}
                                 <span class="badge bg-success ms-1" title="{{ enriched_count }} articles have been analyzed">
                                     <i class="fas fa-brain me-1"></i>{{ enriched_count }} enriched
@@ -2916,6 +2920,9 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-danger" id="cancelBulkProcessBtn" onclick="cancelBulkProcess()" style="display: none;">
+                    <i class="fas fa-stop"></i> Cancel Processing
+                </button>
                 <button type="button" class="btn btn-primary" id="startBulkProcessBtn" onclick="startBulkProcess()">
                     <i class="fas fa-play"></i> Start Processing
                 </button>
@@ -3860,8 +3867,8 @@ async function checkKeywords(event) {
             button.disabled = false;
             button.innerHTML = originalHtml;
 
-            // Show progress modal
-            showProgressModal('Keyword Check', `Checking keywords across ${result.total_keywords || 'all'} groups`);
+            // Show progress modal with task ID for cancellation
+            showProgressModal('Keyword Check', `Checking keywords across ${result.total_keywords || 'all'} groups`, result.task_id);
 
             // Add timeout protection for stuck tasks
             const taskTimeout = setTimeout(() => {
@@ -4615,6 +4622,16 @@ function startBackgroundTask(taskType, data, onProgress, onComplete, onError) {
         if (result.success) {
             const taskId = result.task_id;
 
+            // Update the task ID and show page-level cancel button
+            if (currentBackgroundTaskId === null) {
+                currentBackgroundTaskId = taskId;
+                const cancelBtn = document.getElementById('cancelBackgroundTaskBtn');
+                if (cancelBtn) {
+                    cancelBtn.style.display = 'inline-block';
+                    cancelBtn.disabled = false;
+                }
+            }
+
             // Store task info
             activeBackgroundTasks.set(taskId, {
                 id: taskId,
@@ -4718,7 +4735,25 @@ function monitorBackgroundTask(taskId, onProgress, onComplete, onError) {
     }
 }
 
-function showProgressModal(title, message) {
+// Global variable to track current background task
+let currentBackgroundTaskId = null;
+
+function showProgressModal(title, message, taskId = null) {
+    // Store the task ID globally and show the page-level cancel button
+    console.log('showProgressModal called with taskId:', taskId);
+    if (taskId) {
+        currentBackgroundTaskId = taskId;
+        console.log('Setting currentBackgroundTaskId to:', taskId);
+        const cancelBtn = document.getElementById('cancelBackgroundTaskBtn');
+        console.log('Cancel button element:', cancelBtn);
+        if (cancelBtn) {
+            cancelBtn.style.display = 'inline-block';
+            console.log('Cancel button shown');
+        } else {
+            console.error('Cancel button not found in DOM!');
+        }
+    }
+
     // Create or update progress modal
     let modal = document.getElementById('progressModal');
 
@@ -4751,7 +4786,6 @@ function showProgressModal(title, message) {
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                        <button type="button" class="btn btn-danger" id="cancelTaskBtn" style="display: none;">Cancel Task</button>
                     </div>
                 </div>
             </div>
@@ -4813,6 +4847,67 @@ function hideProgressModal() {
         const bsModal = bootstrap.Modal.getInstance(modal);
         if (bsModal) {
             bsModal.hide();
+        }
+    }
+    // Clear the current task ID and hide the page-level cancel button
+    currentBackgroundTaskId = null;
+    const cancelBtn = document.getElementById('cancelBackgroundTaskBtn');
+    if (cancelBtn) {
+        cancelBtn.style.display = 'none';
+    }
+}
+
+// Cancel the current background task
+async function cancelBackgroundTask() {
+    if (!currentBackgroundTaskId) {
+        showAlert('No active task to cancel', 'warning');
+        return;
+    }
+
+    if (!confirm('Are you sure you want to cancel this operation?')) {
+        return;
+    }
+
+    const cancelBtn = document.getElementById('cancelBackgroundTaskBtn');
+    const originalHtml = cancelBtn ? cancelBtn.innerHTML : '';
+
+    try {
+        if (cancelBtn) {
+            cancelBtn.disabled = true;
+            cancelBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cancelling...';
+        }
+
+        const response = await fetch(`/api/background-tasks/task/${currentBackgroundTaskId}`, {
+            method: 'DELETE',
+            credentials: 'same-origin'
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to cancel task');
+        }
+
+        const result = await response.json();
+        showAlert('Operation cancelled successfully', 'info');
+
+        // Hide the cancel button
+        if (cancelBtn) {
+            cancelBtn.style.display = 'none';
+        }
+
+        // Close modal if open
+        hideProgressModal();
+
+        // Refresh the page after a short delay
+        setTimeout(() => window.location.reload(), 1000);
+
+    } catch (error) {
+        console.error('Error cancelling task:', error);
+        showAlert(`Failed to cancel: ${error.message}`, 'danger');
+
+        if (cancelBtn) {
+            cancelBtn.disabled = false;
+            cancelBtn.innerHTML = originalHtml;
         }
     }
 }
@@ -7860,53 +7955,6 @@ async function toggleAutoIngest(enabled) {
 }
 
 // Load auto-ingest status and update UI
-async function loadAutoIngestStatus() {
-    try {
-        const response = await fetch('/api/auto-ingest/status');
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const result = await response.json();
-        if (result.success) {
-            const status = result.status;
-
-            // Update modal settings if open
-            const modal = document.getElementById('autoIngestSettingsModal');
-            if (modal && status.config) {
-                const config = status.config;
-
-                // Update form fields
-                const autoIngestEnabledEl = document.getElementById('autoIngestEnabled');
-                const qualityControlEnabledEl = document.getElementById('qualityControlEnabled');
-                const autoIngestRelevanceThresholdEl = document.getElementById('autoIngestRelevanceThreshold');
-                const autoIngestThresholdValueEl = document.getElementById('autoIngestThresholdValue');
-                const llmTemperatureEl = document.getElementById('llmTemperature');
-
-                if (autoIngestEnabledEl) autoIngestEnabledEl.checked = config.enabled;
-                if (qualityControlEnabledEl) qualityControlEnabledEl.checked = config.quality_control_enabled;
-                if (autoIngestRelevanceThresholdEl) autoIngestRelevanceThresholdEl.value = config.min_relevance_threshold;
-                if (autoIngestThresholdValueEl) autoIngestThresholdValueEl.textContent = Math.round(config.min_relevance_threshold * 100) + '%';
-                if (llmTemperatureEl) llmTemperatureEl.value = config.llm_temperature;
-
-                // Update model dropdown
-                const modelSelect = document.getElementById('defaultLlmModel');
-                if (modelSelect && modelSelect.options.length > 1) { // Has options loaded
-                    modelSelect.value = config.llm_model;
-                }
-            }
-
-            // Update pending articles count
-            const pendingCount = status.pending_articles_count || 0;
-            updatePendingArticlesDisplay(pendingCount);
-
-            console.log('Auto-ingest status loaded:', status);
-        }
-    } catch (error) {
-        console.error('Error loading auto-ingest status:', error);
-    }
-}
-
 // Update pending articles display
 function updatePendingArticlesDisplay(count) {
     const pendingElements = document.querySelectorAll('.pending-articles-count');
@@ -7916,48 +7964,6 @@ function updatePendingArticlesDisplay(count) {
 }
 
 // Save auto-ingest settings
-async function saveAutoIngestSettings() {
-    try {
-        const config = {
-            enabled: document.getElementById('autoIngestEnabled').checked,
-            quality_control_enabled: document.getElementById('qualityControlEnabled').checked,
-            min_relevance_threshold: parseFloat(document.getElementById('autoIngestRelevanceThreshold').value),
-            llm_model: document.getElementById('defaultLlmModel').value,
-            llm_temperature: parseFloat(document.getElementById('llmTemperature').value)
-        };
-
-        const response = await fetch('/api/auto-ingest/config', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(config)
-        });
-
-        if (!response.ok) {
-            throw new Error(`HTTP error! status: ${response.status}`);
-        }
-
-        const result = await response.json();
-
-        if (result.success) {
-            showAlert('Auto-ingest settings saved successfully!', 'success');
-
-            // Update main toggle
-            await loadAutoIngestStatus();
-
-            // Close modal
-            const modal = bootstrap.Modal.getInstance(document.getElementById('autoIngestSettingsModal'));
-            if (modal) modal.hide();
-        } else {
-            throw new Error(result.error || 'Failed to save settings');
-        }
-    } catch (error) {
-        console.error('Error saving auto-ingest settings:', error);
-        showAlert(`Error: ${error.message}`, 'danger');
-    }
-}
-
 // Run auto-ingest manually with progress tracking
 async function runAutoIngestNow() {
     try {
@@ -7980,8 +7986,8 @@ async function runAutoIngestNow() {
         const result = await response.json();
 
         if (result.success && result.task_id) {
-            // Show progress modal for auto-ingest
-            showProgressModal('Auto-Ingest Pipeline', result.total_articles || 0);
+            // Show progress modal for auto-ingest with task ID for cancellation
+            showProgressModal('Auto-Ingest Pipeline', `Processing ${result.total_articles || 0} articles`, result.task_id);
 
             // Start monitoring the background task
             monitorBackgroundTask(
@@ -8215,7 +8221,18 @@ async function loadAutoIngestStatus() {
         const result = await response.json();
         
         if (result.settings) {
-            // Update modal form fields
+            // Update collection settings
+            const pollingEnabled = document.getElementById('autoPollingEnabled');
+            if (pollingEnabled) {
+                pollingEnabled.checked = result.settings.is_enabled || false;
+            }
+
+            const pollingInterval = document.getElementById('pollingInterval');
+            if (pollingInterval && result.settings.check_interval) {
+                pollingInterval.value = result.settings.check_interval.toString();
+            }
+
+            // Update auto-processing settings
             document.getElementById('autoIngestEnabled').checked = result.settings.auto_ingest_enabled || false;
             document.getElementById('qualityControlEnabled').checked = result.settings.quality_control_enabled !== false;
             document.getElementById('autoSaveApprovedOnly').checked = result.settings.auto_save_approved_only || false;
@@ -8223,7 +8240,7 @@ async function loadAutoIngestStatus() {
             document.getElementById('llmTemperature').value = result.settings.llm_temperature || 0.1;
             document.getElementById('llmMaxTokens').value = result.settings.llm_max_tokens || 1000;
             document.getElementById('maxArticlesPerRun').value = result.settings.max_articles_per_run || 50;
-            
+
             // Update threshold slider
             const threshold = result.settings.min_relevance_threshold || 0.3;
             document.getElementById('autoIngestRelevanceThreshold').value = threshold;
@@ -8252,7 +8269,34 @@ function updateAutoIngestThresholdDisplay(value) {
 // Save auto-ingest settings
 async function saveAutoIngestSettings() {
     try {
+        // Get current settings first to preserve all fields
+        let currentSettings = {};
+        try {
+            const currentResponse = await fetch('/api/keyword-monitor/settings');
+            if (currentResponse.ok) {
+                currentSettings = await currentResponse.json();
+            }
+        } catch (error) {
+            console.warn('Could not load current settings:', error);
+        }
+
+        // Extract polling interval from the select (it's in minutes)
+        const pollingIntervalMinutes = parseInt(document.getElementById('pollingInterval').value);
+
+        // Build the settings object with all auto-processing fields
         const settings = {
+            // Preserve existing search/provider settings from keyword_monitor.html
+            check_interval: pollingIntervalMinutes || currentSettings.check_interval || 30,
+            interval_unit: 60, // Always in seconds
+            search_fields: currentSettings.search_fields || "title,description,content",
+            language: currentSettings.language || "en",
+            sort_by: currentSettings.sort_by || "publishedAt",
+            page_size: currentSettings.page_size || 10,
+            daily_request_limit: currentSettings.daily_request_limit || 100,
+            search_date_range: currentSettings.search_date_range || 7,
+            provider: currentSettings.provider || "newsapi",
+
+            // Auto-processing settings from the modal
             auto_ingest_enabled: document.getElementById('autoIngestEnabled').checked,
             min_relevance_threshold: parseFloat(document.getElementById('autoIngestRelevanceThreshold').value),
             quality_control_enabled: document.getElementById('qualityControlEnabled').checked,
@@ -8263,38 +8307,12 @@ async function saveAutoIngestSettings() {
             max_articles_per_run: parseInt(document.getElementById('maxArticlesPerRun').value)
         };
 
-        // Include all required fields for the KeywordMonitorSettings model
-        const fullSettings = {
-            // Get existing settings first
-            check_interval: 15,
-            interval_unit: 60,
-            search_fields: "title,description,content",
-            language: "en",
-            sort_by: "publishedAt",
-            page_size: 10,
-            daily_request_limit: 100,
-            provider: "newsapi",
-            // Override with auto-ingest settings
-            ...settings
-        };
-
-        // Get current settings to merge with auto-ingest settings
-        try {
-            const currentResponse = await fetch('/api/keyword-monitor/settings');
-            if (currentResponse.ok) {
-                const currentSettings = await currentResponse.json();
-                Object.assign(fullSettings, currentSettings, settings);
-            }
-        } catch (error) {
-            console.warn('Could not load current settings, using defaults:', error);
-        }
-
         const response = await fetch('/api/keyword-monitor/settings', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(fullSettings)
+            body: JSON.stringify(settings)
         });
 
         if (!response.ok) {
@@ -8302,10 +8320,8 @@ async function saveAutoIngestSettings() {
         }
 
         const result = await response.json();
-        
-        if (result.success) {
-            autoIngestSettings = { ...autoIngestSettings, ...settings };
 
+        if (result.success) {
             showAlert('Auto-processing settings saved successfully!', 'success');
 
             // Close modal
@@ -8418,18 +8434,24 @@ function updateBulkThresholdDisplay(value) {
     document.getElementById('bulkThresholdValue').textContent = `${percentage}%`;
 }
 
+// Global variable to track current job
+let currentBulkProcessJobId = null;
+let bulkProcessCancelled = false;
+
 // Start bulk processing (async with polling)
 async function startBulkProcess() {
     const modal = document.getElementById('bulkProcessModal');
     const topic = modal.dataset.topic;
     const groupId = modal.dataset.groupId;
-    
+
     if (!topic || !groupId) {
         showAlert('Missing topic or group information', 'danger');
         return;
     }
-    
+
     try {
+        bulkProcessCancelled = false;
+
         const options = {
             topic_id: topic,
             relevance_threshold_override: parseFloat(document.getElementById('bulkRelevanceThreshold').value),
@@ -8439,12 +8461,13 @@ async function startBulkProcess() {
             llm_model_override: document.getElementById('bulkLlmModel').value || null
         };
 
-        // Show progress
+        // Show progress and swap buttons
         document.getElementById('bulkProcessProgress').style.display = 'block';
         document.getElementById('bulkProcessResults').style.display = 'none';
-        document.getElementById('startBulkProcessBtn').disabled = true;
+        document.getElementById('startBulkProcessBtn').style.display = 'none';
+        document.getElementById('cancelBulkProcessBtn').style.display = 'inline-block';
         document.getElementById('bulkProcessStatus').textContent = 'Starting processing...';
-        
+
         // Start the background job
         const response = await fetch('/api/keyword-monitor/bulk-process-topic', {
             method: 'POST',
@@ -8459,8 +8482,9 @@ async function startBulkProcess() {
         }
 
         const result = await response.json();
-        
+
         if (result.success && result.job_id) {
+            currentBulkProcessJobId = result.job_id;
             // Start polling for job status
             document.getElementById('bulkProcessStatus').textContent = 'Processing in background...';
             await pollBulkProcessStatus(result.job_id, options.dry_run);
@@ -8470,10 +8494,41 @@ async function startBulkProcess() {
     } catch (error) {
         console.error('Error starting bulk processing:', error);
         showAlert(`Failed to start bulk processing: ${error.message}`, 'danger');
-        
+
         // Show error in progress section
         document.getElementById('bulkProcessStatus').textContent = `Error: ${error.message}`;
-        document.getElementById('startBulkProcessBtn').disabled = false;
+        document.getElementById('startBulkProcessBtn').style.display = 'inline-block';
+        document.getElementById('cancelBulkProcessBtn').style.display = 'none';
+    }
+}
+
+// Cancel bulk processing
+async function cancelBulkProcess() {
+    if (!currentBulkProcessJobId) {
+        showAlert('No active processing job to cancel', 'warning');
+        return;
+    }
+
+    if (!confirm('Are you sure you want to cancel the current processing job?')) {
+        return;
+    }
+
+    try {
+        bulkProcessCancelled = true;
+        document.getElementById('bulkProcessStatus').textContent = 'Cancelling...';
+
+        // Set flag to stop polling
+        showAlert('Processing cancelled by user', 'info');
+        document.getElementById('bulkProcessStatus').textContent = 'Cancelled by user';
+
+        // Reset UI
+        document.getElementById('startBulkProcessBtn').style.display = 'inline-block';
+        document.getElementById('cancelBulkProcessBtn').style.display = 'none';
+        currentBulkProcessJobId = null;
+
+    } catch (error) {
+        console.error('Error cancelling processing:', error);
+        showAlert(`Failed to cancel: ${error.message}`, 'danger');
     }
 }
 
@@ -8484,14 +8539,20 @@ async function pollBulkProcessStatus(jobId, isDryRun) {
     
     const poll = async () => {
         try {
+            // Check if user cancelled
+            if (bulkProcessCancelled) {
+                console.log('Polling cancelled by user');
+                return;
+            }
+
             const response = await fetch(`/api/keyword-monitor/bulk-process-status/${jobId}`);
-            
+
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
-            
+
             const statusResult = await response.json();
-            
+
             // Update status display
             if (statusResult.status === 'running') {
                 document.getElementById('bulkProcessStatus').textContent = 'Processing articles...';
@@ -8538,7 +8599,9 @@ async function pollBulkProcessStatus(jobId, isDryRun) {
                     }, 2000); // Give user time to see the success message
                 }
                 
-                document.getElementById('startBulkProcessBtn').disabled = false;
+                document.getElementById('startBulkProcessBtn').style.display = 'inline-block';
+                document.getElementById('cancelBulkProcessBtn').style.display = 'none';
+                currentBulkProcessJobId = null;
                 
             } else if (statusResult.status === 'failed') {
                 // Job failed

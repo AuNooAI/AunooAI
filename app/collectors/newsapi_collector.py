@@ -228,6 +228,7 @@ class NewsAPICollector(ArticleCollector):
                             'source': article.get('source', {}).get('name', 'NewsAPI'),  # Set default source name
                             'authors': [article.get('author')] if article.get('author') else [],
                             'published_date': article.get('publishedAt', ''),
+                            'topic': topic,  # Add topic field for auto-ingest pipeline
                             'raw_data': {
                                 'url_to_image': article.get('urlToImage'),
                                 'content': article.get('content')

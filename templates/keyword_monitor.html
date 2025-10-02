@@ -202,20 +202,10 @@
                     </div>
 
                     <div class="mb-4">
-                        <h6>Check Interval</h6>
-                        <div class="input-group">
-                            <input type="number" class="form-control" id="checkInterval" 
-                                   name="checkInterval" min="1" value="{{ check_interval|default(15) }}">
-                            <select class="form-select" id="intervalUnit" name="intervalUnit" style="max-width: 150px;">
-                                <option value="60">Minutes</option>
-                                <option value="3600">Hours</option>
-                                <option value="86400">Days</option>
-                            </select>
-                        </div>
-                        <small class="text-muted">How often to check for new articles</small>
-                        <div id="recommendedInterval" class="mt-2 text-info">
-                            <i class="fas fa-info-circle"></i> 
-                            Recommended interval: <span id="recommendedValue"></span>
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Collection Schedule:</strong> Configure check interval and auto-collection settings in the
+                            <a href="/keyword-alerts" class="alert-link">Auto-Processing Settings</a> (Keyword Alerts page).
                         </div>
                     </div>
 
@@ -641,40 +631,11 @@ async function showSettingsModal() {
             
             // Update both the main counter and settings form
             updateRequestCounters(settings.requests_today, settings.daily_request_limit);
-            
+
             // Apply the saved settings to the form
-            document.getElementById('checkInterval').value = settings.check_interval;
-            document.getElementById('intervalUnit').value = settings.interval_unit;
+            // Note: check_interval and interval_unit are now configured from keyword alerts page
             document.getElementById('dailyRequestLimit').value = settings.daily_request_limit;
             document.getElementById('searchDateRange').value = settings.search_date_range || 7;
-            
-            if (settings.total_keywords > 0) {
-                // Calculate recommended interval without applying it
-                const minutesPerDay = 24 * 60;
-                const requestsPerDay = settings.daily_request_limit;
-                const recommendedMinutes = Math.max(15, Math.ceil(minutesPerDay / (requestsPerDay / settings.total_keywords)));
-                
-                let recommendedValue, recommendedUnit;
-                if (recommendedMinutes >= 1440) {
-                    recommendedValue = Math.ceil(recommendedMinutes / 1440);
-                    recommendedUnit = 86400;
-                } else if (recommendedMinutes >= 60) {
-                    recommendedValue = Math.ceil(recommendedMinutes / 60);
-                    recommendedUnit = 3600;
-                } else {
-                    recommendedValue = recommendedMinutes;
-                    recommendedUnit = 60;
-                }
-                
-                // Instead of setting the values, just show the recommendation
-                const unitText = recommendedUnit === 86400 ? 'days' : 
-                               recommendedUnit === 3600 ? 'hours' : 'minutes';
-                document.getElementById('recommendedValue').textContent = 
-                    `${recommendedValue} ${unitText} based on ${settings.total_keywords} keywords and ${requestsPerDay} daily requests`;
-                document.getElementById('recommendedInterval').style.display = 'block';
-            } else {
-                document.getElementById('recommendedInterval').style.display = 'none';
-            }
             
             const fields = settings.search_fields.split(',');
             document.querySelectorAll('[name="searchFields"]').forEach(cb => {
@@ -748,25 +709,45 @@ async function saveSettings() {
         const searchFields = Array.from(document.querySelectorAll('[name="searchFields"]:checked'))
             .map(cb => cb.value)
             .join(',');
-            
+
+        // First, get current settings to preserve auto-ingest configuration
+        let currentSettings = {};
+        try {
+            const currentResponse = await fetch('/api/keyword-monitor/settings');
+            if (currentResponse.ok) {
+                currentSettings = await currentResponse.json();
+            }
+        } catch (error) {
+            console.warn('Could not load current settings:', error);
+        }
+
         const settings = {
-            check_interval: parseInt(document.getElementById('checkInterval').value),
-            interval_unit: parseInt(document.getElementById('intervalUnit').value),
+            // Preserve existing check interval settings (configured from keyword alerts page)
+            check_interval: currentSettings.check_interval || 15,
+            interval_unit: currentSettings.interval_unit || 60,
             daily_request_limit: parseInt(document.getElementById('dailyRequestLimit').value),
             search_date_range: parseInt(document.getElementById('searchDateRange').value),
             search_fields: searchFields,
             language: document.getElementById('language').value,
             sort_by: document.getElementById('sortBy').value,
             page_size: parseInt(document.getElementById('pageSize').value),
-            provider: document.getElementById('provider').value
+            provider: document.getElementById('provider').value,
+            // Preserve existing auto-ingest settings (configured from keyword alerts page)
+            auto_ingest_enabled: currentSettings.auto_ingest_enabled || false,
+            min_relevance_threshold: currentSettings.min_relevance_threshold || 0.3,
+            quality_control_enabled: currentSettings.quality_control_enabled !== false,
+            auto_save_approved_only: currentSettings.auto_save_approved_only || false,
+            default_llm_model: currentSettings.default_llm_model || 'gpt-4o-mini',
+            llm_temperature: currentSettings.llm_temperature || 0.1,
+            llm_max_tokens: currentSettings.llm_max_tokens || 1000
         };
-        
+
         const response = await fetch('/api/keyword-monitor/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(settings)
         });
-        
+
         if (!response.ok) throw new Error('Failed to save settings');
         window.location.reload();
     } catch (error) {
