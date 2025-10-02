@@ -138,6 +138,21 @@ class DatabaseQueryFacade:
             return topic_keywords
         return []
 
+    def get_monitored_keywords_by_group_id(self, group_id):
+        """Get keywords filtered by specific group_id"""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                           SELECT mk.id, mk.keyword, mk.last_checked, kg.topic
+                           FROM monitored_keywords mk
+                                    JOIN keyword_groups kg ON mk.group_id = kg.id
+                           WHERE kg.id = ?
+                           """, (group_id,))
+            keywords = cursor.fetchall()
+            return keywords
+        return []
+
     def article_exists(self, params):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
@@ -158,6 +173,15 @@ class DatabaseQueryFacade:
             try:
                 inserted_new_article = False
                 if not article_exists:
+                    # VALIDATION: Ensure article has required fields
+                    title = article.get('title', '').strip()
+                    if not title:
+                        raise ValueError(f"Article title is required: {article_url}")
+
+                    if title.startswith("Article from"):
+                        self.logger.error(f"Placeholder title detected: {title}")
+                        raise ValueError(f"Placeholder title not allowed: {article_url}")
+
                     # Save new article
                     cursor.execute("""
                                    INSERT INTO articles (uri, title, news_source, publication_date,
@@ -165,7 +189,7 @@ class DatabaseQueryFacade:
                                    VALUES (?, ?, ?, ?, ?, ?, ?)
                                    """, (
                                        article_url,
-                                       article['title'],
+                                       title,
                                        article['source'],
                                        article['published_date'],
                                        article.get('summary', ''),  # Use get() with default
@@ -173,7 +197,7 @@ class DatabaseQueryFacade:
                                        False  # Explicitly mark as not analyzed
                                    ))
                     inserted_new_article = True
-                    self.logger.info(f"Inserted new article: {article_url}")
+                    self.logger.info(f"Inserted new article: {article_url} with title: {title[:50]}")
 
                 # Create alert
                 cursor.execute("""
@@ -603,7 +627,8 @@ class DatabaseQueryFacade:
                                tags                      = ?,
                                analyzed                  = ?,
                                confidence_score          = ?,
-                               overall_match_explanation = ?
+                               overall_match_explanation = ?,
+                               publication_date          = COALESCE(?, publication_date)
                            WHERE uri = ?
                            """, params)
             conn.commit()
@@ -2586,7 +2611,11 @@ class DatabaseQueryFacade:
                                   a.confidence_score,
                                   a.overall_match_explanation,
                                   a.extracted_article_topics,
-                                  a.extracted_article_keywords
+                                  a.extracted_article_keywords,
+                                  a.category,
+                                  a.sentiment,
+                                  a.driver_type,
+                                  a.time_to_impact
                            FROM keyword_article_matches ka
                                     JOIN articles a ON ka.article_uri = a.uri
                            WHERE ka.group_id = ?
@@ -3069,7 +3098,7 @@ class DatabaseQueryFacade:
             )
         elif status == "added":
             statement = statement.where(
-                or_(
+                and_(
                     articles.c.category.is_not(None),
                     articles.c.category != ''
                 )
@@ -3167,27 +3196,45 @@ class DatabaseQueryFacade:
 
             return cursor.fetchone()[0]
 
-    def count_total_articles_by_group_id_from_new_table_structure(self, group_id):
+    def count_total_articles_by_group_id_from_new_table_structure(self, group_id, status="all"):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
 
-            cursor.execute("""
+            # Build status condition
+            status_condition = ""
+            if status == "new":
+                status_condition = "AND (a.category IS NULL OR a.category = '')"
+            elif status == "added":
+                status_condition = "AND (a.category IS NOT NULL AND a.category != '')"
+
+            cursor.execute(f"""
                            SELECT COUNT(ka.id)
                            FROM keyword_article_matches ka
+                           JOIN articles a ON ka.article_uri = a.uri
                            WHERE ka.group_id = ?
+                           {status_condition}
                            """, (group_id,))
 
             return cursor.fetchone()[0]
 
-    def count_total_articles_by_group_id_from_old_table_structure(self, group_id):
+    def count_total_articles_by_group_id_from_old_table_structure(self, group_id, status="all"):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
 
-            cursor.execute("""
+            # Build status condition
+            status_condition = ""
+            if status == "new":
+                status_condition = "AND (a.category IS NULL OR a.category = '')"
+            elif status == "added":
+                status_condition = "AND (a.category IS NOT NULL AND a.category != '')"
+
+            cursor.execute(f"""
                            SELECT COUNT(ka.id)
                            FROM keyword_alerts ka
-                                    JOIN monitored_keywords mk ON ka.keyword_id = mk.id
+                           JOIN monitored_keywords mk ON ka.keyword_id = mk.id
+                           JOIN articles a ON ka.article_uri = a.uri
                            WHERE mk.group_id = ?
+                           {status_condition}
                            """, (group_id,))
 
             return cursor.fetchone()[0]

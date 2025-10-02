@@ -2163,7 +2163,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                     <td>
                                         <div class="d-flex align-items-center flex-wrap gap-1">
                                             {% set has_enrichment = alert.article.category and alert.article.category|trim %}
-                                            <!-- DEBUG: {{ alert.article.category }}|{{ alert.article.sentiment }}|{{ alert.article.driver_type }}|{{ alert.article.time_to_impact }}|{{ has_enrichment }} -->
+                                            DEBUG: {{ alert.article.category }}|{{ alert.article.sentiment }}|{{ alert.article.driver_type }}|{{ alert.article.time_to_impact }}|{{ has_enrichment }}
                                             {% if has_enrichment %}
                                             <span class="badge bg-success" title="Article has been analyzed">
                                                 <i class="fas fa-check-circle me-1"></i>Added
@@ -4168,8 +4168,10 @@ function enhanceAllArticlesWithMediaBias() {
                 sourceCell.classList.add('media-bias-enhanced');
             }
             
-                         // Skip status badge updates for initial page load - let template handle it
-             // Only update status badges for truly dynamically loaded content
+                         // REMOVED: Client-side badge updates - server-side template is now the single source of truth
+             // This prevents yellow vs blue badge inconsistencies and filtering issues
+             // Badge colors are determined by server-side template at lines 2167-2175 based on has_enrichment
+             /*
              if (sourceCell.closest('table').dataset.dynamicallyLoaded === 'true') {
                  const statusCell = row.querySelector('td:nth-child(2)');
                  if (statusCell) {
@@ -4177,7 +4179,7 @@ function enhanceAllArticlesWithMediaBias() {
                      if (statusBadge) {
                          // Check only category field to determine enrichment status
                          const hasCategory = !!(row.dataset.articleCategory && row.dataset.articleCategory.trim() !== '');
-                         
+
                          if (hasCategory && !statusBadge.classList.contains('bg-success')) {
                              statusBadge.className = 'badge bg-success';
                              statusBadge.innerHTML = '<i class="fas fa-check-circle me-1"></i>Added';
@@ -4190,6 +4192,7 @@ function enhanceAllArticlesWithMediaBias() {
                      }
                  }
              }
+             */
         });
     });
     
@@ -4691,6 +4694,8 @@ function showProgressModal(title, message) {
 }
 
 function updateProgressModal(task) {
+    console.log('updateProgressModal called with task:', task);
+
     const progressBar = document.getElementById('progressBar');
     const progressText = document.getElementById('progressText');
     const progressDetails = document.getElementById('progressDetails');
@@ -4702,13 +4707,23 @@ function updateProgressModal(task) {
         progressText.textContent = `${progress}%`;
 
         let details = `Status: ${task.status}`;
-        if (task.processed_items !== undefined && task.total_items) {
-            details += ` • ${task.processed_items}/${task.total_items} processed`;
+
+        // Check for both possible field name variations
+        const processed = task.processed_items ?? task.processed ?? 0;
+        const total = task.total_items ?? task.total ?? 0;
+        const current = task.current_item ?? task.current ?? null;
+
+        console.log('Progress details:', { processed, total, current });
+
+        if (processed !== undefined && total > 0) {
+            details += ` • ${processed}/${total} processed`;
         }
-        if (task.current_item) {
-            details += ` • Current: ${task.current_item.substring(0, 50)}...`;
+        if (current) {
+            const currentStr = String(current).substring(0, 50);
+            details += ` • Current: ${currentStr}...`;
         }
 
+        console.log('Final details string:', details);
         progressDetails.textContent = details;
     }
 }
@@ -5129,16 +5144,20 @@ async function refreshGroupArticles(topic, groupId, showRead = false, skipMediaB
                 analysis_complete: data.alerts[0].article.analysis_complete
             });
             // Log all articles to see their enrichment status
+            console.log('=== ENRICHMENT STATUS CHECK ===');
             data.alerts.forEach((alert, index) => {
-                console.log(`Alert ${index} enrichment:`, {
+                const enriched = isArticleEnriched(alert.article);
+                const categoryValue = alert.article.category;
+                console.log(`Alert ${index}:`, {
                     title: alert.article.title.substring(0, 50) + '...',
-                    category: alert.article.category,
-                    sentiment: alert.article.sentiment,
-                    driver_type: alert.article.driver_type,
-                    time_to_impact: alert.article.time_to_impact,
-                    isEnriched: isArticleEnriched(alert.article)
+                    category: `"${categoryValue}"`,
+                    categoryType: typeof categoryValue,
+                    categoryTrimmed: categoryValue ? categoryValue.trim() : null,
+                    isEnriched: enriched,
+                    expectedBadge: enriched ? 'Added' : 'New'
                 });
             });
+            console.log('=== END ENRICHMENT CHECK ===');
         }
         
         // Try multiple ways to find the card
@@ -7913,14 +7932,15 @@ async function loadAvailableModels() {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        const models = await response.json();
-        
+        const data = await response.json();
+        const models = data.models || data; // Support both {models: [...]} and [...] formats
+
         // Update default LLM model dropdown
         const defaultModelSelect = document.getElementById('defaultLlmModel');
         if (defaultModelSelect) {
             const currentValue = defaultModelSelect.value;
             defaultModelSelect.innerHTML = '';
-            
+
             if (models && models.length > 0) {
                 models.forEach(model => {
                     const option = document.createElement('option');

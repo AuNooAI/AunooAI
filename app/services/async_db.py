@@ -119,9 +119,18 @@ class AsyncDatabase:
     
     async def update_article_with_enrichment(self, article_data: Dict[str, Any]) -> bool:
         """Update article with enrichment data efficiently"""
+
+        # VALIDATION: Warn if placeholder title detected
+        title = article_data.get("title")
+        if title and title.startswith("Article from"):
+            logger.warning(f"Placeholder title detected in enrichment data: {article_data.get('uri')}")
+            logger.warning(f"Title: {title}")
+            # Don't update with placeholder - let COALESCE keep existing
+            article_data["title"] = None
+
         query = """
-            UPDATE articles 
-            SET 
+            UPDATE articles
+            SET
                 title = COALESCE(?, title),
                 summary = COALESCE(?, summary),
                 auto_ingested = 1,

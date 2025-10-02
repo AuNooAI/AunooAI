@@ -438,7 +438,12 @@ async def _run_auto_ingest_with_progress(service, progress_callback, total_artic
         service._running = False
 
 async def run_keyword_check_task(progress_callback=None, group_id=None):
-    """Background task wrapper for keyword checking with progress tracking"""
+    """Background task wrapper for keyword checking with progress tracking
+
+    Args:
+        progress_callback: Optional callback for progress updates
+        group_id: Optional group ID to filter keywords by specific group
+    """
     from app.database import get_database_instance
     from app.tasks.keyword_monitor import KeywordMonitor
 
@@ -447,14 +452,18 @@ async def run_keyword_check_task(progress_callback=None, group_id=None):
         monitor = KeywordMonitor(db)
 
         if progress_callback:
-            progress_callback(0, "Starting keyword check...")
+            if group_id:
+                progress_callback(0, f"Starting keyword check for group {group_id}...")
+            else:
+                progress_callback(0, "Starting keyword check...")
 
-        # Run the keyword check
-        result = await monitor.check_keywords()
+        # Run the keyword check with optional group_id filter
+        result = await monitor.check_keywords(group_id=group_id)
 
         if progress_callback:
             articles_found = result.get('new_articles', 0) if result else 0
-            progress_callback(100, f"Keyword check completed: {articles_found} new articles found")
+            group_info = f" for group {group_id}" if group_id else ""
+            progress_callback(100, f"Keyword check{group_info} completed: {articles_found} new articles found")
 
         if result is None:
             return {

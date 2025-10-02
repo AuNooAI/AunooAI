@@ -3188,35 +3188,21 @@ window.addEventListener('load', async function() {
         console.log('🔄 Starting page initialization...');
         
         // Load topics
-        console.log('📊 Loading topics from /api/forecast-charts/topics...');
-        let topicsData = null;
-        try {
-            const topicsResponse = await fetch('/api/forecast-charts/topics');
-            console.log('📊 Topics response status:', topicsResponse.status);
-            if (!topicsResponse.ok) {
-                throw new Error(`HTTP ${topicsResponse.status}: ${topicsResponse.statusText}`);
-            }
-            topicsData = await topicsResponse.json();
-            console.log('📊 Topics data:', topicsData);
-        } catch (error) {
-            console.error('❌ Failed to load topics:', error);
-            topicsData = { success: false, topics: [] };
-        }
-        
+        const topicsResponse = await fetch('/api/topics');
+        const topicsData = await topicsResponse.json();
+
         const topicSelect = document.getElementById('topic');
-        
-        if (topicsData.success && topicsData.topics && topicsData.topics.length > 0) {
+
+        if (topicsData && topicsData.length > 0) {
             topicSelect.innerHTML = '<option value="">Select a topic...</option>';
-            
-            topicsData.topics.forEach(topic => {
+
+            topicsData.forEach(topic => {
                 const option = document.createElement('option');
-                option.value = topic;
-                option.textContent = topic.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                option.value = topic.name;
+                option.textContent = topic.name;
                 topicSelect.appendChild(option);
             });
-            console.log('✅ Topics loaded successfully:', topicsData.topics.length, 'topics');
         } else {
-            console.log('⚠️ No topics found, using fallback');
             // Add fallback topics to ensure modal works
             const fallbackTopics = ['AI and Machine Learning', 'Technology Trends', 'Market Analysis'];
             topicSelect.innerHTML = '<option value="">Select a topic...</option>';

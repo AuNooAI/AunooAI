@@ -190,6 +190,50 @@
         "Climate Denial",
         "Flat Earth"
       ]
+    },
+    {
+      "name": "The path to AGI",
+      "categories": [
+        "Data Dependencies",
+        "Energy Efficiency",
+        "Scaling Challenges",
+        "Machine Learning Advances",
+        "Data Science Breakthroughs",
+        "Robotics Integration",
+        "Neurological Insights",
+        "Ethical Considerations",
+        "Regulatory Landscape",
+        "Economic Implications",
+        "Technological Milestones",
+        "Cross-disciplinary Collaboration",
+        "Public Perception",
+        "Investment Trends"
+      ],
+      "future_signals": [
+        "AGI becomes self-aware",
+        "AGI deemed impossible",
+        "AGI surpasses human intelligence",
+        "AGI development stagnates",
+        "AGI evolves gradually"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ]
     }
   ],
   "ai_models": [

@@ -281,8 +281,11 @@ async def check_now(
             # Quick synchronous operation
             monitor = KeywordMonitor(db)
 
-            logger.info("Calling monitor.check_keywords()...")
-            result = await monitor.check_keywords()
+            if group_id:
+                logger.info(f"Calling monitor.check_keywords() for group {group_id}...")
+            else:
+                logger.info("Calling monitor.check_keywords()...")
+            result = await monitor.check_keywords(group_id=group_id)
             logger.info(f"Result from check_keywords(): {result}")
 
             if result is None:
@@ -519,7 +522,8 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                     news_source, publication_date,
                     topic_alignment_score, keyword_relevance_score,
                     confidence_score, overall_match_explanation,
-                    extracted_article_topics, extracted_article_keywords
+                    extracted_article_topics, extracted_article_keywords,
+                    category, sentiment, driver_type, time_to_impact
                 ) = alert
 
                 # Get all matched keywords for this article and group
@@ -542,6 +546,10 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                 if not bias_data and uri:
                     bias_data = media_bias.get_bias_for_source(uri)
 
+                # Debug: Log if title is missing
+                if not title:
+                    logger.warning(f"MISSING TITLE: article_uri={article_uri}, uri={uri}, news_source={news_source}")
+
                 article_data = {
                     "url": uri,
                     "uri": article_uri,
@@ -551,36 +559,43 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                     "publication_date": publication_date
                 }
 
+                # Add enrichment fields directly from the query results
+                if category:
+                    article_data["category"] = category
+                if sentiment:
+                    article_data["sentiment"] = sentiment
+                if driver_type:
+                    article_data["driver_type"] = driver_type
+                if time_to_impact:
+                    article_data["time_to_impact"] = time_to_impact
+
+                # Debug: Log enriched article data
+                if category:
+                    logger.info(f"ENRICHED ARTICLE: uri={uri}, title={title}, category={category}, sentiment={sentiment}")
+
                 # Add specific logging for the Tom's Hardware article
                 if "tomshardware.com" in uri and "stargate" in uri:
                     logger.info(f"STARGATE ARTICLE DEBUG: uri={uri}")
-                    logger.info(f"STARGATE ARTICLE DEBUG: Data before enrichment lookup: {article_data}")
+                    logger.info(f"STARGATE ARTICLE DEBUG: Data with enrichment: {article_data}")
 
-                # Check for enrichment data in the articles table
+                # Legacy enrichment lookup (kept for compatibility but should not be needed now)
                 try:
                     enrichment_row = (DatabaseQueryFacade(db, logger)).get_article_enrichment_by_article_url(article_uri)
                     if enrichment_row:
-                        (category, sentiment, driver_type, time_to_impact,
-                         topic_alignment_score, keyword_relevance_score,
-                         confidence_score, overall_match_explanation,
-                         extracted_article_topics, extracted_article_keywords) = enrichment_row
+                        (enrich_category, enrich_sentiment, enrich_driver_type, enrich_time_to_impact,
+                         enrich_topic_alignment_score, enrich_keyword_relevance_score,
+                         enrich_confidence_score, enrich_overall_match_explanation,
+                         enrich_extracted_article_topics, enrich_extracted_article_keywords) = enrichment_row
 
-                        logger.info(f"API ENRICHMENT FOUND for {article_uri}: category={category}, sentiment={sentiment}, driver_type={driver_type}, time_to_impact={time_to_impact}")
-                        if category:
-                            article_data["category"] = category
-                            logger.info(f"API CATEGORY ADDED to article_data: {category}")
-                            # Debug log to confirm it's in the article_data dictionary
-                            logger.info(f"VERIFIED: article_data now contains category: {article_data.get('category')}")
-
-                            # Special debugging for the Tom's Hardware article
-                            if "tomshardware.com" in uri and "stargate" in uri:
-                                logger.info(f"STARGATE ARTICLE DEBUG: Article data after adding category: {article_data}")
-                        if sentiment:
-                            article_data["sentiment"] = sentiment
-                        if driver_type:
-                            article_data["driver_type"] = driver_type
-                        if time_to_impact:
-                            article_data["time_to_impact"] = time_to_impact
+                        # Only use these if not already set
+                        if enrich_category and not category:
+                            article_data["category"] = enrich_category
+                        if enrich_sentiment and not sentiment:
+                            article_data["sentiment"] = enrich_sentiment
+                        if enrich_driver_type and not driver_type:
+                            article_data["driver_type"] = enrich_driver_type
+                        if enrich_time_to_impact and not time_to_impact:
+                            article_data["time_to_impact"] = enrich_time_to_impact
 
                         # Add relevance data if available
                         if topic_alignment_score is not None:
@@ -1021,6 +1036,12 @@ async def get_group_alerts(
             - "added": Return only enriched/processed articles (category IS NOT NULL AND category != '')
     """
     try:
+        # Initialize variables for error handling
+        group_name = None
+        total_pages = 1
+        has_next = False
+        has_prev = False
+
         # Validate pagination parameters
         if page < 1:
             page = 1
@@ -1050,11 +1071,14 @@ async def get_group_alerts(
         else:
             unread_count = (DatabaseQueryFacade(db, logger)).count_unread_articles_by_group_id_from_old_table_structure(group_id)
 
-        # Get total count for this group
+        # Get total count for this group (respecting status filter)
         if use_new_table:
-            total_count = (DatabaseQueryFacade(db, logger)).count_total_articles_by_group_id_from_new_table_structure(group_id)
+            total_count = (DatabaseQueryFacade(db, logger)).count_total_articles_by_group_id_from_new_table_structure(group_id, status)
         else:
-            total_count = (DatabaseQueryFacade(db, logger)).count_total_articles_by_group_id_from_old_table_structure(group_id)
+            total_count = (DatabaseQueryFacade(db, logger)).count_total_articles_by_group_id_from_old_table_structure(group_id, status)
+
+        # Get group name early so it's available in error handling
+        group_name = (DatabaseQueryFacade(db, logger)).get_group_name(group_id)
 
         alerts = []
         index = 0
@@ -1186,13 +1210,10 @@ async def get_group_alerts(
                 "detected_at": detected_at
             })
 
-            # Get group name
-            group_name = (DatabaseQueryFacade(db, logger)).get_group_name(group_id)
-            
-            # Calculate pagination info
-            total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
-            has_next = page < total_pages
-            has_prev = page > 1
+        # Calculate pagination info
+        total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+        has_next = page < total_pages
+        has_prev = page > 1
             
         # Return the response data
         # TODO: REVIEW THIS CHANGE AS THE PAGE IS BROKEN: http://localhost:10000/keyword-alerts
@@ -1837,14 +1858,23 @@ Key issues to detect:
 9. Advertisement content (e.g., "Advertisement", "Sponsored content")
 10. Subscription prompts (e.g., "Join our newsletter", "Get our app")
 
-Respond with a JSON object containing:
+IMPORTANT: You must respond with ONLY a valid JSON object. Do not include any text before or after the JSON. Do not use markdown code blocks.
+
+Required JSON format:
 {
-    "quality_score": float (0.0-1.0, where 1.0 is high quality, 0.0 is poor quality),
-    "issues_detected": ["list of specific issues found"],
-    "recommendation": "approve" | "review" | "reject",
-    "explanation": "Brief explanation of the decision",
-    "content_type": "article" | "cookie_notice" | "paywall" | "error_page" | "navigation" | "other"
+    "quality_score": 0.8,
+    "issues_detected": ["example issue 1", "example issue 2"],
+    "recommendation": "approve",
+    "explanation": "Brief explanation text here",
+    "content_type": "article"
 }
+
+Field requirements:
+- quality_score: number between 0.0 and 1.0
+- issues_detected: array of strings
+- recommendation: must be one of: "approve", "review", "reject"
+- explanation: string
+- content_type: must be one of: "article", "cookie_notice", "paywall", "error_page", "navigation", "other"
 
 Quality scoring guidelines:
 - 0.9-1.0: High quality article content, no significant issues
@@ -1880,15 +1910,31 @@ Analyze this content and provide your assessment."""
         try:
             # Clean the response text to extract JSON
             response_text = response_text.strip()
-            
+
+            # Remove markdown code blocks if present
+            if response_text.startswith('```'):
+                lines = response_text.split('\n')
+                # Remove first line (```json or ```)
+                if lines[0].strip().startswith('```'):
+                    lines = lines[1:]
+                # Remove last line if it's ```
+                if lines and lines[-1].strip() == '```':
+                    lines = lines[:-1]
+                response_text = '\n'.join(lines).strip()
+
             # Find JSON object in the response
             start_idx = response_text.find('{')
             end_idx = response_text.rfind('}') + 1
-            
+
             if start_idx == -1 or end_idx == 0:
                 raise ValueError("No JSON object found in response")
-            
+
             json_str = response_text[start_idx:end_idx]
+
+            # Try to fix common JSON issues
+            # Replace single quotes with double quotes (but be careful with apostrophes in text)
+            # This is a simplified approach - for production you'd want more robust handling
+
             result = json.loads(json_str)
             
             # Validate and provide defaults

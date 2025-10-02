@@ -2328,18 +2328,18 @@ document.addEventListener('DOMContentLoaded', async function() {
     
     try {
         // Load topics
-        const topicsResponse = await fetch('/api/forecast-charts/topics');
+        const topicsResponse = await fetch('/api/topics');
         const topicsData = await topicsResponse.json();
-        
+
         const topicSelect = document.getElementById('topic');
-        
-        if (topicsData.success && topicsData.topics && topicsData.topics.length > 0) {
+
+        if (topicsData && topicsData.length > 0) {
             topicSelect.innerHTML = '<option value="">Select a topic...</option>';
-            
-            topicsData.topics.forEach(topic => {
+
+            topicsData.forEach(topic => {
                 const option = document.createElement('option');
-                option.value = topic;
-                option.textContent = topic.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                option.value = topic.name;
+                option.textContent = topic.name;
                 topicSelect.appendChild(option);
             });
         } else {

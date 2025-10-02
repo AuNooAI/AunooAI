@@ -575,18 +575,25 @@ class AutomatedIngestService:
                     self.logger.warning(f"Failed to send WebSocket error update: {e}")
 
     async def _process_single_article_async(
-        self, 
-        article: Dict[str, Any], 
-        topic: str, 
+        self,
+        article: Dict[str, Any],
+        topic: str,
         keywords: List[str]
     ) -> Dict[str, Any]:
         """Process a single article asynchronously with optimized database operations"""
         article_uri = article.get('uri', 'unknown')
         article_title = article.get('title', 'Unknown Title')
-        
+
+        # CRITICAL: Preserve original data from API throughout processing
+        original_title = article.get('title', '')
+        original_summary = article.get('summary', '')
+        original_source = article.get('news_source', '')
+        original_pub_date = article.get('publication_date', '')
+
         try:
             self.logger.debug(f"🔄 Processing article: {article_title}")
-            
+            self.logger.debug(f"📝 Original title: {original_title[:100]}")
+
             # Step 1: Concurrent bias enrichment and content scraping
             bias_task = asyncio.create_task(
                 self._enrich_article_with_bias_async(article)
@@ -594,7 +601,7 @@ class AutomatedIngestService:
             content_task = asyncio.create_task(
                 self.scrape_article_content(article_uri)
             )
-            
+
             # Wait for both to complete
             try:
                 enriched_article, raw_content = await asyncio.gather(
@@ -604,7 +611,7 @@ class AutomatedIngestService:
                 self.logger.error(f"Error in concurrent operations for {article_uri}: {e}")
                 enriched_article = article
                 raw_content = None
-            
+
             # Handle exceptions from concurrent operations
             if isinstance(enriched_article, Exception):
                 self.logger.warning(f"Bias enrichment failed for {article_uri}: {enriched_article}")
@@ -612,6 +619,12 @@ class AutomatedIngestService:
             if isinstance(raw_content, Exception):
                 self.logger.warning(f"Content scraping failed for {article_uri}: {raw_content}")
                 raw_content = None
+
+            # CRITICAL: Ensure original data is preserved after bias enrichment
+            enriched_article['title'] = enriched_article.get('title') or original_title
+            enriched_article['summary'] = enriched_article.get('summary') or original_summary
+            enriched_article['news_source'] = enriched_article.get('news_source') or original_source
+            enriched_article['publication_date'] = enriched_article.get('publication_date') or original_pub_date
             
             # Save raw content if available
             if raw_content:
@@ -628,6 +641,13 @@ class AutomatedIngestService:
                     timeout=60  # 1 minute timeout
                 )
                 self.logger.debug(f"🧠 LLM analysis completed for {article_uri}")
+
+                # CRITICAL: Re-ensure original data after LLM analysis (in case it got lost)
+                enriched_article['title'] = enriched_article.get('title') or original_title
+                enriched_article['summary'] = enriched_article.get('summary') or original_summary
+                enriched_article['news_source'] = enriched_article.get('news_source') or original_source
+                enriched_article['publication_date'] = enriched_article.get('publication_date') or original_pub_date
+
             except asyncio.TimeoutError:
                 self.logger.warning(f"LLM analysis timed out for {article_uri}")
                 enriched_article["analysis_error"] = "LLM analysis timed out"
@@ -1049,6 +1069,7 @@ class AutomatedIngestService:
                                             enriched_article.get("analyzed", True),
                                             enriched_article.get("confidence_score"),
                                             enriched_article.get("overall_match_explanation"),
+                                            enriched_article.get("publication_date"),
                                             enriched_article.get("uri")
                                         ))
                                         

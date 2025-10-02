@@ -151,9 +151,16 @@ class KeywordMonitor:
         except Exception as e:
             logger.error(f"Error checking/resetting API counter: {str(e)}")
 
-    async def check_keywords(self):
-        """Check all keywords for new matches"""
-        logger.info("Starting keyword check...")
+    async def check_keywords(self, group_id=None):
+        """Check all keywords for new matches
+
+        Args:
+            group_id: Optional group ID to filter keywords by specific group
+        """
+        if group_id:
+            logger.info(f"Starting keyword check for group {group_id}...")
+        else:
+            logger.info("Starting keyword check for all groups...")
         new_articles_count = 0
         processed_keywords = 0
 
@@ -172,8 +179,14 @@ class KeywordMonitor:
             check_start_time = datetime.now().isoformat()
 
             (DatabaseQueryFacade(self.db, logger)).create_or_update_keyword_monitor_last_check((check_start_time, self.collector.requests_today))
-            keywords = (DatabaseQueryFacade(self.db, logger)).get_monitored_keywords()
-            logger.info(f"Found {len(keywords)} keywords to check")
+
+            # Get keywords - filter by group_id if provided
+            if group_id:
+                keywords = (DatabaseQueryFacade(self.db, logger)).get_monitored_keywords_by_group_id(group_id)
+                logger.info(f"Found {len(keywords)} keywords to check for group {group_id}")
+            else:
+                keywords = (DatabaseQueryFacade(self.db, logger)).get_monitored_keywords()
+                logger.info(f"Found {len(keywords)} keywords to check")
 
             for keyword in keywords:
                 keyword_id, keyword_text, last_checked, topic = keyword

@@ -73,7 +73,7 @@ async def get_market_signals_analysis(
         analytics_data = analytics.get_analytics_data(
             timeframe=timeframe,
             topic=topic_name,
-            curated=True
+            curated=False
         )
         
         if analytics_data['totalArticles'] == 0:
