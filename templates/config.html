@@ -126,6 +126,22 @@
                     </div>
 
                     <div class="config-item">
+                        <h3>Clear Articles by Topic</h3>
+                        <p class="text-muted small mb-3">Remove all articles for a specific topic without deleting the topic configuration.</p>
+                        <div class="form-group">
+                            <select id="clear-topic-select" class="form-select">
+                                <option value="">Select a topic...</option>
+                            </select>
+                        </div>
+                        <div class="database-operations">
+                            <button id="clear-topic-articles-btn" onclick="clearTopicArticlesFromConfig()"
+                                    data-tooltip="Clear all articles for the selected topic">
+                                <i class="fas fa-eraser"></i> Clear Topic Articles
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="config-item">
                         <h3>Database Content Reset</h3>
                         <p class="text-muted small mb-3">Clear specific types of data from the database while keeping the structure.</p>
                         <div class="database-operations">
@@ -1523,6 +1539,88 @@
         }
     }
 
+    // Load topics for the clear topic articles dropdown
+    async function loadTopicsForClear() {
+        try {
+            console.log('Loading topics for clear dropdown...');
+            const response = await fetch('/api/topics');
+
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const topics = await response.json();
+            console.log('Topics loaded:', topics);
+
+            const select = document.getElementById('clear-topic-select');
+
+            if (!select) {
+                console.error('clear-topic-select element not found!');
+                return;
+            }
+
+            select.innerHTML = '<option value="">Select a topic...</option>';
+
+            if (topics && topics.length > 0) {
+                console.log(`Adding ${topics.length} topics to dropdown`);
+                topics.forEach(topic => {
+                    const option = document.createElement('option');
+                    option.value = topic.name;
+                    option.textContent = topic.name;
+                    select.appendChild(option);
+                });
+                console.log('Topics loaded successfully');
+            } else {
+                console.warn('No topics found');
+            }
+        } catch (error) {
+            console.error('Error loading topics:', error);
+        }
+    }
+
+    // Clear articles for a specific topic from config page
+    async function clearTopicArticlesFromConfig() {
+        const topicSelect = document.getElementById('clear-topic-select');
+        const topicName = topicSelect.value;
+
+        if (!topicName) {
+            alert('Please select a topic first');
+            return;
+        }
+
+        if (!confirm(`Are you sure you want to clear ALL articles for topic "${topicName}"?\n\nThis will:\n• Delete all articles for this topic\n• Keep the topic configuration\n• Reclaim disk space\n\nThis action cannot be undone.`)) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/clear-topic-articles/${encodeURIComponent(topicName)}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.detail || `Failed to clear articles: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+
+            alert(`${result.message}\n\n${result.articles_deleted} article(s) deleted.`);
+
+            // Refresh database info
+            await loadDatabaseInfo();
+
+            // Reset selection
+            topicSelect.value = '';
+
+        } catch (error) {
+            console.error('Error clearing topic articles:', error);
+            alert(`Failed to clear articles: ${error.message}`);
+        }
+    }
+
     // Load AI models and available models when the page loads
     document.addEventListener('DOMContentLoaded', function() {
         console.log('DOMContentLoaded event fired');  // Debug log
@@ -1531,6 +1629,7 @@
         loadProviderOptions();
         loadAvailableProviders();
         loadBlueskyCredentials();
+        loadTopicsForClear();  // Load topics for clear articles dropdown
     });
 
     // Add this function to reload the configuration after key changes

@@ -53,8 +53,8 @@ class TypeListResponse(BaseModel):
     types: List[TypeResponse]
 
 @router.get("/config", response_class=HTMLResponse, include_in_schema=False)
-async def config_page(request: Request):
-    return templates.TemplateResponse("config.html", {"request": request})
+async def config_page(request: Request, session=Depends(verify_session)):
+    return templates.TemplateResponse("config.html", {"request": request, "session": session})
 
 @router.get("/prompts/types", response_model=TypeListResponse)
 async def get_prompt_types(session=Depends(verify_session)):

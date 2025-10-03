@@ -22,7 +22,7 @@ router = APIRouter()
 async def config_page(request: Request, session=Depends(verify_session)):
     return templates.TemplateResponse("config.html", {
         "request": request,
-        "session": request.session
+        "session": session  # Use the verified session, not request.session
     })
 
 

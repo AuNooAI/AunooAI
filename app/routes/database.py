@@ -62,6 +62,17 @@ class AnnotationUpdate(BaseModel):
     content: str
     is_private: bool
 
+@router.get("/api/config")
+async def get_config(session=Depends(verify_session)):
+    """Get application configuration including topics"""
+    try:
+        from app.config.config import load_config
+        config = load_config()
+        return config
+    except Exception as e:
+        logging.error(f"Failed to load config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @router.get("/api/databases/download/{db_name}")
 async def download_database(db_name: str, db: Database = Depends(get_database_instance), session=Depends(verify_session)):
     try:
@@ -308,83 +319,79 @@ async def reset_articles_data(
     try:
         conn = db._temp_get_connection()
 
-        # Begin transaction
-        trans = conn.begin()
+        # Disable foreign key checks temporarily for smoother deletion
+        conn.execute(text("PRAGMA foreign_keys = OFF"))
 
-        try:
-            # Disable foreign key checks temporarily for smoother deletion
-            conn.execute(text("PRAGMA foreign_keys = OFF"))
+        # Delete in correct order to respect foreign key relationships
+        tables_to_clear = [
+            # Dependent tables first
+            'keyword_article_matches',
+            'keyword_alerts',
+            'article_annotations',
+            'model_bias_arena_articles',
+            'model_bias_arena_results',
+            'model_bias_arena_runs',
+            'feed_items',
+            'feed_group_sources',
+            'signal_alerts',
+            'incident_status',
+            'article_analysis_cache',
+            'analysis_versions_v2',
+            'analysis_versions',
+            'podcasts',
+            'raw_articles',
+            # Main tables
+            'monitored_keywords',
+            'keyword_groups',
+            'articles'
+        ]
 
-            # Delete in correct order to respect foreign key relationships
-            tables_to_clear = [
-                # Dependent tables first
-                'keyword_article_matches',
-                'keyword_alerts',
-                'article_annotations',
-                'model_bias_arena_articles',
-                'model_bias_arena_results',
-                'model_bias_arena_runs',
-                'feed_items',
-                'feed_group_sources',
-                'signal_alerts',
-                'incident_status',
-                'article_analysis_cache',
-                'analysis_versions_v2',
-                'analysis_versions',
-                'podcasts',
-                'raw_articles',
-                # Main tables
-                'monitored_keywords',
-                'keyword_groups',
-                'articles'
-            ]
-
-            deleted_counts = {}
-            for table in tables_to_clear:
-                try:
-                    # Get count before deletion
-                    count_result = conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
-                    count = count_result.scalar()
-
-                    # Delete all rows
-                    conn.execute(text(f"DELETE FROM {table}"))
-                    deleted_counts[table] = count
-                    logger.info(f"Deleted {count} rows from {table}")
-                except Exception as e:
-                    logger.warning(f"Error clearing table {table}: {str(e)}")
-                    # Continue with other tables even if one fails
-
-            # Re-enable foreign key checks
-            conn.execute(text("PRAGMA foreign_keys = ON"))
-
-            # Commit transaction
-            trans.commit()
-
-            # Also clear ChromaDB vector store
+        deleted_counts = {}
+        for table in tables_to_clear:
             try:
-                from app.vector_store import get_chroma_client
-                client = get_chroma_client()
-                try:
-                    client.delete_collection("articles")
-                    logger.info("Deleted ChromaDB 'articles' collection")
-                    deleted_counts['chromadb_articles'] = 'Collection deleted'
-                except Exception as chroma_error:
-                    logger.warning(f"ChromaDB collection may not exist or already deleted: {str(chroma_error)}")
+                # Get count before deletion
+                count_result = conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
+                count = count_result.scalar()
+
+                # Delete all rows
+                conn.execute(text(f"DELETE FROM {table}"))
+                deleted_counts[table] = count
+                logger.info(f"Deleted {count} rows from {table}")
             except Exception as e:
-                logger.warning(f"Could not clear ChromaDB: {str(e)}")
+                logger.warning(f"Error clearing table {table}: {str(e)}")
+                # Continue with other tables even if one fails
 
-            total_deleted = sum(v for v in deleted_counts.values() if isinstance(v, int))
-            logger.info(f"Successfully reset articles data. Total rows deleted: {total_deleted}")
+        # Re-enable foreign key checks
+        conn.execute(text("PRAGMA foreign_keys = ON"))
 
-            return {
-                "message": f"Successfully reset articles data (including ChromaDB). Deleted {total_deleted} total rows.",
-                "details": deleted_counts
-            }
+        # Commit the existing transaction
+        conn.commit()
 
+        # Run VACUUM to reclaim disk space
+        logger.info("Running VACUUM to reclaim disk space...")
+        conn.execute(text("VACUUM"))
+        logger.info("VACUUM completed")
+
+        # Also clear ChromaDB vector store
+        try:
+            from app.vector_store import get_chroma_client
+            client = get_chroma_client()
+            try:
+                client.delete_collection("articles")
+                logger.info("Deleted ChromaDB 'articles' collection")
+                deleted_counts['chromadb_articles'] = 'Collection deleted'
+            except Exception as chroma_error:
+                logger.warning(f"ChromaDB collection may not exist or already deleted: {str(chroma_error)}")
         except Exception as e:
-            trans.rollback()
-            logger.error(f"Transaction failed, rolling back: {str(e)}")
-            raise e
+            logger.warning(f"Could not clear ChromaDB: {str(e)}")
+
+        total_deleted = sum(v for v in deleted_counts.values() if isinstance(v, int))
+        logger.info(f"Successfully reset articles data. Total rows deleted: {total_deleted}")
+
+        return {
+            "message": f"Successfully reset articles data (including ChromaDB). Deleted {total_deleted} total rows.",
+            "details": deleted_counts
+        }
 
     except Exception as e:
         logger.error(f"Error resetting articles data: {str(e)}")
@@ -451,6 +458,64 @@ async def reindex_chromadb(
         logger.error(f"Error reindexing ChromaDB: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@router.post("/api/clear-topic-articles/{topic_name}")
+async def clear_topic_articles(
+    topic_name: str,
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session)
+):
+    """Clear all articles for a specific topic without deleting the topic itself"""
+    try:
+        conn = db._temp_get_connection()
+
+        # Get count before deletion
+        count_result = conn.execute(
+            text("SELECT COUNT(*) FROM articles WHERE topic = :topic"),
+            {"topic": topic_name}
+        )
+        article_count = count_result.scalar()
+
+        if article_count == 0:
+            return {
+                "message": f"No articles found for topic '{topic_name}'",
+                "articles_deleted": 0
+            }
+
+        # Delete articles for this topic
+        conn.execute(
+            text("DELETE FROM articles WHERE topic = :topic"),
+            {"topic": topic_name}
+        )
+        logger.info(f"Deleted {article_count} articles for topic '{topic_name}'")
+
+        # Also delete from raw_articles if it has a topic column
+        try:
+            conn.execute(
+                text("DELETE FROM raw_articles WHERE topic = :topic"),
+                {"topic": topic_name}
+            )
+        except Exception as e:
+            logger.warning(f"Could not delete from raw_articles (may not have topic column): {str(e)}")
+
+        # Commit the existing transaction
+        conn.commit()
+
+        # Run VACUUM to reclaim disk space
+        logger.info("Running VACUUM to reclaim disk space...")
+        conn.execute(text("VACUUM"))
+        logger.info("VACUUM completed")
+
+        return {
+            "message": f"Successfully cleared {article_count} articles for topic '{topic_name}'",
+            "articles_deleted": article_count,
+            "topic_name": topic_name
+        }
+
+    except Exception as e:
+        logger.error(f"Error clearing articles for topic '{topic_name}': {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/api/reset-auspex-chats")
 async def reset_auspex_chats(
     db: Database = Depends(get_database_instance),
@@ -460,38 +525,34 @@ async def reset_auspex_chats(
     try:
         conn = db._temp_get_connection()
 
-        # Begin transaction
-        trans = conn.begin()
+        # Get counts before deletion
+        messages_result = conn.execute(text("SELECT COUNT(*) FROM auspex_messages"))
+        messages_count = messages_result.scalar()
 
-        try:
-            # Get counts before deletion
-            messages_result = conn.execute(text("SELECT COUNT(*) FROM auspex_messages"))
-            messages_count = messages_result.scalar()
+        chats_result = conn.execute(text("SELECT COUNT(*) FROM auspex_chats"))
+        chats_count = chats_result.scalar()
 
-            chats_result = conn.execute(text("SELECT COUNT(*) FROM auspex_chats"))
-            chats_count = chats_result.scalar()
+        # Delete messages first (foreign key to chats)
+        conn.execute(text("DELETE FROM auspex_messages"))
+        logger.info(f"Deleted {messages_count} messages from auspex_messages")
 
-            # Delete messages first (foreign key to chats)
-            conn.execute(text("DELETE FROM auspex_messages"))
-            logger.info(f"Deleted {messages_count} messages from auspex_messages")
+        # Delete chats
+        conn.execute(text("DELETE FROM auspex_chats"))
+        logger.info(f"Deleted {chats_count} chats from auspex_chats")
 
-            # Delete chats
-            conn.execute(text("DELETE FROM auspex_chats"))
-            logger.info(f"Deleted {chats_count} chats from auspex_chats")
+        # Commit the existing transaction
+        conn.commit()
 
-            # Commit transaction
-            trans.commit()
+        # Run VACUUM to reclaim disk space
+        logger.info("Running VACUUM to reclaim disk space...")
+        conn.execute(text("VACUUM"))
+        logger.info("VACUUM completed")
 
-            return {
-                "message": f"Successfully reset Auspex chats. Deleted {chats_count} chats and {messages_count} messages.",
-                "chats_deleted": chats_count,
-                "messages_deleted": messages_count
-            }
-
-        except Exception as e:
-            trans.rollback()
-            logger.error(f"Transaction failed, rolling back: {str(e)}")
-            raise e
+        return {
+            "message": f"Successfully reset Auspex chats. Deleted {chats_count} chats and {messages_count} messages.",
+            "chats_deleted": chats_count,
+            "messages_deleted": messages_count
+        }
 
     except Exception as e:
         logger.error(f"Error resetting Auspex chats: {str(e)}")
@@ -817,6 +878,12 @@ async def reset_database(db: Database = Depends(get_database_instance), session=
                 db.init_db()
 
                 cursor.execute("COMMIT")
+
+                # Run VACUUM to reclaim disk space
+                logger.info("Running VACUUM to reclaim disk space...")
+                cursor.execute("VACUUM")
+                logger.info("VACUUM completed")
+
                 return {"message": "Database reset successfully"}
 
             except Exception as e:
