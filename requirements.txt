@@ -8,7 +8,7 @@ tiktoken>=0.5.0  # For accurate OpenAI token counting
 markdown
 pydantic>=1.8.0
 aiosqlite
-firecrawl
+firecrawl-py
 sqlalchemy>=1.4.23
 python-multipart>=0.0.5
 anthropic
