@@ -109,6 +109,7 @@ class KeywordMonitorSettings(BaseModel):
     default_llm_model: str = "gpt-4o-mini"
     llm_temperature: float = 0.1
     llm_max_tokens: int = 1000
+    max_articles_per_run: int = 50
 
 class PollingToggle(BaseModel):
     enabled: bool
@@ -831,8 +832,9 @@ async def get_settings(db=Depends(get_database_instance), session=Depends(verify
                 "default_llm_model": settings[13],
                 "llm_temperature": settings[14],
                 "llm_max_tokens": settings[15],
-                "requests_today": settings[16] if settings[16] is not None else 0,
-                "last_error": settings[17],
+                "max_articles_per_run": settings[16] if len(settings) > 16 and settings[16] is not None else 50,
+                "requests_today": settings[17] if len(settings) > 17 and settings[17] is not None else 0,
+                "last_error": settings[18] if len(settings) > 18 else None,
                 "total_keywords": total_keywords
             }
             logger.debug(f"Returning response data: {response_data}")
@@ -855,6 +857,7 @@ async def get_settings(db=Depends(get_database_instance), session=Depends(verify
                 "default_llm_model": "gpt-4o-mini",
                 "llm_temperature": 0.1,
                 "llm_max_tokens": 1000,
+                "max_articles_per_run": 50,
                 "requests_today": 0,
                 "last_error": None,
                 "total_keywords": total_keywords
@@ -883,7 +886,8 @@ async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_databas
                 settings.auto_save_approved_only,
                 settings.default_llm_model,
                 settings.llm_temperature,
-                settings.llm_max_tokens
+                settings.llm_max_tokens,
+                settings.max_articles_per_run
             ))
             
             return {"success": True}

@@ -303,6 +303,7 @@ async def reset_articles_data(
     - model_bias_arena_runs, model_bias_arena_results, model_bias_arena_articles
     - analysis_versions, analysis_versions_v2, article_analysis_cache
     - signal_alerts, incident_status
+    - ChromaDB vector store
     """
     try:
         conn = db._temp_get_connection()
@@ -359,11 +360,24 @@ async def reset_articles_data(
             # Commit transaction
             trans.commit()
 
-            total_deleted = sum(deleted_counts.values())
+            # Also clear ChromaDB vector store
+            try:
+                from app.vector_store import get_chroma_client
+                client = get_chroma_client()
+                try:
+                    client.delete_collection("articles")
+                    logger.info("Deleted ChromaDB 'articles' collection")
+                    deleted_counts['chromadb_articles'] = 'Collection deleted'
+                except Exception as chroma_error:
+                    logger.warning(f"ChromaDB collection may not exist or already deleted: {str(chroma_error)}")
+            except Exception as e:
+                logger.warning(f"Could not clear ChromaDB: {str(e)}")
+
+            total_deleted = sum(v for v in deleted_counts.values() if isinstance(v, int))
             logger.info(f"Successfully reset articles data. Total rows deleted: {total_deleted}")
 
             return {
-                "message": f"Successfully reset articles data. Deleted {total_deleted} total rows.",
+                "message": f"Successfully reset articles data (including ChromaDB). Deleted {total_deleted} total rows.",
                 "details": deleted_counts
             }
 
@@ -374,6 +388,67 @@ async def reset_articles_data(
 
     except Exception as e:
         logger.error(f"Error resetting articles data: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/api/reindex-chromadb")
+async def reindex_chromadb(
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session)
+):
+    """Re-index all articles from SQLite into ChromaDB vector store"""
+    try:
+        from app.vector_store import upsert_article, get_chroma_client
+        from app.database_query_facade import DatabaseQueryFacade
+
+        client = get_chroma_client()
+
+        # Delete existing collection to start fresh
+        try:
+            client.delete_collection("articles")
+            logger.info("Deleted existing ChromaDB 'articles' collection")
+        except Exception as e:
+            logger.warning(f"Could not delete existing collection (may not exist): {str(e)}")
+
+        # Count total articles to index
+        facade = DatabaseQueryFacade(db, logger)
+        total_articles = 0
+        for _ in facade.get_iter_articles(limit=None):
+            total_articles += 1
+
+        logger.info(f"Starting reindex of {total_articles} articles into ChromaDB")
+
+        # Re-index all articles
+        indexed = 0
+        failed = 0
+
+        for article in facade.get_iter_articles(limit=None):
+            try:
+                upsert_article(article)
+                indexed += 1
+
+                # Log progress every 100 articles
+                if indexed % 100 == 0:
+                    logger.info(f"Progress: {indexed}/{total_articles} articles indexed")
+
+            except Exception as e:
+                failed += 1
+                logger.warning(f"Failed to index article {article.get('uri')}: {str(e)}")
+
+                # Stop if too many failures
+                if failed > 10:
+                    raise Exception(f"Too many failures ({failed}), stopping reindex")
+
+        logger.info(f"ChromaDB reindex completed: {indexed} indexed, {failed} failed")
+
+        return {
+            "message": f"Successfully reindexed {indexed} articles into ChromaDB",
+            "indexed": indexed,
+            "failed": failed,
+            "total": total_articles
+        }
+
+    except Exception as e:
+        logger.error(f"Error reindexing ChromaDB: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/reset-auspex-chats")

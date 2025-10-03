@@ -212,6 +212,7 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
         --primary-dark: #FF1493;   /* Deep Pink */
         --secondary-color: #32CD32;  /* Lime Green */
         --secondary-dark: #228B22;   /* Forest Green */
+        --electric-blue: #00D9FF;   /* Electric Blue */
         --text-color: #333;
         --light-gray: #f8f9fa;
         --medium-gray: #e9ecef;
@@ -1571,7 +1572,20 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 }
 
 .badge.bg-success {
-    background-color: #198754 !important;
+    background-color: var(--secondary-color) !important; /* Lime Green */
+    color: white !important;
+}
+
+/* Custom badge for "New" status - using electric blue */
+.badge.bg-new {
+    background-color: var(--electric-blue) !important;
+    color: white !important;
+    font-weight: 600 !important;
+}
+
+/* Keep warning for actual warnings, use new class for "New" status */
+.badge.bg-warning.status-new {
+    background-color: var(--electric-blue) !important;
     color: white !important;
 }
 
@@ -2129,8 +2143,8 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                                 <i class="fas fa-check-circle me-1"></i>Added
                                             </span>
                                             {% else %}
-                                            <span class="badge bg-warning text-dark" title="Article needs analysis">
-                                                <i class="fas fa-exclamation-circle me-1"></i>New
+                                            <span class="badge bg-new" title="Article needs analysis">
+                                                <i class="fas fa-plus-circle me-1"></i>New
                                             </span>
                                             {% endif %}
                                             
@@ -2471,7 +2485,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 
 <!-- Auto-Ingest Settings Modal -->
 <div class="modal fade" id="autoIngestSettingsModal" tabindex="-1" aria-labelledby="autoIngestSettingsModalLabel" aria-hidden="true">
-    <div class="modal-dialog modal-lg">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable modal-dialog-centered">
         <div class="modal-content">
             <div class="modal-header">
                 <h5 class="modal-title" id="autoIngestSettingsModalLabel">
@@ -2562,14 +2576,14 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                         </div>
                     </div>
                     
-                    <!-- Source Quality Filters -->
+                    <!-- Quality Filters -->
                     <div class="card mb-3">
                         <div class="card-header bg-light">
                             <h6 class="mb-0"><i class="fas fa-filter me-2"></i>Quality Filters</h6>
                         </div>
                         <div class="card-body">
                             <!-- Relevance Threshold Slider -->
-                            <div class="mb-4">
+                            <div class="mb-3">
                                 <label for="autoIngestRelevanceThreshold" class="form-label">
                                     <i class="fas fa-chart-line me-1"></i>Minimum Relevance Score
                                 </label>
@@ -2589,77 +2603,6 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                     </div>
                                 </div>
                                 <div class="form-text">Articles below this threshold will not be auto-processed</div>
-                            </div>
-
-                            <!-- Source Credibility Filter -->
-                            <div class="mb-3">
-                                <label class="form-label">
-                                    <i class="fas fa-shield-alt me-1"></i>Allowed Source Credibility
-                                </label>
-                                <div class="d-flex flex-wrap gap-2">
-                                    <div class="form-check">
-                                        <input class="form-check-input" type="checkbox" id="allowHighCred" checked>
-                                        <label class="form-check-label" for="allowHighCred">High</label>
-                                    </div>
-                                    <div class="form-check">
-                                        <input class="form-check-input" type="checkbox" id="allowMediumCred" checked>
-                                        <label class="form-check-label" for="allowMediumCred">Medium</label>
-                                    </div>
-                                    <div class="form-check">
-                                        <input class="form-check-input" type="checkbox" id="allowLowCred">
-                                        <label class="form-check-label" for="allowLowCred">Low</label>
-                                    </div>
-                                    <div class="form-check">
-                                        <input class="form-check-input" type="checkbox" id="allowQuestionableCred">
-                                        <label class="form-check-label" for="allowQuestionableCred">Questionable</label>
-                                    </div>
-                                </div>
-                                <div class="form-text">Only process articles from sources with these credibility levels</div>
-                            </div>
-
-                            <!-- Factual Reporting Filter -->
-                            <div class="mb-3">
-                                <label class="form-label">
-                                    <i class="fas fa-check-circle me-1"></i>Minimum Factual Reporting
-                                </label>
-                                <select class="form-select" id="minFactualReporting">
-                                    <option value="">No minimum (allow all)</option>
-                                    <option value="mixed">Mixed or better</option>
-                                    <option value="mostly">Mostly Factual or better</option>
-                                    <option value="high" selected>High or better</option>
-                                    <option value="very-high">Very High only</option>
-                                </select>
-                                <div class="form-text">Filter out sources below this factual reporting level</div>
-                            </div>
-
-                            <!-- Political Bias Filter -->
-                            <div class="mb-3">
-                                <label class="form-label">
-                                    <i class="fas fa-balance-scale me-1"></i>Allowed Political Bias
-                                </label>
-                                <div class="d-flex flex-wrap gap-2">
-                                    <div class="form-check">
-                                        <input class="form-check-input" type="checkbox" id="allowLeft" checked>
-                                        <label class="form-check-label" for="allowLeft">Left</label>
-                                    </div>
-                                    <div class="form-check">
-                                        <input class="form-check-input" type="checkbox" id="allowLeftCenter" checked>
-                                        <label class="form-check-label" for="allowLeftCenter">Left-Center</label>
-                                    </div>
-                                    <div class="form-check">
-                                        <input class="form-check-input" type="checkbox" id="allowCenter" checked>
-                                        <label class="form-check-label" for="allowCenter">Center</label>
-                                    </div>
-                                    <div class="form-check">
-                                        <input class="form-check-input" type="checkbox" id="allowRightCenter" checked>
-                                        <label class="form-check-label" for="allowRightCenter">Right-Center</label>
-                                    </div>
-                                    <div class="form-check">
-                                        <input class="form-check-input" type="checkbox" id="allowRight" checked>
-                                        <label class="form-check-label" for="allowRight">Right</label>
-                                    </div>
-                                </div>
-                                <div class="form-text">Only process articles from sources with these political biases</div>
                             </div>
                         </div>
                     </div>
@@ -4275,9 +4218,9 @@ function enhanceAllArticlesWithMediaBias() {
                              statusBadge.className = 'badge bg-success';
                              statusBadge.innerHTML = '<i class="fas fa-check-circle me-1"></i>Added';
                              statusBadge.title = 'Article has been analyzed';
-                         } else if (!hasCategory && !statusBadge.classList.contains('bg-warning')) {
-                             statusBadge.className = 'badge bg-warning text-dark';
-                             statusBadge.innerHTML = '<i class="fas fa-exclamation-circle me-1"></i>New';
+                         } else if (!hasCategory && !statusBadge.classList.contains('bg-new')) {
+                             statusBadge.className = 'badge bg-new';
+                             statusBadge.innerHTML = '<i class="fas fa-plus-circle me-1"></i>New';
                              statusBadge.title = 'Article needs analysis';
                          }
                      }
@@ -5668,7 +5611,7 @@ function updateGroupAlerts(card, data, groupId) {
                             } else if (isArticleEnriched(alert.article)) {
                                 badges += '<span class="badge bg-success" title="Article has been analyzed"><i class="fas fa-check-circle me-1"></i>Added</span>';
                             } else {
-                                badges += '<span class="badge bg-warning text-dark" title="Article needs analysis"><i class="fas fa-exclamation-circle me-1"></i>New</span>';
+                                badges += '<span class="badge bg-new" title="Article needs analysis"><i class="fas fa-plus-circle me-1"></i>New</span>';
                             }
 
                             // Auto-ingest badge
@@ -8212,47 +8155,54 @@ async function loadAutoIngestSettings() {
 // Load auto-ingest status and populate modal
 async function loadAutoIngestStatus() {
     try {
-        const response = await fetch('/api/keyword-monitor/auto-ingest/status');
-        
+        // Fetch from the full settings endpoint which includes all fields
+        const response = await fetch('/api/keyword-monitor/settings');
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
-        const result = await response.json();
-        
-        if (result.settings) {
-            // Update collection settings
-            const pollingEnabled = document.getElementById('autoPollingEnabled');
-            if (pollingEnabled) {
-                pollingEnabled.checked = result.settings.is_enabled || false;
-            }
+        const settings = await response.json();
 
-            const pollingInterval = document.getElementById('pollingInterval');
-            if (pollingInterval && result.settings.check_interval) {
-                pollingInterval.value = result.settings.check_interval.toString();
-            }
-
-            // Update auto-processing settings
-            document.getElementById('autoIngestEnabled').checked = result.settings.auto_ingest_enabled || false;
-            document.getElementById('qualityControlEnabled').checked = result.settings.quality_control_enabled !== false;
-            document.getElementById('autoSaveApprovedOnly').checked = result.settings.auto_save_approved_only || false;
-            document.getElementById('defaultLlmModel').value = result.settings.default_llm_model || 'gpt-4o-mini';
-            document.getElementById('llmTemperature').value = result.settings.llm_temperature || 0.1;
-            document.getElementById('llmMaxTokens').value = result.settings.llm_max_tokens || 1000;
-            document.getElementById('maxArticlesPerRun').value = result.settings.max_articles_per_run || 50;
-
-            // Update threshold slider
-            const threshold = result.settings.min_relevance_threshold || 0.3;
-            document.getElementById('autoIngestRelevanceThreshold').value = threshold;
-            updateAutoIngestThresholdDisplay(threshold);
+        // Update collection settings (is_enabled and check_interval)
+        const pollingEnabled = document.getElementById('autoPollingEnabled');
+        if (pollingEnabled) {
+            pollingEnabled.checked = settings.is_enabled || false;
         }
-        
-        if (result.statistics) {
-            // Update statistics display
-            document.getElementById('totalProcessed').textContent = result.statistics.total_processed || 0;
-            document.getElementById('totalApproved').textContent = result.statistics.total_approved || 0;
-            document.getElementById('totalFiltered').textContent = result.statistics.total_filtered || 0;
-            document.getElementById('totalFailed').textContent = result.statistics.total_failed || 0;
+
+        const pollingInterval = document.getElementById('pollingInterval');
+        if (pollingInterval) {
+            pollingInterval.value = (settings.check_interval || 30).toString();
+        }
+
+        // Update auto-processing settings
+        document.getElementById('autoIngestEnabled').checked = settings.auto_ingest_enabled || false;
+        document.getElementById('qualityControlEnabled').checked = settings.quality_control_enabled !== false;
+        document.getElementById('autoSaveApprovedOnly').checked = settings.auto_save_approved_only || false;
+        document.getElementById('defaultLlmModel').value = settings.default_llm_model || 'gpt-4o-mini';
+        document.getElementById('llmTemperature').value = settings.llm_temperature || 0.1;
+        document.getElementById('llmMaxTokens').value = settings.llm_max_tokens || 1000;
+        document.getElementById('maxArticlesPerRun').value = settings.max_articles_per_run || 50;
+
+        // Update threshold slider
+        const threshold = settings.min_relevance_threshold || 0.3;
+        document.getElementById('autoIngestRelevanceThreshold').value = threshold;
+        updateAutoIngestThresholdDisplay(threshold);
+
+        // Fetch statistics separately
+        try {
+            const statsResponse = await fetch('/api/keyword-monitor/auto-ingest/status');
+            if (statsResponse.ok) {
+                const statsResult = await statsResponse.json();
+                if (statsResult.statistics) {
+                    document.getElementById('totalProcessed').textContent = statsResult.statistics.total_auto_ingested || 0;
+                    document.getElementById('totalApproved').textContent = statsResult.statistics.approved_count || 0;
+                    document.getElementById('totalFiltered').textContent = 0; // Not tracked in current stats
+                    document.getElementById('totalFailed').textContent = statsResult.statistics.failed_count || 0;
+                }
+            }
+        } catch (statsError) {
+            console.warn('Could not load statistics:', statsError);
         }
     } catch (error) {
         console.error('Error loading auto-ingest status:', error);
@@ -8625,12 +8575,14 @@ async function pollBulkProcessStatus(jobId, isDryRun) {
 
 // Processing status monitoring functions
 let processingStatusInterval = null;
+let lastActiveJobsCount = 0;
+let badgeHideTimeout = null;
 
 // Initialize processing status monitoring
 function initProcessingStatusMonitoring() {
-    // Poll for active jobs every 10 seconds
-    processingStatusInterval = setInterval(updateProcessingStatus, 10000);
-    
+    // Poll for active jobs every 3 seconds (more responsive)
+    processingStatusInterval = setInterval(updateProcessingStatus, 3000);
+
     // Update immediately on page load
     updateProcessingStatus();
 }
@@ -8641,21 +8593,21 @@ async function updateProcessingStatus() {
         const response = await fetch('/api/keyword-monitor/active-jobs-status', {
             credentials: 'same-origin'
         });
-        
+
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
-        
+
         const result = await response.json();
-        
+
         if (result.success) {
             const badge = document.getElementById('processingStatusBadge');
-            
+
             if (!badge) {
                 console.error('Processing status badge element not found!');
                 return;
             }
-            
+
             console.log('Processing status update:', {
                 total_active: result.total_active,
                 total_jobs: result.total_jobs,
@@ -8663,24 +8615,30 @@ async function updateProcessingStatus() {
                 current_badge_display: badge.style.display,
                 current_badge_className: badge.className
             });
-            
+
             if (result.total_active > 0) {
+                // Clear any pending hide timeout
+                if (badgeHideTimeout) {
+                    clearTimeout(badgeHideTimeout);
+                    badgeHideTimeout = null;
+                }
+
                 // Show badge with active job count
                 badge.style.display = 'inline-block';
                 badge.style.visibility = 'visible';
-                
+
                 // Update badge color based on number of jobs
                 badge.className = result.total_active > 3 ? 'badge bg-warning' : 'badge bg-success';
-                
+
                 // Update the full badge content properly with job type info
                 const jobText = result.total_active === 1 ? 'job' : 'jobs';
                 let badgeText = `Processing ${result.total_active} ${jobText}`;
-                
+
                 // Add more specific info if we have job details
                 if (result.active_jobs && result.active_jobs.length > 0) {
                     const bulkJobs = result.active_jobs.filter(j => j.job_type === 'bulk_processing').length;
                     const autoIngestJobs = result.active_jobs.filter(j => j.job_type === 'keyword_monitor_auto_ingest').length;
-                    
+
                     if (bulkJobs > 0 && autoIngestJobs > 0) {
                         badgeText = `Processing ${bulkJobs} bulk + ${autoIngestJobs} auto-ingest`;
                     } else if (bulkJobs > 0) {
@@ -8689,17 +8647,36 @@ async function updateProcessingStatus() {
                         badgeText = `Auto-ingesting ${autoIngestJobs} ${autoIngestJobs === 1 ? 'batch' : 'batches'}`;
                     }
                 }
-                
+
                 badge.innerHTML = `<i class="fas fa-spinner fa-spin me-1"></i> ${badgeText}`;
-                
+                lastActiveJobsCount = result.total_active;
+
                 console.log('Badge shown with', result.total_active, 'active jobs');
+            } else if (lastActiveJobsCount > 0) {
+                // Jobs just completed - show completion message briefly
+                badge.style.display = 'inline-block';
+                badge.style.visibility = 'visible';
+                badge.className = 'badge bg-info';
+                badge.innerHTML = `<i class="fas fa-check me-1"></i> Processing complete`;
+
+                console.log('Jobs completed, showing completion message');
+
+                // Hide badge after 3 seconds
+                if (badgeHideTimeout) {
+                    clearTimeout(badgeHideTimeout);
+                }
+                badgeHideTimeout = setTimeout(() => {
+                    badge.style.display = 'none';
+                    badge.style.visibility = 'hidden';
+                    badge.className = 'badge bg-success';
+                    lastActiveJobsCount = 0;
+                    console.log('Badge hidden after completion message delay');
+                }, 3000);
             } else {
-                // Force hide badge when no active jobs
+                // No active jobs and no recent completion - keep hidden
                 badge.style.display = 'none';
                 badge.style.visibility = 'hidden';
                 badge.className = 'badge bg-success';
-                
-                console.log('Badge force-hidden - no active jobs, display:', badge.style.display, 'visibility:', badge.style.visibility);
             }
         }
     } catch (error) {

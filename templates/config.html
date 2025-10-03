@@ -115,11 +115,22 @@
                     </div>
 
                     <div class="config-item">
+                        <h3>ChromaDB Vector Store</h3>
+                        <p class="text-muted small mb-3">Manage the ChromaDB vector database used for semantic search and similarity.</p>
+                        <div class="database-operations">
+                            <button id="reindex-chromadb-btn" onclick="reindexChromaDB()"
+                                    data-tooltip="Re-index all articles into ChromaDB for semantic search">
+                                <i class="fas fa-sync-alt"></i> Reindex ChromaDB
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="config-item">
                         <h3>Database Content Reset</h3>
                         <p class="text-muted small mb-3">Clear specific types of data from the database while keeping the structure.</p>
                         <div class="database-operations">
                             <button id="reset-articles-btn" class="danger" onclick="resetArticlesData()"
-                                    data-tooltip="WARNING: Delete all articles and related data">
+                                    data-tooltip="WARNING: Delete all articles and related data (including ChromaDB)">
                                 <i class="fas fa-trash-alt"></i> Reset Articles
                             </button>
                             <button id="reset-auspex-btn" class="danger" onclick="resetAuspexChats()"
@@ -1984,7 +1995,8 @@
             '• Feed items and sources\n' +
             '• Model bias arena data\n' +
             '• Analysis versions and cache\n' +
-            '• Signal alerts and incidents\n\n' +
+            '• Signal alerts and incidents\n' +
+            '• ChromaDB vector store\n\n' +
             'This action CANNOT be undone. Are you absolutely sure?'
         );
 
@@ -2059,6 +2071,47 @@
             const button = document.getElementById('reset-auspex-btn');
             button.disabled = false;
             button.innerHTML = '<i class="fas fa-comments"></i> Reset Auspex Chats';
+        }
+    }
+
+    async function reindexChromaDB() {
+        const confirmed = confirm(
+            'This will re-index all articles from the SQLite database into ChromaDB.\n\n' +
+            'The existing ChromaDB collection will be deleted and recreated.\n\n' +
+            'This may take several minutes depending on the number of articles.\n\n' +
+            'Continue?'
+        );
+
+        if (!confirmed) return;
+
+        try {
+            const button = document.getElementById('reindex-chromadb-btn');
+            const originalText = button.innerHTML;
+            button.disabled = true;
+            button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Reindexing...';
+
+            const response = await fetch('/api/reindex-chromadb', {
+                method: 'POST'
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to reindex ChromaDB');
+            }
+
+            const result = await response.json();
+            showAlert(
+                `${result.message}\n\nIndexed: ${result.indexed}, Failed: ${result.failed}, Total: ${result.total}`,
+                'success'
+            );
+
+        } catch (error) {
+            console.error('Error reindexing ChromaDB:', error);
+            showAlert('Error reindexing ChromaDB: ' + error.message, 'danger');
+        } finally {
+            const button = document.getElementById('reindex-chromadb-btn');
+            button.disabled = false;
+            button.innerHTML = '<i class="fas fa-sync-alt"></i> Reindex ChromaDB';
         }
     }
 

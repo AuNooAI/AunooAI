@@ -2819,6 +2819,7 @@ class DatabaseQueryFacade:
                                   COALESCE(s.default_llm_model, 'gpt-4o-mini') as default_llm_model,
                                   COALESCE(s.llm_temperature, 0.1)             as llm_temperature,
                                   COALESCE(s.llm_max_tokens, 1000)             as llm_max_tokens,
+                                  COALESCE(s.max_articles_per_run, 50)         as max_articles_per_run,
                                   COALESCE(kms.requests_today, 0)              as requests_today,
                                   kms.last_error
                            FROM keyword_monitor_settings s
@@ -2841,9 +2842,10 @@ class DatabaseQueryFacade:
                     id, check_interval, interval_unit, search_fields,
                     language, sort_by, page_size, daily_request_limit, provider,
                     auto_ingest_enabled, min_relevance_threshold, quality_control_enabled,
-                    auto_save_approved_only, default_llm_model, llm_temperature, llm_max_tokens
+                    auto_save_approved_only, default_llm_model, llm_temperature, llm_max_tokens,
+                    max_articles_per_run
                 ) VALUES (
-                    1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
             """, params)
 
