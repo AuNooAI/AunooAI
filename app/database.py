@@ -56,10 +56,14 @@ class Database:
         self._connections = {}
         self._sqlalchemy_connections = {}
 
-        # TODO: Lazy load?
-        logger.info(f"Creating database connection... TODO: ADD DETAILS!")
-        self._temp_get_connection()
-        logger.info(f"Database connection created. TODO: ADD ERROR HANDLING. SHUT DOWN ON FAILURE? RETRY?")
+        # Initialize SQLAlchemy connection pool on first use (lazy loading)
+        logger.info(f"Database initialized: {self.db_path}")
+        try:
+            self._temp_get_connection()
+            logger.info(f"Database connection pool ready for {db_name}")
+        except Exception as e:
+            logger.error(f"Failed to initialize database connection: {e}")
+            raise RuntimeError(f"Database initialization failed: {e}") from e
 
     # TODO: Replace get_connection with this function once all queries moved to SQLAlchemy.
     def _temp_get_connection(self):

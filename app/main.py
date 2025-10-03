@@ -1715,14 +1715,14 @@ async def bulk_research_endpoint(
     request: Request,
     data: dict = Body(
         ...,
-        example={
+        examples=[{
             "urls": ["https://example.com/article1", "https://example.com/article2"],
             "topic": "AI and Machine Learning",
             "summary_type": "curious_ai",
             "model_name": "gpt-4",
             "summary_length": "medium",
             "summary_voice": "neutral"
-        }
+        }]
     )
 ):
     try:

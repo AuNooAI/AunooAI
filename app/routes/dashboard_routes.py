@@ -51,9 +51,7 @@ class ArticleSchema(BaseModel):
     # driver_type_explanation: Optional[str] = None
 
     class Config:
-        orm_mode = True # If fetching SQLAlchemy models directly
-        # If fetching dicts from DB, orm_mode might not be strictly necessary
-        # but good practice if you might adapt to ORM later.
+        from_attributes = True  # Pydantic V2: renamed from orm_mode
 
 class PaginatedArticleResponse(BaseModel):
     page: int
