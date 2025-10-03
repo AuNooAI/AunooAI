@@ -8,6 +8,14 @@
 
 {% block content %}
 <style>
+/* Modal z-index fix - ensure modals appear above navbar */
+.modal {
+    z-index: 9999 !important;
+}
+.modal-backdrop {
+    z-index: 9998 !important;
+}
+
 /* Techmeme-inspired minimalist design */
 .news-feed-container {
     max-width: 1000px;
@@ -758,6 +766,9 @@
                                 <select id="profile-select" class="form-select form-select-sm">
                                     <option value="">General Analysis</option>
                     </select>
+                                <button type="button" class="btn btn-outline-primary btn-sm" onclick="showProfileManager()" title="Manage Profiles">
+                        <i class="fas fa-cog"></i>
+                    </button>
                                 <button type="button" class="btn btn-outline-primary btn-sm" onclick="loadOrganizationalProfiles()" title="Refresh">
                         <i class="fas fa-sync"></i>
                     </button>
@@ -1621,6 +1632,181 @@
                 <button type="button" class="btn btn-primary" onclick="saveIncidentConfiguration()">
                     <i class="fas fa-save me-1"></i>Save Configuration
                 </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Profile Management Modal -->
+<div class="modal fade" id="profileManagerModal" tabindex="-1" aria-labelledby="profileManagerModalLabel" aria-hidden="true" data-bs-backdrop="false" data-bs-keyboard="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="profileManagerModalLabel">🏢 Organizational Profile Manager</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <!-- Profile List -->
+                    <div class="col-md-4">
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <h6 class="mb-0">Profiles</h6>
+                            <button type="button" class="btn btn-primary btn-sm" onclick="createNewProfile()">
+                                <i class="fas fa-plus me-1"></i>New
+                            </button>
+                        </div>
+                        <div class="list-group" id="profileList">
+                            <!-- Profiles will be loaded here -->
+                        </div>
+                    </div>
+
+                    <!-- Profile Editor -->
+                    <div class="col-md-8">
+                        <div id="profileEditor" style="display: none;">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <h6 class="mb-0" id="editorTitle">New Profile</h6>
+                                <div>
+                                    <button type="button" class="btn btn-success btn-sm" onclick="saveProfile()">
+                                        <i class="fas fa-save me-1"></i>Save
+                                    </button>
+                                    <button type="button" class="btn btn-outline-secondary btn-sm" onclick="cancelEdit()">
+                                        <i class="fas fa-times me-1"></i>Cancel
+                                    </button>
+                                </div>
+                            </div>
+
+                            <form id="profileForm">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="profileName" class="form-label">Name *</label>
+                                            <input type="text" class="form-control" id="profileName" required>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label for="profileIndustry" class="form-label">Industry</label>
+                                            <input type="text" class="form-control" id="profileIndustry"
+                                                   placeholder="e.g., Academic Publishing, Technology, Healthcare">
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label for="profileOrganizationType" class="form-label">Organization Type</label>
+                                            <select class="form-select" id="profileOrganizationType">
+                                                <option value="">Select type...</option>
+                                                <option value="publisher">Publisher</option>
+                                                <option value="enterprise">Enterprise</option>
+                                                <option value="startup">Startup</option>
+                                                <option value="government">Government</option>
+                                                <option value="ngo">Non-Profit/NGO</option>
+                                                <option value="academic">Academic Institution</option>
+                                                <option value="other">Other</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label for="profileRiskTolerance" class="form-label">Risk Tolerance</label>
+                                            <select class="form-select" id="profileRiskTolerance">
+                                                <option value="low">Conservative (Low Risk)</option>
+                                                <option value="medium" selected>Balanced (Medium Risk)</option>
+                                                <option value="high">Aggressive (High Risk)</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label for="profileInnovationAppetite" class="form-label">Innovation Appetite</label>
+                                            <select class="form-select" id="profileInnovationAppetite">
+                                                <option value="conservative">Conservative</option>
+                                                <option value="moderate" selected>Moderate</option>
+                                                <option value="aggressive">Aggressive</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label for="profileRegion" class="form-label">Region</label>
+                                            <select class="form-select" id="profileRegion">
+                                                <option value="">Select region...</option>
+                                                <option value="global">Global</option>
+                                                <option value="north_america">North America</option>
+                                                <option value="europe">Europe</option>
+                                                <option value="asia_pacific">Asia Pacific</option>
+                                                <option value="latin_america">Latin America</option>
+                                                <option value="middle_east_africa">Middle East & Africa</option>
+                                            </select>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label for="profileDecisionMakingStyle" class="form-label">Decision Making Style</label>
+                                            <select class="form-select" id="profileDecisionMakingStyle">
+                                                <option value="collaborative" selected>Collaborative</option>
+                                                <option value="data-driven">Data-Driven</option>
+                                                <option value="hierarchical">Hierarchical</option>
+                                                <option value="agile">Agile</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="profileDescription" class="form-label">Description</label>
+                                            <textarea class="form-control" id="profileDescription" rows="3"
+                                                    placeholder="Brief description of the organization"></textarea>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label for="profileKeyConcerns" class="form-label">Key Concerns</label>
+                                            <textarea class="form-control" id="profileKeyConcerns" rows="3"
+                                                    placeholder="Enter concerns separated by commas (e.g., R&D funding, copyright protection, peer review)"></textarea>
+                                            <div class="form-text">Separate multiple concerns with commas</div>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label for="profileStrategicPriorities" class="form-label">Strategic Priorities</label>
+                                            <textarea class="form-control" id="profileStrategicPriorities" rows="3"
+                                                    placeholder="Enter priorities separated by commas (e.g., digital transformation, market expansion)"></textarea>
+                                            <div class="form-text">Separate multiple priorities with commas</div>
+                                        </div>
+
+                                        <div class="mb-3">
+                                            <label for="profileStakeholderFocus" class="form-label">Key Stakeholders</label>
+                                            <textarea class="form-control" id="profileStakeholderFocus" rows="2"
+                                                    placeholder="Enter stakeholders separated by commas (e.g., researchers, authors, subscribers)"></textarea>
+                                            <div class="form-text">Separate multiple stakeholders with commas</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="profileCompetitiveLandscape" class="form-label">Competitive Landscape</label>
+                                            <textarea class="form-control" id="profileCompetitiveLandscape" rows="2"
+                                                    placeholder="Key competitors and market dynamics (comma-separated)"></textarea>
+                                        </div>
+                                    </div>
+
+                                    <div class="col-md-6">
+                                        <div class="mb-3">
+                                            <label for="profileRegulatoryEnvironment" class="form-label">Regulatory Environment</label>
+                                            <textarea class="form-control" id="profileRegulatoryEnvironment" rows="2"
+                                                    placeholder="Key regulations and compliance requirements (comma-separated)"></textarea>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="profileCustomContext" class="form-label">Additional Context</label>
+                                    <textarea class="form-control" id="profileCustomContext" rows="3"
+                                            placeholder="Any additional context or specific considerations for this organization"></textarea>
+                                </div>
+                            </form>
+                        </div>
+
+                        <div id="profileEditorPlaceholder" class="text-center text-muted py-5">
+                            <i class="fas fa-building fa-3x mb-3 opacity-50"></i>
+                            <p>Select a profile to edit or create a new one</p>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -2578,6 +2764,10 @@ async function loadArticles(page = 1) {
         
         if (data.articles && data.articles.items && data.articles.items.length > 0) {
             console.log('First article sample:', data.articles.items[0]);
+            // Ensure total_items is set in the data object
+            if (!data.articles.total_items && data.articles.items) {
+                data.articles.total_items = data.articles.items.length;
+            }
             window.lastArticlesData = data.articles; // Store for filtering
             renderArticles(data.articles);  // News feed API returns data.articles
             renderArticlesPagination(data.articles);
@@ -3756,6 +3946,226 @@ async function loadOrganizationalProfiles() {
     }
 }
 
+// Profile Manager Functions
+let currentEditingProfile = null;
+let currentProfiles = [];
+
+function showProfileManager() {
+    loadOrganizationalProfilesForManager().then(() => {
+        const modal = new bootstrap.Modal(document.getElementById('profileManagerModal'));
+        modal.show();
+    });
+}
+
+async function loadOrganizationalProfilesForManager() {
+    try {
+        const response = await fetch('/api/organizational-profiles');
+        const data = await response.json();
+
+        if (data.success && data.profiles) {
+            currentProfiles = data.profiles;
+            renderProfileList();
+
+            // Also update the main dropdown
+            loadOrganizationalProfiles();
+        }
+    } catch (error) {
+        console.error('Error loading profiles for manager:', error);
+        showNotification('Failed to load profiles', 'warning');
+    }
+}
+
+function renderProfileList() {
+    const profileList = document.getElementById('profileList');
+    profileList.innerHTML = '';
+
+    if (currentProfiles.length === 0) {
+        profileList.innerHTML = '<div class="text-center text-muted p-3">No profiles yet. Create one to get started.</div>';
+        return;
+    }
+
+    currentProfiles.forEach(profile => {
+        const item = document.createElement('a');
+        item.href = '#';
+        item.className = 'list-group-item list-group-item-action';
+        item.innerHTML = `
+            <div class="d-flex justify-content-between align-items-start">
+                <div>
+                    <h6 class="mb-1">${escapeHTML(profile.name)}</h6>
+                    <small class="text-muted">${escapeHTML(profile.industry || 'General')} • ${escapeHTML(profile.organization_type || 'Organization')}</small>
+                </div>
+                <div class="btn-group-vertical btn-group-sm">
+                    <button class="btn btn-outline-primary btn-sm" onclick="event.stopPropagation(); editProfile(${profile.id})">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn btn-outline-danger btn-sm" onclick="event.stopPropagation(); deleteProfile(${profile.id})">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </div>
+            </div>
+        `;
+        item.onclick = (e) => {
+            e.preventDefault();
+            editProfile(profile.id);
+        };
+        profileList.appendChild(item);
+    });
+}
+
+function createNewProfile() {
+    currentEditingProfile = null;
+    clearProfileForm();
+    document.getElementById('editorTitle').textContent = 'New Profile';
+    showProfileEditor();
+}
+
+function editProfile(profileId) {
+    const profile = currentProfiles.find(p => p.id === profileId);
+    if (!profile) return;
+
+    currentEditingProfile = profile;
+    populateProfileForm(profile);
+    document.getElementById('editorTitle').textContent = `Edit Profile: ${profile.name}`;
+    showProfileEditor();
+}
+
+function showProfileEditor() {
+    document.getElementById('profileEditorPlaceholder').style.display = 'none';
+    document.getElementById('profileEditor').style.display = 'block';
+}
+
+function cancelEdit() {
+    document.getElementById('profileEditor').style.display = 'none';
+    document.getElementById('profileEditorPlaceholder').style.display = 'block';
+    clearProfileForm();
+    currentEditingProfile = null;
+}
+
+function clearProfileForm() {
+    document.getElementById('profileName').value = '';
+    document.getElementById('profileDescription').value = '';
+    document.getElementById('profileIndustry').value = '';
+    document.getElementById('profileOrganizationType').value = '';
+    document.getElementById('profileRegion').value = '';
+    document.getElementById('profileKeyConcerns').value = '';
+    document.getElementById('profileStrategicPriorities').value = '';
+    document.getElementById('profileRiskTolerance').value = 'medium';
+    document.getElementById('profileInnovationAppetite').value = 'moderate';
+    document.getElementById('profileDecisionMakingStyle').value = 'collaborative';
+    document.getElementById('profileStakeholderFocus').value = '';
+    document.getElementById('profileCompetitiveLandscape').value = '';
+    document.getElementById('profileRegulatoryEnvironment').value = '';
+    document.getElementById('profileCustomContext').value = '';
+}
+
+function populateProfileForm(profile) {
+    document.getElementById('profileName').value = profile.name || '';
+    document.getElementById('profileDescription').value = profile.description || '';
+    document.getElementById('profileIndustry').value = profile.industry || '';
+    document.getElementById('profileOrganizationType').value = profile.organization_type || '';
+    document.getElementById('profileRegion').value = profile.region || '';
+    document.getElementById('profileKeyConcerns').value = (profile.key_concerns || []).join(', ');
+    document.getElementById('profileStrategicPriorities').value = (profile.strategic_priorities || []).join(', ');
+    document.getElementById('profileRiskTolerance').value = profile.risk_tolerance || 'medium';
+    document.getElementById('profileInnovationAppetite').value = profile.innovation_appetite || 'moderate';
+    document.getElementById('profileDecisionMakingStyle').value = profile.decision_making_style || 'collaborative';
+    document.getElementById('profileStakeholderFocus').value = (profile.stakeholder_focus || []).join(', ');
+    document.getElementById('profileCompetitiveLandscape').value = (profile.competitive_landscape || []).join(', ');
+    document.getElementById('profileRegulatoryEnvironment').value = (profile.regulatory_environment || []).join(', ');
+    document.getElementById('profileCustomContext').value = profile.custom_context || '';
+}
+
+async function saveProfile() {
+    const form = document.getElementById('profileForm');
+    if (!form.checkValidity()) {
+        form.reportValidity();
+        return;
+    }
+
+    const profileData = {
+        name: document.getElementById('profileName').value,
+        description: document.getElementById('profileDescription').value,
+        industry: document.getElementById('profileIndustry').value,
+        organization_type: document.getElementById('profileOrganizationType').value,
+        region: document.getElementById('profileRegion').value,
+        key_concerns: document.getElementById('profileKeyConcerns').value.split(',').map(s => s.trim()).filter(s => s),
+        strategic_priorities: document.getElementById('profileStrategicPriorities').value.split(',').map(s => s.trim()).filter(s => s),
+        risk_tolerance: document.getElementById('profileRiskTolerance').value,
+        innovation_appetite: document.getElementById('profileInnovationAppetite').value,
+        decision_making_style: document.getElementById('profileDecisionMakingStyle').value,
+        stakeholder_focus: document.getElementById('profileStakeholderFocus').value.split(',').map(s => s.trim()).filter(s => s),
+        competitive_landscape: document.getElementById('profileCompetitiveLandscape').value.split(',').map(s => s.trim()).filter(s => s),
+        regulatory_environment: document.getElementById('profileRegulatoryEnvironment').value.split(',').map(s => s.trim()).filter(s => s),
+        custom_context: document.getElementById('profileCustomContext').value
+    };
+
+    try {
+        let response;
+        if (currentEditingProfile) {
+            // Update existing profile
+            response = await fetch(`/api/organizational-profiles/${currentEditingProfile.id}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(profileData)
+            });
+        } else {
+            // Create new profile
+            response = await fetch('/api/organizational-profiles', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(profileData)
+            });
+        }
+
+        const result = await response.json();
+
+        if (result.success) {
+            showNotification(result.message || 'Profile saved successfully', 'success');
+            await loadOrganizationalProfilesForManager();
+            cancelEdit();
+        } else {
+            showNotification(result.message || 'Failed to save profile', 'error');
+        }
+    } catch (error) {
+        console.error('Error saving profile:', error);
+        showNotification('Error saving profile: ' + error.message, 'error');
+    }
+}
+
+async function deleteProfile(profileId) {
+    const profile = currentProfiles.find(p => p.id === profileId);
+    if (!profile) return;
+
+    if (!confirm(`Are you sure you want to delete the profile "${profile.name}"?`)) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/organizational-profiles/${profileId}`, {
+            method: 'DELETE'
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+            showNotification(result.message || 'Profile deleted successfully', 'success');
+            await loadOrganizationalProfilesForManager();
+            if (currentEditingProfile && currentEditingProfile.id === profileId) {
+                cancelEdit();
+            }
+        } else {
+            showNotification(result.message || 'Failed to delete profile', 'error');
+        }
+    } catch (error) {
+        console.error('Error deleting profile:', error);
+        showNotification('Error deleting profile: ' + error.message, 'error');
+    }
+}
+
 // Date range handling
 function handleDateRangeChange() {
     const dateRangeSelect = document.getElementById('date-range-select');
@@ -4181,7 +4591,8 @@ function renderArticles(articlesData) {
     // Update count display to show filtered vs total
     const countEl = document.getElementById('selected-date-count');
     if (countEl) {
-        const totalCount = articlesData.items.length;
+        // Use total_items from articlesData if available, otherwise fall back to items.length
+        const totalCount = articlesData.total_items || articlesData.items.length;
         const filteredCount = filteredArticles.length;
         if (filteredCount !== totalCount) {
             countEl.textContent = `${filteredCount} of ${totalCount}`;
@@ -5529,9 +5940,14 @@ function displayCurrentPage() {
     const start = (currentPage - 1) * articlesPerPage;
     const end = start + articlesPerPage;
     const pageArticles = filteredArticlesData.slice(start, end);
-    
-    renderArticles({ items: pageArticles });
-    
+
+    // Pass total_items from window.lastArticlesData to preserve the correct count
+    const totalItems = (window.lastArticlesData && window.lastArticlesData.total_items)
+        ? window.lastArticlesData.total_items
+        : filteredArticlesData.length;
+
+    renderArticles({ items: pageArticles, total_items: totalItems });
+
     // Check for cached analysis indicators
     checkCachedAnalysisIndicators(pageArticles);
 }
@@ -5608,42 +6024,58 @@ async function autoLoadArticles() {
         const data = await response.json();
         console.log('Database articles loaded:', data);
         
-        // Handle response structure
+        // Handle response structure and extract total count
         let articles = [];
+        let totalCount = 0;
+
         if (Array.isArray(data)) {
             articles = data;
+            totalCount = data.length;
         } else if (data.articles) {
             // Check if data.articles is an array or has nested structure
             if (Array.isArray(data.articles)) {
                 articles = data.articles;
+                totalCount = data.total_items || data.articles.length;
             } else if (data.articles.items && Array.isArray(data.articles.items)) {
                 articles = data.articles.items;
+                totalCount = data.articles.total_items || data.articles.items.length;
             } else if (data.articles.articles && Array.isArray(data.articles.articles)) {
                 articles = data.articles.articles;
+                totalCount = data.articles.total_items || data.articles.articles.length;
             } else {
                 console.warn('data.articles is not an array:', data.articles);
                 console.log('data.articles keys:', Object.keys(data.articles));
                 articles = [];
+                totalCount = 0;
             }
         } else if (data.items && Array.isArray(data.items)) {
             articles = data.items;
+            totalCount = data.total_items || data.items.length;
         } else if (data.results && Array.isArray(data.results)) {
             articles = data.results;
+            totalCount = data.total_items || data.results.length;
         } else {
             console.warn('Unexpected database response structure:', data);
             console.log('Available keys:', Object.keys(data));
             articles = [];
+            totalCount = 0;
         }
-        
+
         // Store all articles and initialize filtering
         allArticlesData = articles;
         currentPage = 1;
-        
+
         // Also store in window.lastArticlesData for analysis functions
-        window.lastArticlesData = { items: articles };
-        
-        console.log(`Loaded ${allArticlesData.length} database articles`);
-        
+        window.lastArticlesData = { items: articles, total_items: totalCount };
+
+        console.log(`Loaded ${allArticlesData.length} database articles, total available: ${totalCount}`);
+
+        // Update article count display with total from API response
+        const countEl = document.getElementById('selected-date-count');
+        if (countEl) {
+            countEl.textContent = totalCount.toString();
+        }
+
         // Apply initial filters and display
         if (allArticlesData.length > 0) {
             applyFiltersAndDisplay();
@@ -5661,12 +6093,18 @@ async function autoLoadArticles() {
                 `;
             }
         }
-        
+
         console.log(`Database articles auto-loaded: ${allArticlesData.length} total`);
-        
+
     } catch (error) {
         console.error('Error auto-loading database articles:', error);
-        
+
+        // Update article count display to 0 on error
+        const countEl = document.getElementById('selected-date-count');
+        if (countEl) {
+            countEl.textContent = '0';
+        }
+
         // Show error in articles list
         const listContainer = document.getElementById('articles-list');
         if (listContainer) {

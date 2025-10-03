@@ -69,7 +69,6 @@ from app.routes.auspex_routes import router as auspex_router
 from app.routes.dataset_routes import router as dataset_router
 from app.routes.keyword_monitor_api import router as keyword_monitor_api_router
 from app.routes.oauth_routes import router as oauth_router
-from app.routes.forecast_chart_routes import router as forecast_chart_router, web_router as forecast_chart_web_router
 from app.routes.websocket_routes import router as websocket_router
 
 # ElevenLabs SDK imports used in podcast endpoints
@@ -192,8 +191,6 @@ app.include_router(keyword_monitor_page_router)
 app.include_router(onboarding_router)
 app.include_router(saved_searches_router)  # Saved searches
 app.include_router(websocket_router, prefix="/keyword-monitor")  # WebSocket routes for real-time updates
-app.include_router(forecast_chart_router)  # API routes
-app.include_router(forecast_chart_web_router)  # Web routes
 app.include_router(vector_router)  # Vector/AI analysis routes (already has /api prefix)
 app.include_router(background_tasks_router)  # Background task management routes
 app.include_router(auto_ingest_router)  # Auto-ingest pipeline routes
