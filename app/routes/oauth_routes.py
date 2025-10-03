@@ -161,9 +161,9 @@ async def oauth_callback(provider: str, request: Request, db: Database = Depends
         request.session.update(session_data)
         
         logger.info(f"OAuth login successful for {user_info['email']} via {provider}")
-        
-        # Redirect to dashboard or intended page
-        redirect_url = request.session.get('oauth_redirect_after_login', '/dashboard')
+
+        # Redirect to unified feed or intended page
+        redirect_url = request.session.get('oauth_redirect_after_login', '/unified-feed')
         return RedirectResponse(url=redirect_url, status_code=302)
         
     except HTTPException:
