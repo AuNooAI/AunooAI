@@ -1035,8 +1035,14 @@ async def get_article_insights(
             logger.warning(f"LLM returned empty response for article insights on topic {topic_name}")
             return []
         
-        # Check for LLM error messages first
-        if "⚠️" in llm_response_str or "unavailable" in llm_response_str.lower() or "error" in llm_response_str.lower():
+        # Check for LLM error messages first (but not technical terms like "error correction")
+        # Only flag if it looks like an actual error message
+        if "⚠️" in llm_response_str or "unavailable" in llm_response_str.lower():
+            logger.error(f"LLM returned error message for article insights: {llm_response_str}")
+            return []
+
+        # Check for error at the start of response (like "Error: ..."), not in article content
+        if llm_response_str.strip().lower().startswith("error"):
             logger.error(f"LLM returned error message for article insights: {llm_response_str}")
             return []
             
