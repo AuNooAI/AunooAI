@@ -713,7 +713,7 @@
             <div class="row g-3">
                 <div class="col-md-6">
                     <div class="row g-2">
-                        <div class="col-6">
+                        <div class="col-5">
                             <label class="form-label small">Date Range:</label>
                             <select id="date-range-select" class="form-select form-select-sm" onchange="handleDateRangeChange()">
                     <option value="24h">Last 24 Hours</option>
@@ -725,7 +725,7 @@
                     <option value="custom">Custom Date</option>
                 </select>
             </div>
-                        <div class="col-6">
+                        <div class="col-7">
                             <label class="form-label small">Topic:</label>
                             <select id="topic-select" class="form-select form-select-sm">
                                 <option value="">All Topics</option>
@@ -747,7 +747,7 @@
             </div>
                 <div class="col-md-6">
                     <div class="row g-2">
-                        <div class="col-6">
+                        <div class="col-4">
                             <label class="form-label small">Model:</label>
                             <select id="model-select" class="form-select form-select-sm">
                     <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
@@ -760,7 +760,7 @@
                     <option value="gemini-pro">Gemini Pro</option>
                 </select>
             </div>
-                        <div class="col-6">
+                        <div class="col-8">
                             <label class="form-label small">Profile:</label>
                             <div class="d-flex gap-1">
                                 <select id="profile-select" class="form-select form-select-sm">
@@ -772,19 +772,16 @@
                                 <button type="button" class="btn btn-outline-primary btn-sm" onclick="loadOrganizationalProfiles()" title="Refresh">
                         <i class="fas fa-sync"></i>
                     </button>
+                                <button type="button" class="btn btn-outline-info btn-sm" onclick="saveCurrentAsDefaults()" title="Save current settings as defaults">
+                        <i class="fas fa-star"></i>
+                    </button>
                 </div>
                 </div>
             </div>
                     <div class="mt-2">
-                        
-                    <div class="mt-2 d-flex gap-2">
-                        <button type="button" class="btn btn-outline-info btn-sm" onclick="saveCurrentAsDefaults()" title="Save current settings as defaults">
-                            <i class="fas fa-star"></i> Save Defaults
-                </button>
                         <button id="restore-articles-btn" class="btn btn-outline-warning btn-sm" onclick="clearExcludedArticles()" style="display: none;" title="Restore hidden articles">
                     <i class="fas fa-undo"></i> Restore Hidden
                 </button>
-                    </div>
                     </div>
                 </div>
             </div>
@@ -938,17 +935,28 @@
                 <h5 class="mb-0">
                     <i class="fas fa-chart-line me-2"></i>Article & Category Insights
                 </h5>
-                <div class="btn-group">
-                    <button id="smart-insights-btn" class="btn btn-primary" onclick="smartGenerateInsights()">
-                        <i class="fas fa-brain me-2"></i><span id="insights-btn-text">Generate Insights</span>
-                    </button>
-                    <div class="dropdown">
-                        <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="fas fa-cog"></i>
+                <div>
+                    <div class="btn-group">
+                        <button id="smart-insights-btn" class="btn btn-primary" onclick="smartGenerateInsights()">
+                            <i class="fas fa-brain me-2"></i><span id="insights-btn-text">Generate Insights</span>
                         </button>
-                        <ul class="dropdown-menu">
-                            <li><a class="dropdown-item" href="#" onclick="smartGenerateInsights(true)"><i class="fas fa-sync me-2"></i>Force Regenerate</a></li>
-                        </ul>
+                        <div class="dropdown">
+                            <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="fas fa-cog"></i>
+                            </button>
+                            <ul class="dropdown-menu">
+                                <li><a class="dropdown-item" href="#" onclick="smartGenerateInsights(true)"><i class="fas fa-sync me-2"></i>Force Regenerate</a></li>
+                            </ul>
+                        </div>
+                    </div>
+                    <!-- Progress indicator -->
+                    <div id="insights-progress" class="mt-2" style="display: none;">
+                        <div class="d-flex align-items-center">
+                            <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <small id="insights-progress-text" class="text-muted"></small>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -9431,52 +9439,110 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function generateInsights(forceRegenerate = false) {
     console.log('Generate insights button clicked', forceRegenerate ? '(force regenerate)' : '');
-    
+
     const selectedTopic = document.getElementById('topic-select').value.trim();
     if (!selectedTopic) {
         showNotification('Please select a topic to generate insights', 'warning');
         return;
     }
-    
-    // Get current date range parameters
-    const dateRangeValue = document.getElementById('date-range-select').value;
-    let startDate = null;
-    let endDate = null;
-    let daysLimit = 30;
-    
-    if (dateRangeValue === 'custom') {
-        const customDate = document.getElementById('custom-date-input').value || document.getElementById('selected-date').value;
-        if (customDate) {
-            startDate = customDate;
-            endDate = customDate;
+
+    // Show progress indicator
+    const progressContainer = document.getElementById('insights-progress');
+    const progressText = document.getElementById('insights-progress-text');
+    if (progressContainer) progressContainer.style.display = 'block';
+
+    try {
+        // Get current date range parameters
+        const dateRangeValue = document.getElementById('date-range-select').value;
+        let startDate = null;
+        let endDate = null;
+        let daysLimit = 30;
+
+        if (dateRangeValue === 'custom') {
+            const customDate = document.getElementById('custom-date-input').value || document.getElementById('selected-date').value;
+            if (customDate) {
+                startDate = customDate;
+                endDate = customDate;
+            }
+        } else if (dateRangeValue !== 'all') {
+            // Calculate date range based on selection
+            const now = new Date();
+            endDate = now.toISOString().split('T')[0];
+
+            switch (dateRangeValue) {
+                case '24h': daysLimit = 1; break;
+                case '7d': daysLimit = 7; break;
+                case '30d': daysLimit = 30; break;
+                case '3m': daysLimit = 90; break;
+                case '1y': daysLimit = 365; break;
+            }
+
+            const startDateObj = new Date(now.getTime() - daysLimit * 24 * 60 * 60 * 1000);
+            startDate = startDateObj.toISOString().split('T')[0];
         }
-    } else if (dateRangeValue !== 'all') {
-        // Calculate date range based on selection
-        const now = new Date();
-        endDate = now.toISOString().split('T')[0];
-        
-        switch (dateRangeValue) {
-            case '24h': daysLimit = 1; break;
-            case '7d': daysLimit = 7; break;
-            case '30d': daysLimit = 30; break;
-            case '3m': daysLimit = 90; break;
-            case '1y': daysLimit = 365; break;
-        }
-        
-        const startDateObj = new Date(now.getTime() - daysLimit * 24 * 60 * 60 * 1000);
-        startDate = startDateObj.toISOString().split('T')[0];
+
+        console.log('Loading insights for topic:', selectedTopic, 'date range:', startDate, 'to', endDate, 'days:', daysLimit);
+
+        // Update progress: Starting
+        if (progressText) progressText.textContent = 'Initializing insight generation...';
+
+        // Load all insights including incident tracking with progress updates
+        const insightPromises = [
+            loadArticleInsights(selectedTopic, startDate, endDate, daysLimit, forceRegenerate),
+            loadCategoryInsights(selectedTopic, startDate, endDate, daysLimit, forceRegenerate),
+            loadIncidentTracking(selectedTopic, startDate, endDate, daysLimit, forceRegenerate)
+        ];
+
+        // Track progress as each insight completes
+        let completedCount = 0;
+        const totalCount = insightPromises.length;
+
+        const progressUpdates = [
+            'Analyzing article themes...',
+            'Processing category distribution...',
+            'Tracking incident patterns...'
+        ];
+
+        // Start all promises and track individually
+        if (progressText) progressText.textContent = progressUpdates[0];
+
+        insightPromises[0].then(() => {
+            completedCount++;
+            if (progressText && completedCount < totalCount) {
+                progressText.textContent = progressUpdates[completedCount];
+            }
+        });
+
+        insightPromises[1].then(() => {
+            completedCount++;
+            if (progressText && completedCount < totalCount) {
+                progressText.textContent = progressUpdates[completedCount];
+            }
+        });
+
+        insightPromises[2].then(() => {
+            completedCount++;
+            if (progressText) {
+                progressText.textContent = 'Finalizing insights...';
+            }
+        });
+
+        await Promise.all(insightPromises);
+
+        if (progressText) progressText.textContent = 'Complete!';
+        setTimeout(() => {
+            if (progressContainer) progressContainer.style.display = 'none';
+        }, 1000);
+
+        showNotification('Insights generated successfully!', 'success');
+    } catch (error) {
+        console.error('Error generating insights:', error);
+        if (progressText) progressText.textContent = 'Error generating insights';
+        setTimeout(() => {
+            if (progressContainer) progressContainer.style.display = 'none';
+        }, 2000);
+        showNotification('Failed to generate insights', 'error');
     }
-    
-    console.log('Loading insights for topic:', selectedTopic, 'date range:', startDate, 'to', endDate, 'days:', daysLimit);
-    
-    // Load all insights including incident tracking
-    await Promise.all([
-        loadArticleInsights(selectedTopic, startDate, endDate, daysLimit, forceRegenerate),
-        loadCategoryInsights(selectedTopic, startDate, endDate, daysLimit, forceRegenerate),
-        loadIncidentTracking(selectedTopic, startDate, endDate, daysLimit, forceRegenerate)
-    ]);
-    
-    showNotification('Insights generated successfully!', 'success');
 }
 // Add this function to your JavaScript section:
 
