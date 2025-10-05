@@ -22,36 +22,14 @@ for handler in litellm_logger.handlers[:]:
 # Add a null handler to prevent propagation
 litellm_logger.addHandler(logging.NullHandler())
 
-# Configure LiteLLM connection pooling to prevent connection leaks
-litellm.client_session_max_size = 100  # Max connections in pool
+# Configure LiteLLM to drop unsupported params
 litellm.drop_params = True  # Drop unsupported params instead of erroring
 
-# CRITICAL: Force LiteLLM to reuse a single httpx client instance
-# This prevents creating multiple clients that leak file descriptors
-import httpx
-import atexit
-
-# Create a single shared httpx client with proper connection limits
-_shared_httpx_client = httpx.AsyncClient(
-    timeout=httpx.Timeout(timeout=300.0, connect=10.0),
-    limits=httpx.Limits(
-        max_connections=100,        # Total connection pool size
-        max_keepalive_connections=20,  # Keep-alive connections
-        keepalive_expiry=30.0       # Close idle connections after 30s
-    ),
-)
-
-# Tell LiteLLM to use our shared client
-litellm.client_session = _shared_httpx_client
-
-# Register cleanup on exit
-async def _cleanup_httpx_client():
-    """Clean up shared httpx client on shutdown"""
-    try:
-        await _shared_httpx_client.aclose()
-        logger.info("Shared httpx client closed successfully")
-    except Exception as e:
-        logger.error(f"Error closing shared httpx client: {e}")
+# Note: LiteLLM doesn't support httpx connection pooling configuration
+# File descriptor leaks are managed by:
+# 1. System FD limit set to 8192 (in systemd service)
+# 2. Connection manager with periodic cleanup (in main.py startup)
+# 3. Automatic cleanup via connection manager monitoring
 
 # Load environment variables and ensure they're properly set for models
 ensure_model_env_vars()
@@ -486,7 +464,7 @@ class LiteLLMModel(AIModel):
                 default_litellm_params={
                     "timeout": timeout,
                     "max_retries": max_retries,
-                    "client_session_max_size": 100,  # Connection pool limit
+                    # Removed client_session_max_size - not supported by OpenAI
                 },
                 fallbacks=fallbacks
             )
