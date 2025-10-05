@@ -1,0 +1,72 @@
+model_list:
+  # --- OpenAI 4.1 family) ---
+  - model_name: gpt-4.1
+    litellm_params:
+      model: openai/gpt-4.1
+      api_key: "os.environ/OPENAI_API_KEY_GPT_4_1"
+
+  - model_name: gpt-4.1-mini
+    litellm_params:
+      model: openai/gpt-4.1-mini
+      api_key: "os.environ/OPENAI_API_KEY_GPT_4_1_MINI"
+
+  - model_name: gpt-4.1-nano
+    litellm_params:
+      model: openai/gpt-4.1-nano
+      api_key: "os.environ/OPENAI_API_KEY_GPT_4_1_NANO"
+
+  # --- Google Gemini (2.5 generation) ---
+  - model_name: gemini-2.5-pro
+    litellm_params:
+      model: gemini/gemini-2.5-pro
+      api_key: "os.environ/GEMINI_API_KEY_25_PRO"
+
+  - model_name: gemini-2.5-flash
+    litellm_params:
+      model: gemini/gemini-2.5-flash
+      api_key: "os.environ/GEMINI_API_KEY_25_FLASH"
+
+  # --- Anthropic (Claude Sonnet 4.5 + 3.7 Sonnet alias) ---
+  - model_name: claude-sonnet-4.5
+    litellm_params:
+      model: anthropic/claude-sonnet-4-5
+      api_key: "os.environ/ANTHROPIC_API_KEY_SONNET_45"
+
+  - model_name: claude-3.7-sonnet
+    litellm_params:
+      model: anthropic/claude-3-7-sonnet-latest
+      api_key: "os.environ/ANTHROPIC_API_KEY_SONNET_37"
+
+  # --- Mistral official API  ---
+  - model_name: mistral-medium-2508
+    litellm_params:
+      model: mistral/mistral-medium-2508
+      api_key: "os.environ/MISTRAL_API_KEY_MEDIUM_2508"
+
+  - model_name: magistral-medium-2509
+    litellm_params:
+      model: mistral/magistral-medium-2509
+      api_key: "os.environ/MISTRAL_API_KEY_MAGISTRAL_2509"
+
+  - model_name: codestral-2508
+    litellm_params:
+      model: mistral/codestral-2508
+      api_key: "os.environ/MISTRAL_API_KEY_CODESTRAL_2508"
+
+fallbacks:
+  # Prefer cross-vendor fallbacks that are widely available and cost-effective
+  - gpt-4.1:
+      - claude-sonnet-4.5
+      - gemini-2.5-pro
+      - mistral-medium-2508
+
+  - gpt-4.1-mini:
+      - gemini-2.5-flash
+      - magistral-medium-2509
+      - codestral-2508
+
+  - gpt-4.1-nano:
+      - gemini-2.5-flash
+      - magistral-medium-2509
+
+routing_strategy: least-busy

@@ -38,9 +38,28 @@ logger = logging.getLogger(__name__)
 
 _CHROMA_CLIENT: Optional[Any] = None  # ChromaDB client - type varies by version
 _COLLECTION_NAME = "articles"
+_OPENAI_CLIENT: Optional[Any] = None  # Singleton OpenAI client for embeddings
 
 # Add pathlib import
-import pathlib 
+import pathlib
+
+def _get_openai_client():
+    """Get or create singleton OpenAI client for embeddings.
+
+    This prevents creating a new client (and leaking file descriptors)
+    on every embedding call.
+    """
+    global _OPENAI_CLIENT
+
+    if _OPENAI_CLIENT is None:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if api_key and openai and hasattr(openai, "OpenAI"):
+            _OPENAI_CLIENT = openai.OpenAI(api_key=api_key)
+            logger.info("Created singleton OpenAI client for embeddings")
+        else:
+            logger.warning("OpenAI client not available - will use fallback embeddings")
+
+    return _OPENAI_CLIENT
 
 def _get_embedding_function():
     """Return an embedding function for ChromaDB.
@@ -247,8 +266,11 @@ def _embed_texts(texts: List[str]) -> List[List[float]]:
                         cleaned_texts[0][:50] if cleaned_texts else "")
             
             if hasattr(openai, "OpenAI"):  # Official >=1.0 client
-                client = openai.OpenAI(api_key=api_key)  # type: ignore
-                
+                # Use singleton client instead of creating new one every time
+                client = _get_openai_client()
+                if client is None:
+                    raise Exception("OpenAI client not available")
+
                 logger.debug("Calling OpenAI embedding API with %d texts", len(cleaned_texts))
                 resp = client.embeddings.create(
                     model="text-embedding-3-small",

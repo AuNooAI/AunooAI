@@ -862,15 +862,33 @@ class AuspexService:
         try:
             if not title:
                 title = f"Chat about {topic}"
-            
+
+            # For OAuth users or users not in the users table, use None for user_id
+            # This avoids foreign key constraint issues
+            oauth_user_identifier = None
+            if user_id:
+                # Check if user exists in users table
+                user_exists = self.db.get_user(user_id)
+                if not user_exists:
+                    logger.info(f"User {user_id} not found in users table, creating chat without user_id")
+                    oauth_user_identifier = user_id  # Store OAuth user identifier
+                    user_id = None
+
+            metadata = {
+                "created_at": datetime.now().isoformat(),
+                "profile_id": profile_id
+            }
+            if oauth_user_identifier:
+                metadata["oauth_user"] = oauth_user_identifier
+
             chat_id = self.db.create_auspex_chat(
                 topic=topic,
                 title=title,
                 user_id=user_id,
                 profile_id=profile_id,
-                metadata={"created_at": datetime.now().isoformat(), "profile_id": profile_id}
+                metadata=metadata
             )
-            
+
             # Add system message with current prompt
             prompt = self.get_system_prompt()
             self.db.add_auspex_message(
@@ -879,7 +897,7 @@ class AuspexService:
                 content=prompt['content'],
                 metadata={"prompt_name": prompt['name']}
             )
-            
+
             return chat_id
         except Exception as e:
             logger.error(f"Error creating chat session: {e}")

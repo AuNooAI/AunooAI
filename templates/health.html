@@ -1,0 +1,564 @@
+{% extends "base.html" %}
+
+{% block title %}System Health - Aunoo{% endblock %}
+
+{% block extra_css %}
+<style>
+:root {
+    --primary-color: #FF69B4;
+    --secondary-color: #32CD32;
+    --accent-color: #4fc3dc;
+    --success-color: #28a745;
+    --warning-color: #ffc107;
+    --danger-color: #dc3545;
+    --info-color: #17a2b8;
+    --light-gray: #f8f9fa;
+    --medium-gray: #e9ecef;
+    --text-color: #333333;
+    --light-text-color: #666666;
+    --border-radius: 4px;
+    --box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+body {
+    font-family: 'Roboto', 'Helvetica Neue', Arial, sans-serif;
+    background-color: #f5f5f5;
+}
+.health-container {
+    max-width: 1200px;
+    margin: 2rem auto;
+    padding: 0 1rem;
+}
+
+.health-header {
+    text-align: center;
+    margin-bottom: 2rem;
+}
+
+.health-header h1 {
+    color: var(--primary-color);
+    font-size: 2.5rem;
+    margin-bottom: 0.5rem;
+}
+
+.health-status {
+    display: inline-block;
+    padding: 0.5rem 1.5rem;
+    border-radius: 50px;
+    font-weight: bold;
+    font-size: 1.1rem;
+    margin-bottom: 0.5rem;
+}
+
+.health-status.healthy {
+    background-color: var(--success-color);
+    color: white;
+}
+
+.health-status.degraded {
+    background-color: var(--warning-color);
+    color: white;
+}
+
+.health-status.critical {
+    background-color: var(--danger-color);
+    color: white;
+}
+
+.uptime-badge {
+    color: var(--light-text-color);
+    font-size: 0.9rem;
+}
+
+.metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+}
+
+.metric-card {
+    background: white;
+    border-radius: var(--border-radius);
+    box-shadow: var(--box-shadow);
+    padding: 1.5rem;
+    transition: transform 0.2s;
+}
+
+.metric-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.metric-header {
+    display: flex;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 2px solid var(--medium-gray);
+}
+
+.metric-icon {
+    font-size: 1.5rem;
+    margin-right: 0.75rem;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+}
+
+.metric-icon.cpu { background-color: rgba(255, 105, 180, 0.1); color: var(--primary-color); }
+.metric-icon.memory { background-color: rgba(50, 205, 50, 0.1); color: var(--secondary-color); }
+.metric-icon.disk { background-color: rgba(79, 195, 220, 0.1); color: var(--accent-color); }
+.metric-icon.database { background-color: rgba(255, 193, 7, 0.1); color: var(--warning-color); }
+.metric-icon.files { background-color: rgba(23, 162, 184, 0.1); color: var(--info-color); }
+.metric-icon.vector { background-color: rgba(108, 117, 125, 0.1); color: #6c757d; }
+
+.metric-title {
+    font-size: 1.1rem;
+    font-weight: bold;
+    color: var(--text-color);
+}
+
+.metric-body {
+    font-size: 0.9rem;
+}
+
+.metric-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid var(--light-gray);
+}
+
+.metric-row:last-child {
+    border-bottom: none;
+}
+
+.metric-label {
+    color: var(--light-text-color);
+}
+
+.metric-value {
+    font-weight: bold;
+    color: var(--text-color);
+}
+
+.progress-bar-container {
+    background-color: var(--light-gray);
+    border-radius: 10px;
+    height: 20px;
+    overflow: hidden;
+    margin-top: 0.5rem;
+}
+
+.progress-bar {
+    height: 100%;
+    border-radius: 10px;
+    transition: width 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    font-weight: bold;
+    color: white;
+}
+
+.progress-bar.ok { background-color: var(--success-color); }
+.progress-bar.warning { background-color: var(--warning-color); }
+.progress-bar.critical { background-color: var(--danger-color); }
+
+.warning-banner {
+    background-color: rgba(255, 193, 7, 0.1);
+    border-left: 4px solid var(--warning-color);
+    padding: 1rem;
+    border-radius: var(--border-radius);
+    margin-bottom: 2rem;
+}
+
+.warning-list {
+    margin: 0.5rem 0 0 0;
+    padding-left: 1.5rem;
+}
+
+.refresh-info {
+    text-align: center;
+    color: var(--light-text-color);
+    font-size: 0.85rem;
+    margin-top: 2rem;
+}
+
+.auto-refresh {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.auto-refresh i {
+    animation: spin 2s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="health-container">
+    <div class="health-header">
+        <h1><i class="fas fa-heartbeat"></i> System Health</h1>
+        <div class="health-status {{ health_data.status }}">
+            {{ health_data.status|upper }}
+        </div>
+        <div class="uptime-badge">
+            Uptime: {{ health_data.uptime.days }}d {{ (health_data.uptime.hours % 24)|int }}h {{ (health_data.uptime.minutes % 60)|int }}m
+        </div>
+    </div>
+
+    {% if health_data.warnings %}
+    <div class="warning-banner">
+        <strong><i class="fas fa-exclamation-triangle"></i> Warnings:</strong>
+        <ul class="warning-list">
+            {% for warning in health_data.warnings %}
+            <li>{{ warning }}</li>
+            {% endfor %}
+        </ul>
+    </div>
+    {% endif %}
+
+    <div class="metrics-grid">
+        <!-- CPU Metrics -->
+        <div class="metric-card">
+            <div class="metric-header">
+                <div class="metric-icon cpu">
+                    <i class="fas fa-microchip"></i>
+                </div>
+                <div class="metric-title">CPU</div>
+            </div>
+            <div class="metric-body">
+                <div class="metric-row">
+                    <span class="metric-label">Process:</span>
+                    <span class="metric-value">{{ health_data.cpu.process_percent }}%</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">System:</span>
+                    <span class="metric-value">{{ health_data.cpu.system_percent }}%</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Cores:</span>
+                    <span class="metric-value">{{ health_data.cpu.core_count }}</span>
+                </div>
+                {% if health_data.cpu.load_average %}
+                <div class="metric-row">
+                    <span class="metric-label">Load (1/5/15m):</span>
+                    <span class="metric-value">{{ "%.2f"|format(health_data.cpu.load_average[0]) }} / {{ "%.2f"|format(health_data.cpu.load_average[1]) }} / {{ "%.2f"|format(health_data.cpu.load_average[2]) }}</span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Memory Metrics -->
+        <div class="metric-card">
+            <div class="metric-header">
+                <div class="metric-icon memory">
+                    <i class="fas fa-memory"></i>
+                </div>
+                <div class="metric-title">Memory</div>
+            </div>
+            <div class="metric-body">
+                <div class="metric-row">
+                    <span class="metric-label">Process RSS:</span>
+                    <span class="metric-value">{{ health_data.memory.process.rss_mb }} MB</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Process %:</span>
+                    <span class="metric-value">{{ health_data.memory.process.percent }}%</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Threads:</span>
+                    <span class="metric-value">{{ health_data.memory.process.num_threads }}</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">System:</span>
+                    <span class="metric-value">{{ health_data.memory.system.used_gb }} / {{ health_data.memory.system.total_gb }} GB</span>
+                </div>
+                <div class="progress-bar-container">
+                    {% set mem_percent = health_data.memory.system.percent %}
+                    <div class="progress-bar {% if mem_percent >= 90 %}critical{% elif mem_percent >= 75 %}warning{% else %}ok{% endif %}"
+                         style="width: {{ mem_percent }}%">
+                        {{ mem_percent }}%
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Disk Metrics -->
+        <div class="metric-card">
+            <div class="metric-header">
+                <div class="metric-icon disk">
+                    <i class="fas fa-hdd"></i>
+                </div>
+                <div class="metric-title">Disk</div>
+            </div>
+            <div class="metric-body">
+                <div class="metric-row">
+                    <span class="metric-label">Used:</span>
+                    <span class="metric-value">{{ health_data.disk.root.used_gb }} / {{ health_data.disk.root.total_gb }} GB</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Free:</span>
+                    <span class="metric-value">{{ health_data.disk.root.free_gb }} GB</span>
+                </div>
+                <div class="progress-bar-container">
+                    {% set disk_percent = health_data.disk.root.percent %}
+                    <div class="progress-bar {% if disk_percent >= 90 %}critical{% elif disk_percent >= 75 %}warning{% else %}ok{% endif %}"
+                         style="width: {{ disk_percent }}%">
+                        {{ disk_percent }}%
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- File Descriptors -->
+        <div class="metric-card">
+            <div class="metric-header">
+                <div class="metric-icon files">
+                    <i class="fas fa-file-alt"></i>
+                </div>
+                <div class="metric-title">File Descriptors</div>
+            </div>
+            <div class="metric-body">
+                <div class="metric-row">
+                    <span class="metric-label">Open:</span>
+                    <span class="metric-value">{{ health_data.file_descriptors.open }} / {{ health_data.file_descriptors.soft_limit }}</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Available:</span>
+                    <span class="metric-value">{{ health_data.file_descriptors.available }}</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Connections:</span>
+                    <span class="metric-value">{{ health_data.file_descriptors.connections }}</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Files:</span>
+                    <span class="metric-value">{{ health_data.file_descriptors.files }}</span>
+                </div>
+                <div class="progress-bar-container">
+                    {% set fd_percent = health_data.file_descriptors.usage_percent %}
+                    <div class="progress-bar {% if fd_percent >= 90 %}critical{% elif fd_percent >= 75 %}warning{% else %}ok{% endif %}"
+                         style="width: {{ fd_percent }}%">
+                        {{ fd_percent }}%
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Database Metrics -->
+        <div class="metric-card">
+            <div class="metric-header">
+                <div class="metric-icon database">
+                    <i class="fas fa-database"></i>
+                </div>
+                <div class="metric-title">Database</div>
+            </div>
+            <div class="metric-body">
+                {% if health_data.database.status == 'healthy' %}
+                <div class="metric-row">
+                    <span class="metric-label">Status:</span>
+                    <span class="metric-value" style="color: var(--success-color);">
+                        <i class="fas fa-check-circle"></i> Healthy
+                    </span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Articles:</span>
+                    <span class="metric-value">{{ health_data.database.article_count }}</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Size:</span>
+                    <span class="metric-value">{{ health_data.database.size_mb }} MB</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Locked:</span>
+                    <span class="metric-value">{{ 'Yes' if health_data.database.locked else 'No' }}</span>
+                </div>
+                {% else %}
+                <div class="metric-row">
+                    <span class="metric-label">Status:</span>
+                    <span class="metric-value" style="color: var(--danger-color);">
+                        <i class="fas fa-times-circle"></i> Unhealthy
+                    </span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Error:</span>
+                    <span class="metric-value" style="color: var(--danger-color); font-size: 0.8rem;">
+                        {{ health_data.database.error }}
+                    </span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Vector Store Metrics -->
+        <div class="metric-card">
+            <div class="metric-header">
+                <div class="metric-icon vector">
+                    <i class="fas fa-project-diagram"></i>
+                </div>
+                <div class="metric-title">Vector Store</div>
+            </div>
+            <div class="metric-body">
+                {% if health_data.vector_store.status == 'healthy' %}
+                <div class="metric-row">
+                    <span class="metric-label">Status:</span>
+                    <span class="metric-value" style="color: var(--success-color);">
+                        <i class="fas fa-check-circle"></i> Healthy
+                    </span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Vectors:</span>
+                    <span class="metric-value" title="Number of articles embedded in ChromaDB">{{ health_data.vector_store.vector_count }}</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Size:</span>
+                    <span class="metric-value">{{ health_data.vector_store.size_mb }} MB</span>
+                </div>
+                {% else %}
+                <div class="metric-row">
+                    <span class="metric-label">Status:</span>
+                    <span class="metric-value" style="color: var(--danger-color);">
+                        <i class="fas fa-times-circle"></i> Error
+                    </span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Error:</span>
+                    <span class="metric-value" style="color: var(--danger-color); font-size: 0.8rem;">
+                        {{ health_data.vector_store.error }}
+                    </span>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- API Health -->
+        {% if health_data.api_health %}
+        <div class="metric-card">
+            <div class="metric-header">
+                <div class="metric-icon" style="background-color: rgba(255, 105, 180, 0.1); color: var(--primary-color);">
+                    <i class="fas fa-key"></i>
+                </div>
+                <div class="metric-title">API Keys</div>
+            </div>
+            <div class="metric-body">
+                <div class="metric-row">
+                    <span class="metric-label">Status:</span>
+                    <span class="metric-value" style="color: {% if health_data.api_health.status == 'healthy' %}var(--success-color){% elif health_data.api_health.status == 'degraded' %}var(--warning-color){% else %}var(--danger-color){% endif %};">
+                        <i class="fas {% if health_data.api_health.status == 'healthy' %}fa-check-circle{% elif health_data.api_health.status == 'degraded' %}fa-exclamation-triangle{% else %}fa-times-circle{% endif %}"></i> {{ health_data.api_health.status|title }}
+                    </span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Configured:</span>
+                    <span class="metric-value">{{ health_data.api_health.configured_count }} / {{ health_data.api_health.total_checked }}</span>
+                </div>
+                {% for api, api_status in health_data.api_health.apis.items() %}
+                <div class="metric-row">
+                    <span class="metric-label">{{ api|title }}:</span>
+                    <span class="metric-value" style="color: {% if api_status == 'configured' %}var(--success-color){% else %}var(--danger-color){% endif %};">
+                        <i class="fas {% if api_status == 'configured' %}fa-check{% else %}fa-times{% endif %}"></i> {{ api_status|title }}
+                    </span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Autopolling Status -->
+        {% if health_data.autopolling %}
+        <div class="metric-card">
+            <div class="metric-header">
+                <div class="metric-icon" style="background-color: rgba(50, 205, 50, 0.1); color: var(--secondary-color);">
+                    <i class="fas fa-sync-alt"></i>
+                </div>
+                <div class="metric-title">Auto-polling</div>
+            </div>
+            <div class="metric-body">
+                {% if health_data.autopolling.status in ['enabled', 'disabled'] %}
+                <div class="metric-row">
+                    <span class="metric-label">Status:</span>
+                    <span class="metric-value" style="color: {% if health_data.autopolling.is_enabled %}var(--success-color){% else %}var(--warning-color){% endif %};">
+                        <i class="fas fa-{% if health_data.autopolling.is_enabled %}check-circle{% else %}pause-circle{% endif %}"></i> {{ health_data.autopolling.status|title }}
+                    </span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Requests Today:</span>
+                    <span class="metric-value">{{ health_data.autopolling.requests_today }} / {{ health_data.autopolling.daily_request_limit }}</span>
+                </div>
+                <div class="metric-row">
+                    <span class="metric-label">Usage:</span>
+                    <span class="metric-value">{{ health_data.autopolling.usage_percent }}%</span>
+                </div>
+                {% if health_data.autopolling.last_poll_time %}
+                <div class="metric-row">
+                    <span class="metric-label">Last Poll:</span>
+                    <span class="metric-value" style="font-size: 0.8rem;">{{ health_data.autopolling.last_poll_time }}</span>
+                </div>
+                {% endif %}
+                <div class="progress-bar-container">
+                    {% set poll_percent = health_data.autopolling.usage_percent %}
+                    <div class="progress-bar {% if poll_percent >= 100 %}critical{% elif poll_percent >= 80 %}warning{% else %}ok{% endif %}"
+                         style="width: {{ poll_percent }}%">
+                        {{ poll_percent }}%
+                    </div>
+                </div>
+                {% else %}
+                <div class="metric-row">
+                    <span class="metric-label">Status:</span>
+                    <span class="metric-value" style="color: var(--warning-color);">
+                        <i class="fas fa-question-circle"></i> {{ health_data.autopolling.status|title }}
+                    </span>
+                </div>
+                {% if health_data.autopolling.message %}
+                <div class="metric-row">
+                    <span class="metric-label">Message:</span>
+                    <span class="metric-value" style="font-size: 0.8rem;">{{ health_data.autopolling.message }}</span>
+                </div>
+                {% endif %}
+                {% if health_data.autopolling.error %}
+                <div class="metric-row">
+                    <span class="metric-label">Error:</span>
+                    <span class="metric-value" style="color: var(--danger-color); font-size: 0.8rem;">{{ health_data.autopolling.error }}</span>
+                </div>
+                {% endif %}
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="refresh-info">
+        <div class="auto-refresh">
+            <i class="fas fa-sync-alt"></i>
+            <span>Auto-refreshing every 30 seconds</span>
+        </div>
+        <div style="margin-top: 0.5rem;">
+            Last updated: <span id="last-update">{{ health_data.timestamp }}</span>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Auto-refresh every 30 seconds
+    setInterval(() => {
+        window.location.reload();
+    }, 30000);
+
+    // Update last update time
+    document.getElementById('last-update').textContent = new Date().toLocaleString();
+</script>
+{% endblock %}

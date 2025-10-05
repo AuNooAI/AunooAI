@@ -14,9 +14,9 @@
         .navbar {
             padding: 0.5rem 0;
             background-color: #f8f9fa;
-            /* Ensure navbar always overlays page content */
+            /* Ensure navbar overlays page content but not modals */
             position: relative;
-            z-index: 1100; /* higher than modals (1055) and page elements */
+            z-index: 1040; /* below modals (1055) but above page elements */
         }
         
         .navbar-content {
@@ -625,7 +625,7 @@
                     
                     <li class="menu-item menu-dropdown dropdown">
                         <a class="menu-link dropdown-toggle" href="#" id="appInfoDropdown" role="button" data-bs-toggle="dropdown" aria-expanded="false" data-bs-placement="bottom" title="View application information">
-                            <i class="fas fa-info-circle"></i>
+                            <i class="fas fa-info-circle"></i> App Info
                         </a>
                         <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="appInfoDropdown">
                             <li class="px-3 py-1">
@@ -653,6 +653,12 @@
                                         {% if app_info.last_update %}{{ app_info.last_update }}{% else %}N/A{% endif %}
                                     {% else %}N/A{% endif %}
                                 </span>
+                            </li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li>
+                                <a class="dropdown-item" href="/health/dashboard" data-bs-toggle="tooltip" data-bs-placement="right" title="View detailed system health metrics">
+                                    <i class="fas fa-heartbeat"></i> System Health
+                                </a>
                             </li>
                             <li><hr class="dropdown-divider"></li>
                             <li class="px-3 py-1">

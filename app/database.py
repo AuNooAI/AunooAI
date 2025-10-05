@@ -2409,32 +2409,47 @@ Remember to cite your sources and provide actionable insights where possible."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             metadata_json = json.dumps(metadata) if metadata else None
-            
-            # Check if profile_id column exists, if not, use old schema
+
+            # Check if user_id exists in users table to avoid foreign key constraint errors
+            if user_id:
+                try:
+                    cursor.execute("SELECT username FROM users WHERE username = ?", (user_id,))
+                    if not cursor.fetchone():
+                        logger.warning(f"User {user_id} not found in users table, setting user_id to None")
+                        user_id = None
+                except Exception as e:
+                    logger.warning(f"Error checking user existence: {e}, setting user_id to None")
+                    user_id = None
+
+            # Try to insert with profile_id first (new schema)
             try:
                 cursor.execute("""
                     INSERT INTO auspex_chats (topic, title, user_id, profile_id, metadata)
                     VALUES (?, ?, ?, ?, ?)
                 """, (topic, title, user_id, profile_id, metadata_json))
-            except Exception:
-                # Fallback for old schema without profile_id column
-                logger.warning("profile_id column not found in auspex_chats, using old schema")
-                # Ensure the profile_id is stored in metadata for old schemas
-                try:
-                    md = metadata or {}
-                    if profile_id is not None:
-                        md = {**md, 'profile_id': profile_id}
-                    cursor.execute("""
-                        INSERT INTO auspex_chats (topic, title, user_id, metadata)
-                        VALUES (?, ?, ?, ?)
-                    """, (topic, title, user_id, json.dumps(md) if md else None))
-                except Exception:
-                    # As a last resort, insert without metadata
-                    cursor.execute("""
-                        INSERT INTO auspex_chats (topic, title, user_id, metadata)
-                        VALUES (?, ?, ?, ?)
-                    """, (topic, title, user_id, metadata_json))
-            
+            except sqlite3.OperationalError as e:
+                # Check if it's specifically a column not found error
+                if "no such column: profile_id" in str(e).lower():
+                    logger.warning("profile_id column not found in auspex_chats, using old schema")
+                    # Fallback for old schema without profile_id column
+                    try:
+                        md = metadata or {}
+                        if profile_id is not None:
+                            md = {**md, 'profile_id': profile_id}
+                        cursor.execute("""
+                            INSERT INTO auspex_chats (topic, title, user_id, metadata)
+                            VALUES (?, ?, ?, ?)
+                        """, (topic, title, user_id, json.dumps(md) if md else None))
+                    except Exception:
+                        # As a last resort, insert without metadata
+                        cursor.execute("""
+                            INSERT INTO auspex_chats (topic, title, user_id, metadata)
+                            VALUES (?, ?, ?, ?)
+                        """, (topic, title, user_id, metadata_json))
+                else:
+                    # Re-raise if it's a different operational error
+                    raise
+
             conn.commit()
             return cursor.lastrowid
 
