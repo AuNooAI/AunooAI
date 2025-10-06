@@ -116,6 +116,7 @@ class DatabaseCreator:
                     group_id INTEGER NOT NULL,
                     detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     is_read INTEGER DEFAULT 0,
+                    below_threshold INTEGER DEFAULT 0,
                     FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE,
                     FOREIGN KEY (group_id) REFERENCES keyword_groups(id) ON DELETE CASCADE,
                     UNIQUE(article_uri, group_id)
@@ -132,7 +133,16 @@ class DatabaseCreator:
                     page_size INTEGER NOT NULL DEFAULT 10,
                     is_enabled BOOLEAN NOT NULL DEFAULT 1,
                     daily_request_limit INTEGER NOT NULL DEFAULT 100,
-                    search_date_range INTEGER NOT NULL DEFAULT 7
+                    search_date_range INTEGER NOT NULL DEFAULT 7,
+                    provider TEXT DEFAULT 'newsapi',
+                    auto_ingest_enabled BOOLEAN DEFAULT 0,
+                    min_relevance_threshold REAL DEFAULT 0.0,
+                    quality_control_enabled BOOLEAN DEFAULT 1,
+                    auto_save_approved_only BOOLEAN DEFAULT 0,
+                    default_llm_model TEXT DEFAULT 'gpt-4o-mini',
+                    llm_temperature REAL DEFAULT 0.1,
+                    llm_max_tokens INTEGER DEFAULT 1000,
+                    max_articles_per_run INTEGER DEFAULT 50
                 );
 
                 -- Keyword monitor status table

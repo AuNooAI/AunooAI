@@ -137,6 +137,7 @@ class DatabaseManager:
                     group_id INTEGER NOT NULL,
                     detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     is_read INTEGER DEFAULT 0,
+                    below_threshold INTEGER DEFAULT 0,
                     FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE,
                     FOREIGN KEY (group_id) REFERENCES keyword_groups(id) ON DELETE CASCADE,
                     UNIQUE(article_uri, group_id)
@@ -153,7 +154,16 @@ class DatabaseManager:
                     page_size INTEGER NOT NULL DEFAULT 10,
                     is_enabled BOOLEAN NOT NULL DEFAULT 1,
                     daily_request_limit INTEGER NOT NULL DEFAULT 100,
-                    search_date_range INTEGER NOT NULL DEFAULT 7
+                    search_date_range INTEGER NOT NULL DEFAULT 7,
+                    provider TEXT DEFAULT 'newsapi',
+                    auto_ingest_enabled BOOLEAN DEFAULT 0,
+                    min_relevance_threshold REAL DEFAULT 0.0,
+                    quality_control_enabled BOOLEAN DEFAULT 1,
+                    auto_save_approved_only BOOLEAN DEFAULT 0,
+                    default_llm_model TEXT DEFAULT 'gpt-4o-mini',
+                    llm_temperature REAL DEFAULT 0.1,
+                    llm_max_tokens INTEGER DEFAULT 1000,
+                    max_articles_per_run INTEGER DEFAULT 50
                 );
 
                 -- Keyword monitor status table
@@ -241,6 +251,7 @@ class DatabaseManager:
             migrations = [
                 ("fix_duplicate_alerts", self._fix_duplicate_alerts),
                 ("ensure_completed_onboarding", self._ensure_completed_onboarding),
+                ("add_below_threshold_column", self._add_below_threshold_column),
             ]
 
             # Apply missing migrations
@@ -332,6 +343,21 @@ class DatabaseManager:
                 
         except Exception as e:
             logger.error(f"Error ensuring completed_onboarding column: {str(e)}")
+            raise
+
+    def _add_below_threshold_column(self, cursor):
+        """Add below_threshold column to keyword_article_matches table."""
+        try:
+            # Check if the column exists
+            cursor.execute("PRAGMA table_info(keyword_article_matches)")
+            columns = [col[1] for col in cursor.fetchall()]
+
+            if 'below_threshold' not in columns:
+                logger.info("Adding below_threshold column to keyword_article_matches table")
+                cursor.execute("ALTER TABLE keyword_article_matches ADD COLUMN below_threshold INTEGER DEFAULT 0")
+
+        except Exception as e:
+            logger.error(f"Error adding below_threshold column: {str(e)}")
             raise
 
 def main():

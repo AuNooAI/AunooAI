@@ -501,21 +501,22 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
             logger.info(f"Processing {len(fetched_articles)} articles for group {group_id}")
             for alert in fetched_articles:
                 # CRITICAL DEBUG: Check tuple length
-                if len(alert) != 33:
-                    logger.error(f"TUPLE LENGTH MISMATCH! Expected 33 fields, got {len(alert)} fields")
+                if len(alert) != 34:
+                    logger.error(f"TUPLE LENGTH MISMATCH! Expected 34 fields, got {len(alert)} fields")
                     logger.error(f"Alert tuple: {alert}")
 
                 (
                     alert_id, article_uri, keyword_ids, matched_keyword,
-                    is_read, detected_at, title, summary, uri,
-                    news_source, publication_date,
+                    is_read, detected_at, below_threshold,
+                    title, summary, uri, news_source, publication_date,
                     topic_alignment_score, keyword_relevance_score,
                     confidence_score, overall_match_explanation,
                     extracted_article_topics, extracted_article_keywords,
                     category, sentiment, driver_type, time_to_impact,
-                    future_signal, bias, factual_reporting, mbfc_credibility_rating,
-                    bias_country, press_freedom, media_type, popularity,
-                    auto_ingested, ingest_status, quality_score, quality_issues
+                    future_signal, bias, factual_reporting,
+                    mbfc_credibility_rating, bias_country, press_freedom,
+                    media_type, popularity, auto_ingested, ingest_status,
+                    quality_score, quality_issues
                 ) = alert
 
                 # CRITICAL DEBUG: Log what we got
@@ -535,7 +536,6 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                         matched_keywords = []
                 else:
                     matched_keywords = (DatabaseQueryFacade(db, logger)).get_all_matched_keywords_for_article_and_group_by_article_url_and_group_id(article_uri, group_id)
-
 
                 # Check if we already have bias data from the database
                 has_db_bias_data = bias or factual_reporting or mbfc_credibility_rating or bias_country
@@ -585,6 +585,7 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                 article_data["ingest_status"] = ingest_status or ''
                 article_data["quality_score"] = quality_score if quality_score is not None else None
                 article_data["quality_issues"] = quality_issues or ''
+                article_data["below_threshold"] = bool(below_threshold) if below_threshold is not None else False
 
                 # Add relevance scores directly from query
                 if topic_alignment_score is not None:
@@ -595,16 +596,23 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                     article_data["confidence_score"] = confidence_score
                 if overall_match_explanation:
                     article_data["overall_match_explanation"] = overall_match_explanation
+
+                # Handle extracted topics and keywords (they are JSON strings)
                 if extracted_article_topics:
                     try:
                         article_data["extracted_article_topics"] = json.loads(extracted_article_topics)
                     except:
                         article_data["extracted_article_topics"] = []
+                else:
+                    article_data["extracted_article_topics"] = []
+
                 if extracted_article_keywords:
                     try:
                         article_data["extracted_article_keywords"] = json.loads(extracted_article_keywords)
                     except:
                         article_data["extracted_article_keywords"] = []
+                else:
+                    article_data["extracted_article_keywords"] = []
 
                 # Debug: Log enriched article data
                 if category:
@@ -1089,7 +1097,7 @@ async def get_group_alerts(
     show_read: bool = False,
     skip_media_bias: bool = False,
     page: int = 1,
-    page_size: int = 50,
+    page_size: int = 25,
     status: str = "all",
     db: Database = Depends(get_database_instance),
     session=Depends(verify_session_api)
@@ -1152,9 +1160,10 @@ async def get_group_alerts(
         index = 0
         for alert in alert_results:
             if use_new_table:
-                alert_id, article_uri, keyword_ids, matched_keyword, is_read, detected_at, title, summary, uri, news_source, publication_date, topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation, extracted_article_topics, extracted_article_keywords, category, sentiment, driver_type, time_to_impact, future_signal, bias, factual_reporting, mbfc_credibility_rating, bias_country, press_freedom, media_type, popularity, auto_ingested, ingest_status, quality_score, quality_issues = alert
+                alert_id, article_uri, keyword_ids, matched_keyword, is_read, detected_at, below_threshold, title, summary, uri, news_source, publication_date, topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation, extracted_article_topics, extracted_article_keywords, category, sentiment, driver_type, time_to_impact, future_signal, bias, factual_reporting, mbfc_credibility_rating, bias_country, press_freedom, media_type, popularity, auto_ingested, ingest_status, quality_score, quality_issues = alert
             else:
                 alert_id, article_uri, keyword_ids, matched_keyword, is_read, detected_at, title, summary, uri, news_source, publication_date, topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation, extracted_article_topics, extracted_article_keywords, category, sentiment, driver_type, time_to_impact, future_signal, bias, factual_reporting, mbfc_credibility_rating, bias_country, press_freedom, media_type, popularity, auto_ingested, ingest_status, quality_score, quality_issues = alert
+                below_threshold = False  # Old table doesn't have this field
 
             if use_new_table:
                 # For new table, keyword_ids is a comma-separated string
@@ -1235,7 +1244,8 @@ async def get_group_alerts(
                 "auto_ingested": bool(auto_ingested) if auto_ingested is not None else False,
                 "ingest_status": ingest_status,
                 "quality_score": quality_score,
-                "quality_issues": quality_issues
+                "quality_issues": quality_issues,
+                "below_threshold": bool(below_threshold) if below_threshold is not None else False
             }
 
             # Parse JSON fields for extracted topics and keywords

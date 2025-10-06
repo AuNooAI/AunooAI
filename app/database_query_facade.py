@@ -2180,7 +2180,8 @@ class DatabaseQueryFacade:
                                   a.auto_ingested,
                                   a.ingest_status,
                                   a.quality_score,
-                                  a.quality_issues
+                                  a.quality_issues,
+                                  kam.below_threshold
                            FROM keyword_article_matches kam
                                     JOIN articles a ON kam.article_uri = a.uri
                            WHERE kam.group_id = ?
@@ -2453,6 +2454,24 @@ class DatabaseQueryFacade:
 
             conn.commit()
 
+    def mark_article_as_below_threshold(self, article_uri, group_id=None):
+        """Mark an article as below relevance threshold in keyword_article_matches table"""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            if group_id:
+                cursor.execute(
+                    "UPDATE keyword_article_matches SET below_threshold = 1 WHERE article_uri = ? AND group_id = ?",
+                    (article_uri, group_id)
+                )
+            else:
+                cursor.execute(
+                    "UPDATE keyword_article_matches SET below_threshold = 1 WHERE article_uri = ?",
+                    (article_uri,)
+                )
+
+            conn.commit()
+
     def get_number_of_monitored_keywords_by_group_id(self, group_id):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
@@ -2612,6 +2631,7 @@ class DatabaseQueryFacade:
             literal(None).label("matched_keyword"),
             keyword_article_matches.c.is_read,
             keyword_article_matches.c.detected_at,
+            keyword_article_matches.c.below_threshold,
             articles.c.title,
             articles.c.summary,
             articles.c.uri,
@@ -3080,6 +3100,7 @@ class DatabaseQueryFacade:
             literal(None).label("matched_keyword"),
             keyword_article_matches.c.is_read,
             keyword_article_matches.c.detected_at,
+            keyword_article_matches.c.below_threshold,
             articles.c.title,
             articles.c.summary,
             articles.c.uri,

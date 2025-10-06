@@ -2180,7 +2180,13 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                                 <i class="fas fa-star me-1"></i>{{ '%.0f'|format(alert.article.quality_score * 100) }}%
                                             </span>
                                             {% endif %}
-                                            
+
+                                            {% if alert.article.below_threshold %}
+                                            <span class="badge bg-warning text-dark" title="Article relevance score is below threshold">
+                                                <i class="fas fa-filter me-1"></i>Below Threshold
+                                            </span>
+                                            {% endif %}
+
                                             {% if alert.article.bias or alert.article.factual_reporting %}
                                             <span class="badge bg-info" title="Has media bias data">
                                                 <i class="fas fa-shield-alt me-1"></i>Bias
@@ -3923,31 +3929,30 @@ async function checkKeywords(event) {
 // Update the DOMContentLoaded event listener to be simpler
 document.addEventListener('DOMContentLoaded', function() {
     console.log('🚀 DOMContentLoaded event fired');
-    
+
     // Load models and trend chart
     console.log('📊 Loading charts and models...');
     loadTrendChart();
     loadAvailableModels();
     setInterval(loadTrendChart, 5 * 60 * 1000);
-    
-    // Initialize toggles
-    document.querySelectorAll('.show-read-toggle').forEach(toggle => {
-        const topic = toggle.dataset.topic;
-        const groupId = toggle.dataset.groupId;
-        
-        if (!topic || !groupId) {
-            console.error('Toggle missing required data attributes');
-            return;
+
+    // Auto-trigger pagination for all groups on initial load
+    console.log('🔄 Auto-loading pagination for all groups...');
+    document.querySelectorAll('[data-group-id][data-topic]').forEach(groupElement => {
+        const groupId = parseInt(groupElement.dataset.groupId);
+        const topic = groupElement.dataset.topic;
+
+        if (groupId && topic) {
+            console.log(`Loading pagination for group ${groupId} (${topic})`);
+            // Initialize pagination state with default page size of 25
+            if (!paginationState[groupId]) {
+                paginationState[groupId] = { pageSize: 25 };
+            }
+            // Trigger paginated load (showRead=false, skipMediaBias=true, page=1, status='all')
+            setTimeout(() => {
+                refreshGroupArticles(topic, groupId, false, true, 1, 'all');
+            }, 100 * groupId); // Stagger loads slightly
         }
-        
-        const savedState = localStorage.getItem(`showReadArticles_${groupId}`);
-        toggle.checked = savedState === 'true' || false;
-        
-        toggle.addEventListener('change', async function() {
-            console.log(`Toggle changed for group ${groupId} (${topic}): ${this.checked}`);
-            localStorage.setItem(`showReadArticles_${groupId}`, this.checked);
-            await refreshGroupArticles(topic, groupId, this.checked);
-        });
     });
 
     // Initialize reset timer
@@ -4511,8 +4516,7 @@ function generatePageNumbers(currentPage, totalPages, topic, groupId) {
 }
 
 async function changePage(topic, groupId, page) {
-    const toggle = document.querySelector(`#showReadToggle_${groupId}`);
-    const showRead = toggle ? toggle.checked : false;
+    const showRead = false; // Always show only unread articles
     
     // Clear selections when changing pages
     selectedArticles.byGroup[groupId] = [];
@@ -4530,10 +4534,9 @@ async function changePageSize(topic, groupId, pageSize) {
         paginationState[groupId] = {};
     }
     paginationState[groupId].pageSize = parseInt(pageSize);
-    
+
     // Reset to page 1 when changing page size
-    const toggle = document.querySelector(`#showReadToggle_${groupId}`);
-    const showRead = toggle ? toggle.checked : false;
+    const showRead = false; // Always show only unread articles
     
     // Clear selections when changing page size
     selectedArticles.byGroup[groupId] = [];
@@ -5214,9 +5217,9 @@ async function bulkDeleteArticles(topic, groupId) {
 async function refreshGroupArticles(topic, groupId, showRead = false, skipMediaBias = true, page = 1, status = 'all') {
     try {
         console.log(`Refreshing articles for group ${groupId} (${topic}), showRead: ${showRead}, page: ${page}, status: ${status}`);
-        
-        // Get current page size from state or use default
-        const pageSize = paginationState[groupId]?.pageSize || 50;
+
+        // Get current page size from state or use default of 25
+        const pageSize = paginationState[groupId]?.pageSize || 25;
         
         const response = await fetch(`/api/keyword-monitor/alerts/${encodeURIComponent(topic)}?show_read=${showRead}&group_id=${groupId}&skip_media_bias=${skipMediaBias}&page=${page}&page_size=${pageSize}&status=${status}`, {
             credentials: 'same-origin',
@@ -5634,6 +5637,11 @@ function updateGroupAlerts(card, data, groupId) {
                             if (alert.article.quality_score != null && alert.article.quality_score !== undefined) {
                                 const scorePercent = Math.round(alert.article.quality_score * 100);
                                 badges += `<span class="badge bg-secondary" title="Quality score: ${alert.article.quality_score.toFixed(2)}"><i class="fas fa-star me-1"></i>${scorePercent}%</span>`;
+                            }
+
+                            // Below threshold badge
+                            if (alert.article.below_threshold) {
+                                badges += '<span class="badge bg-warning text-dark" title="Article relevance score is below threshold"><i class="fas fa-filter me-1"></i>Below Threshold</span>';
                             }
 
                             return badges;
@@ -6462,8 +6470,7 @@ function applyStatusFilter(groupId) {
         return;
     }
 
-    const showReadToggle = document.querySelector(`#showReadToggle_${groupId}`);
-    const showRead = showReadToggle ? showReadToggle.checked : false;
+    const showRead = false; // Always show only unread articles
 
     // Get current status filter value
     const statusFilter = document.querySelector(`input[name="statusFilter_${groupId}"]:checked`)?.value || 'all';

@@ -732,6 +732,13 @@ class AutomatedIngestService:
                         "quality_issues": quality_result.get("quality_issues")
                     }
             else:
+                # Mark article as below threshold in keyword_article_matches
+                try:
+                    (DatabaseQueryFacade(self.db, logger)).mark_article_as_below_threshold(article_uri)
+                    self.logger.debug(f"Marked article {article_uri} as below threshold")
+                except Exception as e:
+                    self.logger.warning(f"Failed to mark article as below threshold: {e}")
+
                 return {
                     "status": "filtered",
                     "uri": article_uri,
@@ -1148,6 +1155,14 @@ class AutomatedIngestService:
                                     results["errors"].append(error_msg)
                                     self.logger.error(f"❌ Failed article update error: {error_msg}")
                     else:
+                        # Mark article as below threshold in keyword_article_matches
+                        try:
+                            article_uri = enriched_article.get("uri")
+                            (DatabaseQueryFacade(self.db, logger)).mark_article_as_below_threshold(article_uri)
+                            self.logger.debug(f"Marked article {article_uri} as below threshold")
+                        except Exception as e:
+                            self.logger.warning(f"Failed to mark article as below threshold: {e}")
+
                         self.logger.warning(f"   ❌ Article below relevance threshold ({relevance_score:.3f} < {relevance_threshold:.3f}) - skipping")
                     
                 except Exception as e:

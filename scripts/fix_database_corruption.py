@@ -264,6 +264,7 @@ def create_fresh_database(db_path):
                 group_id INTEGER NOT NULL,
                 detected_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 is_read INTEGER DEFAULT 0,
+                below_threshold INTEGER DEFAULT 0,
                 FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE,
                 FOREIGN KEY (group_id) REFERENCES keyword_groups(id) ON DELETE CASCADE,
                 UNIQUE(article_uri, group_id)

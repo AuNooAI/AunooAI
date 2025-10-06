@@ -328,12 +328,9 @@ t_auspex_chats = Table(
     Column('created_at', TIMESTAMP, default=text('CURRENT_TIMESTAMP')),
     Column('updated_at', TIMESTAMP, default=text('CURRENT_TIMESTAMP')),
     Column('user_id', ForeignKey('users.username', ondelete='SET NULL')),
-    Column('profile_id', Integer),  # References organizational_profiles.id
     Column('metadata', Text),
     Index('idx_auspex_chats_topic', 'topic'),
-    Index('idx_auspex_chats_user_id', 'user_id'),
-    Index('idx_auspex_chats_profile_id', 'profile_id'),
-    Index('idx_auspex_chats_user_profile', 'user_id', 'profile_id')
+    Index('idx_auspex_chats_user_id', 'user_id')
 )
 
 t_auspex_prompts = Table(
@@ -403,6 +400,7 @@ t_keyword_article_matches = Table(
     Column('group_id', ForeignKey('keyword_groups.id', ondelete='CASCADE'), nullable=False),
     Column('detected_at', Text, default=text('CURRENT_TIMESTAMP')),
     Column('is_read', Integer, default=text('0')),
+    Column('below_threshold', Integer, default=text('0')),
     UniqueConstraint('article_uri', 'group_id')
 )
 
