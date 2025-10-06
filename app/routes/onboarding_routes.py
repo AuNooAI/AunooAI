@@ -35,101 +35,106 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
         # Use the same path resolution as main.py
         env_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
         
-        # Handle the model-specific case
-        if model:
-            # Determine which provider this model belongs to
-            if provider == "openai":
-                # Define environment variable name for this model
-                model_env_var = f"OPENAI_API_KEY_{model.replace('-', '_').replace('.', '_').upper()}"
-                logger.info(f"Setting model-specific key: {model_env_var}")
-                
-                # Read existing content
-                try:
-                    with open(env_path, "r") as env_file:
-                        lines = env_file.readlines()
-                except FileNotFoundError:
-                    lines = []
-                
-                # Also set the general provider key
-                provider_env_var = "OPENAI_API_KEY"
-                
-                # Update or add the keys
-                model_key_line = f'{model_env_var}="{api_key}"\n'
-                provider_key_line = f'{provider_env_var}="{api_key}"\n'
-                
-                model_key_found = False
-                provider_key_found = False
-                
-                for i, line in enumerate(lines):
-                    if line.startswith(f'{model_env_var}='):
-                        lines[i] = model_key_line
-                        model_key_found = True
-                    elif line.startswith(f'{provider_env_var}='):
-                        lines[i] = provider_key_line
-                        provider_key_found = True
-                
-                if not model_key_found:
-                    lines.append(model_key_line)
-                if not provider_key_found:
-                    lines.append(provider_key_line)
-                
-                # Write back to .env
-                with open(env_path, "w") as env_file:
-                    env_file.writelines(lines)
-                
-                # Update environment
-                os.environ[model_env_var] = api_key
-                os.environ[provider_env_var] = api_key
-                
-                logger.info(f"Successfully configured API key for model: {model}")
-                
-            elif provider == "anthropic":
-                # Similar approach for Anthropic models
-                model_env_var = f"ANTHROPIC_API_KEY_{model.replace('-', '_').replace('.', '_').upper()}"
-                logger.info(f"Setting model-specific key: {model_env_var}")
-                
-                # Read existing content
-                try:
-                    with open(env_path, "r") as env_file:
-                        lines = env_file.readlines()
-                except FileNotFoundError:
-                    lines = []
-                
-                # Also set the general provider key
-                provider_env_var = "ANTHROPIC_API_KEY"
-                
-                # Update or add the keys
-                model_key_line = f'{model_env_var}="{api_key}"\n'
-                provider_key_line = f'{provider_env_var}="{api_key}"\n'
-                
-                model_key_found = False
-                provider_key_found = False
-                
-                for i, line in enumerate(lines):
-                    if line.startswith(f'{model_env_var}='):
-                        lines[i] = model_key_line
-                        model_key_found = True
-                    elif line.startswith(f'{provider_env_var}='):
-                        lines[i] = provider_key_line
-                        provider_key_found = True
-                
-                if not model_key_found:
-                    lines.append(model_key_line)
-                if not provider_key_found:
-                    lines.append(provider_key_line)
-                
-                # Write back to .env
-                with open(env_path, "w") as env_file:
-                    env_file.writelines(lines)
-                
-                # Update environment
-                os.environ[model_env_var] = api_key
-                os.environ[provider_env_var] = api_key
-                
-                logger.info(f"Successfully configured API key for model: {model}")
-            
-            # Continue with existing validation code for other providers
-            
+        # Set the provider-level API key (same key works for all models from that provider)
+        if provider == "openai":
+            env_var = "OPENAI_API_KEY"
+            logger.info(f"Setting OpenAI API key")
+
+            # Read existing content
+            try:
+                with open(env_path, "r") as env_file:
+                    lines = env_file.readlines()
+            except FileNotFoundError:
+                lines = []
+
+            # Update or add the key
+            key_line = f'{env_var}="{api_key}"\n'
+            key_found = False
+
+            for i, line in enumerate(lines):
+                if line.startswith(f'{env_var}='):
+                    lines[i] = key_line
+                    key_found = True
+                    break
+
+            if not key_found:
+                lines.append(key_line)
+
+            # Write back to .env
+            with open(env_path, "w") as env_file:
+                env_file.writelines(lines)
+
+            # Update environment
+            os.environ[env_var] = api_key
+
+            logger.info(f"Successfully configured OpenAI API key")
+
+        elif provider == "anthropic":
+            env_var = "ANTHROPIC_API_KEY"
+            logger.info(f"Setting Anthropic API key")
+
+            # Read existing content
+            try:
+                with open(env_path, "r") as env_file:
+                    lines = env_file.readlines()
+            except FileNotFoundError:
+                lines = []
+
+            # Update or add the key
+            key_line = f'{env_var}="{api_key}"\n'
+            key_found = False
+
+            for i, line in enumerate(lines):
+                if line.startswith(f'{env_var}='):
+                    lines[i] = key_line
+                    key_found = True
+                    break
+
+            if not key_found:
+                lines.append(key_line)
+
+            # Write back to .env
+            with open(env_path, "w") as env_file:
+                env_file.writelines(lines)
+
+            # Update environment
+            os.environ[env_var] = api_key
+
+            logger.info(f"Successfully configured Anthropic API key")
+
+        elif provider == "gemini":
+            env_var = "GEMINI_API_KEY"
+            logger.info(f"Setting Gemini API key")
+
+            # Read existing content
+            try:
+                with open(env_path, "r") as env_file:
+                    lines = env_file.readlines()
+            except FileNotFoundError:
+                lines = []
+
+            # Update or add the key
+            key_line = f'{env_var}="{api_key}"\n'
+            key_found = False
+
+            for i, line in enumerate(lines):
+                if line.startswith(f'{env_var}='):
+                    lines[i] = key_line
+                    key_found = True
+                    break
+
+            if not key_found:
+                lines.append(key_line)
+
+            # Write back to .env
+            with open(env_path, "w") as env_file:
+                env_file.writelines(lines)
+
+            # Update environment
+            os.environ[env_var] = api_key
+
+            logger.info(f"Successfully configured Gemini API key")
+
         elif provider == "newsapi":
             # Test NewsAPI key
             url = f"https://newsapi.org/v2/top-headlines?country=us&apiKey={api_key}"
@@ -276,7 +281,47 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
             # Update environment
             os.environ[primary_env_var] = api_key
             os.environ[secondary_env_var] = api_key
-                    
+
+        elif provider == "newsdata":
+            # Save NewsData.io key
+            primary_env_var = 'PROVIDER_NEWSDATA_KEY'
+            secondary_env_var = 'NEWSDATA_KEY'
+
+            # Read existing content
+            try:
+                with open(env_path, "r") as env_file:
+                    lines = env_file.readlines()
+            except FileNotFoundError:
+                lines = []
+
+            # Update or add both keys
+            primary_line = f'{primary_env_var}="{api_key}"\n'
+            secondary_line = f'{secondary_env_var}="{api_key}"\n'
+
+            primary_found = False
+            secondary_found = False
+
+            for i, line in enumerate(lines):
+                if line.startswith(f'{primary_env_var}='):
+                    lines[i] = primary_line
+                    primary_found = True
+                elif line.startswith(f'{secondary_env_var}='):
+                    lines[i] = secondary_line
+                    secondary_found = True
+
+            if not primary_found:
+                lines.append(primary_line)
+            if not secondary_found:
+                lines.append(secondary_line)
+
+            # Write back to .env
+            with open(env_path, "w") as env_file:
+                env_file.writelines(lines)
+
+            # Update environment
+            os.environ[primary_env_var] = api_key
+            os.environ[secondary_env_var] = api_key
+
         elif provider == "huggingface":
             # Save Hugging Face key
             env_var_name = 'HUGGINGFACE_API_KEY'
@@ -321,52 +366,7 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
             # Update environment
             os.environ[env_var_name] = api_key
             os.environ[model_key_name] = api_key
-            
-        elif provider == "gemini":
-            # Save Google API key
-            env_var_name = 'GEMINI_API_KEY'
 
-            # Read existing content
-            try:
-                with open(env_path, "r") as env_file:
-                    lines = env_file.readlines()
-            except FileNotFoundError:
-                lines = []
-
-            # Update or add the key
-            new_line = f'{env_var_name}="{api_key}"\n'
-            key_found = False
-
-            for i, line in enumerate(lines):
-                if line.startswith(f'{env_var_name}='):
-                    lines[i] = new_line
-                    key_found = True
-                    break
-
-            if not key_found:
-                lines.append(new_line)
-                
-            # Add model-specific key
-            model_key_name = 'GEMINI_API_KEY_GEMINI_PRO'
-            model_key_found = False
-            
-            for i, line in enumerate(lines):
-                if line.startswith(f'{model_key_name}='):
-                    lines[i] = f'{model_key_name}="{api_key}"\n'
-                    model_key_found = True
-                    break
-            
-            if not model_key_found:
-                lines.append(f'{model_key_name}="{api_key}"\n')
-
-            # Write back to .env
-            with open(env_path, "w") as env_file:
-                env_file.writelines(lines)
-
-            # Update environment
-            os.environ[env_var_name] = api_key
-            os.environ[model_key_name] = api_key
-            
         else:
             raise HTTPException(status_code=400, detail="Unsupported provider")
         
@@ -396,54 +396,64 @@ async def check_api_keys():
     load_dotenv(dotenv_path=env_path, override=True)
     
     def mask_key(key):
-        """Return a masked version of the key if it exists"""
+        """Return a masked version of the key if it exists and is valid"""
         if not key:
             return None
+
+        # Check if key is a placeholder
+        placeholder_patterns = [
+            'sk-proj-...',
+            'sk-ant-...',
+            'AIza...',
+            'your-newsapi-key',
+            'your-firecrawl-key',
+            'your-api-key',
+            '...',
+        ]
+
+        # Reject placeholder values
+        if any(pattern in key for pattern in placeholder_patterns):
+            return None
+
+        # Also reject very short keys (likely placeholders)
         if len(key) <= 8:
-            return key
+            return None
+
         return f"{key[:4]}...{key[-4:]}"
     
     # Check for all required api keys
     newsapi_key = os.getenv("PROVIDER_NEWSAPI_KEY") or os.getenv("NEWSAPI_KEY")
     firecrawl_key = os.getenv("PROVIDER_FIRECRAWL_KEY") or os.getenv("FIRECRAWL_API_KEY")
-    
-    # Get all configured models and their keys
-    configured_models = []
-    
-    # Get all environment variables
-    for key, value in os.environ.items():
-        # Check for OpenAI model-specific keys
-        if key.startswith("OPENAI_API_KEY_") and key != "OPENAI_API_KEY":
-            model_name = key.replace("OPENAI_API_KEY_", "").lower().replace("_", "-")
-            configured_models.append({
-                "name": model_name,
-                "provider": "openai",
-                "key": mask_key(value)
-            })
-        
-        # Check for Anthropic model-specific keys
-        elif key.startswith("ANTHROPIC_API_KEY_") and key != "ANTHROPIC_API_KEY":
-            model_name = key.replace("ANTHROPIC_API_KEY_", "").lower().replace("_", "-")
-            configured_models.append({
-                "name": model_name,
-                "provider": "anthropic",
-                "key": mask_key(value)
-            })
-    
-    # Log what we found
-    logger.info(f"Found {len(configured_models)} configured AI models")
-    for model in configured_models:
-        logger.info(f"  - {model['name']} ({model['provider']})")
-    
-    # Return the data
+    thenewsapi_key = os.getenv("PROVIDER_THENEWSAPI_KEY") or os.getenv("THENEWSAPI_KEY")
+    newsdata_key = os.getenv("PROVIDER_NEWSDATA_KEY") or os.getenv("NEWSDATA_KEY")
+
+    # Mask keys (this also validates them - returns None for placeholders)
+    newsapi_masked = mask_key(newsapi_key)
+    firecrawl_masked = mask_key(firecrawl_key)
+    thenewsapi_masked = mask_key(thenewsapi_key)
+    newsdata_masked = mask_key(newsdata_key)
+    openai_masked = mask_key(os.getenv("OPENAI_API_KEY"))
+    anthropic_masked = mask_key(os.getenv("ANTHROPIC_API_KEY"))
+    gemini_masked = mask_key(os.getenv("GEMINI_API_KEY"))
+
+    # Return the data - use masked values to determine if keys are valid
     result = {
-        "newsapi": bool(newsapi_key),
-        "newsapi_key": mask_key(newsapi_key),
-        "firecrawl": bool(firecrawl_key),
-        "firecrawl_key": mask_key(firecrawl_key),
-        "configured_models": configured_models
+        "newsapi": bool(newsapi_masked),
+        "newsapi_key": newsapi_masked,
+        "firecrawl": bool(firecrawl_masked),
+        "firecrawl_key": firecrawl_masked,
+        "thenewsapi": bool(thenewsapi_masked),
+        "thenewsapi_key": thenewsapi_masked,
+        "newsdata": bool(newsdata_masked),
+        "newsdata_key": newsdata_masked,
+        "openai": bool(openai_masked),
+        "openai_key": openai_masked,
+        "anthropic": bool(anthropic_masked),
+        "anthropic_key": anthropic_masked,
+        "gemini": bool(gemini_masked),
+        "gemini_key": gemini_masked
     }
-    
+
     return result
 
 @router.get("/api/onboarding/check-keys")
