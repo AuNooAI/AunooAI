@@ -284,8 +284,8 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
 
         elif provider == "newsdata":
             # Save NewsData.io key
-            primary_env_var = 'PROVIDER_NEWSDATA_KEY'
-            secondary_env_var = 'NEWSDATA_KEY'
+            primary_env_var = 'PROVIDER_NEWSDATA_API_KEY'
+            secondary_env_var = 'NEWSDATA_API_KEY'
 
             # Read existing content
             try:
@@ -425,7 +425,7 @@ async def check_api_keys():
     newsapi_key = os.getenv("PROVIDER_NEWSAPI_KEY") or os.getenv("NEWSAPI_KEY")
     firecrawl_key = os.getenv("PROVIDER_FIRECRAWL_KEY") or os.getenv("FIRECRAWL_API_KEY")
     thenewsapi_key = os.getenv("PROVIDER_THENEWSAPI_KEY") or os.getenv("THENEWSAPI_KEY")
-    newsdata_key = os.getenv("PROVIDER_NEWSDATA_KEY") or os.getenv("NEWSDATA_KEY")
+    newsdata_key = os.getenv("PROVIDER_NEWSDATA_API_KEY") or os.getenv("NEWSDATA_API_KEY")
 
     # Mask keys (this also validates them - returns None for placeholders)
     newsapi_masked = mask_key(newsapi_key)

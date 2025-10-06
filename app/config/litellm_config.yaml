@@ -29,7 +29,7 @@ model_list:
     litellm_params:
       model: huggingface/mistralai/Mixtral-8x7B-Instruct-v0.1
       api_base: "https://api-inference.huggingface.co/models/mistralai/Mixtral-8x7B-Instruct-v0.1"
-      api_key: "os.environ/HUGGINGFACE_API_KEY_MIXTRAL_8X7B"
+      api_key: "os.environ/HUGGINGFACE_API_KEY"
       custom_llm_provider: "huggingface"
 
   # Anthropic

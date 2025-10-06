@@ -685,60 +685,70 @@ class LiteLLMModel(AIModel):
 
 def get_available_models():
     """Get models that have API keys configured in the environment."""
-    logger.debug("🔍 Scanning environment variables for configured API keys...")
-    
+    logger.debug("🔍 Scanning for configured models from litellm_config.yaml...")
+
     models = []
-    seen = set()  # Track unique model names
-    
-    # Expanded provider prefixes based on LiteLLM supported providers
-    provider_prefixes = {
-        'OPENAI_API_KEY_': 'openai',
-        'ANTHROPIC_API_KEY_': 'anthropic',
-        'AZURE_API_KEY_': 'azure',
-        'HUGGINGFACE_API_KEY_': 'huggingface',
-        'COHERE_API_KEY_': 'cohere',
-        'REPLICATE_API_KEY_': 'replicate',
-        'TOGETHER_API_KEY_': 'together',
-        'MISTRAL_API_KEY_': 'mistral',
-        'GEMINI_API_KEY_': 'google',
-        'VERTEX_AI_KEY_': 'vertex_ai',
-        'OLLAMA_API_KEY_': 'ollama',
-        'BEDROCK_API_KEY_': 'bedrock',
-        'AI21_API_KEY_': 'ai21',
-        'CLOUDFLARE_API_KEY_': 'cloudflare',
-        'PALM_API_KEY_': 'palm',
-        'PERPLEXITY_API_KEY_': 'perplexity',
-        'GROQ_API_KEY_': 'groq',
-        'XAI_API_KEY_': 'xai',
-        'AUNOOAI_API_KEY_': 'aunooai'  # Add support for AUNOOAI provider
+
+    # Provider-level API keys
+    provider_keys = {
+        'openai': os.getenv('OPENAI_API_KEY'),
+        'anthropic': os.getenv('ANTHROPIC_API_KEY'),
+        'gemini': os.getenv('GEMINI_API_KEY'),
+        'google': os.getenv('GEMINI_API_KEY'),  # Gemini uses Google provider
+        'huggingface': os.getenv('HUGGINGFACE_API_KEY'),
+        'azure': os.getenv('AZURE_API_KEY'),
+        'cohere': os.getenv('COHERE_API_KEY'),
+        'mistral': os.getenv('MISTRAL_API_KEY')
     }
-    
-    for key in os.environ:
-        for prefix, provider in provider_prefixes.items():
-            if key.startswith(prefix):
-                value = os.environ[key]
-                if value and not value.startswith("os.environ/"):
-                    # Extract model name from environment variable
-                    model_name = key.split("_", 3)[-1].lower()
-                    # Convert underscores to dashes but preserve dots
-                    if "_" in model_name:
-                        model_name = model_name.replace("_", "-")
-                    
-                    # Only add if we haven't seen this model/provider combination
-                    model_key = (model_name, provider)
-                    if model_key not in seen:
-                        seen.add(model_key)
+
+    # Read models from litellm_config.yaml
+    try:
+        import yaml
+        config_path = os.path.join(os.path.dirname(__file__), 'config', 'litellm_config.yaml')
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+
+            model_list = config.get('model_list', [])
+
+            for model_config in model_list:
+                model_name = model_config.get('model_name')
+                litellm_params = model_config.get('litellm_params', {})
+                model_path = litellm_params.get('model', '')
+
+                # Extract provider from model path (e.g., "openai/gpt-4" -> "openai")
+                if '/' in model_path:
+                    provider = model_path.split('/')[0]
+                else:
+                    provider = 'unknown'
+
+                # Check if provider key is configured
+                api_key = litellm_params.get('api_key', '')
+                if api_key.startswith('os.environ/'):
+                    # Extract env var name
+                    env_var = api_key.replace('os.environ/', '')
+                    key_value = os.getenv(env_var)
+
+                    # Only include model if the API key is configured
+                    if key_value and key_value.strip() and not key_value.startswith('your-'):
                         models.append({
                             "name": model_name,
                             "provider": provider
                         })
                         logger.debug(f"✅ Found configured model: {model_name} ({provider})")
-    
+                    else:
+                        logger.debug(f"⏭️ Skipping {model_name} - {env_var} not configured")
+        else:
+            logger.warning(f"⚠️ litellm_config.yaml not found at {config_path}")
+
+    except Exception as e:
+        logger.error(f"❌ Error reading litellm_config.yaml: {e}")
+
     if not models:
         logger.warning("⚠️ No configured models found. Please check your environment variables.")
     else:
         logger.info(f"🎯 Found {len(models)} configured models: {[m['name'] for m in models]}")
-    
+
     return models
 
 def ai_get_available_models():
