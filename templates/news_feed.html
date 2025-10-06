@@ -713,7 +713,7 @@
             <div class="row g-3">
                 <div class="col-md-6">
                     <div class="row g-2">
-                        <div class="col-5">
+                        <div class="col-6">
                             <label class="form-label small">Date Range:</label>
                             <select id="date-range-select" class="form-select form-select-sm" onchange="handleDateRangeChange()">
                     <option value="24h">Last 24 Hours</option>
@@ -725,7 +725,7 @@
                     <option value="custom">Custom Date</option>
                 </select>
             </div>
-                        <div class="col-7">
+                        <div class="col-6">
                             <label class="form-label small">Topic:</label>
                             <select id="topic-select" class="form-select form-select-sm">
                                 <option value="">All Topics</option>
@@ -747,7 +747,7 @@
             </div>
                 <div class="col-md-6">
                     <div class="row g-2">
-                        <div class="col-4">
+                        <div class="col-6">
                             <label class="form-label small">Model:</label>
                             <select id="model-select" class="form-select form-select-sm">
                     <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
@@ -760,7 +760,7 @@
                     <option value="gemini-pro">Gemini Pro</option>
                 </select>
             </div>
-                        <div class="col-8">
+                        <div class="col-6">
                             <label class="form-label small">Profile:</label>
                             <div class="d-flex gap-1">
                                 <select id="profile-select" class="form-select form-select-sm">
@@ -772,16 +772,19 @@
                                 <button type="button" class="btn btn-outline-primary btn-sm" onclick="loadOrganizationalProfiles()" title="Refresh">
                         <i class="fas fa-sync"></i>
                     </button>
-                                <button type="button" class="btn btn-outline-info btn-sm" onclick="saveCurrentAsDefaults()" title="Save current settings as defaults">
-                        <i class="fas fa-star"></i>
-                    </button>
                 </div>
                 </div>
             </div>
                     <div class="mt-2">
+                        
+                    <div class="mt-2 d-flex gap-2">
+                        <button type="button" class="btn btn-outline-info btn-sm" onclick="saveCurrentAsDefaults()" title="Save current settings as defaults">
+                            <i class="fas fa-star"></i> Save Defaults
+                </button>
                         <button id="restore-articles-btn" class="btn btn-outline-warning btn-sm" onclick="clearExcludedArticles()" style="display: none;" title="Restore hidden articles">
                     <i class="fas fa-undo"></i> Restore Hidden
                 </button>
+                    </div>
                     </div>
                 </div>
             </div>
@@ -897,8 +900,69 @@
 
         <!-- Six Articles Tab -->
         <div class="tab-pane fade" id="six-articles-content">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <h5 class="mb-0">AI-Generated Six Articles</h5>
+            <div class="mb-3">
+                <h5 class="mb-3">AI-Generated Six Articles</h5>
+
+                <!-- Persona and Article Count Selectors -->
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="six-articles-persona" class="form-label">
+                            <i class="fas fa-user-tie me-2"></i>Target Persona
+                        </label>
+                        <select id="six-articles-persona" class="form-select">
+                            <option value="CEO" selected>CEO (Chief Executive Officer)</option>
+                            <option value="CMO">CMO (Chief Marketing Officer)</option>
+                            <option value="CTO">CTO (Chief Technology Officer)</option>
+                            <option value="CISO">CISO (Chief Information Security Officer)</option>
+                            <option value="Custom">Custom</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="six-articles-count" class="form-label">
+                            <i class="fas fa-list-ol me-2"></i>Article Count
+                        </label>
+                        <select id="six-articles-count" class="form-select">
+                            <option value="1">1 Article</option>
+                            <option value="2">2 Articles</option>
+                            <option value="3">3 Articles</option>
+                            <option value="4">4 Articles</option>
+                            <option value="5">5 Articles</option>
+                            <option value="6" selected>6 Articles</option>
+                            <option value="7">7 Articles</option>
+                            <option value="8">8 Articles</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Podcast Settings -->
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label for="six-articles-voice" class="form-label">
+                            <i class="fas fa-volume-up me-2"></i>Podcast Voice
+                        </label>
+                        <select id="six-articles-voice" class="form-select">
+                            <option value="21m00Tcm4TlvDq8ikWAM" selected>Rachel (Default)</option>
+                            <!-- Will be populated from API -->
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label for="six-articles-length" class="form-label">
+                            <i class="fas fa-clock me-2"></i>Length per Article (seconds)
+                        </label>
+                        <select id="six-articles-length" class="form-select">
+                            <option value="45">45 seconds</option>
+                            <option value="60">60 seconds</option>
+                            <option value="75">75 seconds</option>
+                            <option value="90" selected>90 seconds</option>
+                            <option value="105">105 seconds</option>
+                            <option value="120">120 seconds</option>
+                            <option value="135">135 seconds</option>
+                            <option value="150">150 seconds</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
                 <div class="d-flex gap-2">
                     <button id="generate-btn" class="btn btn-primary" onclick="loadSixArticles()">
                         <i class="fas fa-magic me-2"></i>Generate
@@ -912,7 +976,8 @@
                         </button>
                         <ul class="dropdown-menu dropdown-menu-end">
                             <li><a class="dropdown-item" href="#" onclick="exportSixArticlesMarkdown()"><i class="fab fa-markdown me-2"></i>Download Markdown</a></li>
-                            <li><a class="dropdown-item" href="#" onclick="exportSixArticlesHTML()"><i class="fas fa-code me-2"></i>Download HTML</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="exportSixArticlesHTML()"><i class="fas fa-code me-2"></i>Download HTML (Classic)</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="exportSixArticlesEnhanced()"><i class="fas fa-paint-brush me-2"></i>Download HTML (Enhanced)</a></li>
                             <li><hr class="dropdown-divider"></li>
                             <li><a class="dropdown-item" href="#" onclick="generateSixArticlesPodcast()"><i class="fas fa-microphone me-2"></i>Generate Podcast</a></li>
                         </ul>
@@ -935,28 +1000,17 @@
                 <h5 class="mb-0">
                     <i class="fas fa-chart-line me-2"></i>Article & Category Insights
                 </h5>
-                <div>
-                    <div class="btn-group">
-                        <button id="smart-insights-btn" class="btn btn-primary" onclick="smartGenerateInsights()">
-                            <i class="fas fa-brain me-2"></i><span id="insights-btn-text">Generate Insights</span>
+                <div class="btn-group">
+                    <button id="smart-insights-btn" class="btn btn-primary" onclick="smartGenerateInsights()">
+                        <i class="fas fa-brain me-2"></i><span id="insights-btn-text">Generate Insights</span>
+                    </button>
+                    <div class="dropdown">
+                        <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-cog"></i>
                         </button>
-                        <div class="dropdown">
-                            <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                                <i class="fas fa-cog"></i>
-                            </button>
-                            <ul class="dropdown-menu">
-                                <li><a class="dropdown-item" href="#" onclick="smartGenerateInsights(true)"><i class="fas fa-sync me-2"></i>Force Regenerate</a></li>
-                            </ul>
-                        </div>
-                    </div>
-                    <!-- Progress indicator -->
-                    <div id="insights-progress" class="mt-2" style="display: none;">
-                        <div class="d-flex align-items-center">
-                            <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
-                                <span class="visually-hidden">Loading...</span>
-                            </div>
-                            <small id="insights-progress-text" class="text-muted"></small>
-                        </div>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="#" onclick="smartGenerateInsights(true)"><i class="fas fa-sync me-2"></i>Force Regenerate</a></li>
+                        </ul>
                     </div>
                 </div>
             </div>
@@ -1881,6 +1935,9 @@ document.addEventListener('DOMContentLoaded', function() {
     } catch (_) { /* best-effort */ }
 
     // Profile persistence is now handled in loadOrganizationalProfiles() after profiles are loaded
+
+    // Load available voices for podcast generation
+    loadAvailableVoices();
 
     // Default to last 90 days
     try {
@@ -2823,7 +2880,7 @@ async function loadSixArticles(forceRegenerate = false) {
             model: document.getElementById('model-select').value,
             per_page: '20'
         });
-        
+
         // Only add date parameter for custom date selection
         if (dateRangeValue === 'custom') {
             const customDate = document.getElementById('custom-date-input').value || document.getElementById('selected-date').value;
@@ -2834,12 +2891,23 @@ async function loadSixArticles(forceRegenerate = false) {
         if (topic) {
             params.append('topic', topic);
         }
-        
+
         const profileId = document.getElementById('profile-select').value;
         if (profileId) {
             params.append('profile_id', profileId);
         }
-        
+
+        // Add persona and article count
+        const persona = document.getElementById('six-articles-persona').value;
+        if (persona) {
+            params.append('persona', persona);
+        }
+
+        const articleCount = document.getElementById('six-articles-count').value;
+        if (articleCount) {
+            params.append('article_count', articleCount);
+        }
+
         // Add starred articles if any
         if (starredArticles.size > 0) {
             params.append('starred_articles', Array.from(starredArticles).join(','));
@@ -3471,27 +3539,448 @@ function exportSixArticlesHTML() {
     URL.revokeObjectURL(urlObj);
 }
 
+function exportSixArticlesEnhanced() {
+    const articles = window.lastSixArticles || [];
+    if (!articles.length) {
+        showNotification('No Six Articles to export. Generate first.', 'warning');
+        return;
+    }
+    const esc = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+    const items = articles.map((a, idx) => `
+    <article class="article-card">
+        <div class="article-number">${idx + 1}</div>
+        <div class="article-content">
+            <h2 class="article-title">${esc(a.title || 'Untitled')}</h2>
+
+            ${a.url || a.uri ? `<a class="article-link" href="${esc(a.url || a.uri)}" target="_blank" rel="noopener">
+                <i class="link-icon">🔗</i> Read original article
+            </a>` : ''}
+
+            ${a.executive_takeaway ? `
+            <div class="executive-takeaway">
+                <div class="section-label">💡 Executive Takeaway</div>
+                <p>${esc(a.executive_takeaway)}</p>
+            </div>` : ''}
+
+            ${a.summary ? `
+            <div class="article-summary">
+                <div class="section-label">📝 Summary</div>
+                <p>${esc(a.summary)}</p>
+            </div>` : ''}
+
+            <div class="article-meta">
+                ${a.source ? `<span class="meta-item"><strong>Source:</strong> ${esc(a.source)}</span>` : ''}
+                ${a.date ? `<span class="meta-item"><strong>Date:</strong> ${esc(a.date)}</span>` : ''}
+                ${a.time_horizon ? `<span class="meta-item time-horizon"><strong>⏱️ Time Horizon:</strong> ${esc(a.time_horizon)}</span>` : ''}
+                ${a.risk_opportunity ? `<span class="meta-item risk-opp"><strong>⚡ Type:</strong> ${esc(a.risk_opportunity)}</span>` : ''}
+                ${a.signal_strength ? `<span class="meta-item signal-strength"><strong>📡 Signal:</strong> ${esc(a.signal_strength)}</span>` : ''}
+            </div>
+
+            ${Array.isArray(a.executive_action) && a.executive_action.length ? `
+            <div class="executive-actions">
+                <div class="section-label">🎯 Recommended Actions</div>
+                <ul class="actions-list">
+                    ${a.executive_action.map(act => `<li>${esc(act)}</li>`).join('')}
+                </ul>
+            </div>` : ''}
+
+            ${Array.isArray(a.related_articles) && a.related_articles.length ? `
+            <div class="related-articles">
+                <div class="section-label">🔗 Related Coverage</div>
+                <ul class="related-list">
+                    ${a.related_articles.map(r => `
+                    <li>
+                        ${r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title || 'Related article')}</a>` : esc(r.title || 'Related article')}
+                        ${r.source ? `<span class="related-source">${esc(r.source)}</span>` : ''}
+                    </li>`).join('')}
+                </ul>
+            </div>` : ''}
+        </div>
+    </article>`).join('\n');
+
+    const html = `<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Six Most Important Articles - Executive Briefing</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+            line-height: 1.6;
+            color: #2d3748;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background: white;
+            padding: 40px;
+            border-radius: 20px 20px 0 0;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            border-bottom: 4px solid #FF69B4;
+        }
+
+        .header h1 {
+            font-size: 2.5rem;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+            font-weight: 800;
+        }
+
+        .header .subtitle {
+            color: #718096;
+            font-size: 1.1rem;
+            font-weight: 500;
+        }
+
+        .generated-date {
+            margin-top: 20px;
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            color: white;
+            border-radius: 25px;
+            display: inline-block;
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .articles-container {
+            background: white;
+            padding: 40px;
+            border-radius: 0 0 20px 20px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        .article-card {
+            background: linear-gradient(135deg, #f6f8fb 0%, #ffffff 100%);
+            border-radius: 16px;
+            padding: 32px;
+            margin-bottom: 32px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            border-left: 6px solid;
+            position: relative;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .article-card:nth-child(6n+1) { border-left-color: #FF69B4; }
+        .article-card:nth-child(6n+2) { border-left-color: #667eea; }
+        .article-card:nth-child(6n+3) { border-left-color: #f093fb; }
+        .article-card:nth-child(6n+4) { border-left-color: #4facfe; }
+        .article-card:nth-child(6n+5) { border-left-color: #43e97b; }
+        .article-card:nth-child(6n+6) { border-left-color: #fa709a; }
+
+        .article-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+        }
+
+        .article-number {
+            position: absolute;
+            top: -12px;
+            left: 24px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 1.2rem;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+
+        .article-title {
+            font-size: 1.75rem;
+            color: #1a202c;
+            margin-bottom: 16px;
+            font-weight: 700;
+            line-height: 1.3;
+        }
+
+        .article-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.95rem;
+            margin-bottom: 20px;
+            padding: 8px 16px;
+            background: rgba(102, 126, 234, 0.1);
+            border-radius: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .article-link:hover {
+            background: rgba(102, 126, 234, 0.2);
+            transform: translateX(4px);
+        }
+
+        .link-icon {
+            font-style: normal;
+        }
+
+        .section-label {
+            font-weight: 700;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #4a5568;
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .executive-takeaway {
+            background: linear-gradient(135deg, #fff5f7 0%, #fffbf0 100%);
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+            border-left: 4px solid #FF69B4;
+        }
+
+        .executive-takeaway p {
+            color: #2d3748;
+            font-size: 1.05rem;
+            font-weight: 500;
+            line-height: 1.7;
+        }
+
+        .article-summary {
+            margin: 20px 0;
+            padding: 20px;
+            background: #f7fafc;
+            border-radius: 12px;
+        }
+
+        .article-summary p {
+            color: #4a5568;
+            line-height: 1.8;
+        }
+
+        .article-meta {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin: 24px 0;
+            padding: 16px;
+            background: white;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .meta-item {
+            font-size: 0.9rem;
+            color: #4a5568;
+            padding: 6px 12px;
+            background: #f7fafc;
+            border-radius: 6px;
+        }
+
+        .meta-item strong {
+            color: #2d3748;
+        }
+
+        .time-horizon { background: rgba(102, 126, 234, 0.1); }
+        .risk-opp { background: rgba(246, 173, 85, 0.1); }
+        .signal-strength { background: rgba(67, 233, 123, 0.1); }
+
+        .executive-actions {
+            margin: 24px 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #e0f2fe 0%, #e0e7ff 100%);
+            border-radius: 12px;
+            border-left: 4px solid #667eea;
+        }
+
+        .actions-list {
+            list-style: none;
+            margin-top: 12px;
+        }
+
+        .actions-list li {
+            padding: 12px 16px 12px 40px;
+            margin-bottom: 8px;
+            background: white;
+            border-radius: 8px;
+            position: relative;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+
+        .actions-list li:before {
+            content: "→";
+            position: absolute;
+            left: 16px;
+            color: #667eea;
+            font-weight: bold;
+            font-size: 1.2rem;
+        }
+
+        .related-articles {
+            margin: 24px 0;
+            padding: 20px;
+            background: #f7fafc;
+            border-radius: 12px;
+        }
+
+        .related-list {
+            list-style: none;
+            margin-top: 12px;
+        }
+
+        .related-list li {
+            padding: 10px 0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .related-list li:last-child {
+            border-bottom: none;
+        }
+
+        .related-list a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+            transition: color 0.2s ease;
+        }
+
+        .related-list a:hover {
+            color: #764ba2;
+            text-decoration: underline;
+        }
+
+        .related-source {
+            display: inline-block;
+            margin-left: 8px;
+            padding: 2px 8px;
+            background: #e2e8f0;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            color: #4a5568;
+        }
+
+        .footer {
+            text-align: center;
+            margin-top: 40px;
+            padding: 24px;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 12px;
+            color: #718096;
+            font-size: 0.9rem;
+        }
+
+        @media print {
+            body {
+                background: white;
+                padding: 20px;
+            }
+            .article-card {
+                page-break-inside: avoid;
+                box-shadow: none;
+                border: 1px solid #e2e8f0;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.8rem;
+            }
+            .article-title {
+                font-size: 1.4rem;
+            }
+            .article-meta {
+                flex-direction: column;
+                gap: 8px;
+            }
+        }
+    </style>
+    <meta name="robots" content="noindex,follow">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 Six Most Important Articles</h1>
+            <p class="subtitle">Executive Strategic Briefing</p>
+            <div class="generated-date">Generated: ${new Date().toLocaleString('en-US', {
+                weekday: 'long',
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            })}</div>
+        </div>
+        <div class="articles-container">
+            ${items}
+        </div>
+        <div class="footer">
+            <p><strong>Aunoo AI</strong> - Strategic Intelligence Platform</p>
+            <p style="margin-top: 8px; font-size: 0.85rem;">This briefing was curated by AI to highlight the most strategically important developments</p>
+        </div>
+    </div>
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const urlObj = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = urlObj;
+    a.download = `six-articles-enhanced-${new Date().toISOString().slice(0,10)}.html`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(urlObj);
+    showNotification('Enhanced HTML exported successfully!', 'success');
+}
+
 async function generateSixArticlesPodcast() {
     const articles = window.lastSixArticles || [];
     if (!articles.length) {
         showNotification('No Six Articles available. Generate the report first.', 'warning');
         return;
     }
-    
+
     // Show loading state
     showPodcastLoading();
-    
+
     try {
         // Extract article URIs from the six articles data
         const articleUris = articles.map(article => {
             // Try different possible URI fields
             return article.uri || article.url || article.article_uri;
         }).filter(Boolean);
-        
+
         if (!articleUris.length) {
             throw new Error('No valid article URIs found in Six Articles data');
         }
-        
+
+        // Get user selections
+        const model = document.getElementById('model-select').value;
+        const voiceId = document.getElementById('six-articles-voice').value;
+        const lengthPerArticle = parseInt(document.getElementById('six-articles-length').value);
+        const articleCount = parseInt(document.getElementById('six-articles-count').value);
+
         const response = await fetch('/api/generate_tts_podcast', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
@@ -3499,17 +3988,19 @@ async function generateSixArticlesPodcast() {
                 podcast_name: "Six Articles Briefing",
                 episode_title: `Six Articles - ${new Date().toLocaleDateString()}`,
                 mode: "bulletin",
-                duration: "long", // 7+ minutes
-                host_voice_id: "21m00Tcm4TlvDq8ikWAM", // Default voice (Rachel)
-                article_uris: articleUris
+                model: model,
+                host_voice_id: voiceId,
+                article_uris: articleUris,
+                length_per_article: lengthPerArticle,
+                article_count: articleCount
             })
         });
-        
+
         if (!response.ok) {
             const errorData = await response.json().catch(() => ({}));
             throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
         }
-        
+
         const result = await response.json();
         pollPodcastStatus(result.podcast_id);
     } catch (error) {
@@ -3536,6 +4027,39 @@ function hidePodcastLoading() {
     if (exportBtn) {
         exportBtn.innerHTML = '<i class="fas fa-download me-2"></i>Export';
         exportBtn.disabled = false;
+    }
+}
+
+async function loadAvailableVoices() {
+    try {
+        const response = await fetch('/api/available_voices');
+        if (!response.ok) {
+            console.error('Failed to load voices');
+            return;
+        }
+
+        const voices = await response.json();
+        const voiceSelect = document.getElementById('six-articles-voice');
+        if (!voiceSelect) return;
+
+        // Clear existing options
+        voiceSelect.innerHTML = '';
+
+        // Add voices from API
+        voices.forEach(voice => {
+            const option = document.createElement('option');
+            option.value = voice.voice_id;
+            option.textContent = `${voice.name}${voice.category ? ` (${voice.category})` : ''}`;
+
+            // Select Rachel as default
+            if (voice.voice_id === '21m00Tcm4TlvDq8ikWAM') {
+                option.selected = true;
+            }
+
+            voiceSelect.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Error loading voices:', error);
     }
 }
 
@@ -6103,7 +6627,7 @@ async function autoLoadArticles() {
         }
 
         console.log(`Database articles auto-loaded: ${allArticlesData.length} total`);
-
+        
     } catch (error) {
         console.error('Error auto-loading database articles:', error);
 
@@ -9439,110 +9963,52 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function generateInsights(forceRegenerate = false) {
     console.log('Generate insights button clicked', forceRegenerate ? '(force regenerate)' : '');
-
+    
     const selectedTopic = document.getElementById('topic-select').value.trim();
     if (!selectedTopic) {
         showNotification('Please select a topic to generate insights', 'warning');
         return;
     }
-
-    // Show progress indicator
-    const progressContainer = document.getElementById('insights-progress');
-    const progressText = document.getElementById('insights-progress-text');
-    if (progressContainer) progressContainer.style.display = 'block';
-
-    try {
-        // Get current date range parameters
-        const dateRangeValue = document.getElementById('date-range-select').value;
-        let startDate = null;
-        let endDate = null;
-        let daysLimit = 30;
-
-        if (dateRangeValue === 'custom') {
-            const customDate = document.getElementById('custom-date-input').value || document.getElementById('selected-date').value;
-            if (customDate) {
-                startDate = customDate;
-                endDate = customDate;
-            }
-        } else if (dateRangeValue !== 'all') {
-            // Calculate date range based on selection
-            const now = new Date();
-            endDate = now.toISOString().split('T')[0];
-
-            switch (dateRangeValue) {
-                case '24h': daysLimit = 1; break;
-                case '7d': daysLimit = 7; break;
-                case '30d': daysLimit = 30; break;
-                case '3m': daysLimit = 90; break;
-                case '1y': daysLimit = 365; break;
-            }
-
-            const startDateObj = new Date(now.getTime() - daysLimit * 24 * 60 * 60 * 1000);
-            startDate = startDateObj.toISOString().split('T')[0];
+    
+    // Get current date range parameters
+    const dateRangeValue = document.getElementById('date-range-select').value;
+    let startDate = null;
+    let endDate = null;
+    let daysLimit = 30;
+    
+    if (dateRangeValue === 'custom') {
+        const customDate = document.getElementById('custom-date-input').value || document.getElementById('selected-date').value;
+        if (customDate) {
+            startDate = customDate;
+            endDate = customDate;
         }
-
-        console.log('Loading insights for topic:', selectedTopic, 'date range:', startDate, 'to', endDate, 'days:', daysLimit);
-
-        // Update progress: Starting
-        if (progressText) progressText.textContent = 'Initializing insight generation...';
-
-        // Load all insights including incident tracking with progress updates
-        const insightPromises = [
-            loadArticleInsights(selectedTopic, startDate, endDate, daysLimit, forceRegenerate),
-            loadCategoryInsights(selectedTopic, startDate, endDate, daysLimit, forceRegenerate),
-            loadIncidentTracking(selectedTopic, startDate, endDate, daysLimit, forceRegenerate)
-        ];
-
-        // Track progress as each insight completes
-        let completedCount = 0;
-        const totalCount = insightPromises.length;
-
-        const progressUpdates = [
-            'Analyzing article themes...',
-            'Processing category distribution...',
-            'Tracking incident patterns...'
-        ];
-
-        // Start all promises and track individually
-        if (progressText) progressText.textContent = progressUpdates[0];
-
-        insightPromises[0].then(() => {
-            completedCount++;
-            if (progressText && completedCount < totalCount) {
-                progressText.textContent = progressUpdates[completedCount];
-            }
-        });
-
-        insightPromises[1].then(() => {
-            completedCount++;
-            if (progressText && completedCount < totalCount) {
-                progressText.textContent = progressUpdates[completedCount];
-            }
-        });
-
-        insightPromises[2].then(() => {
-            completedCount++;
-            if (progressText) {
-                progressText.textContent = 'Finalizing insights...';
-            }
-        });
-
-        await Promise.all(insightPromises);
-
-        if (progressText) progressText.textContent = 'Complete!';
-        setTimeout(() => {
-            if (progressContainer) progressContainer.style.display = 'none';
-        }, 1000);
-
-        showNotification('Insights generated successfully!', 'success');
-    } catch (error) {
-        console.error('Error generating insights:', error);
-        if (progressText) progressText.textContent = 'Error generating insights';
-        setTimeout(() => {
-            if (progressContainer) progressContainer.style.display = 'none';
-        }, 2000);
-        showNotification('Failed to generate insights', 'error');
+    } else if (dateRangeValue !== 'all') {
+        // Calculate date range based on selection
+        const now = new Date();
+        endDate = now.toISOString().split('T')[0];
+        
+        switch (dateRangeValue) {
+            case '24h': daysLimit = 1; break;
+            case '7d': daysLimit = 7; break;
+            case '30d': daysLimit = 30; break;
+            case '3m': daysLimit = 90; break;
+            case '1y': daysLimit = 365; break;
+        }
+        
+        const startDateObj = new Date(now.getTime() - daysLimit * 24 * 60 * 60 * 1000);
+        startDate = startDateObj.toISOString().split('T')[0];
     }
+    
+    console.log('Loading insights for topic:', selectedTopic, 'date range:', startDate, 'to', endDate, 'days:', daysLimit);
+    
+    // Load all insights including incident tracking
+    await Promise.all([
+        loadArticleInsights(selectedTopic, startDate, endDate, daysLimit, forceRegenerate),
+        loadCategoryInsights(selectedTopic, startDate, endDate, daysLimit, forceRegenerate),
+        loadIncidentTracking(selectedTopic, startDate, endDate, daysLimit, forceRegenerate)
+    ]);
+    
+    showNotification('Insights generated successfully!', 'success');
 }
 // Add this function to your JavaScript section:
 

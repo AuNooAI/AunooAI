@@ -535,7 +535,13 @@ class NewsFeedService:
         
         # Create AI prompt for six articles analysis with organizational context
         try:
-            prompt = self._build_six_articles_analyst_prompt(articles_data, date, org_profile)
+            prompt = self._build_six_articles_analyst_prompt(
+                articles_data,
+                date,
+                org_profile,
+                persona=request.persona,
+                article_count=request.article_count
+            )
             logger.info("Successfully built six articles prompt")
         except Exception as e:
             logger.error(f"Error building six articles prompt: {e}")
@@ -733,9 +739,17 @@ Return ONLY a JSON array starting with [ and ending with ]. No other text."""
         
         # Get organizational profile if specified
         org_profile = await self._get_organizational_profile(request.profile_id)
-        
+
         # Enhanced prompt that considers related articles and political leanings
-        prompt = self._build_enhanced_six_articles_analyst_prompt(articles_data, articles_with_bias, articles_by_source, date, org_profile)
+        prompt = self._build_enhanced_six_articles_analyst_prompt(
+            articles_data,
+            articles_with_bias,
+            articles_by_source,
+            date,
+            org_profile,
+            persona=request.persona,
+            article_count=request.article_count
+        )
         
         try:
             # Use direct LLM for now (TODO: migrate to Auspex after testing org profiles)
@@ -855,29 +869,71 @@ Focus on stories with:
 
 Return ONLY the JSON response."""
     
-    def _build_six_articles_analyst_prompt(self, articles_data: List[Dict], date: datetime, org_profile: Optional[Dict] = None) -> str:
+    def _build_six_articles_analyst_prompt(self, articles_data: List[Dict], date: datetime, org_profile: Optional[Dict] = None, persona: str = "CEO", article_count: int = 6) -> str:
         """Build AI prompt for six articles detailed analysis with organizational context"""
-        
+
         # Prepare all articles for comprehensive analysis
         articles_summary = self._prepare_articles_for_prompt(articles_data, max_articles=50)
-        
-        # Build audience profile from organizational data or use defaults
+
+        # Define persona-specific contexts
+        persona_contexts = {
+            "CEO": {
+                "title": "CEO",
+                "description": "executives (CEOs and senior decision-makers)",
+                "priorities": "Regulation, enterprise adoption, scaling limits, market dynamics, security/safety, workforce impact, strategic partnerships",
+                "risk_appetite": "Moderate (innovation with caution)",
+                "focus": "business strategy, market positioning, competitive advantage, and regulatory compliance"
+            },
+            "CMO": {
+                "title": "CMO",
+                "description": "Chief Marketing Officers and marketing leaders",
+                "priorities": "Market trends, customer behavior, brand impact, advertising innovation, customer experience, competitive positioning",
+                "risk_appetite": "Moderate to High (innovation for competitive edge)",
+                "focus": "marketing strategies, customer engagement, brand differentiation, and market opportunities"
+            },
+            "CTO": {
+                "title": "CTO",
+                "description": "Chief Technology Officers and technical leaders",
+                "priorities": "Technical breakthroughs, infrastructure, scalability, development tools, architecture patterns, security vulnerabilities",
+                "risk_appetite": "High (technical innovation and early adoption)",
+                "focus": "technical architecture, development practices, technology stack decisions, and engineering excellence"
+            },
+            "CISO": {
+                "title": "CISO",
+                "description": "Chief Information Security Officers and security leaders",
+                "priorities": "Security threats, vulnerabilities, compliance requirements, risk management, data protection, incident response",
+                "risk_appetite": "Low to Moderate (security first, cautious adoption)",
+                "focus": "security risks, compliance requirements, threat mitigation, and data protection"
+            },
+            "Custom": {
+                "title": "Executive",
+                "description": "senior executives and decision-makers",
+                "priorities": "Strategic impact, innovation, risk management, competitive dynamics, organizational transformation",
+                "risk_appetite": "Moderate (balanced approach to innovation and risk)",
+                "focus": "strategic decisions, organizational impact, and business transformation"
+            }
+        }
+
+        # Get persona context or default to CEO
+        persona_info = persona_contexts.get(persona, persona_contexts["CEO"])
+
+        # Build audience profile from organizational data or use persona defaults
         if org_profile:
             audience_profile = self._build_audience_profile_from_org(org_profile)
         else:
-            audience_profile = """## Audience Defaults
-- **Risk appetite**: Moderate (innovation with caution)
-- **Priorities**: Regulation, enterprise adoption, scaling limits, market dynamics, security/safety, workforce impact
-- **Time**: Will only read 6 items/day — each must add distinct value"""
-        
-        return f"""🎯 CEO Daily Top-6 AI Articles — Analyst Prompt
+            audience_profile = f"""## Audience Defaults
+- **Risk appetite**: {persona_info['risk_appetite']}
+- **Priorities**: {persona_info['priorities']}
+- **Time**: Will only read {article_count} items/day — each must add distinct value"""
 
-You are an analyst selecting the 6 most important articles published in the last 24 hours for executives (CEOs and senior decision-makers) interested in AI's strategic, technical, and societal impacts.
+        return f"""🎯 {persona_info['title']} Daily Top-{article_count} AI Articles — Analyst Prompt
+
+You are an analyst selecting the {article_count} most important articles published in the last 24 hours for {persona_info['description']} interested in AI's strategic, technical, and societal impacts, with specific focus on {persona_info['focus']}.
 
 {audience_profile}
 
 ## Selection Rules
-Choose exactly 6 articles from the provided corpus (news, filings, research, regulator posts). Each must score high on at least two:
+Choose exactly {article_count} articles from the provided corpus (news, filings, research, regulator posts). Each must score high on at least two:
 1) Strategic relevance, 2) Novelty, 3) Credibility, 4) Representativeness (captures a bigger debate/trend).
 
 - **Diversity**: Cover ≥3 domains (e.g., policy, business/market, tech/R&D, workforce/society).
@@ -1033,12 +1089,12 @@ START YOUR RESPONSE WITH [ AND END WITH ] - NOTHING ELSE."""
         
         return profile_text
 
-    def _build_enhanced_six_articles_analyst_prompt(self, articles_data: List[Dict], articles_with_bias: List[Dict], articles_by_source: Dict, date: datetime, org_profile: Optional[Dict] = None) -> str:
+    def _build_enhanced_six_articles_analyst_prompt(self, articles_data: List[Dict], articles_with_bias: List[Dict], articles_by_source: Dict, date: datetime, org_profile: Optional[Dict] = None, persona: str = "CEO", article_count: int = 6) -> str:
         """Build enhanced AI prompt that considers related articles and political leanings"""
-        
+
         # Prepare all articles for analysis
         articles_summary = self._prepare_articles_for_prompt(articles_data, max_articles=50)
-        
+
         # Prepare bias analysis context
         bias_context = ""
         if articles_with_bias:
@@ -1048,11 +1104,11 @@ START YOUR RESPONSE WITH [ AND END WITH ] - NOTHING ELSE."""
                 if bias not in bias_breakdown:
                     bias_breakdown[bias] = []
                 bias_breakdown[bias].append(f"- {article.get('title', 'Untitled')} ({article.get('news_source', 'Unknown')})")
-            
+
             bias_context = "\n## Political Bias Context Available\n"
             for bias, articles_list in bias_breakdown.items():
                 bias_context += f"\n**{bias} Sources:**\n" + "\n".join(articles_list[:3]) + "\n"
-        
+
         # Prepare source grouping context
         source_context = ""
         if len(articles_by_source) > 1:
@@ -1060,24 +1116,66 @@ START YOUR RESPONSE WITH [ AND END WITH ] - NOTHING ELSE."""
             for source, source_articles in articles_by_source.items():
                 if len(source_articles) > 1:
                     source_context += f"- {source}: {len(source_articles)} articles\n"
-        
-        # Build audience profile from organizational data or use defaults
+
+        # Define persona-specific contexts
+        persona_contexts = {
+            "CEO": {
+                "title": "CEO",
+                "description": "executives (CEOs and senior decision-makers)",
+                "priorities": "Regulation, enterprise adoption, scaling limits, market dynamics, security/safety, workforce impact, strategic partnerships",
+                "risk_appetite": "Moderate (innovation with caution)",
+                "focus": "business strategy, market positioning, competitive advantage, and regulatory compliance"
+            },
+            "CMO": {
+                "title": "CMO",
+                "description": "Chief Marketing Officers and marketing leaders",
+                "priorities": "Market trends, customer behavior, brand impact, advertising innovation, customer experience, competitive positioning",
+                "risk_appetite": "Moderate to High (innovation for competitive edge)",
+                "focus": "marketing strategies, customer engagement, brand differentiation, and market opportunities"
+            },
+            "CTO": {
+                "title": "CTO",
+                "description": "Chief Technology Officers and technical leaders",
+                "priorities": "Technical breakthroughs, infrastructure, scalability, development tools, architecture patterns, security vulnerabilities",
+                "risk_appetite": "High (technical innovation and early adoption)",
+                "focus": "technical architecture, development practices, technology stack decisions, and engineering excellence"
+            },
+            "CISO": {
+                "title": "CISO",
+                "description": "Chief Information Security Officers and security leaders",
+                "priorities": "Security threats, vulnerabilities, compliance requirements, risk management, data protection, incident response",
+                "risk_appetite": "Low to Moderate (security first, cautious adoption)",
+                "focus": "security risks, compliance requirements, threat mitigation, and data protection"
+            },
+            "Custom": {
+                "title": "Executive",
+                "description": "senior executives and decision-makers",
+                "priorities": "Strategic impact, innovation, risk management, competitive dynamics, organizational transformation",
+                "risk_appetite": "Moderate (balanced approach to innovation and risk)",
+                "focus": "strategic decisions, organizational impact, and business transformation"
+            }
+        }
+
+        # Get persona context or default to CEO
+        persona_info = persona_contexts.get(persona, persona_contexts["CEO"])
+
+        # Build audience profile from organizational data or use persona defaults
         if org_profile:
             audience_profile = self._build_audience_profile_from_org(org_profile)
         else:
-            audience_profile = """## Audience Defaults
-- **Risk appetite**: Moderate (innovation with caution)
-- **Priorities**: Regulation, enterprise adoption, scaling limits, market dynamics, security/safety, workforce impact
-- **Time**: Will only read 6 items/day — each must add distinct value"""
-        
-        return f"""🎯 CEO Daily Top-6 AI Articles — Analyst Prompt
+            audience_profile = f"""## Audience Defaults
+- **Risk appetite**: {persona_info['risk_appetite']}
+- **Priorities**: {persona_info['priorities']}
+- **Time**: Will only read {article_count} items/day — each must add distinct value"""
 
-You are an analyst selecting the 6 most important articles published in the last 24 hours for executives (CEOs and senior decision-makers) interested in AI's strategic, technical, and societal impacts.
+        return f"""🎯 {persona_info['title']} Daily Top-{article_count} AI Articles — Analyst Prompt
+
+You are an analyst selecting the {article_count} most important articles published in the last 24 hours for {persona_info['description']} interested in AI's strategic, technical, and societal impacts, with specific focus on {persona_info['focus']}.
 
 {audience_profile}
 
 ## Selection Rules
-Choose exactly 6 articles from the provided corpus (news, filings, research, regulator posts). Each must score high on at least two:
+Choose exactly {article_count} articles from the provided corpus (news, filings, research, regulator posts). Each must score high on at least two:
 1) Strategic relevance, 2) Novelty, 3) Credibility, 4) Representativeness (captures a bigger debate/trend).
 
 - **Diversity**: Cover ≥3 domains (e.g., policy, business/market, tech/R&D, workforce/society).

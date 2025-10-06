@@ -200,11 +200,13 @@ async def get_six_articles_report(
     page: int = Query(1, ge=1, description="Page number for pagination"),
     profile_id: Optional[int] = Query(None, description="Organizational profile ID for contextualized analysis"),
     starred_articles: Optional[str] = Query(None, description="Comma-separated URIs of starred articles"),
+    persona: Optional[str] = Query("CEO", description="Target persona: CEO, CMO, CTO, CISO, or Custom"),
+    article_count: int = Query(6, ge=1, le=8, description="Number of articles to select (1-8)"),
     db: Database = Depends(get_database_instance),
     force_regenerate: bool = Query(False, description="Bypass cache and regenerate fresh output")
 ):
     """Generate only the six articles detailed report"""
-    
+
     try:
         # Parse date if provided
         target_date = None
@@ -213,7 +215,7 @@ async def get_six_articles_report(
                 target_date = datetime.strptime(date, "%Y-%m-%d")
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
-        
+
         # Create request
         request = NewsFeedRequest(
             date=target_date,
@@ -221,7 +223,9 @@ async def get_six_articles_report(
             topic=topic,
             max_articles=max_articles,
             model=model,
-            profile_id=profile_id
+            profile_id=profile_id,
+            persona=persona,
+            article_count=article_count
         )
         
         # Generate only six articles report

@@ -19,10 +19,9 @@ from elevenlabs.studio import (
 from app.database import Database, get_database_instance, get_db_session
 from app.database_query_facade import DatabaseQueryFacade
 import logging
-from pydub import AudioSegment
 import asyncio
 from app.ai_models import LiteLLMModel
-from app.utils.audio import combine_audio_files, save_audio_file, AUDIO_DIR, ensure_audio_directory
+from app.utils.audio import save_audio_file, AUDIO_DIR, ensure_audio_directory
 import requests
 import uuid
 import random
@@ -245,6 +244,8 @@ class TTSPodcastRequest(BaseModel):
     # Prompt / LLM configuration
     model: str = "gpt-4o"
     duration: str = "medium"  # short | medium | long
+    length_per_article: int = 90  # Target seconds per article (45-150)
+    article_count: Optional[int] = None  # Number of articles
 
     # Speaker / voices
     host_name: Optional[str] = "Aunoo"
@@ -557,176 +558,112 @@ async def _run_tts_podcast_worker(podcast_id: str, request: TTSPodcastRequest):
                     "Innovation Strategist",
                 ])
 
-        host_aliases = {(request.host_name or "Aunoo").lower(), "annie", "host"}
-
-        # ----------------- (Split script and generate audio) --------------
-        script_sections = []
-        current_section = {"speaker": None, "text": "", "emotion": None, "role": None}
-
-        for line in request.script.split("\n"):
-            raw = line.strip()
-            stripped = raw.lstrip("*").lstrip("_").strip()
-
-            speaker_detected = None
-            role = None
-
-            if stripped.startswith("[") and "]" in stripped:
-                if current_section["speaker"]:
-                    script_sections.append(current_section)
-
-                first_close_idx = stripped.find("]")
-                header = stripped[1:first_close_idx]
-                parts = re.split(r"\s*[\-\u2010-\u2015]\s*", header, maxsplit=1)
-                speaker = parts[0]
-                role = parts[1] if len(parts) > 1 else None
-
-                emotion = None
-                remaining = stripped[first_close_idx + 1:].lstrip()
-                if remaining.startswith("[") and "]" in remaining:
-                    second_close_idx = remaining.find("]")
-                    emotion = remaining[1:second_close_idx].strip()
-                    remaining = remaining[second_close_idx + 1:].lstrip()
-
-                initial_text = remaining + "\n" if remaining else ""
-
-                speaker_detected = speaker
-                current_section = {
-                    "speaker": speaker_detected,
-                    "role": role,
-                    "text": initial_text,
-                    "emotion": emotion,
-                }
-            else:
-                m = re.match(r"^\*\*(.+?)\*\*: \s*(.*)$", raw)
-                if m:
-                    speaker_detected = m.group(1).strip()
-                    line_text = m.group(2)
-                    if current_section["speaker"]:
-                        script_sections.append(current_section)
-                    current_section = {
-                        "speaker": speaker_detected,
-                        "role": None,
-                        "text": line_text + "\n",
-                        "emotion": None,
-                    }
-                else:
-                    current_section["text"] += line + "\n"
-
-        if current_section["speaker"]:
-            script_sections.append(current_section)
-
-        if not script_sections:
-            logger.warning("No speaker blocks detected in script; using entire script as host section")
-            script_sections.append({
-                "speaker": "annie",
-                "role": "Host",
-                "text": request.script,
-                "emotion": None,
-            })
-
-        audio_segments = []
-        client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+        # ----------------- Simplified: Single-call TTS generation --------------
+        # For bulletin mode (single speaker), we can generate the entire podcast in one call
+        # No need for ffmpeg/pydub to combine chunks
 
         def clean_text(raw: str) -> str:
+            """Remove speaker tags, music cues, and other non-speech elements"""
             text = raw
+            # Remove music/sound effect cues
             text = re.sub(r"\[(?:[^\]]*(music|sound|sfx|fade)[^\]]*)\]", "", text, flags=re.IGNORECASE)
             text = re.sub(r"\((?:[^)]*(music|sound|sfx|fade)[^)]*)\)", "", text, flags=re.IGNORECASE)
-            text = re.sub(r"^\*\*[\w\s\-]+:\*\*", "", text, flags=re.MULTILINE)
-            text = re.sub(r"^\*\*[\w\s\-]+\*\*: \s*", "", text, flags=re.MULTILINE)
+            # Remove speaker tags like [S1], [S2], [Annie - Host], etc.
+            text = re.sub(r"^\s*\[[^\]]+\]\s*", "", text, flags=re.MULTILINE)
+            # Remove bold speaker names like **Annie:** or **Annie**:
+            text = re.sub(r"^\*\*[\w\s\-]+:\*\*\s*", "", text, flags=re.MULTILINE)
+            text = re.sub(r"^\*\*[\w\s\-]+\*\*:\s*", "", text, flags=re.MULTILINE)
+
             cleaned_lines = []
             for ln in text.splitlines():
                 lowered = ln.lower()
                 if any(kw in lowered for kw in ["intro music", "music fades", "sound effect", "sfx", "fade in", "fade out"]):
                     continue
-                if "podcast script" in lowered:
+                if "podcast script" in lowered or ln.strip().startswith("#"):
                     continue
-                cleaned_lines.append(ln)
-            return "\n".join(cleaned_lines)
+                if ln.strip():
+                    cleaned_lines.append(ln.strip())
+            return " ".join(cleaned_lines)
 
-        for section in script_sections:
-            speaker_lower = section["speaker"].strip().lower()
-            role_lower = (section.get("role") or "").lower()
+        cleaned_script = clean_text(request.script)
 
-            if request.guest_name and speaker_lower == request.guest_name.strip().lower():
-                use_host = False
-            elif speaker_lower in host_aliases:
-                use_host = True
-            elif "guest" in role_lower:
-                use_host = False
-            elif "host" in role_lower or "host" in speaker_lower:
-                use_host = True
-            else:
-                use_host = True
+        if not cleaned_script:
+            raise ValueError("Script is empty after cleaning")
 
-            voice_id = request.host_voice_id if use_host else (guest_voice.voice_id if guest_voice else request.host_voice_id)
+        logger.info(f"[Worker] Cleaned script length: {len(cleaned_script)} chars")
 
-            voice_settings_dict = {
-                "stability": request.voice_settings.stability,
-                "similarity_boost": request.voice_settings.similarity_boost,
-                "style": request.voice_settings.style,
-                "use_speaker_boost": request.voice_settings.use_speaker_boost,
-                "speed": request.voice_settings.speed,
-            }
+        client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 
-            cleaned = clean_text(section["text"])
-            chunks = split_into_chunks(cleaned, max_chars=2500)
-
-            for chunk_index, chunk_text in enumerate(chunks):
-                previous_text = chunks[chunk_index - 1] if chunk_index > 0 else None
-                next_text = chunks[chunk_index + 1] if chunk_index < len(chunks) - 1 else None
-                try:
-                    audio_generator = client.text_to_speech.convert(
-                        voice_id=voice_id,
-                        text=chunk_text.strip(),
-                        model_id=request.model_id,
-                        output_format=request.output_format,
-                        voice_settings=voice_settings_dict,
-                        previous_text=previous_text,
-                        next_text=next_text,
-                    )
-
-                    audio_bytes = b"".join(b if isinstance(b, bytes) else b.encode() for b in audio_generator)
-
-                    if not audio_bytes:
-                        logger.warning("Empty audio bytes for section %s chunk %d", section["speaker"], chunk_index)
-                        continue
-
-                    audio_segments.append(audio_bytes)
-                except Exception as e:
-                    logger.error("Error generating audio: %s", e)
-                    continue
-
-        if not audio_segments:
-            raise ValueError("No audio segments generated")
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        output_filename = f"podcast_{podcast_id}_{timestamp}.mp3"
-
-        if not ensure_audio_directory():
-            raise RuntimeError("Could not create audio directory")
-
-        duration = combine_audio_files(audio_segments, output_filename)
-
-        meta = {
-            "duration": round(duration / 60, 2),
-            "podcast_name": request.podcast_name,
-            "episode_title": request.episode_title,
-            "mode": request.mode,
-            "topic": request.topic,
+        voice_settings_dict = {
+            "stability": request.voice_settings.stability,
+            "similarity_boost": request.voice_settings.similarity_boost,
+            "style": request.voice_settings.style,
+            "use_speaker_boost": request.voice_settings.use_speaker_boost,
+            "speed": request.voice_settings.speed,
         }
 
-        if request.mode == "conversation":
-            meta["guest"] = request.guest_name
-            meta["guest_title"] = request.guest_title
+        # Generate audio using ElevenLabs TTS API in one call
+        try:
+            logger.info(f"[Worker] Generating audio with ElevenLabs for {len(cleaned_script)} chars")
+            audio_generator = client.text_to_speech.convert(
+                voice_id=request.host_voice_id,
+                text=cleaned_script,
+                model_id=request.model_id,
+                output_format=request.output_format,
+                voice_settings=voice_settings_dict,
+            )
 
-        db = get_database_instance()
-        (DatabaseQueryFacade(db, logger)).mark_podcast_generation_as_complete((
-                    f"/static/audio/{output_filename}",
-                    json.dumps(meta),
-                    podcast_id,
-                ))
+            # Collect all audio bytes
+            audio_bytes = b"".join(b if isinstance(b, bytes) else b.encode() for b in audio_generator)
 
-        logger.info("[Worker] Podcast %s completed", podcast_id)
+            if not audio_bytes:
+                raise ValueError("No audio generated from ElevenLabs")
+
+            logger.info(f"[Worker] Generated {len(audio_bytes)} bytes of audio")
+
+            # Save directly to file - no need for ffmpeg/pydub
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_filename = f"podcast_{podcast_id}_{timestamp}.mp3"
+
+            if not ensure_audio_directory():
+                raise RuntimeError("Could not create audio directory")
+
+            output_path = AUDIO_DIR / output_filename
+            with open(output_path, 'wb') as f:
+                f.write(audio_bytes)
+
+            logger.info(f"[Worker] Saved audio to {output_path}")
+
+            # Estimate duration (rough: 150 words per minute, ~5 chars per word)
+            word_count = len(cleaned_script.split())
+            duration_seconds = (word_count / 150) * 60
+
+            meta = {
+                "duration": round(duration_seconds / 60, 2),
+                "podcast_name": request.podcast_name,
+                "episode_title": request.episode_title,
+                "mode": request.mode,
+                "topic": request.topic,
+                "word_count": word_count,
+                "character_count": len(cleaned_script),
+            }
+
+            if request.mode == "conversation":
+                meta["guest"] = request.guest_name
+                meta["guest_title"] = request.guest_title
+
+            db = get_database_instance()
+            (DatabaseQueryFacade(db, logger)).mark_podcast_generation_as_complete((
+                f"/static/audio/{output_filename}",
+                json.dumps(meta),
+                podcast_id,
+            ))
+
+            logger.info(f"[Worker] Podcast {podcast_id} completed successfully")
+
+        except Exception as e:
+            logger.error(f"[Worker] Error generating audio: {e}")
+            raise
 
     except Exception as err:
         logger.error("[Worker] Error generating TTS podcast %s: %s", podcast_id, err, exc_info=True)
