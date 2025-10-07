@@ -2206,16 +2206,46 @@ async def bulk_process_topic(
 ):
     """Process all articles from a specific topic group with auto-ingest pipeline (async)"""
     try:
-        # Generate job ID
+        from app.services.automated_ingest_service import AutomatedIngestService
+        from app.services.async_db import initialize_async_db
+
+        # If dry_run, just return counts without processing
+        if request.dry_run:
+            logger.info(f"Dry run: Getting article counts for topic '{request.topic_id}'")
+
+            # Initialize async database
+            await initialize_async_db()
+            service = AutomatedIngestService(db)
+
+            # Get article counts
+            all_articles, unprocessed_articles = await service.async_db.get_topic_articles(request.topic_id)
+
+            total_count = len(all_articles)
+            unprocessed_count = len(unprocessed_articles)
+            would_process = min(unprocessed_count, request.max_articles)
+
+            logger.info(f"Dry run results: {total_count} total, {unprocessed_count} unprocessed, {would_process} would process")
+
+            return {
+                "success": True,
+                "dry_run": True,
+                "total_count": total_count,
+                "unprocessed_unread_articles": unprocessed_count,
+                "articles_found": total_count,
+                "would_process": would_process,
+                "topic": request.topic_id
+            }
+
+        # Normal processing: Generate job ID
         job_id = str(uuid.uuid4())
-        
+
         # Create job tracking object
         job = ProcessingJob(job_id, request.topic_id, request.dict())
         _processing_jobs[job_id] = job
-        
+
         # Start background task
         asyncio.create_task(_background_bulk_process(job_id, request, db))
-        
+
         # Return immediately with job ID
         return {
             "success": True,
@@ -2224,7 +2254,7 @@ async def bulk_process_topic(
             "message": f"Bulk processing started for topic: {request.topic_id}",
             "check_status_url": f"/keyword-monitor/bulk-process-status/{job_id}"
         }
-        
+
     except Exception as e:
         logger.error(f"Error starting bulk topic processing: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

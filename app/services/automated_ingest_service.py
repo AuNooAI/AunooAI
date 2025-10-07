@@ -948,38 +948,27 @@ class AutomatedIngestService:
                     }
                     self.logger.info(f"   ✅ Bias enrichment completed: {bias_data}")
                     
-                    # Step 1.5: Get pre-scraped content
+                    # Step 1.5: Get pre-scraped content (keep in memory, save after approval)
                     self.logger.info(f"📄 Step 2: Getting pre-scraped article content...")
                     raw_content = scraped_content.get(article_uri)
-                    
+
                     if raw_content:
-                        try:
-                            # Save raw content to database
-                            self.db.save_raw_article(
-                                enriched_article.get("uri"),
-                                raw_content,
-                                topic or enriched_article.get("topic", "")
-                            )
-                            self.logger.info(f"   ✅ Raw content from batch scraping saved ({len(raw_content)} chars)")
-                        except Exception as save_error:
-                            self.logger.warning(f"   ⚠️ Failed to save raw content: {save_error}")
+                        self.logger.info(f"   ✅ Raw content from batch scraping retrieved ({len(raw_content)} chars)")
                     else:
                         self.logger.warning(f"   ❌ No content available from batch scraping for: {article_uri}")
                         # Try individual scraping as fallback
                         try:
                             raw_content = await self.scrape_article_content(article_uri)
                             if raw_content:
-                                self.db.save_raw_article(
-                                    enriched_article.get("uri"),
-                                    raw_content,
-                                    topic or enriched_article.get("topic", "")
-                                )
                                 self.logger.info(f"   ✅ Fallback individual scraping successful ({len(raw_content)} chars)")
                             else:
                                 self.logger.warning(f"   ❌ Individual scraping also failed: {article_uri}")
                         except Exception as scrape_error:
                             self.logger.warning(f"   ⚠️ Individual scraping failed: {scrape_error}")
                             # Continue processing even if scraping fails
+
+                    # NOTE: raw_content is kept in memory and will be saved AFTER article approval
+                    # This prevents orphan raw_articles entries if processing fails or article is rejected
 
                     # Step 2: Perform full article analysis (category, sentiment, etc.)
                     self.logger.info(f"🧠 Step 3: Performing LLM analysis...")
@@ -1082,26 +1071,36 @@ class AutomatedIngestService:
                                         
                                     results["saved"] += 1
                                     self.logger.info(f"   ✅ Database update completed")
-                                    
-                                    # ✅ ADD VECTOR DATABASE UPSERT
+
+                                    # Step 6.5: Save raw content to database NOW that article exists
+                                    if raw_content:
+                                        try:
+                                            self.logger.info(f"💾 Step 6.5: Saving raw content to database...")
+                                            self.db.save_raw_article(
+                                                enriched_article.get("uri"),
+                                                raw_content,
+                                                topic or enriched_article.get("topic", "")
+                                            )
+                                            self.logger.info(f"   ✅ Raw content saved ({len(raw_content)} chars)")
+                                        except Exception as save_raw_error:
+                                            self.logger.error(f"   ❌ Failed to save raw content: {save_raw_error}")
+                                            # Continue - we can still vector index from memory
+
+                                    # ✅ VECTOR DATABASE UPSERT (using raw_content from memory)
                                     try:
                                         self.logger.info(f"🔍 Step 7: Upserting to vector database...")
                                         from app.vector_store import upsert_article
-                                        
+
                                         # Create a copy of enriched article for vector indexing
                                         vector_article = enriched_article.copy()
-                                        
-                                        # Try to get raw content for better vector indexing
-                                        try:
-                                            raw_article = self.db.get_raw_article(enriched_article.get("uri"))
-                                            if raw_article and raw_article.get('raw_markdown'):
-                                                vector_article['raw'] = raw_article['raw_markdown']
-                                                self.logger.info(f"   📄 Found raw content for vector indexing ({len(raw_article['raw_markdown'])} chars)")
-                                            else:
-                                                self.logger.info(f"   📄 No raw content found, using summary for vector indexing")
-                                        except Exception as raw_error:
-                                            self.logger.warning(f"   ⚠️ Could not retrieve raw content: {raw_error}")
-                                        
+
+                                        # Use raw_content from memory (already scraped earlier)
+                                        if raw_content:
+                                            vector_article['raw'] = raw_content
+                                            self.logger.info(f"   📄 Using raw content from memory for vector indexing ({len(raw_content)} chars)")
+                                        else:
+                                            self.logger.info(f"   📄 No raw content available, using summary for vector indexing")
+
                                         # Ensure we have some content for indexing
                                         if vector_article.get('raw') or vector_article.get('summary') or vector_article.get('title'):
                                             # Index into vector database
@@ -1110,7 +1109,7 @@ class AutomatedIngestService:
                                             self.logger.info(f"   ✅ Vector database upsert completed")
                                         else:
                                             self.logger.warning(f"   ⚠️ No content available for vector indexing")
-                                            
+
                                     except Exception as vector_error:
                                         self.logger.error(f"   ❌ Failed to upsert to vector database: {str(vector_error)}")
                                         # Don't fail the entire operation if vector indexing fails
