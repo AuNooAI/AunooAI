@@ -586,14 +586,15 @@ def _build_metadata(article: Dict[str, Any]) -> Dict[str, Any]:
         "sentiment": article.get("sentiment"),
         "time_to_impact": article.get("time_to_impact"),
         "topic": article.get("topic"),
-        "publication_date": publication_date,  # Keep original for compatibility
-        "publication_date_ts": publication_date_timestamp,  # Add timestamp for filtering (only if numeric)
+        # NOTE: Do not include publication_date as datetime object - ChromaDB only accepts str, int, float, bool
+        # Use publication_date_ts (integer timestamp) for time-based filtering per ChromaDB best practices
+        "publication_date_ts": publication_date_timestamp,  # Integer timestamp for filtering
         "tags": tags,  # Now guaranteed to be a string
         "summary": article.get("summary"),
         "uri": article.get("uri"),
         "driver_type": article.get("driver_type"),
     }
-    # Remove keys whose value is ``None`` – Chroma only accepts str, int, float bool.
+    # Remove keys whose value is ``None`` – Chroma only accepts str, int, float, bool.
     # This is critical for publication_date_ts to avoid ChromaDB filtering errors
     return {k: v for k, v in meta.items() if v is not None}
 
