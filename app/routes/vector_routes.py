@@ -2177,11 +2177,39 @@ Extraordinary Claims Protocol:
         for incident in incidents:
             incident_name = incident.get('name', '')
             status = incident_statuses.get(incident_name, 'active')
-            
+
             if status != 'deleted':
                 incident['status'] = status
                 filtered_incidents.append(incident)
-        
+
+        # Enrich incidents with article metadata for frontend display
+        # Build URI to article metadata lookup
+        article_metadata = {}
+        for a in articles:
+            if isinstance(a, dict):
+                article_metadata[a['uri']] = {
+                    'title': a.get('title', 'Untitled Article'),
+                    'news_source': a.get('news_source', 'Unknown Source'),
+                    'publication_date': a.get('publication_date'),
+                    'factual_reporting': a.get('factual_reporting'),
+                    'mbfc_credibility_rating': a.get('mbfc_credibility_rating'),
+                    'bias': a.get('bias')
+                }
+
+        # Add article metadata to each incident
+        for incident in filtered_incidents:
+            if incident.get('article_uris'):
+                incident['article_metadata'] = []
+                for uri in incident['article_uris']:
+                    if uri in article_metadata:
+                        incident['article_metadata'].append({
+                            'uri': uri,
+                            **article_metadata[uri]
+                        })
+                    else:
+                        # Article not in current dataset, just keep URI
+                        incident['article_metadata'].append({'uri': uri})
+
         result = {
             "incidents": filtered_incidents,
             "total_articles": len(articles),

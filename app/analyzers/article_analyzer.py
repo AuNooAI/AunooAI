@@ -313,15 +313,16 @@ Article text:
         validated = result.copy()
 
         # Validate future_signal (most critical - this is where most garbage appears)
+        # Allow "Other" as fallback even if not in list (like category validation)
         if 'future_signal' in validated:
             original_signal = validated['future_signal']
-            if original_signal and original_signal not in future_signals:
+            if original_signal and original_signal not in future_signals and original_signal != "Other":
                 logger.warning(f"Invalid future_signal from AI: '{original_signal}'. "
-                             f"Valid options: {future_signals}. Setting to empty string.")
-                validated['future_signal'] = ""
-                validated['future_signal_explanation'] = (
-                    f"[VALIDATION ERROR: AI returned invalid signal '{original_signal}']"
-                )
+                             f"Valid options: {future_signals}. Setting to 'Other'.")
+                validated['future_signal'] = "Other"
+                # Keep the original explanation if present, don't overwrite with validation error
+                if not validated.get('future_signal_explanation'):
+                    validated['future_signal_explanation'] = f"AI classified as: {original_signal}"
 
         # Validate sentiment
         if 'sentiment' in validated:

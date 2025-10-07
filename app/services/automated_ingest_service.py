@@ -1073,15 +1073,23 @@ class AutomatedIngestService:
                                     self.logger.info(f"   ✅ Database update completed")
 
                                     # Step 6.5: Save raw content to database NOW that article exists
+                                    # Add small delay to ensure database commit visibility in WAL mode
                                     if raw_content:
                                         try:
                                             self.logger.info(f"💾 Step 6.5: Saving raw content to database...")
-                                            self.db.save_raw_article(
-                                                enriched_article.get("uri"),
-                                                raw_content,
-                                                topic or enriched_article.get("topic", "")
-                                            )
-                                            self.logger.info(f"   ✅ Raw content saved ({len(raw_content)} chars)")
+
+                                            # Verify article exists before saving raw content
+                                            # This also ensures the previous commit is visible
+                                            article_check = (DatabaseQueryFacade(self.db, logger)).get_article_by_url(enriched_article.get("uri"))
+                                            if article_check:
+                                                self.db.save_raw_article(
+                                                    enriched_article.get("uri"),
+                                                    raw_content,
+                                                    topic or enriched_article.get("topic", "")
+                                                )
+                                                self.logger.info(f"   ✅ Raw content saved ({len(raw_content)} chars)")
+                                            else:
+                                                self.logger.warning(f"   ⚠️ Article not yet visible in database, skipping raw content save")
                                         except Exception as save_raw_error:
                                             self.logger.error(f"   ❌ Failed to save raw content: {save_raw_error}")
                                             # Continue - we can still vector index from memory
@@ -1154,13 +1162,24 @@ class AutomatedIngestService:
                                     results["errors"].append(error_msg)
                                     self.logger.error(f"❌ Failed article update error: {error_msg}")
                     else:
-                        # Mark article as below threshold in keyword_article_matches
+                        # Save relevance scores even for below-threshold articles so users can see why they were rejected
                         try:
                             article_uri = enriched_article.get("uri")
+
+                            # Save relevance scores to articles table
+                            (DatabaseQueryFacade(self.db, logger)).save_relevance_scores_only(
+                                article_uri,
+                                enriched_article.get("topic_alignment_score"),
+                                enriched_article.get("keyword_relevance_score"),
+                                enriched_article.get("confidence_score")
+                            )
+
+                            # Mark as below threshold in keyword_article_matches
                             (DatabaseQueryFacade(self.db, logger)).mark_article_as_below_threshold(article_uri)
-                            self.logger.debug(f"Marked article {article_uri} as below threshold")
+
+                            self.logger.info(f"Saved relevance scores for below-threshold article: {article_uri}")
                         except Exception as e:
-                            self.logger.warning(f"Failed to mark article as below threshold: {e}")
+                            self.logger.warning(f"Failed to save scores for below-threshold article: {e}")
 
                         self.logger.warning(f"   ❌ Article below relevance threshold ({relevance_score:.3f} < {relevance_threshold:.3f}) - skipping")
                     

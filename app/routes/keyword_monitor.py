@@ -251,7 +251,7 @@ async def check_now(
 
         # Check if this should be a background task (for operations likely to take >10 seconds)
         request_type = http_request.headers.get('X-Request-Type', 'normal')
-        use_background_task = keyword_count > 10  # Lower threshold for background tasks
+        use_background_task = keyword_count > 3  # Lower threshold for background tasks
 
         logger.info(f"Keyword check decision: count={keyword_count}, request_type={request_type}, use_background_task={use_background_task}")
 

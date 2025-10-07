@@ -164,6 +164,79 @@ class DatabaseQueryFacade:
             article_exists = cursor.fetchone()
             return article_exists
 
+    def _calculate_relevance_scores(self, article, topic, keyword_id, cursor):
+        """
+        Calculate relevance scores for an article when it's first collected.
+
+        Args:
+            article: Article dictionary with title, summary, source
+            topic: Topic name
+            keyword_id: ID of the matched keyword
+            cursor: Database cursor (for querying keywords)
+
+        Returns:
+            Dictionary with relevance scores
+        """
+        try:
+            # Get the keyword that matched
+            cursor.execute("SELECT keyword FROM monitored_keywords WHERE id = ?", (keyword_id,))
+            keyword_row = cursor.fetchone()
+            matched_keyword = keyword_row[0] if keyword_row else ""
+
+            # Get all keywords for the topic (for comprehensive scoring)
+            cursor.execute("""
+                SELECT mk.keyword
+                FROM monitored_keywords mk
+                JOIN keyword_groups kg ON mk.group_id = kg.id
+                WHERE kg.topic = ?
+            """, (topic,))
+            all_keywords = [row[0] for row in cursor.fetchall()]
+            keywords_str = ", ".join(all_keywords) if all_keywords else matched_keyword
+
+            # Initialize RelevanceCalculator with default model
+            from app.relevance import RelevanceCalculator
+            from app.ai_models import LiteLLMModel
+
+            # Get configured LLM model
+            try:
+                model_name = self.get_configured_llm_model()
+            except:
+                model_name = "gpt-4o-mini"  # Fallback
+
+            calculator = RelevanceCalculator(model_name=model_name)
+
+            # Prepare article content for analysis
+            article_content = f"{article.get('title', '')} {article.get('summary', '')}"
+
+            # Calculate relevance scores
+            self.logger.info(f"Calculating relevance scores for article: {article.get('title', '')[:50]}...")
+            relevance_result = calculator.analyze_relevance(
+                title=article.get('title', ''),
+                source=article.get('source', ''),
+                content=article_content,
+                topic=topic,
+                keywords=keywords_str
+            )
+
+            self.logger.info(
+                f"Relevance scores calculated - "
+                f"Topic: {relevance_result.get('topic_alignment_score', 0):.2f}, "
+                f"Keyword: {relevance_result.get('keyword_relevance_score', 0):.2f}, "
+                f"Confidence: {relevance_result.get('confidence_score', 0):.2f}"
+            )
+
+            return relevance_result
+
+        except Exception as e:
+            self.logger.error(f"Error calculating relevance scores: {e}", exc_info=True)
+            # Return default scores on error
+            return {
+                'topic_alignment_score': 0.0,
+                'keyword_relevance_score': 0.0,
+                'confidence_score': 0.0,
+                'overall_match_explanation': f'Error calculating scores: {str(e)}'
+            }
+
     def create_article(self, article_exists, article_url, article, topic, keyword_id):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
@@ -182,11 +255,21 @@ class DatabaseQueryFacade:
                         self.logger.error(f"Placeholder title detected: {title}")
                         raise ValueError(f"Placeholder title not allowed: {article_url}")
 
-                    # Save new article
+                    # Calculate relevance scores for the article
+                    relevance_scores = self._calculate_relevance_scores(
+                        article=article,
+                        topic=topic,
+                        keyword_id=keyword_id,
+                        cursor=cursor
+                    )
+
+                    # Save new article with relevance scores
                     cursor.execute("""
                                    INSERT INTO articles (uri, title, news_source, publication_date,
-                                                         summary, topic, analyzed)
-                                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                                                         summary, topic, analyzed,
+                                                         topic_alignment_score, keyword_relevance_score,
+                                                         confidence_score)
+                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                                    """, (
                                        article_url,
                                        title,
@@ -194,10 +277,13 @@ class DatabaseQueryFacade:
                                        article['published_date'],
                                        article.get('summary', ''),  # Use get() with default
                                        topic,
-                                       False  # Explicitly mark as not analyzed
+                                       False,  # Explicitly mark as not analyzed
+                                       relevance_scores.get('topic_alignment_score'),
+                                       relevance_scores.get('keyword_relevance_score'),
+                                       relevance_scores.get('confidence_score')
                                    ))
                     inserted_new_article = True
-                    self.logger.info(f"Inserted new article: {article_url} with title: {title[:50]}")
+                    self.logger.info(f"Inserted new article with relevance scores: {article_url} with title: {title[:50]}")
 
                 # Create alert
                 cursor.execute("""
@@ -2470,6 +2556,19 @@ class DatabaseQueryFacade:
                     (article_uri,)
                 )
 
+            conn.commit()
+
+    def save_relevance_scores_only(self, article_uri, topic_alignment_score, keyword_relevance_score, confidence_score):
+        """Save just the relevance scores for an article (used for below-threshold articles)"""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE articles
+                SET topic_alignment_score = ?,
+                    keyword_relevance_score = ?,
+                    confidence_score = ?
+                WHERE uri = ?
+            """, (topic_alignment_score, keyword_relevance_score, confidence_score, article_uri))
             conn.commit()
 
     def get_number_of_monitored_keywords_by_group_id(self, group_id):

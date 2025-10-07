@@ -272,13 +272,26 @@ class NewsdataCollector(ArticleCollector):
         """Format NewsData.io article data to standard format."""
         try:
             # Extract source name
-            source_name = article.get('source_id', '')
+            # Priority: source_url (official source domain) > link (article URL) > source_id (truncated)
+            # NewsData.io provides source_url which is the URL of the source itself
+            source_name = ''
+
+            # First try source_url (official source domain)
+            source_url = article.get('source_url', '')
+            if source_url:
+                parsed_url = urlparse(source_url)
+                source_name = parsed_url.netloc.replace('www.', '')
+
+            # Fallback: extract from article link
             if not source_name:
-                # Fallback: extract domain from URL
-                url = article.get('link', '')
-                if url:
-                    parsed_url = urlparse(url)
+                link = article.get('link', '')
+                if link:
+                    parsed_url = urlparse(link)
                     source_name = parsed_url.netloc.replace('www.', '')
+
+            # Last resort: use source_id (often truncated without TLD)
+            if not source_name:
+                source_name = article.get('source_id', '')
 
             # Parse publication date
             pub_date = article.get('pubDate', '')
@@ -309,6 +322,7 @@ class NewsdataCollector(ArticleCollector):
                 'raw_data': {
                     'article_id': article.get('article_id'),
                     'source_id': article.get('source_id'),
+                    'source_url': article.get('source_url'),
                     'country': article.get('country', []),
                     'category': article.get('category', []),
                     'language': article.get('language'),

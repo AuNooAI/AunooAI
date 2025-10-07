@@ -804,8 +804,8 @@ Format your response EXACTLY as follows:
             for i, signal in enumerate(future_signals):
                 if signal.startswith('"') and signal.endswith('"'):
                     signal = signal[1:-1]
-                if len(signal) > 40:
-                    signal = signal[:37] + "..."
+                # Removed 40-char truncation - allow full signal text
+                # The AI already generates concise signals based on the prompt
                 problematic_terms = ["advancement", "breakthrough", "progress in", "development of", "adoption of"]
                 if not any(term in signal.lower() for term in problematic_terms):
                     cleaned_signals.append(signal)

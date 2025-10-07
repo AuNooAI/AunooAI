@@ -9529,7 +9529,7 @@ async function loadIncidentTracking(topic, startDate, endDate, daysLimit, forceR
     
     loadingEl.style.display = 'block';
     errorEl.style.display = 'none';
-    
+
     try {
         if (!topic) {
             errorEl.innerHTML = `<div class="alert alert-warning"><i class="fas fa-info-circle me-2"></i>Select a topic to track incidents.</div>`;
@@ -9540,7 +9540,65 @@ async function loadIncidentTracking(topic, startDate, endDate, daysLimit, forceR
         // Get the selected model from feed configuration
         const modelSelect = document.getElementById('model-select');
         const selectedModel = modelSelect ? modelSelect.value : 'gpt-4o-mini';
-        
+
+        // Check database cache first using representative article URI
+        const cacheKey = `incident_tracking_${topic}_${startDate || 'no_start'}_${endDate || 'no_end'}_${daysLimit || 14}`;
+        let cacheUri = null;
+
+        // Use the first article URI from current dataset as cache reference
+        const currentArticles = window.lastArticlesData?.items || [];
+        console.log('[IncidentTracking] forceRegenerate:', forceRegenerate, 'topic:', topic, 'startDate:', startDate, 'endDate:', endDate, 'daysLimit:', daysLimit);
+        console.log('[IncidentTracking] lastArticlesData.items length:', currentArticles.length);
+        if (currentArticles.length > 0) {
+            cacheUri = currentArticles[0].uri; // Use first article as cache anchor
+        }
+        console.log('[IncidentTracking] cacheKey:', cacheKey, 'cacheUri:', cacheUri);
+
+        if (cacheUri && !forceRegenerate) {
+            try {
+                const cacheCheckUrl = `/api/analysis-cache?article_uri=${encodeURIComponent(cacheUri)}&analysis_type=incident_tracking_${topic}&model=incident_analysis`;
+                console.log('[IncidentTracking] Checking DB cache:', cacheCheckUrl);
+                const cacheResponse = await fetch(cacheCheckUrl);
+                console.log('[IncidentTracking] Cache response status:', cacheResponse.status);
+                if (cacheResponse.ok) {
+                    const cacheData = await cacheResponse.json();
+                    console.log('[IncidentTracking] Cache metadata:', cacheData && cacheData.metadata);
+                    if (cacheData.cached && cacheData.metadata) {
+                        // Check if cache matches our parameters
+                        const metadata = cacheData.metadata;
+                        console.log('[IncidentTracking] Computed cacheKey:', cacheKey, 'Stored cache_key:', metadata.cache_key);
+                        if (metadata.cache_key === cacheKey) {
+                            console.log('[IncidentTracking] Using cached incident tracking from database');
+                            const cachedIncidents = JSON.parse(cacheData.content || '[]');
+                            console.log('[IncidentTracking] Cached incidents length:', Array.isArray(cachedIncidents) ? cachedIncidents.length : 'n/a');
+
+                            // Render cached incidents
+                            renderIncidentTracking(cachedIncidents);
+
+                            // Add cache timestamp indicator
+                            const cacheTimestamp = cacheData.generated_at ? new Date(cacheData.generated_at).toLocaleString() : 'unknown time';
+                            const cacheIndicator = document.createElement('div');
+                            cacheIndicator.className = 'alert alert-info py-2 mt-2';
+                            cacheIndicator.innerHTML = `<small><i class="fas fa-database me-1"></i>Loaded from database cache (generated: ${cacheTimestamp})</small>`;
+                            containerEl.appendChild(cacheIndicator);
+
+                            return;
+                        } else {
+                            console.log('[IncidentTracking] Cache key mismatch; bypassing cache');
+                        }
+                    } else {
+                        console.log('[IncidentTracking] No cached content available');
+                    }
+                } else {
+                    console.log('[IncidentTracking] Cache check not OK:', cacheResponse.status);
+                }
+            } catch (cacheError) {
+                console.debug('[IncidentTracking] Database cache check failed, proceeding with API call:', cacheError);
+            }
+        } else if (forceRegenerate) {
+            console.log('[IncidentTracking] Force regenerate is true; skipping DB cache');
+        }
+
         // Get the selected organizational profile
         const profileSelect = document.getElementById('profile-select');
         const selectedProfileId = profileSelect && profileSelect.value ? parseInt(profileSelect.value) : null;
@@ -9578,14 +9636,61 @@ async function loadIncidentTracking(topic, startDate, endDate, daysLimit, forceR
         }
         
         const data = await response.json();
-        
+
         if (!data.incidents || data.incidents.length === 0) {
             const message = data.message || 'No incidents found';
             errorEl.innerHTML = `<div class="alert alert-warning"><i class="fas fa-info-circle me-2"></i>${message}</div>`;
             errorEl.style.display = 'block';
             return;
         }
-        
+
+        // Cache incident tracking results in database
+        try {
+            const cacheKey = `incident_tracking_${topic}_${startDate || 'no_start'}_${endDate || 'no_end'}_${daysLimit || 14}`;
+            const currentArticles = window.lastArticlesData?.items || [];
+
+            if (currentArticles.length > 0 && Array.isArray(data.incidents) && data.incidents.length > 0) {
+                const cacheUri = currentArticles[0].uri; // Use first article as cache anchor
+                const cacheContent = JSON.stringify(data.incidents, null, 2);
+                const cacheMetadata = {
+                    cache_key: cacheKey,
+                    topic: topic,
+                    start_date: startDate,
+                    end_date: endDate,
+                    days_limit: daysLimit || 14,
+                    insight_type: 'incident_tracking',
+                    incident_count: data.incidents.length,
+                    article_count: currentArticles.length,
+                    model: selectedModel
+                };
+
+                console.log('[IncidentTracking] Saving incidents to cache for uri:', cacheUri, 'metadata:', cacheMetadata);
+                const cacheResponse = await fetch('/api/save-analysis-cache', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        article_uri: cacheUri,
+                        analysis_type: `incident_tracking_${topic}`,
+                        content: cacheContent,
+                        model_name: 'incident_analysis',
+                        metadata: cacheMetadata
+                    })
+                });
+
+                if (cacheResponse.ok) {
+                    console.log('[IncidentTracking] Cached incident tracking results in database');
+                } else {
+                    console.warn('[IncidentTracking] Failed to cache incident tracking - server error:', cacheResponse.status);
+                }
+            } else if (!Array.isArray(data.incidents) || data.incidents.length === 0) {
+                console.warn('[IncidentTracking] Skipping cache save because incidents are empty');
+            } else {
+                console.warn('[IncidentTracking] No articles available for cache anchoring');
+            }
+        } catch (cacheError) {
+            console.warn('[IncidentTracking] Failed to cache incident tracking:', cacheError);
+        }
+
         renderIncidentTracking(data.incidents);
         
     } catch (error) {
@@ -11378,20 +11483,32 @@ function createIndividualIncidentCard(incident, globalMin, globalMax) {
             <div class="mt-2 mb-2">
                 <small class="text-muted fw-bold">Source Articles (${incident.article_uris.length}):</small>
                 <ul class="list-unstyled mt-1 mb-0 small">
-                    ${incident.article_uris.slice(0, 3).map(uri => {
+                    ${incident.article_uris.slice(0, 3).map((uri, idx) => {
+                        // First try to get metadata from incident.article_metadata (enriched by backend)
+                        let metadata = null;
+                        if (incident.article_metadata && incident.article_metadata[idx]) {
+                            metadata = incident.article_metadata[idx];
+                        }
+
+                        // Fallback to searching in window.lastArticlesData
                         const article = window.lastArticlesData?.items?.find(a => a.uri === uri);
-                        
-                        // Extract title from URI if article not found in current dataset
+
                         let title = 'View Article';
                         let source = 'Unknown Source';
                         let hasMBFC = false;
-                        
-                        if (article) {
+
+                        if (metadata && metadata.title) {
+                            // Use backend-provided metadata
+                            title = metadata.title;
+                            source = metadata.news_source || 'Unknown Source';
+                            hasMBFC = !!(metadata.factual_reporting || metadata.mbfc_credibility_rating || metadata.bias);
+                        } else if (article) {
+                            // Use article from current dataset
                             title = article.title || 'Untitled Article';
                             source = article.news_source || 'Unknown Source';
                             hasMBFC = !!(article.factual_reporting || article.mbfc_credibility_rating || article.bias);
                         } else {
-                            // Try to extract meaningful title from URI
+                            // Last resort: extract from URI
                             try {
                                 const url = new URL(uri);
                                 const pathParts = url.pathname.split('/').filter(Boolean);
@@ -11405,19 +11522,21 @@ function createIndividualIncidentCard(incident, globalMin, globalMax) {
                                 console.warn('Could not parse URI for title:', uri);
                             }
                         }
-                        
+
                         // Add MBFC quality indicators or AI-derived flag
                         let qualityBadges = '';
-                        if (article && hasMBFC) {
+                        const sourceData = metadata || article; // Use metadata first, fallback to article
+
+                        if (sourceData && hasMBFC) {
                             const badges = [];
-                            if (article.factual_reporting) {
-                                badges.push(`<span class="badge ${getFactualityClass(article.factual_reporting)}" style="font-size: 8px;" title="MBFC Factual Reporting">${article.factual_reporting}</span>`);
+                            if (sourceData.factual_reporting) {
+                                badges.push(`<span class="badge ${getFactualityClass(sourceData.factual_reporting)}" style="font-size: 8px;" title="MBFC Factual Reporting">${sourceData.factual_reporting}</span>`);
                             }
-                            if (article.mbfc_credibility_rating) {
-                                badges.push(`<span class="badge ${getMBFCCredibilityClass(article.mbfc_credibility_rating)}" style="font-size: 8px;" title="MBFC Credibility Rating">${article.mbfc_credibility_rating}</span>`);
+                            if (sourceData.mbfc_credibility_rating) {
+                                badges.push(`<span class="badge ${getMBFCCredibilityClass(sourceData.mbfc_credibility_rating)}" style="font-size: 8px;" title="MBFC Credibility Rating">${sourceData.mbfc_credibility_rating}</span>`);
                             }
-                            if (article.bias) {
-                                badges.push(`<span class="badge ${getBiasClass(article.bias)}" style="font-size: 8px;" title="MBFC Bias Rating">${article.bias}</span>`);
+                            if (sourceData.bias) {
+                                badges.push(`<span class="badge ${getBiasClass(sourceData.bias)}" style="font-size: 8px;" title="MBFC Bias Rating">${sourceData.bias}</span>`);
                             }
                             if (badges.length > 0) {
                                 qualityBadges = `<br>${badges.join(' ')}`;

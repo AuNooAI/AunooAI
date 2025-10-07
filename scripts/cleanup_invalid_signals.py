@@ -5,8 +5,9 @@ Script to clean up invalid future_signal values from the articles table.
 This script:
 1. Loads topic configurations to get valid future_signals for each topic
 2. Finds articles with invalid future_signal values
-3. Sets invalid future_signal values to empty string
-4. Reports on the cleanup process
+3. Sets invalid future_signal values to 'Other' (fallback category)
+4. Cleans up validation error messages in explanations
+5. Reports on the cleanup process
 """
 
 import sys
@@ -78,8 +79,8 @@ def find_invalid_signals(db):
                 stats[topic]['unknown_topic'] += 1
                 continue
 
-            # Check if the signal is valid for this topic
-            if future_signal not in topic_signals[topic]:
+            # Check if the signal is valid for this topic (allow "Other" as fallback)
+            if future_signal not in topic_signals[topic] and future_signal != "Other":
                 invalid_articles.append({
                     'uri': uri,
                     'topic': topic,
@@ -135,8 +136,12 @@ def cleanup_invalid_signals(db, dry_run=True):
 
             cursor.execute(f"""
                 UPDATE articles
-                SET future_signal = '',
-                    future_signal_explanation = '[CLEANED: Invalid signal value removed]'
+                SET future_signal = 'Other',
+                    future_signal_explanation = CASE
+                        WHEN future_signal_explanation LIKE '%VALIDATION ERROR%'
+                        THEN 'AI classified as: ' || REPLACE(REPLACE(future_signal_explanation, '[VALIDATION ERROR: AI returned invalid signal ''', ''), ''']', '')
+                        ELSE future_signal_explanation
+                    END
                 WHERE uri IN ({placeholders})
             """, batch)
 

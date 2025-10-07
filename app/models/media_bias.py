@@ -49,50 +49,70 @@ def normalize_domain(url):
         return url.lower()
 
 def domains_match(source_domain, target_domain):
-    """Check if two domains match, including subdomain support.
-    
+    """Check if two domains match, including subdomain support and missing TLD handling.
+
     Args:
         source_domain: First domain to compare
         target_domain: Second domain to compare
-        
+
     Returns:
         True if the domains match, False otherwise
     """
     if not source_domain or not target_domain:
         return False
-    
+
     source_domain = source_domain.lower()
     target_domain = target_domain.lower()
-    
+
     # Exact match
     if source_domain == target_domain:
         return True
-    
+
     # Check if source_domain is a subdomain of target_domain
     if source_domain.endswith('.' + target_domain):
         return True
-    
+
     # Check if target_domain is a subdomain of source_domain
     if target_domain.endswith('.' + source_domain):
         return True
-    
+
     # Extract root domain (e.g., "example.com" from "sub.example.com")
     source_parts = source_domain.split('.')
     target_parts = target_domain.split('.')
-    
+
     # If either domain doesn't have at least 2 parts, use the whole domain
     if len(source_parts) >= 2:
         source_root = '.'.join(source_parts[-2:])
     else:
         source_root = source_domain
-        
+
     if len(target_parts) >= 2:
         target_root = '.'.join(target_parts[-2:])
     else:
         target_root = target_domain
-    
+
     # Match on root domains
-    return source_root == target_root
+    if source_root == target_root:
+        return True
+
+    # SAFETY NET: Handle missing TLDs (e.g., "westernjournal" vs "westernjournal.com")
+    # If one domain has no TLD (single part) and the other does (2+ parts),
+    # check if the single-part domain matches the domain name portion
+    if len(source_parts) == 1 and len(target_parts) >= 2:
+        # source is "westernjournal", target is "westernjournal.com"
+        # Check if source matches the domain part of target
+        if source_domain == target_parts[-2]:
+            logger.debug(f"Matched '{source_domain}' (no TLD) with '{target_domain}' (domain part: {target_parts[-2]})")
+            return True
+
+    if len(target_parts) == 1 and len(source_parts) >= 2:
+        # target is "westernjournal", source is "westernjournal.com"
+        # Check if target matches the domain part of source
+        if target_domain == source_parts[-2]:
+            logger.debug(f"Matched '{target_domain}' (no TLD) with '{source_domain}' (domain part: {source_parts[-2]})")
+            return True
+
+    return False
 
 class MediaBias:
     """Media bias data management and enrichment."""

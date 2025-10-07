@@ -156,12 +156,16 @@ class TheNewsAPICollector(ArticleCollector):
                     
                     # Extract source name using the same logic as _format_article
                     source = article.get('source', {})
-                    source_name = source.get('name', '') if isinstance(source, dict) else str(source)
-                    
-                    # If source_name is empty, try to extract from URL
-                    if not source_name and article.get('url'):
+                    # ALWAYS extract domain from URL first (full domain with TLD)
+                    # API source name often lacks TLD or is inconsistent
+                    source_name = ''
+                    if article.get('url'):
                         parsed_url = urlparse(article['url'])
                         source_name = parsed_url.netloc.replace('www.', '')
+
+                    # Only use API source name as fallback if URL parsing failed
+                    if not source_name:
+                        source_name = source.get('name', '') if isinstance(source, dict) else str(source)
                     
                     # Handle keywords - TheNewsAPI can return them as strings or arrays
                     keywords = article.get('keywords', [])
@@ -194,24 +198,22 @@ class TheNewsAPICollector(ArticleCollector):
 
     def _format_article(self, article: Dict, topic: str) -> Dict:
         """Format TheNewsAPI article data to standard format."""
-        # Try to extract the true media source name
-        source = article.get('source', {})
+        # ALWAYS extract domain from URL first (full domain with TLD)
+        # API source name often lacks TLD or is inconsistent
         source_name = ''
-        
-        # Log the raw source data for debugging
-        logger.debug(f"Raw source data for article '{article.get('title', '')}': {source}")
-        
-        if isinstance(source, dict):
-            source_name = source.get('name', '').strip()
-        elif isinstance(source, str):
-            source_name = source.strip()
-
-        # Fallback: extract domain from URL if source_name is empty
-        if not source_name and article.get('url'):
+        if article.get('url'):
             from urllib.parse import urlparse
             parsed_url = urlparse(article['url'])
             source_name = parsed_url.netloc.replace('www.', '')
-            
+
+        # Only use API source name as fallback if URL parsing failed
+        if not source_name:
+            source = article.get('source', {})
+            if isinstance(source, dict):
+                source_name = source.get('name', '').strip()
+            elif isinstance(source, str):
+                source_name = source.strip()
+
         # Log the extracted source name
         logger.debug(f"Extracted source name for article '{article.get('title', '')}': {source_name}")
 
