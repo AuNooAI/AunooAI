@@ -1536,23 +1536,87 @@ class AutomatedIngestService:
                 if status == 'completed':
                     # Get results
                     results = {}
-                    
-                    for item in data:
-                        # Firecrawl v2 returns objects for items too
-                        # URL is in metadata.sourceURL according to v2 API docs
-                        metadata = getattr(item, 'metadata', {})
-                        url = getattr(metadata, 'sourceURL', None) if metadata else None
-                        success = getattr(item, 'success', True)  # Default to True if not present
-                        markdown = getattr(item, 'markdown', None)
-                        item_error = getattr(item, 'error', None)
-                        
-                        if success and markdown:
-                            results[url] = markdown
+
+                    self.logger.info(f"📦 Processing {len(data)} items from batch {batch_id}")
+
+                    for idx, item in enumerate(data):
+                        # Log the raw item structure for debugging
+                        self.logger.info(f"🔍 Raw item {idx} type: {type(item)}")
+                        if isinstance(item, dict):
+                            self.logger.info(f"🔍 Raw item {idx} keys: {list(item.keys())}")
                         else:
-                            results[url] = None
-                            self.logger.warning(f"Failed to scrape {url}: {item_error or 'Unknown error'}")
-                    
-                    self.logger.info(f"Batch {batch_id} completed with {len(results)} results")
+                            self.logger.info(f"🔍 Raw item {idx} attributes: {[a for a in dir(item) if not a.startswith('_')]}")
+
+                        # Handle both object and dict structures
+                        # Try object access first, then dict access
+
+                        # Get metadata (can be object or dict)
+                        if hasattr(item, 'metadata'):
+                            metadata = item.metadata
+                        elif isinstance(item, dict):
+                            metadata = item.get('metadata', {})
+                        else:
+                            metadata = getattr(item, 'metadata', {})
+
+                        # Log metadata structure
+                        self.logger.info(f"🔍 Metadata type: {type(metadata)}")
+                        if isinstance(metadata, dict):
+                            self.logger.info(f"🔍 Metadata keys: {list(metadata.keys()) if metadata else 'empty'}")
+                        elif metadata:
+                            self.logger.info(f"🔍 Metadata attributes: {[attr for attr in dir(metadata) if not attr.startswith('_')]}")
+
+                        # Get URL from metadata (can be object or dict)
+                        # The Firecrawl API returns: data[i].metadata.sourceURL
+                        url = None
+                        if metadata:
+                            if isinstance(metadata, dict):
+                                url = metadata.get('sourceURL') or metadata.get('source_url')
+                            elif hasattr(metadata, 'sourceURL'):
+                                url = metadata.sourceURL
+                            elif hasattr(metadata, 'source_url'):
+                                url = metadata.source_url
+                            else:
+                                url = getattr(metadata, 'sourceURL', None) or getattr(metadata, 'source_url', None)
+
+                        # Get success flag (can be object or dict)
+                        # Note: Firecrawl v2 Document objects don't have a 'success' field
+                        # If markdown is present, consider it successful
+                        if hasattr(item, 'success'):
+                            success = item.success
+                        elif isinstance(item, dict):
+                            success = item.get('success', True)  # Default to True if not specified
+                        else:
+                            success = getattr(item, 'success', True)  # Default to True if not specified
+
+                        # Get markdown content (can be object or dict)
+                        if hasattr(item, 'markdown'):
+                            markdown = item.markdown
+                        elif isinstance(item, dict):
+                            markdown = item.get('markdown')
+                        else:
+                            markdown = getattr(item, 'markdown', None)
+
+                        # Get error (can be object or dict)
+                        if hasattr(item, 'error'):
+                            item_error = item.error
+                        elif isinstance(item, dict):
+                            item_error = item.get('error')
+                        else:
+                            item_error = getattr(item, 'error', None)
+
+                        self.logger.info(f"🔍 Item {idx}: url={url}, success={success}, has_markdown={bool(markdown)}, error={item_error}")
+
+                        if url:
+                            if success and markdown:
+                                results[url] = markdown
+                                self.logger.debug(f"✅ Successfully scraped {url} ({len(markdown)} chars)")
+                            else:
+                                results[url] = None
+                                self.logger.warning(f"❌ Failed to scrape {url}: {item_error or 'No markdown content'}")
+                        else:
+                            self.logger.warning(f"⚠️ Item {idx} has no URL in metadata")
+
+                    self.logger.info(f"Batch {batch_id} completed with {len([r for r in results.values() if r])} successful results out of {len(results)} total")
                     return results
                     
                 elif status == 'failed':
