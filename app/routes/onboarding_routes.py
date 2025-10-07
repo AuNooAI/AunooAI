@@ -735,15 +735,38 @@ Format your response EXACTLY as follows:
 
         # Get response from LLM
         try:
+            # Dynamically get the first available OpenAI model from litellm_config.yaml
+            config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'litellm_config.yaml')
+            with open(config_path, 'r') as f:
+                config = yaml.safe_load(f)
+
+            # Find first OpenAI model with configured API key
+            selected_model = None
+            for model_config in config.get('model_list', []):
+                model_name = model_config.get('model_name')
+                litellm_params = model_config.get('litellm_params', {})
+                model_path = litellm_params.get('model', '')
+
+                # Check if it's an OpenAI model and has API key configured
+                if 'openai/' in model_path:
+                    api_key_env = litellm_params.get('api_key', '').replace('os.environ/', '')
+                    if api_key_env and os.getenv(api_key_env):
+                        selected_model = model_name
+                        logger.info(f"Selected model for topic suggestions: {selected_model}")
+                        break
+
+            if not selected_model:
+                raise HTTPException(status_code=500, detail="No OpenAI model configured with API key")
+
             messages = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
             ]
-            
-            logger.info(f"Sending prompt to LLM: {prompt[:200]}...")
-            
+
+            logger.info(f"Sending prompt to LLM using model {selected_model}: {prompt[:200]}...")
+
             response = completion(
-                model="gpt-4-1106-preview",
+                model=selected_model,
                 messages=messages,
                 max_tokens=1500,
                 temperature=0.2  # Lower temperature for more consistent JSON formatting
@@ -1014,19 +1037,50 @@ async def save_topic(
 @router.post("/api/onboarding/complete")
 async def complete_onboarding(
     request: Request,
+    data: Dict = Body(default={}),
     db: Database = Depends(get_database_instance)
 ):
-    """Mark onboarding as complete for the user."""
+    """Mark onboarding as complete for the user and save news provider preference."""
     try:
         user = request.session.get("user")
         if not user:
             raise HTTPException(status_code=401, detail="Not authenticated")
-            
+
         # Update user record
         db.update_user_onboarding(user, True)
-        
+
+        # Save the selected news provider to keyword_monitor_settings if provided
+        news_provider = data.get("news_provider")
+        if news_provider and news_provider in ["newsapi", "thenewsapi", "newsdata"]:
+            logger.info(f"Saving news provider preference: {news_provider}")
+
+            # Update or create keyword_monitor_settings with the selected provider
+            try:
+                conn = db.get_connection()
+                # Check if settings exist
+                result = conn.execute("SELECT id FROM keyword_monitor_settings LIMIT 1").fetchone()
+
+                if result:
+                    # Update existing settings
+                    conn.execute(
+                        "UPDATE keyword_monitor_settings SET provider = ?",
+                        (news_provider,)
+                    )
+                else:
+                    # Create initial settings with the provider
+                    conn.execute("""
+                        INSERT INTO keyword_monitor_settings
+                        (check_interval, interval_unit, daily_request_limit, provider)
+                        VALUES (15, 60, 100, ?)
+                    """, (news_provider,))
+
+                conn.commit()
+                logger.info(f"Successfully saved news provider: {news_provider}")
+            except Exception as e:
+                logger.error(f"Error saving news provider to settings: {str(e)}")
+
         return JSONResponse(content={"status": "success"})
-        
+
     except Exception as e:
         logger.error(f"Error completing onboarding: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

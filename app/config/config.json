@@ -170,6 +170,66 @@
         "Inhibitor",
         "Blocker"
       ]
+    },
+    {
+      "name": "Climate Change",
+      "description": "Climate Change",
+      "categories": [
+        "Greenhouse Gas Emissions",
+        "Renewable Energy Adoption",
+        "Climate Policy and Regulation",
+        "Climate Science and Research",
+        "Environmental Impact and Biodiversity",
+        "Climate Adaptation and Resilience",
+        "Carbon Capture and Storage",
+        "Climate Finance and Investment",
+        "Public Awareness and Activism",
+        "Technological Innovations",
+        "Climate-related Disasters",
+        "Global Cooperation and Agreements",
+        "Economic Implications",
+        "Social Justice and Climate Equity"
+      ],
+      "future_signals": [
+        "Global temperatures continue rising r...",
+        "Successful global emissions reduction...",
+        "Climate change effects stabilize",
+        "Climate change accelerates extreme we...",
+        "Widespread climate migration occurs"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "keywords": [
+        "Tesla",
+        "NextEra Energy",
+        "\u00d8rsted",
+        "Solar Power",
+        "Wind Energy",
+        "Carbon Capture and Storage",
+        "Climate Change",
+        "Global Warming",
+        "Sustainability",
+        "Greta Thunberg",
+        "James Hansen",
+        "Climate hoax",
+        "Climate scam"
+      ]
     }
   ],
   "ai_models": [

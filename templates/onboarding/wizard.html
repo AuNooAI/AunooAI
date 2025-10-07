@@ -1646,13 +1646,20 @@ function getSelectedTags(containerId) {
 
 async function completeOnboarding() {
     try {
+        // Get the selected news provider from Step 1
+        const newsProvider = document.getElementById('news-provider').value;
+
         const response = await fetch('/api/onboarding/complete', {
-            method: 'POST'
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                news_provider: newsProvider
+            })
         });
-        
+
         if (response.ok) {
             showSuccessMessage("Onboarding completed successfully!");
-            
+
             // Redirect to keyword alerts page after a short delay
             setTimeout(() => {
                 window.location.href = '/keyword-alerts';
