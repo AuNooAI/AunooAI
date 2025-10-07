@@ -38,10 +38,11 @@ class NewsFeedService:
         
         # Get articles for the date range
         articles_data = await self._get_articles_for_date_range(
-            request.date_range or "24h", 
-            request.max_articles, 
-            request.topic, 
-            target_date
+            request.date_range or "24h",
+            request.max_articles,
+            request.topic,
+            target_date,
+            request.bias_filter
         )
         
         if not articles_data:
@@ -61,12 +62,12 @@ class NewsFeedService:
             processing_time_seconds=processing_time
         )
     
-    async def _get_articles_for_date_range(self, date_range: str, max_articles: int, topic: Optional[str] = None, custom_date: Optional[datetime] = None) -> List[Dict]:
-        """Get articles for a date range with bias and factuality data"""
-        
+    async def _get_articles_for_date_range(self, date_range: str, max_articles: int, topic: Optional[str] = None, custom_date: Optional[datetime] = None, bias_filter: Optional[str] = None) -> List[Dict]:
+        """Get articles for a date range with optional bias filtering"""
+
         # Calculate date range based on selection
         now = datetime.now()
-        
+
         if date_range == 'custom' and custom_date:
             # Single custom date
             target_date = custom_date.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -110,25 +111,31 @@ class NewsFeedService:
             end_date = now
             date_condition = "publication_date >= ? AND publication_date <= ?"
             params = [start_date.isoformat(), end_date.isoformat()]
-        
+
         logger.info(f"Getting articles for date range: {start_date.isoformat() if start_date else 'all time'} to {end_date.isoformat()}")
-        
-        # Build query with bias and factuality fields
+
+        # Build query with bias and factuality fields (now optional)
         query = f"""
-        SELECT 
+        SELECT
             uri, title, summary, news_source, publication_date, submission_date,
             category, sentiment, sentiment_explanation, time_to_impact, time_to_impact_explanation,
-            tags, bias, factual_reporting, mbfc_credibility_rating, bias_source, 
+            tags, bias, factual_reporting, mbfc_credibility_rating, bias_source,
             bias_country, press_freedom, media_type, popularity,
             future_signal, future_signal_explanation, driver_type, driver_type_explanation
-        FROM articles 
+        FROM articles
         WHERE {date_condition}
         AND category IS NOT NULL
-        AND sentiment IS NOT NULL 
-        AND bias IS NOT NULL
-        AND factual_reporting IS NOT NULL
+        AND sentiment IS NOT NULL
         """
-        
+
+        # Add bias filter if specified
+        if bias_filter:
+            if bias_filter.lower() == 'no_bias':
+                query += " AND bias IS NULL"
+            else:
+                query += " AND bias = ?"
+                params.append(bias_filter)
+
         if topic:
             query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
             topic_pattern = f"%{topic}%"
@@ -217,12 +224,12 @@ class NewsFeedService:
             logger.warning("Continuing with default analysis due to profile loading error")
             return None
     
-    async def _get_total_articles_count_for_date_range(self, date_range: str, topic: Optional[str] = None, custom_date: Optional[datetime] = None) -> int:
+    async def _get_total_articles_count_for_date_range(self, date_range: str, topic: Optional[str] = None, custom_date: Optional[datetime] = None, bias_filter: Optional[str] = None) -> int:
         """Get the total count of articles for a date range (without limit)"""
-        
+
         # Calculate date range based on selection (same logic as _get_articles_for_date_range)
         now = datetime.now()
-        
+
         if date_range == 'custom' and custom_date:
             target_date = custom_date.replace(hour=0, minute=0, second=0, microsecond=0)
             date_condition = "DATE(publication_date) = ?"
@@ -261,16 +268,14 @@ class NewsFeedService:
             end_date = now
             date_condition = "publication_date >= ? AND publication_date <= ?"
             params = [start_date.isoformat(), end_date.isoformat()]
-        
+
         # Build count query with same filtering as _get_articles_for_date_range
         query = f"""
-        SELECT COUNT(*) 
-        FROM articles 
+        SELECT COUNT(*)
+        FROM articles
         WHERE {date_condition}
         AND category IS NOT NULL
-        AND sentiment IS NOT NULL 
-        AND bias IS NOT NULL
-        AND factual_reporting IS NOT NULL
+        AND sentiment IS NOT NULL
         AND title NOT LIKE '%Call@%'
         AND title NOT LIKE '%+91%'
         AND title NOT LIKE '%best%agency%'
@@ -279,7 +284,15 @@ class NewsFeedService:
         AND summary NOT LIKE '%phone%number%'
         AND news_source NOT LIKE '%medium.com/@%'
         """
-        
+
+        # Add bias filter if specified
+        if bias_filter:
+            if bias_filter.lower() == 'no_bias':
+                query += " AND bias IS NULL"
+            else:
+                query += " AND bias = ?"
+                params.append(bias_filter)
+
         if topic:
             query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
             topic_pattern = f"%{topic}%"
@@ -464,9 +477,10 @@ class NewsFeedService:
         
         # Get the actual total count from database (not limited by max_articles)
         total_articles = await self._get_total_articles_count_for_date_range(
-            request.date_range or "24h", 
-            request.topic, 
-            request.date
+            request.date_range or "24h",
+            request.topic,
+            request.date,
+            request.bias_filter
         )
         
         # Calculate pagination

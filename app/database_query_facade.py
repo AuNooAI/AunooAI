@@ -193,6 +193,10 @@ class DatabaseQueryFacade:
             all_keywords = [row[0] for row in cursor.fetchall()]
             keywords_str = ", ".join(all_keywords) if all_keywords else matched_keyword
 
+            # Get topic description from config
+            from app.config.config import get_topic_description
+            topic_description = get_topic_description(topic)
+
             # Initialize RelevanceCalculator with default model
             from app.relevance import RelevanceCalculator
             from app.ai_models import LiteLLMModel
@@ -215,7 +219,8 @@ class DatabaseQueryFacade:
                 source=article.get('source', ''),
                 content=article_content,
                 topic=topic,
-                keywords=keywords_str
+                keywords=keywords_str,
+                topic_description=topic_description
             )
 
             self.logger.info(

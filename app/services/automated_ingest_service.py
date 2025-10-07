@@ -28,7 +28,7 @@ from app.ai_models import LiteLLMModel
 import asyncio
 import concurrent.futures
 import requests
-from app.config.config import load_config
+from app.config.config import load_config, get_topic_description
 import time
 
 # Set up logging
@@ -260,12 +260,12 @@ class AutomatedIngestService:
     def score_article_relevance(self, article_data: Dict[str, Any], topic: str, keywords: List[str]) -> Dict[str, Any]:
         """
         Score article relevance using the RelevanceCalculator
-        
+
         Args:
             article_data: Article data dictionary
             topic: Topic name for context
             keywords: List of keywords to check relevance against
-            
+
         Returns:
             Dictionary containing relevance score and details
         """
@@ -273,16 +273,19 @@ class AutomatedIngestService:
             # Initialize relevance calculator if not already done
             if not self.relevance_calculator:
                 from app.relevance import RelevanceCalculator
-                
+
                 # Get LLM model and parameters
                 model_name = self.get_llm_client()
-                
+
                 # Initialize RelevanceCalculator with model name
                 self.relevance_calculator = RelevanceCalculator(model_name=model_name)
-            
+
+            # Get topic description from config
+            topic_description = get_topic_description(topic)
+
             # Prepare article text for analysis
             article_text = f"{article_data.get('title', '')} {article_data.get('summary', '')}"
-            
+
             # Calculate relevance score using correct parameter names
             keywords_str = ", ".join(keywords) if isinstance(keywords, list) else str(keywords)
             relevance_result = self.relevance_calculator.analyze_relevance(
@@ -290,13 +293,14 @@ class AutomatedIngestService:
                 source=article_data.get('news_source', ''),
                 content=article_text,
                 topic=topic,
-                keywords=keywords_str
+                keywords=keywords_str,
+                topic_description=topic_description
             )
-            
+
             self.logger.debug(f"Relevance score for article {article_data.get('uri')}: {relevance_result}")
-            
+
             return relevance_result
-            
+
         except Exception as e:
             self.logger.error(f"Error scoring article relevance: {e}")
             return {"relevance_score": 0.0, "explanation": f"Error calculating relevance: {str(e)}"}

@@ -1932,13 +1932,19 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                         title="Export alerts for this group">
                                     <i class="fas fa-download"></i>
                                 </button>
-                                <span class="badge bg-primary">{{ group.alerts|length }} total</span>
-                                {% set enriched_articles = group.alerts|selectattr('article.category')|list %}
+                                <span class="badge bg-primary">{{ group.total_count|default(group.alerts|length) }} total</span>
+                                {% if group.enriched_count is defined and group.enriched_count > 0 %}
+                                <span class="badge bg-success ms-1" title="{{ group.enriched_count }} articles have been analyzed">
+                                    <i class="fas fa-brain me-1"></i>{{ group.enriched_count }} enriched
+                                </span>
+                                {% elif group.alerts %}
+                                {% set enriched_articles = group.alerts|selectattr('article.analyzed', 'equalto', true)|list %}
                                 {% set enriched_count = enriched_articles|length %}
                                 {% if enriched_count > 0 %}
-                                <span class="badge bg-success ms-1" title="{{ enriched_count }} articles have been analyzed">
-                                    <i class="fas fa-brain me-1"></i>{{ enriched_count }} enriched
+                                <span class="badge bg-success ms-1" title="{{ enriched_count }} of {{ group.alerts|length }} visible articles have been analyzed">
+                                    <i class="fas fa-brain me-1"></i>{{ enriched_count }}/{{ group.alerts|length }} enriched
                                 </span>
+                                {% endif %}
                                 {% endif %}
                             </div>
                         </div>

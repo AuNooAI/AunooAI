@@ -66,6 +66,21 @@ def get_all_topics(config: Dict) -> List[str]:
     config = load_config()
     return [topic['name'] for topic in config.get('topics', [])]
 
+def get_topic_description(topic_name: str) -> str:
+    """Get description for a specific topic from config.json.
+
+    Args:
+        topic_name: Name of the topic
+
+    Returns:
+        Topic description string, or empty string if not found
+    """
+    config = load_config()
+    for topic in config.get('topics', []):
+        if topic.get('name') == topic_name:
+            return topic.get('description', '')
+    return ''
+
 def load_news_monitoring() -> Dict:
     news_config_path = os.path.join(os.path.dirname(__file__), 'news_monitoring.json')
     try:

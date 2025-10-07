@@ -2,6 +2,7 @@
   "topics": [
     {
       "name": "AI and Machine Learning",
+      "description": "Comprehensive coverage of artificial intelligence and machine learning developments, including research breakthroughs, commercial applications, ethical considerations, regulatory frameworks, and societal impacts. This topic encompasses AI in various sectors including business, healthcare, education, law, science, and the arts, as well as the broader implications for employment, trust, security, and the path toward artificial general intelligence (AGI).",
       "categories": [
         "AI Warbots",
         "AI Business",
@@ -59,6 +60,7 @@
     },
     {
       "name": "Trend Monitoring",
+      "description": "Track emerging trends across various domains, monitoring adoption patterns, market dynamics, and public sentiment. This topic helps identify whether trends are gaining momentum, stagnating, declining, or being overhyped, providing insights into technology adoption curves, market maturity, and strategic opportunities.",
       "categories": [
         "Category 1",
         "Category 2"
@@ -94,6 +96,7 @@
     },
     {
       "name": "Competitor Analysis",
+      "description": "Monitor competitive landscape, tracking competitor activities, market positioning, financial performance, strategic moves, and business developments. This includes M&A activity, product launches, expansion plans, pivots, market share changes, and other signals that indicate competitive dynamics and market shifts.",
       "categories": [
         "Competitor 1",
         "Competitor 2",
@@ -129,6 +132,7 @@
     },
     {
       "name": "The path to AGI",
+      "description": "Track progress toward Artificial General Intelligence (AGI), monitoring breakthroughs in machine learning architectures, scaling laws, data dependencies, energy efficiency, robotics integration, and neurological insights. This topic examines technical milestones, theoretical advances, ethical considerations, regulatory developments, economic implications, and the ongoing debate about AGI's feasibility, timeline, and potential impact on humanity.",
       "categories": [
         "Data Dependencies",
         "Energy Efficiency",
@@ -173,7 +177,7 @@
     },
     {
       "name": "Climate Change",
-      "description": "Climate Change",
+      "description": "Monitor developments in climate science, policy, and action, including greenhouse gas emissions trends, renewable energy adoption, climate adaptation strategies, carbon capture technologies, and climate finance. This topic covers the latest research on global warming impacts, extreme weather events, biodiversity loss, international climate agreements, regulatory frameworks, technological innovations, and the intersection of climate change with social justice, economics, and public awareness.",
       "categories": [
         "Greenhouse Gas Emissions",
         "Renewable Energy Adoption",
@@ -233,7 +237,7 @@
     },
     {
       "name": "Quantum Advantage",
-      "description": "How close are we to Quantum Advantage",
+      "description": "Track progress toward achieving quantum advantage (formerly quantum supremacy), the point where quantum computers outperform classical computers on practical problems. This topic monitors advances in quantum hardware (superconducting qubits, trapped ions, topological qubits), quantum algorithms, error correction techniques, noise reduction, benchmarking standards, real-world applications, industry developments, research breakthroughs, investment trends, and ongoing debates about the feasibility, timeline, and practical impact of quantum computing.",
       "categories": [
         "Quantum Hardware Development",
         "Quantum Algorithms",

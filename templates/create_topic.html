@@ -211,6 +211,13 @@
             <small class="text-muted">Example topics: {{ example_topics|join(", ") }}</small>
         </div>
 
+        <div class="mb-3">
+            <label for="topicDescription" class="form-label">Topic Description</label>
+            <p class="text-muted mb-2">A detailed description of what this topic covers. This helps improve relevance scoring, especially when there are few keywords.</p>
+            <textarea class="form-control" id="topicDescription" rows="3"></textarea>
+            <small class="text-muted">Provide additional context about what articles should be relevant to this topic</small>
+        </div>
+
         <div class="mb-4">
             <label for="futureSignals" class="form-label">Future Signals</label>
             <p class="text-muted mb-2">Future Signals are scenarios that suggest potential directions for a topic. For instance, signals for an AI hype model could range from "AI is hype" and "AI is evolving gradually", to "AI is accelerating".</p>
@@ -348,9 +355,10 @@ const driverTypesInput = createTagInput('driverTypesContainer', 'driverTypesInpu
 
 document.getElementById('createTopicForm').addEventListener('submit', async function(e) {
     e.preventDefault();
-    
+
     const formData = {
         name: document.getElementById('topicName').value,
+        description: document.getElementById('topicDescription').value,
         categories: categoriesInput.getTags(),
         future_signals: futureSignalsInput.getTags(),
         sentiment: sentimentsInput.getTags(),
@@ -406,6 +414,7 @@ document.getElementById('existingTopic').addEventListener('change', async functi
     if (!selectedTopic) {
         // Clear all fields
         document.getElementById('topicName').value = '';
+        document.getElementById('topicDescription').value = '';
         categoriesInput.clearTags();
         futureSignalsInput.clearTags();
         sentimentsInput.clearTags();
@@ -417,10 +426,11 @@ document.getElementById('existingTopic').addEventListener('change', async functi
     // Fetch topic data
     const response = await fetch(`/api/topic/${selectedTopic}`);
     const topicData = await response.json();
-    
-    // Set topic name
+
+    // Set topic name and description
     document.getElementById('topicName').value = topicData.name;
-    
+    document.getElementById('topicDescription').value = topicData.description || '';
+
     // Clear existing tags first
     categoriesInput.clearTags();
     futureSignalsInput.clearTags();
@@ -502,6 +512,12 @@ async function loadTopicData(topicName) {
         const topicNameInput = document.getElementById('topicName');
         if (topicNameInput) {
             topicNameInput.value = topicName;
+        }
+
+        // Set topic description
+        const topicDescriptionInput = document.getElementById('topicDescription');
+        if (topicDescriptionInput && topicData.description) {
+            topicDescriptionInput.value = topicData.description;
         }
 
         // Set news query

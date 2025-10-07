@@ -330,16 +330,22 @@ Output Format (JSON Object):
             )}
         ]
 
-    def format_relevance_analysis_prompt(self, title: str, source: str, content: str, topic: str, keywords: str) -> List[Dict[str, str]]:
+    def format_relevance_analysis_prompt(self, title: str, source: str, content: str, topic: str, keywords: str, topic_description: str = "") -> List[Dict[str, str]]:
         """Format relevance analysis prompt for evaluating article relevance."""
         template = self.get_template("relevance_analysis")
+
+        # Build context string with topic description if available
+        topic_context = f"{topic}"
+        if topic_description:
+            topic_context = f"{topic}\nTopic Description: {topic_description}"
+
         return [
             {"role": "system", "content": template["system_prompt"]},
             {"role": "user", "content": template["user_prompt"].format(
                 title=title,
                 source=source,
                 content=content[:8000],  # Limit content to avoid token limits
-                topic=topic,
+                topic=topic_context,  # Use enhanced topic context
                 keywords=keywords
             )}
         ] 

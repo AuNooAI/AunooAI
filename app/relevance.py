@@ -140,23 +140,24 @@ class RelevanceCalculator:
             logger.error(f"Error extracting article keywords: {str(e)}")
             return []
 
-    def analyze_relevance(self, title: str, source: str, content: str, topic: str, keywords: str) -> Dict:
+    def analyze_relevance(self, title: str, source: str, content: str, topic: str, keywords: str, topic_description: str = None) -> Dict:
         """
         Perform comprehensive relevance analysis using the configured LLM model.
-        
+
         Args:
             title: Article title
             source: Article source
             content: Article content
             topic: Target topic for monitoring
             keywords: Target keywords (comma-separated string)
-            
+            topic_description: Optional detailed description of the topic for better context
+
         Returns:
             Dict containing relevance analysis results
         """
         if not self.ai_model:
             raise RelevanceCalculatorError("No AI model initialized for relevance analysis")
-        
+
         try:
             # Format the prompt using the template
             messages = self.prompt_templates.format_relevance_analysis_prompt(
@@ -164,7 +165,8 @@ class RelevanceCalculator:
                 source=source or "Unknown source",
                 content=content or "No content available",
                 topic=topic or "No topic specified",
-                keywords=keywords or "No keywords specified"
+                keywords=keywords or "No keywords specified",
+                topic_description=topic_description or ""
             )
             
             logger.info(f"Analyzing relevance for article: {title[:50]}... using model: {self.model_name}")

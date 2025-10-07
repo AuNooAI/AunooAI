@@ -102,6 +102,7 @@ class NewsFeedRequest(BaseModel):
     profile_id: Optional[int] = None  # Organizational profile for contextualized analysis
     persona: Optional[str] = Field(default="CEO", description="Target persona: CEO, CMO, CTO, CISO, or Custom")
     article_count: int = Field(default=6, ge=1, le=8, description="Number of articles to select (1-8)")
+    bias_filter: Optional[str] = Field(default=None, description="Filter by bias: 'no_bias' for articles without bias data, or specific bias value")
     
     
 class NewsFeedResponse(BaseModel):
