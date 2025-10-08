@@ -176,8 +176,43 @@ def generate_password(length=32):
     return ''.join(secrets.choice(alphabet) for _ in range(length))
 
 
-def create_database_and_user(db_name='aunoo_db', db_user='aunoo_user', db_password=None, force=False):
+def sanitize_db_name(tenant_name):
+    """Create PostgreSQL database name from tenant name."""
+    db_name = tenant_name.replace('.aunoo.ai', '').replace('.', '_').replace('-', '_')
+    if db_name[0].isdigit():
+        db_name = 'db_' + db_name
+    return db_name[:63]  # PostgreSQL max identifier length
+
+
+def get_tenant_name_from_cwd():
+    """Get tenant name from current working directory."""
+    cwd = Path.cwd()
+    # Check if we're in a tenant directory under /home/orochford/tenants/
+    if '/home/orochford/tenants/' in str(cwd):
+        # Extract domain from path (e.g., /home/orochford/tenants/skunkworkx.aunoo.ai)
+        parts = str(cwd).split('/home/orochford/tenants/')
+        if len(parts) > 1:
+            domain = parts[1].split('/')[0]  # Get first part after tenants/
+            return domain
+    return None
+
+
+def create_database_and_user(db_name=None, db_user=None, db_password=None, force=False):
     """Create PostgreSQL database and user."""
+
+    # Auto-detect tenant name if db_name not provided
+    if db_name is None:
+        tenant_name = get_tenant_name_from_cwd()
+        if tenant_name:
+            db_name = sanitize_db_name(tenant_name)
+            logger.info(f"Auto-detected tenant: {tenant_name} → database: {db_name}")
+        else:
+            db_name = 'aunoo_db'
+            logger.warning(f"Could not detect tenant name, using default: {db_name}")
+
+    # Auto-generate user name if not provided
+    if db_user is None:
+        db_user = f"{db_name}_user"
 
     if db_password is None:
         db_password = generate_password()
