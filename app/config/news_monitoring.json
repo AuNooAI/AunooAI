@@ -5,8 +5,7 @@
     "Security Data Fabric": "\"Security Data Fabric\"",
     "Threat Modeling": "\"Threat Modeling\"",
     "Embedded Systems": "\"Embedded Systems\"",
-    "Competitor Analysis": "Disinformation",
-    "The path to AGI": "\"The path to AGI\""
+    "Competitor Analysis": "Disinformation"
   },
   "paper_filters": {
     "Cloud Computing": "Distributed Systems",
@@ -14,7 +13,6 @@
     "Security Data Fabric": "\"Security Data\"",
     "Threat Modeling": "\"Threat Modeling\"",
     "Embedded Systems": "\"Embedded Systems\"",
-    "Competitor Analysis": "Disinformation",
-    "The path to AGI": "\"The path to AGI\""
+    "Competitor Analysis": "Disinformation"
   }
 }

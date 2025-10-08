@@ -2286,6 +2286,11 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                                 </div>
                                                 {% endif %}
                                             </div>
+                                            {% if alert.article.overall_match_explanation %}
+                                            <div class="relevance-explanation mt-1 small text-muted" style="max-width: 300px;">
+                                                {{ alert.article.overall_match_explanation[:150] }}{% if alert.article.overall_match_explanation|length > 150 %}...{% endif %}
+                                            </div>
+                                            {% endif %}
                                             {% else %}
                                             <span class="text-muted small">Not analyzed</span>
                                             {% endif %}

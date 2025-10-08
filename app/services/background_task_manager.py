@@ -457,8 +457,8 @@ async def run_keyword_check_task(progress_callback=None, group_id=None):
             else:
                 progress_callback(0, "Starting keyword check...")
 
-        # Run the keyword check with optional group_id filter and progress callback
-        result = await monitor.check_keywords(group_id=group_id, progress_callback=progress_callback)
+        # Run the keyword check with optional group_id filter
+        result = await monitor.check_keywords(group_id=group_id)
 
         if progress_callback:
             articles_found = result.get('new_articles', 0) if result else 0

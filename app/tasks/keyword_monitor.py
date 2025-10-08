@@ -151,12 +151,11 @@ class KeywordMonitor:
         except Exception as e:
             logger.error(f"Error checking/resetting API counter: {str(e)}")
 
-    async def check_keywords(self, group_id=None, progress_callback=None):
+    async def check_keywords(self, group_id=None):
         """Check all keywords for new matches
 
         Args:
             group_id: Optional group ID to filter keywords by specific group
-            progress_callback: Optional callback function(processed, current_item) for progress updates
         """
         if group_id:
             logger.info(f"Starting keyword check for group {group_id}...")
@@ -192,11 +191,6 @@ class KeywordMonitor:
             for keyword in keywords:
                 keyword_id, keyword_text, last_checked, topic = keyword
                 processed_keywords += 1
-
-                # Update progress if callback provided
-                if progress_callback:
-                    progress_callback(processed_keywords, f"Checking: {keyword_text}")
-
                 logger.info(
                     f"Checking keyword: {keyword_text} (topic: {topic}, "
                     f"requests_today: {self.collector.requests_today}/100)"
@@ -226,21 +220,7 @@ class KeywordMonitor:
                     for i, article in enumerate(articles[:3]):  # Log up to first 3 articles
                         logger.debug(f"Article {i+1}: title='{article.get('title', '')}', url='{article.get('url', '')}', published={article.get('published_date', '')}")
 
-                    # Try auto-ingest pipeline if enabled (before processing individual articles)
-                    should_auto_ingest = self.should_auto_ingest()
-                    logger.info(f"Auto-ingest check: enabled={should_auto_ingest}, articles_count={len(articles)}")
-
-                    if should_auto_ingest:
-                        try:
-                            topic_keywords = (DatabaseQueryFacade(self.db, logger)).get_monitored_keywords_for_topic((topic,))
-                            logger.info(f"Starting auto-ingest pipeline for {len(articles)} articles with {len(topic_keywords)} keywords")
-
-                            auto_ingest_results = await self.auto_ingest_pipeline(articles, topic, topic_keywords)
-                            logger.info(f"Auto-ingest pipeline completed. Results: {auto_ingest_results}")
-                        except Exception as e:
-                            logger.error(f"Auto-ingest pipeline failed: {e}", exc_info=True)
-
-                    # Process each article with optimized database usage
+                    # FIRST: Process each article and save to database
                     for article in articles:
                         try:
                             article_url = article['url'].strip()
@@ -269,6 +249,20 @@ class KeywordMonitor:
                         except Exception as e:
                             logger.error(f"Error processing article {article_url}: {str(e)}")
                             continue
+
+                    # SECOND: Now run auto-ingest pipeline on the saved articles
+                    should_auto_ingest = self.should_auto_ingest()
+                    logger.info(f"Auto-ingest check: enabled={should_auto_ingest}, articles_count={len(articles)}")
+
+                    if should_auto_ingest:
+                        try:
+                            topic_keywords = (DatabaseQueryFacade(self.db, logger)).get_monitored_keywords_for_topic((topic,))
+                            logger.info(f"Starting auto-ingest pipeline for {len(articles)} articles with {len(topic_keywords)} keywords")
+
+                            auto_ingest_results = await self.auto_ingest_pipeline(articles, topic, topic_keywords)
+                            logger.info(f"Auto-ingest pipeline completed. Results: {auto_ingest_results}")
+                        except Exception as e:
+                            logger.error(f"Auto-ingest pipeline failed: {e}", exc_info=True)
 
                     # Update last checked timestamp
                     (DatabaseQueryFacade(self.db, logger)).update_monitored_keyword_last_checked((datetime.now().isoformat(), keyword_id))

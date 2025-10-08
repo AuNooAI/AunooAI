@@ -690,38 +690,68 @@ class DatabaseQueryFacade:
     def save_approved_article(self, params):
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                           UPDATE articles
-                           SET title                     = COALESCE(?, title),
-                               summary                   = COALESCE(?, summary),
-                               auto_ingested             = 1,
-                               ingest_status             = ?,
-                               quality_score             = ?,
-                               quality_issues            = ?,
-                               category                  = ?,
-                               sentiment                 = ?,
-                               bias                      = ?,
-                               factual_reporting         = ?,
-                               mbfc_credibility_rating   = ?,
-                               bias_source               = ?,
-                               bias_country              = ?,
-                               press_freedom             = ?,
-                               media_type                = ?,
-                               popularity                = ?,
-                               topic_alignment_score     = ?,
-                               keyword_relevance_score   = ?,
-                               future_signal             = ?,
-                               future_signal_explanation = ?,
-                               sentiment_explanation     = ?,
-                               time_to_impact            = ?,
-                               driver_type               = ?,
-                               tags                      = ?,
-                               analyzed                  = ?,
-                               confidence_score          = ?,
-                               overall_match_explanation = ?,
-                               publication_date          = COALESCE(?, publication_date)
-                           WHERE uri = ?
-                           """, params)
+
+            # Get URI
+            uri = params[-1]
+
+            # Check if article exists
+            cursor.execute("SELECT uri FROM articles WHERE uri = ?", (uri,))
+            existing = cursor.fetchone()
+
+            if not existing:
+                # Article doesn't exist - INSERT it first with all the enriched data
+                #  Parameters order: title, summary, ingest_status, quality_score, quality_issues, category, sentiment,
+                # bias, factual_reporting, mbfc_credibility_rating, bias_source, bias_country, press_freedom,
+                # media_type, popularity, topic_alignment_score, keyword_relevance_score, future_signal,
+                # future_signal_explanation, sentiment_explanation, time_to_impact, driver_type, tags, analyzed,
+                # confidence_score, overall_match_explanation, publication_date, uri
+                cursor.execute("""
+                               INSERT INTO articles (uri, title, summary, auto_ingested, ingest_status, quality_score,
+                                                    quality_issues, category, sentiment, bias, factual_reporting,
+                                                    mbfc_credibility_rating, bias_source, bias_country, press_freedom,
+                                                    media_type, popularity, topic_alignment_score, keyword_relevance_score,
+                                                    future_signal, future_signal_explanation, sentiment_explanation,
+                                                    time_to_impact, driver_type, tags, analyzed, confidence_score,
+                                                    overall_match_explanation, publication_date, news_source)
+                               VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')
+                               """, params)
+                self.logger.info(f"save_approved_article: Inserted new article - uri: {uri}")
+            else:
+                # Article exists - UPDATE it
+                cursor.execute("""
+                               UPDATE articles
+                               SET title                     = COALESCE(?, title),
+                                   summary                   = COALESCE(?, summary),
+                                   auto_ingested             = 1,
+                                   ingest_status             = ?,
+                                   quality_score             = ?,
+                                   quality_issues            = ?,
+                                   category                  = ?,
+                                   sentiment                 = ?,
+                                   bias                      = ?,
+                                   factual_reporting         = ?,
+                                   mbfc_credibility_rating   = ?,
+                                   bias_source               = ?,
+                                   bias_country              = ?,
+                                   press_freedom             = ?,
+                                   media_type                = ?,
+                                   popularity                = ?,
+                                   topic_alignment_score     = ?,
+                                   keyword_relevance_score   = ?,
+                                   future_signal             = ?,
+                                   future_signal_explanation = ?,
+                                   sentiment_explanation     = ?,
+                                   time_to_impact            = ?,
+                                   driver_type               = ?,
+                                   tags                      = ?,
+                                   analyzed                  = ?,
+                                   confidence_score          = ?,
+                                   overall_match_explanation = ?,
+                                   publication_date          = COALESCE(?, publication_date)
+                               WHERE uri = ?
+                               """, params)
+                self.logger.debug(f"save_approved_article: Updated existing article - uri: {uri}")
+
             conn.commit()
 
     def get_min_relevance_threshold(self):
@@ -1495,7 +1525,7 @@ class DatabaseQueryFacade:
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
 
-            cursor.execute("SELECT id FROM articles WHERE uri = ?", (url,))
+            cursor.execute("SELECT uri FROM articles WHERE uri = ?", (url,))
 
             article_result = cursor.fetchone()
             return article_result[0] if article_result else None
@@ -1504,7 +1534,7 @@ class DatabaseQueryFacade:
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
 
-            cursor.execute("SELECT id FROM articles WHERE uri = ? AND analyzed = 1", (url,))
+            cursor.execute("SELECT uri FROM articles WHERE uri = ? AND analyzed = 1", (url,))
 
             return cursor.fetchone()
 

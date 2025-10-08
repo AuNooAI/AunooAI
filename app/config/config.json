@@ -131,75 +131,30 @@
       ]
     },
     {
-      "name": "The path to AGI",
-      "description": "Track progress toward Artificial General Intelligence (AGI), monitoring breakthroughs in machine learning architectures, scaling laws, data dependencies, energy efficiency, robotics integration, and neurological insights. This topic examines technical milestones, theoretical advances, ethical considerations, regulatory developments, economic implications, and the ongoing debate about AGI's feasibility, timeline, and potential impact on humanity.",
+      "name": "Geopolitical Hotspots",
+      "description": "Monitoring and tracking Geopolitical Hotspots for war, famine, weather and economic problems.",
       "categories": [
-        "Data Dependencies",
-        "Energy Efficiency",
-        "Scaling Challenges",
-        "Machine Learning Advances",
-        "Data Science Breakthroughs",
-        "Robotics Integration",
-        "Neurological Insights",
-        "Ethical Considerations",
-        "Regulatory Landscape",
-        "Economic Implications",
-        "Technological Milestones",
-        "Cross-disciplinary Collaboration",
-        "Public Perception",
-        "Investment Trends"
+        "Conflict Zones",
+        "Famine and Food Security",
+        "Extreme Weather Events",
+        "Economic Crises",
+        "Political Instability",
+        "International Sanctions",
+        "Refugee and Migration Flows",
+        "Military Engagements",
+        "Diplomatic Relations",
+        "Humanitarian Aid and Response",
+        "Energy Security",
+        "Trade Disruptions",
+        "Cyber Warfare",
+        "Regional Alliances and Rivalries"
       ],
       "future_signals": [
-        "AGI becomes self-aware",
-        "AGI deemed impossible",
-        "AGI surpasses human intelligence",
-        "AGI development stagnates",
-        "AGI evolves gradually"
-      ],
-      "sentiment": [
-        "Positive",
-        "Negative",
-        "Neutral"
-      ],
-      "time_to_impact": [
-        "Immediate (0-6 months)",
-        "Short-term (6-18 months)",
-        "Mid-term (18-60 months)",
-        "Long-term (60+ months)"
-      ],
-      "driver_types": [
-        "Initiator",
-        "Accelerator",
-        "Catalyst",
-        "Inhibitor",
-        "Blocker"
-      ]
-    },
-    {
-      "name": "Climate Change",
-      "description": "Monitor developments in climate science, policy, and action, including greenhouse gas emissions trends, renewable energy adoption, climate adaptation strategies, carbon capture technologies, and climate finance. This topic covers the latest research on global warming impacts, extreme weather events, biodiversity loss, international climate agreements, regulatory frameworks, technological innovations, and the intersection of climate change with social justice, economics, and public awareness.",
-      "categories": [
-        "Greenhouse Gas Emissions",
-        "Renewable Energy Adoption",
-        "Climate Policy and Regulation",
-        "Climate Science and Research",
-        "Environmental Impact and Biodiversity",
-        "Climate Adaptation and Resilience",
-        "Carbon Capture and Storage",
-        "Climate Finance and Investment",
-        "Public Awareness and Activism",
-        "Technological Innovations",
-        "Climate-related Disasters",
-        "Global Cooperation and Agreements",
-        "Economic Implications",
-        "Social Justice and Climate Equity"
-      ],
-      "future_signals": [
-        "Global temperatures continue rising rapidly",
-        "Successful global emissions reduction efforts",
-        "Climate change effects stabilize",
-        "Climate change accelerates extreme weather events",
-        "Widespread climate migration occurs"
+        "Escalation to full-scale war",
+        "Peace agreements reached",
+        "Widespread famine develops",
+        "Severe economic collapse",
+        "Climate-induced displacement surges"
       ],
       "sentiment": [
         "Positive",
@@ -220,75 +175,16 @@
         "Blocker"
       ],
       "keywords": [
-        "Tesla",
-        "NextEra Energy",
-        "\u00d8rsted",
-        "Solar Power",
-        "Wind Energy",
-        "Carbon Capture and Storage",
-        "Climate Change",
-        "Global Warming",
-        "Sustainability",
-        "Greta Thunberg",
-        "James Hansen",
-        "Climate hoax",
-        "Climate scam"
-      ]
-    },
-    {
-      "name": "Quantum Advantage",
-      "description": "Track progress toward achieving quantum advantage (formerly quantum supremacy), the point where quantum computers outperform classical computers on practical problems. This topic monitors advances in quantum hardware (superconducting qubits, trapped ions, topological qubits), quantum algorithms, error correction techniques, noise reduction, benchmarking standards, real-world applications, industry developments, research breakthroughs, investment trends, and ongoing debates about the feasibility, timeline, and practical impact of quantum computing.",
-      "categories": [
-        "Quantum Hardware Development",
-        "Quantum Algorithms",
-        "Error Correction and Noise Reduction",
-        "Quantum Software and Programming",
-        "Benchmarking and Performance Metrics",
-        "Applications and Use Cases",
-        "Quantum Computing Industry",
-        "Research and Academic Advances",
-        "Investment and Funding Trends",
-        "Regulatory and Ethical Considerations"
-      ],
-      "future_signals": [
-        "Quantum Advantage achieved on specific problems",
-        "Quantum error correction becomes practical",
-        "Quantum computing remains limited by noise",
-        "Classical algorithms close the gap",
-        "Quantum Advantage delayed indefinitely"
-      ],
-      "sentiment": [
-        "Positive",
-        "Negative",
-        "Neutral"
-      ],
-      "time_to_impact": [
-        "Immediate (0-6 months)",
-        "Short-term (6-18 months)",
-        "Mid-term (18-60 months)",
-        "Long-term (60+ months)"
-      ],
-      "driver_types": [
-        "Initiator",
-        "Accelerator",
-        "Catalyst",
-        "Inhibitor",
-        "Blocker"
-      ],
-      "keywords": [
-        "IBM",
-        "Google",
-        "Rigetti Computing",
-        "Superconducting qubits",
-        "Trapped ions",
-        "Topological qubits",
-        "Quantum computing",
-        "Quantum Advantage",
-        "Quantum supremacy",
-        "John Preskill",
-        "Scott Aaronson",
-        "Quantum scam",
-        "Fake quantum claims"
+        "Satellite imagery",
+        "Cybersecurity tools",
+        "Early warning systems",
+        "Geopolitics",
+        "War",
+        "Famine",
+        "Ant\u00f3nio Guterres",
+        "Volodymyr Zelenskyy",
+        "Fake news",
+        "Conspiracy theory"
       ]
     }
   ],

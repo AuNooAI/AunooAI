@@ -30,7 +30,8 @@ reports/
 app/config/config.json
 #app/data/*.db
 /home/d1g1fox/dev/experimental/AunooAI/chromadb
-
+DEPLOYMENT_INFO.json
+DEPLOYMENT_INFO.txt
 # IDE and Editor files
 .idea/
 .vscode/
@@ -38,6 +39,7 @@ app/config/config.json
 *.sublime-workspace
 *.code-workspace
 cursor.rules
+CLAUDE.md
 
 # OS specific
 .DS_Store
