@@ -843,6 +843,7 @@ async def get_settings(db=Depends(get_database_instance), session=Depends(verify
                 "max_articles_per_run": settings[16] if len(settings) > 16 and settings[16] is not None else 50,
                 "requests_today": settings[17] if len(settings) > 17 and settings[17] is not None else 0,
                 "last_error": settings[18] if len(settings) > 18 else None,
+                "last_run_time": settings[19] if len(settings) > 19 else None,
                 "total_keywords": total_keywords
             }
             logger.debug(f"Returning response data: {response_data}")

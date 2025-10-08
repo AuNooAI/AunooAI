@@ -2945,9 +2945,10 @@ class DatabaseQueryFacade:
                                   COALESCE(s.llm_max_tokens, 1000)             as llm_max_tokens,
                                   COALESCE(s.max_articles_per_run, 50)         as max_articles_per_run,
                                   COALESCE(kms.requests_today, 0)              as requests_today,
-                                  kms.last_error
+                                  kms.last_error,
+                                  kms.last_check_time
                            FROM keyword_monitor_settings s
-                                    LEFT JOIN (SELECT id, requests_today, last_error
+                                    LEFT JOIN (SELECT id, requests_today, last_error, last_check_time
                                                FROM keyword_monitor_status
                                                WHERE id = 1
                                                  AND last_reset_date = date ('now') ) kms
