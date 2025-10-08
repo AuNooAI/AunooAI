@@ -196,8 +196,16 @@
                     <div id="database-info" class="info-panel">
                         <div class="info-group">
                             <div class="info-item">
+                                <span class="info-label">Database Type:</span>
+                                <span class="info-value" id="db-type">Loading...</span>
+                            </div>
+                            <div class="info-item">
                                 <span class="info-label">Database Name:</span>
                                 <span class="info-value" id="db-name">Loading...</span>
+                            </div>
+                            <div class="info-item" id="db-location-item">
+                                <span class="info-label" id="db-location-label">Location:</span>
+                                <span class="info-value" id="db-location">Loading...</span>
                             </div>
                             <div class="info-item">
                                 <span class="info-label">Size:</span>
@@ -1312,20 +1320,37 @@
             if (!response.ok) {
                 throw new Error('Failed to load database info');
             }
-            
+
             const data = await response.json();
             console.log('Loaded database info:', data); // Debug log
-            
+
+            // Update database type
+            const dbType = data.db_type || 'sqlite';
+            document.getElementById('db-type').textContent = dbType.toUpperCase();
+
             // Update basic info
-            document.getElementById('db-name').textContent = data.name || 'N/A';  // Use full name with .db
+            document.getElementById('db-name').textContent = data.name || 'N/A';
+
+            // Update location based on database type
+            const locationLabel = document.getElementById('db-location-label');
+            const locationValue = document.getElementById('db-location');
+
+            if (dbType === 'postgresql') {
+                locationLabel.textContent = 'Host:';
+                locationValue.textContent = `${data.host || 'localhost'}:${data.port || 5432}`;
+            } else {
+                locationLabel.textContent = 'Path:';
+                locationValue.textContent = data.path || 'N/A';
+            }
+
             document.getElementById('db-size').textContent = formatFileSize(data.size);
-            document.getElementById('total-articles').textContent = 
+            document.getElementById('total-articles').textContent =
                 (data.total_articles || 0).toLocaleString();
             document.getElementById('last-entry').textContent = formatDate(data.last_entry);
             document.getElementById('first-entry').textContent = formatDate(data.first_entry);
-            document.getElementById('total-topics').textContent = 
+            document.getElementById('total-topics').textContent =
                 (data.total_topics || 0).toLocaleString();
-            
+
             // Update table information
             const tableBody = document.getElementById('table-info');
             if (data.tables && data.tables.length > 0) {
@@ -1342,7 +1367,7 @@
             }
         } catch (error) {
             console.error('Error loading database info:', error);
-            document.getElementById('database-info').innerHTML = 
+            document.getElementById('database-info').innerHTML =
                 '<div class="alert alert-danger">Error loading database information</div>';
             throw error; // Re-throw to handle in calling function
         }

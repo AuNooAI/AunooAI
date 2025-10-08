@@ -109,64 +109,135 @@ async def get_database_info(db: Database = Depends(get_database_instance), sessi
     try:
         # Force a fresh database instance
         db = Database()
-        
-        # Get fresh connection
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        # Get current database path
-        db_name = os.path.basename(db.db_path)
-        print(f"Getting info for database: {db_name}")  # Debug log
-        
-        try:
-            db_size = os.path.getsize(db.db_path)
-        except OSError:
-            print(f"Error getting size for {db.db_path}")
-            db_size = 0
-        
-        # Get table information
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
-        tables = cursor.fetchall()
-        table_info = []
-        
-        for table in tables:
-            table_name = table[0]
-            cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
-            row_count = cursor.fetchone()[0]
-            table_info.append({
-                "name": table_name,
-                "rows": row_count
-            })
-        
-        # Get article statistics
-        cursor.execute("""
-            SELECT 
-                COUNT(*) as total,
-                MIN(publication_date) as first_entry,
-                MAX(publication_date) as last_entry
-            FROM articles
-        """)
-        article_stats = cursor.fetchone()
-        
-        # Get topic count
-        cursor.execute("SELECT COUNT(DISTINCT topic) FROM articles")
-        topic_count = cursor.fetchone()[0]
-        
-        info = {
-            "name": db_name,
-            "size": db_size,
-            "total_articles": article_stats[0] if article_stats else 0,
-            "first_entry": article_stats[1] if article_stats and article_stats[1] else None,
-            "last_entry": article_stats[2] if article_stats and article_stats[2] else None,
-            "total_topics": topic_count,
-            "tables": table_info
-        }
-        
-        print(f"Database info: {info}")  # Debug log
+
+        # Detect database type
+        db_type = os.getenv('DB_TYPE', 'sqlite').lower()
+        logger.info(f"Getting database info for type: {db_type}")
+
+        if db_type == 'postgresql':
+            # PostgreSQL-specific logic
+            from app.config.settings import db_settings
+
+            conn = db._temp_get_connection()
+
+            # Get database name
+            db_name = db_settings.DB_NAME
+            logger.info(f"Getting info for PostgreSQL database: {db_name}")
+
+            # Get database size
+            size_result = conn.execute(text("""
+                SELECT pg_database_size(current_database())
+            """))
+            db_size = size_result.scalar() or 0
+
+            # Get table information from PostgreSQL information_schema
+            table_result = conn.execute(text("""
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'public'
+                AND table_type = 'BASE TABLE'
+                ORDER BY table_name
+            """))
+            tables = table_result.fetchall()
+            table_info = []
+
+            for table_row in tables:
+                table_name = table_row[0]
+                # Get row count for each table
+                count_result = conn.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
+                row_count = count_result.scalar()
+                table_info.append({
+                    "name": table_name,
+                    "rows": row_count
+                })
+
+            # Get article statistics
+            article_stats_result = conn.execute(text("""
+                SELECT
+                    COUNT(*) as total,
+                    MIN(publication_date) as first_entry,
+                    MAX(publication_date) as last_entry
+                FROM articles
+            """))
+            article_stats = article_stats_result.fetchone()
+
+            # Get topic count
+            topic_result = conn.execute(text("SELECT COUNT(DISTINCT topic) FROM articles"))
+            topic_count = topic_result.scalar()
+
+            info = {
+                "name": db_name,
+                "size": db_size,
+                "db_type": "postgresql",
+                "host": db_settings.DB_HOST,
+                "port": db_settings.DB_PORT,
+                "total_articles": article_stats[0] if article_stats else 0,
+                "first_entry": str(article_stats[1]) if article_stats and article_stats[1] else None,
+                "last_entry": str(article_stats[2]) if article_stats and article_stats[2] else None,
+                "total_topics": topic_count,
+                "tables": table_info
+            }
+
+        else:
+            # SQLite-specific logic (original code)
+            conn = db.get_connection()
+            cursor = conn.cursor()
+
+            # Get current database path
+            db_name = os.path.basename(db.db_path)
+            logger.info(f"Getting info for SQLite database: {db_name}")
+
+            try:
+                db_size = os.path.getsize(db.db_path)
+            except OSError:
+                logger.warning(f"Error getting size for {db.db_path}")
+                db_size = 0
+
+            # Get table information
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = cursor.fetchall()
+            table_info = []
+
+            for table in tables:
+                table_name = table[0]
+                cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+                row_count = cursor.fetchone()[0]
+                table_info.append({
+                    "name": table_name,
+                    "rows": row_count
+                })
+
+            # Get article statistics
+            cursor.execute("""
+                SELECT
+                    COUNT(*) as total,
+                    MIN(publication_date) as first_entry,
+                    MAX(publication_date) as last_entry
+                FROM articles
+            """)
+            article_stats = cursor.fetchone()
+
+            # Get topic count
+            cursor.execute("SELECT COUNT(DISTINCT topic) FROM articles")
+            topic_count = cursor.fetchone()[0]
+
+            info = {
+                "name": db_name,
+                "size": db_size,
+                "db_type": "sqlite",
+                "path": db.db_path,
+                "total_articles": article_stats[0] if article_stats else 0,
+                "first_entry": article_stats[1] if article_stats and article_stats[1] else None,
+                "last_entry": article_stats[2] if article_stats and article_stats[2] else None,
+                "total_topics": topic_count,
+                "tables": table_info
+            }
+
+        logger.info(f"Database info retrieved: {info.get('name')}, {len(info.get('tables', []))} tables")
         return info
-        
+
     except Exception as e:
-        print(f"Error getting database info: {str(e)}")
+        logger.error(f"Error getting database info: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Add the bulk delete endpoint
