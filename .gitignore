@@ -40,7 +40,7 @@ DEPLOYMENT_INFO.txt
 *.code-workspace
 cursor.rules
 CLAUDE.md
-
+spec-files-aunoo/
 # OS specific
 .DS_Store
 Thumbs.db

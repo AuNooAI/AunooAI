@@ -1,14 +1,36 @@
 version: '3.8'
 
 services:
+  # PostgreSQL Database Service
+  postgres:
+    image: postgres:14-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: aunoo_user
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: aunoo_db
+      POSTGRES_INITDB_ARGS: "-E UTF8"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aunoo_user -d aunoo_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - aunooai
+
+  # Development Instance (SQLite)
   aunooai-dev:
     image: aunooai:latest
     build:
       context: .
       args:
-        APP_VERSION: $(cat version.txt || echo "dev")
-        APP_GIT_BRANCH: $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "dev")
-        APP_BUILD_DATE: $(date -u +'%Y-%m-%d %H:%M:%S')
+        APP_VERSION: ${APP_VERSION:-dev}
+        APP_GIT_BRANCH: ${GIT_BRANCH:-dev}
+        APP_BUILD_DATE: ${BUILD_DATE:-unknown}
     ports:
       - "6005:6005"
     volumes:
@@ -17,16 +39,68 @@ services:
     environment:
       - PORT=6005
       - INSTANCE=dev
-      - ADMIN_PASSWORD=admin
+      - ENVIRONMENT=development
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      - DB_TYPE=sqlite
+      # API Keys (pass from host environment)
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
+      - NEWSAPI_KEY=${NEWSAPI_KEY}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+    restart: unless-stopped
+    networks:
+      - aunooai
 
+  # Development Instance with PostgreSQL
+  aunooai-dev-postgres:
+    image: aunooai:latest
+    build:
+      context: .
+      args:
+        APP_VERSION: ${APP_VERSION:-dev}
+        APP_GIT_BRANCH: ${GIT_BRANCH:-dev}
+        APP_BUILD_DATE: ${BUILD_DATE:-unknown}
+    ports:
+      - "6006:6006"
+    volumes:
+      - aunooai_dev_postgres_data:/app/app/data
+      - aunooai_dev_postgres_reports:/app/reports
+    environment:
+      - PORT=6006
+      - INSTANCE=dev-postgres
+      - ENVIRONMENT=development
+      - DB_TYPE=postgresql
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=aunoo_db
+      - DB_USER=aunoo_user
+      - DB_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+      - DB_POOL_SIZE=20
+      - DB_MAX_OVERFLOW=10
+      # API Keys (pass from host environment)
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
+      - NEWSAPI_KEY=${NEWSAPI_KEY}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    profiles: ["postgres"]
+    networks:
+      - aunooai
+
+  # Production Instance with PostgreSQL
   aunooai-prod:
     image: aunooai:latest
     build:
       context: .
       args:
-        APP_VERSION: $(cat version.txt || echo "prod")
-        APP_GIT_BRANCH: $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-        APP_BUILD_DATE: $(date -u +'%Y-%m-%d %H:%M:%S')
+        APP_VERSION: ${APP_VERSION:-prod}
+        APP_GIT_BRANCH: ${GIT_BRANCH:-main}
+        APP_BUILD_DATE: ${BUILD_DATE:-unknown}
     ports:
       - "5008:5008"
     volumes:
@@ -35,17 +109,38 @@ services:
     environment:
       - PORT=5008
       - INSTANCE=prod
-      - ADMIN_PASSWORD=admin
+      - ENVIRONMENT=production
+      - DB_TYPE=postgresql
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=aunoo_db_prod
+      - DB_USER=aunoo_user
+      - DB_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+      - DB_POOL_SIZE=50
+      - DB_MAX_OVERFLOW=20
+      # API Keys (pass from host environment)
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
+      - NEWSAPI_KEY=${NEWSAPI_KEY}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
     profiles: ["prod"]
+    networks:
+      - aunooai
 
+  # Staging Instance with PostgreSQL
   aunooai-staging:
     image: aunooai:latest
     build:
       context: .
       args:
-        APP_VERSION: $(cat version.txt || echo "staging")
-        APP_GIT_BRANCH: $(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "staging")
-        APP_BUILD_DATE: $(date -u +'%Y-%m-%d %H:%M:%S')
+        APP_VERSION: ${APP_VERSION:-staging}
+        APP_GIT_BRANCH: ${GIT_BRANCH:-staging}
+        APP_BUILD_DATE: ${BUILD_DATE:-unknown}
     ports:
       - "5009:5009"
     volumes:
@@ -54,13 +149,70 @@ services:
     environment:
       - PORT=5009
       - INSTANCE=staging
-      - ADMIN_PASSWORD=admin
+      - ENVIRONMENT=staging
+      - DB_TYPE=postgresql
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=aunoo_db_staging
+      - DB_USER=aunoo_user
+      - DB_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+      - DB_POOL_SIZE=30
+      - DB_MAX_OVERFLOW=15
+      # API Keys (pass from host environment)
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
+      - NEWSAPI_KEY=${NEWSAPI_KEY}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
     profiles: ["staging"]
+    networks:
+      - aunooai
+
+  # PgAdmin for database management (optional)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@aunoo.ai
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    profiles: ["admin"]
+    networks:
+      - aunooai
 
 volumes:
+  # PostgreSQL data
+  postgres_data:
+
+  # Development instance volumes
   aunooai_dev_data:
   aunooai_dev_reports:
+
+  # Development PostgreSQL instance volumes
+  aunooai_dev_postgres_data:
+  aunooai_dev_postgres_reports:
+
+  # Production instance volumes
   aunooai_prod_data:
   aunooai_prod_reports:
+
+  # Staging instance volumes
   aunooai_staging_data:
-  aunooai_staging_reports: 
+  aunooai_staging_reports:
+
+  # PgAdmin data
+  pgadmin_data:
+
+networks:
+  aunooai:
+    driver: bridge

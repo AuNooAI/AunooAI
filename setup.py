@@ -101,7 +101,7 @@ def setup_database():
 
     if choice == '2':
         logger.info("\nSetting up PostgreSQL...")
-        postgresql_script = Path(__file__).parent / "setup_postgresql.py"
+        postgresql_script = Path("scripts/setup_postgresql.py")
 
         if postgresql_script.exists():
             if run_script(postgresql_script):

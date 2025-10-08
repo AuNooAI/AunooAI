@@ -68,10 +68,10 @@ def register_routers(app: FastAPI):
     
     # Onboarding
     app.include_router(onboarding_router)
-    
+
     # Podcast functionality
     app.include_router(podcast_router)
-    
+
     # Vector search
     app.include_router(vector_router)
     

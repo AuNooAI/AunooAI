@@ -60,3 +60,50 @@ os.makedirs(DATABASE_DIR, exist_ok=True)
 
 # Get list of available topics
 AVAILABLE_TOPICS = [topic['name'] for topic in config.get('topics', [])]
+
+# Database settings for PostgreSQL migration
+class DatabaseSettings:
+    """Database configuration settings"""
+
+    def __init__(self):
+        """Initialize database settings from environment"""
+        self.DB_TYPE = os.getenv('DB_TYPE', 'sqlite')
+        self.DB_HOST = os.getenv('DB_HOST', 'localhost')
+        self.DB_PORT = os.getenv('DB_PORT', '5432')
+        self.DB_USER = os.getenv('DB_USER', 'aunoo_user')
+        self.DB_PASSWORD = os.getenv('DB_PASSWORD', '')
+        self.DB_NAME = os.getenv('DB_NAME', 'aunoo_db')
+
+        # Connection pool settings
+        self.DB_POOL_SIZE = int(os.getenv('DB_POOL_SIZE', '15'))
+        self.DB_MAX_OVERFLOW = int(os.getenv('DB_MAX_OVERFLOW', '10'))
+        self.DB_POOL_TIMEOUT = int(os.getenv('DB_POOL_TIMEOUT', '30'))
+        self.DB_POOL_RECYCLE = int(os.getenv('DB_POOL_RECYCLE', '3600'))
+
+    @property
+    def database_url(self):
+        """Get async database URL"""
+        return self.get_database_url()
+
+    def get_database_url(self):
+        """Get database URL from environment"""
+        if self.DB_TYPE == 'postgresql':
+            # PostgreSQL connection
+            return f"postgresql+asyncpg://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+        else:
+            # SQLite connection (default)
+            db_path = os.path.join(DATABASE_DIR, 'fnaapp.db')
+            return f"sqlite+aiosqlite:///{db_path}"
+
+    def get_sync_database_url(self):
+        """Get synchronous database URL for Alembic migrations"""
+        if self.DB_TYPE == 'postgresql':
+            # PostgreSQL connection (sync)
+            return f"postgresql+psycopg2://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+        else:
+            # SQLite connection (default)
+            db_path = os.path.join(DATABASE_DIR, 'fnaapp.db')
+            return f"sqlite:///{db_path}"
+
+# Create instance for easy access
+db_settings = DatabaseSettings()

@@ -75,9 +75,32 @@ class Database:
         if thread_id not in self._sqlalchemy_connections:
             logger.debug(f"Creating new SQLAlchemy connection for thread {thread_id}")
             from sqlalchemy import create_engine
-            # Create SQLAlchemy engine and connection.
-            # TODO: MAKE ENGINE CONFIGURABLE!!
-            engine = create_engine(f"sqlite:///{self.db_path}", echo=True, connect_args={"check_same_thread": False})
+            import os
+
+            # Check DB_TYPE environment variable to support PostgreSQL
+            db_type = os.getenv('DB_TYPE', 'sqlite').lower()
+
+            if db_type == 'postgresql':
+                # Use PostgreSQL connection
+                from app.config.settings import db_settings
+                database_url = db_settings.get_sync_database_url()
+                logger.info(f"Creating PostgreSQL connection: {db_settings.DB_NAME}")
+                engine = create_engine(
+                    database_url,
+                    echo=True,
+                    pool_pre_ping=True,
+                    pool_size=10,
+                    max_overflow=5
+                )
+            else:
+                # Use SQLite connection (default)
+                logger.debug(f"Creating SQLite connection: {self.db_path}")
+                engine = create_engine(
+                    f"sqlite:///{self.db_path}",
+                    echo=True,
+                    connect_args={"check_same_thread": False}
+                )
+
             connection = engine.connect()
 
             # TODO: Rename this to a less verbose name.

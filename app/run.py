@@ -13,9 +13,12 @@ import uvicorn
 from dotenv import load_dotenv
 import ssl
 from fastapi.middleware.cors import CORSMiddleware
+import logging
 
 # Load environment variables
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # Get port from environment variable, default to 8000 if not set
 PORT = int(os.getenv('PORT', 10000))
@@ -23,6 +26,66 @@ CERT_PATH = os.getenv('CERT_PATH', 'cert.pem')
 KEY_PATH = os.getenv('KEY_PATH', 'key.pem')
 ENVIRONMENT = os.getenv('ENVIRONMENT', 'development')
 DISABLE_SSL = os.getenv('DISABLE_SSL', 'false').lower() == 'true'
+
+def check_database_connection():
+    """Check database connection and provide helpful diagnostics."""
+    db_type = os.getenv('DB_TYPE', 'sqlite').lower()
+
+    if db_type == 'postgresql':
+        logger.info("PostgreSQL database configured")
+
+        # Check required environment variables
+        required_vars = ['DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD']
+        missing_vars = [var for var in required_vars if not os.getenv(var)]
+
+        if missing_vars:
+            logger.error(f"❌ Missing required PostgreSQL environment variables: {', '.join(missing_vars)}")
+            logger.error("Run 'python scripts/setup_postgresql.py' to configure PostgreSQL")
+            return False
+
+        # Try to import PostgreSQL dependencies
+        try:
+            import asyncpg
+            import psycopg2
+            logger.info("✅ PostgreSQL dependencies installed")
+        except ImportError as e:
+            logger.error(f"❌ Missing PostgreSQL dependencies: {e}")
+            logger.error("Run 'pip install asyncpg psycopg2-binary' or 'python scripts/setup_postgresql.py'")
+            return False
+
+        # Test connection
+        try:
+            import psycopg2
+            db_host = os.getenv('DB_HOST')
+            db_port = os.getenv('DB_PORT')
+            db_name = os.getenv('DB_NAME')
+            db_user = os.getenv('DB_USER')
+            db_password = os.getenv('DB_PASSWORD')
+
+            conn = psycopg2.connect(
+                host=db_host,
+                port=db_port,
+                database=db_name,
+                user=db_user,
+                password=db_password,
+                connect_timeout=5
+            )
+            conn.close()
+            logger.info(f"✅ Connected to PostgreSQL database: {db_name}")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to connect to PostgreSQL: {e}")
+            logger.error("Check your database configuration or run 'python scripts/setup_postgresql.py'")
+            return False
+    else:
+        logger.info("SQLite database configured")
+        db_path = os.path.join(os.path.dirname(__file__), 'data', 'fnaapp.db')
+        if os.path.exists(db_path):
+            logger.info(f"✅ SQLite database found: {db_path}")
+        else:
+            logger.warning(f"⚠️  SQLite database not found: {db_path}")
+            logger.info("Database will be created on first run")
+        return True
 
 def configure_app():
     from main import app
@@ -44,6 +107,19 @@ def configure_app():
     return app
 
 if __name__ == "__main__":
+    # Check database connection before starting server
+    logger.info("=" * 60)
+    logger.info("AunooAI Server Startup")
+    logger.info("=" * 60)
+
+    if not check_database_connection():
+        logger.error("\n❌ Database connection check failed!")
+        logger.error("Please fix the database configuration before starting the server.")
+        logger.error("\nFor PostgreSQL setup, run: python scripts/setup_postgresql.py")
+        sys.exit(1)
+
+    logger.info("=" * 60)
+
     # For Cloud Run, we don't use SSL since it's managed by Cloud Run itself
     print(f"DISABLE_SSL = {DISABLE_SSL}")
     print(f"Starting server on port {PORT}")
