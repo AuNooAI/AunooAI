@@ -186,6 +186,54 @@
         "Fake news",
         "Conspiracy theory"
       ]
+    },
+    {
+      "name": "Right-wing Rise in Europe",
+      "description": "The rise and activities of the right wing in Europe",
+      "categories": [
+        "Electoral Performance",
+        "Policy Influence",
+        "Public Sentiment and Protests",
+        "Media and Communication Strategies",
+        "Immigration and Nationalism",
+        "Economic Impact",
+        "Social Movements and Activism",
+        "International Relations",
+        "Legal and Regulatory Responses",
+        "Counter-movements and Opposition"
+      ],
+      "future_signals": [
+        "Right-wing parties gain majority in key countries",
+        "Right-wing influence declines due to scandals",
+        "Right-wing movements fragment into smaller factions",
+        "Right-wing policies lead to increased social unrest",
+        "Right-wing coalitions form across Europe"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "keywords": [
+        "Right-wing politics",
+        "Nationalism",
+        "Populism",
+        "Marine Le Pen",
+        "Viktor Orb\u00e1n"
+      ]
     }
   ],
   "ai_models": [

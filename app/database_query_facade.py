@@ -2593,7 +2593,7 @@ class DatabaseQueryFacade:
 
             conn.commit()
 
-    def save_relevance_scores_only(self, article_uri, topic_alignment_score, keyword_relevance_score, confidence_score):
+    def save_relevance_scores_only(self, article_uri, topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation=None):
         """Save just the relevance scores for an article (used for below-threshold articles)"""
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
@@ -2601,9 +2601,10 @@ class DatabaseQueryFacade:
                 UPDATE articles
                 SET topic_alignment_score = ?,
                     keyword_relevance_score = ?,
-                    confidence_score = ?
+                    confidence_score = ?,
+                    overall_match_explanation = ?
                 WHERE uri = ?
-            """, (topic_alignment_score, keyword_relevance_score, confidence_score, article_uri))
+            """, (topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation, article_uri))
             conn.commit()
 
     def get_number_of_monitored_keywords_by_group_id(self, group_id):

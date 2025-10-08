@@ -36,7 +36,7 @@ def get_database_instance():
 class Database:
     
     # Connection pool settings
-    MAX_CONNECTIONS = 10  # Reduced for async-first approach
+    MAX_CONNECTIONS = 20
     CONNECTION_TIMEOUT = 5  # seconds
     RETRY_ATTEMPTS = 3
     

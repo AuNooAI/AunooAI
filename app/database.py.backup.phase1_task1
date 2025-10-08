@@ -36,7 +36,7 @@ def get_database_instance():
 class Database:
     
     # Connection pool settings
-    MAX_CONNECTIONS = 10  # Reduced for async-first approach
+    MAX_CONNECTIONS = 20
     CONNECTION_TIMEOUT = 5  # seconds
     RETRY_ATTEMPTS = 3
     
@@ -77,7 +77,7 @@ class Database:
             from sqlalchemy import create_engine
             # Create SQLAlchemy engine and connection.
             # TODO: MAKE ENGINE CONFIGURABLE!!
-            engine = create_engine(f"sqlite:///{self.db_path}", echo=True, connect_args={"check_same_thread": False})
+            engine = create_engine(f"sqlite:///{self.db_path}", echo=True)
             connection = engine.connect()
 
             # TODO: Rename this to a less verbose name.

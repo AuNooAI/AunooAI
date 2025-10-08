@@ -360,7 +360,7 @@ class AutomatedIngestService:
             self.logger.debug(f"Scraping content for URI: {uri}")
             
             # Check if we already have raw content
-            existing_raw = await self.async_db.get_raw_article_async(uri)
+            existing_raw = self.db.get_raw_article(uri)
             if existing_raw and existing_raw.get('raw_markdown'):
                 self.logger.debug(f"Found existing raw content ({len(existing_raw['raw_markdown'])} chars)")
                 return existing_raw['raw_markdown']
@@ -1086,7 +1086,7 @@ class AutomatedIngestService:
                                             # This also ensures the previous commit is visible
                                             article_check = (DatabaseQueryFacade(self.db, logger)).get_article_by_url(enriched_article.get("uri"))
                                             if article_check:
-                                                await self.async_db.save_raw_article_async(
+                                                self.db.save_raw_article(
                                                     enriched_article.get("uri"),
                                                     raw_content,
                                                     topic or enriched_article.get("topic", "")
@@ -1437,7 +1437,7 @@ class AutomatedIngestService:
             # Check for existing articles first
             existing_articles = {}
             for uri in uris:
-                existing_raw = await self.async_db.get_raw_article_async(uri)
+                existing_raw = self.db.get_raw_article(uri)
                 if existing_raw and existing_raw.get('raw_markdown'):
                     existing_articles[uri] = existing_raw['raw_markdown']
                     self.logger.debug(f"Found existing content for {uri}")
