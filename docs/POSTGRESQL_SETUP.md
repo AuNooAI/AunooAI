@@ -513,3 +513,58 @@ python app/run.py
 ```
 
 That's it! Your application now uses PostgreSQL with production-grade performance and scalability.
+
+---
+
+## Migrating Existing Article Data
+
+For existing tenants with SQLite data, use the migration script to transfer articles to PostgreSQL.
+
+### Article Migration Script
+
+**Location:** `/home/orochford/bin/migrate_articles_to_postgres.py`
+
+**What it migrates:**
+- `articles` - Main article data
+- `raw_articles` - Raw article content
+- `keyword_article_matches` - Keyword monitoring matches
+
+### Usage
+
+**From tenant directory:**
+```bash
+cd /home/orochford/tenants/<tenant-name>
+python /home/orochford/bin/migrate_articles_to_postgres.py
+```
+
+**Test first with dry run:**
+```bash
+python /home/orochford/bin/migrate_articles_to_postgres.py --dry-run
+```
+
+### Complete Migration Workflow
+
+**Step-by-step migration for existing tenants:**
+
+```bash
+# 1. Navigate to tenant directory
+cd /home/orochford/tenants/skunkworkx.aunoo.ai
+
+# 2. Backup SQLite database
+cp app/data/fnaapp.db app/data/fnaapp.db.backup
+cp .env .env.backup
+
+# 3. Deploy PostgreSQL (creates database and schema)
+python /home/orochford/bin/deploy_postgres.py
+
+# 4. Test migration with dry run
+python /home/orochford/bin/migrate_articles_to_postgres.py --dry-run
+
+# 5. Run actual migration
+python /home/orochford/bin/migrate_articles_to_postgres.py
+
+# 6. Verify data was migrated
+psql -U skunkworkx_aunoo_ai_user -d skunkworkx_aunoo_ai << EOF
+SELECT 'articles:', COUNT(*) FROM articles;
+SELECT 'raw_articles:', COUNT(*) FROM raw_articles;
+SELECT 'keyword_article_matches:', COUNT(*) FROM keyword_article_matches;
