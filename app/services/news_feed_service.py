@@ -63,9 +63,10 @@ class NewsFeedService:
         )
     
     async def _get_articles_for_date_range(self, date_range: str, max_articles: int, topic: Optional[str] = None, custom_date: Optional[datetime] = None, bias_filter: Optional[str] = None) -> List[Dict]:
-        """Get articles for a date range with optional bias filtering"""
+        """Get articles for a date range with optional bias filtering using database_query_facade"""
+        from starlette.concurrency import run_in_threadpool
 
-        # Calculate date range based on selection
+        # Calculate date range parameters based on selection
         now = datetime.now()
 
         if date_range == 'custom' and custom_date:
@@ -73,108 +74,51 @@ class NewsFeedService:
             target_date = custom_date.replace(hour=0, minute=0, second=0, microsecond=0)
             start_date = target_date
             end_date = target_date + timedelta(days=1)
-            date_condition = "DATE(publication_date) = ?"
-            params = [target_date.strftime('%Y-%m-%d')]
+            date_params = [target_date.strftime('%Y-%m-%d')]
         elif date_range == '24h':
             start_date = now - timedelta(days=1)
             end_date = now
-            date_condition = "publication_date >= ? AND publication_date <= ?"
-            params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.isoformat(), end_date.isoformat()]
         elif date_range == '7d':
             start_date = now - timedelta(days=7)
             end_date = now
-            date_condition = "publication_date >= ? AND publication_date <= ?"
-            params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.isoformat(), end_date.isoformat()]
         elif date_range == '30d':
             start_date = now - timedelta(days=30)
             end_date = now
-            date_condition = "publication_date >= ? AND publication_date <= ?"
-            params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.isoformat(), end_date.isoformat()]
         elif date_range == '3m':
             start_date = now - timedelta(days=90)
             end_date = now
-            date_condition = "publication_date >= ? AND publication_date <= ?"
-            params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.isoformat(), end_date.isoformat()]
         elif date_range == '1y':
             start_date = now - timedelta(days=365)
             end_date = now
-            date_condition = "publication_date >= ? AND publication_date <= ?"
-            params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.isoformat(), end_date.isoformat()]
         elif date_range == 'all':
-            date_condition = "publication_date IS NOT NULL"
-            params = []
+            date_params = []
             start_date = None
             end_date = now
         else:
             # Default to last 24 hours
             start_date = now - timedelta(days=1)
             end_date = now
-            date_condition = "publication_date >= ? AND publication_date <= ?"
-            params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.isoformat(), end_date.isoformat()]
 
         logger.info(f"Getting articles for date range: {start_date.isoformat() if start_date else 'all time'} to {end_date.isoformat()}")
 
-        # Build query with bias and factuality fields (now optional)
-        query = f"""
-        SELECT
-            uri, title, summary, news_source, publication_date, submission_date,
-            category, sentiment, sentiment_explanation, time_to_impact, time_to_impact_explanation,
-            tags, bias, factual_reporting, mbfc_credibility_rating, bias_source,
-            bias_country, press_freedom, media_type, popularity,
-            future_signal, future_signal_explanation, driver_type, driver_type_explanation
-        FROM articles
-        WHERE {date_condition}
-        AND category IS NOT NULL
-        AND sentiment IS NOT NULL
-        """
-
-        # Add bias filter if specified
-        if bias_filter:
-            if bias_filter.lower() == 'no_bias':
-                query += " AND bias IS NULL"
-            else:
-                query += " AND bias = ?"
-                params.append(bias_filter)
-
-        if topic:
-            query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
-            topic_pattern = f"%{topic}%"
-            params.extend([topic, topic_pattern, topic_pattern])
-        
-        # Filter out promotional/spam content and order by quality
-        query += """ 
-        AND title NOT LIKE '%Call@%'
-        AND title NOT LIKE '%+91%'
-        AND title NOT LIKE '%best%agency%'
-        AND title NOT LIKE '%#1%'
-        AND summary NOT LIKE '%Call@%'
-        AND summary NOT LIKE '%phone%number%'
-        AND news_source NOT LIKE '%medium.com/@%'
-        ORDER BY 
-            CASE WHEN factual_reporting = 'High' THEN 3
-                 WHEN factual_reporting = 'Mostly Factual' THEN 2
-                 ELSE 1 END DESC,
-            CASE WHEN news_source LIKE '%.com' AND news_source NOT LIKE '%medium.com%' THEN 2
-                 WHEN news_source LIKE '%reuters%' OR news_source LIKE '%bloomberg%' OR news_source LIKE '%techcrunch%' THEN 3
-                 ELSE 1 END DESC,
-            publication_date DESC 
-        LIMIT ?
-        """
-        params.append(max_articles)
-        
         try:
-            results = self.db.fetch_all(query, params)
-            logger.info(f"Found {len(results)} articles for date range: {date_range}")
-            
-            # Convert sqlite3.Row objects to dictionaries
-            articles_list = []
-            for row in results:
-                if hasattr(row, 'keys'):  # Check if it's a Row object
-                    article_dict = dict(row)
-                    articles_list.append(article_dict)
-                else:
-                    articles_list.append(row)  # Already a dict
-            
+            # Use database_query_facade method for PostgreSQL compatibility
+            articles_list = await run_in_threadpool(
+                self.facade.get_news_feed_articles_for_date_range,
+                date_range,
+                date_params,
+                max_articles,
+                topic,
+                bias_filter
+            )
+
+            logger.info(f"Found {len(articles_list)} articles for date range: {date_range}")
             return articles_list
         except Exception as e:
             logger.error(f"Error fetching articles: {e}")
@@ -225,82 +169,53 @@ class NewsFeedService:
             return None
     
     async def _get_total_articles_count_for_date_range(self, date_range: str, topic: Optional[str] = None, custom_date: Optional[datetime] = None, bias_filter: Optional[str] = None) -> int:
-        """Get the total count of articles for a date range (without limit)"""
+        """Get the total count of articles for a date range using database_query_facade"""
+        from starlette.concurrency import run_in_threadpool
 
-        # Calculate date range based on selection (same logic as _get_articles_for_date_range)
+        # Calculate date range parameters (same logic as _get_articles_for_date_range)
         now = datetime.now()
 
         if date_range == 'custom' and custom_date:
             target_date = custom_date.replace(hour=0, minute=0, second=0, microsecond=0)
-            date_condition = "DATE(publication_date) = ?"
-            params = [target_date.strftime('%Y-%m-%d')]
+            date_params = [target_date.strftime('%Y-%m-%d')]
         elif date_range == '24h':
             start_date = now - timedelta(days=1)
             end_date = now
-            date_condition = "publication_date >= ? AND publication_date <= ?"
-            params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.isoformat(), end_date.isoformat()]
         elif date_range == '7d':
             start_date = now - timedelta(days=7)
             end_date = now
-            date_condition = "publication_date >= ? AND publication_date <= ?"
-            params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.isoformat(), end_date.isoformat()]
         elif date_range == '30d':
             start_date = now - timedelta(days=30)
             end_date = now
-            date_condition = "publication_date >= ? AND publication_date <= ?"
-            params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.isoformat(), end_date.isoformat()]
         elif date_range == '3m':
             start_date = now - timedelta(days=90)
             end_date = now
-            date_condition = "publication_date >= ? AND publication_date <= ?"
-            params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.isoformat(), end_date.isoformat()]
         elif date_range == '1y':
             start_date = now - timedelta(days=365)
             end_date = now
-            date_condition = "publication_date >= ? AND publication_date <= ?"
-            params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.isoformat(), end_date.isoformat()]
         elif date_range == 'all':
-            date_condition = "publication_date IS NOT NULL"
-            params = []
+            date_params = []
         else:
             # Default to last 24 hours
             start_date = now - timedelta(days=1)
             end_date = now
-            date_condition = "publication_date >= ? AND publication_date <= ?"
-            params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.isoformat(), end_date.isoformat()]
 
-        # Build count query with same filtering as _get_articles_for_date_range
-        query = f"""
-        SELECT COUNT(*)
-        FROM articles
-        WHERE {date_condition}
-        AND category IS NOT NULL
-        AND sentiment IS NOT NULL
-        AND title NOT LIKE '%Call@%'
-        AND title NOT LIKE '%+91%'
-        AND title NOT LIKE '%best%agency%'
-        AND title NOT LIKE '%#1%'
-        AND summary NOT LIKE '%Call@%'
-        AND summary NOT LIKE '%phone%number%'
-        AND news_source NOT LIKE '%medium.com/@%'
-        """
-
-        # Add bias filter if specified
-        if bias_filter:
-            if bias_filter.lower() == 'no_bias':
-                query += " AND bias IS NULL"
-            else:
-                query += " AND bias = ?"
-                params.append(bias_filter)
-
-        if topic:
-            query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
-            topic_pattern = f"%{topic}%"
-            params.extend([topic, topic_pattern, topic_pattern])
-        
         try:
-            result = self.db.fetch_one(query, params)
-            return result[0] if result else 0
+            # Use database_query_facade method for PostgreSQL compatibility
+            count = await run_in_threadpool(
+                self.facade.get_news_feed_articles_count_for_date_range,
+                date_range,
+                date_params,
+                topic,
+                bias_filter
+            )
+            return count
         except Exception as e:
             logger.error(f"Error getting total articles count for date range: {e}")
             return 0

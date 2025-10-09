@@ -183,51 +183,43 @@ async def get_topic_summary_metrics(
     """
     try:
         # Metric: Total articles for the topic
-        query_total_articles = "SELECT COUNT(*) as count FROM articles WHERE topic = ?"
-        # Use fetch_all and get the first value from the first row
-        total_articles_result = await run_in_threadpool(db.fetch_all, query_total_articles, (topic_name,))
-        total_articles_count = total_articles_result[0]['count'] if total_articles_result and total_articles_result[0] else 0
+        total_articles_count = await run_in_threadpool(
+            db.facade.get_topic_articles_count,
+            topic_name
+        )
 
         # Metric: New articles in the last 24 hours
         time_24h_ago = (datetime.utcnow() - timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
-        query_new_24h = "SELECT COUNT(*) as count FROM articles WHERE topic = ? AND submission_date >= ?"
-        # Use fetch_all and get the first value from the first row
-        new_articles_24h_result = await run_in_threadpool(db.fetch_all, query_new_24h, (topic_name, time_24h_ago))
-        new_articles_24h_count = new_articles_24h_result[0]['count'] if new_articles_24h_result and new_articles_24h_result[0] else 0
+        new_articles_24h_count = await run_in_threadpool(
+            db.facade.get_topic_articles_count_since,
+            topic_name,
+            time_24h_ago
+        )
 
         # Metric: New articles in the last 7 days
         time_7d_ago = (datetime.utcnow() - timedelta(days=7)).strftime('%Y-%m-%d %H:%M:%S')
-        query_new_7d = "SELECT COUNT(*) as count FROM articles WHERE topic = ? AND submission_date >= ?"
-        # Use fetch_all and get the first value from the first row
-        new_articles_7d_result = await run_in_threadpool(db.fetch_all, query_new_7d, (topic_name, time_7d_ago))
-        new_articles_7d_count = new_articles_7d_result[0]['count'] if new_articles_7d_result and new_articles_7d_result[0] else 0
-        
-        # --- New Metrics (last 30 days for relevance) --- 
+        new_articles_7d_count = await run_in_threadpool(
+            db.facade.get_topic_articles_count_since,
+            topic_name,
+            time_7d_ago
+        )
+
+        # --- New Metrics (last 30 days for relevance) ---
         time_30d_ago = (datetime.utcnow() - timedelta(days=30)).strftime('%Y-%m-%d %H:%M:%S')
 
         # Metric: Dominant News Source (most frequent in last 30d)
-        query_dominant_source = f"""
-            SELECT news_source, COUNT(*) as count 
-            FROM articles 
-            WHERE topic = ? AND submission_date >= ? AND news_source IS NOT NULL AND news_source != ''
-            GROUP BY news_source 
-            ORDER BY count DESC 
-            LIMIT 1
-        """
-        dominant_source_result = await run_in_threadpool(db.fetch_all, query_dominant_source, (topic_name, time_30d_ago))
-        dominant_source = dominant_source_result[0]['news_source'] if dominant_source_result and dominant_source_result[0] else None
+        dominant_source = await run_in_threadpool(
+            db.facade.get_dominant_news_source_for_topic,
+            topic_name,
+            time_30d_ago
+        )
 
         # Metric: Most Frequent Time To Impact (in last 30d)
-        query_frequent_tti = f"""
-            SELECT time_to_impact, COUNT(*) as count
-            FROM articles
-            WHERE topic = ? AND submission_date >= ? AND time_to_impact IS NOT NULL AND time_to_impact != ''
-            GROUP BY time_to_impact
-            ORDER BY count DESC
-            LIMIT 1
-        """
-        frequent_tti_result = await run_in_threadpool(db.fetch_all, query_frequent_tti, (topic_name, time_30d_ago))
-        most_frequent_tti = frequent_tti_result[0]['time_to_impact'] if frequent_tti_result and frequent_tti_result[0] else None
+        most_frequent_tti = await run_in_threadpool(
+            db.facade.get_most_frequent_time_to_impact_for_topic,
+            topic_name,
+            time_30d_ago
+        )
 
         return TopicSummaryMetrics(
             total_articles=total_articles_count,

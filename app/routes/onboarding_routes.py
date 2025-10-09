@@ -1054,27 +1054,9 @@ async def complete_onboarding(
         if news_provider and news_provider in ["newsapi", "thenewsapi", "newsdata"]:
             logger.info(f"Saving news provider preference: {news_provider}")
 
-            # Update or create keyword_monitor_settings with the selected provider
+            # Update or create keyword_monitor_settings with the selected provider using facade
             try:
-                conn = db.get_connection()
-                # Check if settings exist
-                result = conn.execute("SELECT id FROM keyword_monitor_settings LIMIT 1").fetchone()
-
-                if result:
-                    # Update existing settings
-                    conn.execute(
-                        "UPDATE keyword_monitor_settings SET provider = ?",
-                        (news_provider,)
-                    )
-                else:
-                    # Create initial settings with the provider
-                    conn.execute("""
-                        INSERT INTO keyword_monitor_settings
-                        (check_interval, interval_unit, daily_request_limit, provider)
-                        VALUES (15, 60, 100, ?)
-                    """, (news_provider,))
-
-                conn.commit()
+                (DatabaseQueryFacade(db, logger)).update_keyword_monitor_settings_provider(news_provider)
                 logger.info(f"Successfully saved news provider: {news_provider}")
             except Exception as e:
                 logger.error(f"Error saving news provider to settings: {str(e)}")

@@ -378,6 +378,70 @@ def install_python_dependencies():
     return True
 
 
+def create_signal_tables(db_config):
+    """Create signal_instructions and signal_alerts tables."""
+    logger.info("Creating signal tables...")
+
+    sql_script = """
+-- Create signal_instructions table
+CREATE TABLE IF NOT EXISTS signal_instructions (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT,
+    instruction TEXT NOT NULL,
+    topic TEXT,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create signal_alerts table
+CREATE TABLE IF NOT EXISTS signal_alerts (
+    id SERIAL PRIMARY KEY,
+    article_uri TEXT NOT NULL,
+    instruction_id INTEGER NOT NULL,
+    instruction_name TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    threat_level TEXT NOT NULL,
+    summary TEXT,
+    detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_acknowledged BOOLEAN DEFAULT FALSE,
+    acknowledged_at TIMESTAMP,
+    FOREIGN KEY (instruction_id) REFERENCES signal_instructions(id) ON DELETE CASCADE,
+    UNIQUE(article_uri, instruction_id)
+);
+
+-- Create indices for better performance
+CREATE INDEX IF NOT EXISTS idx_signal_alerts_instruction_id ON signal_alerts(instruction_id);
+CREATE INDEX IF NOT EXISTS idx_signal_alerts_article_uri ON signal_alerts(article_uri);
+CREATE INDEX IF NOT EXISTS idx_signal_alerts_detected_at ON signal_alerts(detected_at);
+CREATE INDEX IF NOT EXISTS idx_signal_alerts_is_acknowledged ON signal_alerts(is_acknowledged);
+CREATE INDEX IF NOT EXISTS idx_signal_instructions_topic ON signal_instructions(topic);
+CREATE INDEX IF NOT EXISTS idx_signal_instructions_is_active ON signal_instructions(is_active);
+"""
+
+    # Set environment for psql
+    env = os.environ.copy()
+    env['PGPASSWORD'] = db_config['db_password']
+
+    result = subprocess.run(
+        ['psql', '-h', db_config['db_host'], '-p', db_config['db_port'],
+         '-U', db_config['db_user'], '-d', db_config['db_name'], '-c', sql_script],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env
+    )
+
+    if result.returncode != 0:
+        logger.warning(f"Signal tables creation had warnings: {result.stderr}")
+        # Don't fail - tables might already exist
+        return True
+
+    logger.info("✅ Signal tables created successfully")
+    return True
+
+
 def run_migrations(db_config):
     """Run Alembic migrations to create schema."""
     logger.info("Running database migrations...")
@@ -403,6 +467,10 @@ def run_migrations(db_config):
         return False
 
     logger.info("✅ Database migrations completed")
+
+    # Create signal tables
+    create_signal_tables(db_config)
+
     return True
 
 

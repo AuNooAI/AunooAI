@@ -148,18 +148,18 @@ async def delete_groups_by_topic(topic_name: str, db=Depends(get_database_instan
     """Delete all keyword groups associated with a specific topic and clean up orphaned data"""
     try:
             groups = db.facade.get_all_group_ids_associated_to_topic(topic_name)
-            
+
             if not groups:
                 return {"success": True, "groups_deleted": 0}
-            
-            group_ids = [group[0] for group in groups]
+
+            group_ids = [group['id'] for group in groups]
             groups_deleted = len(group_ids)
             
             # Find all keyword IDs belonging to these groups
             keyword_ids = []
             for group_id in group_ids:
                 keywords = db.facade.get_keyword_ids_associated_to_group(group_id)
-                keyword_ids.extend([kw[0] for kw in keywords])
+                keyword_ids.extend([kw['id'] for kw in keywords])
             
             # Delete all keyword alerts related to these keywords
             alerts_deleted = 0
@@ -181,12 +181,13 @@ async def delete_groups_by_topic(topic_name: str, db=Depends(get_database_instan
             keywords_deleted = 0
             if group_ids:
                 ids_str = ','.join('?' for _ in group_ids)
-                keywords_deleted = db.facade.delete_groups_keywords(ids_str, keyword_ids)
-            
+                keywords_deleted = db.facade.delete_groups_keywords(ids_str, group_ids)
+
             # Delete all keyword groups for this topic
-            db.facade.delete_groups_keywords(topic_name)
+            groups_deleted = db.facade.delete_all_keyword_groups(topic_name)
+
             return {
-                "success": True, 
+                "success": True,
                 "groups_deleted": groups_deleted,
                 "keywords_deleted": keywords_deleted,
                 "alerts_deleted": alerts_deleted

@@ -830,104 +830,53 @@ Remember to cite your sources and provide actionable insights where possible."""
 
     def get_article(self, uri):
         logger.debug(f"Fetching article with URI: {uri}")
-        with self.get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM articles WHERE uri = ?", (uri,))
-            article = cursor.fetchone()
-            
-            if article:
-                article_dict = dict(article)
-                if article_dict['tags']:
-                    article_dict['tags'] = article_dict['tags'].split(',')
-                else:
-                    article_dict['tags'] = []
-                logger.debug(f"Article found: {article_dict['title']}")
-                return article_dict
+        # Use PostgreSQL-compatible connection via SQLAlchemy
+        from sqlalchemy import text
+        conn = self._temp_get_connection()
+
+        # Execute query with .mappings() for dictionary access
+        # Note: Do not close the connection - it's managed by the connection pool
+        result = conn.execute(text("SELECT * FROM articles WHERE uri = :uri"), {"uri": uri}).mappings()
+        article = result.fetchone()
+
+        if article:
+            article_dict = dict(article)
+            if article_dict.get('tags'):
+                article_dict['tags'] = article_dict['tags'].split(',')
             else:
-                logger.debug("Article not found")
-                return None
+                article_dict['tags'] = []
+            logger.debug(f"Article found: {article_dict['title']}")
+            return article_dict
+        else:
+            logger.debug("Article not found")
+            return None
             
     def save_article(self, article_data):
         """Save article to database.
-        
+
         Handles both new articles and updates to existing ones.
         Supports the new media bias fields.
+        Uses SQLAlchemy facade for PostgreSQL compatibility.
         """
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
         try:
-            # Check if article already exists
-            cursor.execute("SELECT uri FROM articles WHERE uri = ?", (article_data['uri'],))
-            existing = cursor.fetchone()
-            
-            # Define all possible fields, including media bias fields
-            all_fields = [
-                'uri', 'title', 'news_source', 'summary', 'sentiment', 
-                'time_to_impact', 'category', 'future_signal', 
-                'future_signal_explanation', 'publication_date', 
-                'submission_date', 'topic', 'sentiment_explanation', 
-                'time_to_impact_explanation', 'tags', 'driver_type', 
-                'driver_type_explanation', 'analyzed',
-                # Media bias fields
-                'bias', 'factual_reporting', 'mbfc_credibility_rating',
-                'bias_source', 'bias_country', 'press_freedom', 
-                'media_type', 'popularity',
-                # Relevance score fields
-                'topic_alignment_score', 'keyword_relevance_score', 
-                'confidence_score', 'overall_match_explanation',
-                'extracted_article_topics', 'extracted_article_keywords'
-            ]
-
-            # Filter fields that exist in the article_data
-            fields = [f for f in all_fields if f in article_data]
-            
-            # Convert tags list to string if necessary
-            if 'tags' in article_data and isinstance(article_data['tags'], list):
-                article_data['tags'] = ','.join(article_data['tags'])
-            
-            # Either update or insert
-            if existing:
-                # Build set statements for SQL
-                set_clauses = [f"{field} = ?" for field in fields if field != 'uri']
-                values = [article_data[field] for field in fields if field != 'uri']
-                values.append(article_data['uri'])  # For the WHERE clause
-                
-                # Execute update
-                sql = f"UPDATE articles SET {', '.join(set_clauses)} WHERE uri = ?"
-                cursor.execute(sql, values)
-            else:
-                # Build insert statement
-                placeholders = ", ".join(["?"] * len(fields))
-                values = [article_data[field] for field in fields]
-                
-                # Execute insert
-                sql = f"INSERT INTO articles ({', '.join(fields)}) VALUES ({placeholders})"
-                cursor.execute(sql, values)
-            
-            conn.commit()
-            return {"success": True, "uri": article_data['uri']}
+            return self.facade.upsert_article(article_data)
         except Exception as e:
-            conn.rollback()
             logging.error(f"Error in save_article: {str(e)}")
             raise
-        finally:
-            cursor.close()
 
     def delete_article(self, uri):
+        """Delete article from database.
+
+        Uses SQLAlchemy facade for PostgreSQL compatibility.
+        """
         logger.info(f"Attempting to delete article with URI: {uri}")
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute("DELETE FROM articles WHERE uri = ?", (uri,))
-                conn.commit()
-                deleted_count = cursor.rowcount
-                logger.info(f"Deleted {deleted_count} article(s) with URI: {uri}")
-                return deleted_count > 0
-            except Exception as e:
-                logger.error(f"Error deleting article: {e}", exc_info=True)
-                return False
+        try:
+            deleted_count = self.facade.delete_article_by_url(uri)
+            logger.info(f"Deleted {deleted_count} article(s) with URI: {uri}")
+            return deleted_count > 0
+        except Exception as e:
+            logger.error(f"Error deleting article: {e}", exc_info=True)
+            return False
 
     def save_article_analysis_cache(self, article_uri: str, analysis_type: str, content: str, model_used: str, metadata: dict = None) -> bool:
         """Save analysis result to cache with expiration."""
@@ -1573,11 +1522,19 @@ Remember to cite your sources and provide actionable insights where possible."""
             params.extend([f"%{keyword}%"] * 6)
 
         if pub_date_start:
-            query_conditions.append(f"{date_field_to_use} >= ?")  # Use the selected date field
+            # Use DATE() to compare only date part, ignoring time
+            if self.db_type == 'postgresql':
+                query_conditions.append(f"DATE({date_field_to_use}) >= ?")
+            else:
+                query_conditions.append(f"DATE({date_field_to_use}) >= ?")
             params.append(pub_date_start)
 
         if pub_date_end:
-            query_conditions.append(f"{date_field_to_use} <= ?")  # Use the selected date field
+            # Use DATE() to compare only date part, ignoring time
+            if self.db_type == 'postgresql':
+                query_conditions.append(f"DATE({date_field_to_use}) <= ?")
+            else:
+                query_conditions.append(f"DATE({date_field_to_use}) <= ?")
             params.append(pub_date_end)
 
         # Add filter for requiring a category if specified
@@ -1585,29 +1542,61 @@ Remember to cite your sources and provide actionable insights where possible."""
             query_conditions.append("category IS NOT NULL AND category != ''")
 
         where_clause = " AND ".join(query_conditions) if query_conditions else "1=1"
-        
+
+        # Use PostgreSQL-compatible connection via SQLAlchemy
+        from sqlalchemy import text
+        conn = self._temp_get_connection()
+
+        # Convert ? placeholders to PostgreSQL-style if needed
+        if self.db_type == 'postgresql' and '?' in where_clause:
+            param_count = where_clause.count('?')
+            converted_where = where_clause
+            for i in range(1, param_count + 1):
+                converted_where = converted_where.replace('?', f':param{i}', 1)
+            where_clause = converted_where
+            params_dict = {f'param{i+1}': params[i] for i in range(len(params))}
+        else:
+            # SQLite: convert list to tuple for proper binding
+            params_dict = {f'param{i+1}': params[i] for i in range(len(params))} if params else {}
+            if params_dict:
+                # For SQLite, rebuild where_clause with named parameters
+                converted_where = where_clause
+                for i in range(1, len(params) + 1):
+                    converted_where = converted_where.replace('?', f':param{i}', 1)
+                where_clause = converted_where
+
         # Count total results
         count_query = f"SELECT COUNT(*) FROM articles WHERE {where_clause}"
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(count_query, params)
-            total_count = cursor.fetchone()[0]
+        result = conn.execute(text(count_query), params_dict)
+        total_count = result.fetchone()[0]
 
         # Get paginated results
         offset = (page - 1) * per_page
-        query = f"""
-            SELECT *
-            FROM articles
-            WHERE {where_clause}
-            ORDER BY submission_date DESC
-            LIMIT ? OFFSET ?
-        """
-        params.extend([per_page, offset])
 
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(query, params)
-            articles = [dict(zip([col[0] for col in cursor.description], row)) for row in cursor.fetchall()]
+        # Add pagination parameters
+        if self.db_type == 'postgresql':
+            query = f"""
+                SELECT *
+                FROM articles
+                WHERE {where_clause}
+                ORDER BY submission_date DESC
+                LIMIT :limit_param OFFSET :offset_param
+            """
+            params_dict['limit_param'] = per_page
+            params_dict['offset_param'] = offset
+        else:
+            query = f"""
+                SELECT *
+                FROM articles
+                WHERE {where_clause}
+                ORDER BY submission_date DESC
+                LIMIT :limit_param OFFSET :offset_param
+            """
+            params_dict['limit_param'] = per_page
+            params_dict['offset_param'] = offset
+
+        result = conn.execute(text(query), params_dict).mappings()
+        articles = [dict(row) for row in result]
 
         return articles, total_count
 
@@ -1655,8 +1644,8 @@ Remember to cite your sources and provide actionable insights where possible."""
 
             row = result.fetchone()
             if row:
-                # For count queries, return tuple directly for backward compatibility
-                return tuple(row)
+                # Convert row to dictionary using _mapping for SQLAlchemy Row object
+                return dict(row._mapping)
             return None
         except Exception as e:
             logger.error(f"Error in fetch_one: {e}")

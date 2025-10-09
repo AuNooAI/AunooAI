@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Optional, List, Dict
 from re import U
 import sqlite3
 import json
@@ -21,6 +22,7 @@ from sqlalchemy import (select,
                         literal_column,
                         inspect,
                         case,
+                        text,
                         Text)
 
 from app.database_models import (t_keyword_monitor_settings as keyword_monitor_settings,
@@ -198,30 +200,18 @@ class DatabaseQueryFacade:
                 inserted_new_article = True
                 self.logger.info(f"Inserted new article: {article_url}")
 
-            # Create alert
-            is_keyword_alert_exists = self.connection.execute(
-                        select(keyword_alerts).where(keyword_alerts.c.article_uri == article_url, keyword_alerts.c.keyword_id == keyword_id)
-                    ).fetchone()
-
-            alert_inserted = False
-            if not is_keyword_alert_exists:
-                result = self.connection.execute(insert(keyword_alerts).values(
-                    keyword_id=keyword_id,
-                    article_uri=article_url))
-                alert_inserted = result.rowcount > 0
-            
             # Get the group_id for this keyword
             group_id = self.connection.execute(
                 select(monitored_keywords.c.group_id).where(monitored_keywords.c.id == keyword_id)
             ).scalar()
-            
+
             # Check if we already have a match for this article in this group
             existing_match = self.connection.execute(select(keyword_article_matches.c.id, keyword_article_matches.c.keyword_ids).where(
                 keyword_article_matches.c.article_uri == article_url,
                 keyword_article_matches.c.group_id == group_id)).fetchone()
-            
+
             match_updated = False
-            
+
             if existing_match:
                 # Update the existing match with the new keyword
                 match_id, keyword_ids = existing_match
@@ -242,10 +232,11 @@ class DatabaseQueryFacade:
                     group_id=group_id))
 
                 match_updated = True
-                
+
             self.connection.commit()
 
-            return inserted_new_article, alert_inserted, match_updated
+            # For backward compatibility, return the same structure but alert_inserted is always False now
+            return inserted_new_article, False, match_updated
 
         except Exception as e:
             self.connection.rollback()
@@ -292,12 +283,11 @@ class DatabaseQueryFacade:
 
     #### RESEARCH QUERIES ####
     def get_article_by_url(self, url):
-        statement = select(
-            [1]
-        ).where(
+        statement = select(articles).where(
             articles.c.uri == url
         )
-        return self.connection.execute(statement).fetchone()
+        result = self.connection.execute(statement).mappings()
+        return result.fetchone()
 
     def create_article_with_extracted_content(self, params):
         statement = insert(
@@ -1783,16 +1773,19 @@ class DatabaseQueryFacade:
 
         articles_list = self.connection.execute(statement).mappings().fetchall()
 
-        articles = []
+        result_articles = []
         for article in articles_list:
-            if article.get('tags'):
-                article['tags'] = article['tags'].split(',')
+            # Convert mapping to dict to allow modification
+            article_dict = dict(article)
+
+            if article_dict.get('tags'):
+                article_dict['tags'] = article_dict['tags'].split(',')
             else:
-                article['tags'] = []
+                article_dict['tags'] = []
 
-            articles.append(article)
+            result_articles.append(article_dict)
 
-        return articles
+        return result_articles
 
     def create_model_bias_arena_runs(self, params):
         statement = insert(model_bias_arena_runs).values(
@@ -2507,47 +2500,49 @@ class DatabaseQueryFacade:
         return self.connection.execute(statement).fetchone()
 
     def get_all_groups_with_alerts_and_status_new_table_structure(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        """Get all keyword groups with their alert counts and growth status.
 
-            cursor.execute("""
-                           WITH alert_counts AS (SELECT kg.id                                                      as group_id,
-                                                        COUNT(DISTINCT CASE
-                                                                           WHEN ka.is_read = 0 AND a.uri IS NOT NULL
-                                                                               THEN ka.id END)                     as unread_count,
-                                                        COUNT(DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) as total_count
-                                                 FROM keyword_groups kg
-                                                          LEFT JOIN keyword_article_matches ka ON kg.id = ka.group_id
-                                                          LEFT JOIN articles a ON ka.article_uri = a.uri
-                                                 GROUP BY kg.id),
-                                growth_data AS (SELECT kg.id as group_id,
-                                                       CASE
-                                                           WHEN COUNT(CASE WHEN a.uri IS NOT NULL THEN ka.id END) = 0
-                                                               THEN 'No data'
-                                                           WHEN MAX(ka.detected_at) < date ('now', '-7 days') THEN 'Inactive'
-                               WHEN COUNT (DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) > 20 THEN 'High growth'
-                               WHEN COUNT (DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) > 10 THEN 'Growing'
-                               ELSE 'Stable'
-                           END
-                           as growth_status
-                    FROM keyword_groups kg
-                    LEFT JOIN keyword_article_matches ka ON kg.id = ka.group_id
-                    LEFT JOIN articles a ON ka.article_uri = a.uri
-                    GROUP BY kg.id
-                )
-                           SELECT kg.id,
-                                  kg.name,
-                                  kg.topic,
-                                  COALESCE(ac.unread_count, 0)          as unread_count,
-                                  COALESCE(ac.total_count, 0)           as total_count,
-                                  COALESCE(gd.growth_status, 'No data') as growth_status
-                           FROM keyword_groups kg
-                                    LEFT JOIN alert_counts ac ON kg.id = ac.group_id
-                                    LEFT JOIN growth_data gd ON kg.id = gd.group_id
-                           ORDER BY ac.unread_count DESC, kg.name
-                           """)
+        Uses PostgreSQL connection to query keyword_article_matches table.
+        Returns list of tuples: (id, name, topic, unread_count, total_count, growth_status)
+        """
+        query = text("""
+            WITH alert_counts AS (
+                SELECT kg.id as group_id,
+                       COUNT(DISTINCT CASE WHEN ka.is_read = 0 AND a.uri IS NOT NULL THEN ka.id END) as unread_count,
+                       COUNT(DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) as total_count
+                FROM keyword_groups kg
+                LEFT JOIN keyword_article_matches ka ON kg.id = ka.group_id
+                LEFT JOIN articles a ON ka.article_uri = a.uri
+                GROUP BY kg.id
+            ),
+            growth_data AS (
+                SELECT kg.id as group_id,
+                       CASE
+                           WHEN COUNT(CASE WHEN a.uri IS NOT NULL THEN ka.id END) = 0 THEN 'No data'
+                           WHEN MAX(ka.detected_at) < (CURRENT_DATE - INTERVAL '7 days')::text THEN 'Inactive'
+                           WHEN COUNT(DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) > 20 THEN 'High growth'
+                           WHEN COUNT(DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) > 10 THEN 'Growing'
+                           ELSE 'Stable'
+                       END as growth_status
+                FROM keyword_groups kg
+                LEFT JOIN keyword_article_matches ka ON kg.id = ka.group_id
+                LEFT JOIN articles a ON ka.article_uri = a.uri
+                GROUP BY kg.id
+            )
+            SELECT kg.id,
+                   kg.name,
+                   kg.topic,
+                   COALESCE(ac.unread_count, 0) as unread_count,
+                   COALESCE(ac.total_count, 0) as total_count,
+                   COALESCE(gd.growth_status, 'No data') as growth_status
+            FROM keyword_groups kg
+            LEFT JOIN alert_counts ac ON kg.id = ac.group_id
+            LEFT JOIN growth_data gd ON kg.id = gd.group_id
+            ORDER BY ac.unread_count DESC, kg.name
+        """)
 
-            return cursor.fetchall()
+        result = self.connection.execute(query)
+        return result.fetchall()
 
     def get_all_groups_with_alerts_and_status_old_table_structure(self):
         with self.db.get_connection() as conn:
@@ -2864,42 +2859,92 @@ class DatabaseQueryFacade:
         self.connection.execute(stmt)
         self.connection.commit()
 
+    def update_keyword_monitor_settings_provider(self, provider: str):
+        """Update or create keyword_monitor_settings with the specified provider.
+
+        This is a simplified version for onboarding that only updates the provider field.
+        If no settings exist, it creates default settings with the specified provider.
+
+        Args:
+            provider: The news provider to use ('newsapi', 'thenewsapi', or 'newsdata')
+        """
+        # Check if settings exist
+        existing = self.connection.execute(
+            select(keyword_monitor_settings).where(keyword_monitor_settings.c.id == 1)
+        ).fetchone()
+
+        if existing:
+            # Update existing settings - only provider field
+            stmt = update(keyword_monitor_settings).where(
+                keyword_monitor_settings.c.id == 1
+            ).values(provider=provider)
+        else:
+            # Create default settings with the specified provider
+            stmt = insert(keyword_monitor_settings).values(
+                id=1,
+                check_interval=15,
+                interval_unit=60,
+                search_fields="title,description",
+                language="en",
+                sort_by="publishedAt",
+                page_size=100,
+                is_enabled=True,
+                daily_request_limit=100,
+                search_date_range=7,
+                provider=provider,
+                auto_ingest_enabled=False,
+                min_relevance_threshold=0.7,
+                quality_control_enabled=True,
+                auto_save_approved_only=False,
+                default_llm_model="gpt-4",
+                llm_temperature=0.7,
+                llm_max_tokens=2000
+            )
+
+        self.connection.execute(stmt)
+        self.connection.commit()
 
     def get_trends(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        """Get trend data for all keyword groups over the last 7 days.
 
-            cursor.execute("""
-                           WITH RECURSIVE dates(date) AS (SELECT date ('now', '-6 days')
-                           UNION ALL
-                           SELECT date (date, '+1 day')
-                           FROM dates
-                           WHERE date
-                               < date ('now')
-                               )
-                               , daily_counts AS (
-                           SELECT
-                               kg.id as group_id, kg.name as group_name, date (ka.detected_at) as detection_date, COUNT (*) as article_count
-                           FROM keyword_alerts ka
-                               JOIN monitored_keywords mk
-                           ON ka.keyword_id = mk.id
-                               JOIN keyword_groups kg ON mk.group_id = kg.id
-                           WHERE ka.detected_at >= date ('now', '-6 days')
-                           GROUP BY kg.id, kg.name, date (ka.detected_at)
-                               )
-                           SELECT kg.id,
-                                  kg.name,
-                                  dates.date,
-                                  COALESCE(dc.article_count, 0) as count
-                           FROM keyword_groups kg
-                               CROSS JOIN dates
-                               LEFT JOIN daily_counts dc
-                           ON dc.group_id = kg.id
-                               AND dc.detection_date = dates.date
-                           ORDER BY kg.id, dates.date
-                           """)
+        Uses PostgreSQL connection and keyword_article_matches table.
+        Returns: List of tuples (group_id, group_name, date, count)
+        """
+        # PostgreSQL-compatible query using generate_series instead of recursive CTE
+        query = text("""
+            WITH dates AS (
+                SELECT generate_series(
+                    CURRENT_DATE - INTERVAL '6 days',
+                    CURRENT_DATE,
+                    INTERVAL '1 day'
+                )::date as date
+            ),
+            daily_counts AS (
+                SELECT
+                    kg.id as group_id,
+                    kg.name as group_name,
+                    CAST(kam.detected_at::timestamp AS DATE) as detection_date,
+                    COUNT(*) as article_count
+                FROM keyword_article_matches kam
+                JOIN keyword_groups kg ON kam.group_id = kg.id
+                WHERE kam.detected_at::timestamp >= CURRENT_DATE - INTERVAL '6 days'
+                GROUP BY kg.id, kg.name, CAST(kam.detected_at::timestamp AS DATE)
+            )
+            SELECT
+                kg.id,
+                kg.name,
+                dates.date,
+                COALESCE(dc.article_count, 0) as count
+            FROM keyword_groups kg
+            CROSS JOIN dates
+            LEFT JOIN daily_counts dc
+                ON dc.group_id = kg.id
+                AND dc.detection_date = dates.date
+            ORDER BY kg.id, dates.date
+        """)
 
-            return cursor.fetchall()
+        result = self.connection.execute(query)
+        return result.fetchall()
 
     def topic_exists(self, topic):
         statement = select(
@@ -3381,22 +3426,32 @@ class DatabaseQueryFacade:
         return result.rowcount
 
     def delete_news_search_results_by_topic(self, topic_name):
+        # Check if table exists before trying to delete
+        if news_search_results is None:
+            return 0
+
         statement = delete(
             news_search_results
         ).where(
             news_search_results.c.topic == topic_name
         )
-        self.connection.execute(statement)
+        result = self.connection.execute(statement)
         self.connection.commit()
+        return result.rowcount
 
     def delete_paper_search_results_by_topic(self, topic_name):
+        # Check if table exists before trying to delete
+        if paper_search_results is None:
+            return 0
+
         statement = delete(
             paper_search_results
         ).where(
             paper_search_results.c.topic == topic_name
         )
-        self.connection.execute(statement)
+        result = self.connection.execute(statement)
         self.connection.commit()
+        return result.rowcount
 
     def delete_article_by_url(self, url):
         statement = delete(
@@ -3816,6 +3871,68 @@ class DatabaseQueryFacade:
         self.connection.commit()
 
         return result.rowcount
+
+    def upsert_article(self, article_data: dict):
+        """
+        Upsert article using SQLAlchemy (works with both SQLite and PostgreSQL).
+        Handles both inserts and updates based on URI.
+
+        Args:
+            article_data: Dictionary containing article fields
+
+        Returns:
+            Dictionary with success status and URI
+        """
+        try:
+            # Convert tags list to string if necessary
+            if 'tags' in article_data and isinstance(article_data['tags'], list):
+                article_data['tags'] = ','.join(article_data['tags'])
+
+            # Check if article already exists
+            uri = article_data.get('uri')
+            if not uri:
+                raise ValueError("Article URI is required")
+
+            existing = self.connection.execute(
+                select(articles.c.uri).where(articles.c.uri == uri)
+            ).fetchone()
+
+            # Define all possible article fields
+            valid_fields = [
+                'uri', 'title', 'news_source', 'summary', 'sentiment',
+                'time_to_impact', 'category', 'future_signal',
+                'future_signal_explanation', 'publication_date',
+                'submission_date', 'topic', 'sentiment_explanation',
+                'time_to_impact_explanation', 'tags', 'driver_type',
+                'driver_type_explanation', 'analyzed',
+                'bias', 'factual_reporting', 'mbfc_credibility_rating',
+                'bias_source', 'bias_country', 'press_freedom',
+                'media_type', 'popularity',
+                'topic_alignment_score', 'keyword_relevance_score',
+                'confidence_score', 'overall_match_explanation',
+                'extracted_article_topics', 'extracted_article_keywords'
+            ]
+
+            # Filter to only include fields that exist in article_data
+            filtered_data = {k: v for k, v in article_data.items() if k in valid_fields}
+
+            if existing:
+                # Update existing article (exclude uri from values)
+                update_data = {k: v for k, v in filtered_data.items() if k != 'uri'}
+                statement = update(articles).where(articles.c.uri == uri).values(**update_data)
+                self.connection.execute(statement)
+            else:
+                # Insert new article
+                statement = insert(articles).values(**filtered_data)
+                self.connection.execute(statement)
+
+            self.connection.commit()
+            return {"success": True, "uri": uri}
+
+        except Exception as e:
+            self.connection.rollback()
+            self.logger.error(f"Error in upsert_article: {str(e)}")
+            raise
 
     def enable_or_disable_auto_ingest(self, enabled):
         statement = update(keyword_monitor_settings).where(keyword_monitor_settings.c.id == 1).values(
@@ -4250,3 +4367,608 @@ class DatabaseQueryFacade:
                 article['tags'] = []
 
         return articles_list
+
+    #### NEWS FEED SERVICE QUERIES ####
+    def get_news_feed_articles_for_date_range(
+        self,
+        date_condition_type: str,
+        date_params: list,
+        max_articles: int,
+        topic: str = None,
+        bias_filter: str = None
+    ):
+        """
+        Get articles for news feed with complex filtering and quality-based ordering.
+
+        Args:
+            date_condition_type: Type of date filter ('custom', '24h', '7d', '30d', '3m', '1y', 'all')
+            date_params: List of date parameters for the WHERE clause
+            max_articles: Maximum number of articles to return
+            topic: Optional topic filter (matches topic field or title/summary LIKE pattern)
+            bias_filter: Optional bias filter ('no_bias' or specific bias value)
+
+        Returns:
+            List of article dictionaries
+        """
+        from datetime import datetime, timedelta
+
+        # Build date condition based on type
+        now = datetime.now()
+
+        if date_condition_type == 'custom' and len(date_params) > 0:
+            # Custom date - use DATE(publication_date) = ?
+            where_conditions = [
+                func.date(articles.c.publication_date) == date_params[0]
+            ]
+        elif date_condition_type == 'all':
+            # All articles with non-null publication_date
+            where_conditions = [
+                articles.c.publication_date.isnot(None)
+            ]
+        else:
+            # Range queries (24h, 7d, 30d, 3m, 1y)
+            if len(date_params) >= 2:
+                where_conditions = [
+                    and_(
+                        articles.c.publication_date >= date_params[0],
+                        articles.c.publication_date <= date_params[1]
+                    )
+                ]
+            else:
+                # Default to last 24 hours if params missing
+                start_date = now - timedelta(days=1)
+                where_conditions = [
+                    and_(
+                        articles.c.publication_date >= start_date.isoformat(),
+                        articles.c.publication_date <= now.isoformat()
+                    )
+                ]
+
+        # Add required filters
+        where_conditions.extend([
+            articles.c.category.isnot(None),
+            articles.c.sentiment.isnot(None)
+        ])
+
+        # Add bias filter if specified
+        if bias_filter:
+            if bias_filter.lower() == 'no_bias':
+                where_conditions.append(articles.c.bias.is_(None))
+            else:
+                where_conditions.append(articles.c.bias == bias_filter)
+
+        # Add topic filter if specified
+        if topic:
+            topic_pattern = f"%{topic}%"
+            where_conditions.append(
+                or_(
+                    articles.c.topic == topic,
+                    articles.c.title.like(topic_pattern),
+                    articles.c.summary.like(topic_pattern)
+                )
+            )
+
+        # Add spam/promotional content filters
+        where_conditions.extend([
+            not_(articles.c.title.like('%Call@%')),
+            not_(articles.c.title.like('%+91%')),
+            not_(articles.c.title.like('%best%agency%')),
+            not_(articles.c.title.like('%#1%')),
+            not_(articles.c.summary.like('%Call@%')),
+            not_(articles.c.summary.like('%phone%number%')),
+            not_(articles.c.news_source.like('%medium.com/@%'))
+        ])
+
+        # Build quality-based ordering using CASE expressions
+        factual_reporting_order = case(
+            (articles.c.factual_reporting == 'High', 3),
+            (articles.c.factual_reporting == 'Mostly Factual', 2),
+            else_=1
+        )
+
+        news_source_order = case(
+            (
+                and_(
+                    articles.c.news_source.like('%.com'),
+                    not_(articles.c.news_source.like('%medium.com%'))
+                ),
+                2
+            ),
+            (
+                or_(
+                    articles.c.news_source.like('%reuters%'),
+                    articles.c.news_source.like('%bloomberg%'),
+                    articles.c.news_source.like('%techcrunch%')
+                ),
+                3
+            ),
+            else_=1
+        )
+
+        # Build the complete query
+        statement = select(
+            articles.c.uri,
+            articles.c.title,
+            articles.c.summary,
+            articles.c.news_source,
+            articles.c.publication_date,
+            articles.c.submission_date,
+            articles.c.category,
+            articles.c.sentiment,
+            articles.c.sentiment_explanation,
+            articles.c.time_to_impact,
+            articles.c.time_to_impact_explanation,
+            articles.c.tags,
+            articles.c.bias,
+            articles.c.factual_reporting,
+            articles.c.mbfc_credibility_rating,
+            articles.c.bias_source,
+            articles.c.bias_country,
+            articles.c.press_freedom,
+            articles.c.media_type,
+            articles.c.popularity,
+            articles.c.future_signal,
+            articles.c.future_signal_explanation,
+            articles.c.driver_type,
+            articles.c.driver_type_explanation
+        ).where(
+            and_(*where_conditions)
+        ).order_by(
+            factual_reporting_order.desc(),
+            news_source_order.desc(),
+            articles.c.publication_date.desc()
+        ).limit(max_articles)
+
+        # Execute and return results
+        results = self.connection.execute(statement).mappings().fetchall()
+
+        # Convert to list of dicts
+        articles_list = []
+        for row in results:
+            article_dict = dict(row)
+            articles_list.append(article_dict)
+
+        return articles_list
+
+    def get_news_feed_articles_count_for_date_range(
+        self,
+        date_condition_type: str,
+        date_params: list,
+        topic: str = None,
+        bias_filter: str = None
+    ) -> int:
+        """
+        Get count of articles for news feed with same filtering as get_news_feed_articles_for_date_range.
+
+        Args:
+            date_condition_type: Type of date filter ('custom', '24h', '7d', '30d', '3m', '1y', 'all')
+            date_params: List of date parameters for the WHERE clause
+            topic: Optional topic filter (matches topic field or title/summary LIKE pattern)
+            bias_filter: Optional bias filter ('no_bias' or specific bias value)
+
+        Returns:
+            Integer count of matching articles
+        """
+        from datetime import datetime, timedelta
+
+        # Build date condition based on type (same logic as article query)
+        now = datetime.now()
+
+        if date_condition_type == 'custom' and len(date_params) > 0:
+            where_conditions = [
+                func.date(articles.c.publication_date) == date_params[0]
+            ]
+        elif date_condition_type == 'all':
+            where_conditions = [
+                articles.c.publication_date.isnot(None)
+            ]
+        else:
+            if len(date_params) >= 2:
+                where_conditions = [
+                    and_(
+                        articles.c.publication_date >= date_params[0],
+                        articles.c.publication_date <= date_params[1]
+                    )
+                ]
+            else:
+                start_date = now - timedelta(days=1)
+                where_conditions = [
+                    and_(
+                        articles.c.publication_date >= start_date.isoformat(),
+                        articles.c.publication_date <= now.isoformat()
+                    )
+                ]
+
+        # Add required filters (same as article query)
+        where_conditions.extend([
+            articles.c.category.isnot(None),
+            articles.c.sentiment.isnot(None)
+        ])
+
+        # Add spam/promotional content filters
+        where_conditions.extend([
+            not_(articles.c.title.like('%Call@%')),
+            not_(articles.c.title.like('%+91%')),
+            not_(articles.c.title.like('%best%agency%')),
+            not_(articles.c.title.like('%#1%')),
+            not_(articles.c.summary.like('%Call@%')),
+            not_(articles.c.summary.like('%phone%number%')),
+            not_(articles.c.news_source.like('%medium.com/@%'))
+        ])
+
+        # Add bias filter if specified
+        if bias_filter:
+            if bias_filter.lower() == 'no_bias':
+                where_conditions.append(articles.c.bias.is_(None))
+            else:
+                where_conditions.append(articles.c.bias == bias_filter)
+
+        # Add topic filter if specified
+        if topic:
+            topic_pattern = f"%{topic}%"
+            where_conditions.append(
+                or_(
+                    articles.c.topic == topic,
+                    articles.c.title.like(topic_pattern),
+                    articles.c.summary.like(topic_pattern)
+                )
+            )
+
+        # Build COUNT query
+        statement = select(
+            func.count()
+        ).select_from(
+            articles
+        ).where(
+            and_(*where_conditions)
+        )
+
+        # Execute and return scalar result
+        result = self.connection.execute(statement).scalar()
+        return result if result else 0
+
+    def get_topic_articles_count(self, topic_name: str) -> int:
+        """Get total count of articles for a specific topic.
+
+        Args:
+            topic_name: The topic to count articles for
+
+        Returns:
+            Integer count of articles for the topic
+        """
+        statement = select(
+            func.count()
+        ).select_from(
+            articles
+        ).where(
+            articles.c.topic == topic_name
+        )
+
+        result = self.connection.execute(statement).scalar()
+        return result if result else 0
+
+    def get_topic_articles_count_since(self, topic_name: str, since_datetime: str) -> int:
+        """Get count of articles for a topic since a specific datetime.
+
+        Args:
+            topic_name: The topic to count articles for
+            since_datetime: ISO format datetime string to count from
+
+        Returns:
+            Integer count of articles for the topic since the datetime
+        """
+        statement = select(
+            func.count()
+        ).select_from(
+            articles
+        ).where(
+            and_(
+                articles.c.topic == topic_name,
+                articles.c.submission_date >= since_datetime
+            )
+        )
+
+        result = self.connection.execute(statement).scalar()
+        return result if result else 0
+
+    def get_dominant_news_source_for_topic(self, topic_name: str, since_datetime: str) -> Optional[str]:
+        """Get the most frequent news source for a topic since a datetime.
+
+        Args:
+            topic_name: The topic to analyze
+            since_datetime: ISO format datetime string to count from
+
+        Returns:
+            The most frequent news source name, or None if no results
+        """
+        statement = select(
+            articles.c.news_source,
+            func.count().label('count')
+        ).select_from(
+            articles
+        ).where(
+            and_(
+                articles.c.topic == topic_name,
+                articles.c.submission_date >= since_datetime,
+                articles.c.news_source.isnot(None),
+                articles.c.news_source != ''
+            )
+        ).group_by(
+            articles.c.news_source
+        ).order_by(
+            text('count DESC')
+        ).limit(1)
+
+        result = self.connection.execute(statement).mappings().fetchone()
+        return result['news_source'] if result else None
+
+    def get_most_frequent_time_to_impact_for_topic(self, topic_name: str, since_datetime: str) -> Optional[str]:
+        """Get the most frequent time_to_impact value for a topic since a datetime.
+
+        Args:
+            topic_name: The topic to analyze
+            since_datetime: ISO format datetime string to count from
+
+        Returns:
+            The most frequent time_to_impact value, or None if no results
+        """
+        statement = select(
+            articles.c.time_to_impact,
+            func.count().label('count')
+        ).select_from(
+            articles
+        ).where(
+            and_(
+                articles.c.topic == topic_name,
+                articles.c.submission_date >= since_datetime,
+                articles.c.time_to_impact.isnot(None),
+                articles.c.time_to_impact != ''
+            )
+        ).group_by(
+            articles.c.time_to_impact
+        ).order_by(
+            text('count DESC')
+        ).limit(1)
+
+        result = self.connection.execute(statement).mappings().fetchone()
+        return result['time_to_impact'] if result else None
+
+    # ============================================================
+    # Signal Alerts Methods
+    # ============================================================
+
+    def get_signal_alerts(self, topic: str = None, instruction_id: int = None,
+                         acknowledged: bool = None, limit: int = 100) -> List[Dict]:
+        """Get signal alerts with optional filters.
+
+        Args:
+            topic: Filter by topic name
+            instruction_id: Filter by instruction ID
+            acknowledged: Filter by acknowledgment status (True/False/None for all)
+            limit: Maximum number of alerts to return
+
+        Returns:
+            List of signal alert dictionaries with article details
+        """
+        from sqlalchemy import and_, or_
+
+        # Build the base query with LEFT JOIN to articles
+        query = """
+        SELECT sa.id, sa.article_uri, sa.instruction_id, sa.instruction_name,
+               sa.confidence, sa.threat_level, sa.summary, sa.detected_at,
+               sa.is_acknowledged, sa.acknowledged_at,
+               a.title as article_title, a.news_source as article_source,
+               a.publication_date as article_publication_date
+        FROM signal_alerts sa
+        LEFT JOIN articles a ON sa.article_uri = a.uri
+        WHERE 1=1
+        """
+
+        params = {}
+
+        if instruction_id is not None:
+            query += " AND sa.instruction_id = :instruction_id"
+            params['instruction_id'] = instruction_id
+
+        if acknowledged is not None:
+            query += " AND sa.is_acknowledged = :acknowledged"
+            params['acknowledged'] = acknowledged
+
+        if topic:
+            query += " AND (a.topic = :topic OR a.title LIKE :topic_pattern OR a.summary LIKE :topic_pattern)"
+            params['topic'] = topic
+            params['topic_pattern'] = f"%{topic}%"
+
+        query += " ORDER BY sa.detected_at DESC LIMIT :limit"
+        params['limit'] = limit
+
+        try:
+            result = self.connection.execute(text(query), params)
+            alerts = []
+            for row in result.mappings():
+                alerts.append({
+                    'id': row['id'],
+                    'article_uri': row['article_uri'],
+                    'instruction_id': row['instruction_id'],
+                    'instruction_name': row['instruction_name'],
+                    'confidence': row['confidence'],
+                    'threat_level': row['threat_level'],
+                    'summary': row['summary'],
+                    'detected_at': row['detected_at'],
+                    'is_acknowledged': bool(row['is_acknowledged']),
+                    'acknowledged_at': row['acknowledged_at'],
+                    'article_title': row['article_title'],
+                    'article_source': row['article_source'],
+                    'article_publication_date': row['article_publication_date']
+                })
+            return alerts
+        except Exception as e:
+            logger.error(f"Error getting signal alerts: {e}")
+            return []
+
+    def acknowledge_signal_alert(self, alert_id: int) -> bool:
+        """Mark a signal alert as acknowledged.
+
+        Args:
+            alert_id: ID of the alert to acknowledge
+
+        Returns:
+            True if successfully acknowledged, False otherwise
+        """
+        try:
+            query = """
+            UPDATE signal_alerts
+            SET is_acknowledged = true, acknowledged_at = CURRENT_TIMESTAMP
+            WHERE id = :alert_id
+            """
+            result = self.connection.execute(text(query), {'alert_id': alert_id})
+            self.connection.commit()
+            return result.rowcount > 0
+        except Exception as e:
+            logger.error(f"Error acknowledging signal alert {alert_id}: {e}")
+            return False
+
+    def get_signal_instructions(self, topic: str = None, active_only: bool = True) -> List[Dict]:
+        """Get signal instructions with optional filters.
+
+        Args:
+            topic: Filter by topic name (also matches NULL topics)
+            active_only: If True, only return active instructions; if False, return all
+
+        Returns:
+            List of signal instruction dictionaries
+        """
+        query = "SELECT * FROM signal_instructions WHERE 1=1"
+        params = {}
+
+        if topic is not None:
+            query += " AND (topic = :topic OR topic IS NULL)"
+            params['topic'] = topic
+
+        if active_only:
+            query += " AND is_active = true"
+
+        query += " ORDER BY updated_at DESC"
+
+        try:
+            result = self.connection.execute(text(query), params)
+            instructions = []
+            for row in result.mappings():
+                instructions.append({
+                    'id': row['id'],
+                    'name': row['name'],
+                    'description': row['description'],
+                    'instruction': row['instruction'],
+                    'topic': row['topic'],
+                    'is_active': bool(row['is_active']),
+                    'created_at': row['created_at'],
+                    'updated_at': row['updated_at']
+                })
+            return instructions
+        except Exception as e:
+            logger.error(f"Error getting signal instructions: {e}")
+            return []
+
+    def save_signal_instruction(self, name: str, description: str, instruction: str,
+                               topic: str = None, is_active: bool = True) -> bool:
+        """Save a custom signal instruction for threat hunting.
+
+        Args:
+            name: Unique name for the instruction
+            description: Description of what the signal detects
+            instruction: The instruction text for the AI
+            topic: Optional topic to associate with
+            is_active: Whether the instruction is active
+
+        Returns:
+            True if successfully saved, False otherwise
+        """
+        try:
+            # PostgreSQL uses INSERT ... ON CONFLICT instead of INSERT OR REPLACE
+            query = """
+            INSERT INTO signal_instructions (name, description, instruction, topic, is_active, updated_at)
+            VALUES (:name, :description, :instruction, :topic, :is_active, CURRENT_TIMESTAMP)
+            ON CONFLICT (name) DO UPDATE SET
+                description = :description,
+                instruction = :instruction,
+                topic = :topic,
+                is_active = :is_active,
+                updated_at = CURRENT_TIMESTAMP
+            """
+            self.connection.execute(text(query), {
+                'name': name,
+                'description': description,
+                'instruction': instruction,
+                'topic': topic,
+                'is_active': is_active
+            })
+            self.connection.commit()
+            logger.info(f"Saved signal instruction: {name}")
+            return True
+        except Exception as e:
+            logger.error(f"Error saving signal instruction: {e}")
+            return False
+
+    def delete_signal_instruction(self, instruction_id: int) -> bool:
+        """Delete a signal instruction.
+
+        Args:
+            instruction_id: ID of the instruction to delete
+
+        Returns:
+            True if successfully deleted, False otherwise
+        """
+        try:
+            query = "DELETE FROM signal_instructions WHERE id = :instruction_id"
+            result = self.connection.execute(text(query), {'instruction_id': instruction_id})
+            self.connection.commit()
+            deleted = result.rowcount > 0
+            if deleted:
+                logger.info(f"Deleted signal instruction ID: {instruction_id}")
+            return deleted
+        except Exception as e:
+            logger.error(f"Error deleting signal instruction {instruction_id}: {e}")
+            return False
+
+    def save_signal_alert(self, article_uri: str, instruction_id: int,
+                         instruction_name: str, confidence: float,
+                         threat_level: str, summary: str) -> Optional[int]:
+        """Save a signal alert.
+
+        Args:
+            article_uri: URI of the article
+            instruction_id: ID of the signal instruction
+            instruction_name: Name of the signal instruction
+            confidence: Confidence score (0.0 to 1.0)
+            threat_level: Threat level (e.g., 'low', 'medium', 'high', 'critical')
+            summary: Summary of the alert
+
+        Returns:
+            ID of the created alert, or None if failed
+        """
+        try:
+            query = """
+            INSERT INTO signal_alerts
+            (article_uri, instruction_id, instruction_name, confidence, threat_level, summary)
+            VALUES (:article_uri, :instruction_id, :instruction_name, :confidence, :threat_level, :summary)
+            ON CONFLICT (article_uri, instruction_id) DO UPDATE SET
+                confidence = :confidence,
+                threat_level = :threat_level,
+                summary = :summary,
+                detected_at = CURRENT_TIMESTAMP
+            RETURNING id
+            """
+            result = self.connection.execute(text(query), {
+                'article_uri': article_uri,
+                'instruction_id': instruction_id,
+                'instruction_name': instruction_name,
+                'confidence': confidence,
+                'threat_level': threat_level,
+                'summary': summary
+            })
+            self.connection.commit()
+            row = result.fetchone()
+            return row[0] if row else None
+        except Exception as e:
+            logger.error(f"Error saving signal alert: {e}")
+            return None

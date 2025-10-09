@@ -3667,11 +3667,19 @@ async function loadTrendChart() {
         
         Object.entries(data).forEach(([groupId, groupData]) => {
             const canvas = document.getElementById(`sparkline-${groupId}`);
-            if (!canvas) return;
-            
-            canvas.width = canvas.offsetWidth;
-            canvas.height = canvas.offsetHeight;
-            
+            if (!canvas) {
+                console.warn(`Canvas not found for group ${groupId}`);
+                return;
+            }
+
+            // Use hardcoded dimensions if offsetWidth/offsetHeight are 0 (not yet rendered)
+            const width = canvas.offsetWidth || 140;
+            const height = canvas.offsetHeight || 50;
+
+            canvas.width = width;
+            canvas.height = height;
+
+            console.log(`Drawing sparkline for group ${groupId}, canvas dimensions: ${width}x${height}`);
             drawSparkline(canvas, groupData);
         });
     } catch (error) {

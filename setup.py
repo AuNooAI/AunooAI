@@ -138,6 +138,47 @@ def setup_database():
         logger.info("✅ SQLite configured")
         return True
 
+def initialize_org_profiles():
+    """Initialize default organizational profiles."""
+    logger.info("\nInitializing organizational profiles...")
+
+    # Check if database exists and has organizational_profiles table
+    env_path = Path(".env")
+    db_type = 'sqlite'  # default
+
+    if env_path.exists():
+        with open(env_path, 'r') as f:
+            for line in f:
+                if line.strip().startswith('DB_TYPE='):
+                    db_type = line.split('=')[1].strip().lower()
+                    break
+
+    # Run appropriate initialization based on database type
+    if db_type == 'postgresql':
+        # For PostgreSQL, we need Alembic migrations to be run first
+        logger.info("PostgreSQL detected - organizational profiles should be created via migrations")
+        logger.info("Run: alembic upgrade head")
+        return True
+    else:
+        # For SQLite, run the migration script that creates profiles
+        script_path = Path("scripts/migrate_organizational_profiles.py")
+        if script_path.exists():
+            try:
+                result = subprocess.run([sys.executable, str(script_path)], check=False)
+                if result.returncode == 0:
+                    logger.info("✅ Organizational profiles initialized")
+                    return True
+                else:
+                    logger.warning("⚠️  Organizational profiles initialization had warnings (non-fatal)")
+                    return True
+            except Exception as e:
+                logger.warning(f"⚠️  Could not initialize organizational profiles: {e}")
+                logger.info("You can manually run: python scripts/migrate_organizational_profiles.py")
+                return True
+        else:
+            logger.info("Organizational profiles script not found - skipping")
+            return True
+
 def main():
     """Run the setup process."""
     logger.info("Starting setup process...")
@@ -156,6 +197,9 @@ def main():
     if not setup_database():
         logger.error("Database setup failed. Setup aborted.")
         return False
+
+    # Initialize organizational profiles (non-fatal)
+    initialize_org_profiles()
 
     logger.info("\n" + "=" * 60)
     logger.info("Setup completed successfully!")

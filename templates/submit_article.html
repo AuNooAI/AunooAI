@@ -1552,7 +1552,7 @@ async function saveBulkArticles() {
         
         if (result.success && result.success.length > 0) {
             alert(`${result.success.length} of ${articles.length} article(s) saved successfully!`);
-            
+
             // Remove saved articles from display
             result.success.forEach(savedArticle => {
                 const articleElements = document.querySelectorAll('.article-entry input[readonly]');
@@ -1563,11 +1563,14 @@ async function saveBulkArticles() {
                     }
                 });
             });
-            
+
             // Hide results table if no articles remain
             if (document.getElementById('bulkResultsBody').children.length === 0) {
                 document.getElementById('bulkResultsTable').style.display = 'none';
             }
+
+            // Refresh the recently enriched articles panel
+            loadRecentEnrichedArticles();
         }
     } catch (error) {
         console.error('Error saving articles:', error);

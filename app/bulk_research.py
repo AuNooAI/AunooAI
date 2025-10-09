@@ -540,15 +540,19 @@ class BulkResearch:
                             'confidence_score': article.get('confidence_score'),
                         }
 
-                        # Insert or update article
-                        stmt = insert(t_articles).values(article_data)
+                        # Check if article exists, then insert or update
+                        from sqlalchemy import select, update
+                        existing = conn.execute(
+                            select(t_articles.c.uri).where(t_articles.c.uri == article_data['uri'])
+                        ).fetchone()
 
-                        # Use on_conflict_do_update for PostgreSQL, or fallback for SQLite
-                        if self.db.db_type == 'postgresql':
-                            stmt = stmt.on_conflict_do_update(
-                                index_elements=['uri'],
-                                set_=article_data
-                            )
+                        if existing:
+                            # Update existing article (exclude uri from values)
+                            update_data = {k: v for k, v in article_data.items() if k != 'uri'}
+                            stmt = update(t_articles).where(t_articles.c.uri == article_data['uri']).values(**update_data)
+                        else:
+                            # Insert new article
+                            stmt = insert(t_articles).values(article_data)
 
                         conn.execute(stmt)
                         logger.debug(f"Saved article with relevance scores: {article.get('uri')}")
@@ -561,13 +565,18 @@ class BulkResearch:
                                 'topic': article.get('topic', '')
                             }
 
-                            raw_stmt = insert(t_raw_articles).values(raw_data)
+                            # Check if raw article exists, then insert or update
+                            existing_raw = conn.execute(
+                                select(t_raw_articles.c.uri).where(t_raw_articles.c.uri == raw_data['uri'])
+                            ).fetchone()
 
-                            if self.db.db_type == 'postgresql':
-                                raw_stmt = raw_stmt.on_conflict_do_update(
-                                    index_elements=['uri'],
-                                    set_=raw_data
-                                )
+                            if existing_raw:
+                                # Update existing raw article (exclude uri from values)
+                                update_raw_data = {k: v for k, v in raw_data.items() if k != 'uri'}
+                                raw_stmt = update(t_raw_articles).where(t_raw_articles.c.uri == raw_data['uri']).values(**update_raw_data)
+                            else:
+                                # Insert new raw article
+                                raw_stmt = insert(t_raw_articles).values(raw_data)
 
                             conn.execute(raw_stmt)
 

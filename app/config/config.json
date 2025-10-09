@@ -131,30 +131,26 @@
       ]
     },
     {
-      "name": "Geopolitical Hotspots",
-      "description": "Monitoring and tracking Geopolitical Hotspots for war, famine, weather and economic problems.",
+      "name": "Cloud repatriation",
+      "description": "IS Cloud repatriation happening?",
       "categories": [
-        "Conflict Zones",
-        "Famine and Food Security",
-        "Extreme Weather Events",
-        "Economic Crises",
-        "Political Instability",
-        "International Sanctions",
-        "Refugee and Migration Flows",
-        "Military Engagements",
-        "Diplomatic Relations",
-        "Humanitarian Aid and Response",
-        "Energy Security",
-        "Trade Disruptions",
-        "Cyber Warfare",
-        "Regional Alliances and Rivalries"
+        "Workload Migration Patterns",
+        "Cost Management and Optimization",
+        "Security and Compliance",
+        "Performance and Latency",
+        "Hybrid Cloud Strategies",
+        "Vendor Lock-in and Cloud Contracts",
+        "Cloud Service Reliability",
+        "Data Sovereignty and Governance",
+        "IT Infrastructure Trends",
+        "Cloud Exit Case Studies"
       ],
       "future_signals": [
-        "Escalation to full-scale war",
-        "Peace agreements reached",
-        "Widespread famine develops",
-        "Severe economic collapse",
-        "Climate-induced displacement surges"
+        "Widespread cloud exit",
+        "Selective workload repatriation",
+        "Hybrid equilibrium emerges",
+        "Cloud dominance continues",
+        "Cloud repatriation stalls"
       ],
       "sentiment": [
         "Positive",
@@ -175,39 +171,31 @@
         "Blocker"
       ],
       "keywords": [
-        "Satellite imagery",
-        "Cybersecurity tools",
-        "Early warning systems",
-        "Geopolitics",
-        "War",
-        "Famine",
-        "Ant\u00f3nio Guterres",
-        "Volodymyr Zelenskyy",
-        "Fake news",
-        "Conspiracy theory"
+        "Microsoft Azure",
+        "Cloud repatriation"
       ]
     },
     {
-      "name": "Right-wing Rise in Europe",
-      "description": "The rise and activities of the right wing in Europe",
+      "name": "Climate Change",
+      "description": "State of Climate Change",
       "categories": [
-        "Electoral Performance",
-        "Policy Influence",
-        "Public Sentiment and Protests",
-        "Media and Communication Strategies",
-        "Immigration and Nationalism",
-        "Economic Impact",
-        "Social Movements and Activism",
-        "International Relations",
-        "Legal and Regulatory Responses",
-        "Counter-movements and Opposition"
+        "Greenhouse Gas Emissions",
+        "Climate Policy and Regulation",
+        "Renewable Energy",
+        "Climate Science and Research",
+        "Climate Adaptation and Resilience",
+        "Carbon Capture and Storage",
+        "Climate Finance and Investment",
+        "Environmental Impact and Biodiversity",
+        "Climate Activism and Social Movements",
+        "Technological Innovations in Climate Mitigation"
       ],
       "future_signals": [
-        "Right-wing parties gain majority in key countries",
-        "Right-wing influence declines due to scandals",
-        "Right-wing movements fragment into smaller factions",
-        "Right-wing policies lead to increased social unrest",
-        "Right-wing coalitions form across Europe"
+        "Global temperatures continue rising",
+        "Rapid decarbonization accelerates",
+        "Climate policies stall globally",
+        "Extreme weather events increase",
+        "Carbon capture becomes widespread"
       ],
       "sentiment": [
         "Positive",
@@ -228,11 +216,9 @@
         "Blocker"
       ],
       "keywords": [
-        "Right-wing politics",
-        "Nationalism",
-        "Populism",
-        "Marine Le Pen",
-        "Viktor Orb\u00e1n"
+        "Global warming",
+        "Climate mitigation",
+        "Climate adaptation"
       ]
     }
   ],

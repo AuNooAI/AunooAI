@@ -2293,11 +2293,12 @@ async def save_signal_instruction(
     session=Depends(verify_session),
 ):
     """Save a custom signal instruction for threat hunting."""
+    logger = logging.getLogger(__name__)
     try:
         from app.database import get_database_instance
         db = get_database_instance()
-        
-        success = db.save_signal_instruction(
+
+        success = db.facade.save_signal_instruction(
             name=req.name,
             description=req.description,
             instruction=req.instruction,
@@ -2321,11 +2322,12 @@ async def get_signal_instructions(
     session=Depends(verify_session_optional),
 ):
     """Get signal instructions for threat hunting."""
+    logger = logging.getLogger(__name__)
     try:
         from app.database import get_database_instance
         db = get_database_instance()
-        
-        instructions = db.get_signal_instructions(topic=topic, active_only=active_only)
+
+        instructions = db.facade.get_signal_instructions(topic=topic, active_only=active_only)
         
         return {
             "success": True,
@@ -2343,11 +2345,12 @@ async def delete_signal_instruction(
     session=Depends(verify_session),
 ):
     """Delete a signal instruction."""
+    logger = logging.getLogger(__name__)
     try:
         from app.database import get_database_instance
         db = get_database_instance()
-        
-        success = db.delete_signal_instruction(instruction_id)
+
+        success = db.facade.delete_signal_instruction(instruction_id)
         
         if success:
             return {"success": True, "message": "Signal instruction deleted successfully"}
@@ -2378,18 +2381,19 @@ async def analyze_real_time_signals(
     session=Depends(verify_session_optional),
 ):
     """Analyze articles for real-time signals using custom instructions."""
+    logger = logging.getLogger(__name__)
     try:
         from app.database import get_database_instance
         db = get_database_instance()
-        
+
         # Get signal instructions first to include in cache key
         if req.instruction_ids:
             # Get specific instructions
-            all_instructions = db.get_signal_instructions(topic=req.topic, active_only=False)
+            all_instructions = db.facade.get_signal_instructions(topic=req.topic, active_only=False)
             instructions = [inst for inst in all_instructions if inst['id'] in req.instruction_ids and inst['is_active']]
         else:
             # Get all active instructions for this topic
-            instructions = db.get_signal_instructions(topic=req.topic, active_only=True)
+            instructions = db.facade.get_signal_instructions(topic=req.topic, active_only=True)
         
         # Include instruction IDs in cache key so cache invalidates when instructions change
         instruction_ids_str = ','.join(str(inst['id']) for inst in instructions)
@@ -2616,17 +2620,16 @@ async def debug_articles(
     try:
         from app.database import get_database_instance
         db = get_database_instance()
-        
-        # Also check signal alerts
-        alerts_query = "SELECT COUNT(*) FROM signal_alerts"
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute(alerts_query)
-                alerts_count = cursor.fetchone()[0] if cursor.fetchone() else 0
-            except:
-                alerts_count = 0
-        
+
+        # Also check signal alerts using fetch_one (PostgreSQL-compatible)
+        alerts_query = "SELECT COUNT(*) as count FROM signal_alerts"
+        try:
+            result = db.fetch_one(alerts_query)
+            alerts_count = result['count'] if result else 0
+        except Exception as e:
+            logger.error(f"Error querying signal_alerts: {e}")
+            alerts_count = 0
+
         logger.info(f"Debug: Found {alerts_count} total signal alerts in database")
     except Exception as e:
         logger.error(f"Error checking alerts count: {e}")
@@ -2653,32 +2656,32 @@ async def debug_articles(
             topic_pattern = f"%{topic}%"
             recent_articles = db.fetch_all(articles_query, (topic, topic_pattern, topic_pattern, topic_pattern))
         
-        # Get date range info
+        # Get date range info - PostgreSQL compatible using CAST instead of DATE()
         date_range_query = """
-        SELECT 
-            MIN(DATE(publication_date)) as earliest_date,
-            MAX(DATE(publication_date)) as latest_date,
+        SELECT
+            MIN(CAST(publication_date AS DATE)) as earliest_date,
+            MAX(CAST(publication_date AS DATE)) as latest_date,
             COUNT(*) as total_articles
-        FROM articles 
+        FROM articles
         WHERE category IS NOT NULL AND sentiment IS NOT NULL
         """
         date_info = db.fetch_one(date_range_query)
-        
-        # Also get recent signal alerts for debugging
+
+        # Also get recent signal alerts for debugging (PostgreSQL-compatible)
         alerts_debug_query = "SELECT id, article_uri, instruction_name, detected_at, is_acknowledged FROM signal_alerts ORDER BY detected_at DESC LIMIT 10"
         recent_alerts = []
         try:
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute(alerts_debug_query)
-                recent_alerts = [dict(zip([col[0] for col in cursor.description], row)) for row in cursor.fetchall()]
+            alerts_results = db.fetch_all(alerts_debug_query)
+            # fetch_all already returns dictionaries, no need to convert
+            recent_alerts = alerts_results if alerts_results else []
         except Exception as e:
             logger.error(f"Error getting recent alerts: {e}")
-        
+
         return {
-            "available_topics": [dict(t) for t in topics],
-            "recent_articles": [dict(a) for a in recent_articles] if recent_articles else [],
-            "date_range_info": dict(date_info) if date_info else {},
+            # fetch_all already returns dictionaries, no need to convert
+            "available_topics": topics,
+            "recent_articles": recent_articles if recent_articles else [],
+            "date_range_info": date_info if date_info else {},
             "query_topic": topic,
             "signal_alerts_count": alerts_count,
             "recent_alerts": recent_alerts
@@ -2707,14 +2710,15 @@ async def run_signal_instructions(
     session=Depends(verify_session),
 ):
     """Run specific signal instructions against recent articles independently."""
+    logger = logging.getLogger(__name__)
     try:
         from app.database import get_database_instance
         from datetime import datetime, timedelta
-        
+
         db = get_database_instance()
         
         # Get the specific signal instructions
-        all_instructions = db.get_signal_instructions(topic=req.topic, active_only=False)
+        all_instructions = db.facade.get_signal_instructions(topic=req.topic, active_only=False)
         instructions = [inst for inst in all_instructions if inst['id'] in req.instruction_ids and inst['is_active']]
         
         if not instructions:
@@ -2829,7 +2833,7 @@ async def run_signal_instructions(
                                     summary = match.get('summary', 'Signal detected')
                                     
                                     # Save alert to database
-                                    alert_saved = db.save_signal_alert(
+                                    alert_saved = db.facade.save_signal_alert(
                                         article_uri=article_uri,
                                         instruction_id=instruction['id'],
                                         instruction_name=instruction['name'],
@@ -2888,10 +2892,11 @@ async def get_signal_alerts(
     session=Depends(verify_session_optional),
 ):
     """Get signal alerts for the dashboard."""
+    logger = logging.getLogger(__name__)
     try:
         from app.database import get_database_instance
         db = get_database_instance()
-        
+
         logger.info(f"Signal alerts request - topic: {topic}, instruction_id: {instruction_id}, acknowledged: {acknowledged}, limit: {limit}")
         
         # Convert string boolean to actual boolean
@@ -2905,8 +2910,8 @@ async def get_signal_alerts(
                 logger.warning(f"Invalid acknowledged value: {acknowledged}")
         
         logger.info(f"Converted acknowledged_bool: {acknowledged_bool}")
-        
-        alerts = db.get_signal_alerts(
+
+        alerts = db.facade.get_signal_alerts(
             topic=topic,
             instruction_id=instruction_id,
             acknowledged=acknowledged_bool,
@@ -2929,11 +2934,12 @@ async def acknowledge_alert(
     session=Depends(verify_session),
 ):
     """Acknowledge a signal alert."""
+    logger = logging.getLogger(__name__)
     try:
         from app.database import get_database_instance
         db = get_database_instance()
-        
-        success = db.acknowledge_signal_alert(alert_id)
+
+        success = db.facade.acknowledge_signal_alert(alert_id)
         
         if success:
             return {"success": True, "message": "Alert acknowledged successfully"}

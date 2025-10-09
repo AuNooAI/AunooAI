@@ -169,6 +169,12 @@ Article text:
                 driver_types
             )
 
+            # Truncate summary to requested word count (with 20% tolerance)
+            # AI models often exceed the requested length, so we enforce it here
+            if result.get('summary'):
+                max_words = int(summary_length * 1.2)  # Allow 20% overage
+                result['summary'] = self.truncate_summary(result['summary'], max_words)
+
             # Add uri and publication_date to result
             result["uri"] = uri
             # Extract publication date using only article_text
