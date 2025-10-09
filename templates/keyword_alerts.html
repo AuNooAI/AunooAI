@@ -1797,6 +1797,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                     {% if group.alerts %}
                                         {% for alert in group.alerts[:3] %}
                                         <span class="article-reference"
+                                              data-uri="{{ alert.article.uri }}"
                                               data-url="{{ alert.article.url }}"
                                               data-title="{{ alert.article.title }}"
                                               data-summary="{{ alert.article.summary }}"
@@ -2204,7 +2205,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                         <div class="article-content d-flex flex-column">
                                             <div class="mb-1">
                                                                                             <div class="d-flex gap-2 align-items-start">
-                                                <a href="{{ alert.article.url }}" target="_blank" class="article-title">{{ alert.article.title }}</a>
+                                                <a href="{{ alert.article.url }}" target="_blank" class="article-title" data-article-uri="{{ alert.article.uri }}">{{ alert.article.title }}</a>
                                                 </div>
                                                 <p class="text-muted mb-0 small article-summary">{{ alert.article.summary }}</p>
 
@@ -3327,12 +3328,12 @@ function bulkDeleteSelected(groupId) {
         }
     }
     
-    // Get article URLs for deletion
+    // Get article URIs for deletion (primary key, not URL)
     const articleUrls = Array.from(checkedBoxes).map(cb => {
         const row = cb.closest('tr');
         const articleLink = row.querySelector('.article-title');
-        return articleLink ? articleLink.href : null;
-    }).filter(url => url);
+        return articleLink ? articleLink.dataset.articleUri : null;
+    }).filter(uri => uri);
     
     fetch('/api/bulk_delete_articles', {
         method: 'DELETE',
@@ -4387,6 +4388,7 @@ async function exportAlerts() {
 
 function toggleArticleSelection(element) {
     const articleData = {
+        uri: element.dataset.uri,  // Primary key for deletion
         url: element.dataset.url,
         title: element.dataset.title,
         summary: element.dataset.summary,
@@ -4406,18 +4408,18 @@ function toggleArticleSelection(element) {
     
     if (element.classList.contains('selected')) {
         // Add to both topic and group arrays if not already present
-        if (!selectedArticles.byTopic[articleData.topic].some(article => article.url === articleData.url)) {
+        if (!selectedArticles.byTopic[articleData.topic].some(article => article.uri === articleData.uri)) {
             selectedArticles.byTopic[articleData.topic].push(articleData);
         }
-        if (!selectedArticles.byGroup[articleData.groupId].some(article => article.url === articleData.url)) {
+        if (!selectedArticles.byGroup[articleData.groupId].some(article => article.uri === articleData.uri)) {
             selectedArticles.byGroup[articleData.groupId].push(articleData);
         }
     } else {
         // Remove from both arrays
         selectedArticles.byTopic[articleData.topic] = selectedArticles.byTopic[articleData.topic]
-            .filter(article => article.url !== articleData.url);
+            .filter(article => article.uri !== articleData.uri);
         selectedArticles.byGroup[articleData.groupId] = selectedArticles.byGroup[articleData.groupId]
-            .filter(article => article.url !== articleData.url);
+            .filter(article => article.uri !== articleData.uri);
     }
     
     updateBulkButtons(articleData.topic, articleData.groupId);
@@ -5160,7 +5162,7 @@ async function bulkDeleteArticles(topic, groupId) {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                uris: articles.map(article => article.url)
+                uris: articles.map(article => article.uri)  // Use URI (primary key) not URL
             }),
             credentials: 'same-origin'
         });
@@ -5663,7 +5665,7 @@ function updateGroupAlerts(card, data, groupId) {
                     <div class="article-content d-flex flex-column">
                         <div class="mb-1">
                             <div class="d-flex gap-2 align-items-start">
-                                <a href="${alert.article.url}" target="_blank" class="article-title">${(alert.article.title || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</a>
+                                <a href="${alert.article.url}" target="_blank" class="article-title" data-article-uri="${alert.article.uri}">${(alert.article.title || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</a>
                             </div>
                             <p class="text-muted mb-0 small article-summary">${(alert.article.summary || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>
                         </div>
@@ -5831,13 +5833,23 @@ function updateGroupAlerts(card, data, groupId) {
         // Add pagination controls if we have pagination data
         if (data.pagination && data.pagination.total_pages > 1) {
             const tableContainer = tableBody.closest('.table-responsive') || tableBody.closest('div');
-            
+
+            if (!tableContainer) {
+                console.error('Could not find table container for pagination');
+                return;
+            }
+
             // Remove existing pagination if any
             const existingPagination = tableContainer.querySelector('.pagination-controls');
             if (existingPagination) {
                 existingPagination.remove();
             }
-            
+
+            // Escape topic name for onclick handlers to prevent XSS and syntax errors
+            const escapedTopic = (data.topic || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+
+            console.log(`Adding pagination controls: page ${data.pagination.page} of ${data.pagination.total_pages}, topic: ${escapedTopic}`);
+
             // Create pagination controls
             const paginationHtml = `
                 <div class="pagination-controls d-flex justify-content-between align-items-center mt-3 p-3 bg-light rounded">
@@ -5850,16 +5862,16 @@ function updateGroupAlerts(card, data, groupId) {
                     <nav aria-label="Alert pagination">
                         <ul class="pagination mb-0">
                             <li class="page-item ${!data.pagination.has_prev ? 'disabled' : ''}">
-                                <a class="page-link" href="#" 
-                                   onclick="changePage('${data.topic}', ${groupId}, ${data.pagination.page - 1}); return false;"
+                                <a class="page-link" href="#"
+                                   onclick="changePage('${escapedTopic}', ${groupId}, ${data.pagination.page - 1}); return false;"
                                    ${!data.pagination.has_prev ? 'tabindex="-1" aria-disabled="true"' : ''}>
                                     <i class="fas fa-chevron-left"></i> Previous
                                 </a>
                             </li>
-                            ${generatePageNumbers(data.pagination.page, data.pagination.total_pages, data.topic, groupId)}
+                            ${generatePageNumbers(data.pagination.page, data.pagination.total_pages, escapedTopic, groupId)}
                             <li class="page-item ${!data.pagination.has_next ? 'disabled' : ''}">
-                                <a class="page-link" href="#" 
-                                   onclick="changePage('${data.topic}', ${groupId}, ${data.pagination.page + 1}); return false;"
+                                <a class="page-link" href="#"
+                                   onclick="changePage('${escapedTopic}', ${groupId}, ${data.pagination.page + 1}); return false;"
                                    ${!data.pagination.has_next ? 'tabindex="-1" aria-disabled="true"' : ''}>
                                     Next <i class="fas fa-chevron-right"></i>
                                 </a>
@@ -5869,7 +5881,7 @@ function updateGroupAlerts(card, data, groupId) {
                     <div class="page-size-selector">
                         <label class="me-2 mb-0">Show:</label>
                         <select class="form-select form-select-sm" style="width: auto; display: inline-block;"
-                                onchange="changePageSize('${data.topic}', ${groupId}, this.value)">
+                                onchange="changePageSize('${escapedTopic}', ${groupId}, this.value)">
                             <option value="25" ${data.pagination.page_size === 25 ? 'selected' : ''}>25</option>
                             <option value="50" ${data.pagination.page_size === 50 ? 'selected' : ''}>50</option>
                             <option value="100" ${data.pagination.page_size === 100 ? 'selected' : ''}>100</option>
@@ -5878,9 +5890,12 @@ function updateGroupAlerts(card, data, groupId) {
                     </div>
                 </div>
             `;
-            
+
             // Insert pagination after the table
             tableContainer.insertAdjacentHTML('beforeend', paginationHtml);
+            console.log('Pagination controls added successfully');
+        } else {
+            console.log('Not adding pagination:', data.pagination ? `only ${data.pagination.total_pages} page(s)` : 'no pagination data');
         }
     }
     

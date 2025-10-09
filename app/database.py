@@ -51,10 +51,12 @@ class Database:
         if db_name is None:
             db_name = self.get_active_database()
         self.db_path = os.path.join(DATABASE_DIR, db_name)
-        
+        self.db_type = os.getenv('DB_TYPE', 'sqlite').lower()
+
         # Initialize instance variables for connection tracking
         self._connections = {}
         self._sqlalchemy_connections = {}
+        self._facade = None  # Lazy initialization to avoid circular imports
 
         # Initialize SQLAlchemy connection pool on first use (lazy loading)
         logger.info(f"Database initialized: {self.db_path}")
@@ -64,6 +66,14 @@ class Database:
         except Exception as e:
             logger.error(f"Failed to initialize database connection: {e}")
             raise RuntimeError(f"Database initialization failed: {e}") from e
+
+    @property
+    def facade(self):
+        """Lazy initialization of database query facade to avoid circular imports."""
+        if self._facade is None:
+            from app.database_query_facade import DatabaseQueryFacade
+            self._facade = DatabaseQueryFacade(self, logger)
+        return self._facade
 
     # TODO: Replace get_connection with this function once all queries moved to SQLAlchemy.
     def _temp_get_connection(self):
@@ -1621,14 +1631,36 @@ Remember to cite your sources and provide actionable insights where possible."""
             return cursor.lastrowid
 
     def fetch_one(self, query: str, params=None):
-        """Fetch a single row from the database"""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            if params:
-                cursor.execute(query, params)
+        """Fetch a single row from the database (PostgreSQL-compatible)"""
+        from sqlalchemy import text
+
+        conn = self._temp_get_connection()
+
+        try:
+            # Convert ? placeholders to PostgreSQL-style if needed
+            if self.db_type == 'postgresql' and '?' in query:
+                # Convert SQLite-style ? to PostgreSQL-style numbered parameters
+                param_count = query.count('?')
+                for i in range(1, param_count + 1):
+                    query = query.replace('?', f':param{i}', 1)
+                # Create named parameters dict
+                if params:
+                    params_dict = {f'param{i+1}': params[i] for i in range(len(params))}
+                else:
+                    params_dict = {}
+                result = conn.execute(text(query), params_dict)
             else:
-                cursor.execute(query)
-            return cursor.fetchone()
+                # SQLite path (legacy)
+                result = conn.execute(text(query), params or {})
+
+            row = result.fetchone()
+            if row:
+                # For count queries, return tuple directly for backward compatibility
+                return tuple(row)
+            return None
+        except Exception as e:
+            logger.error(f"Error in fetch_one: {e}")
+            raise
 
     def get_articles_by_ids(self, article_ids):
         with self.get_connection() as conn:
@@ -1684,14 +1716,33 @@ Remember to cite your sources and provide actionable insights where possible."""
             return articles
 
     def fetch_all(self, query, params=None):
-        with self.get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            if params:
-                cursor.execute(query, params)
+        """Fetch all rows from a query (PostgreSQL-compatible)"""
+        from sqlalchemy import text
+
+        conn = self._temp_get_connection()
+
+        try:
+            # Convert ? placeholders to PostgreSQL-style if needed
+            if self.db_type == 'postgresql' and '?' in query:
+                # Convert SQLite-style ? to PostgreSQL-style numbered parameters
+                param_count = query.count('?')
+                for i in range(1, param_count + 1):
+                    query = query.replace('?', f':param{i}', 1)
+                # Create named parameters dict
+                if params:
+                    params_dict = {f'param{i+1}': params[i] for i in range(len(params))}
+                else:
+                    params_dict = {}
+                result = conn.execute(text(query), params_dict).mappings()
             else:
-                cursor.execute(query)
-            return cursor.fetchall()
+                # SQLite path (legacy)
+                result = conn.execute(text(query), params or {}).mappings()
+
+            # Convert to list of dicts
+            return [dict(row) for row in result]
+        except Exception as e:
+            logger.error(f"Error in fetch_all: {e}")
+            raise
 
     def get_categories(self):
         query = "SELECT DISTINCT category FROM articles WHERE category IS NOT NULL AND category != '' ORDER BY category"
@@ -2134,68 +2185,97 @@ Remember to cite your sources and provide actionable insights where possible."""
             return cursor.rowcount > 0
 
     def bulk_delete_articles(self, uris: List[str]) -> int:
+        """Delete multiple articles using PostgreSQL-compatible SQLAlchemy Core."""
         if not uris:
             logger.warning("No URIs provided for bulk delete")
             return 0
-        
+
         logger.info(f"Attempting to bulk delete {len(uris)} articles")
         decoded_uris = [unquote_plus(unquote_plus(uri)) for uri in uris]
-        
+
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                logger.debug(f"First few URIs to delete: {decoded_uris[:3]}")
-                
-                # Temporarily disable foreign key constraints
-                cursor.execute("PRAGMA foreign_keys = OFF")
-                
-                cursor.execute("BEGIN TRANSACTION")
+            from sqlalchemy import delete
+            from app.database_models import (
+                t_articles, t_raw_articles, t_keyword_article_matches,
+                t_article_annotations
+            )
+
+            # Use SQLAlchemy connection for PostgreSQL compatibility
+            conn = self._temp_get_connection()
+
+            logger.debug(f"First few URIs to delete: {decoded_uris[:3]}")
+
+            # Check if we're already in a transaction
+            # If yes, use a nested transaction (savepoint), otherwise start a new one
+            try:
+                if conn.in_transaction():
+                    logger.debug("Using nested transaction (savepoint)")
+                    trans = conn.begin_nested()
+                else:
+                    logger.debug("Starting new transaction")
+                    trans = conn.begin()
+            except Exception as trans_error:
+                logger.warning(f"Could not begin transaction: {trans_error}, continuing without explicit transaction")
+                trans = None
+
+            try:
+                deleted_count = 0
+
+                # Delete from keyword_article_matches (new keyword alerts table)
                 try:
-                    placeholders = ','.join(['?' for _ in decoded_uris])
-                    
-                    # Delete from related tables first
-                    cursor.execute(f"""
-                        DELETE FROM keyword_alerts 
-                        WHERE article_uri IN ({placeholders})
-                    """, decoded_uris)
-                    logger.debug(f"Deleted {cursor.rowcount} keyword alerts")
-                    
-                    cursor.execute(f"""
-                        DELETE FROM article_annotations 
-                        WHERE article_uri IN ({placeholders})
-                    """, decoded_uris)
-                    logger.debug(f"Deleted {cursor.rowcount} annotations")
-                    
-                    cursor.execute(f"""
-                        DELETE FROM raw_articles 
-                        WHERE uri IN ({placeholders})
-                    """, decoded_uris)
-                    logger.debug(f"Deleted {cursor.rowcount} raw articles")
-                    
-                    # Finally delete the articles
-                    cursor.execute(f"""
-                        DELETE FROM articles 
-                        WHERE uri IN ({placeholders})
-                    """, decoded_uris)
-                    deleted_count = cursor.rowcount
-                    logger.debug(f"Deleted {deleted_count} articles")
-                    
-                    cursor.execute("COMMIT")
-                    
-                    # Re-enable foreign key constraints
-                    cursor.execute("PRAGMA foreign_keys = ON")
-                    
-                    logger.info(f"Successfully deleted {deleted_count} articles")
-                    return deleted_count
-                    
+                    stmt = delete(t_keyword_article_matches).where(
+                        t_keyword_article_matches.c.article_uri.in_(decoded_uris)
+                    )
+                    result = conn.execute(stmt)
+                    logger.debug(f"Deleted {result.rowcount} keyword article matches")
                 except Exception as e:
-                    cursor.execute("ROLLBACK")
-                    # Re-enable foreign key constraints even on error
-                    cursor.execute("PRAGMA foreign_keys = ON")
-                    logger.error(f"Error during bulk delete transaction: {e}")
-                    raise
-                
+                    logger.debug(f"No keyword_article_matches deleted (table may not exist or no matches): {e}")
+
+                # Delete from article_annotations
+                try:
+                    stmt = delete(t_article_annotations).where(
+                        t_article_annotations.c.article_uri.in_(decoded_uris)
+                    )
+                    result = conn.execute(stmt)
+                    logger.debug(f"Deleted {result.rowcount} annotations")
+                except Exception as e:
+                    logger.debug(f"No annotations deleted: {e}")
+
+                # Delete from raw_articles
+                try:
+                    stmt = delete(t_raw_articles).where(
+                        t_raw_articles.c.uri.in_(decoded_uris)
+                    )
+                    result = conn.execute(stmt)
+                    logger.debug(f"Deleted {result.rowcount} raw articles")
+                except Exception as e:
+                    logger.debug(f"No raw articles deleted: {e}")
+
+                # Finally delete the articles
+                stmt = delete(t_articles).where(
+                    t_articles.c.uri.in_(decoded_uris)
+                )
+                result = conn.execute(stmt)
+                deleted_count = result.rowcount
+                logger.debug(f"Deleted {deleted_count} articles")
+
+                # Commit transaction if we have one
+                if trans is not None:
+                    trans.commit()
+                    logger.debug("Transaction committed")
+
+                logger.info(f"Successfully deleted {deleted_count} articles")
+                return deleted_count
+
+            except Exception as e:
+                # Rollback transaction if we have one
+                if trans is not None:
+                    trans.rollback()
+                    logger.error(f"Transaction rolled back due to error: {e}")
+                else:
+                    logger.error(f"Error during deletion (no transaction to rollback): {e}")
+                raise
+
         except Exception as e:
             logger.error(f"Error in bulk_delete_articles: {e}")
             raise

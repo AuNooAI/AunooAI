@@ -76,7 +76,7 @@ async def index(
     try:
         # Test database connection
         try:
-            (DatabaseQueryFacade(db, logger)).test_data_select()
+            db.facade.test_data_select()
             db_status = {"status": "success", "message": "Connected"}
         except Exception as e:
             logger.error(f"Database connection error: {str(e)}")
@@ -95,10 +95,10 @@ async def index(
             if not providers_configured:
                 api_status = {"status": "warning", "message": "Not Configured"}
             else:
-                result = (DatabaseQueryFacade(db, logger)).get_rate_limit_status()
+                result = db.facade.get_rate_limit_status()
                 if result:
-                    requests_today = result[0] or 0
-                    last_error = result[1]
+                    requests_today = result['requests_today'] or 0
+                    last_error = result['last_error']
 
                     # Default daily limit (can be made configurable)
                     daily_limit = 100
@@ -127,16 +127,16 @@ async def index(
         # Get topic statistics
         active_topics = [
             {
-                "name": row[0],
-                "article_count": row[1],
-                "last_article_date": row[2]
+                "name": row['topic'],
+                "article_count": row['article_count'],
+                "last_article_date": row['last_article_date']
             }
-            for row in (DatabaseQueryFacade(db, logger)).get_topic_statistics()
+            for row in db.facade.get_topic_statistics()
         ]
 
         # Get last check time with proper timezone format
         try:
-            last_check_time = (DatabaseQueryFacade(db, logger)).get_last_check_time_using_timezone_format()
+            last_check_time = db.facade.get_last_check_time_using_timezone_format()
         except Exception as e:
             logger.error(f"Error getting last check time: {str(e)}")
             last_check_time = None

@@ -379,7 +379,7 @@ Return your search strategy in this format:
 
                         # If we have a category match, use only that
                         if params.get("category"):
-                            articles_batch, count = self.db.search_articles(
+                            articles_batch, count = self.db.facade.search_articles(
                                 topic=topic,
                                 category=params.get("category"),
                                 pub_date_start=pub_date_start,
@@ -389,7 +389,7 @@ Return your search strategy in this format:
                             )
                         # Otherwise, use keyword search
                         else:
-                            articles_batch, count = self.db.search_articles(
+                            articles_batch, count = self.db.facade.search_articles(
                                 topic=topic,
                                 keyword=params.get("keyword"),
                                 sentiment=[params.get("sentiment")] if params.get("sentiment") else None,
@@ -515,7 +515,7 @@ Analyzing the {len(articles)} most recent articles
         start_date = end_date - timedelta(days=days_back)
         
         try:
-            articles = self.db.get_recent_articles_by_topic(
+            articles = self.db.facade.get_recent_articles_by_topic(
                 topic_name=topic,
                 limit=limit,
                 start_date=start_date.strftime("%Y-%m-%d"),
@@ -554,7 +554,7 @@ Analyzing the {len(articles)} most recent articles
             end_date = datetime.now()
             start_date = end_date - timedelta(days=period_days)
             
-            articles, _ = self.db.search_articles(
+            articles, _ = self.db.facade.search_articles(
                 topic=topic,
                 pub_date_start=start_date.strftime("%Y-%m-%d"),
                 pub_date_end=end_date.strftime("%Y-%m-%d"),
@@ -596,7 +596,7 @@ Analyzing the {len(articles)} most recent articles
     async def get_article_categories(self, topic: str) -> Dict:
         """Get article categories and their distribution."""
         try:
-            articles, _ = self.db.search_articles(topic=topic, page=1, per_page=1000)
+            articles, _ = self.db.facade.search_articles(topic=topic, page=1, per_page=1000)
             
             # Analyze category distribution
             category_counts = {}
@@ -638,7 +638,7 @@ Analyzing the {len(articles)} most recent articles
             end_date = datetime.now()
             start_date = end_date - timedelta(days=days_back)
             
-            articles, total_count = self.db.search_articles(
+            articles, total_count = self.db.facade.search_articles(
                 topic=topic,
                 category=categories,
                 pub_date_start=start_date.strftime("%Y-%m-%d"),
@@ -675,7 +675,7 @@ Analyzing the {len(articles)} most recent articles
             # Search for each keyword and combine results
             all_articles = []
             for keyword in keywords:
-                articles, _ = self.db.search_articles(
+                articles, _ = self.db.facade.search_articles(
                     keyword=keyword,
                     topic=topic,
                     page=1,
@@ -721,14 +721,14 @@ Analyzing the {len(articles)} most recent articles
             # rather than searching for the specific query text
             if any(word in query.lower() for word in ["comprehensive", "analysis", "detailed", "insights", "structured", "breakdown"]):
                 # Get articles by topic only for comprehensive analysis
-                articles, _ = self.db.search_articles(
+                articles, _ = self.db.facade.search_articles(
                     topic=topic,
                     page=1,
                     per_page=limit * 2  # Get more for diversity filtering
                 )
             else:
                 # For specific queries, search by keyword
-                articles, _ = self.db.search_articles(
+                articles, _ = self.db.facade.search_articles(
                     keyword=query,
                     topic=topic,
                     page=1,
@@ -904,7 +904,7 @@ Analyzing the {len(articles)} most recent articles
             enhanced_query = f"{original_query} {follow_up}"
             
             # Search for new articles
-            new_articles, _ = self.db.search_articles(
+            new_articles, _ = self.db.facade.search_articles(
                 keyword=enhanced_query,
                 topic=topic,
                 page=1,
@@ -916,7 +916,7 @@ Analyzing the {len(articles)} most recent articles
                 # Extract keywords from context articles for better search
                 context_keywords = self._extract_context_keywords(context_articles)
                 for keyword in context_keywords[:3]:  # Use top 3 keywords
-                    keyword_articles, _ = self.db.search_articles(
+                    keyword_articles, _ = self.db.facade.search_articles(
                         keyword=keyword,
                         topic=topic,
                         page=1,

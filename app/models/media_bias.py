@@ -158,7 +158,7 @@ class MediaBias:
 
                                 # Insert or update the source with enabled=1 by default
                                 # Always ensure sources are enabled when importing
-                                (DatabaseQueryFacade(self.db, logger)).insert_media_bias((
+                                self.db.facade.insert_media_bias((
                                     source,
                                     row.get('country', ''),
                                     row.get('bias', ''),
@@ -196,7 +196,7 @@ class MediaBias:
                                     continue
 
                                 # Insert the source with enabled=1 by default
-                                (DatabaseQueryFacade(self.db, logger)).insert_media_bias((
+                                self.db.facade.insert_media_bias((
                                     source,
                                     row.get('country', ''),
                                     row.get('bias', ''),
@@ -215,7 +215,7 @@ class MediaBias:
                                 failed_count += 1
 
                         # Update settings
-                        (DatabaseQueryFacade(self.db, logger)).update_media_bias_settings(file_path)
+                        self.db.facade.update_media_bias_settings(file_path)
                             
                     logger.info(f"Imported {imported_count} sources, failed {failed_count}")
                     return imported_count, failed_count
@@ -233,19 +233,19 @@ class MediaBias:
         Returns:
             List of dictionaries containing media bias data
         """
-        rows = (DatabaseQueryFacade(self.db, logger)).get_all_media_bias_sources()
+        rows = self.db.facade.get_all_media_bias_sources()
 
         sources = []
         for row in rows:
             sources.append({
-                'source': row[0],
-                'country': row[1],
-                'bias': row[2],
-                'factual_reporting': row[3],
-                'press_freedom': row[4],
-                'media_type': row[5],
-                'popularity': row[6],
-                'mbfc_credibility_rating': row[7]
+                'source': row['source'],
+                'country': row['country'],
+                'bias': row['bias'],
+                'factual_reporting': row['factual_reporting'],
+                'press_freedom': row['press_freedom'],
+                'media_type': row['media_type'],
+                'popularity': row['popularity'],
+                'mbfc_credibility_rating': row['mbfc_credibility_rating']
             })
 
         return sources
@@ -259,7 +259,7 @@ class MediaBias:
         """
         try:
             # Get settings
-            row = (DatabaseQueryFacade(self.db, logger)).get_media_bias_status()
+            row = self.db.facade.get_media_bias_status()
             if not row:
                 return {
                     "enabled": False,
@@ -270,7 +270,7 @@ class MediaBias:
             enabled, last_updated, source_file = row
 
             # Get total sources
-            total_sources = (DatabaseQueryFacade(self.db, logger)).get_total_media_bias_sources()
+            total_sources = self.db.facade.get_total_media_bias_sources()
 
             return {
                 "enabled": bool(enabled),
@@ -298,7 +298,7 @@ class MediaBias:
             True if successful, False otherwise
         """
         try:
-            (DatabaseQueryFacade(self.db, logger)).enable_media_bias_sources(enabled)
+            self.db.facade.enable_media_bias_sources(enabled)
 
             self.logger.info(
                 f"Media bias enrichment {'enabled' if enabled else 'disabled'}"
@@ -316,7 +316,7 @@ class MediaBias:
             True if successful, False otherwise
         """
         try:
-            (DatabaseQueryFacade(self.db, logger)).reset_media_bias_sources()
+            self.db.facade.reset_media_bias_sources()
             return True
         except Exception as e:
             logger.error(f"Error resetting media bias data: {str(e)}")
@@ -375,7 +375,7 @@ class MediaBias:
                 self.logger.debug(f"Found exact match for {normalized_source} using source {source_domain} (disabled)")
                 # Auto-enable this source for future requests
                 try:
-                    (DatabaseQueryFacade(self.db, logger)).enable_media_source(s.get('source'))
+                    self.db.facade.enable_media_source(s.get('source'))
                     # Update the current record
                     s['enabled'] = 1
                     self.logger.info(f"Auto-enabled media bias source: {s.get('source')}")
@@ -390,7 +390,7 @@ class MediaBias:
                 self.logger.debug(f"Found domain match for {normalized_source} using source {source_domain} (disabled)")
                 # Auto-enable this source for future requests
                 try:
-                    (DatabaseQueryFacade(self.db, logger)).enable_media_source(s.get('source'))
+                    self.db.facade.enable_media_source(s.get('source'))
                     # Update the current record
                     s['enabled'] = 1
                     self.logger.info(f"Auto-enabled media bias source: {s.get('source')}")
@@ -446,7 +446,7 @@ class MediaBias:
         Returns:
             Tuple containing (list of sources, total count)
         """
-        (total_count, rows) = (DatabaseQueryFacade(self.db, logger)).search_media_bias_sources(
+        (total_count, rows) = self.db.facade.search_media_bias_sources(
             query,
             bias_filter,
             factual_filter,
@@ -459,15 +459,15 @@ class MediaBias:
         sources = []
         for row in rows:
             sources.append({
-                'id': row[0],
-                'source': row[1],
-                'country': row[2],
-                'bias': row[3],
-                'factual_reporting': row[4],
-                'press_freedom': row[5],
-                'media_type': row[6],
-                'popularity': row[7],
-                'mbfc_credibility_rating': row[8]
+                'id': row['id'],
+                'source': row['source'],
+                'country': row['country'],
+                'bias': row['bias'],
+                'factual_reporting': row['factual_reporting'],
+                'press_freedom': row['press_freedom'],
+                'media_type': row['media_type'],
+                'popularity': row['popularity'],
+                'mbfc_credibility_rating': row['mbfc_credibility_rating']
             })
 
         return sources, total_count
@@ -488,7 +488,7 @@ class MediaBias:
                 raise ValueError("Source URL is required")
 
             # Insert data
-            source_id = (DatabaseQueryFacade(self.db, logger)).insert_media_bias((
+            source_id = self.db.facade.insert_media_bias((
                 source,
                 source_data.get('country', ''),
                 source_data.get('bias', ''),
@@ -501,7 +501,7 @@ class MediaBias:
             ))
 
             # Update last_updated in settings
-            (DatabaseQueryFacade(self.db, logger)).update_media_bias_last_updated()
+            self.db.facade.update_media_bias_last_updated()
             return source_id
 
         except Exception as e:
@@ -520,7 +520,7 @@ class MediaBias:
         """
         try:
             # Validate source existence
-            if not (DatabaseQueryFacade(self.db, logger)).get_media_bias_source(source_id):
+            if not self.db.facade.get_media_bias_source(source_id):
                 raise ValueError(f"Source with ID {source_id} not found")
 
             # Validate required fields
@@ -529,7 +529,7 @@ class MediaBias:
                 raise ValueError("Source URL is required")
 
             # Update data
-            (DatabaseQueryFacade(self.db, logger)).update_media_bias_source((
+            self.db.facade.update_media_bias_source((
                            source,
                            source_data.get('country', ''),
                            source_data.get('bias', ''),
@@ -543,7 +543,7 @@ class MediaBias:
                        ))
 
             # Update last_updated in settings
-            (DatabaseQueryFacade(self.db, logger)).update_media_bias_last_updated()
+            self.db.facade.update_media_bias_last_updated()
 
             return True
                 
@@ -562,15 +562,15 @@ class MediaBias:
         """
         try:
             # Validate source existence
-            if not (DatabaseQueryFacade(self.db, logger)).get_media_bias_source(source_id):
+            if not self.db.facade.get_media_bias_source(source_id):
                 raise ValueError(f"Source with ID {source_id} not found")
 
             # Delete the source
-            (DatabaseQueryFacade(self.db, logger)).delete_media_bias_source(source_id)
+            self.db.facade.delete_media_bias_source(source_id)
 
             # Update last_updated in settings
             # Return success if a row was affected
-            return (DatabaseQueryFacade(self.db, logger)).update_media_bias_last_updated() > 0
+            return self.db.facade.update_media_bias_last_updated() > 0
 
         except Exception as e:
             logger.error(f"Error deleting source: {str(e)}")
@@ -586,20 +586,20 @@ class MediaBias:
             Dictionary with source data or None if not found
         """
         try:
-            row = (DatabaseQueryFacade(self.db, logger)).get_media_bias_source_by_id(source_id)
+            row = self.db.facade.get_media_bias_source_by_id(source_id)
             if not row:
                 return None
 
             return {
-                'id': row[0],
-                'source': row[1],
-                'country': row[2],
-                'bias': row[3],
-                'factual_reporting': row[4],
-                'press_freedom': row[5],
-                'media_type': row[6],
-                'popularity': row[7],
-                'mbfc_credibility_rating': row[8]
+                'id': row['id'],
+                'source': row['source'],
+                'country': row['country'],
+                'bias': row['bias'],
+                'factual_reporting': row['factual_reporting'],
+                'press_freedom': row['press_freedom'],
+                'media_type': row['media_type'],
+                'popularity': row['popularity'],
+                'mbfc_credibility_rating': row['mbfc_credibility_rating']
             }
                 
         except Exception as e:
@@ -613,7 +613,7 @@ class MediaBias:
             Dictionary with lists of unique values for each filter
         """
         try:
-            (biases, factual_levels, countries) = (DatabaseQueryFacade(self.db, logger)).get_media_bias_filter_options()
+            (biases, factual_levels, countries) = self.db.facade.get_media_bias_filter_options()
 
             return {
                 'biases': biases,
@@ -628,7 +628,7 @@ class MediaBias:
     def _load_sources(self):
         """Load media bias sources from the database."""
         try:
-            return (DatabaseQueryFacade(self.db, logger)).load_media_bias_sources_from_database()
+            return self.db.facade.load_media_bias_sources_from_database()
         except Exception as e:
             logger.error(f"Error loading media bias sources: {e}")
             return [] 

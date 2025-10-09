@@ -44,38 +44,38 @@ async def keyword_alerts_page_old(
         raise HTTPException(status_code=500, detail=str(e))
 
 def get_monitor_settings() -> bool:
-    return (DatabaseQueryFacade(db, logger)).get_is_keyword_monitor_enabled()
+    return db.facade.get_is_keyword_monitor_enabled()
 
 def get_last_check_time() -> Optional[datetime]:
-    return (DatabaseQueryFacade(db, logger)).get_keyword_monitor_last_check_time()
+    return db.facade.get_keyword_monitor_last_check_time()
 
 def get_unread_alerts() -> List[Dict]:
-    alerts_data = (DatabaseQueryFacade(db, logger)).get_unread_alerts()
+    alerts_data = db.facade.get_unread_alerts()
     return [
         {
-            'id': row[0],
-            'group_id': row[1],
-            'detected_at': row[2],
-            'matched_keyword': row[3],
+            'id': row['id'],
+            'group_id': row['group_id'],
+            'detected_at': row['detected_at'],
+            'matched_keyword': row['matched_keyword'],
             'article': {
-                'uri': row[4],
-                'title': row[5],
-                'url': row[6],
-                'source': row[7],
-                'publication_date': row[8],
-                'summary': row[9],
-                'category': row[10],
-                'sentiment': row[11],
-                'driver_type': row[12],
-                'time_to_impact': row[13],
-                'future_signal': row[14],
-                'bias': row[15],
-                'factual_reporting': row[16],
-                'mbfc_credibility_rating': row[17],
-                'bias_country': row[18],
-                'press_freedom': row[19],
-                'media_type': row[20],
-                'popularity': row[21]
+                'uri': row['uri'],
+                'title': row['title'],
+                'url': row['url'],
+                'source': row['source'],
+                'publication_date': row['publication_date'],
+                'summary': row['summary'],
+                'category': row['category'],
+                'sentiment': row['sentiment'],
+                'driver_type': row['driver_type'],
+                'time_to_impact': row['time_to_impact'],
+                'future_signal': row['future_signal'],
+                'bias': row['bias'],
+                'factual_reporting': row['factual_reporting'],
+                'mbfc_credibility_rating': row['mbfc_credibility_rating'],
+                'bias_country': row['bias_country'],
+                'press_freedom': row['press_freedom'],
+                'media_type': row['media_type'],
+                'popularity': row['popularity']
             }
         }
         for row in alerts_data
@@ -95,21 +95,21 @@ async def bulk_delete_articles(
 
         for uri in request.uris:
             # First delete related keyword alerts
-            (DatabaseQueryFacade(db, logger)).delete_keyword_alerts_by_article_url(uri)
+            db.facade.delete_keyword_alerts_by_article_url(uri)
 
             # Check if keyword_article_matches table exists and delete from there too
-            if (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists():
-                (DatabaseQueryFacade(db, logger)).delete_keyword_alerts_by_article_url_from_new_table(uri)
+            if db.facade.check_if_keyword_article_matches_table_exists():
+                db.facade.delete_keyword_alerts_by_article_url_from_new_table(uri)
 
             # Then delete the article
-            if (DatabaseQueryFacade(db, logger)).delete_article_by_url(uri) > 0:
+            if db.facade.delete_article_by_url(uri) > 0:
                 deleted_count += 1
 
-            # Return both the deleted articles count and affected alerts count
-            return {
-                "status": "success", 
-                "deleted_count": deleted_count,
-            }
+        # Return both the deleted articles count and affected alerts count
+        return {
+            "status": "success",
+            "deleted_count": deleted_count,
+        }
     except Exception as e:
         logger.error(f"Error in bulk_delete_articles: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e)) 

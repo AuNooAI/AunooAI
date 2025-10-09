@@ -183,24 +183,24 @@ async def get_topic_summary_metrics(
     """
     try:
         # Metric: Total articles for the topic
-        query_total_articles = "SELECT COUNT(*) FROM articles WHERE topic = ?"
+        query_total_articles = "SELECT COUNT(*) as count FROM articles WHERE topic = ?"
         # Use fetch_all and get the first value from the first row
         total_articles_result = await run_in_threadpool(db.fetch_all, query_total_articles, (topic_name,))
-        total_articles_count = total_articles_result[0][0] if total_articles_result and total_articles_result[0] else 0
+        total_articles_count = total_articles_result[0]['count'] if total_articles_result and total_articles_result[0] else 0
 
         # Metric: New articles in the last 24 hours
         time_24h_ago = (datetime.utcnow() - timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
-        query_new_24h = "SELECT COUNT(*) FROM articles WHERE topic = ? AND submission_date >= ?"
+        query_new_24h = "SELECT COUNT(*) as count FROM articles WHERE topic = ? AND submission_date >= ?"
         # Use fetch_all and get the first value from the first row
         new_articles_24h_result = await run_in_threadpool(db.fetch_all, query_new_24h, (topic_name, time_24h_ago))
-        new_articles_24h_count = new_articles_24h_result[0][0] if new_articles_24h_result and new_articles_24h_result[0] else 0
+        new_articles_24h_count = new_articles_24h_result[0]['count'] if new_articles_24h_result and new_articles_24h_result[0] else 0
 
         # Metric: New articles in the last 7 days
         time_7d_ago = (datetime.utcnow() - timedelta(days=7)).strftime('%Y-%m-%d %H:%M:%S')
-        query_new_7d = "SELECT COUNT(*) FROM articles WHERE topic = ? AND submission_date >= ?"
+        query_new_7d = "SELECT COUNT(*) as count FROM articles WHERE topic = ? AND submission_date >= ?"
         # Use fetch_all and get the first value from the first row
         new_articles_7d_result = await run_in_threadpool(db.fetch_all, query_new_7d, (topic_name, time_7d_ago))
-        new_articles_7d_count = new_articles_7d_result[0][0] if new_articles_7d_result and new_articles_7d_result[0] else 0
+        new_articles_7d_count = new_articles_7d_result[0]['count'] if new_articles_7d_result and new_articles_7d_result[0] else 0
         
         # --- New Metrics (last 30 days for relevance) --- 
         time_30d_ago = (datetime.utcnow() - timedelta(days=30)).strftime('%Y-%m-%d %H:%M:%S')
@@ -215,7 +215,7 @@ async def get_topic_summary_metrics(
             LIMIT 1
         """
         dominant_source_result = await run_in_threadpool(db.fetch_all, query_dominant_source, (topic_name, time_30d_ago))
-        dominant_source = dominant_source_result[0][0] if dominant_source_result and dominant_source_result[0] else None
+        dominant_source = dominant_source_result[0]['news_source'] if dominant_source_result and dominant_source_result[0] else None
 
         # Metric: Most Frequent Time To Impact (in last 30d)
         query_frequent_tti = f"""
@@ -227,7 +227,7 @@ async def get_topic_summary_metrics(
             LIMIT 1
         """
         frequent_tti_result = await run_in_threadpool(db.fetch_all, query_frequent_tti, (topic_name, time_30d_ago))
-        most_frequent_tti = frequent_tti_result[0][0] if frequent_tti_result and frequent_tti_result[0] else None
+        most_frequent_tti = frequent_tti_result[0]['time_to_impact'] if frequent_tti_result and frequent_tti_result[0] else None
 
         return TopicSummaryMetrics(
             total_articles=total_articles_count,
@@ -538,7 +538,7 @@ async def get_topic_top_tags(
 
         all_tags = []
         for row in raw_tag_strings_rows:
-            tags_csv_string = row[0]
+            tags_csv_string = row['tags']
             # Split the comma-separated string
             if isinstance(tags_csv_string, str) and tags_csv_string.strip():
                 tags_list = [tag.lower().strip() for tag in tags_csv_string.split(',') if tag.strip()]
@@ -1447,10 +1447,10 @@ async def get_category_insights(
             logger.error(f"All model fallbacks failed for category insights")
             # Return basic category data without insights if all models fail
             return [CategoryInsightSchema(
-                category=row[0], 
-                article_count=row[1],
-                insight_text=f"The '{row[0]}' category contains {row[1]} articles. LLM analysis temporarily unavailable."
-            ) for row in raw_results if row[0] is not None]
+                category=row['category'],
+                article_count=row['article_count'],
+                insight_text=f"The '{row['category']}' category contains {row['article_count']} articles. LLM analysis temporarily unavailable."
+            ) for row in raw_results if row['category'] is not None]
 
         # Helper to build a simple deterministic insight (no LLM)
         def _build_simple_category_insight(category_name: str, articles: list) -> str:
@@ -1458,7 +1458,7 @@ async def get_category_insights(
                 if not articles:
                     return f"The '{category_name}' category has no detailed articles available for analysis."
                 # Sources
-                sources = [str(a[2]) for a in articles if a[2]]
+                sources = [str(a['news_source']) for a in articles if a['news_source']]
                 top_sources = []
                 if sources:
                     counts = {}
@@ -1466,12 +1466,12 @@ async def get_category_insights(
                         counts[s] = counts.get(s, 0) + 1
                     top_sources = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:2]
                 # Dates
-                dates = [str(a[3]) for a in articles if a[3]]
+                dates = [str(a['publication_date']) for a in articles if a['publication_date']]
                 date_span = None
                 if dates:
                     date_span = f"{min(dates)} to {max(dates)}"
                 # Titles
-                title_samples = [str(a[0]) for a in articles if a[0]][:2]
+                title_samples = [str(a['title']) for a in articles if a['title']][:2]
                 parts = [f"'{category_name}' shows {len(articles)} recent articles"]
                 if top_sources:
                     parts.append("top sources: " + ", ".join([f"{name} ({cnt})" for name, cnt in top_sources]))
@@ -1488,11 +1488,11 @@ async def get_category_insights(
         
         # Process each of the top 5 categories
         for category_row in raw_results:
-            if not category_row[0]:  # Skip if category is None
+            if not category_row['category']:  # Skip if category is None
                 continue
-                
-            category_name = category_row[0]
-            article_count = category_row[1]
+
+            category_name = category_row['category']
+            article_count = category_row['article_count']
             
             # Fetch some recent articles from this category for the LLM to analyze
             category_articles_query = f"""
@@ -1537,7 +1537,7 @@ async def get_category_insights(
             articles_text = "\n---\n".join(article_texts)
             
             # Check data quality before sending to LLM - be more lenient
-            total_content_length = sum(len(str(article[0] or '')) + len(str(article[1] or '')) for article in category_articles)
+            total_content_length = sum(len(str(article['uri'] or '')) + len(str(article['title'] or '')) for article in category_articles)
             avg_content_length = total_content_length / len(category_articles) if category_articles else 0
             
             # Only skip if content is extremely sparse (very low threshold)
@@ -1557,14 +1557,13 @@ async def get_category_insights(
             sample_articles_for_card: List[ThemedArticle] = []
             try:
                 for a in category_articles[:5]:
-                    uri, title, summary, source, pub_date, _sent = a
                     sample_articles_for_card.append(
                         ThemedArticle(
-                            uri=str(uri or ""),
-                            title=str(title or "Untitled"),
-                            news_source=str(source or "Unknown"),
-                            publication_date=str(pub_date or ""),
-                            short_summary=(str(summary)[:160] if summary else None),
+                            uri=str(a['uri'] or ""),
+                            title=str(a['title'] or "Untitled"),
+                            news_source=str(a['news_source'] or "Unknown"),
+                            publication_date=str(a['publication_date'] or ""),
+                            short_summary=(str(a['summary'])[:160] if a['summary'] else None),
                         )
                     )
                 logger.info(f"Category '{category_name}' - prepared {len(sample_articles_for_card)} sample articles for UI")
@@ -1618,7 +1617,7 @@ async def get_category_insights(
                 if not insight_text or len(insight_text.strip()) < 10:
                     logger.warning(f"LLM returned empty/short response for category '{category_name}' (avg content: {avg_content_length:.1f} chars)")
                     # Create intelligent insight based on category name and article data
-                    sample_titles = [article[0] for article in category_articles[:3] if article[0] and len(article[0]) > 5]
+                    sample_titles = [article['title'] for article in category_articles[:3] if article['title'] and len(article['title']) > 5]
                     
                     # Special handling for known problematic categories
                     if 'software development' in category_name.lower():
@@ -1639,7 +1638,7 @@ async def get_category_insights(
                 elif insight_text and ("⚠️" in insight_text or "unavailable" in insight_text.lower() or "error" in insight_text.lower()):
                     logger.warning(f"LLM returned error for category '{category_name}': {insight_text}")
                     # Provide a more informative fallback based on the data we have
-                    sample_titles = [article[0] for article in category_articles[:3] if article[0] and len(article[0]) > 5]
+                    sample_titles = [article['title'] for article in category_articles[:3] if article['title'] and len(article['title']) > 5]
                     if sample_titles:
                         # Clean up malformed titles
                         cleaned_titles = []

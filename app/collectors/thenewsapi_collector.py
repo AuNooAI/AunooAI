@@ -198,6 +198,9 @@ class TheNewsAPICollector(ArticleCollector):
 
     def _format_article(self, article: Dict, topic: str) -> Dict:
         """Format TheNewsAPI article data to standard format."""
+        # Extract source from article first (needed for raw_data)
+        source = article.get('source', {})
+
         # ALWAYS extract domain from URL first (full domain with TLD)
         # API source name often lacks TLD or is inconsistent
         source_name = ''
@@ -208,7 +211,6 @@ class TheNewsAPICollector(ArticleCollector):
 
         # Only use API source name as fallback if URL parsing failed
         if not source_name:
-            source = article.get('source', {})
             if isinstance(source, dict):
                 source_name = source.get('name', '').strip()
             elif isinstance(source, str):

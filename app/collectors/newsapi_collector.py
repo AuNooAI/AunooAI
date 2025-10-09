@@ -6,7 +6,6 @@ import logging
 import os
 import json
 from app.database import Database
-from app.database_query_facade import DatabaseQueryFacade
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +28,7 @@ class NewsAPICollector(ArticleCollector):
         try:
             logger.debug("Initializing request counter")
 
-            row = (DatabaseQueryFacade(self.db, logger)).get_request_count_for_today()
+            row = self.db.facade.get_request_count_for_today()
             today = datetime.now().date().isoformat()
 
             logger.debug(f"Current status row: {row}, today: {today}")
@@ -40,7 +39,7 @@ class NewsAPICollector(ArticleCollector):
                 if not last_reset or last_reset < today:
                     # Reset counter for new day
                     self.requests_today = 0
-                    (DatabaseQueryFacade(self.db, logger)).reset_keyword_monitoring_counter((today,))
+                    self.db.facade.reset_keyword_monitoring_counter((today,))
                     logger.debug("Reset counter for new day")
                 else:
                     self.requests_today = requests_today
@@ -63,7 +62,7 @@ class NewsAPICollector(ArticleCollector):
             today = datetime.now().date().isoformat()
 
             # Make sure we have a row in the status table with today's date
-            (DatabaseQueryFacade(self.db, logger)).stamp_keyword_monitor_status_table_with_todays_date((self.requests_today, today))
+            self.db.facade.stamp_keyword_monitor_status_table_with_todays_date((self.requests_today, today))
 
             logger.debug(f"Updated NewsAPI request count to {self.requests_today}")
 
@@ -72,7 +71,7 @@ class NewsAPICollector(ArticleCollector):
             daily_limit = 100
 
             # Get configured limit if available
-            limit_row = (DatabaseQueryFacade(self.db, logger)).get_keyword_monitor_status_daily_request_limit()
+            limit_row = self.db.facade.get_keyword_monitor_status_daily_request_limit()
             if limit_row and limit_row[0]:
                 daily_limit = limit_row[0]
 

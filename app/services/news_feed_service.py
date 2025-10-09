@@ -199,22 +199,22 @@ class NewsFeedService:
                 
             import json
             profile = {
-                'id': profile_row[0],
-                'name': profile_row[1],
-                'description': profile_row[2],
-                'industry': profile_row[3],
-                'organization_type': profile_row[4],
-                'region': profile_row[5],
-                'key_concerns': json.loads(profile_row[6]) if profile_row[6] else [],
-                'strategic_priorities': json.loads(profile_row[7]) if profile_row[7] else [],
-                'risk_tolerance': profile_row[8],
-                'innovation_appetite': profile_row[9],
-                'decision_making_style': profile_row[10],
-                'stakeholder_focus': json.loads(profile_row[11]) if profile_row[11] else [],
-                'competitive_landscape': json.loads(profile_row[12]) if profile_row[12] else [],
-                'regulatory_environment': json.loads(profile_row[13]) if profile_row[13] else [],
-                'custom_context': profile_row[14],
-                'is_default': bool(profile_row[15])
+                'id': profile_row['id'],
+                'name': profile_row['name'],
+                'description': profile_row['description'],
+                'industry': profile_row['industry'],
+                'organization_type': profile_row['organization_type'],
+                'region': profile_row['region'],
+                'key_concerns': json.loads(profile_row['key_concerns']) if profile_row['key_concerns'] else [],
+                'strategic_priorities': json.loads(profile_row['strategic_priorities']) if profile_row['strategic_priorities'] else [],
+                'risk_tolerance': profile_row['risk_tolerance'],
+                'innovation_appetite': profile_row['innovation_appetite'],
+                'decision_making_style': profile_row['decision_making_style'],
+                'stakeholder_focus': json.loads(profile_row['stakeholder_focus']) if profile_row['stakeholder_focus'] else [],
+                'competitive_landscape': json.loads(profile_row['competitive_landscape']) if profile_row['competitive_landscape'] else [],
+                'regulatory_environment': json.loads(profile_row['regulatory_environment']) if profile_row['regulatory_environment'] else [],
+                'custom_context': profile_row['custom_context'],
+                'is_default': bool(profile_row['is_default'])
             }
             logger.info(f"Successfully loaded profile: {profile['name']} ({profile['industry']})")
             return profile

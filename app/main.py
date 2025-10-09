@@ -8,7 +8,6 @@ from app.collectors.arxiv_collector import ArxivCollector
 from app.collectors.bluesky_collector import BlueskyCollector
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from app.database import Database, get_database_instance
-from app.database_query_facade import DatabaseQueryFacade
 from app.research import Research
 from app.analytics import Analytics
 from app.report import Report
@@ -44,6 +43,7 @@ from app.routes.api_routes import router as api_router  # Add this line for api_
 from starlette.middleware.sessions import SessionMiddleware
 from app.security.session import verify_session
 from app.routes.keyword_monitor import router as keyword_monitor_router, page_router as keyword_monitor_page_router, get_alerts
+from app.routes.keyword_alerts import router as keyword_alerts_router
 from app.tasks.keyword_monitor import run_keyword_monitor
 import sqlite3
 from app.routes import database  # Make sure this import exists
@@ -116,6 +116,7 @@ app.include_router(api_router, prefix="/api")  # Add this line to include the AP
 app.include_router(keyword_monitor_router)
 app.include_router(keyword_monitor_page_router)
 app.include_router(keyword_monitor_api_router, prefix="/api")
+app.include_router(keyword_alerts_router, prefix="/api")  # Bulk delete articles endpoint
 app.include_router(onboarding_router)
 
 class ArticleData(BaseModel):
@@ -237,7 +238,7 @@ async def root(
         config_topics = {topic["name"]: topic for topic in config["topics"]}
         
         # Get topics from database with article counts and last article dates
-        db_topics = (DatabaseQueryFacade(db, logger)).get_topics_with_article_counts()
+        db_topics = db.facade.get_topics_with_article_counts()
         
         # Prepare active topics list
         active_topics = []
@@ -1075,7 +1076,7 @@ async def debug_settings():
 @app.get("/api/debug_articles")
 async def debug_articles():
     try:
-        (DatabaseQueryFacade(db, logger)).debug_articles()
+        db.facade.debug_articles()
         return JSONResponse(content={"article_count": len(articles), "articles": articles})
     except Exception as e:
         logger.error(f"Error in debug_articles: {str(e)}", exc_info=True)
@@ -2136,7 +2137,7 @@ async def save_firecrawl_config(config: NewsAPIConfig):  # Reusing the same mode
 @app.get("/keyword-monitor", response_class=HTMLResponse)
 async def keyword_monitor_page(request: Request, session=Depends(verify_session)):
     try:
-        rows = (DatabaseQueryFacade(db, logger)).get_monitor_page_keywords()
+        rows = db.facade.get_monitor_page_keywords()
 
         # Group the results
         groups = {}
@@ -2582,7 +2583,7 @@ async def list_podcasts(db: Database = Depends(get_database_instance)):
     try:
         # Get all completed podcasts
         podcasts = []
-        for row in (DatabaseQueryFacade(db, logger)).get_all_completed_podcasts():
+        for row in db.facade.get_all_completed_podcasts():
             podcasts.append({
                 "id": row[0],
                 "title": row[1],
@@ -2730,7 +2731,7 @@ async def create_podcast(
             if not podcast_id:
                 raise ValueError("No podcast ID received from ElevenLabs")
                 
-            (DatabaseQueryFacade(db, logger)).create_podcast((
+            db.facade.create_podcast((
                     podcast_id,
                     data.get('title'),
                     json.dumps(data),
@@ -2789,7 +2790,7 @@ async def get_podcast_status(
             transcript = project.get('transcript')
             
             # Update database with completed status
-            (DatabaseQueryFacade(db, logger)).update_podcast_status(('completed', audio_url, transcript, podcast_id))
+            db.facade.update_podcast_status(('completed', audio_url, transcript, podcast_id))
         
         return JSONResponse(content={
             "status": status,
@@ -2844,7 +2845,7 @@ async def get_flow_data(
     """
     logger.info("Fetching flow data: timeframe=%s, topic=%s, limit=%s", timeframe, topic, limit)
 
-    rows = (DatabaseQueryFacade(db, logger)).get_flow_data(topic, timeframe, limit)
+    rows = db.facade.get_flow_data(topic, timeframe, limit)
 
     data = [
         {

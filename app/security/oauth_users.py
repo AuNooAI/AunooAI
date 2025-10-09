@@ -1,5 +1,4 @@
 from app.database import Database
-from app.database_query_facade import DatabaseQueryFacade
 from typing import Optional, Dict, Any
 import logging
 from datetime import datetime
@@ -35,7 +34,7 @@ class OAuthUserManager:
             raise Exception(f"Access denied: {email.split('@')[-1]} domain is not authorized")
         
         # Check if user is in allowlist (if allowlist has entries)
-        allowlist_count = (DatabaseQueryFacade(self.db, logger)).count_oauth_allowlist_active_users()
+        allowlist_count = self.db.facade.count_oauth_allowlist_active_users()
 
         if allowlist_count > 0 and not self.is_user_allowed(email):
             logger.warning(f"OAuth login denied for {email} - not in user allowlist")
@@ -43,22 +42,22 @@ class OAuthUserManager:
 
         try:
             # Check if user exists
-            user = (DatabaseQueryFacade(self.db, logger)).get_oauth_allowlist_user_by_email_and_provider(email, provider)
+            user = self.db.facade.get_oauth_allowlist_user_by_email_and_provider(email, provider)
 
             if user:
                 # Update existing user
-                (DatabaseQueryFacade(self.db, logger)).update_oauth_allowlist_user((name, provider_id, avatar_url, email, provider))
+                self.db.facade.update_oauth_allowlist_user((name, provider_id, avatar_url, email, provider))
                 user_id = user[0]
                 logger.info(f"Updated OAuth user: {email} ({provider})")
             else:
                 # Create new user
-                user_id = (DatabaseQueryFacade(self.db, logger)).create_oauth_allowlist_user((email, name, provider, provider_id, avatar_url))
+                user_id = self.db.facade.create_oauth_allowlist_user((email, name, provider, provider_id, avatar_url))
                 logger.info(f"Created new OAuth user: {email} ({provider})")
 
             conn.commit()
 
             # Fetch the complete user record
-            user_record = (DatabaseQueryFacade(self.db, logger)).get_oauth_allowlist_user_by_id(user_id)
+            user_record = self.db.facade.get_oauth_allowlist_user_by_id(user_id)
 
             if user_record:
                 return {
@@ -82,7 +81,7 @@ class OAuthUserManager:
     def get_oauth_user(self, email: str, provider: str) -> Optional[Dict[str, Any]]:
         """Get OAuth user by email and provider"""
         try:
-            user = (DatabaseQueryFacade(self.db, logger)).get_active_oauth_allowlist_user_by_email_and_provider(email, provider)
+            user = self.db.facade.get_active_oauth_allowlist_user_by_email_and_provider(email, provider)
 
             if user:
                 return {
@@ -105,7 +104,7 @@ class OAuthUserManager:
     def get_oauth_user_by_id(self, user_id: int) -> Optional[Dict[str, Any]]:
         """Get OAuth user by ID"""
         try:
-            user = (DatabaseQueryFacade(self.db, logger)).get_active_oauth_allowlist_user_by_id(user_id)
+            user = self.db.facade.get_active_oauth_allowlist_user_by_id(user_id)
 
             if user:
                 return {
@@ -128,7 +127,7 @@ class OAuthUserManager:
     def deactivate_user(self, email: str, provider: str) -> bool:
         """Deactivate OAuth user"""
         try:
-            return (DatabaseQueryFacade(self.db, logger)).deactivate_user(email, provider) > 0
+            return self.db.facade.deactivate_user(email, provider) > 0
 
         except Exception as e:
             logger.error(f"Failed to deactivate OAuth user {email}: {e}")
@@ -138,9 +137,9 @@ class OAuthUserManager:
         """List all OAuth users, optionally filtered by provider"""
         try:
             if provider:
-                rows = (DatabaseQueryFacade(self.db, logger)).get_oauth_active_users_by_provider(provider)
+                rows = self.db.facade.get_oauth_active_users_by_provider(provider)
             else:
-                rows = (DatabaseQueryFacade(self.db, logger)).get_oauth_active_users()
+                rows = self.db.facade.get_oauth_active_users()
 
             users = []
             for user in rows:
@@ -165,7 +164,7 @@ class OAuthUserManager:
     def is_user_allowed(self, email: str) -> bool:
         """Check if user email is in the allowlist"""
         try:
-            return (DatabaseQueryFacade(self.db, logger)).is_oauth_user_allowed(email)
+            return self.db.facade.is_oauth_user_allowed(email)
         except Exception as e:
             logger.error(f"Failed to check allowlist for {email}: {e}")
             return False
@@ -173,7 +172,7 @@ class OAuthUserManager:
     def add_to_allowlist(self, email: str, added_by: str = None) -> bool:
         """Add email to OAuth allowlist"""
         try:
-            (DatabaseQueryFacade(self.db, logger)).add_oauth_user_to_allowlist(email.lower(), added_by)
+            self.db.facade.add_oauth_user_to_allowlist(email.lower(), added_by)
             return True
         except Exception as e:
             logger.error(f"Failed to add {email} to allowlist: {e}")
@@ -182,7 +181,7 @@ class OAuthUserManager:
     def remove_from_allowlist(self, email: str) -> bool:
         """Remove email from OAuth allowlist"""
         try:
-            remove_count = (DatabaseQueryFacade(self.db, logger)).remove_oauth_user_from_allowlist(email.lower())
+            remove_count = self.db.facade.remove_oauth_user_from_allowlist(email.lower())
             logger.info(f"Removed {email} from OAuth allowlist")
             return remove_count > 0
         except Exception as e:

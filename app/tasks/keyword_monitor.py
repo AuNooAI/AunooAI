@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from app.collectors.newsapi_collector import NewsAPICollector
 from app.database import Database
-from app.database_query_facade import DatabaseQueryFacade
 import uuid
 
 logger = logging.getLogger(__name__)
@@ -67,7 +66,7 @@ class KeywordMonitor:
     def _load_settings(self):
         """Load settings from database"""
         try:
-                settings = (DatabaseQueryFacade(self.db, logger)).get_or_create_keyword_monitor_settings()
+                settings = self.db.facade.get_or_create_keyword_monitor_settings()
 
                 if settings:
                     self.check_interval = settings['check_interval'] * settings['interval_unit']  # interval * unit
@@ -107,7 +106,7 @@ class KeywordMonitor:
     def _init_collector(self):
         """Initialize the news collector based on settings"""
         try:
-            provider = (DatabaseQueryFacade(self.db, logger)).get_keyword_monitoring_provider()
+            provider = self.db.facade.get_keyword_monitoring_provider()
 
             if provider == 'thenewsapi':
                 from app.collectors.thenewsapi_collector import TheNewsAPICollector
@@ -118,9 +117,16 @@ class KeywordMonitor:
                 if not NewsdataCollector.is_configured():
                     raise ValueError("NewsData.io API key not configured in environment variables")
                 self.collector = NewsdataCollector()
-            else:
+            elif provider == 'newsapi' or not provider:
                 from app.collectors.newsapi_collector import NewsAPICollector
+                # Check if NewsAPI key is configured
+                import os
+                newsapi_key = os.getenv('PROVIDER_NEWSAPI_API_KEY') or os.getenv('PROVIDER_NEWSAPI_KEY')
+                if not newsapi_key:
+                    raise ValueError(f"NewsAPI key not configured. Current provider: '{provider}'. Please set provider to 'thenewsapi' or 'newsdata' if you don't have a NewsAPI key.")
                 self.collector = NewsAPICollector(self.db)
+            else:
+                raise ValueError(f"Unknown provider '{provider}'. Valid options: 'newsapi', 'thenewsapi', 'newsdata'")
 
             self.last_collector_init_attempt = datetime.now()
             return True
@@ -131,7 +137,7 @@ class KeywordMonitor:
     def check_and_reset_counter(self):
         """Check if the API usage counter needs to be reset for a new day"""
         try:
-            row = (DatabaseQueryFacade(self.db, logger)).get_keyword_monitoring_counter()
+            row = self.db.facade.get_keyword_monitoring_counter()
 
             if row:
                 current_count, last_reset = row['requests_today'], row['last_reset_date']
@@ -140,7 +146,7 @@ class KeywordMonitor:
                 if not last_reset or last_reset < today:
                     # Reset counter for new day
                     logger.info(f"Resetting API counter from {current_count} to 0 (last reset: {last_reset}, today: {today})")
-                    (DatabaseQueryFacade(self.db, logger)).reset_keyword_monitoring_counter((today,))
+                    self.db.facade.reset_keyword_monitoring_counter((today,))
 
                     # Also reset the collector's counter if it exists
                     if self.collector:
@@ -178,18 +184,22 @@ class KeywordMonitor:
         try:
             check_start_time = datetime.now().isoformat()
 
-            (DatabaseQueryFacade(self.db, logger)).create_or_update_keyword_monitor_last_check((check_start_time, self.collector.requests_today))
+            self.db.facade.create_or_update_keyword_monitor_last_check((check_start_time, self.collector.requests_today))
 
             # Get keywords - filter by group_id if provided
             if group_id:
-                keywords = (DatabaseQueryFacade(self.db, logger)).get_monitored_keywords_by_group_id(group_id)
+                keywords = self.db.facade.get_monitored_keywords_by_group_id(group_id)
                 logger.info(f"Found {len(keywords)} keywords to check for group {group_id}")
             else:
-                keywords = (DatabaseQueryFacade(self.db, logger)).get_monitored_keywords()
+                keywords = self.db.facade.get_monitored_keywords()
                 logger.info(f"Found {len(keywords)} keywords to check")
 
             for keyword in keywords:
-                keyword_id, keyword_text, last_checked, topic = keyword
+                # Extract from mapping object
+                keyword_id = keyword['id']
+                keyword_text = keyword['keyword']
+                last_checked = keyword['last_checked']
+                topic = keyword['topic']
                 processed_keywords += 1
                 logger.info(
                     f"Checking keyword: {keyword_text} (topic: {topic}, "
@@ -234,13 +244,13 @@ class KeywordMonitor:
                             )
 
                             # First check if article exists outside transaction
-                            article_exists = (DatabaseQueryFacade(self.db, logger)).article_exists((article_url,))
+                            article_exists = self.db.facade.article_exists((article_url,))
 
                             if article_exists:
                                 logger.debug(f"Article already exists: {article_url}")
 
                             # Use shorter transaction by processing article individually
-                            (inserted_new_article, alert_inserted, match_updated) = (DatabaseQueryFacade(self.db, logger)).create_article(article_exists, article_url,article, topic, keyword_id)
+                            (inserted_new_article, alert_inserted, match_updated) = self.db.facade.create_article(article_exists, article_url,article, topic, keyword_id)
                             # Only count as new if we actually inserted or updated something
                             if inserted_new_article or alert_inserted or match_updated:
                                 new_articles_count += 1
@@ -256,7 +266,7 @@ class KeywordMonitor:
 
                     if should_auto_ingest:
                         try:
-                            topic_keywords = (DatabaseQueryFacade(self.db, logger)).get_monitored_keywords_for_topic((topic,))
+                            topic_keywords = self.db.facade.get_monitored_keywords_for_topic((topic,))
                             logger.info(f"Starting auto-ingest pipeline for {len(articles)} articles with {len(topic_keywords)} keywords")
 
                             auto_ingest_results = await self.auto_ingest_pipeline(articles, topic, topic_keywords)
@@ -265,18 +275,18 @@ class KeywordMonitor:
                             logger.error(f"Auto-ingest pipeline failed: {e}", exc_info=True)
 
                     # Update last checked timestamp
-                    (DatabaseQueryFacade(self.db, logger)).update_monitored_keyword_last_checked((datetime.now().isoformat(), keyword_id))
+                    self.db.facade.update_monitored_keyword_last_checked((datetime.now().isoformat(), keyword_id))
 
                     # After processing keywords, check and reset counter if needed before updating
                     self.check_and_reset_counter()
 
                     # Update request count in status
-                    (DatabaseQueryFacade(self.db, logger)).update_keyword_monitor_counter((self.collector.requests_today,))
+                    self.db.facade.update_keyword_monitor_counter((self.collector.requests_today,))
                 except ValueError as e:
                     if "Rate limit exceeded" in str(e):
                         error_msg = "API daily request limit reached"
                         logger.error(error_msg)
-                        (DatabaseQueryFacade(self.db, logger)).create_keyword_monitor_log_entry((check_start_time, error_msg, self.collector.requests_today if self.collector else 0))
+                        self.db.facade.create_keyword_monitor_log_entry((check_start_time, error_msg, self.collector.requests_today if self.collector else 0))
                         return {"success": False, "error": error_msg, "new_articles": new_articles_count}
                     # Don't re-raise, return error response instead
                     logger.error(f"ValueError in keyword check: {str(e)}")
@@ -420,7 +430,7 @@ async def run_keyword_monitor():
                     logger.warning(f"WAL checkpoint failed: {checkpoint_error}")
             
             # Check if polling is enabled
-            is_enabled = (DatabaseQueryFacade(db, logger)).get_keyword_monitor_polling_enabled()
+            is_enabled = db.facade.get_keyword_monitor_polling_enabled()
 
             if is_enabled:
                 logger.info("Starting scheduled keyword check")
@@ -459,7 +469,7 @@ async def run_keyword_monitor():
 
         try:
             # Refresh interval from settings in case it was changed
-            settings = (DatabaseQueryFacade(db, logger)).get_keyword_monitor_interval()
+            settings = db.facade.get_keyword_monitor_interval()
             if settings:
                 monitor.check_interval = settings[0] * settings[1]  # interval * unit
         except Exception as e:

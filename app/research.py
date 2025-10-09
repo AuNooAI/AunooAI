@@ -148,36 +148,44 @@ class Research:
             
     def set_topic(self, topic_name: str):
         """Set the current topic for analysis."""
-        logger.debug(f"Setting topic to: {topic_name}")
+        logger.info(f"🎯 set_topic called with: '{topic_name}'")
+        logger.info(f"🎯 Current topic before: '{self.current_topic}'")
+        logger.info(f"🎯 Available topics: {list(self.topic_configs.keys())}")
+
         if not topic_name:
-            logger.warning("Attempted to set empty topic name")
+            logger.warning("⚠️ Attempted to set empty topic name")
             return
-        
+
         if topic_name not in self.topic_configs:
             # Attempt to reload configuration in case topics were added at runtime
             logger.warning(
-                "Invalid topic received: %s. Attempting to reload configuration.",
+                "⚠️ Topic '%s' not found in config. Attempting reload. Available: %s",
                 topic_name,
+                list(self.topic_configs.keys())
             )
             try:
                 self.load_config()
+                logger.info(f"🔄 Config reloaded. Now have {len(self.topic_configs)} topics: {list(self.topic_configs.keys())}")
             except Exception as reload_err:
-                logger.error("Error reloading configuration: %s", str(reload_err))
+                logger.error("❌ Error reloading configuration: %s", str(reload_err))
 
             # After reloading, check again
             if topic_name not in self.topic_configs:
-                logger.warning(
-                    "Topic still not found after configuration reload: %s. "
-                    "Retaining current topic '%s'",
+                logger.error(
+                    "❌ Topic '%s' STILL not found after reload. "
+                    "Retaining current topic '%s'. Available topics: %s",
                     topic_name,
                     self.current_topic,
+                    list(self.topic_configs.keys())
                 )
                 return
-            
+
         if self.current_topic != topic_name:
             self.current_topic = topic_name
-            logger.info(f"Set current topic to: {topic_name}")
-            logger.debug(f"Topic config: {self.topic_configs[topic_name]}")
+            logger.info(f"✅ Set current topic to: '{topic_name}'")
+            logger.info(f"✅ Topic has {len(self.topic_configs[topic_name].get('categories', []))} categories")
+        else:
+            logger.info(f"✅ Topic already set to: '{topic_name}'")
 
     @property
     def CATEGORIES(self):
@@ -866,15 +874,20 @@ class Research:
             raise
 
     async def get_categories(self, topic=None):
-        logger.debug(f"get_categories called for topic: {topic}")
+        logger.info(f"🔍 get_categories called for topic: '{topic}'")
+        logger.info(f"🔍 Current topic before set_topic: '{self.current_topic}'")
+        logger.info(f"🔍 Available topics in config: {list(self.topic_configs.keys())}")
         try:
             if topic:
                 self.set_topic(topic)
+                logger.info(f"🔍 Current topic after set_topic: '{self.current_topic}'")
             categories = self.CATEGORIES
-            logger.debug(f"Returning categories for topic {self.current_topic}: {categories}")
+            logger.info(f"✅ Returning {len(categories)} categories for topic '{self.current_topic}': {categories}")
             return categories
         except Exception as e:
-            logger.error(f"Error getting categories for topic {topic}: {str(e)}")
+            logger.error(f"❌ Error getting categories for topic {topic}: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             return []
 
     async def get_future_signals(self, topic=None):

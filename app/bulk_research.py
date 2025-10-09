@@ -479,111 +479,135 @@ class BulkResearch:
         return batch_results
 
     async def _save_articles_transaction(self, articles: List[Dict], batch_results: Dict):
-        """Save articles in a single database transaction using connection pool"""
+        """Save articles using PostgreSQL-compatible SQLAlchemy Core with relevance scores"""
         try:
-            from app.utils.database_pool import get_database_pool
+            from sqlalchemy import insert
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+            from app.database_models import t_articles, t_raw_articles
 
-            # Use database pool for better concurrency
-            db_pool = get_database_pool(self.db.db_path)
+            # Use SQLAlchemy connection for PostgreSQL compatibility
+            conn = self.db._temp_get_connection()
 
-            # Prepare batch operations
-            operations = []
+            # Check if we're already in a transaction
+            # If yes, use a nested transaction (savepoint), otherwise start a new one
+            try:
+                if conn.in_transaction():
+                    logger.debug("Using nested transaction (savepoint) for article save")
+                    trans = conn.begin_nested()
+                else:
+                    logger.debug("Starting new transaction for article save")
+                    trans = conn.begin()
+            except Exception as trans_error:
+                logger.warning(f"Could not begin transaction: {trans_error}, continuing without explicit transaction")
+                trans = None
 
-            for article in articles:
-                try:
-                    # Prepare article insert operation
-                    article_sql = """
-                        INSERT OR REPLACE INTO articles (
-                            uri, title, news_source, publication_date, submission_date,
-                            summary, category, future_signal, future_signal_explanation,
-                            sentiment, sentiment_explanation, time_to_impact, time_to_impact_explanation,
-                            tags, driver_type, driver_type_explanation, topic, analyzed,
-                            bias, factual_reporting, mbfc_credibility_rating, bias_source,
-                            bias_country, press_freedom, media_type, popularity, auto_ingested,
-                            ingest_status
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """
+            try:
+                for article in articles:
+                    try:
+                        # Prepare article data with relevance scores
+                        article_data = {
+                            'uri': article.get('uri', ''),
+                            'title': article.get('title', ''),
+                            'news_source': article.get('news_source', ''),
+                            'publication_date': article.get('publication_date', ''),
+                            'submission_date': article.get('submission_date', ''),
+                            'summary': article.get('summary', ''),
+                            'category': article.get('category', ''),
+                            'future_signal': article.get('future_signal', ''),
+                            'future_signal_explanation': article.get('future_signal_explanation', ''),
+                            'sentiment': article.get('sentiment', ''),
+                            'sentiment_explanation': article.get('sentiment_explanation', ''),
+                            'time_to_impact': article.get('time_to_impact', ''),
+                            'time_to_impact_explanation': article.get('time_to_impact_explanation', ''),
+                            'tags': article.get('tags', ''),
+                            'driver_type': article.get('driver_type', ''),
+                            'driver_type_explanation': article.get('driver_type_explanation', ''),
+                            'topic': article.get('topic', ''),
+                            'analyzed': article.get('analyzed', False),
+                            'bias': article.get('bias', ''),
+                            'factual_reporting': article.get('factual_reporting', ''),
+                            'mbfc_credibility_rating': article.get('mbfc_credibility_rating', ''),
+                            'bias_source': article.get('bias_source', ''),
+                            'bias_country': article.get('bias_country', ''),
+                            'press_freedom': article.get('press_freedom', ''),
+                            'media_type': article.get('media_type', ''),
+                            'popularity': article.get('popularity', ''),
+                            'auto_ingested': article.get('auto_ingested', False),
+                            'ingest_status': article.get('ingest_status', 'manual'),
+                            # Add relevance score fields
+                            'topic_alignment_score': article.get('topic_alignment_score'),
+                            'keyword_relevance_score': article.get('keyword_relevance_score'),
+                            'confidence_score': article.get('confidence_score'),
+                        }
 
-                    article_params = (
-                        article.get('uri', ''),
-                        article.get('title', ''),
-                        article.get('news_source', ''),
-                        article.get('publication_date', ''),
-                        article.get('submission_date', ''),
-                        article.get('summary', ''),
-                        article.get('category', ''),
-                        article.get('future_signal', ''),
-                        article.get('future_signal_explanation', ''),
-                        article.get('sentiment', ''),
-                        article.get('sentiment_explanation', ''),
-                        article.get('time_to_impact', ''),
-                        article.get('time_to_impact_explanation', ''),
-                        article.get('tags', ''),
-                        article.get('driver_type', ''),
-                        article.get('driver_type_explanation', ''),
-                        article.get('topic', ''),
-                        article.get('analyzed', False),
-                        article.get('bias', ''),
-                        article.get('factual_reporting', ''),
-                        article.get('mbfc_credibility_rating', ''),
-                        article.get('bias_source', ''),
-                        article.get('bias_country', ''),
-                        article.get('press_freedom', ''),
-                        article.get('media_type', ''),
-                        article.get('popularity', ''),
-                        article.get('auto_ingested', False),
-                        article.get('ingest_status', 'manual')
-                    )
+                        # Insert or update article
+                        stmt = insert(t_articles).values(article_data)
 
-                    operations.append((article_sql, article_params))
+                        # Use on_conflict_do_update for PostgreSQL, or fallback for SQLite
+                        if self.db.db_type == 'postgresql':
+                            stmt = stmt.on_conflict_do_update(
+                                index_elements=['uri'],
+                                set_=article_data
+                            )
 
-                    # Add raw article operation if available
-                    if article.get('raw_markdown'):
-                        raw_sql = """
-                            INSERT OR REPLACE INTO raw_articles (uri, raw_markdown, topic)
-                            VALUES (?, ?, ?)
-                        """
-                        raw_params = (
-                            article.get('uri', ''),
-                            article.get('raw_markdown', ''),
-                            article.get('topic', '')
-                        )
-                        operations.append((raw_sql, raw_params))
+                        conn.execute(stmt)
+                        logger.debug(f"Saved article with relevance scores: {article.get('uri')}")
 
-                except Exception as e:
-                    logger.error(f"Error preparing article {article.get('uri')}: {str(e)}")
-                    batch_results["errors"].append({
-                        "uri": article.get('uri', 'Unknown'),
-                        "error": f"Preparation failed: {str(e)}"
-                    })
+                        # Save raw article if available
+                        if article.get('raw_markdown'):
+                            raw_data = {
+                                'uri': article.get('uri', ''),
+                                'raw_markdown': article.get('raw_markdown', ''),
+                                'topic': article.get('topic', '')
+                            }
 
-            # Execute all operations in batch
-            if operations:
-                batch_operation_results = await db_pool.execute_batch(operations, batch_size=5)
+                            raw_stmt = insert(t_raw_articles).values(raw_data)
 
-                # Process results
-                for i, (article, result) in enumerate(zip(articles, batch_operation_results[:len(articles)])):
-                    if result.get('success'):
+                            if self.db.db_type == 'postgresql':
+                                raw_stmt = raw_stmt.on_conflict_do_update(
+                                    index_elements=['uri'],
+                                    set_=raw_data
+                                )
+
+                            conn.execute(raw_stmt)
+
                         batch_results["success"].append({
                             "uri": article['uri'],
                             "title": article['title']
                         })
-                    else:
+
+                    except Exception as e:
+                        logger.error(f"Error saving article {article.get('uri')}: {str(e)}")
                         batch_results["errors"].append({
                             "uri": article.get('uri', 'Unknown'),
-                            "error": result.get('error', 'Database operation failed')
+                            "error": f"Save failed: {str(e)}"
                         })
 
-                logger.info(f"Successfully processed batch of {len(articles)} articles using connection pool")
+                # Commit transaction if we have one
+                if trans is not None:
+                    trans.commit()
+                    logger.debug("Transaction committed for article save")
+
+                logger.info(f"Successfully saved batch of {len(articles)} articles with relevance scores")
+
+            except Exception as e:
+                # Rollback transaction if we have one
+                if trans is not None:
+                    trans.rollback()
+                    logger.error(f"Transaction rolled back due to error: {str(e)}")
+                else:
+                    logger.error(f"Error during save (no transaction to rollback): {str(e)}")
+                raise
 
         except Exception as e:
             logger.error(f"Batch transaction failed: {str(e)}")
             # Add all articles to errors if batch fails completely
             for article in articles:
-                batch_results["errors"].append({
-                    "uri": article.get('uri', 'Unknown'),
-                    "error": f"Batch transaction failed: {str(e)}"
-                })
+                if article.get('uri') not in [err.get('uri') for err in batch_results["errors"]]:
+                    batch_results["errors"].append({
+                        "uri": article.get('uri', 'Unknown'),
+                        "error": f"Batch transaction failed: {str(e)}"
+                    })
 
     async def _index_articles_vector(self, vector_articles: List[Dict]):
         """Index articles into vector database asynchronously with batching"""

@@ -61,7 +61,7 @@ class PromptTemplates:
             2. Future Signal:
             Classify the article into one of these Future Signals:
             {future_signals}
-            Base your classification on the overall tone and content of the article regarding the future of AI.
+            Base your classification on the overall tone and content of the article. Choose the option that best matches the article's perspective or prediction about future developments related to the topic.
             Provide a brief explanation for your classification.
 
             3. Sentiment:

@@ -22,7 +22,6 @@ from urllib.parse import urlencode
 from app.ai_models import LiteLLMModel
 import asyncio
 import uuid
-from app.database_query_facade import DatabaseQueryFacade
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -117,21 +116,21 @@ class PollingToggle(BaseModel):
 @router.post("/groups")
 async def create_group(group: KeywordGroup, db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
-        return {"id": (DatabaseQueryFacade(db, logger)).create_keyword_monitor_group((group.name, group.topic))}
+        return {"id": db.facade.create_keyword_monitor_group((group.name, group.topic))}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/keywords")
 async def add_keyword(keyword: Keyword, db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
-        return {"id": (DatabaseQueryFacade(db, logger)).create_keyword((keyword.group_id, keyword.keyword))}
+        return {"id": db.facade.create_keyword((keyword.group_id, keyword.keyword))}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.delete("/keywords/{keyword_id}")
 async def delete_keyword(keyword_id: int, db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
-        (DatabaseQueryFacade(db, logger)).delete_keyword(keyword_id)
+        db.facade.delete_keyword(keyword_id)
         return {"success": True}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -139,7 +138,7 @@ async def delete_keyword(keyword_id: int, db=Depends(get_database_instance), ses
 @router.delete("/groups/{group_id}")
 async def delete_group(group_id: int, db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
-        (DatabaseQueryFacade(db, logger)).delete_keyword_group(group_id)
+        db.facade.delete_keyword_group(group_id)
         return {"success": True}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -148,7 +147,7 @@ async def delete_group(group_id: int, db=Depends(get_database_instance), session
 async def delete_groups_by_topic(topic_name: str, db=Depends(get_database_instance), session=Depends(verify_session)):
     """Delete all keyword groups associated with a specific topic and clean up orphaned data"""
     try:
-            groups = (DatabaseQueryFacade(db, logger)).get_all_group_ids_associated_to_topic(topic_name)
+            groups = db.facade.get_all_group_ids_associated_to_topic(topic_name)
             
             if not groups:
                 return {"success": True, "groups_deleted": 0}
@@ -159,7 +158,7 @@ async def delete_groups_by_topic(topic_name: str, db=Depends(get_database_instan
             # Find all keyword IDs belonging to these groups
             keyword_ids = []
             for group_id in group_ids:
-                keywords = (DatabaseQueryFacade(db, logger)).get_keyword_ids_associated_to_group(group_id)
+                keywords = db.facade.get_keyword_ids_associated_to_group(group_id)
                 keyword_ids.extend([kw[0] for kw in keywords])
             
             # Delete all keyword alerts related to these keywords
@@ -168,24 +167,24 @@ async def delete_groups_by_topic(topic_name: str, db=Depends(get_database_instan
                 ids_str = ','.join('?' for _ in keyword_ids)
                 
                 # Check if the keyword_article_matches table exists
-                use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
+                use_new_table = db.facade.check_if_keyword_article_matches_table_exists()
                 
                 if use_new_table:
                     # For the new table structure
                     for group_id in group_ids:
-                        alerts_deleted += (DatabaseQueryFacade(db, logger)).delete_keyword_article_matches_from_new_table_structure(group_id)
+                        alerts_deleted += db.facade.delete_keyword_article_matches_from_new_table_structure(group_id)
                 else:
                     # For the original table structure
-                    alerts_deleted = (DatabaseQueryFacade(db, logger)).delete_keyword_article_matches_from_old_table_structure(ids_str, keyword_ids)
+                    alerts_deleted = db.facade.delete_keyword_article_matches_from_old_table_structure(ids_str, keyword_ids)
             
             # Delete all keywords for these groups
             keywords_deleted = 0
             if group_ids:
                 ids_str = ','.join('?' for _ in group_ids)
-                keywords_deleted = (DatabaseQueryFacade(db, logger)).delete_groups_keywords(ids_str, keyword_ids)
+                keywords_deleted = db.facade.delete_groups_keywords(ids_str, keyword_ids)
             
             # Delete all keyword groups for this topic
-            (DatabaseQueryFacade(db, logger)).delete_groups_keywords(topic_name)
+            db.facade.delete_groups_keywords(topic_name)
             return {
                 "success": True, 
                 "groups_deleted": groups_deleted,
@@ -200,19 +199,19 @@ async def delete_groups_by_topic(topic_name: str, db=Depends(get_database_instan
 async def mark_alert_read(alert_id: int, db=Depends(get_database_instance), session=Depends(verify_session_api)):
     try:
         # Check if the alert is in the keyword_article_matches table
-        use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
+        use_new_table = db.facade.check_if_keyword_article_matches_table_exists()
 
         if use_new_table:
             # Check if the alert ID is in the new table
-            if (DatabaseQueryFacade(db, logger)).check_if_alert_id_exists_in_new_table_structure(alert_id):
+            if db.facade.check_if_alert_id_exists_in_new_table_structure(alert_id):
                 # Update the new table
-                (DatabaseQueryFacade(db, logger)).mark_alert_as_read_or_unread_in_new_table(alert_id, 1)
+                db.facade.mark_alert_as_read_or_unread_in_new_table(alert_id, 1)
             else:
                 # Update the old table
-                (DatabaseQueryFacade(db, logger)).mark_alert_as_read_or_unread_in_old_table(alert_id, 1)
+                db.facade.mark_alert_as_read_or_unread_in_old_table(alert_id, 1)
         else:
             # Update the old table
-            (DatabaseQueryFacade(db, logger)).mark_alert_as_read_in_old_table(alert_id)
+            db.facade.mark_alert_as_read_in_old_table(alert_id)
 
         return {"success": True}
     except Exception as e:
@@ -243,10 +242,10 @@ async def check_now(
 
         # Log number of keywords being monitored
         if group_id:
-            keyword_count = (DatabaseQueryFacade(db, logger)).get_number_of_monitored_keywords_by_group_id(group_id)
+            keyword_count = db.facade.get_number_of_monitored_keywords_by_group_id(group_id)
             logger.info(f"Running manual keyword check for group {group_id} - {keyword_count} keywords configured")
         else:
-            keyword_count = (DatabaseQueryFacade(db, logger)).get_total_number_of_keywords()
+            keyword_count = db.facade.get_total_number_of_keywords()
             logger.info(f"Running manual keyword check - {keyword_count} keywords configured")
 
         # Check if this should be a background task (for operations likely to take >10 seconds)
@@ -337,7 +336,7 @@ async def get_alerts(
         # Initialize media bias for article enrichment
         media_bias = MediaBias(db)
 
-        (columns, rows) = (DatabaseQueryFacade(db, logger)).get_alerts(show_read)
+        (columns, rows) = db.facade.get_alerts(show_read)
         alerts = []
 
         for row in rows:
@@ -379,7 +378,7 @@ async def get_alerts(
 
             # Check for enrichment data in the articles table
             try:
-                enrichment_row = (DatabaseQueryFacade(db, logger)).get_article_enrichment(article_data)
+                enrichment_row = db.facade.get_article_enrichment(article_data)
                 if enrichment_row:
                     (category, sentiment, driver_type, time_to_impact,
                      topic_alignment_score, keyword_relevance_score,
@@ -457,15 +456,15 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
         media_bias = MediaBias(db)
 
         # Check which table structure to use
-        use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
+        use_new_table = db.facade.check_if_keyword_article_matches_table_exists()
 
         rows = []
         if use_new_table:
             # Get all groups with their alerts and status using new table structure
-            rows = (DatabaseQueryFacade(db, logger)).get_all_groups_with_alerts_and_status_new_table_structure()
+            rows = db.facade.get_all_groups_with_alerts_and_status_new_table_structure()
         else:
             # Fallback to old table structure
-            rows = (DatabaseQueryFacade(db, logger)).get_all_groups_with_alerts_and_status_old_table_structure()
+            rows = db.facade.get_all_groups_with_alerts_and_status_old_table_structure()
 
         groups = []
         for row in rows:
@@ -475,14 +474,14 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
             logger.info(f"GROUP DEBUG - Group {group_id} ({topic}): unread_count={unread_count}, total_count={total_count}")
 
             # Get keywords for this group
-            keywords = (DatabaseQueryFacade(db, logger)).get_keywords_associated_to_group(group_id)
+            keywords = db.facade.get_keywords_associated_to_group(group_id)
 
             # Get the most recent unread alerts for this group
             fetched_articles = []
             if use_new_table:
-                fetched_articles = (DatabaseQueryFacade(db, logger)).get_most_recent_unread_alerts_for_group_id_new_table_structure(group_id)
+                fetched_articles = db.facade.get_most_recent_unread_alerts_for_group_id_new_table_structure(group_id)
             else:
-                fetched_articles = (DatabaseQueryFacade(db, logger)).get_most_recent_unread_alerts_for_group_id_old_table_structure(group_id)
+                fetched_articles = db.facade.get_most_recent_unread_alerts_for_group_id_old_table_structure(group_id)
 
             alerts = []
 
@@ -492,50 +491,60 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
             # Let's also count total unread articles without the limit to see the real count
             actual_unread_count = 0
             if use_new_table:
-                (DatabaseQueryFacade(db, logger)).count_total_group_unread_articles_new_table_structure(group_id)
+                db.facade.count_total_group_unread_articles_new_table_structure(group_id)
             else:
-                (DatabaseQueryFacade(db, logger)).count_total_group_unread_articles_old_table_structure(group_id)
+                db.facade.count_total_group_unread_articles_old_table_structure(group_id)
 
             logger.info(f"GROUP DEBUG - Group {group_id} ({topic}): actual unread count without limit = {actual_unread_count}")
 
             logger.info(f"Processing {len(fetched_articles)} articles for group {group_id}")
             for alert in fetched_articles:
-                # CRITICAL DEBUG: Check tuple length
-                if len(alert) != 34:
-                    logger.error(f"TUPLE LENGTH MISMATCH! Expected 34 fields, got {len(alert)} fields")
-                    logger.error(f"Alert tuple: {alert}")
-
-                (
-                    alert_id, article_uri, keyword_ids, matched_keyword,
-                    is_read, detected_at, below_threshold,
-                    title, summary, uri, news_source, publication_date,
-                    topic_alignment_score, keyword_relevance_score,
-                    confidence_score, overall_match_explanation,
-                    extracted_article_topics, extracted_article_keywords,
-                    category, sentiment, driver_type, time_to_impact,
-                    future_signal, bias, factual_reporting,
-                    mbfc_credibility_rating, bias_country, press_freedom,
-                    media_type, popularity, auto_ingested, ingest_status,
-                    quality_score, quality_issues
-                ) = alert
-
-                # CRITICAL DEBUG: Log what we got
-                if alert_id == 5558 or alert_id == 5445:
-                    logger.info(f"=== ALERT {alert_id} UNPACKED ===")
-                    logger.info(f"  category at index 17: {repr(alert[17])}")
-                    logger.info(f"  category variable: {repr(category)}")
-                    logger.info(f"  Total fields: {len(alert)}")
+                # Extract fields from mapping object
+                alert_id = alert['id']
+                article_uri = alert['article_uri']
+                keyword_ids = alert['keyword_ids']
+                matched_keyword = alert['matched_keyword']
+                is_read = alert['is_read']
+                detected_at = alert['detected_at']
+                below_threshold = alert['below_threshold']
+                title = alert['title']
+                summary = alert['summary']
+                uri = alert['uri']
+                news_source = alert['news_source']
+                publication_date = alert['publication_date']
+                topic_alignment_score = alert['topic_alignment_score']
+                keyword_relevance_score = alert['keyword_relevance_score']
+                confidence_score = alert['confidence_score']
+                overall_match_explanation = alert['overall_match_explanation']
+                extracted_article_topics = alert['extracted_article_topics']
+                extracted_article_keywords = alert['extracted_article_keywords']
+                category = alert['category']
+                sentiment = alert['sentiment']
+                driver_type = alert['driver_type']
+                time_to_impact = alert['time_to_impact']
+                future_signal = alert['future_signal']
+                bias = alert['bias']
+                factual_reporting = alert['factual_reporting']
+                mbfc_credibility_rating = alert['mbfc_credibility_rating']
+                bias_country = alert['bias_country']
+                press_freedom = alert['press_freedom']
+                media_type = alert['media_type']
+                popularity = alert['popularity']
+                auto_ingested = alert['auto_ingested']
+                ingest_status = alert['ingest_status']
+                quality_score = alert['quality_score']
+                quality_issues = alert['quality_issues']
 
                 # Get all matched keywords for this article and group
                 if keyword_ids:
                     keyword_id_list = [int(kid.strip()) for kid in keyword_ids.split(',') if kid.strip()]
                     if keyword_id_list:
                         placeholders = ','.join(['?'] * len(keyword_id_list))
-                        matched_keywords = (DatabaseQueryFacade(db, logger)).get_all_matched_keywords_for_article_and_group(placeholders, keyword_id_list + [group_id])
+                        matched_keywords = db.facade.get_all_matched_keywords_for_article_and_group(placeholders, keyword_id_list + [group_id])
                     else:
                         matched_keywords = []
                 else:
-                    matched_keywords = (DatabaseQueryFacade(db, logger)).get_all_matched_keywords_for_article_and_group_by_article_url_and_group_id(article_uri, group_id)
+                    matched_keywords = db.facade.get_all_matched_keywords_for_article_and_group_by_article_url_and_group_id(article_uri, group_id)
 
                 # Check if we already have bias data from the database
                 has_db_bias_data = bias or factual_reporting or mbfc_credibility_rating or bias_country
@@ -625,7 +634,7 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
 
                 # Legacy enrichment lookup (kept for compatibility but should not be needed now)
                 try:
-                    enrichment_row = (DatabaseQueryFacade(db, logger)).get_article_enrichment_by_article_url(article_uri)
+                    enrichment_row = db.facade.get_article_enrichment_by_article_url(article_uri)
                     if enrichment_row:
                         (enrich_category, enrich_sentiment, enrich_driver_type, enrich_time_to_impact,
                          enrich_topic_alignment_score, enrich_keyword_relevance_score,
@@ -805,21 +814,21 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
 async def get_settings(db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
         # Create keyword_monitor_status table if it doesn't exist
-        (DatabaseQueryFacade(db, logger)).create_keyword_monitor_table_if_not_exists_and_insert_default_value()
+        db.facade.create_keyword_monitor_table_if_not_exists_and_insert_default_value()
 
         # Debug: Check both tables
-        (status_data, settings_data) = (DatabaseQueryFacade(db, logger)).check_keyword_monitor_status_and_settings_tables()
+        (status_data, settings_data) = db.facade.check_keyword_monitor_status_and_settings_tables()
         logger.debug(f"Status data: {status_data}")
         logger.debug(f"Settings data: {settings_data}")
 
         # Get accurate keyword count
-        total_keywords = (DatabaseQueryFacade(db, logger)).get_count_of_monitored_keywords()
+        total_keywords = db.facade.get_count_of_monitored_keywords()
 
         # Log the count for debugging
         logger.debug(f"Active keywords count: {total_keywords}")
 
         # Get settings and status together (including auto-ingest fields)
-        settings = (DatabaseQueryFacade(db, logger)).get_settings_and_status_together()
+        settings = db.facade.get_settings_and_status_together()
         logger.debug(f"Settings query result: {settings}")
 
         if settings:
@@ -880,7 +889,7 @@ async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_databas
     """Save keyword monitor settings"""
     try:
             # Update or insert settings (including auto-ingest settings)
-            (DatabaseQueryFacade(db, logger)).update_or_insert_keyword_monitor_settings((
+            db.facade.update_or_insert_keyword_monitor_settings((
                 settings.check_interval,
                 settings.interval_unit,
                 settings.search_fields,
@@ -909,7 +918,7 @@ async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_databas
 async def get_trends(db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
         # Get data for the last 7 days
-        results = (DatabaseQueryFacade(db, logger)).get_trends()
+        results = db.facade.get_trends()
 
         # Process results into the required format
         trends = {}
@@ -934,7 +943,7 @@ async def get_trends(db=Depends(get_database_instance), session=Depends(verify_s
 @router.post("/toggle-polling")
 async def toggle_polling(toggle: PollingToggle, db=Depends(get_database_instance), session=Depends(verify_session_api)):
     try:
-        (DatabaseQueryFacade(db, logger)).toggle_polling(toggle)
+        db.facade.toggle_polling(toggle)
         return {"status": "success", "enabled": toggle.enabled}
             
     except Exception as e:
@@ -960,14 +969,14 @@ async def export_alerts(db=Depends(get_database_instance), session=Depends(verif
         ])
         
         # Check if the keyword_article_matches table exists
-        use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
+        use_new_table = db.facade.check_if_keyword_article_matches_table_exists()
 
         if use_new_table:
             # Use the new table structure
-            rows = (DatabaseQueryFacade(db, logger)).get_all_alerts_for_export_new_table_structure()
+            rows = db.facade.get_all_alerts_for_export_new_table_structure()
         else:
             # Use the original table structure
-            rows = (DatabaseQueryFacade(db, logger)).get_all_alerts_for_export_old_table_structure()
+            rows = db.facade.get_all_alerts_for_export_old_table_structure()
 
         # Write data
         for row in rows:
@@ -1024,14 +1033,14 @@ async def export_group_alerts(
         
         # Check if the keyword_article_matches table exists
         # Check if the keyword_article_matches table exists
-        use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
+        use_new_table = db.facade.check_if_keyword_article_matches_table_exists()
 
         if use_new_table:
             # Use the new table structure
-            rows = (DatabaseQueryFacade(db, logger)).get_all_group_and_topic_alerts_for_export_new_table_structure(group_id, topic)
+            rows = db.facade.get_all_group_and_topic_alerts_for_export_new_table_structure(group_id, topic)
         else:
             # Use the original table structure
-            rows = (DatabaseQueryFacade(db, logger)).get_all_group_and_topic_alerts_for_export_old_table_structure(group_id, topic)
+            rows = db.facade.get_all_group_and_topic_alerts_for_export_old_table_structure(group_id, topic)
 
         # Write data
         for row in rows:
@@ -1066,25 +1075,25 @@ async def export_group_alerts(
         raise HTTPException(status_code=500, detail=str(e))
 
 async def save_keyword_alert(db: Database, article_data: dict):
-    (DatabaseQueryFacade(db, logger)).save_keyword_alert(article_data)
+    db.facade.save_keyword_alert(article_data)
 
 @router.post("/alerts/{alert_id}/unread")
 async def mark_alert_unread(alert_id: int, db: Database = Depends(get_database_instance), session=Depends(verify_session)):
     try:
         # Check if the alert is in the keyword_article_matches table
-        use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
+        use_new_table = db.facade.check_if_keyword_article_matches_table_exists()
 
         if use_new_table:
             # Check if the alert ID is in the new table
-            if (DatabaseQueryFacade(db, logger)).check_if_alert_id_exists_in_new_table_structure(alert_id):
+            if db.facade.check_if_alert_id_exists_in_new_table_structure(alert_id):
                 # Update the new table
-                (DatabaseQueryFacade(db, logger)).mark_alert_as_read_or_unread_in_new_table(alert_id, 0)
+                db.facade.mark_alert_as_read_or_unread_in_new_table(alert_id, 0)
             else:
                 # Update the old table
-                (DatabaseQueryFacade(db, logger)).mark_alert_as_read_or_unread_in_old_table(alert_id, 0)
+                db.facade.mark_alert_as_read_or_unread_in_old_table(alert_id, 0)
         else:
             # Update the old table
-            (DatabaseQueryFacade(db, logger)).mark_alert_as_read_in_old_table(alert_id)
+            db.facade.mark_alert_as_read_in_old_table(alert_id)
 
         return {"success": True}
     except Exception as e:
@@ -1133,38 +1142,68 @@ async def get_group_alerts(
         media_bias = MediaBias(db) if not skip_media_bias else None
         
         # Determine if we're using the new table structure
-        use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
+        use_new_table = db.facade.check_if_keyword_article_matches_table_exists()
 
         if use_new_table:
             # Using new structure (keyword_article_matches table) with pagination
-            alert_results = (DatabaseQueryFacade(db, logger)).get_alerts_by_group_id_from_new_table_structure(status, show_read, group_id, page_size, offset)
+            alert_results = db.facade.get_alerts_by_group_id_from_new_table_structure(status, show_read, group_id, page_size, offset)
         else:
             # Fallback to old structure (keyword_alerts table) with pagination
-            alert_results = (DatabaseQueryFacade(db, logger)).get_alerts_by_group_id_from_old_table_structure(status, show_read, group_id, page_size, offset)
+            alert_results = db.facade.get_alerts_by_group_id_from_old_table_structure(status, show_read, group_id, page_size, offset)
 
         # Get unread count for this group
         if use_new_table:
-            unread_count = (DatabaseQueryFacade(db, logger)).count_unread_articles_by_group_id_from_new_table_structure(group_id)
+            unread_count = db.facade.count_unread_articles_by_group_id_from_new_table_structure(group_id)
         else:
-            unread_count = (DatabaseQueryFacade(db, logger)).count_unread_articles_by_group_id_from_old_table_structure(group_id)
+            unread_count = db.facade.count_unread_articles_by_group_id_from_old_table_structure(group_id)
 
         # Get total count for this group (respecting status filter)
         if use_new_table:
-            total_count = (DatabaseQueryFacade(db, logger)).count_total_articles_by_group_id_from_new_table_structure(group_id, status)
+            total_count = db.facade.count_total_articles_by_group_id_from_new_table_structure(group_id, status)
         else:
-            total_count = (DatabaseQueryFacade(db, logger)).count_total_articles_by_group_id_from_old_table_structure(group_id, status)
+            total_count = db.facade.count_total_articles_by_group_id_from_old_table_structure(group_id, status)
 
         # Get group name early so it's available in error handling
-        group_name = (DatabaseQueryFacade(db, logger)).get_group_name(group_id)
+        group_name = db.facade.get_group_name(group_id)
 
         alerts = []
         index = 0
         for alert in alert_results:
-            if use_new_table:
-                alert_id, article_uri, keyword_ids, matched_keyword, is_read, detected_at, below_threshold, title, summary, uri, news_source, publication_date, topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation, extracted_article_topics, extracted_article_keywords, category, sentiment, driver_type, time_to_impact, future_signal, bias, factual_reporting, mbfc_credibility_rating, bias_country, press_freedom, media_type, popularity, auto_ingested, ingest_status, quality_score, quality_issues = alert
-            else:
-                alert_id, article_uri, keyword_ids, matched_keyword, is_read, detected_at, title, summary, uri, news_source, publication_date, topic_alignment_score, keyword_relevance_score, confidence_score, overall_match_explanation, extracted_article_topics, extracted_article_keywords, category, sentiment, driver_type, time_to_impact, future_signal, bias, factual_reporting, mbfc_credibility_rating, bias_country, press_freedom, media_type, popularity, auto_ingested, ingest_status, quality_score, quality_issues = alert
-                below_threshold = False  # Old table doesn't have this field
+            # Extract fields from mapping object
+            alert_id = alert['id']
+            article_uri = alert['article_uri']
+            keyword_ids = alert['keyword_ids']
+            matched_keyword = alert['matched_keyword']
+            is_read = alert['is_read']
+            detected_at = alert['detected_at']
+            below_threshold = alert.get('below_threshold', False)
+            title = alert['title']
+            summary = alert['summary']
+            uri = alert['uri']
+            news_source = alert['news_source']
+            publication_date = alert['publication_date']
+            topic_alignment_score = alert['topic_alignment_score']
+            keyword_relevance_score = alert['keyword_relevance_score']
+            confidence_score = alert['confidence_score']
+            overall_match_explanation = alert['overall_match_explanation']
+            extracted_article_topics = alert['extracted_article_topics']
+            extracted_article_keywords = alert['extracted_article_keywords']
+            category = alert['category']
+            sentiment = alert['sentiment']
+            driver_type = alert['driver_type']
+            time_to_impact = alert['time_to_impact']
+            future_signal = alert['future_signal']
+            bias = alert['bias']
+            factual_reporting = alert['factual_reporting']
+            mbfc_credibility_rating = alert['mbfc_credibility_rating']
+            bias_country = alert['bias_country']
+            press_freedom = alert['press_freedom']
+            media_type = alert['media_type']
+            popularity = alert['popularity']
+            auto_ingested = alert['auto_ingested']
+            ingest_status = alert['ingest_status']
+            quality_score = alert['quality_score']
+            quality_issues = alert['quality_issues']
 
             if use_new_table:
                 # For new table, keyword_ids is a comma-separated string
@@ -1172,13 +1211,13 @@ async def get_group_alerts(
                     keyword_id_list = [int(kid.strip()) for kid in keyword_ids.split(',') if kid.strip()]
                     if keyword_id_list:
                         placeholders = ','.join(['?'] * len(keyword_id_list))
-                        matched_keywords = (DatabaseQueryFacade(db, logger)).get_all_matched_keywords_for_article_and_group(placeholders, keyword_id_list + [group_id])
+                        matched_keywords = db.facade.get_all_matched_keywords_for_article_and_group(placeholders, keyword_id_list + [group_id])
                     else:
                         matched_keywords = []
                 else:
                     matched_keywords = []
             else:
-                matched_keywords = (DatabaseQueryFacade(db,logger)).get_all_matched_keywords_for_article_and_group_by_article_url_and_group_id(article_uri, group_id)
+                matched_keywords = db.facade.get_all_matched_keywords_for_article_and_group_by_article_url_and_group_id(article_uri, group_id)
 
             # Check if we already have media bias data from the database
             has_db_bias_data = bias or factual_reporting or mbfc_credibility_rating or bias_country
@@ -1211,7 +1250,7 @@ async def get_group_alerts(
                 # If we found bias data, ensure the source is enabled
                 if bias_data and 'enabled' in bias_data and bias_data['enabled'] == 0:
                     try:
-                        (DatabaseQueryFacade(db, logger)).update_media_bias(bias_data.get('source'))
+                        db.facade.update_media_bias(bias_data.get('source'))
                         # Update the bias data to show it's now enabled
                         bias_data['enabled'] = 1
                     except Exception as e:
@@ -1326,7 +1365,7 @@ async def delete_articles_by_topic(topic_name: str, db=Depends(get_database_inst
     """Delete all articles associated with a specific topic and their related data"""
     try:
         # Check if the keyword_article_matches table exists
-        use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
+        use_new_table = db.facade.check_if_keyword_article_matches_table_exists()
 
         alerts_deleted = 0
         articles_deleted = 0
@@ -1335,16 +1374,16 @@ async def delete_articles_by_topic(topic_name: str, db=Depends(get_database_inst
         article_uris = []
 
         # From news_search_results
-        article_uris.extend([row[0] for row in(DatabaseQueryFacade(db, logger)).get_article_urls_from_news_search_results_by_topic(topic_name)])
+        article_uris.extend([row[0] for row in db.facade.get_article_urls_from_news_search_results_by_topic(topic_name)])
 
         # From paper_search_results
-        article_uris.extend([row[0] for row in(DatabaseQueryFacade(db, logger)).get_article_urls_from_paper_search_results_by_topic(topic_name)])
+        article_uris.extend([row[0] for row in db.facade.get_article_urls_from_paper_search_results_by_topic(topic_name)])
 
         # Direct topic reference if the column exists
-        has_topic_column = (DatabaseQueryFacade(db, logger)).check_if_articles_table_has_topic_column()
+        has_topic_column = db.facade.check_if_articles_table_has_topic_column()
 
         if has_topic_column:
-            article_uris.extend([row[0] for row in (DatabaseQueryFacade(db, logger)).article_urls_by_topic(topic_name)])
+            article_uris.extend([row[0] for row in db.facade.article_urls_by_topic(topic_name)])
 
         # Remove duplicates
         article_uris = list(set(article_uris))
@@ -1353,20 +1392,20 @@ async def delete_articles_by_topic(topic_name: str, db=Depends(get_database_inst
             # Delete related keyword alerts first
             if use_new_table:
                 for uri in article_uris:
-                    alerts_deleted += (DatabaseQueryFacade(db, logger)).delete_article_matches_by_url(uri)
+                    alerts_deleted += db.facade.delete_article_matches_by_url(uri)
             else:
                 for uri in article_uris:
-                    alerts_deleted += (DatabaseQueryFacade(db, logger)).delete_keyword_alerts_by_url(uri)
+                    alerts_deleted += db.facade.delete_keyword_alerts_by_url(uri)
 
             # Delete news_search_results
-            (DatabaseQueryFacade(db, logger)).delete_news_search_results_by_topic(topic_name)
+            db.facade.delete_news_search_results_by_topic(topic_name)
 
             # Delete paper_search_results
-            (DatabaseQueryFacade(db, logger)).delete_paper_search_results_by_topic(topic_name)
+            db.facade.delete_paper_search_results_by_topic(topic_name)
 
             # Delete articles
             for uri in article_uris:
-                articles_deleted_count = (DatabaseQueryFacade(db, logger)).delete_article_by_url(uri)
+                articles_deleted_count = db.facade.delete_article_by_url(uri)
                 if articles_deleted_count > 0:
                     articles_deleted += articles_deleted_count
 
@@ -1482,7 +1521,7 @@ async def clean_orphaned_topics(db=Depends(get_database_instance), session=Depen
             active_topics = set()
 
         # Check if keyword_groups table exists
-        if not (DatabaseQueryFacade(db, logger)).check_if_keyword_groups_table_exists():
+        if not db.facade.check_if_keyword_groups_table_exists():
             return {
                 "status": "success",
                 "message": "No keyword_groups table found",
@@ -1491,7 +1530,7 @@ async def clean_orphaned_topics(db=Depends(get_database_instance), session=Depen
 
         # Get all topics referenced in keyword groups
         try:
-            keyword_topics = (DatabaseQueryFacade(db, logger)).get_all_topics_referenced_in_keyword_groups()
+            keyword_topics = db.facade.get_all_topics_referenced_in_keyword_groups()
         except sqlite3.OperationalError as e:
             logger.error(f"Database error: {str(e)}")
             return {
@@ -1549,7 +1588,7 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
             active_topics = set()
 
         # Check if articles table exists
-        if not (DatabaseQueryFacade(db, logger)).check_if_articles_table_exists():
+        if not db.facade.check_if_articles_table_exists():
             return {
                 "status": "success",
                 "message": "No articles table found",
@@ -1561,12 +1600,12 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
 
         # Check if articles table has a topic column
         try:
-            has_topic_column = (DatabaseQueryFacade(db, logger)).check_if_articles_table_has_topic_column()
+            has_topic_column = db.facade.check_if_articles_table_has_topic_column()
 
             # First, check direct topic references if the column exists
             if has_topic_column:
                 try:
-                    for row in (DatabaseQueryFacade(db, logger)).get_urls_and_topics_from_articles():
+                    for row in db.facade.get_urls_and_topics_from_articles():
                         uri, topic = row
                         if topic not in active_topics:
                             orphaned_article_uris.add(uri)
@@ -1576,9 +1615,9 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
             logger.error(f"Error checking articles schema: {str(e)}")
 
         # Check if news_search_results table exists
-        if (DatabaseQueryFacade(db, logger)).check_if_news_search_results_table_exists():
+        if db.facade.check_if_news_search_results_table_exists():
             try:
-                for row in (DatabaseQueryFacade(db, logger)).get_urls_and_topics_from_news_search_results():
+                for row in db.facade.get_urls_and_topics_from_news_search_results():
                     uri, topic = row
                     if topic not in active_topics:
                         orphaned_article_uris.add(uri)
@@ -1586,9 +1625,9 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
                 logger.error(f"Error querying news_search_results: {str(e)}")
 
         # Check if paper_search_results table exists
-        if (DatabaseQueryFacade(db, logger)).check_if_paper_search_results_table_exists():
+        if db.facade.check_if_paper_search_results_table_exists():
             try:
-                for row in (DatabaseQueryFacade(db, logger)).get_urls_and_topics_from_paper_search_results():
+                for row in db.facade.get_urls_and_topics_from_paper_search_results():
                     uri, topic = row
                     if topic not in active_topics:
                         orphaned_article_uris.add(uri)
@@ -1601,12 +1640,12 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
             has_paper_results = False
 
             # Check if search result tables exist
-            has_news_results = (DatabaseQueryFacade(db, logger)).check_if_news_search_results_table_exists()
+            has_news_results = db.facade.check_if_news_search_results_table_exists()
 
-            has_paper_results = (DatabaseQueryFacade(db, logger)).check_if_paper_search_results_table_exists()
+            has_paper_results = db.facade.check_if_paper_search_results_table_exists()
 
             if has_news_results or has_paper_results:
-                orphaned_article_uris.update((DatabaseQueryFacade(db, logger)).get_orphaned_urls_from_news_results_and_or_paper_results(has_news_results, has_paper_results))
+                orphaned_article_uris.update(db.facade.get_orphaned_urls_from_news_results_and_or_paper_results(has_news_results, has_paper_results))
         except sqlite3.OperationalError as e:
             logger.error(f"Error checking articles without search results: {str(e)}")
 
@@ -1622,7 +1661,7 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
         articles_deleted = 0
 
         # Check if keyword_article_matches table exists
-        use_new_table = (DatabaseQueryFacade(db, logger)).check_if_keyword_article_matches_table_exists()
+        use_new_table = db.facade.check_if_keyword_article_matches_table_exists()
 
         # Process articles in smaller batches to avoid SQL parameter limits
         batch_size = 100
@@ -1634,9 +1673,9 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
             try:
                 for uri in batch:
                     if use_new_table:
-                        alerts_deleted += (DatabaseQueryFacade(db, logger)).delete_keyword_article_matches_from_new_table_structure_by_url(uri)
+                        alerts_deleted += db.facade.delete_keyword_article_matches_from_new_table_structure_by_url(uri)
                     else:
-                        alerts_deleted += (DatabaseQueryFacade(db, logger)).delete_keyword_article_matches_from_old_table_structure_by_url(uri)
+                        alerts_deleted += db.facade.delete_keyword_article_matches_from_old_table_structure_by_url(uri)
             except sqlite3.OperationalError as e:
                 logger.error(f"Error deleting alerts: {str(e)}")
 
@@ -1646,11 +1685,11 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
                 placeholders = ','.join(['?'] * len(batch))
 
                 # Check if tables exist before attempting delete
-                if (DatabaseQueryFacade(db, logger)).check_if_news_search_results_table_exists():
-                    (DatabaseQueryFacade(db, logger)).delete_news_search_results_by_article_urls(placeholders, batch)
+                if db.facade.check_if_news_search_results_table_exists():
+                    db.facade.delete_news_search_results_by_article_urls(placeholders, batch)
 
-                if (DatabaseQueryFacade(db, logger)).check_if_paper_search_results_table_exists():
-                    (DatabaseQueryFacade(db, logger)).delete_paper_search_results_by_article_urls(placeholders, batch)
+                if db.facade.check_if_paper_search_results_table_exists():
+                    db.facade.delete_paper_search_results_by_article_urls(placeholders, batch)
             except sqlite3.OperationalError as e:
                 logger.error(f"Error deleting search results: {str(e)}")
 
@@ -1658,7 +1697,7 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
         for batch in article_batches:
             try:
                 placeholders = ','.join(['?'] * len(batch))
-                articles_deleted += (DatabaseQueryFacade(db, logger)).delete_articles_by_article_urls(placeholders, batch)
+                articles_deleted += db.facade.delete_articles_by_article_urls(placeholders, batch)
             except sqlite3.OperationalError as e:
                 logger.error(f"Error deleting articles: {str(e)}")
 
@@ -1721,13 +1760,13 @@ async def get_keyword_monitor_status(db=Depends(get_database_instance), session=
         
         # Get settings from the database
         # Get monitor settings
-        settings = (DatabaseQueryFacade(db, logger)).get_monitor_settings()
+        settings = db.facade.get_monitor_settings()
 
         # Get keyword count
-        keyword_count = (DatabaseQueryFacade(db, logger)).get_total_number_of_keywords()
+        keyword_count = db.facade.get_total_number_of_keywords()
 
         # Get request count for today
-        status_row =  (DatabaseQueryFacade(db, logger)).get_request_count_for_today()
+        status_row =  db.facade.get_request_count_for_today()
             
         # Format response
         response = {
@@ -1791,7 +1830,7 @@ async def analyze_relevance(
         # Get monitoring keywords from the group if group_id is provided
         keywords_str = ""
         if request.group_id:
-            keywords = (DatabaseQueryFacade(db, logger)).get_keywords_associated_to_group_ordered_by_keyword(request.group_id)
+            keywords = db.facade.get_keywords_associated_to_group_ordered_by_keyword(request.group_id)
             keywords_str = ", ".join(keywords)
             logger.info(f"Found {len(keywords)} monitoring keywords for group {request.group_id}: {keywords_str}")
         
@@ -1806,7 +1845,7 @@ async def analyze_relevance(
         articles = []
 
         for uri in request.article_uris:
-            article_row = (DatabaseQueryFacade(db, logger)).get_articles_by_url(uri)
+            article_row = db.facade.get_articles_by_url(uri)
 
             if not article_row:
                 logger.warning(f"Article not found in database: {uri}")
@@ -1815,7 +1854,7 @@ async def analyze_relevance(
             article = dict(article_row)
 
             # Try to get raw content if available
-            raw_row = (DatabaseQueryFacade(db, logger)).get_raw_articles_markdown_by_url(uri)
+            raw_row = db.facade.get_raw_articles_markdown_by_url(uri)
 
             # Use raw content if available, otherwise fall back to summary
             content = ""
@@ -1856,7 +1895,7 @@ async def analyze_relevance(
                 extracted_topics = json.dumps(analyzed_article.get('extracted_article_topics', []))
                 extracted_keywords = json.dumps(analyzed_article.get('extracted_article_keywords', []))
 
-                updated_article_count = (DatabaseQueryFacade(db, logger)).update_article_by_url((
+                updated_article_count = db.facade.update_article_by_url((
                     analyzed_article.get('topic_alignment_score', 0.0),
                     analyzed_article.get('keyword_relevance_score', 0.0),
                     analyzed_article.get('confidence_score', 0.0),
@@ -2092,7 +2131,7 @@ async def enable_auto_ingest(
     """Enable or disable auto-ingest functionality"""
     try:
         # Update auto_ingest_enabled setting
-        (DatabaseQueryFacade(db, logger)).enable_or_disable_auto_ingest(True)
+        db.facade.enable_or_disable_auto_ingest(True)
 
         return {
             "success": True,
@@ -2110,7 +2149,7 @@ async def disable_auto_ingest(
     session=Depends(verify_session_api)
 ):
     """Disable auto-ingest functionality"""
-    return (DatabaseQueryFacade(db, logger)).enable_or_disable_auto_ingest(False)
+    return db.facade.enable_or_disable_auto_ingest(False)
 
 @router.get("/auto-ingest/status")
 async def get_auto_ingest_status(
@@ -2119,11 +2158,11 @@ async def get_auto_ingest_status(
 ):
     """Get current auto-ingest status and settings"""
     try:
-        settings = (DatabaseQueryFacade(db, logger)).get_auto_ingest_settings()
+        settings = db.facade.get_auto_ingest_settings()
 
         if settings:
             # Get processing statistics
-            stats = (DatabaseQueryFacade(db, logger)).get_processing_statistics()
+            stats = db.facade.get_processing_statistics()
 
             return {
                 "success": True,

@@ -400,7 +400,6 @@ t_keyword_article_matches = Table(
     Column('group_id', ForeignKey('keyword_groups.id', ondelete='CASCADE'), nullable=False),
     Column('detected_at', Text, default=text('CURRENT_TIMESTAMP')),
     Column('is_read', Integer, default=text('0')),
-    Column('below_threshold', Integer, default=text('0')),
     UniqueConstraint('article_uri', 'group_id')
 )
 

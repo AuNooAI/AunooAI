@@ -19,7 +19,6 @@ which is the standard for text embeddings and works optimally with OpenAI embedd
 
 import argparse
 import logging
-import sqlite3
 from pathlib import Path
 import sys
 
@@ -76,13 +75,13 @@ def main():
                         help="Don't delete existing collection (just update articles)")
     args = parser.parse_args()
 
-    # Ensure database exists
-    db_path = Path(DATABASE_DIR) / Database.get_active_database()
-    if not db_path.exists():
-        logger.error("Active database not found at %s", db_path)
+    # Initialize database connection (works with both SQLite and PostgreSQL)
+    try:
+        db = Database()
+        logger.info("Database connection established")
+    except Exception as e:
+        logger.error("Failed to connect to database: %s", e)
         return 1
-
-    db = Database()
     client = get_chroma_client()
     
     # Check existing collection
