@@ -66,22 +66,22 @@ class ModelBiasArenaService:
 
             for row in (DatabaseQueryFacade(self.db, logger)).sample_articles(count, topic):
                 articles.append({
-                    "uri": row[0],
-                    "title": row[1],
-                    "summary": row[2],
-                    "news_source": row[3],
-                    "topic": row[4],
-                    "category": row[5],
+                    "uri": row['uri'],
+                    "title": row['title'],
+                    "summary": row['summary'],
+                    "news_source": row['news_source'],
+                    "topic": row['topic'],
+                    "category": row['category'],
                     # Include benchmark values for reference
-                    "benchmark_sentiment": row[6],
-                    "benchmark_future_signal": row[7],
-                    "benchmark_time_to_impact": row[8],
-                    "benchmark_driver_type": row[9],
+                    "benchmark_sentiment": row['sentiment'],
+                    "benchmark_future_signal": row['future_signal'],
+                    "benchmark_time_to_impact": row['time_to_impact'],
+                    "benchmark_driver_type": row['driver_type'],
                     # Store source bias data for post-analysis validation (NOT used in analysis prompts)
-                    "source_bias": row[10],
-                    "source_factual_reporting": row[11],
-                    "source_credibility": row[12],
-                    "source_country": row[13]
+                    "source_bias": row['bias'],
+                    "source_factual_reporting": row['factual_reporting'],
+                    "source_credibility": row['mbfc_credibility_rating'],
+                    "source_country": row['bias_country']
                 })
 
             logger.info(f"Sampled {len(articles)} articles with complete benchmark ontological data")
@@ -359,18 +359,31 @@ class ModelBiasArenaService:
         try:
             runs = []
             for row in (DatabaseQueryFacade(self.db, logger)).get_all_bias_evaluation_runs():
+                # Convert datetime objects to strings for API compatibility
+                created_at = row['created_at']
+                if created_at and hasattr(created_at, 'isoformat'):
+                    created_at = created_at.isoformat()
+                elif created_at:
+                    created_at = str(created_at)
+
+                completed_at = row['completed_at']
+                if completed_at and hasattr(completed_at, 'isoformat'):
+                    completed_at = completed_at.isoformat()
+                elif completed_at:
+                    completed_at = str(completed_at)
+
                 runs.append({
-                    "id": row[0],
-                    "name": row[1],
-                    "description": row[2],
-                    "benchmark_model": row[3],
-                    "selected_models": json.loads(row[4]),
-                    "article_count": row[5],
-                    "rounds": row[6],
-                    "current_round": row[7],
-                    "created_at": row[8],
-                    "completed_at": row[9],
-                    "status": row[10]
+                    "id": row['id'],
+                    "name": row['name'],
+                    "description": row['description'],
+                    "benchmark_model": row['benchmark_model'],
+                    "selected_models": json.loads(row['selected_models']),
+                    "article_count": row['article_count'],
+                    "rounds": row['rounds'],
+                    "current_round": row['current_round'],
+                    "created_at": created_at,
+                    "completed_at": completed_at,
+                    "status": row['status']
                 })
 
             return runs
@@ -384,21 +397,34 @@ class ModelBiasArenaService:
         try:
             row = (DatabaseQueryFacade(self.db, logger)).get_run_details(run_id)
             if row:
+                # Convert datetime objects to strings for API compatibility
+                created_at = row['created_at']
+                if created_at and hasattr(created_at, 'isoformat'):
+                    created_at = created_at.isoformat()
+                elif created_at:
+                    created_at = str(created_at)
+
+                completed_at = row['completed_at']
+                if completed_at and hasattr(completed_at, 'isoformat'):
+                    completed_at = completed_at.isoformat()
+                elif completed_at:
+                    completed_at = str(completed_at)
+
                 return {
-                    "id": row[0],
-                    "name": row[1],
-                    "description": row[2],
-                    "benchmark_model": row[3],
-                    "selected_models": row[4],  # Keep as JSON string for now
-                    "article_count": row[5],
-                    "rounds": row[6],
-                    "current_round": row[7],
-                    "created_at": row[8],
-                    "completed_at": row[9],
-                    "status": row[10]
+                    "id": row['id'],
+                    "name": row['name'],
+                    "description": row['description'],
+                    "benchmark_model": row['benchmark_model'],
+                    "selected_models": row['selected_models'],  # Keep as JSON string for now
+                    "article_count": row['article_count'],
+                    "rounds": row['rounds'],
+                    "current_round": row['current_round'],
+                    "created_at": created_at,
+                    "completed_at": completed_at,
+                    "status": row['status']
                 }
             return None
-                
+
         except Exception as e:
             logger.error(f"Error getting run details: {e}")
             return None
@@ -409,9 +435,9 @@ class ModelBiasArenaService:
             articles = []
             for row in (DatabaseQueryFacade(self.db, logger)).get_run_articles(run_id):
                 articles.append({
-                    "article_uri": row[0],
-                    "article_title": row[1],
-                    "article_summary": row[2]
+                    "article_uri": row['article_uri'],
+                    "article_title": row['article_title'],
+                    "article_summary": row['article_summary']
                 })
 
             return articles
@@ -434,26 +460,26 @@ class ModelBiasArenaService:
             benchmark_rows = (DatabaseQueryFacade(self.db, logger)).get_benchmark_data_including_media_bias_info(run_id)
             benchmark_data = {}
             for row in benchmark_rows:
-                benchmark_data[row[0]] = {
-                    "title": row[1],
-                    "sentiment": row[2],
-                    "future_signal": row[3],
-                    "time_to_impact": row[4],
-                    "driver_type": row[5],
-                    "category": row[6],
-                    "sentiment_explanation": row[7],
-                    "future_signal_explanation": row[8],
-                    "time_to_impact_explanation": row[9],
-                    "driver_type_explanation": row[10],
-                    "bias": row[11],
-                    "factual_reporting": row[12],
-                    "mbfc_credibility_rating": row[13],
-                    "bias_country": row[14],
-                    "press_freedom": row[15],
-                    "media_type": row[16],
-                    "popularity": row[17],
-                    "source": row[18],  # Using news_source
-                    "publication": row[18]  # Using news_source for both
+                benchmark_data[row['uri']] = {
+                    "title": row['title'],
+                    "sentiment": row['sentiment'],
+                    "future_signal": row['future_signal'],
+                    "time_to_impact": row['time_to_impact'],
+                    "driver_type": row['driver_type'],
+                    "category": row['category'],
+                    "sentiment_explanation": row['sentiment_explanation'],
+                    "future_signal_explanation": row['future_signal_explanation'],
+                    "time_to_impact_explanation": row['time_to_impact_explanation'],
+                    "driver_type_explanation": row['driver_type_explanation'],
+                    "bias": row['bias'],
+                    "factual_reporting": row['factual_reporting'],
+                    "mbfc_credibility_rating": row['mbfc_credibility_rating'],
+                    "bias_country": row['bias_country'],
+                    "press_freedom": row['press_freedom'],
+                    "media_type": row['media_type'],
+                    "popularity": row['popularity'],
+                    "source": row['news_source'],
+                    "publication": row['news_source']  # Using news_source for both
                 }
 
             # Build matrix data structure
@@ -487,13 +513,13 @@ class ModelBiasArenaService:
             rounds_info = {}
             
             for row in results:
-                model_name = row[0]
-                article_uri = row[1]
-                article_title = row[21]  # maa.article_title is at index 21
-                round_number = row[20]  # round_number is at index 20
-                
+                model_name = row['model_name']
+                article_uri = row['article_uri']
+                article_title = row['article_title']
+                round_number = row['round_number']
+
                 models.add(model_name)
-                
+
                 if article_uri not in articles:
                     articles[article_uri] = {
                         "title": article_title,
@@ -501,34 +527,34 @@ class ModelBiasArenaService:
                         "benchmark": benchmark_data.get(article_uri, {}),
                         "models": {}
                     }
-                
+
                 if model_name not in articles[article_uri]["models"]:
                     articles[article_uri]["models"][model_name] = {
                         "rounds": {},
                         "aggregated": {},
                         "consistency": {}
                     }
-                
+
                 # Store round-specific data
                 articles[article_uri]["models"][model_name]["rounds"][round_number] = {
-                    "sentiment": row[2],
-                    "sentiment_explanation": row[3],
-                    "future_signal": row[4],
-                    "future_signal_explanation": row[5],
-                    "time_to_impact": row[6],
-                    "time_to_impact_explanation": row[7],
-                    "driver_type": row[8],
-                    "driver_type_explanation": row[9],
-                    "category": row[10],
-                    "category_explanation": row[11],
-                    "political_bias": row[12],
-                    "political_bias_explanation": row[13],
-                    "factuality": row[14],
-                    "factuality_explanation": row[15],
-                    "confidence_score": row[16],
-                    "response_time_ms": row[17],
-                    "error_message": row[18],
-                    "response_text": row[19]
+                    "sentiment": row['sentiment'],
+                    "sentiment_explanation": row['sentiment_explanation'],
+                    "future_signal": row['future_signal'],
+                    "future_signal_explanation": row['future_signal_explanation'],
+                    "time_to_impact": row['time_to_impact'],
+                    "time_to_impact_explanation": row['time_to_impact_explanation'],
+                    "driver_type": row['driver_type'],
+                    "driver_type_explanation": row['driver_type_explanation'],
+                    "category": row['category'],
+                    "category_explanation": row['category_explanation'],
+                    "political_bias": row['political_bias'],
+                    "political_bias_explanation": row['political_bias_explanation'],
+                    "factuality": row['factuality'],
+                    "factuality_explanation": row['factuality_explanation'],
+                    "confidence_score": row['confidence_score'],
+                    "response_time_ms": row['response_time_ms'],
+                    "error_message": row['error_message'],
+                    "response_text": row['response_text']
                 }
                 
                 # Track rounds for this run
@@ -678,7 +704,7 @@ class ModelBiasArenaService:
             model_stats = {}
             
             for row in results:
-                model_name = row[0]
+                model_name = row['model_name']
                 if model_name not in model_stats:
                     model_stats[model_name] = {
                         "response_times": [],
@@ -686,15 +712,15 @@ class ModelBiasArenaService:
                         "total_evaluations": 0,
                         "field_accuracy": {}  # Compared to benchmark
                     }
-                
+
                 stats = model_stats[model_name]
                 stats["total_evaluations"] += 1
-                
-                if row[18]:  # error_message (updated index)
+
+                if row['error_message']:
                     stats["error_count"] += 1
                 else:
-                    if row[17] is not None:  # response_time_ms (updated index)
-                        stats["response_times"].append(row[17])
+                    if row['response_time_ms'] is not None:
+                        stats["response_times"].append(row['response_time_ms'])
             
             # Calculate summary statistics
             for model_name, data in model_stats.items():

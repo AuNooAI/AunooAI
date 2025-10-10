@@ -660,7 +660,7 @@ class DatabaseQueryFacade:
             time_to_impact = params[20],
             driver_type = params[21],
             tags = params[22],
-            analyzed = 1,
+            analyzed = True,
             confidence_score = params[24],
             overall_match_explanation = params[25],
             publication_date = params[26]
@@ -898,7 +898,7 @@ class DatabaseQueryFacade:
             and_(
                 articles.c.topic != None,
                 articles.c.topic != '',
-                articles.c.analyzed == 1)
+                articles.c.analyzed == True)
         ).distinct().order_by(
             articles.c.topic.asc()
         )
@@ -914,7 +914,7 @@ class DatabaseQueryFacade:
             and_(
                 articles.c.category != None,
                 articles.c.category != '',
-                articles.c.analyzed == 1)
+                articles.c.analyzed == True)
         ).distinct().order_by(
             articles.c.category.asc()
         )
@@ -1199,7 +1199,7 @@ class DatabaseQueryFacade:
         ).where(
             articles.c.uri == params[4]
         ).values(
-            analyzed = 1,
+            analyzed = True,
             title = func.coalesce(articles.c.title, params[0]),
             summary = func.coalesce(articles.c.summary, params[1]),
             news_source = func.coalesce(articles.c.news_source, params[2]),
@@ -1223,10 +1223,10 @@ class DatabaseQueryFacade:
             articles.c.time_to_impact,
             articles.c.submission_date
         ).where(
-            articles.c.analyzed == 1,
+            articles.c.analyzed == True,
             articles.c.summary != None,
             articles.c.summary != '',
-            articles.c.summary.length() > 50
+            func.length(articles.c.summary) > 50
         )
         if topic_filter:
             statement = statement.where(
@@ -1458,7 +1458,7 @@ class DatabaseQueryFacade:
             articles.c.id
         ).where(
             articles.c.uri == url,
-            articles.c.analyzed == 1
+            articles.c.analyzed == True
         )
         return self._execute_with_rollback(statement).fetchone()
 
@@ -1896,7 +1896,7 @@ class DatabaseQueryFacade:
             model_bias_arena_runs.c.status
         ).where(model_bias_arena_runs.c.id == run_id)
 
-        return self._execute_with_rollback(statement).fetchone()                         
+        return self._execute_with_rollback(statement).mappings().fetchone()                         
 
     def get_ontological_results_with_article_info(self, run_id):
         statement = select(
@@ -2006,19 +2006,19 @@ class DatabaseQueryFacade:
 
     def get_all_bias_evaluation_runs(self):
         statement = select(
-            model_bias_arena_articles.c.id,
-            model_bias_arena_articles.c.name,
-            model_bias_arena_articles.c.description,
-            model_bias_arena_articles.c.benchmark_model,
-            model_bias_arena_articles.c.selected_models,
-            model_bias_arena_articles.c.article_count,
-            model_bias_arena_articles.c.rounds,
-            model_bias_arena_articles.c.current_round,
-            model_bias_arena_articles.c.created_at,
-            model_bias_arena_articles.c.completed_at,
-            model_bias_arena_articles.c.status
+            model_bias_arena_runs.c.id,
+            model_bias_arena_runs.c.name,
+            model_bias_arena_runs.c.description,
+            model_bias_arena_runs.c.benchmark_model,
+            model_bias_arena_runs.c.selected_models,
+            model_bias_arena_runs.c.article_count,
+            model_bias_arena_runs.c.rounds,
+            model_bias_arena_runs.c.current_round,
+            model_bias_arena_runs.c.created_at,
+            model_bias_arena_runs.c.completed_at,
+            model_bias_arena_runs.c.status
         ).order_by(
-            model_bias_arena_articles.c.created_at.desc()
+            model_bias_arena_runs.c.created_at.desc()
         )
 
         return self._execute_with_rollback(statement).mappings().fetchall()
@@ -2081,7 +2081,7 @@ class DatabaseQueryFacade:
         ).where(
             articles.c.summary.isnot(None),
             func.length(articles.c.summary) > 100,
-            articles.c.analyzed == 1,
+            articles.c.analyzed == True,
             articles.c.sentiment.isnot(None),
             articles.c.sentiment != '',
             articles.c.future_signal.isnot(None),
