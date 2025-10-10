@@ -141,10 +141,10 @@ def get_chroma_client():
         chroma_path = project_root / os.getenv("CHROMA_DB_DIR", "chromadb")
         chroma_path_str = str(chroma_path.resolve()) # Get absolute path string
         logger.info(f"Attempting to connect to ChromaDB at absolute path: {chroma_path_str}")
-        _CHROMA_CLIENT = chromadb.PersistentClient(
-            # path=os.getenv("CHROMA_DB_DIR", "./chromadb") # Original relative path
-            path=chroma_path_str # Use absolute path
-        )
+
+        # Simple approach - just connect with path (works in testing.aunoo.ai)
+        _CHROMA_CLIENT = chromadb.PersistentClient(path=chroma_path_str)
+        logger.info("ChromaDB client initialized successfully")
         # --- MODIFICATION END ---
     return _CHROMA_CLIENT
 

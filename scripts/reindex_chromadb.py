@@ -5,13 +5,20 @@
 Run with:
 $ python scripts/reindex_chromadb.py
 
+IMPORTANT: This script must be run as the application user (orochford) to ensure
+proper file permissions on the ChromaDB database files. If run as root or another
+user, the application will not be able to access the vector database.
+
+Correct usage:
+$ sudo -u orochford python scripts/reindex_chromadb.py --force
+
 Optional arguments:
     --limit N           Only re-index first N rows (for testing).
     --force             Skip confirmation prompt when deleting collection.
     --preserve-collection  Don't delete existing collection (just add/update articles).
 
 The script fetches *articles* joined with *raw_articles* (if present) from the
-SQLite database and calls *app.vector_store.upsert_article* for each row.
+database and calls *app.vector_store.upsert_article* for each row.
 
 Note: New collections will use cosine distance metric for 0-1 similarity scores,
 which is the standard for text embeddings and works optimally with OpenAI embeddings.
@@ -21,6 +28,8 @@ import argparse
 import logging
 from pathlib import Path
 import sys
+import os
+import pwd
 
 # Ensure .env variables are loaded *before* any application modules that may
 # read from os.environ during import time (e.g. vector_store).
@@ -44,6 +53,38 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
 
+def check_user_permissions():
+    """Ensure script is running as the correct user to avoid permission issues.
+
+    Returns:
+        bool: True if running as correct user, False otherwise
+    """
+    try:
+        current_user = pwd.getpwuid(os.getuid()).pw_name
+        expected_user = "orochford"  # The user that owns the application files
+
+        if current_user != expected_user:
+            logger.error("=" * 60)
+            logger.error("PERMISSION ERROR")
+            logger.error("=" * 60)
+            logger.error(f"This script is running as '{current_user}' but should run as '{expected_user}'")
+            logger.error("")
+            logger.error("Running as the wrong user will create ChromaDB files with incorrect ownership,")
+            logger.error("which will cause permission errors when the application tries to access them.")
+            logger.error("")
+            logger.error(f"Please run as the correct user:")
+            logger.error(f"  sudo -u {expected_user} {' '.join(sys.argv)}")
+            logger.error("=" * 60)
+            return False
+
+        logger.info(f"✓ Running as correct user: {current_user}")
+        return True
+    except Exception as e:
+        logger.warning(f"Could not verify user permissions: {e}")
+        # Allow to continue if we can't check (e.g., on non-Unix systems)
+        return True
+
+
 def check_collection_info(client):
     """Check if collection exists and what distance metric it uses."""
     try:
@@ -53,11 +94,11 @@ def check_collection_info(client):
             metadata = collection.metadata or {}
             distance_metric = metadata.get("hnsw:space", "l2")  # l2 is ChromaDB default
             logger.info(f"Existing collection found using '{distance_metric}' distance metric")
-            
+
             # Count existing articles
             count = collection.count()
             logger.info(f"Collection contains {count} articles")
-            
+
             return True, distance_metric, count
         else:
             logger.info("No existing 'articles' collection found")
@@ -71,9 +112,13 @@ def main():
     parser = argparse.ArgumentParser(description="Re-index articles into ChromaDB")
     parser.add_argument("--limit", type=int, help="Re-index only first N articles")
     parser.add_argument("--force", action="store_true", help="Skip confirmation prompt")
-    parser.add_argument("--preserve-collection", action="store_true", 
+    parser.add_argument("--preserve-collection", action="store_true",
                         help="Don't delete existing collection (just update articles)")
     args = parser.parse_args()
+
+    # Check user permissions first to prevent permission issues
+    if not check_user_permissions():
+        return 1
 
     # Initialize database connection (works with both SQLite and PostgreSQL)
     try:
