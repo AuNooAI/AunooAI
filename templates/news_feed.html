@@ -1958,9 +1958,8 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     document.getElementById('six-articles-tab').addEventListener('click', function() {
-        if (!document.getElementById('six-articles-report').innerHTML.trim()) {
-            loadSixArticles();
-        }
+        // Auto-load cached content when tab is clicked (will use cache if available)
+        loadSixArticles();
     });
 
     document.getElementById('insights-tab').addEventListener('click', async function() {

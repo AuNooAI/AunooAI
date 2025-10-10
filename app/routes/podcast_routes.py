@@ -603,17 +603,17 @@ async def _run_tts_podcast_worker(podcast_id: str, request: TTSPodcastRequest):
         }
 
         # Generate audio using ElevenLabs TTS API in one call
-        try:
-            logger.info(f"[Worker] Generating audio with ElevenLabs for {len(cleaned_script)} chars")
-            audio_generator = client.text_to_speech.convert(
-                voice_id=request.host_voice_id,
-                text=cleaned_script,
-                model_id=request.model_id,
-                output_format=request.output_format,
-                voice_settings=voice_settings_dict,
-            )
+        logger.info(f"[Worker] Generating audio with ElevenLabs for {len(cleaned_script)} chars")
+        audio_generator = client.text_to_speech.convert(
+            voice_id=request.host_voice_id,
+            text=cleaned_script,
+            model_id=request.model_id,
+            output_format=request.output_format,
+            voice_settings=voice_settings_dict,
+        )
 
-            # Collect all audio bytes
+        # Collect all audio bytes - wrap in try-except because errors occur during iteration
+        try:
             audio_bytes = b"".join(b if isinstance(b, bytes) else b.encode() for b in audio_generator)
 
             if not audio_bytes:
@@ -621,55 +621,90 @@ async def _run_tts_podcast_worker(podcast_id: str, request: TTSPodcastRequest):
 
             logger.info(f"[Worker] Generated {len(audio_bytes)} bytes of audio")
 
-            # Save directly to file - no need for ffmpeg/pydub
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_filename = f"podcast_{podcast_id}_{timestamp}.mp3"
-
-            if not ensure_audio_directory():
-                raise RuntimeError("Could not create audio directory")
-
-            output_path = AUDIO_DIR / output_filename
-            with open(output_path, 'wb') as f:
-                f.write(audio_bytes)
-
-            logger.info(f"[Worker] Saved audio to {output_path}")
-
-            # Estimate duration (rough: 150 words per minute, ~5 chars per word)
-            word_count = len(cleaned_script.split())
-            duration_seconds = (word_count / 150) * 60
-
-            meta = {
-                "duration": round(duration_seconds / 60, 2),
-                "podcast_name": request.podcast_name,
-                "episode_title": request.episode_title,
-                "mode": request.mode,
-                "topic": request.topic,
-                "word_count": word_count,
-                "character_count": len(cleaned_script),
-            }
-
-            if request.mode == "conversation":
-                meta["guest"] = request.guest_name
-                meta["guest_title"] = request.guest_title
-
-            db = get_database_instance()
-            (DatabaseQueryFacade(db, logger)).mark_podcast_generation_as_complete((
-                f"/static/audio/{output_filename}",
-                json.dumps(meta),
-                podcast_id,
-            ))
-
-            logger.info(f"[Worker] Podcast {podcast_id} completed successfully")
-
         except Exception as e:
+            # Check if this is an ElevenLabs API error
+            if hasattr(e, 'status_code') and hasattr(e, 'body'):
+                # Extract error details from ElevenLabs ApiError
+                status_code = e.status_code
+                error_body = e.body if isinstance(e.body, dict) else {}
+
+                if status_code == 401:
+                    # Quota or authentication error
+                    detail = error_body.get('detail', {})
+                    error_status = detail.get('status', '')
+                    error_message = detail.get('message', str(e))
+
+                    if error_status == 'quota_exceeded':
+                        # Parse quota information
+                        logger.error(f"[Worker] ElevenLabs quota exceeded: {error_message}")
+                        raise ValueError(
+                            f"ElevenLabs API quota exceeded. {error_message}\n\n"
+                            "Please check your ElevenLabs account quota at https://elevenlabs.io/subscription\n"
+                            "You may need to upgrade your plan or wait for your quota to reset."
+                        )
+                    else:
+                        logger.error(f"[Worker] ElevenLabs authentication error: {error_message}")
+                        raise ValueError(
+                            f"ElevenLabs API authentication failed: {error_message}\n\n"
+                            "Please check your API key configuration."
+                        )
+                else:
+                    # Other API errors
+                    logger.error(f"[Worker] ElevenLabs API error {status_code}: {error_body}")
+                    raise ValueError(
+                        f"ElevenLabs API error (status {status_code}): {error_body.get('detail', {}).get('message', str(e))}"
+                    )
+
+            # Re-raise other exceptions
             logger.error(f"[Worker] Error generating audio: {e}")
             raise
+
+        # Save directly to file - no need for ffmpeg/pydub
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_filename = f"podcast_{podcast_id}_{timestamp}.mp3"
+
+        if not ensure_audio_directory():
+            raise RuntimeError("Could not create audio directory")
+
+        output_path = AUDIO_DIR / output_filename
+        with open(output_path, 'wb') as f:
+            f.write(audio_bytes)
+
+        logger.info(f"[Worker] Saved audio to {output_path}")
+
+        # Estimate duration (rough: 150 words per minute, ~5 chars per word)
+        word_count = len(cleaned_script.split())
+        duration_seconds = (word_count / 150) * 60
+
+        meta = {
+            "duration": round(duration_seconds / 60, 2),
+            "podcast_name": request.podcast_name,
+            "episode_title": request.episode_title,
+            "mode": request.mode,
+            "topic": request.topic,
+            "word_count": word_count,
+            "character_count": len(cleaned_script),
+        }
+
+        if request.mode == "conversation":
+            meta["guest"] = request.guest_name
+            meta["guest_title"] = request.guest_title
+
+        db = get_database_instance()
+        (DatabaseQueryFacade(db, logger)).mark_podcast_generation_as_complete((
+            f"/static/audio/{output_filename}",
+            json.dumps(meta),
+            podcast_id,
+        ))
+
+        logger.info(f"[Worker] Podcast {podcast_id} completed successfully")
 
     except Exception as err:
         logger.error("[Worker] Error generating TTS podcast %s: %s", podcast_id, err, exc_info=True)
         try:
             db = get_database_instance()
             (DatabaseQueryFacade(db, logger)).log_error_generating_podcast((str(err), podcast_id))
+            logger.info(f"[Worker] Successfully saved error to database for podcast {podcast_id}")
         except Exception as db_err:
             logger.error("[Worker] Failed updating error status for %s: %s", podcast_id, db_err)
 

@@ -3720,7 +3720,7 @@ class DatabaseQueryFacade:
 
     def log_error_generating_podcast(self, params):
         statement = update(podcasts).where(podcasts.c.id == params[1]).values(
-            status='error',
+            status='failed',
             error=params[0],
             completed_at=func.current_timestamp()
         )

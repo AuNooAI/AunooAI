@@ -170,6 +170,7 @@ class ChatMessageRequest(BaseModel):
     limit: int | None = Field(50, description="Number of articles to analyze (auto-sized based on context)")
     tools_config: dict | None = Field(None, description="Individual tool configuration settings")
     profile_id: int | None = Field(None, description="Organizational profile ID for contextualized analysis")
+    custom_prompt: str | None = Field(None, description="Custom system prompt to override the default template")
 
 class PromptRequest(BaseModel):
     name: str = Field(..., description="Unique prompt name")
@@ -310,7 +311,7 @@ async def send_chat_message(req: ChatMessageRequest, session=Depends(verify_sess
                 # Update the chat session to include the profile_id
                 auspex.db.update_auspex_chat_profile(req.chat_id, req.profile_id)
             
-            async for chunk in auspex.chat_with_tools(req.chat_id, req.message, req.model, req.limit, req.tools_config, req.profile_id):
+            async for chunk in auspex.chat_with_tools(req.chat_id, req.message, req.model, req.limit, req.tools_config, req.profile_id, req.custom_prompt):
                 yield f"data: {json.dumps({'content': chunk})}\n\n"
             logger.info("Chat response completed successfully")
             yield f"data: {json.dumps({'done': True})}\n\n"

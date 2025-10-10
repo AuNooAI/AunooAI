@@ -927,18 +927,18 @@ class AuspexService:
             logger.error(f"Error deleting chat session: {e}")
             return False
 
-    async def chat_with_tools(self, chat_id: int, message: str, model: str = None, limit: int = 50, tools_config: Dict = None, profile_id: int = None) -> AsyncGenerator[str, None]:
-        """Chat with Auspex with optional tool usage."""
+    async def chat_with_tools(self, chat_id: int, message: str, model: str = None, limit: int = 50, tools_config: Dict = None, profile_id: int = None, custom_prompt: str = None) -> AsyncGenerator[str, None]:
+        """Chat with Auspex with optional tool usage and custom system prompt override."""
         if not model:
             model = DEFAULT_MODEL
-        
+
         # Update context manager for the specific model being used
         self._update_context_manager_for_model(model)
-            
+
         try:
             # Get chat history
             messages = self.db.get_auspex_messages(chat_id)
-            
+
             # Build conversation history for LLM
             conversation = []
             for msg in messages:
@@ -947,20 +947,20 @@ class AuspexService:
                         "role": msg['role'],
                         "content": msg['content']
                     })
-            
+
             # Add current user message
             conversation.append({
-                "role": "user", 
+                "role": "user",
                 "content": message
             })
-            
+
             # Save user message to database
             self.db.add_auspex_message(
                 chat_id=chat_id,
                 role="user",
                 content=message
             )
-            
+
             # Update chat session with profile_id if provided
             if profile_id:
                 try:
@@ -968,13 +968,19 @@ class AuspexService:
                     logger.info(f"Updated chat {chat_id} with profile_id {profile_id}")
                 except Exception as e:
                     logger.warning(f"Could not update chat profile: {e}")
-            
-            # Get system prompt and enhance it with topic information and profile context
-            system_prompt = self.get_enhanced_system_prompt(chat_id, tools_config)
-            
+
+            # Use custom prompt if provided, otherwise get enhanced system prompt
+            if custom_prompt:
+                logger.info(f"Using custom system prompt for chat {chat_id}")
+                system_prompt_content = custom_prompt
+            else:
+                # Get system prompt and enhance it with topic information and profile context
+                system_prompt = self.get_enhanced_system_prompt(chat_id, tools_config)
+                system_prompt_content = system_prompt['content']
+
             # Prepare messages with system prompt
             llm_messages = [
-                {"role": "system", "content": system_prompt['content']},
+                {"role": "system", "content": system_prompt_content},
                 *conversation
             ]
             

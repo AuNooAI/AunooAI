@@ -1291,7 +1291,8 @@ async function pollPodcastStatus(podcastId) {
             case 'failed':
                 progressStatus.innerHTML = `
                     <div class="alert alert-danger">
-                        Podcast generation failed
+                        <strong>Podcast generation failed</strong>
+                        ${data.error ? `<br><br>${data.error}` : ''}
                     </div>
                 `;
                 break;
