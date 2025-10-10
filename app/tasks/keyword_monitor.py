@@ -157,11 +157,12 @@ class KeywordMonitor:
         except Exception as e:
             logger.error(f"Error checking/resetting API counter: {str(e)}")
 
-    async def check_keywords(self, group_id=None):
+    async def check_keywords(self, group_id=None, progress_callback=None):
         """Check all keywords for new matches
 
         Args:
             group_id: Optional group ID to filter keywords by specific group
+            progress_callback: Optional callback function(processed, current) for progress updates
         """
         if group_id:
             logger.info(f"Starting keyword check for group {group_id}...")
@@ -201,6 +202,11 @@ class KeywordMonitor:
                 last_checked = keyword['last_checked']
                 topic = keyword['topic']
                 processed_keywords += 1
+
+                # Report progress if callback provided
+                if progress_callback:
+                    progress_callback(processed_keywords, f"Checking: {keyword_text}")
+
                 logger.info(
                     f"Checking keyword: {keyword_text} (topic: {topic}, "
                     f"requests_today: {self.collector.requests_today}/100)"
