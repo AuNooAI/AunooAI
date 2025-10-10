@@ -135,6 +135,25 @@ def setup_database():
             with open(env_path, 'w') as f:
                 f.writelines(lines)
 
+        # Copy seed database if fnaapp.db doesn't exist
+        db_path = Path("app/data/fnaapp.db")
+        seed_path = Path("app/data/fnaapp.db.seed")
+
+        if not db_path.exists():
+            if seed_path.exists():
+                logger.info("Copying seed database...")
+                import shutil
+                shutil.copy2(seed_path, db_path)
+                logger.info(f"✅ Copied seed database to {db_path}")
+                logger.info("\n⚠️  Default credentials:")
+                logger.info("  Username: admin")
+                logger.info("  Password: admin")
+                logger.info("  (You will be required to change the password on first login)")
+            else:
+                logger.warning(f"⚠️  Seed database not found at {seed_path}")
+                logger.warning("Database will be created empty on first run.")
+                logger.warning("Run 'python scripts/create_seed_database.py' to create a seed database.")
+
         logger.info("✅ SQLite configured")
         return True
 

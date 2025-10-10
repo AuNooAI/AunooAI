@@ -29,6 +29,7 @@ ENV/
 reports/
 app/config/config.json
 app/data/*.db
+!app/data/fnaapp.db.seed
 app/data/*.db-*
 /home/d1g1fox/dev/experimental/AunooAI/chromadb
 DEPLOYMENT_INFO.json
