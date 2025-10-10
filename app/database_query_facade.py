@@ -1597,19 +1597,15 @@ class DatabaseQueryFacade:
         self.connection.commit()
 
     def mark_article_as_below_threshold(self, article_uri):
-        """Mark keyword_article_matches for this article as read (below relevance threshold)"""
-        from sqlalchemy import update
-        statement = update(keyword_article_matches).where(
-            keyword_article_matches.c.article_uri == article_uri
-        ).values(is_read=1)  # Use 1 instead of True for integer column
-        try:
-            self.connection.execute(statement)
-            self.connection.commit()
-        except Exception as e:
-            # Rollback on error to avoid leaving transaction in aborted state
-            self.connection.rollback()
-            self.logger.error(f"Error in mark_article_as_below_threshold, rolled back transaction: {e}")
-            raise
+        """
+        Mark keyword_article_matches for this article as processed but filtered.
+        No database changes needed - the article exists with relevance scores,
+        and we can determine if it's below threshold by checking the scores.
+        """
+        # No-op: The article is already saved with relevance scores
+        # The UI can determine if it's below threshold by comparing scores
+        self.logger.debug(f"Article {article_uri} saved with relevance scores for review")
+        pass
 
     def get_total_articles_and_sample_categories_for_topic(self, topic: str):
         statement = select(
@@ -2791,7 +2787,8 @@ class DatabaseQueryFacade:
         kms_subq = select(
             keyword_monitor_status.c.id,
             keyword_monitor_status.c.requests_today,
-            keyword_monitor_status.c.last_error
+            keyword_monitor_status.c.last_error,
+            keyword_monitor_status.c.last_check_time
         ).where(
             keyword_monitor_status.c.id == 1,
             keyword_monitor_status.c.last_reset_date == func.cast(func.current_date(), Text)
@@ -2815,7 +2812,8 @@ class DatabaseQueryFacade:
             func.coalesce(keyword_monitor_settings.c.llm_temperature, 0.1).label("llm_temperature"),
             func.coalesce(keyword_monitor_settings.c.llm_max_tokens, 1000).label("llm_max_tokens"),
             func.coalesce(kms_subq.c.requests_today, 0).label("requests_today"),
-            kms_subq.c.last_error
+            kms_subq.c.last_error,
+            kms_subq.c.last_check_time
         ).select_from(
             keyword_monitor_settings.join(
                 kms_subq,

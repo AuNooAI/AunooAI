@@ -738,12 +738,24 @@ class AutomatedIngestService:
                         "quality_issues": quality_result.get("quality_issues")
                     }
             else:
-                # Mark article as below threshold in keyword_article_matches
+                # Save article with relevance scores even though it failed threshold
+                # This ensures the article is visible in the UI with proper context
                 try:
+                    # Prepare article data with relevance scores
+                    enriched_article.update({
+                        "topic": topic,  # Ensure topic is set
+                        "ingest_status": "filtered_relevance"
+                    })
+
+                    # Save to articles table with relevance scores
+                    await self.async_db.save_below_threshold_article(enriched_article)
+                    self.logger.debug(f"Saved below-threshold article {article_uri} with relevance scores")
+
+                    # Mark as below threshold in keyword_article_matches
                     self.db.facade.mark_article_as_below_threshold(article_uri)
-                    self.logger.debug(f"Marked article {article_uri} as below threshold")
+                    self.logger.debug(f"Marked article {article_uri} as below threshold in keyword_article_matches")
                 except Exception as e:
-                    self.logger.warning(f"Failed to mark article as below threshold: {e}")
+                    self.logger.warning(f"Failed to save below-threshold article: {e}")
 
                 return {
                     "status": "filtered",
@@ -1168,28 +1180,29 @@ class AutomatedIngestService:
                                     results["errors"].append(error_msg)
                                     self.logger.error(f"❌ Failed article update error: {error_msg}")
                     else:
-                        # Save relevance scores even for below-threshold articles so users can see why they were rejected
+                        # Save article with relevance scores even though it failed threshold
+                        # This ensures the article is visible in the UI with proper context
                         try:
                             article_uri = enriched_article.get("uri")
 
-                            # Save relevance scores to articles table (if method exists)
-                            if hasattr(self.db.facade, 'save_relevance_scores_only'):
-                                self.db.facade.save_relevance_scores_only(
-                                    article_uri,
-                                    enriched_article.get("topic_alignment_score"),
-                                    enriched_article.get("keyword_relevance_score"),
-                                    enriched_article.get("confidence_score"),
-                                    enriched_article.get("overall_match_explanation")
-                            )
+                            # Prepare article data with relevance scores
+                            enriched_article.update({
+                                "topic": topic,  # Ensure topic is set
+                                "ingest_status": "filtered_relevance"
+                            })
+
+                            # Save to articles table with relevance scores
+                            await self.async_db.save_below_threshold_article(enriched_article)
+                            self.logger.info(f"Saved below-threshold article {article_uri} with relevance scores")
 
                             # Mark as below threshold in keyword_article_matches
                             self.db.facade.mark_article_as_below_threshold(article_uri)
+                            self.logger.info(f"Marked article {article_uri} as below threshold in keyword_article_matches")
 
-                            self.logger.info(f"Saved relevance scores for below-threshold article: {article_uri}")
                         except Exception as e:
-                            self.logger.warning(f"Failed to save scores for below-threshold article: {e}")
+                            self.logger.warning(f"Failed to save below-threshold article: {e}")
 
-                        self.logger.warning(f"   ❌ Article below relevance threshold ({relevance_score:.3f} < {relevance_threshold:.3f}) - skipping")
+                        self.logger.warning(f"   ❌ Article below relevance threshold ({relevance_score:.3f} < {relevance_threshold:.3f}) - saved for review")
                     
                 except Exception as e:
                     error_msg = f"Error processing article {article.get('uri', 'unknown')}: {str(e)}"

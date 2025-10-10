@@ -375,12 +375,72 @@ class AsyncDatabase:
         """Get raw article content asynchronously"""
         query = """
             SELECT uri, raw_markdown, topic, submission_date, last_updated
-            FROM raw_articles 
+            FROM raw_articles
             WHERE uri = ?
         """
-        
+
         return await self.fetch_one(query, (uri,))
-    
+
+    async def save_below_threshold_article(self, article_data: Dict[str, Any]) -> bool:
+        """
+        Save article that failed relevance threshold with its scores.
+        This ensures the article exists in the articles table so it can be visible in the UI.
+        """
+        # Convert datetime to string if needed
+        publication_date = article_data.get("publication_date")
+        if publication_date and hasattr(publication_date, 'isoformat'):
+            # It's a datetime object, convert to ISO string
+            publication_date = publication_date.isoformat()
+
+        if self.db_type == 'postgresql':
+            # PostgreSQL syntax with ON CONFLICT
+            query = """
+                INSERT INTO articles (
+                    uri, title, summary, news_source, publication_date, topic,
+                    topic_alignment_score, keyword_relevance_score, confidence_score,
+                    overall_match_explanation, analyzed, ingest_status
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                ON CONFLICT (uri) DO UPDATE SET
+                    topic_alignment_score = $7,
+                    keyword_relevance_score = $8,
+                    confidence_score = $9,
+                    overall_match_explanation = $10,
+                    ingest_status = $12
+            """
+        else:
+            # SQLite syntax
+            query = """
+                INSERT OR REPLACE INTO articles (
+                    uri, title, summary, news_source, publication_date, topic,
+                    topic_alignment_score, keyword_relevance_score, confidence_score,
+                    overall_match_explanation, analyzed, ingest_status
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """
+
+        params = (
+            article_data.get("uri"),
+            article_data.get("title"),
+            article_data.get("summary"),
+            article_data.get("news_source"),
+            publication_date,  # Use converted string value
+            article_data.get("topic"),
+            article_data.get("topic_alignment_score"),
+            article_data.get("keyword_relevance_score"),
+            article_data.get("confidence_score"),
+            article_data.get("overall_match_explanation"),
+            False,  # analyzed = False for below-threshold articles
+            "filtered_relevance"  # ingest_status to indicate why it was filtered
+        )
+
+        try:
+            rows_affected = await self.execute_single_update(query, params)
+            return rows_affected > 0
+        except Exception as e:
+            logger.error(f"Failed to save below-threshold article {article_data.get('uri')}: {e}")
+            return False
+
     async def close_pool(self):
         """Close all connections in the pool"""
         if not self._initialized:

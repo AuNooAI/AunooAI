@@ -850,10 +850,11 @@ async def get_settings(db=Depends(get_database_instance), session=Depends(verify
                 "default_llm_model": settings[13],
                 "llm_temperature": settings[14],
                 "llm_max_tokens": settings[15],
-                "max_articles_per_run": settings[16] if len(settings) > 16 and settings[16] is not None else 50,
-                "requests_today": settings[17] if len(settings) > 17 and settings[17] is not None else 0,
-                "last_error": settings[18] if len(settings) > 18 else None,
-                "last_run_time": settings[19] if len(settings) > 19 else None,
+                "max_articles_per_run": 50,      # Default value (not in query)
+                "requests_today": settings[16],  # Index 16: requests_today from status subquery
+                "last_error": settings[17],      # Index 17: last_error from status subquery
+                "last_run_time": settings[18],   # Index 18: last_check_time from status subquery
+                "next_run_time": None,           # Not calculated yet - can be added later
                 "total_keywords": total_keywords
             }
             logger.debug(f"Returning response data: {response_data}")
