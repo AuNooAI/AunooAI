@@ -1472,133 +1472,22 @@ Remember to cite your sources and provide actionable insights where possible."""
         require_category: bool = False # New parameter to filter for articles with a category
     ) -> Tuple[List[Dict], int]:
         """Search articles with filters including topic."""
-        query_conditions = []
-        params = []
-
-        # Use the appropriate date field based on date_type
-        date_field_to_use = 'publication_date' if date_type == 'publication' else 'submission_date'
-        # Override with date_field if explicitly provided (for backward compatibility or specific needs)
-        if date_field:
-            date_field_to_use = date_field
-
-        # Add topic filter
-        if topic:
-            query_conditions.append("topic = ?")
-            params.append(topic)
-
-        if category:
-            placeholders = ','.join(['?' for _ in category])
-            query_conditions.append(f"category IN ({placeholders})")
-            params.extend(category)
-
-        if future_signal:
-            placeholders = ','.join(['?' for _ in future_signal])
-            query_conditions.append(f"future_signal IN ({placeholders})")
-            params.extend(future_signal)
-
-        if sentiment:
-            placeholders = ','.join(['?' for _ in sentiment])
-            query_conditions.append(f"sentiment IN ({placeholders})")
-            params.extend(sentiment)
-
-        if tags:
-            tag_conditions = []
-            for tag in tags:
-                tag_conditions.append("tags LIKE ?")
-                params.append(f"%{tag}%")
-            if tag_conditions:
-                query_conditions.append(f"({' OR '.join(tag_conditions)})")
-
-        if keyword:
-            keyword_conditions = [
-                "title LIKE ?",
-                "summary LIKE ?",
-                "category LIKE ?",
-                "future_signal LIKE ?",
-                "sentiment LIKE ?",
-                "tags LIKE ?"
-            ]
-            query_conditions.append(f"({' OR '.join(keyword_conditions)})")
-            params.extend([f"%{keyword}%"] * 6)
-
-        if pub_date_start:
-            # Use DATE() to compare only date part, ignoring time
-            if self.db_type == 'postgresql':
-                query_conditions.append(f"DATE({date_field_to_use}) >= ?")
-            else:
-                query_conditions.append(f"DATE({date_field_to_use}) >= ?")
-            params.append(pub_date_start)
-
-        if pub_date_end:
-            # Use DATE() to compare only date part, ignoring time
-            if self.db_type == 'postgresql':
-                query_conditions.append(f"DATE({date_field_to_use}) <= ?")
-            else:
-                query_conditions.append(f"DATE({date_field_to_use}) <= ?")
-            params.append(pub_date_end)
-
-        # Add filter for requiring a category if specified
-        if require_category:
-            query_conditions.append("category IS NOT NULL AND category != ''")
-
-        where_clause = " AND ".join(query_conditions) if query_conditions else "1=1"
-
-        # Use PostgreSQL-compatible connection via SQLAlchemy
-        from sqlalchemy import text
-        conn = self._temp_get_connection()
-
-        # Convert ? placeholders to PostgreSQL-style if needed
-        if self.db_type == 'postgresql' and '?' in where_clause:
-            param_count = where_clause.count('?')
-            converted_where = where_clause
-            for i in range(1, param_count + 1):
-                converted_where = converted_where.replace('?', f':param{i}', 1)
-            where_clause = converted_where
-            params_dict = {f'param{i+1}': params[i] for i in range(len(params))}
-        else:
-            # SQLite: convert list to tuple for proper binding
-            params_dict = {f'param{i+1}': params[i] for i in range(len(params))} if params else {}
-            if params_dict:
-                # For SQLite, rebuild where_clause with named parameters
-                converted_where = where_clause
-                for i in range(1, len(params) + 1):
-                    converted_where = converted_where.replace('?', f':param{i}', 1)
-                where_clause = converted_where
-
-        # Count total results
-        count_query = f"SELECT COUNT(*) FROM articles WHERE {where_clause}"
-        result = conn.execute(text(count_query), params_dict)
-        total_count = result.fetchone()[0]
-
-        # Get paginated results
-        offset = (page - 1) * per_page
-
-        # Add pagination parameters
-        if self.db_type == 'postgresql':
-            query = f"""
-                SELECT *
-                FROM articles
-                WHERE {where_clause}
-                ORDER BY submission_date DESC
-                LIMIT :limit_param OFFSET :offset_param
-            """
-            params_dict['limit_param'] = per_page
-            params_dict['offset_param'] = offset
-        else:
-            query = f"""
-                SELECT *
-                FROM articles
-                WHERE {where_clause}
-                ORDER BY submission_date DESC
-                LIMIT :limit_param OFFSET :offset_param
-            """
-            params_dict['limit_param'] = per_page
-            params_dict['offset_param'] = offset
-
-        result = conn.execute(text(query), params_dict).mappings()
-        articles = [dict(row) for row in result]
-
-        return articles, total_count
+        # Use facade method which has proper SQLAlchemy implementation
+        return self.facade.search_articles(
+            topic=topic,
+            category=category,
+            future_signal=future_signal,
+            sentiment=sentiment,
+            tags=tags,
+            keyword=keyword,
+            pub_date_start=pub_date_start,
+            pub_date_end=pub_date_end,
+            page=page,
+            per_page=per_page,
+            date_type=date_type,
+            date_field=date_field,
+            require_category=require_category
+        )
 
     def save_report(self, content: str) -> int:
         with self.get_connection() as conn:
@@ -1648,6 +1537,7 @@ Remember to cite your sources and provide actionable insights where possible."""
                 return dict(row._mapping)
             return None
         except Exception as e:
+            conn.rollback()
             logger.error(f"Error in fetch_one: {e}")
             raise
 
@@ -1730,6 +1620,7 @@ Remember to cite your sources and provide actionable insights where possible."""
             # Convert to list of dicts
             return [dict(row) for row in result]
         except Exception as e:
+            conn.rollback()
             logger.error(f"Error in fetch_all: {e}")
             raise
 
@@ -2529,154 +2420,20 @@ Remember to cite your sources and provide actionable insights where possible."""
     # Auspex Chat Management Methods
     def create_auspex_chat(self, topic: str, title: str = None, user_id: str = None, profile_id: int = None, metadata: dict = None) -> int:
         """Create a new Auspex chat session with optional organizational profile."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            metadata_json = json.dumps(metadata) if metadata else None
-
-            # Check if user_id exists in users table to avoid foreign key constraint errors
-            if user_id:
-                try:
-                    cursor.execute("SELECT username FROM users WHERE username = ?", (user_id,))
-                    if not cursor.fetchone():
-                        logger.warning(f"User {user_id} not found in users table, setting user_id to None")
-                        user_id = None
-                except Exception as e:
-                    logger.warning(f"Error checking user existence: {e}, setting user_id to None")
-                    user_id = None
-
-            # Try to insert with profile_id first (new schema)
-            try:
-                cursor.execute("""
-                    INSERT INTO auspex_chats (topic, title, user_id, profile_id, metadata)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (topic, title, user_id, profile_id, metadata_json))
-            except sqlite3.OperationalError as e:
-                # Check if it's specifically a column not found error
-                if "no such column: profile_id" in str(e).lower():
-                    logger.warning("profile_id column not found in auspex_chats, using old schema")
-                    # Fallback for old schema without profile_id column
-                    try:
-                        md = metadata or {}
-                        if profile_id is not None:
-                            md = {**md, 'profile_id': profile_id}
-                        cursor.execute("""
-                            INSERT INTO auspex_chats (topic, title, user_id, metadata)
-                            VALUES (?, ?, ?, ?)
-                        """, (topic, title, user_id, json.dumps(md) if md else None))
-                    except Exception:
-                        # As a last resort, insert without metadata
-                        cursor.execute("""
-                            INSERT INTO auspex_chats (topic, title, user_id, metadata)
-                            VALUES (?, ?, ?, ?)
-                        """, (topic, title, user_id, metadata_json))
-                else:
-                    # Re-raise if it's a different operational error
-                    raise
-
-            conn.commit()
-            return cursor.lastrowid
+        return self.facade.create_auspex_chat(topic, title, user_id, profile_id, metadata)
 
     def update_auspex_chat_profile(self, chat_id: int, profile_id: int) -> bool:
         """Update an existing chat session with a profile_id."""
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                # Try to update with profile_id column
-                try:
-                    cursor.execute("""
-                        UPDATE auspex_chats 
-                        SET profile_id = ?, updated_at = ?
-                        WHERE id = ?
-                    """, (profile_id, datetime.now().isoformat(), chat_id))
-                    conn.commit()
-                    logger.info(f"Updated chat {chat_id} with profile_id {profile_id}")
-                    return True
-                except Exception as e:
-                    # If profile_id column doesn't exist, update metadata instead
-                    logger.warning(f"Could not update profile_id column, updating metadata: {e}")
-                    cursor.execute("""
-                        UPDATE auspex_chats 
-                        SET metadata = json_set(COALESCE(metadata, '{}'), '$.profile_id', ?), 
-                            updated_at = ?
-                        WHERE id = ?
-                    """, (profile_id, datetime.now().isoformat(), chat_id))
-                    conn.commit()
-                    return True
-        except Exception as e:
-            logger.error(f"Error updating chat profile: {e}")
-            return False
+        return self.facade.update_auspex_chat_profile(chat_id, profile_id)
 
     def get_auspex_chats(self, topic: str = None, user_id: str = None, limit: int = 50) -> List[Dict]:
-        """Get Auspex chat sessions with message counts."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            # Join with auspex_messages to get message count for each chat
-            query = """
-                SELECT c.*, COALESCE(m.message_count, 0) as message_count
-                FROM auspex_chats c
-                LEFT JOIN (
-                    SELECT chat_id, COUNT(*) as message_count
-                    FROM auspex_messages
-                    GROUP BY chat_id
-                ) m ON c.id = m.chat_id
-                WHERE 1=1
-            """
-            params = []
-            
-            if topic:
-                query += " AND c.topic = ?"
-                params.append(topic)
-            if user_id:
-                query += " AND c.user_id = ?"
-                params.append(user_id)
-                
-            query += " ORDER BY c.updated_at DESC LIMIT ?"
-            params.append(limit)
-            
-            cursor.execute(query, params)
-            rows = cursor.fetchall()
-            
-            return [{
-                'id': row[0],
-                'topic': row[1],
-                'title': row[2],
-                'created_at': row[3],
-                'updated_at': row[4],
-                'user_id': row[5],
-                'metadata': json.loads(row[6]) if row[6] else None,
-                'message_count': row[7]
-            } for row in rows]
+        """Get Auspex chat sessions with message counts from PostgreSQL."""
+        # Use facade to query PostgreSQL, not SQLite
+        return self.facade.get_auspex_chats(topic=topic, user_id=user_id, limit=limit)
 
     def get_auspex_chat(self, chat_id: int) -> Optional[Dict]:
         """Get a specific Auspex chat."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM auspex_chats WHERE id = ?", (chat_id,))
-            row = cursor.fetchone()
-            
-            if not row:
-                return None
-                
-            chat = {
-                'id': row[0],
-                'topic': row[1],
-                'title': row[2],
-                'created_at': row[3],
-                'updated_at': row[4],
-                'user_id': row[5],
-                'metadata': json.loads(row[6]) if row[6] else None
-            }
-            # If profile_id column exists, try to read it safely (column index may differ). Fallback to metadata.
-            try:
-                # Attempt to detect profile_id in row by column name via PRAGMA if needed (skip heavy lookup here)
-                # Prefer metadata for backward compatibility
-                md = chat['metadata'] or {}
-                if 'profile_id' in md:
-                    chat['profile_id'] = md['profile_id']
-            except Exception:
-                pass
-            return chat
+        return self.facade.get_auspex_chat(chat_id)
 
     def update_auspex_chat(self, chat_id: int, title: str = None, metadata: dict = None) -> bool:
         """Update an Auspex chat."""
@@ -2706,154 +2463,41 @@ Remember to cite your sources and provide actionable insights where possible."""
 
     def delete_auspex_chat(self, chat_id: int) -> bool:
         """Delete an Auspex chat and all its messages."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM auspex_chats WHERE id = ?", (chat_id,))
-            conn.commit()
-            return cursor.rowcount > 0
+        return self.facade.delete_auspex_chat(chat_id)
 
-    def add_auspex_message(self, chat_id: int, role: str, content: str, 
-                          model_used: str = None, tokens_used: int = None, 
+    def add_auspex_message(self, chat_id: int, role: str, content: str,
+                          model_used: str = None, tokens_used: int = None,
                           metadata: dict = None) -> int:
         """Add a message to an Auspex chat."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            metadata_json = json.dumps(metadata) if metadata else None
-            
-            cursor.execute("""
-                INSERT INTO auspex_messages (chat_id, role, content, model_used, tokens_used, metadata)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (chat_id, role, content, model_used, tokens_used, metadata_json))
-            
-            # Update chat's updated_at timestamp
-            cursor.execute("UPDATE auspex_chats SET updated_at = CURRENT_TIMESTAMP WHERE id = ?", (chat_id,))
-            
-            conn.commit()
-            return cursor.lastrowid
+        return self.facade.add_auspex_message(chat_id, role, content, model_used, tokens_used, metadata)
 
     def get_auspex_messages(self, chat_id: int) -> List[Dict]:
         """Get all messages for an Auspex chat."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT id, chat_id, role, content, timestamp, model_used, tokens_used, metadata
-                FROM auspex_messages 
-                WHERE chat_id = ? 
-                ORDER BY timestamp ASC
-            """, (chat_id,))
-            
-            rows = cursor.fetchall()
-            return [{
-                'id': row[0],
-                'chat_id': row[1],
-                'role': row[2],
-                'content': row[3],
-                'timestamp': row[4],
-                'model_used': row[5],
-                'tokens_used': row[6],
-                'metadata': json.loads(row[7]) if row[7] else None
-            } for row in rows]
+        return self.facade.get_auspex_messages(chat_id)
 
     # Auspex Prompt Management Methods
-    def create_auspex_prompt(self, name: str, title: str, content: str, 
-                           description: str = None, is_default: bool = False, 
+    def create_auspex_prompt(self, name: str, title: str, content: str,
+                           description: str = None, is_default: bool = False,
                            user_created: str = None) -> int:
         """Create a new Auspex prompt template."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO auspex_prompts (name, title, content, description, is_default, user_created)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (name, title, content, description, is_default, user_created))
-            conn.commit()
-            return cursor.lastrowid
+        return self.facade.create_auspex_prompt(name, title, content, description, is_default, user_created)
 
     def get_auspex_prompts(self) -> List[Dict]:
         """Get all Auspex prompt templates."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT id, name, title, content, description, is_default, created_at, updated_at, user_created
-                FROM auspex_prompts 
-                ORDER BY is_default DESC, title ASC
-            """)
-            
-            rows = cursor.fetchall()
-            return [{
-                'id': row[0],
-                'name': row[1],
-                'title': row[2],
-                'content': row[3],
-                'description': row[4],
-                'is_default': bool(row[5]),
-                'created_at': row[6],
-                'updated_at': row[7],
-                'user_created': row[8]
-            } for row in rows]
+        return self.facade.get_all_auspex_prompts()
 
     def get_auspex_prompt(self, name: str) -> Optional[Dict]:
         """Get a specific Auspex prompt by name."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT id, name, title, content, description, is_default, created_at, updated_at, user_created
-                FROM auspex_prompts 
-                WHERE name = ?
-            """, (name,))
-            
-            row = cursor.fetchone()
-            if not row:
-                return None
-                
-            return {
-                'id': row[0],
-                'name': row[1],
-                'title': row[2],
-                'content': row[3],
-                'description': row[4],
-                'is_default': bool(row[5]),
-                'created_at': row[6],
-                'updated_at': row[7],
-                'user_created': row[8]
-            }
+        return self.facade.get_auspex_prompt(name)
 
-    def update_auspex_prompt(self, name: str, title: str = None, content: str = None, 
+    def update_auspex_prompt(self, name: str, title: str = None, content: str = None,
                            description: str = None) -> bool:
         """Update an Auspex prompt template."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            
-            updates = []
-            params = []
-            
-            if title is not None:
-                updates.append("title = ?")
-                params.append(title)
-            if content is not None:
-                updates.append("content = ?")
-                params.append(content)
-            if description is not None:
-                updates.append("description = ?")
-                params.append(description)
-                
-            if not updates:
-                return True
-                
-            updates.append("updated_at = CURRENT_TIMESTAMP")
-            params.append(name)
-            
-            query = f"UPDATE auspex_prompts SET {', '.join(updates)} WHERE name = ?"
-            cursor.execute(query, params)
-            conn.commit()
-            return cursor.rowcount > 0
+        return self.facade.update_auspex_prompt(name, title, content, description)
 
     def delete_auspex_prompt(self, name: str) -> bool:
         """Delete an Auspex prompt template."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM auspex_prompts WHERE name = ? AND is_default = 0", (name,))
-            conn.commit()
-            return cursor.rowcount > 0
+        return self.facade.delete_auspex_prompt(name)
 
     def get_default_auspex_prompt(self) -> Optional[Dict]:
         """Get the default Auspex system prompt."""

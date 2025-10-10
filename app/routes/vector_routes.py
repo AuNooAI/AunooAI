@@ -1698,17 +1698,19 @@ async def analyze_incidents(
         else:
             end_date_dt = datetime.now()
             start_date_dt = end_date_dt - timedelta(days=req.days_limit)
-        
+
         # Query articles - use same approach as working news feed service
+        # NOTE: publication_date is TEXT, use strftime() to match database format
         query = """
         SELECT uri, title, summary, news_source, publication_date, category, sentiment,
                bias, factual_reporting, mbfc_credibility_rating, bias_source
-        FROM articles 
+        FROM articles
         WHERE publication_date >= ? AND publication_date <= ?
         AND category IS NOT NULL AND sentiment IS NOT NULL
         """
-        
-        params = [start_date_dt.isoformat(), end_date_dt.isoformat()]
+
+        # Format dates to match database TEXT format (space separator, not 'T')
+        params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
         
         if req.topic:
             query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
@@ -2423,16 +2425,18 @@ async def analyze_real_time_signals(
         else:
             end_date_dt = datetime.now()
             start_date_dt = end_date_dt - timedelta(days=req.days_limit)
-        
+
         # Query recent articles - use same approach as working news feed service
+        # NOTE: publication_date is TEXT, use strftime() to match database format
         query = """
         SELECT uri, title, summary, news_source, publication_date, category, sentiment
-        FROM articles 
+        FROM articles
         WHERE publication_date >= ? AND publication_date <= ?
         AND category IS NOT NULL AND sentiment IS NOT NULL
         """
-        
-        params = [start_date_dt.isoformat(), end_date_dt.isoformat()]
+
+        # Format dates to match database TEXT format (space separator, not 'T')
+        params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
         
         if req.topic:
             query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
@@ -2727,16 +2731,19 @@ async def run_signal_instructions(
         # Get articles for the specified time range
         end_date_dt = datetime.now()
         start_date_dt = end_date_dt - timedelta(days=req.days_back)
-        
+
         # Query articles using same approach as working code
+        # NOTE: publication_date is stored as TEXT in format 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD'
+        # We use strftime() to match the database format for TEXT comparison
         query = """
         SELECT uri, title, summary, news_source, publication_date, category, sentiment
-        FROM articles 
+        FROM articles
         WHERE publication_date >= ? AND publication_date <= ?
         AND category IS NOT NULL AND sentiment IS NOT NULL
         """
-        
-        params = [start_date_dt.isoformat(), end_date_dt.isoformat()]
+
+        # Format dates to match database TEXT format (space separator, not 'T')
+        params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
         
         if req.topic:
             query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"

@@ -532,8 +532,8 @@ class FloatingChat {
             // Update sidebar with sessions
             this.updateSessionsList();
             
-            // Create new chat session if none exists and we don't already have an active chat
-            if (this.chatSessions.length === 0 && !this.currentChatId) {
+            // Create new chat session if none exists OR if currentChatId is stale
+            if (this.chatSessions.length === 0) {
                 console.log(`DEBUG: No existing sessions, creating new one...`);
                 await this.createNewChatSession(topic);
             } else if (this.chatSessions.length > 0) {

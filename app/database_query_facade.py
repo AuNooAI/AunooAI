@@ -46,6 +46,9 @@ from app.database_models import (t_keyword_monitor_settings as keyword_monitor_s
                                  t_feed_keyword_groups as feed_keyword_groups,
                                  t_feed_group_sources as feed_group_sources,
                                  t_user_feed_subscriptions as user_feed_subscriptions,
+                                 t_auspex_chats as auspex_chats,
+                                 t_auspex_messages as auspex_messages,
+                                 t_auspex_prompts as auspex_prompts,
                                  # t_keyword_monitor_checks as keyword_monitor_checks,  # Table doesn't exist
                                  t_raw_articles as raw_articles)
                                  # t_paper_search_results as paper_search_results,  # Table doesn't exist
@@ -68,9 +71,32 @@ class DatabaseQueryFacade:
         # TODO: Reduce verbosity by "caching" the connection variable here.
         self.connection = self.db._temp_get_connection()
 
+    def _execute_with_rollback(self, statement, params=None, operation_name="query"):
+        """
+        Execute a statement with automatic rollback on error.
+        This ensures PostgreSQL transactions don't stay in failed state.
+
+        Args:
+            statement: SQLAlchemy statement or text() object
+            params: Optional parameters dict for text() queries
+            operation_name: Description of the operation for logging
+        """
+        try:
+            if params is not None:
+                return self.connection.execute(statement, params)
+            else:
+                return self.connection.execute(statement)
+        except Exception as e:
+            self.logger.error(f"Error executing {operation_name}: {e}")
+            try:
+                self.connection.rollback()
+            except Exception as rollback_error:
+                self.logger.error(f"Error during rollback: {rollback_error}")
+            raise
+
     #### KEYWORD MONITOR QUERIES ####
     def get_keyword_monitor_settings_by_id(self, id):
-        return self.connection.execute(
+        return self._execute_with_rollback(
             select(
                 keyword_monitor_settings
             ).where(
@@ -79,7 +105,7 @@ class DatabaseQueryFacade:
         ).mappings().fetchone()
 
     def get_keyword_monitor_status_by_id(self, id):
-        return self.connection.execute(
+        return self._execute_with_rollback(
             select(
                 keyword_monitor_status
             ).where(
@@ -88,7 +114,7 @@ class DatabaseQueryFacade:
         ).mappings().fetchone()
 
     def update_keyword_monitor_status_by_id(self, id, params):
-        self.connection.execute(
+        self._execute_with_rollback(
             update(
                 keyword_monitor_status
             ).where(
@@ -124,7 +150,7 @@ class DatabaseQueryFacade:
             })
 
     def create_keyword_monitor_status(self, params):
-        self.connection.execute(insert(keyword_monitor_status).values(**params))
+        self._execute_with_rollback(insert(keyword_monitor_status).values(**params))
         self.connection.commit()
 
     def create_or_update_keyword_monitor_last_check(self, params):
@@ -160,7 +186,7 @@ class DatabaseQueryFacade:
                 monitored_keywords
                 .join(keyword_groups, monitored_keywords.c.group_id == keyword_groups.c.id)
             )
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_monitored_keywords_for_topic(self, params):
         statement = select(
@@ -171,12 +197,12 @@ class DatabaseQueryFacade:
             ).where(
                 keyword_groups.c.topic == params[0]
             )
-        rows = self.connection.execute(statement).mappings().fetchall()
+        rows = self._execute_with_rollback(statement).mappings().fetchall()
         topic_keywords = [row['keyword'] for row in rows]
         return topic_keywords
 
     def article_exists(self, params):
-        article_exists =  self.connection.execute(
+        article_exists =  self._execute_with_rollback(
             select(articles.c.uri).where(articles.c.uri == params[0])
         ).fetchone()
         return article_exists
@@ -187,7 +213,7 @@ class DatabaseQueryFacade:
             inserted_new_article = False
             if not article_exists:
                 # Save new article
-                self.connection.execute(insert(articles).values(
+                self._execute_with_rollback(insert(articles).values(
                     uri=article_url,
                     title=article['title'],
                     news_source=article['source'],
@@ -201,12 +227,12 @@ class DatabaseQueryFacade:
                 self.logger.info(f"Inserted new article: {article_url}")
 
             # Get the group_id for this keyword
-            group_id = self.connection.execute(
+            group_id = self._execute_with_rollback(
                 select(monitored_keywords.c.group_id).where(monitored_keywords.c.id == keyword_id)
             ).scalar()
 
             # Check if we already have a match for this article in this group
-            existing_match = self.connection.execute(select(keyword_article_matches.c.id, keyword_article_matches.c.keyword_ids).where(
+            existing_match = self._execute_with_rollback(select(keyword_article_matches.c.id, keyword_article_matches.c.keyword_ids).where(
                 keyword_article_matches.c.article_uri == article_url,
                 keyword_article_matches.c.group_id == group_id)).fetchone()
 
@@ -219,14 +245,14 @@ class DatabaseQueryFacade:
                 if str(keyword_id) not in keyword_id_list:
                     keyword_id_list.append(str(keyword_id))
                     updated_keyword_ids = ','.join(keyword_id_list)
-                    result = self.connection.execute(update(keyword_article_matches).where(
+                    result = self._execute_with_rollback(update(keyword_article_matches).where(
                         keyword_article_matches.c.id == match_id
                         ).values(keyword_ids = updated_keyword_ids))
 
                     match_updated = True
             else:
                 # Create a new match
-                self.connection.execute(insert(keyword_article_matches).values(
+                self._execute_with_rollback(insert(keyword_article_matches).values(
                     article_uri=article_url,
                     keyword_ids=str(keyword_id),
                     group_id=group_id))
@@ -244,21 +270,21 @@ class DatabaseQueryFacade:
 
     def update_monitored_keyword_last_checked(self, params):
         statement = update(monitored_keywords).where(monitored_keywords.c.id == params[1]).values(last_checked = params[0])
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit() 
 
     def update_keyword_monitor_counter(self, params):
         statement = update(keyword_monitor_status).where(keyword_monitor_status.c.id == 1).values(requests_today = params[0])
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit() 
 
 
     def create_keyword_monitor_log_entry(self, params):
-        existing = self.connection.execute(select(keyword_monitor_status).where(keyword_monitor_status.c.id == 1)).fetchone()
+        existing = self._execute_with_rollback(select(keyword_monitor_status).where(keyword_monitor_status.c.id == 1)).fetchone()
         if existing:
-            self.connection.execute(update(keyword_monitor_status).where(keyword_monitor_status.c.id == 1).values(last_check_time = params[0], last_error = params[1], requests_today = params[2]))
+            self._execute_with_rollback(update(keyword_monitor_status).where(keyword_monitor_status.c.id == 1).values(last_check_time = params[0], last_error = params[1], requests_today = params[2]))
         else:
-            self.connection.execute(insert(keyword_monitor_status).values(id = 1, last_check_time = params[0], last_error = params[1], requests_today = params[2]))
+            self._execute_with_rollback(insert(keyword_monitor_status).values(id = 1, last_check_time = params[0], last_error = params[1], requests_today = params[2]))
 
         self.connection.commit()
 
@@ -268,7 +294,7 @@ class DatabaseQueryFacade:
         ).where(
             keyword_monitor_settings.c.id == 1
         )
-        row = self.connection.execute(statement).fetchone()
+        row = self._execute_with_rollback(statement).fetchone()
         is_enabled = row[0] if row and row[0] is not None else True
         return is_enabled
 
@@ -279,14 +305,14 @@ class DatabaseQueryFacade:
         ).where(
             keyword_monitor_settings.c.id == 1
         )
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     #### RESEARCH QUERIES ####
     def get_article_by_url(self, url):
         statement = select(articles).where(
             articles.c.uri == url
         )
-        result = self.connection.execute(statement).mappings()
+        result = self._execute_with_rollback(statement).mappings()
         return result.fetchone()
 
     def create_article_with_extracted_content(self, params):
@@ -301,7 +327,7 @@ class DatabaseQueryFacade:
             analyzed= params[4],
             summary=params[5]
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     async def move_alert_to_articles(self, url: str) -> None:
@@ -311,7 +337,7 @@ class DatabaseQueryFacade:
             keyword_alert_articles.c.url == url,
             keyword_alert_articles.c.moved_to_articles == False
         )
-        alert = self.connection.execute(statement).fetchone()
+        alert = self._execute_with_rollback(statement).fetchone()
         if alert:
             statement = insert(
                 articles
@@ -323,7 +349,7 @@ class DatabaseQueryFacade:
                 topic=alert['topic'],
                 analyzed=False
             )
-            self.connection.execute(statement)
+            self._execute_with_rollback(statement)
             
             statement = update(
                 keyword_alert_articles
@@ -332,7 +358,7 @@ class DatabaseQueryFacade:
             ).values(
                 moved_to_articles = True
             )
-            self.connection.execute(statement)
+            self._execute_with_rollback(statement)
             self.connection.commit()
 
     #### REINDEX CHROMA DB QUERIES ####
@@ -345,7 +371,7 @@ class DatabaseQueryFacade:
         if limit:
             statement = statement.limit(limit)
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def save_analysis_version(self, params):
         statement = insert(
@@ -356,7 +382,7 @@ class DatabaseQueryFacade:
             model_used=params[2],
             analysis_depth=params[3]
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def get_latest_analysis_version(self, topic):
@@ -367,7 +393,7 @@ class DatabaseQueryFacade:
         ).order_by(
             analysis_versions.c.created_at.desc()
         ).limit(1)
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def get_articles_with_dynamic_limit(
             self,
@@ -401,8 +427,9 @@ class DatabaseQueryFacade:
         ).where(
             and_(
                 articles.c.topic == topic,
-                articles.c.publication_date >= start_date.isoformat(),
-                articles.c.publication_date <= end_date.isoformat(),
+                # NOTE: publication_date is TEXT, use strftime() to match DB format
+                articles.c.publication_date >= start_date.strftime('%Y-%m-%d'),
+                articles.c.publication_date <= end_date.strftime('%Y-%m-%d %H:%M:%S'),
                 articles.c.summary != '',
                 articles.c.summary != None,
             )
@@ -414,7 +441,7 @@ class DatabaseQueryFacade:
 
         statement = statement.limit(optimal_sample_size * fetch_multiplier)
 
-        return self.connection.execute(statement).mappings().fetchall() 
+        return self._execute_with_rollback(statement).mappings().fetchall() 
 
     def get_organisational_profile(self, profile_id):
         statement = select(
@@ -436,7 +463,7 @@ class DatabaseQueryFacade:
         ).where(
             organizational_profiles.c.id == profile_id
         )
-        return self.connection.execute(statement).fetchone() 
+        return self._execute_with_rollback(statement).fetchone() 
 
     def get_organisational_profiles(self):
         statement = select(
@@ -462,7 +489,7 @@ class DatabaseQueryFacade:
             organizational_profiles.c.is_default.desc(),
             organizational_profiles.c.name.asc()
         )
-        return self.connection.execute(statement).mappings().fetchall() 
+        return self._execute_with_rollback(statement).mappings().fetchall() 
 
     def create_organisational_profile(self, params):
         statement = insert(
@@ -484,11 +511,11 @@ class DatabaseQueryFacade:
             custom_context=params[13]
         )
         
-        return self.connection.execute(statement)
+        return self._execute_with_rollback(statement)
 
     def delete_organisational_profile(self, profile_id):
         statement = delete(organizational_profiles).where(organizational_profiles.c.id == profile_id)
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit() 
 
     def get_organisational_profile_by_name(self, name):
@@ -497,7 +524,7 @@ class DatabaseQueryFacade:
         ).where(
             organizational_profiles.c.name == name
         )
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def get_organisational_profile_by_id(self, profile_id):
         statement = select(
@@ -505,7 +532,7 @@ class DatabaseQueryFacade:
         ).where(
             organizational_profiles.c.id == profile_id
         )
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def get_organizational_profile_for_ui(self, profile_id):
         statement = select(
@@ -530,7 +557,7 @@ class DatabaseQueryFacade:
         ).where(
             organizational_profiles.c.id == profile_id
         )
-        return self.connection.execute(statement).mappings().fetchone()
+        return self._execute_with_rollback(statement).mappings().fetchone()
 
     def check_organisational_profile_name_conflict(self, name, profile_id):
         statement = select(
@@ -541,7 +568,7 @@ class DatabaseQueryFacade:
                 organizational_profiles.c.id != profile_id
             )
         )
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def update_organisational_profile(self, params):
         statement = update(
@@ -565,7 +592,7 @@ class DatabaseQueryFacade:
             custom_context = params[13],
             updated_at = func.current_timestamp()
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit() 
 
 
@@ -575,7 +602,7 @@ class DatabaseQueryFacade:
         ).where(
             organizational_profiles.c.id == profile_id
         )
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     #### AUTOMATED INGEST SERVICE ####
     def get_configured_llm_model(self):
@@ -586,7 +613,7 @@ class DatabaseQueryFacade:
         ).where(
             keyword_monitor_settings.c.id == 1
         )
-        settings = self.connection.execute(statement).mappings().fetchone()
+        settings = self._execute_with_rollback(statement).mappings().fetchone()
         if settings:
             return settings['default_llm_model'] or "gpt-4o-mini"
 
@@ -597,7 +624,7 @@ class DatabaseQueryFacade:
         ).where(
             keyword_monitor_settings.c.id == 1
         )
-        row = self.connection.execute(statement).mappings().fetchone()
+        row = self._execute_with_rollback(statement).mappings().fetchone()
         if row:
             return (row['llm_temperature'], row['llm_max_tokens'])
         return None
@@ -638,7 +665,7 @@ class DatabaseQueryFacade:
             publication_date = params[26]
         )
         try:
-            self.connection.execute(statement)
+            self._execute_with_rollback(statement)
             self.connection.commit()
         except Exception as e:
             # Rollback on error to avoid leaving transaction in aborted state
@@ -652,7 +679,7 @@ class DatabaseQueryFacade:
         ).where(
             keyword_monitor_settings.c.id == 1
         )
-        settings = self.connection.execute(statement).mappings().fetchone()
+        settings = self._execute_with_rollback(statement).mappings().fetchone()
         if settings and settings['min_relevance_threshold'] is not None:
             return float(settings['min_relevance_threshold'])
 
@@ -668,7 +695,7 @@ class DatabaseQueryFacade:
         ).where(
             keyword_article_matches.c.id == 1
         )
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def update_ingested_article(self, params):
         statement = update(
@@ -681,7 +708,7 @@ class DatabaseQueryFacade:
             quality_score = params[1],
             quality_issues = params[2]
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit() 
 
     def get_topic_articles_to_ingest_using_new_table_structure(self, topic_id):
@@ -700,7 +727,7 @@ class DatabaseQueryFacade:
         ).order_by(
             keyword_article_matches.c.detected_at.desc()
         )
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_topic_articles_to_ingest_using_old_table_structure(self, topic_id):
         statement = select(
@@ -719,7 +746,7 @@ class DatabaseQueryFacade:
         ).order_by(
             keyword_alerts.c.detected_at.desc()
         )
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_topic_unprocessed_and_unread_articles_using_new_table_structure(self, topic_id):
         statement = select(
@@ -744,7 +771,7 @@ class DatabaseQueryFacade:
         ).distinct().order_by(
             desc(keyword_article_matches.c.detected_at)
         )
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_topic_unprocessed_and_unread_articles_using_old_table_structure(self, topic_id):
         statement = select(
@@ -770,7 +797,7 @@ class DatabaseQueryFacade:
         ).distinct().order_by(
             desc(keyword_alerts.c.detected_at)
         )
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_topic_keywords(self, topic_id):
         statement = select(
@@ -781,7 +808,7 @@ class DatabaseQueryFacade:
         ).where(
             keyword_groups.c.topic == topic_id
         )
-        rows = self.connection.execute(statement).mappings().fetchall()
+        rows = self._execute_with_rollback(statement).mappings().fetchall()
         topic_keywords = [row['keyword'] for row in rows]
         return topic_keywords
 
@@ -810,7 +837,7 @@ class DatabaseQueryFacade:
         ).order_by(
             desc(articles.c.publication_date)
         ).limit(50)
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_recent_articles_for_market_signal_analysis(self, timeframe_days, topic_name, optimal_sample_size):
         start_date = datetime.utcnow() - timedelta(days=timeframe_days)
@@ -837,7 +864,7 @@ class DatabaseQueryFacade:
         ).order_by(
             desc(articles.c.publication_date)
         ).limit(optimal_sample_size)
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_topic_filtered_future_signals_with_counts_for_market_signal_analysis(self, topic_name):
         # We need actual counts, not just the config list
@@ -856,7 +883,7 @@ class DatabaseQueryFacade:
         ).order_by(
             desc(func.count())
         )
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     #### TOPIC MAP ROUTES ####
     def get_unique_topics(self):
@@ -870,7 +897,7 @@ class DatabaseQueryFacade:
         ).distinct().order_by(
             articles.c.topic.asc()
         )
-        rows = self.connection.execute(statement).mappings().fetchall()
+        rows = self._execute_with_rollback(statement).mappings().fetchall()
 
         return [row[0] for row in rows] 
 
@@ -886,14 +913,14 @@ class DatabaseQueryFacade:
         ).distinct().order_by(
             articles.c.category.asc()
         )
-        rows = self.connection.execute(statement).mappings().fetchall()
+        rows = self._execute_with_rollback(statement).mappings().fetchall()
         return [row[0] for row in rows] 
 
 
     #### OAUTH USERS ####
     def count_oauth_allowlist_active_users(self):
         statement = select(func.count()).where(oauth_allowlist.c.is_active == 1)
-        return self.connection.execute(statement).fetchone()[0] 
+        return self._execute_with_rollback(statement).fetchone()[0] 
 
     def get_oauth_allowlist_user_by_email_and_provider(self, email, provider):
         statement = select(
@@ -904,7 +931,7 @@ class DatabaseQueryFacade:
                 oauth_users.c.provider == provider
             )
         )
-        return self.connection.execute(statement).fetchone() 
+        return self._execute_with_rollback(statement).fetchone() 
 
     def get_oauth_allowlist_user_by_id(self, user_id):
         statement = select(
@@ -912,7 +939,7 @@ class DatabaseQueryFacade:
         ).where(
             oauth_users.c.id == user_id
         )
-        return self.connection.execute(statement).fetchone() 
+        return self._execute_with_rollback(statement).fetchone() 
 
 
     def get_oauth_active_users_by_provider(self, provider):
@@ -926,21 +953,21 @@ class DatabaseQueryFacade:
         ).order_by(
             oauth_users.c.created_at.desc()
         )
-        return self.connection.execute(statement).mappings().fetchall() 
+        return self._execute_with_rollback(statement).mappings().fetchall() 
 
     def is_oauth_user_allowed(self, email):
         statement = select(func.count()).where(oauth_allowlist.c.email == email, oauth_allowlist.c.is_active == 1)
-        count = self.connection.execute(statement).fetchone()[0]
+        count = self._execute_with_rollback(statement).fetchone()[0]
         return count > 0 
 
     def add_oauth_user_to_allowlist(self, email, added_by):
         is_email_exists = self.is_oauth_user_allowed(email)
         if is_email_exists:
             update_statement = update(oauth_allowlist).where(oauth_allowlist.c.email == email).values(email = email, added_by = added_by)
-            self.connection.execute(update_statement)
+            self._execute_with_rollback(update_statement)
         else:
             insert_statement = insert(oauth_allowlist).values(email = email, added_by = added_by)
-            self.connection.execute(insert_statement)
+            self._execute_with_rollback(insert_statement)
 
         self.connection.commit()
 
@@ -952,7 +979,7 @@ class DatabaseQueryFacade:
         ).values(
             is_active = 0
         )
-        result = self.connection.execute(statement)
+        result = self._execute_with_rollback(statement)
         self.connection.commit()
         return result.rowcount 
     
@@ -967,7 +994,7 @@ class DatabaseQueryFacade:
         ).order_by(
             oauth_users.c.created_at.desc()
         )
-        return self.connection.execute(statement).mappings().fetchall() 
+        return self._execute_with_rollback(statement).mappings().fetchall() 
 
     def deactivate_user(self, email, provider):
         statement = update(
@@ -980,7 +1007,7 @@ class DatabaseQueryFacade:
         ).values(
             is_active = 0
         )
-        result = self.connection.execute(statement)
+        result = self._execute_with_rollback(statement)
         self.connection.commit()
 
         return result.rowcount 
@@ -994,7 +1021,7 @@ class DatabaseQueryFacade:
                 oauth_users.c.is_active == 1
             )
         )
-        return self.connection.execute(statement).fetchone() 
+        return self._execute_with_rollback(statement).fetchone() 
 
     def get_active_oauth_allowlist_user_by_email_and_provider(self, email, provider):
         statement = select(
@@ -1006,7 +1033,7 @@ class DatabaseQueryFacade:
                 oauth_users.c.is_active == 1
             )
         )
-        return self.connection.execute(statement).fetchone() 
+        return self._execute_with_rollback(statement).fetchone() 
     def update_oauth_allowlist_user(self, params):
         statement = update(
             oauth_users
@@ -1021,7 +1048,7 @@ class DatabaseQueryFacade:
             avatar_url = params[2],
             last_login = func.current_timestamp()
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit() 
 
     def create_oauth_allowlist_user(self, params):
@@ -1034,7 +1061,7 @@ class DatabaseQueryFacade:
             provider_id=params[3],
             avatar_url=params[4]
         )
-        result =self.connection.execute(statement)
+        result =self._execute_with_rollback(statement)
         self.connection.commit()
 
         return result.inserted_primary_key[0]
@@ -1050,7 +1077,7 @@ class DatabaseQueryFacade:
             ).order_by(
                 oauth_allowlist.c.added_at.desc()
             )
-            return self.connection.execute(statement).mappings().fetchall() 
+            return self._execute_with_rollback(statement).mappings().fetchall() 
 
     def get_oauth_system_status_and_settings(self):
         #count allowlist entries
@@ -1061,7 +1088,7 @@ class DatabaseQueryFacade:
         ).where(
             oauth_allowlist.c.is_active == 1
         )
-        allowlist_count = self.connection.execute(statement).scalar()
+        allowlist_count = self._execute_with_rollback(statement).scalar()
         
         #count Oauth users
         statement = select(
@@ -1071,7 +1098,7 @@ class DatabaseQueryFacade:
         ).where(
             oauth_users.c.is_active == 1
         )
-        oauth_users_count = self.connection.execute(statement).scalar()
+        oauth_users_count = self._execute_with_rollback(statement).scalar()
         
         #get recent logins
         statement = select(
@@ -1082,7 +1109,7 @@ class DatabaseQueryFacade:
         ).group_by(
             oauth_users.c.provider
         )
-        provider_stats = {row['provider']: row['count'] for row in self.connection.execute(statement).mappings().fetchall()}
+        provider_stats = {row['provider']: row['count'] for row in self._execute_with_rollback(statement).mappings().fetchall()}
         
         return allowlist_count, oauth_users_count, provider_stats
 
@@ -1092,7 +1119,7 @@ class DatabaseQueryFacade:
         ).where(
             feed_items.c.id == item_id
         )
-        return self.connection.execute(statement).fetchone() 
+        return self._execute_with_rollback(statement).fetchone() 
 
     def get_feed_item_url(self, item_id):
         statement = select(
@@ -1100,7 +1127,7 @@ class DatabaseQueryFacade:
         ).where(
             feed_items.c.id == item_id
         )
-        return self.connection.execute(statement).fetchone() 
+        return self._execute_with_rollback(statement).fetchone() 
 
     def get_enrichment_data_for_article(self, item_url):
         statement = select(
@@ -1130,7 +1157,7 @@ class DatabaseQueryFacade:
         ).where(
             articles.c.uri == item_url
         )
-        return self.connection.execute(statement).fetchone() 
+        return self._execute_with_rollback(statement).fetchone() 
 
     def get_enrichment_data_for_article_with_extra_fields(self, item_url):
         statement = select(
@@ -1159,7 +1186,7 @@ class DatabaseQueryFacade:
         ).where(
             articles.c.uri == item_url
         )
-        return self.connection.execute(statement).fetchone() 
+        return self._execute_with_rollback(statement).fetchone() 
 
     def update_feed_article_data(self, params):
         statement = update(
@@ -1174,7 +1201,7 @@ class DatabaseQueryFacade:
             publication_date = func.coalesce(articles.c.publication_date, params[3]),
             topic = func.coalesce(articles.c.topic, 'General')
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit() 
 
     def extract_topics_from_article(self, topic_filter, category_filter, limit):
@@ -1209,7 +1236,7 @@ class DatabaseQueryFacade:
         )
         if limit:
             statement = statement.limit(limit)
-        return self.connection.execute(statement).mappings().fetchall() 
+        return self._execute_with_rollback(statement).mappings().fetchall() 
 
     def create_feed_group(self, params):
         statement = insert(
@@ -1221,7 +1248,7 @@ class DatabaseQueryFacade:
             created_at = params[3],
             updated_at = params[4]
         )
-        result = self.connection.execute(statement)
+        result = self._execute_with_rollback(statement)
         self.connection.commit()
         return result.lastrowid 
 
@@ -1231,7 +1258,7 @@ class DatabaseQueryFacade:
         ).order_by(
             feed_keyword_groups.c.name
         )
-        return self.connection.execute(statement).mappings().fetchall() 
+        return self._execute_with_rollback(statement).mappings().fetchall() 
 
 
 
@@ -1243,7 +1270,7 @@ class DatabaseQueryFacade:
         ).order_by(
             feed_keyword_groups.c.name
         )
-        return self.connection.execute(statement).mappings().fetchall() 
+        return self._execute_with_rollback(statement).mappings().fetchall() 
 
     def get_feed_group_sources(self, group_id):
         statement = select(
@@ -1258,7 +1285,7 @@ class DatabaseQueryFacade:
         ).order_by(
             feed_group_sources.c.source_type.asc()
         )
-        return self.connection.execute(statement).mappings().fetchall() 
+        return self._execute_with_rollback(statement).mappings().fetchall() 
 
     def get_feed_group_by_id(self, group_id):
         statement = select(
@@ -1266,7 +1293,7 @@ class DatabaseQueryFacade:
         ).where(
             feed_keyword_groups.c.id == group_id
         )
-        return self.connection.execute(statement).fetchone() 
+        return self._execute_with_rollback(statement).fetchone() 
 
     def update_feed_group(self, name, description, color, is_active, group_id):
         statement = update(
@@ -1293,7 +1320,7 @@ class DatabaseQueryFacade:
         statement = statement.values(
             updated_at = datetime.now().isoformat()
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit() 
 
     def delete_feed_group(self, group_id):
@@ -1302,7 +1329,7 @@ class DatabaseQueryFacade:
         ).where(
             feed_keyword_groups.c.id == group_id
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit() 
 
     def create_default_feed_subscription(self, group_id):
@@ -1311,7 +1338,7 @@ class DatabaseQueryFacade:
         ).values(
             group_id = group_id
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit() 
 
     def update_group_source(self, source_id, keywords, enabled, date_range_days, custom_start_date, custom_end_date):
@@ -1340,7 +1367,7 @@ class DatabaseQueryFacade:
             statement = statement.values(
                 custom_end_date = custom_end_date
             )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit() 
 
 
@@ -1350,7 +1377,7 @@ class DatabaseQueryFacade:
         ).where(
             feed_group_sources.c.id == source_id
         )
-        return self.connection.execute(statement).fetchone() 
+        return self._execute_with_rollback(statement).fetchone() 
 
     def get_group_source(self, group_id, source_type):
         statement = select(
@@ -1359,7 +1386,7 @@ class DatabaseQueryFacade:
             feed_group_sources.c.group_id == group_id,
             feed_group_sources.c.source_type == source_type
         )
-        return self.connection.execute(statement).fetchone() 
+        return self._execute_with_rollback(statement).fetchone() 
 
     def delete_group_source(self, source_id):
         statement = delete(
@@ -1367,7 +1394,7 @@ class DatabaseQueryFacade:
         ).where(
             feed_group_sources.c.id == source_id
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit() 
 
     def add_source_to_group(self, params):
@@ -1383,7 +1410,7 @@ class DatabaseQueryFacade:
             custom_end_date = params[6],
             created_at = params[7]
         )
-        result = self.connection.execute(statement)
+        result = self._execute_with_rollback(statement)
         self.connection.commit() 
         return result.lastrowid 
 
@@ -1393,7 +1420,7 @@ class DatabaseQueryFacade:
         ).where(
             feed_keyword_groups.c.name == name
         )
-        return self.connection.execute(statement).fetchone() 
+        return self._execute_with_rollback(statement).fetchone() 
 
     def get_keyword_groups_count(self):
         statement = select(
@@ -1401,7 +1428,7 @@ class DatabaseQueryFacade:
         ).select_from(
             feed_keyword_groups
         )
-        return self.connection.execute(statement).fetchone()[0] 
+        return self._execute_with_rollback(statement).fetchone()[0] 
 
     def get_feed_item_count(self):
         statement = select(
@@ -1409,7 +1436,7 @@ class DatabaseQueryFacade:
         ).select_from(
             feed_items
         )
-        return self.connection.execute(statement).fetchone()[0] 
+        return self._execute_with_rollback(statement).fetchone()[0] 
 
     def get_article_id_by_url(self, url):
         statement = select(
@@ -1417,7 +1444,7 @@ class DatabaseQueryFacade:
         ).where(
             articles.c.uri == url
         )
-        article_result = self.connection.execute(statement).fetchone()
+        article_result = self._execute_with_rollback(statement).fetchone()
 
         return article_result[0] if article_result else None 
 
@@ -1428,7 +1455,7 @@ class DatabaseQueryFacade:
             articles.c.uri == url,
             articles.c.analyzed == 1
         )
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def create_article_without_enrichment(self, params):
         statement = insert(
@@ -1443,7 +1470,7 @@ class DatabaseQueryFacade:
             analyzed = 0,
             topic = 'General'
         )
-        result = self.connection.execute(statement)
+        result = self._execute_with_rollback(statement)
         self.connection.commit()
         return result.lastrowid 
 
@@ -1460,7 +1487,7 @@ class DatabaseQueryFacade:
         ).where(
             feed_items.c.id == item_id
         )
-        return self.connection.execute(statement).fetchone() 
+        return self._execute_with_rollback(statement).fetchone() 
 
     def update_feed_tags(self, params):
         statement = update(
@@ -1471,7 +1498,7 @@ class DatabaseQueryFacade:
             tags = params[0],
             updated_at = func.now()
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit() 
 
     def get_feed_keywords_by_source_type(self, source_type):
@@ -1489,7 +1516,7 @@ class DatabaseQueryFacade:
             )
         ).distinct()
 
-        return self.connection.execute(statement).mappings().fetchall() 
+        return self._execute_with_rollback(statement).mappings().fetchall() 
 
     def get_statistics_for_specific_feed_group(self, group_id):
         # Get total items count
@@ -1501,7 +1528,7 @@ class DatabaseQueryFacade:
             feed_items.c.group_id == group_id
         )
 
-        total_items = self.connection.execute(statement).scalar()
+        total_items = self._execute_with_rollback(statement).scalar()
         
         # Get counts by source type
         statement = select(
@@ -1526,7 +1553,7 @@ class DatabaseQueryFacade:
             feed_items.c.group_id == group_id,
             feed_items.c.publication_date >= seven_days_ago
         )
-        recent_items = self.connection.execute(statement).scalar()
+        recent_items = self._execute_with_rollback(statement).scalar()
 
         return total_items, source_counts, recent_items
 
@@ -1540,7 +1567,7 @@ class DatabaseQueryFacade:
         # statement = select(
         #     func.max(keyword_monitor_checks.c.check_time)
         # )
-        # return self.connection.execute(statement).scalar() 
+        # return self._execute_with_rollback(statement).scalar() 
 
     def get_unread_alerts(self):
         statement = select(
@@ -1576,7 +1603,7 @@ class DatabaseQueryFacade:
         ).order_by(
             keyword_alerts.c.detected_at.desc()
         )
-        return self.connection.execute(statement).mappings().fetchall() 
+        return self._execute_with_rollback(statement).mappings().fetchall() 
 
     def delete_keyword_alerts_by_article_url(self, url):
         statement = delete(
@@ -1584,7 +1611,7 @@ class DatabaseQueryFacade:
         ).where(
             keyword_alerts.c.article_uri == url
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit() 
 
     def delete_keyword_alerts_by_article_url_from_new_table(self, url):
@@ -1593,7 +1620,7 @@ class DatabaseQueryFacade:
         ).where(
             keyword_article_matches.c.article_uri == url
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def mark_article_as_below_threshold(self, article_uri):
@@ -1615,7 +1642,7 @@ class DatabaseQueryFacade:
         ).where(
             func.lower(articles.c.topic) == func.lower(topic)
         )
-        total_topic_articles = self.connection.execute(statement).scalar()
+        total_topic_articles = self._execute_with_rollback(statement).scalar()
 
         statement = select(
             func.count()
@@ -1626,7 +1653,7 @@ class DatabaseQueryFacade:
             articles.c.category != None,
             articles.c.category != ''
         )
-        articles_with_categories = self.connection.execute(statement).scalar()
+        articles_with_categories = self._execute_with_rollback(statement).scalar()
 
         statement = select(
             articles.c.category
@@ -1635,7 +1662,7 @@ class DatabaseQueryFacade:
             articles.c.category != None,
             articles.c.category != ''
         ).distinct()
-        sample_categories = [row["category"] for row in self.connection.execute(statement).mappings().fetchall()]
+        sample_categories = [row["category"] for row in self._execute_with_rollback(statement).mappings().fetchall()]
 
         return total_topic_articles, articles_with_categories, sample_categories 
 
@@ -1645,7 +1672,7 @@ class DatabaseQueryFacade:
         ).where(
             func.lower(articles.c.topic) == func.lower(topic)
         ).distinct()
-        return self.connection.execute(statement).fetchone() 
+        return self._execute_with_rollback(statement).fetchone() 
 
     def get_articles_count_from_topic_and_categories(self, placeholders, params):
         statement = select(
@@ -1656,7 +1683,7 @@ class DatabaseQueryFacade:
             func.lower(articles.c.topic) == func.lower(params[0]),
             articles.c.category.in_(placeholders)
         )
-        return self.connection.execute(statement).scalar()
+        return self._execute_with_rollback(statement).scalar()
 
     def get_article_count_for_topic(self, topic):
         statement = select(
@@ -1666,7 +1693,7 @@ class DatabaseQueryFacade:
         ).where(
             func.lower(articles.c.topic) == func.lower(topic)
         )
-        return self.connection.execute(statement).scalar() 
+        return self._execute_with_rollback(statement).scalar() 
 
     def get_recent_articles_for_topic_and_category(self, params):
         statement = select(
@@ -1687,7 +1714,7 @@ class DatabaseQueryFacade:
             articles.c.publication_date.desc()
         ).limit(5)
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_categories_for_topic(self, topic):
         statement = select(
@@ -1698,7 +1725,7 @@ class DatabaseQueryFacade:
             articles.c.category != ''
         ).distinct()
 
-        return [row["category"] for row in self.connection.execute(statement).mappings().fetchall()] 
+        return [row["category"] for row in self._execute_with_rollback(statement).mappings().fetchall()] 
 
     def get_podcasts_columns(self):
         return [col.name for col in podcasts.columns]
@@ -1739,7 +1766,7 @@ class DatabaseQueryFacade:
         statement = statement.order_by(podcasts.c.created_at.desc()).limit(1)
 
         # Execute and return result
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def get_articles_for_date_range(self, limit, topic, start_date, end_date):
         statement = select(
@@ -1753,7 +1780,7 @@ class DatabaseQueryFacade:
         if limit:
             statement = statement.limit(limit)
 
-        articles_list = self.connection.execute(statement).mappings().fetchall()
+        articles_list = self._execute_with_rollback(statement).mappings().fetchall()
         column_names = [col.name for col in articles.columns]
 
         return column_names, articles_list 
@@ -1767,7 +1794,7 @@ class DatabaseQueryFacade:
             articles.c.submission_date.desc()
         ).limit(limit)
 
-        articles_list = self.connection.execute(statement).mappings().fetchall()
+        articles_list = self._execute_with_rollback(statement).mappings().fetchall()
 
         result_articles = []
         for article in articles_list:
@@ -1795,7 +1822,7 @@ class DatabaseQueryFacade:
             status='running'
         )
 
-        result = self.connection.execute(statement)
+        result = self._execute_with_rollback(statement)
         self.connection.commit()
 
         return result.inserted_primary_key[0]
@@ -1811,7 +1838,7 @@ class DatabaseQueryFacade:
             response_time_ms=params[6],
             error_message=params[7]
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def store_ontological_results(self, params):
@@ -1837,7 +1864,7 @@ class DatabaseQueryFacade:
             factuality_explanation=params[18],
             round_number=params[19]
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def update_run_status(self, params):
@@ -1846,7 +1873,7 @@ class DatabaseQueryFacade:
                 completed_at=func.current_timestamp()
             )
 
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def get_run_details(self, run_id):
@@ -1864,7 +1891,7 @@ class DatabaseQueryFacade:
             model_bias_arena_runs.c.status
         ).where(model_bias_arena_runs.c.id == run_id)
 
-        return self.connection.execute(statement).fetchone()                         
+        return self._execute_with_rollback(statement).fetchone()                         
 
     def get_ontological_results_with_article_info(self, run_id):
         statement = select(
@@ -1908,7 +1935,7 @@ class DatabaseQueryFacade:
             model_bias_arena_results.c.round_number
         )
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_benchmark_data_including_media_bias_info(self, run_id):
         statement = select(
@@ -1941,11 +1968,11 @@ class DatabaseQueryFacade:
         ).order_by(
             articles.c.uri
         )
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def delete_run(self, run_id):
         statement = delete(model_bias_arena_runs).where(model_bias_arena_runs.c.id == run_id)
-        result = self.connection.execute(statement)
+        result = self._execute_with_rollback(statement)
         self.connection.commit()
 
         return result.rowcount
@@ -1961,7 +1988,7 @@ class DatabaseQueryFacade:
             articles.c.popularity
         ).where(articles.c.uri == url)
 
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def get_run_articles(self, run_id):
         statement = select(
@@ -1970,7 +1997,7 @@ class DatabaseQueryFacade:
             model_bias_arena_articles.c.article_summary
         ).where(model_bias_arena_articles.c.run_id == run_id)
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_all_bias_evaluation_runs(self):
         statement = select(
@@ -1989,7 +2016,7 @@ class DatabaseQueryFacade:
             model_bias_arena_articles.c.created_at.desc()
         )
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def update_run(self, params):
         statement = update(model_bias_arena_runs).where(
@@ -1998,7 +2025,7 @@ class DatabaseQueryFacade:
                 current_round=params[0]
         )
 
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def get_topics_from_article(self, article_url):
@@ -2008,7 +2035,7 @@ class DatabaseQueryFacade:
             articles.c.uri == article_url
         ).distinct()
 
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def get_run_info(self, run_id):
         statement = select(
@@ -2018,7 +2045,7 @@ class DatabaseQueryFacade:
             model_bias_arena_runs.c.id == run_id
         )
 
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def add_articles_to_run(self, params):
         statement = insert(model_bias_arena_articles).values(
@@ -2027,7 +2054,7 @@ class DatabaseQueryFacade:
             article_title=params[2],
             article_summary=params[3]
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def sample_articles(self, count, topic):
@@ -2073,7 +2100,7 @@ class DatabaseQueryFacade:
             func.random()
         ).limit(count)
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_topics_with_article_counts(self):
         statement = select(
@@ -2089,12 +2116,12 @@ class DatabaseQueryFacade:
         )
         
         db_topics = {row[0]: {"article_count": row[1], "last_article_date": row[2]}
-                        for row in self.connection.execute(statement).mappings().fetchall()}
+                        for row in self._execute_with_rollback(statement).mappings().fetchall()}
         return db_topics
 
     def debug_articles(self):
         statement = select(articles)
-        articles = self.connection.execute(statement).mappings().fetchall()
+        articles = self._execute_with_rollback(statement).mappings().fetchall()
         return articles
 
     def get_rate_limit_status(self):
@@ -2104,7 +2131,7 @@ class DatabaseQueryFacade:
         ).where(
             keyword_monitor_status.c.id == 1
         )
-        return self.connection.execute(statement).mappings().fetchone()
+        return self._execute_with_rollback(statement).mappings().fetchone()
 
     def get_monitor_page_keywords(self):
         statement = select(
@@ -2120,7 +2147,7 @@ class DatabaseQueryFacade:
             monitored_keywords.c.keyword
         )
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_monitored_keywords_for_keyword_alerts_page(self):
         statement = select(
@@ -2133,7 +2160,7 @@ class DatabaseQueryFacade:
             monitored_keywords
         )
 
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def get_all_groups_with_their_alerts_and_status(self):
 
@@ -2172,7 +2199,7 @@ class DatabaseQueryFacade:
             keyword_groups.c.name
         )
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def check_if_keyword_article_matches_table_exists(self):
         inspector = inspect(self.connection)
@@ -2226,7 +2253,7 @@ class DatabaseQueryFacade:
             keyword_alerts.c.detected_at.desc()
         )
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_all_completed_podcasts(self):
         statement = select(
@@ -2241,7 +2268,7 @@ class DatabaseQueryFacade:
             podcasts.c.created_at.desc()
         ).limit(50)
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def create_podcast(self, params):
         statement = insert(podcasts).values(
@@ -2252,7 +2279,7 @@ class DatabaseQueryFacade:
             config=params[2],
             article_uris=params[3]
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def update_podcast_status(self, params):
@@ -2261,7 +2288,7 @@ class DatabaseQueryFacade:
                 audio_url=params[1],
                 transcript=params[2]
             )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def get_flow_data(self, topic, timeframe, limit):
@@ -2291,14 +2318,14 @@ class DatabaseQueryFacade:
             articles.c.submission_date.desc()
         ).limit(limit)
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def create_keyword_monitor_group(self, params):
         statement = insert(keyword_groups).values(
             name=params[0],
             topic=params[1]
         )
-        result =self.connection.execute(statement)
+        result =self._execute_with_rollback(statement)
         self.connection.commit()
 
         return result.inserted_primary_key[0]
@@ -2308,22 +2335,22 @@ class DatabaseQueryFacade:
             group_id=params[0],
             keyword=params[1]
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def delete_keyword(self, keyword_id):
         statement = delete(monitored_keywords).where(monitored_keywords.c.id == keyword_id)
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def delete_keyword_group(self, group_id):
         statement = delete(keyword_groups).where(keyword_groups.c.id == group_id)
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def delete_group_keywords(self, group_id):
         statement = delete(monitored_keywords).where(monitored_keywords.c.group_id == group_id)
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def create_group(self, group_name, group_topic):
@@ -2331,7 +2358,7 @@ class DatabaseQueryFacade:
             name=group_name,
             topic=group_topic
         )
-        result = self.connection.execute(statement)
+        result = self._execute_with_rollback(statement)
         self.connection.commit()
 
         return result.inserted_primary_key[0]
@@ -2341,7 +2368,7 @@ class DatabaseQueryFacade:
             group_id=group_id,
             keyword=keyword
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def get_all_group_ids_associated_to_topic(self, topic_name):
@@ -2350,7 +2377,7 @@ class DatabaseQueryFacade:
         ).where(
             keyword_groups.c.topic == topic_name
         )
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_keyword_ids_associated_to_group(self, group_id):
         statement = select(
@@ -2358,7 +2385,7 @@ class DatabaseQueryFacade:
         ).where(
             monitored_keywords.c.group_id == group_id
         )
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_keywords_associated_to_group(self, group_id):
         statement = select(
@@ -2367,7 +2394,7 @@ class DatabaseQueryFacade:
             monitored_keywords.c.group_id == group_id
         )
 
-        return [row["keyword"] for row in self.connection.execute(statement).mappings().fetchall()]
+        return [row["keyword"] for row in self._execute_with_rollback(statement).mappings().fetchall()]
 
     def get_keywords_associated_to_group_ordered_by_keyword(self, group_id):
         statement = select(
@@ -2378,32 +2405,32 @@ class DatabaseQueryFacade:
             monitored_keywords.c.keyword
         )
 
-        return [row["keyword"] for row in self.connection.execute(statement).mappings().fetchall()]
+        return [row["keyword"] for row in self._execute_with_rollback(statement).mappings().fetchall()]
 
     def delete_keyword_article_matches_from_new_table_structure(self, group_id):
         statement = delete(keyword_article_matches).where(keyword_article_matches.c.group_id == group_id)
-        result = self.connection.execute(statement)
+        result = self._execute_with_rollback(statement)
         self.connection.commit()
 
         return result.rowcount
 
     def delete_keyword_article_matches_from_old_table_structure(self, ids_str, keyword_ids):
         statement = delete(keyword_alerts).where(keyword_alerts.c.keyword_id.in_(keyword_ids))
-        result = self.connection.execute(statement)
+        result = self._execute_with_rollback(statement)
         self.connection.commit()
 
         return result.rowcount
 
     def delete_groups_keywords(self, ids_str, group_ids):
         statement = delete(monitored_keywords).where(monitored_keywords.c.group_id.in_(group_ids))
-        result = self.connection.execute(statement)
+        result = self._execute_with_rollback(statement)
         self.connection.commit()
 
         return result.rowcount
 
     def delete_all_keyword_groups(self, topic_name):
         statement = delete(keyword_groups).where(keyword_groups.c.topic == topic_name)
-        result = self.connection.execute(statement)
+        result = self._execute_with_rollback(statement)
         self.connection.commit()
 
         return result.rowcount
@@ -2415,18 +2442,18 @@ class DatabaseQueryFacade:
             keyword_article_matches.c.id == alert_id
         )
 
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def mark_alert_as_read_or_unread_in_new_table(self, alert_id, read_or_unread):
         statement = update(keyword_article_matches).where(keyword_article_matches.c.id == alert_id).values(is_read = read_or_unread)
 
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def mark_alert_as_read_or_unread_in_old_table(self, alert_id, read_or_unread):
         statement = update(keyword_alerts).where(keyword_alerts.c.id == alert_id).values(is_read = read_or_unread)
 
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def get_number_of_monitored_keywords_by_group_id(self, group_id):
@@ -2438,7 +2465,7 @@ class DatabaseQueryFacade:
             monitored_keywords.c.group_id == group_id
         )
 
-        return self.connection.execute(statement).scalar()
+        return self._execute_with_rollback(statement).scalar()
 
     def get_total_number_of_keywords(self):
         statement = select(
@@ -2447,7 +2474,7 @@ class DatabaseQueryFacade:
             monitored_keywords
         )
 
-        return self.connection.execute(statement).scalar()
+        return self._execute_with_rollback(statement).scalar()
 
     def get_alerts(self, show_read):
         statement = select(
@@ -2473,7 +2500,7 @@ class DatabaseQueryFacade:
 
         columns = [column.name for column in statement.columns]
 
-        return columns, self.connection.execute(statement).mappings().fetchall()
+        return columns, self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_article_enrichment(self, article_data):
         statement = select(
@@ -2493,7 +2520,7 @@ class DatabaseQueryFacade:
             articles.c.quality_issues
         ).where(articles.c.uri == article_data["uri"])
 
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def get_all_groups_with_alerts_and_status_new_table_structure(self):
         """Get all keyword groups with their alert counts and growth status.
@@ -2537,7 +2564,7 @@ class DatabaseQueryFacade:
             ORDER BY ac.unread_count DESC, kg.name
         """)
 
-        result = self.connection.execute(query)
+        result = self._execute_with_rollback(query)
         return result.fetchall()
 
     def get_all_groups_with_alerts_and_status_old_table_structure(self):
@@ -2633,7 +2660,7 @@ class DatabaseQueryFacade:
             keyword_article_matches.c.detected_at.desc()
         ).limit(25)
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_most_recent_unread_alerts_for_group_id_old_table_structure(self, group_id):
         statement = select(
@@ -2669,7 +2696,7 @@ class DatabaseQueryFacade:
             keyword_alerts.c.detected_at.desc()
         ).limit(25)
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def count_total_group_unread_articles_new_table_structure(self, group_id):
         statement = select(
@@ -2684,7 +2711,7 @@ class DatabaseQueryFacade:
             keyword_article_matches.c.is_read == 0
         )
 
-        return self.connection.execute(statement).scalar()
+        return self._execute_with_rollback(statement).scalar()
 
     def count_total_group_unread_articles_old_table_structure(self, group_id):
         statement = select(
@@ -2710,7 +2737,7 @@ class DatabaseQueryFacade:
             monitored_keywords.c.group_id == keyword_id_list_and_group_id[-1]
         ).distinct()
         
-        return [row["keyword"] for row in self.connection.execute(statement).mappings().fetchall()]
+        return [row["keyword"] for row in self._execute_with_rollback(statement).mappings().fetchall()]
 
     def get_all_matched_keywords_for_article_and_group_by_article_url_and_group_id(self, article_url, group_id):
         statement = select(
@@ -2725,7 +2752,7 @@ class DatabaseQueryFacade:
             monitored_keywords.c.group_id == group_id
         ).distinct()
         
-        return [row["keyword"] for row in self.connection.execute(statement).mappings().fetchall()]
+        return [row["keyword"] for row in self._execute_with_rollback(statement).mappings().fetchall()]
 
     def get_article_enrichment_by_article_url(self, article_url):
         statement = select(
@@ -2741,29 +2768,29 @@ class DatabaseQueryFacade:
             articles.c.extracted_article_keywords
         ).where(articles.c.uri == article_url)
         
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def create_keyword_monitor_table_if_not_exists_and_insert_default_value(self):
         # TODO: Move to migrations.
 
         # Check if the keyword_monitor_status table has a row with id 1
         statement = select(keyword_monitor_status).where(keyword_monitor_status.c.id == 1)
-        existing = self.connection.execute(statement).fetchone()
+        existing = self._execute_with_rollback(statement).fetchone()
 
         if not existing:
             statement = insert(keyword_monitor_status).values(
                 id = 1,
                 requests_today = 0
             )
-            self.connection.execute(statement)
+            self._execute_with_rollback(statement)
             self.connection.commit()
 
     def check_keyword_monitor_status_and_settings_tables(self):
         status_data_stmt = select(keyword_monitor_status).where(keyword_monitor_status.c.id == 1)
-        status_data = self.connection.execute(status_data_stmt).fetchone()
+        status_data = self._execute_with_rollback(status_data_stmt).fetchone()
 
         settings_data_stmt = select(keyword_monitor_settings).where(keyword_monitor_settings.c.id == 1)
-        settings_data = self.connection.execute(settings_data_stmt).fetchone()
+        settings_data = self._execute_with_rollback(settings_data_stmt).fetchone()
 
         return status_data, settings_data
 
@@ -2780,7 +2807,7 @@ class DatabaseQueryFacade:
                 )
             )
 
-        return self.connection.execute(statement).scalar()
+        return self._execute_with_rollback(statement).scalar()
 
 
     def get_settings_and_status_together(self):
@@ -2822,7 +2849,7 @@ class DatabaseQueryFacade:
             )
         ).where(keyword_monitor_settings.c.id == 1)
 
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def update_or_insert_keyword_monitor_settings(self, params):
         values_dict = {
@@ -2848,13 +2875,13 @@ class DatabaseQueryFacade:
             update(keyword_monitor_settings)
             .where(keyword_monitor_settings.c.id == 1)
             .values(**values_dict)
-            if self.connection.execute(
+            if self._execute_with_rollback(
                 select(keyword_monitor_settings).where(keyword_monitor_settings.c.id == 1)
             ).fetchone()
             else insert(keyword_monitor_settings).values(**values_dict)
         )
 
-        self.connection.execute(stmt)
+        self._execute_with_rollback(stmt)
         self.connection.commit()
 
     def update_keyword_monitor_settings_provider(self, provider: str):
@@ -2867,7 +2894,7 @@ class DatabaseQueryFacade:
             provider: The news provider to use ('newsapi', 'thenewsapi', or 'newsdata')
         """
         # Check if settings exist
-        existing = self.connection.execute(
+        existing = self._execute_with_rollback(
             select(keyword_monitor_settings).where(keyword_monitor_settings.c.id == 1)
         ).fetchone()
 
@@ -2899,7 +2926,7 @@ class DatabaseQueryFacade:
                 llm_max_tokens=2000
             )
 
-        self.connection.execute(stmt)
+        self._execute_with_rollback(stmt)
         self.connection.commit()
 
     def get_trends(self):
@@ -2941,7 +2968,7 @@ class DatabaseQueryFacade:
             ORDER BY kg.id, dates.date
         """)
 
-        result = self.connection.execute(query)
+        result = self._execute_with_rollback(query)
         return result.fetchall()
 
     def topic_exists(self, topic):
@@ -2949,7 +2976,7 @@ class DatabaseQueryFacade:
             articles.c.topic
         ).where(articles.c.topic == topic).limit(1)
 
-        return self.connection.execute(statement).fetchone() is not None
+        return self._execute_with_rollback(statement).fetchone() is not None
 
     def get_keyword_group_id_by_name_and_topic(self, group_name, topic_name):
         statement = select(
@@ -2959,7 +2986,7 @@ class DatabaseQueryFacade:
             keyword_groups.c.topic == topic_name
         )
 
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def toggle_polling(self, toggle):
         statement = select(
@@ -2969,12 +2996,12 @@ class DatabaseQueryFacade:
         )
 
         # First check if settings exist
-        settings_exists = self.connection.execute(statement).fetchone() is not None
+        settings_exists = self._execute_with_rollback(statement).fetchone() is not None
 
         if settings_exists:
             # Just update is_enabled if settings exist
             statement = update(keyword_monitor_settings).where(keyword_monitor_settings.c.id == 1).values(is_enabled = toggle.enabled)
-            self.connection.execute(statement)
+            self._execute_with_rollback(statement)
         else:
             # Insert with defaults if no settings exist
             statement = insert(keyword_monitor_settings).values(
@@ -2987,7 +3014,7 @@ class DatabaseQueryFacade:
                 page_size = 10,
                 is_enabled = toggle.enabled
             )
-            self.connection.execute(statement)
+            self._execute_with_rollback(statement)
             
         self.connection.commit()
 
@@ -3040,7 +3067,7 @@ class DatabaseQueryFacade:
             keyword_alerts.c.detected_at.desc()
         )
         
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_all_group_and_topic_alerts_for_export_new_table_structure(self, group_id, topic):
         with self.db.get_connection() as conn:
@@ -3098,10 +3125,10 @@ class DatabaseQueryFacade:
             keyword_alerts.c.detected_at.desc()
         )
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def save_keyword_alert(self, article_data):
-        is_keyword_alert_exists = self.connection.execute(select(keyword_alert_articles).where(keyword_alert_articles.c.url == article_data['url'])).fetchone()
+        is_keyword_alert_exists = self._execute_with_rollback(select(keyword_alert_articles).where(keyword_alert_articles.c.url == article_data['url'])).fetchone()
         if not is_keyword_alert_exists:
             statement = insert(keyword_alert_articles).values(
                 url = article_data['url'],
@@ -3111,7 +3138,7 @@ class DatabaseQueryFacade:
                 topic = article_data['topic'],
                 keywords = ','.join(article_data['matched_keywords'])
             )
-            self.connection.execute(statement)
+            self._execute_with_rollback(statement)
             self.connection.commit()
 
     def get_alerts_by_group_id_from_new_table_structure(self, status, show_read, group_id, page_size, offset):
@@ -3188,7 +3215,7 @@ class DatabaseQueryFacade:
             desc(keyword_article_matches.c.detected_at)
         ).limit(page_size).offset(offset)
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_alerts_by_group_id_from_old_table_structure(self, status, show_read, group_id, page_size, offset):
         statement = select(
@@ -3264,7 +3291,7 @@ class DatabaseQueryFacade:
         # Add pagination
         statement = statement.limit(page_size).offset(offset)
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def count_unread_articles_by_group_id_from_new_table_structure(self, group_id):
         statement = select(
@@ -3276,7 +3303,7 @@ class DatabaseQueryFacade:
             keyword_article_matches.c.is_read == 0
         )
         
-        return self.connection.execute(statement).scalar()
+        return self._execute_with_rollback(statement).scalar()
 
     def count_unread_articles_by_group_id_from_old_table_structure(self, group_id):
         statement = select(
@@ -3291,7 +3318,7 @@ class DatabaseQueryFacade:
             keyword_alerts.c.is_read == 0
         )
         
-        return self.connection.execute(statement).scalar()
+        return self._execute_with_rollback(statement).scalar()
 
     def count_total_articles_by_group_id_from_new_table_structure(self, group_id, status='all'):
         statement = select(
@@ -3321,7 +3348,7 @@ class DatabaseQueryFacade:
                 )
             )
 
-        return self.connection.execute(statement).scalar()
+        return self._execute_with_rollback(statement).scalar()
 
     def count_total_articles_by_group_id_from_old_table_structure(self, group_id, status='all'):
         statement = select(
@@ -3354,11 +3381,11 @@ class DatabaseQueryFacade:
                 )
             )
 
-        return self.connection.execute(statement).scalar()
+        return self._execute_with_rollback(statement).scalar()
 
     def update_media_bias(self, source):
         statement = update(mediabias).where(mediabias.c.source == source).values(enabled = 1)
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def get_group_name(self, group_id):
@@ -3368,7 +3395,7 @@ class DatabaseQueryFacade:
             keyword_groups.c.id == group_id
         )
 
-        group_name = self.connection.execute(statement).scalar()
+        group_name = self._execute_with_rollback(statement).scalar()
 
         return group_name if group_name else "Unknown Group"
 
@@ -3380,7 +3407,7 @@ class DatabaseQueryFacade:
             news_search_results.c.topic == topic_name
         )
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_article_urls_from_paper_search_results_by_topic(self, topic_name):
         # TODO: add paper_search_results table to database_models.py file!!
@@ -3390,7 +3417,7 @@ class DatabaseQueryFacade:
             paper_search_results.c.topic == topic_name
         )
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def article_urls_by_topic(self, topic_name):
         statement = select(
@@ -3399,7 +3426,7 @@ class DatabaseQueryFacade:
             articles.c.topic == topic_name
         )
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def delete_article_matches_by_url(self, url):
         statement = delete(
@@ -3407,7 +3434,7 @@ class DatabaseQueryFacade:
         ).where(
             keyword_article_matches.c.article_uri == url
         )
-        result = self.connection.execute(statement)
+        result = self._execute_with_rollback(statement)
         self.connection.commit()
 
         return result.rowcount
@@ -3418,7 +3445,7 @@ class DatabaseQueryFacade:
         ).where(
             keyword_alerts.c.article_uri == url
         )
-        result = self.connection.execute(statement)
+        result = self._execute_with_rollback(statement)
         self.connection.commit()
 
         return result.rowcount
@@ -3433,7 +3460,7 @@ class DatabaseQueryFacade:
         ).where(
             news_search_results.c.topic == topic_name
         )
-        result = self.connection.execute(statement)
+        result = self._execute_with_rollback(statement)
         self.connection.commit()
         return result.rowcount
 
@@ -3447,7 +3474,7 @@ class DatabaseQueryFacade:
         ).where(
             paper_search_results.c.topic == topic_name
         )
-        result = self.connection.execute(statement)
+        result = self._execute_with_rollback(statement)
         self.connection.commit()
         return result.rowcount
 
@@ -3457,7 +3484,7 @@ class DatabaseQueryFacade:
         ).where(
             articles.c.uri == url
         )
-        result = self.connection.execute(statement)
+        result = self._execute_with_rollback(statement)
         self.connection.commit()
 
         return result.rowcount
@@ -3472,7 +3499,7 @@ class DatabaseQueryFacade:
         statement = select(
             keyword_groups.c.topic
         ).distinct()
-        topics = self.connection.execute(statement).mappings().fetchall()
+        topics = self._execute_with_rollback(statement).mappings().fetchall()
 
         return [row[0] for row in topics]
 
@@ -3489,7 +3516,7 @@ class DatabaseQueryFacade:
             articles.c.topic != ''
         )
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def check_if_news_search_results_table_exists(self):
         inspector = inspect(self.connection)
@@ -3504,7 +3531,7 @@ class DatabaseQueryFacade:
             news_search_results.c.topic
         )
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_urls_and_topics_from_paper_search_results(self):
         statement = select(
@@ -3515,11 +3542,11 @@ class DatabaseQueryFacade:
             paper_search_results.c.topic
         )
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def check_if_articles_table_has_topic_column(self):
         statement = select(articles)
-        columns = self.connection.execute(statement).mappings().fetchone().keys()
+        columns = self._execute_with_rollback(statement).mappings().fetchone().keys()
 
         return 'topic' in columns
 
@@ -3548,7 +3575,7 @@ class DatabaseQueryFacade:
                 not_(paper_exists)
             )
         
-        result = self.connection.execute(statement).mappings().fetchall()
+        result = self._execute_with_rollback(statement).mappings().fetchall()
 
         return [row[0] for row in result]
 
@@ -3558,7 +3585,7 @@ class DatabaseQueryFacade:
         ).where(
             keyword_article_matches.c.article_uri == url
         )
-        result = self.connection.execute(statement)
+        result = self._execute_with_rollback(statement)
         self.connection.commit()
 
         return result.rowcount
@@ -3569,7 +3596,7 @@ class DatabaseQueryFacade:
         ).where(
             keyword_alerts.c.article_uri == url
         )
-        result = self.connection.execute(statement)
+        result = self._execute_with_rollback(statement)
         self.connection.commit()
 
         return result.rowcount
@@ -3580,7 +3607,7 @@ class DatabaseQueryFacade:
         ).where(
             news_search_results.c.article_uri.in_(batch)
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def delete_paper_search_results_by_article_urls(self, placeholders, batch):
@@ -3589,7 +3616,7 @@ class DatabaseQueryFacade:
         ).where(
             paper_search_results.c.article_uri.in_(batch)
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def delete_articles_by_article_urls(self, placeholders, batch):
@@ -3598,7 +3625,7 @@ class DatabaseQueryFacade:
         ).where(
             articles.c.uri.in_(batch)
         )
-        result = self.connection.execute(statement)
+        result = self._execute_with_rollback(statement)
         self.connection.commit()
 
         return result.rowcount
@@ -3614,7 +3641,7 @@ class DatabaseQueryFacade:
             keyword_monitor_settings.c.id == 1
         )
 
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def get_request_count_for_today(self):
         statement = select(
@@ -3624,7 +3651,7 @@ class DatabaseQueryFacade:
             keyword_monitor_status.c.id == 1
         )
 
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def get_articles_by_url(self, url):
         statement = select(
@@ -3633,7 +3660,7 @@ class DatabaseQueryFacade:
             articles.c.uri == url
         )
 
-        return self.connection.execute(statement).mappings().fetchone()
+        return self._execute_with_rollback(statement).mappings().fetchone()
 
     def get_raw_articles_markdown_by_url(self, url):
         statement = select(
@@ -3642,7 +3669,7 @@ class DatabaseQueryFacade:
             raw_articles.c.uri == url
         )
 
-        return self.connection.execute(statement).mappings().fetchone()
+        return self._execute_with_rollback(statement).mappings().fetchone()
 
     def get_podcasts_for_newsletter_inclusion(self, column_names):
         # Build a query that works with the available columns
@@ -3656,7 +3683,7 @@ class DatabaseQueryFacade:
         # Execute query to get recent podcasts
         statement = select(*select_columns).select_from(podcasts).order_by(podcasts.c.created_at.desc()).limit(20)
 
-        podcasts = self.connection.execute(statement).mappings().fetchall()
+        podcasts = self._execute_with_rollback(statement).mappings().fetchall()
 
         # Format results
         result = []
@@ -3677,7 +3704,7 @@ class DatabaseQueryFacade:
             transcript=params[2],
             metadata=params[3]
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def mark_podcast_generation_as_complete(self, params):
@@ -3688,7 +3715,7 @@ class DatabaseQueryFacade:
             error=None,
             metadata=params[1]
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def log_error_generating_podcast(self, params):
@@ -3697,13 +3724,13 @@ class DatabaseQueryFacade:
             error=params[0],
             completed_at=func.current_timestamp()
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def test_data_select(self):
         """Test database connection - works with both SQLite and PostgreSQL"""
         from sqlalchemy import text
-        self.connection.execute(text("SELECT 1"))
+        self._execute_with_rollback(text("SELECT 1"))
 
     def get_keyword_monitor_is_enabled_and_daily_request_limit(self):
         statement = select(
@@ -3713,7 +3740,7 @@ class DatabaseQueryFacade:
             keyword_monitor_settings.c.id == 1
         )
 
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def get_topic_statistics(self):
         last_date = func.max(func.coalesce(articles.c.submission_date, articles.c.publication_date))
@@ -3735,7 +3762,7 @@ class DatabaseQueryFacade:
             )
         )
 
-        result = self.connection.execute(stmt).mappings().fetchall()
+        result = self._execute_with_rollback(stmt).mappings().fetchall()
 
         # Return mapping objects directly so callers can access by column name
         return result
@@ -3744,7 +3771,7 @@ class DatabaseQueryFacade:
         from datetime import datetime
         statement = select(keyword_monitor_status.c.last_check_time).where(keyword_monitor_status.c.id == 1)
 
-        result = self.connection.execute(statement).mappings().fetchone()
+        result = self._execute_with_rollback(statement).mappings().fetchone()
 
         if not result or not result['last_check_time']:
             return None
@@ -3773,7 +3800,7 @@ class DatabaseQueryFacade:
             podcasts.c.id == podcast_id
         )
 
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def get_all_podcasts(self):
         statement = select(
@@ -3790,7 +3817,7 @@ class DatabaseQueryFacade:
             podcasts.c.created_at.desc()
         )
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_podcast_generation_status(self, podcast_id):
         statement = select(
@@ -3807,7 +3834,7 @@ class DatabaseQueryFacade:
             podcasts.c.id == podcast_id
         )
 
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def get_podcast_audio_file(self, podcast_id):
         statement = select(
@@ -3816,7 +3843,7 @@ class DatabaseQueryFacade:
             podcasts.c.id == podcast_id
         )
 
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def delete_podcast(self, podcast_id):
         statement = delete(
@@ -3824,7 +3851,7 @@ class DatabaseQueryFacade:
         ).where(
             podcasts.c.id == podcast_id
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def search_for_articles_based_on_query_date_range_and_topic(self, query, topic, start_date, end_date, limit):
@@ -3853,7 +3880,7 @@ class DatabaseQueryFacade:
             articles.c.publication_date.desc()
         ).limit(limit)
 
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def update_article_by_url(self, params):
         statement = update(articles).where(articles.c.uri == params[6]).values(
@@ -3864,7 +3891,7 @@ class DatabaseQueryFacade:
             extracted_article_topics = params[4],
             extracted_article_keywords = params[5]
         )
-        result = self.connection.execute(statement)
+        result = self._execute_with_rollback(statement)
         self.connection.commit()
 
         return result.rowcount
@@ -3890,7 +3917,7 @@ class DatabaseQueryFacade:
             if not uri:
                 raise ValueError("Article URI is required")
 
-            existing = self.connection.execute(
+            existing = self._execute_with_rollback(
                 select(articles.c.uri).where(articles.c.uri == uri)
             ).fetchone()
 
@@ -3917,11 +3944,11 @@ class DatabaseQueryFacade:
                 # Update existing article (exclude uri from values)
                 update_data = {k: v for k, v in filtered_data.items() if k != 'uri'}
                 statement = update(articles).where(articles.c.uri == uri).values(**update_data)
-                self.connection.execute(statement)
+                self._execute_with_rollback(statement)
             else:
                 # Insert new article
                 statement = insert(articles).values(**filtered_data)
-                self.connection.execute(statement)
+                self._execute_with_rollback(statement)
 
             self.connection.commit()
             return {"success": True, "uri": uri}
@@ -3935,7 +3962,7 @@ class DatabaseQueryFacade:
         statement = update(keyword_monitor_settings).where(keyword_monitor_settings.c.id == 1).values(
             auto_ingest_enabled = enabled
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def get_auto_ingest_settings(self):
@@ -3949,7 +3976,7 @@ class DatabaseQueryFacade:
             keyword_monitor_settings.c.llm_max_tokens
         ).where(keyword_monitor_settings.c.id == 1)
 
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def get_processing_statistics(self):
         stmt = (
@@ -3966,12 +3993,12 @@ class DatabaseQueryFacade:
             .where(articles.c.auto_ingested == True)
         )
 
-        return self.connection.execute(stmt).fetchone()
+        return self._execute_with_rollback(stmt).fetchone()
 
     def stamp_keyword_monitor_status_table_with_todays_date(self, params):
         # check if the keyword_monitor_status table has a row with id 1
         statement = select(keyword_monitor_status).where(keyword_monitor_status.c.id == 1)
-        result = self.connection.execute(statement).fetchone()
+        result = self._execute_with_rollback(statement).fetchone()
 
         if result:
             update_statement = update(keyword_monitor_status).where(keyword_monitor_status.c.id == 1).values(
@@ -3979,7 +4006,7 @@ class DatabaseQueryFacade:
                 last_check_time = func.current_timestamp(),
                 last_reset_date = params[1]
             )
-            self.connection.execute(update_statement)
+            self._execute_with_rollback(update_statement)
             self.connection.commit()
         else:
             insert_statement = insert(keyword_monitor_status).values(
@@ -3988,12 +4015,12 @@ class DatabaseQueryFacade:
                 last_check_time = func.current_timestamp(),
                 last_reset_date = params[1]
             )
-            self.connection.execute(insert_statement)
+            self._execute_with_rollback(insert_statement)
             self.connection.commit()
 
     def get_keyword_monitor_status_daily_request_limit(self):
         statement = select(keyword_monitor_settings.c.daily_request_limit).where(keyword_monitor_settings.c.id == 1)
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     #### AUTOMATED INGEST SERVICE ####
 
@@ -4005,7 +4032,7 @@ class DatabaseQueryFacade:
     def insert_media_bias(self, params):
         # check if the source already exists in the mediabias table
         statement = select(mediabias).where(mediabias.c.source == params[0])
-        result = self.connection.execute(statement).fetchone()
+        result = self._execute_with_rollback(statement).fetchone()
         if result:
             statement = update(mediabias).where(mediabias.c.source == params[0]).values(
                 country = params[1],
@@ -4018,7 +4045,7 @@ class DatabaseQueryFacade:
                 updated_at = func.current_timestamp(),
                 enabled = params[8]
             )
-            result = self.connection.execute(statement)
+            result = self._execute_with_rollback(statement)
             self.connection.commit()
             return result.rowcount
         else:
@@ -4034,7 +4061,7 @@ class DatabaseQueryFacade:
                 updated_at = func.current_timestamp(),
                 enabled = 1
             )
-            result = self.connection.execute(statement)
+            result = self._execute_with_rollback(statement)
             self.connection.commit()
             return result.inserted_primary_key[0]
 
@@ -4051,7 +4078,7 @@ class DatabaseQueryFacade:
             updated_at = func.current_timestamp(),
             enabled = params[8]
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def drop_media_bias_table(self):
@@ -4064,7 +4091,7 @@ class DatabaseQueryFacade:
             source_file = file_path,
             last_updated = func.current_timestamp()
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def get_all_media_bias_sources(self):
@@ -4080,7 +4107,7 @@ class DatabaseQueryFacade:
         ).order_by(
             mediabias.c.source.asc()
         )
-        return self.connection.execute(statement).mappings().fetchall()
+        return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_media_bias_status(self):
         statement = select(
@@ -4089,18 +4116,18 @@ class DatabaseQueryFacade:
             mediabias_settings.c.source_file
         ).where(mediabias_settings.c.id == 1)
 
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def get_media_bias_source(self, source_id):
         statement = select(
             mediabias.c.id
         ).where(mediabias.c.id == source_id)
 
-        return self.connection.execute(statement).fetchone()
+        return self._execute_with_rollback(statement).fetchone()
 
     def delete_media_bias_source(self, source_id):
         statement = delete(mediabias).where(mediabias.c.id == source_id)
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def get_total_media_bias_sources(self):
@@ -4109,21 +4136,21 @@ class DatabaseQueryFacade:
         ).select_from(
             mediabias
         )
-        return self.connection.execute(statement).scalar()
+        return self._execute_with_rollback(statement).scalar()
 
     def enable_media_bias_sources(self, enabled):
         statement = update(mediabias_settings).where(mediabias_settings.c.id == 1).values(
             enabled = 1 if enabled else 0,
             last_updated = func.current_timestamp()
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def update_media_bias_last_updated(self):
         statement = update(mediabias_settings).where(mediabias_settings.c.id == 1).values(
             last_updated = func.current_timestamp()
         )
-        result = self.connection.execute(statement)
+        result = self._execute_with_rollback(statement)
         self.connection.commit()
 
         return result.rowcount
@@ -4131,21 +4158,21 @@ class DatabaseQueryFacade:
     def reset_media_bias_sources(self):
         # delete all media bias data
         statement = delete(mediabias)
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
 
         # Reset settings but keep enabled state
         statement = update(mediabias_settings).where(mediabias_settings.c.id == 1).values(
             last_updated = None,
             source_file = None
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def enable_media_source(self, source):
         statement = update(mediabias).where(mediabias.c.source == source).values(
             enabled = 1
         )
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def search_media_bias_sources(self, query, bias_filter, factual_filter, country_filter, page, per_page):
@@ -4164,7 +4191,7 @@ class DatabaseQueryFacade:
 
         # Get total count
         count_stmt = select(func.count()).select_from(base_stmt.subquery())
-        total_count = self.connection.execute(count_stmt).scalar()
+        total_count = self._execute_with_rollback(count_stmt).scalar()
 
         # Add pagination
         offset_value = (page - 1) * per_page
@@ -4175,11 +4202,11 @@ class DatabaseQueryFacade:
             .offset(offset_value)
         )
 
-        return total_count, self.connection.execute(paginated_stmt).mappings().fetchall()
+        return total_count, self._execute_with_rollback(paginated_stmt).mappings().fetchall()
 
     def delete_media_bias_source(self, source_id):
         statement = delete(mediabias).where(mediabias.c.id == source_id)
-        self.connection.execute(statement)
+        self._execute_with_rollback(statement)
         self.connection.commit()
 
     def get_media_bias_source_by_id(self, source_id):
@@ -4195,7 +4222,7 @@ class DatabaseQueryFacade:
             mediabias.c.mbfc_credibility_rating
         ).where(mediabias.c.id == source_id)
 
-        return self.connection.execute(statement).mappings().fetchone()
+        return self._execute_with_rollback(statement).mappings().fetchone()
 
     def get_media_bias_filter_options(self):
         # Get unique biases
@@ -4206,7 +4233,7 @@ class DatabaseQueryFacade:
             mediabias.c.bias != ''
         ).distinct()
 
-        biases = [row[0] for row in self.connection.execute(biases_statement).fetchall()]
+        biases = [row[0] for row in self._execute_with_rollback(biases_statement).fetchall()]
 
         # Get unique factual reporting levels
         factual_reporting_statement = select(
@@ -4216,7 +4243,7 @@ class DatabaseQueryFacade:
             mediabias.c.factual_reporting != ''
         ).distinct()
 
-        factual_levels = [row[0] for row in self.connection.execute(factual_reporting_statement).fetchall()]
+        factual_levels = [row[0] for row in self._execute_with_rollback(factual_reporting_statement).fetchall()]
 
         # Get unique countries
         countries_statement = select(
@@ -4226,12 +4253,12 @@ class DatabaseQueryFacade:
             mediabias.c.country != ''
         ).distinct()
 
-        countries = [row[0] for row in self.connection.execute(countries_statement).fetchall()]
+        countries = [row[0] for row in self._execute_with_rollback(countries_statement).fetchall()]
 
         return biases, factual_levels, countries
 
     def load_media_bias_sources_from_database(self):
-        return self.connection.execute(select(mediabias)).mappings().fetchall()
+        return self._execute_with_rollback(select(mediabias)).mappings().fetchall()
 
     #### ARTICLE SEARCH QUERIES ####
     def search_articles(
@@ -4311,7 +4338,7 @@ class DatabaseQueryFacade:
 
         # Count total results
         count_query = select(func.count()).select_from(articles).where(where_clause)
-        total_count = self.connection.execute(count_query).scalar()
+        total_count = self._execute_with_rollback(count_query).scalar()
 
         # Get paginated results
         offset = (page - 1) * per_page
@@ -4319,7 +4346,7 @@ class DatabaseQueryFacade:
             desc(articles.c.submission_date)
         ).limit(per_page).offset(offset)
 
-        result = self.connection.execute(query).mappings().fetchall()
+        result = self._execute_with_rollback(query).mappings().fetchall()
         articles_list = [dict(row) for row in result]
 
         return articles_list, total_count
@@ -4352,7 +4379,7 @@ class DatabaseQueryFacade:
         ).limit(limit)
 
         logger.debug(f"Executing query: {query}")
-        result = self.connection.execute(query).mappings().fetchall()
+        result = self._execute_with_rollback(query).mappings().fetchall()
         articles_list = [dict(row) for row in result]
         logger.info(f"Found {len(articles_list)} articles in database")
 
@@ -4416,8 +4443,9 @@ class DatabaseQueryFacade:
                 start_date = now - timedelta(days=1)
                 where_conditions = [
                     and_(
-                        articles.c.publication_date >= start_date.isoformat(),
-                        articles.c.publication_date <= now.isoformat()
+                        # NOTE: publication_date is TEXT, use strftime()
+                        articles.c.publication_date >= start_date.strftime('%Y-%m-%d'),
+                        articles.c.publication_date <= now.strftime('%Y-%m-%d %H:%M:%S')
                     )
                 ]
 
@@ -4517,7 +4545,7 @@ class DatabaseQueryFacade:
         ).limit(max_articles)
 
         # Execute and return results
-        results = self.connection.execute(statement).mappings().fetchall()
+        results = self._execute_with_rollback(statement).mappings().fetchall()
 
         # Convert to list of dicts
         articles_list = []
@@ -4571,8 +4599,9 @@ class DatabaseQueryFacade:
                 start_date = now - timedelta(days=1)
                 where_conditions = [
                     and_(
-                        articles.c.publication_date >= start_date.isoformat(),
-                        articles.c.publication_date <= now.isoformat()
+                        # NOTE: publication_date is TEXT, use strftime()
+                        articles.c.publication_date >= start_date.strftime('%Y-%m-%d'),
+                        articles.c.publication_date <= now.strftime('%Y-%m-%d %H:%M:%S')
                     )
                 ]
 
@@ -4621,7 +4650,7 @@ class DatabaseQueryFacade:
         )
 
         # Execute and return scalar result
-        result = self.connection.execute(statement).scalar()
+        result = self._execute_with_rollback(statement).scalar()
         return result if result else 0
 
     def get_topic_articles_count(self, topic_name: str) -> int:
@@ -4641,7 +4670,7 @@ class DatabaseQueryFacade:
             articles.c.topic == topic_name
         )
 
-        result = self.connection.execute(statement).scalar()
+        result = self._execute_with_rollback(statement).scalar()
         return result if result else 0
 
     def get_topic_articles_count_since(self, topic_name: str, since_datetime: str) -> int:
@@ -4665,7 +4694,7 @@ class DatabaseQueryFacade:
             )
         )
 
-        result = self.connection.execute(statement).scalar()
+        result = self._execute_with_rollback(statement).scalar()
         return result if result else 0
 
     def get_dominant_news_source_for_topic(self, topic_name: str, since_datetime: str) -> Optional[str]:
@@ -4696,7 +4725,7 @@ class DatabaseQueryFacade:
             text('count DESC')
         ).limit(1)
 
-        result = self.connection.execute(statement).mappings().fetchone()
+        result = self._execute_with_rollback(statement).mappings().fetchone()
         return result['news_source'] if result else None
 
     def get_most_frequent_time_to_impact_for_topic(self, topic_name: str, since_datetime: str) -> Optional[str]:
@@ -4727,7 +4756,7 @@ class DatabaseQueryFacade:
             text('count DESC')
         ).limit(1)
 
-        result = self.connection.execute(statement).mappings().fetchone()
+        result = self._execute_with_rollback(statement).mappings().fetchone()
         return result['time_to_impact'] if result else None
 
     # ============================================================
@@ -4780,7 +4809,7 @@ class DatabaseQueryFacade:
         params['limit'] = limit
 
         try:
-            result = self.connection.execute(text(query), params)
+            result = self._execute_with_rollback(text(query), params)
             alerts = []
             for row in result.mappings():
                 alerts.append({
@@ -4800,7 +4829,7 @@ class DatabaseQueryFacade:
                 })
             return alerts
         except Exception as e:
-            logger.error(f"Error getting signal alerts: {e}")
+            self.logger.error(f"Error getting signal alerts: {e}")
             return []
 
     def acknowledge_signal_alert(self, alert_id: int) -> bool:
@@ -4818,18 +4847,18 @@ class DatabaseQueryFacade:
             SET is_acknowledged = true, acknowledged_at = CURRENT_TIMESTAMP
             WHERE id = :alert_id
             """
-            result = self.connection.execute(text(query), {'alert_id': alert_id})
+            result = self._execute_with_rollback(text(query), {'alert_id': alert_id})
             self.connection.commit()
             return result.rowcount > 0
         except Exception as e:
-            logger.error(f"Error acknowledging signal alert {alert_id}: {e}")
+            self.logger.error(f"Error acknowledging signal alert {alert_id}: {e}")
             return False
 
     def get_signal_instructions(self, topic: str = None, active_only: bool = True) -> List[Dict]:
         """Get signal instructions with optional filters.
 
         Args:
-            topic: Filter by topic name (also matches NULL topics)
+            topic: Filter by topic name (also matches NULL topics). Empty string treated as None.
             active_only: If True, only return active instructions; if False, return all
 
         Returns:
@@ -4838,7 +4867,8 @@ class DatabaseQueryFacade:
         query = "SELECT * FROM signal_instructions WHERE 1=1"
         params = {}
 
-        if topic is not None:
+        # Treat empty string as None (no topic filter)
+        if topic is not None and topic != "":
             query += " AND (topic = :topic OR topic IS NULL)"
             params['topic'] = topic
 
@@ -4848,7 +4878,7 @@ class DatabaseQueryFacade:
         query += " ORDER BY updated_at DESC"
 
         try:
-            result = self.connection.execute(text(query), params)
+            result = self._execute_with_rollback(text(query), params)
             instructions = []
             for row in result.mappings():
                 instructions.append({
@@ -4863,7 +4893,7 @@ class DatabaseQueryFacade:
                 })
             return instructions
         except Exception as e:
-            logger.error(f"Error getting signal instructions: {e}")
+            self.logger.error(f"Error getting signal instructions: {e}")
             return []
 
     def save_signal_instruction(self, name: str, description: str, instruction: str,
@@ -4892,7 +4922,7 @@ class DatabaseQueryFacade:
                 is_active = :is_active,
                 updated_at = CURRENT_TIMESTAMP
             """
-            self.connection.execute(text(query), {
+            self._execute_with_rollback(text(query), {
                 'name': name,
                 'description': description,
                 'instruction': instruction,
@@ -4900,10 +4930,10 @@ class DatabaseQueryFacade:
                 'is_active': is_active
             })
             self.connection.commit()
-            logger.info(f"Saved signal instruction: {name}")
+            self.logger.info(f"Saved signal instruction: {name}")
             return True
         except Exception as e:
-            logger.error(f"Error saving signal instruction: {e}")
+            self.logger.error(f"Error saving signal instruction: {e}")
             return False
 
     def delete_signal_instruction(self, instruction_id: int) -> bool:
@@ -4917,14 +4947,14 @@ class DatabaseQueryFacade:
         """
         try:
             query = "DELETE FROM signal_instructions WHERE id = :instruction_id"
-            result = self.connection.execute(text(query), {'instruction_id': instruction_id})
+            result = self._execute_with_rollback(text(query), {'instruction_id': instruction_id})
             self.connection.commit()
             deleted = result.rowcount > 0
             if deleted:
-                logger.info(f"Deleted signal instruction ID: {instruction_id}")
+                self.logger.info(f"Deleted signal instruction ID: {instruction_id}")
             return deleted
         except Exception as e:
-            logger.error(f"Error deleting signal instruction {instruction_id}: {e}")
+            self.logger.error(f"Error deleting signal instruction {instruction_id}: {e}")
             return False
 
     def save_signal_alert(self, article_uri: str, instruction_id: int,
@@ -4955,7 +4985,7 @@ class DatabaseQueryFacade:
                 detected_at = CURRENT_TIMESTAMP
             RETURNING id
             """
-            result = self.connection.execute(text(query), {
+            result = self._execute_with_rollback(text(query), {
                 'article_uri': article_uri,
                 'instruction_id': instruction_id,
                 'instruction_name': instruction_name,
@@ -4967,5 +4997,246 @@ class DatabaseQueryFacade:
             row = result.fetchone()
             return row[0] if row else None
         except Exception as e:
-            logger.error(f"Error saving signal alert: {e}")
+            self.logger.error(f"Error saving signal alert: {e}")
             return None
+
+    #### AUSPEX CHAT QUERIES ####
+    def create_auspex_chat(self, topic: str, title: str = None, user_id: str = None, profile_id: int = None, metadata: dict = None) -> int:
+        """Create a new Auspex chat session with optional organizational profile."""
+        try:
+            metadata_json = json.dumps(metadata) if metadata else None
+
+            # Insert new chat session
+            result = self._execute_with_rollback(
+                insert(auspex_chats).values(
+                    topic=topic,
+                    title=title,
+                    user_id=user_id,
+                    profile_id=profile_id,
+                    metadata=metadata_json
+                )
+            )
+            self.connection.commit()
+
+            # Get the inserted ID
+            return result.inserted_primary_key[0]
+        except Exception as e:
+            self.logger.error(f"Error creating auspex chat: {e}")
+            self.connection.rollback()
+            raise
+
+    def get_auspex_chat(self, chat_id: int):
+        """Get an Auspex chat session by ID."""
+        try:
+            result = self._execute_with_rollback(
+                select(auspex_chats).where(auspex_chats.c.id == chat_id)
+            ).mappings().fetchone()
+
+            if result:
+                # Parse metadata if it exists
+                chat_dict = dict(result)
+                if chat_dict.get('metadata'):
+                    try:
+                        chat_dict['metadata'] = json.loads(chat_dict['metadata'])
+                    except:
+                        pass
+                return chat_dict
+            return None
+        except Exception as e:
+            self.logger.error(f"Error getting auspex chat: {e}")
+            return None
+
+    def get_auspex_chats(self, topic: str = None, user_id: str = None, limit: int = 50):
+        """Get Auspex chat sessions with optional filters."""
+        try:
+            query = select(auspex_chats).order_by(desc(auspex_chats.c.updated_at))
+
+            if topic:
+                query = query.where(auspex_chats.c.topic == topic)
+            if user_id:
+                query = query.where(auspex_chats.c.user_id == user_id)
+
+            query = query.limit(limit)
+
+            results = self._execute_with_rollback(query).mappings().fetchall()
+
+            # Parse metadata for each result
+            chats = []
+            for result in results:
+                chat_dict = dict(result)
+                if chat_dict.get('metadata'):
+                    try:
+                        chat_dict['metadata'] = json.loads(chat_dict['metadata'])
+                    except:
+                        pass
+                chats.append(chat_dict)
+
+            return chats
+        except Exception as e:
+            self.logger.error(f"Error getting auspex chats: {e}")
+            return []
+
+    def update_auspex_chat_profile(self, chat_id: int, profile_id: int) -> bool:
+        """Update the profile_id for an Auspex chat session."""
+        try:
+            self._execute_with_rollback(
+                update(auspex_chats)
+                .where(auspex_chats.c.id == chat_id)
+                .values(
+                    profile_id=profile_id,
+                    updated_at=func.now()
+                )
+            )
+            self.connection.commit()
+            return True
+        except Exception as e:
+            self.logger.error(f"Error updating auspex chat profile: {e}")
+            self.connection.rollback()
+            return False
+
+    def delete_auspex_chat(self, chat_id: int) -> bool:
+        """Delete an Auspex chat session and its messages."""
+        try:
+            self._execute_with_rollback(
+                delete(auspex_chats).where(auspex_chats.c.id == chat_id)
+            )
+            self.connection.commit()
+            return True
+        except Exception as e:
+            self.logger.error(f"Error deleting auspex chat: {e}")
+            self.connection.rollback()
+            return False
+
+    def add_auspex_message(self, chat_id: int, role: str, content: str,
+                          model_used: str = None, tokens_used: int = None,
+                          metadata: dict = None) -> int:
+        """Add a message to an Auspex chat session."""
+        try:
+            metadata_json = json.dumps(metadata) if metadata else None
+
+            result = self._execute_with_rollback(
+                insert(auspex_messages).values(
+                    chat_id=chat_id,
+                    role=role,
+                    content=content,
+                    model_used=model_used,
+                    tokens_used=tokens_used,
+                    metadata=metadata_json
+                )
+            )
+            self.connection.commit()
+
+            return result.inserted_primary_key[0]
+        except Exception as e:
+            self.logger.error(f"Error adding auspex message: {e}")
+            self.connection.rollback()
+            raise
+
+    def get_auspex_messages(self, chat_id: int):
+        """Get all messages for an Auspex chat session."""
+        try:
+            results = self._execute_with_rollback(
+                select(auspex_messages)
+                .where(auspex_messages.c.chat_id == chat_id)
+                .order_by(auspex_messages.c.timestamp)
+            ).mappings().fetchall()
+
+            # Parse metadata for each message
+            messages = []
+            for result in results:
+                msg_dict = dict(result)
+                if msg_dict.get('metadata'):
+                    try:
+                        msg_dict['metadata'] = json.loads(msg_dict['metadata'])
+                    except:
+                        pass
+                messages.append(msg_dict)
+
+            return messages
+        except Exception as e:
+            self.logger.error(f"Error getting auspex messages: {e}")
+            return []
+
+    def get_auspex_prompt(self, name: str):
+        """Get an Auspex prompt by name."""
+        try:
+            result = self._execute_with_rollback(
+                select(auspex_prompts).where(auspex_prompts.c.name == name)
+            ).mappings().fetchone()
+
+            return dict(result) if result else None
+        except Exception as e:
+            self.logger.error(f"Error getting auspex prompt: {e}")
+            return None
+
+    def create_auspex_prompt(self, name: str, title: str, content: str,
+                            description: str = None, is_default: bool = False,
+                            user_created: str = None) -> int:
+        """Create a new Auspex prompt."""
+        try:
+            result = self._execute_with_rollback(
+                insert(auspex_prompts).values(
+                    name=name,
+                    title=title,
+                    content=content,
+                    description=description,
+                    is_default=is_default,
+                    user_created=user_created
+                )
+            )
+            self.connection.commit()
+
+            return result.inserted_primary_key[0]
+        except Exception as e:
+            self.logger.error(f"Error creating auspex prompt: {e}")
+            self.connection.rollback()
+            raise
+
+    def update_auspex_prompt(self, name: str, title: str = None, content: str = None,
+                            description: str = None) -> bool:
+        """Update an Auspex prompt."""
+        try:
+            values = {'updated_at': func.now()}
+            if title is not None:
+                values['title'] = title
+            if content is not None:
+                values['content'] = content
+            if description is not None:
+                values['description'] = description
+
+            self._execute_with_rollback(
+                update(auspex_prompts)
+                .where(auspex_prompts.c.name == name)
+                .values(**values)
+            )
+            self.connection.commit()
+            return True
+        except Exception as e:
+            self.logger.error(f"Error updating auspex prompt: {e}")
+            self.connection.rollback()
+            return False
+
+    def delete_auspex_prompt(self, name: str) -> bool:
+        """Delete an Auspex prompt."""
+        try:
+            self._execute_with_rollback(
+                delete(auspex_prompts).where(auspex_prompts.c.name == name)
+            )
+            self.connection.commit()
+            return True
+        except Exception as e:
+            self.logger.error(f"Error deleting auspex prompt: {e}")
+            self.connection.rollback()
+            return False
+
+    def get_all_auspex_prompts(self):
+        """Get all Auspex prompts."""
+        try:
+            results = self._execute_with_rollback(
+                select(auspex_prompts).order_by(auspex_prompts.c.name)
+            ).mappings().fetchall()
+
+            return [dict(result) for result in results]
+        except Exception as e:
+            self.logger.error(f"Error getting all auspex prompts: {e}")
+            return []

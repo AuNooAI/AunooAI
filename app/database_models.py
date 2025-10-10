@@ -329,8 +329,11 @@ t_auspex_chats = Table(
     Column('updated_at', TIMESTAMP, default=text('CURRENT_TIMESTAMP')),
     Column('user_id', ForeignKey('users.username', ondelete='SET NULL')),
     Column('metadata', Text),
+    Column('profile_id', ForeignKey('organizational_profiles.id', ondelete='SET NULL')),
     Index('idx_auspex_chats_topic', 'topic'),
-    Index('idx_auspex_chats_user_id', 'user_id')
+    Index('idx_auspex_chats_user_id', 'user_id'),
+    Index('idx_auspex_chats_profile_id', 'profile_id'),
+    Index('idx_auspex_chats_user_profile', 'user_id', 'profile_id')
 )
 
 t_auspex_prompts = Table(
