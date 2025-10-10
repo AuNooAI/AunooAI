@@ -464,7 +464,7 @@ class DatabaseQueryFacade:
         ).where(
             organizational_profiles.c.id == profile_id
         )
-        return self._execute_with_rollback(statement).fetchone() 
+        return self._execute_with_rollback(statement).mappings().fetchone() 
 
     def get_organisational_profiles(self):
         statement = select(
@@ -525,7 +525,7 @@ class DatabaseQueryFacade:
         ).where(
             organizational_profiles.c.name == name
         )
-        return self._execute_with_rollback(statement).fetchone()
+        return self._execute_with_rollback(statement).mappings().fetchone()
 
     def get_organisational_profile_by_id(self, profile_id):
         statement = select(
@@ -533,7 +533,7 @@ class DatabaseQueryFacade:
         ).where(
             organizational_profiles.c.id == profile_id
         )
-        return self._execute_with_rollback(statement).fetchone()
+        return self._execute_with_rollback(statement).mappings().fetchone()
 
     def get_organizational_profile_for_ui(self, profile_id):
         statement = select(
@@ -3939,7 +3939,8 @@ class DatabaseQueryFacade:
                 'media_type', 'popularity',
                 'topic_alignment_score', 'keyword_relevance_score',
                 'confidence_score', 'overall_match_explanation',
-                'extracted_article_topics', 'extracted_article_keywords'
+                'extracted_article_topics', 'extracted_article_keywords',
+                'ingest_status', 'auto_ingested'
             ]
 
             # Filter to only include fields that exist in article_data
@@ -4358,7 +4359,7 @@ class DatabaseQueryFacade:
 
     def get_recent_articles_by_topic(self, topic_name, limit=10, start_date=None, end_date=None):
         """Fetch recent articles for a topic - SQLAlchemy version."""
-        from sqlalchemy import case
+        from sqlalchemy import case, cast, Date
         import logging
         logger = logging.getLogger(__name__)
 
@@ -4370,17 +4371,18 @@ class DatabaseQueryFacade:
         # COALESCE for date ordering
         coalesce_date = func.coalesce(articles.c.submission_date, articles.c.publication_date)
 
+        # Cast to DATE for proper comparison (handles timestamps vs date strings)
         if start_date:
-            conditions.append(coalesce_date >= start_date)
+            conditions.append(cast(coalesce_date, Date) >= start_date)
         if end_date:
-            conditions.append(coalesce_date <= end_date)
+            conditions.append(cast(coalesce_date, Date) <= end_date)
 
         # Build query
+        # Note: PostgreSQL doesn't have rowid, so we only order by date
         query = select(articles).where(
             and_(*conditions)
         ).order_by(
-            desc(coalesce_date),
-            desc(articles.c.rowid)
+            desc(coalesce_date)
         ).limit(limit)
 
         logger.debug(f"Executing query: {query}")

@@ -1851,19 +1851,19 @@ async def analyze_incidents(
                 if profile_row:
                     import json
                     profile = {
-                        'name': profile_row[1],
-                        'industry': profile_row[3],
-                        'organization_type': profile_row[4],
-                        'region': profile_row[5],
-                        'key_concerns': json.loads(profile_row[6]) if profile_row[6] else [],
-                        'strategic_priorities': json.loads(profile_row[7]) if profile_row[7] else [],
-                        'risk_tolerance': profile_row[8],
-                        'innovation_appetite': profile_row[9],
-                        'decision_making_style': profile_row[10],
-                        'stakeholder_focus': json.loads(profile_row[11]) if profile_row[11] else [],
-                        'competitive_landscape': json.loads(profile_row[12]) if profile_row[12] else [],
-                        'regulatory_environment': json.loads(profile_row[13]) if profile_row[13] else [],
-                        'custom_context': profile_row[14]
+                        'name': profile_row['name'],
+                        'industry': profile_row['industry'],
+                        'organization_type': profile_row['organization_type'],
+                        'region': profile_row['region'],
+                        'key_concerns': json.loads(profile_row['key_concerns']) if profile_row['key_concerns'] else [],
+                        'strategic_priorities': json.loads(profile_row['strategic_priorities']) if profile_row['strategic_priorities'] else [],
+                        'risk_tolerance': profile_row['risk_tolerance'],
+                        'innovation_appetite': profile_row['innovation_appetite'],
+                        'decision_making_style': profile_row['decision_making_style'],
+                        'stakeholder_focus': json.loads(profile_row['stakeholder_focus']) if profile_row['stakeholder_focus'] else [],
+                        'competitive_landscape': json.loads(profile_row['competitive_landscape']) if profile_row['competitive_landscape'] else [],
+                        'regulatory_environment': json.loads(profile_row['regulatory_environment']) if profile_row['regulatory_environment'] else [],
+                        'custom_context': profile_row['custom_context']
                     }
                     
                     # Build profile context

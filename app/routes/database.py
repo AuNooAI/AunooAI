@@ -138,11 +138,11 @@ async def get_database_info(db: Database = Depends(get_database_instance), sessi
                 AND table_type = 'BASE TABLE'
                 ORDER BY table_name
             """))
-            tables = table_result.fetchall()
+            tables = table_result.mappings().fetchall()
             table_info = []
 
             for table_row in tables:
-                table_name = table_row[0]
+                table_name = table_row['table_name']
                 # Get row count for each table
                 count_result = conn.execute(text(f"SELECT COUNT(*) FROM {table_name}"))
                 row_count = count_result.scalar()
@@ -159,7 +159,7 @@ async def get_database_info(db: Database = Depends(get_database_instance), sessi
                     MAX(publication_date) as last_entry
                 FROM articles
             """))
-            article_stats = article_stats_result.fetchone()
+            article_stats = article_stats_result.mappings().fetchone()
 
             # Get topic count
             topic_result = conn.execute(text("SELECT COUNT(DISTINCT topic) FROM articles"))
@@ -171,9 +171,9 @@ async def get_database_info(db: Database = Depends(get_database_instance), sessi
                 "db_type": "postgresql",
                 "host": db_settings.DB_HOST,
                 "port": db_settings.DB_PORT,
-                "total_articles": article_stats[0] if article_stats else 0,
-                "first_entry": str(article_stats[1]) if article_stats and article_stats[1] else None,
-                "last_entry": str(article_stats[2]) if article_stats and article_stats[2] else None,
+                "total_articles": article_stats['total'] if article_stats else 0,
+                "first_entry": str(article_stats['first_entry']) if article_stats and article_stats['first_entry'] else None,
+                "last_entry": str(article_stats['last_entry']) if article_stats and article_stats['last_entry'] else None,
                 "total_topics": topic_count,
                 "tables": table_info
             }
@@ -812,10 +812,10 @@ async def import_topic_configurations(
                             (keyword_groups.c.name == keyword.get("group_name")) &
                             (keyword_groups.c.topic == keyword.get("group_topic"))
                         )
-                    ).first()
+                    ).mappings().first()
 
                     if group_result:
-                        group_id = group_result[0]
+                        group_id = group_result['id']
                         if merge_mode:
                             # Check if keyword already exists
                             existing = conn.execute(
@@ -865,10 +865,10 @@ async def import_topic_configurations(
                         select(feed_keyword_groups.c.id).where(
                             feed_keyword_groups.c.name == source.get("group_name")
                         )
-                    ).first()
+                    ).mappings().first()
 
                     if group_result:
-                        group_id = group_result[0]
+                        group_id = group_result['id']
                         if merge_mode:
                             existing = conn.execute(
                                 select(feed_group_sources.c.id).where(

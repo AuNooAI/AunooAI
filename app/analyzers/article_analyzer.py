@@ -247,9 +247,11 @@ Article text:
                 cleaned_analysis["Title"] = self._extracted_title
 
             # Validate required fields - use case-insensitive comparison
-            required_fields = ["Title", "Summary", "Category", "Future Signal", 
-                             "Future Signal Explanation", "Sentiment", "Time to Impact", 
-                             "Driver Type", "Political Bias", "Factuality", "Tags"]
+            required_fields = ["Title", "Summary", "Category", "Future Signal",
+                             "Future Signal Explanation", "Sentiment", "Sentiment Explanation",
+                             "Time to Impact", "Time to Impact Explanation",
+                             "Driver Type", "Driver Type Explanation",
+                             "Political Bias", "Factuality", "Tags"]
             
             # Create a case-insensitive mapping of the parsed keys
             parsed_keys_lower = {k.lower(): k for k in cleaned_analysis.keys()}

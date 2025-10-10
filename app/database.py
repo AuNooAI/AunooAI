@@ -1723,45 +1723,50 @@ Remember to cite your sources and provide actionable insights where possible."""
             return [{"id": row['topic'], "name": row['topic']} for row in cursor.fetchall()]
 
     def get_recent_articles_by_topic(self, topic_name, limit=10, start_date=None, end_date=None):
+        # For PostgreSQL, delegate to facade which has the date fix
+        if self.db_type == 'postgresql':
+            return self.facade.get_recent_articles_by_topic(topic_name, limit, start_date, end_date)
+
+        # SQLite version below
         logger.info(f"Database: Fetching {limit} recent articles for topic {topic_name} (date range: {start_date} to {end_date})")
         with self.get_connection() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            
+
             query = """
-                SELECT * FROM articles 
+                SELECT * FROM articles
                 WHERE topic = ?
-                {}  
+                {}
                 ORDER BY COALESCE(submission_date, publication_date) DESC, rowid DESC
                 LIMIT ?
             """
-            
+
             params = [topic_name]
             date_conditions = []
-            
+
             if start_date:
                 date_conditions.append("AND COALESCE(submission_date, publication_date) >= ?")
                 params.append(start_date)
             if end_date:
                 date_conditions.append("AND COALESCE(submission_date, publication_date) <= ?")
                 params.append(end_date)
-                
+
             date_clause = " ".join(date_conditions)
             query = query.format(date_clause)
             params.append(limit)
-            
+
             logger.debug(f"Executing query: {query} with params: {params}")
             cursor.execute(query, params)
             articles = [dict(row) for row in cursor.fetchall()]
             logger.info(f"Found {len(articles)} articles in database")
-            
+
             # Convert tags string back to list
             for article in articles:
                 if article['tags']:
                     article['tags'] = article['tags'].split(',')
                 else:
                     article['tags'] = []
-            
+
             return articles
 
     def get_article_count_by_topic(self, topic_name: str) -> int:
