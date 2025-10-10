@@ -5,7 +5,8 @@
     "Security Data Fabric": "\"Security Data Fabric\"",
     "Threat Modeling": "\"Threat Modeling\"",
     "Embedded Systems": "\"Embedded Systems\"",
-    "Competitor Analysis": "Disinformation"
+    "Competitor Analysis": "Disinformation",
+    "AI and Machine Learning": "\"AI and Machine Learning\""
   },
   "paper_filters": {
     "Cloud Computing": "Distributed Systems",
@@ -13,6 +14,7 @@
     "Security Data Fabric": "\"Security Data\"",
     "Threat Modeling": "\"Threat Modeling\"",
     "Embedded Systems": "\"Embedded Systems\"",
-    "Competitor Analysis": "Disinformation"
+    "Competitor Analysis": "Disinformation",
+    "AI and Machine Learning": "\"AI and Machine Learning\""
   }
 }

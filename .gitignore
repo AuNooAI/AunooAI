@@ -28,7 +28,8 @@ ENV/
 .env
 reports/
 app/config/config.json
-#app/data/*.db
+app/data/*.db
+app/data/*.db-*
 /home/d1g1fox/dev/experimental/AunooAI/chromadb
 DEPLOYMENT_INFO.json
 DEPLOYMENT_INFO.txt
@@ -64,8 +65,7 @@ vector_db/
 chroma_db/
 
 # Large data files
-#*.db
-*.sqlite
+*.db
 *.sqlite
 
 # SQLite journal files

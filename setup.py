@@ -69,6 +69,31 @@ def create_directories():
         logger.error(f"Failed to create directories: {str(e)}")
         return False
 
+def install_postgresql_dependencies():
+    """Install PostgreSQL Python dependencies."""
+    logger.info("Installing PostgreSQL Python dependencies...")
+
+    dependencies = [
+        'asyncpg',
+        'psycopg2-binary',
+        'alembic',
+        'sqlalchemy[asyncio]'
+    ]
+
+    try:
+        for dep in dependencies:
+            logger.info(f"  Installing {dep}...")
+            subprocess.run(
+                [sys.executable, '-m', 'pip', 'install', dep],
+                check=True,
+                capture_output=True
+            )
+        logger.info("✅ PostgreSQL Python dependencies installed")
+        return True
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to install PostgreSQL dependencies: {e}")
+        return False
+
 def setup_database():
     """Prompt user for database setup."""
     logger.info("\n" + "=" * 60)
@@ -91,6 +116,9 @@ def setup_database():
         response = input("\nWould you like to change database configuration? (y/N): ").lower()
         if response != 'y':
             logger.info("Keeping current database configuration")
+            # Install PostgreSQL deps if needed
+            if db_type.lower() == 'postgresql':
+                install_postgresql_dependencies()
             return True
 
     logger.info("\nAunooAI supports two database options:")
@@ -101,6 +129,12 @@ def setup_database():
 
     if choice == '2':
         logger.info("\nSetting up PostgreSQL...")
+
+        # Install PostgreSQL Python dependencies first
+        if not install_postgresql_dependencies():
+            logger.error("Failed to install PostgreSQL dependencies")
+            return False
+
         postgresql_script = Path("scripts/setup_postgresql.py")
 
         if postgresql_script.exists():

@@ -3701,10 +3701,9 @@ class DatabaseQueryFacade:
         self.connection.commit()
 
     def test_data_select(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("SELECT 1")
+        """Test database connection - works with both SQLite and PostgreSQL"""
+        from sqlalchemy import text
+        self.connection.execute(text("SELECT 1"))
 
     def get_keyword_monitor_is_enabled_and_daily_request_limit(self):
         statement = select(

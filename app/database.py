@@ -2083,32 +2083,63 @@ Remember to cite your sources and provide actionable insights where possible."""
             raise
 
     async def get_total_articles(self) -> int:
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM articles")
-            return cursor.fetchone()[0]
+        """Get total article count - works with both SQLite and PostgreSQL"""
+        from sqlalchemy import select, func
+        from app.database_models import t_articles
+
+        conn = self._temp_get_connection()
+        try:
+            statement = select(func.count()).select_from(t_articles)
+            result = conn.execute(statement)
+            return result.scalar() or 0
+        except Exception as e:
+            logger.error(f"Error getting total articles: {e}")
+            return 0
 
     async def get_articles_today(self) -> int:
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            today = datetime.now().strftime('%Y-%m-%d')
-            cursor.execute("""
-                SELECT COUNT(*) FROM articles 
-                WHERE DATE(submission_date) = ?
-            """, (today,))
-            return cursor.fetchone()[0]
+        """Get articles added today - works with both SQLite and PostgreSQL"""
+        from sqlalchemy import select, func, cast, Date
+        from app.database_models import t_articles
+
+        conn = self._temp_get_connection()
+        try:
+            today = datetime.now().date()
+            statement = select(func.count()).select_from(t_articles).where(
+                cast(t_articles.c.submission_date, Date) == today
+            )
+            result = conn.execute(statement)
+            return result.scalar() or 0
+        except Exception as e:
+            logger.error(f"Error getting articles today: {e}")
+            return 0
 
     async def get_keyword_group_count(self) -> int:
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM keyword_groups")
-            return cursor.fetchone()[0]
+        """Get keyword group count - works with both SQLite and PostgreSQL"""
+        from sqlalchemy import select, func
+        from app.database_models import t_keyword_groups
+
+        conn = self._temp_get_connection()
+        try:
+            statement = select(func.count()).select_from(t_keyword_groups)
+            result = conn.execute(statement)
+            return result.scalar() or 0
+        except Exception as e:
+            logger.error(f"Error getting keyword group count: {e}")
+            return 0
 
     async def get_topic_count(self) -> int:
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(DISTINCT topic) FROM articles")
-            return cursor.fetchone()[0]
+        """Get distinct topic count - works with both SQLite and PostgreSQL"""
+        from sqlalchemy import select, func
+        from app.database_models import t_articles
+
+        conn = self._temp_get_connection()
+        try:
+            statement = select(func.count(func.distinct(t_articles.c.topic))).select_from(t_articles)
+            result = conn.execute(statement)
+            return result.scalar() or 0
+        except Exception as e:
+            logger.error(f"Error getting topic count: {e}")
+            return 0
 
     def add_article_annotation(self, article_uri: str, author: str, content: str, is_private: bool = False) -> int:
         logger.debug(f"Adding annotation for article URI: {article_uri}")

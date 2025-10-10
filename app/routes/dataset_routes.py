@@ -30,7 +30,11 @@ async def get_media_bias_data(media_bias: MediaBias = Depends(get_media_bias), s
     try:
         sources = media_bias.get_all_sources()
         status = media_bias.get_status()
-        
+
+        # Convert datetime to string for JSON serialization
+        if status.get('last_updated'):
+            status['last_updated'] = status['last_updated'].isoformat() if hasattr(status['last_updated'], 'isoformat') else str(status['last_updated'])
+
         return JSONResponse(content={
             "sources": sources,
             "status": status

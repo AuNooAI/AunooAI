@@ -454,9 +454,13 @@ def run_migrations(db_config):
     os.environ['DB_USER'] = db_config['db_user']
     os.environ['DB_PASSWORD'] = db_config['db_password']
 
+    # Find alembic in venv or use system alembic
+    venv_alembic = Path('.venv') / 'bin' / 'alembic'
+    alembic_cmd = str(venv_alembic) if venv_alembic.exists() else 'alembic'
+
     # Run alembic upgrade
     result = subprocess.run(
-        ['alembic', 'upgrade', 'head'],
+        [alembic_cmd, 'upgrade', 'head'],
         capture_output=True,
         text=True,
         check=False
