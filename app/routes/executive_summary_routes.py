@@ -124,12 +124,12 @@ async def _extract_market_signals_from_analytics(analytics_data: Dict, topic_nam
             return signals
         
         # Calculate total signals for percentage calculation
-        total_signals = sum(row[1] for row in future_signals_data)
-        
+        total_signals = sum(row['count'] for row in future_signals_data)
+
         # Process ALL topic-specific future signals as scenarios
         for signal_row in future_signals_data:
-            signal_label = signal_row[0]
-            signal_count = signal_row[1]
+            signal_label = signal_row['future_signal']
+            signal_count = signal_row['count']
             
             if not signal_label or signal_count == 0:
                 continue
@@ -268,7 +268,7 @@ async def _generate_risk_opportunity_cards(auspex, topic_name: str, articles, an
     - Overall trend: {analytics_summary['sentiment_trend']}
     
     Recent article headlines (diverse sample):
-    {chr(10).join([f"- {article[1]}" for article in article_sample[:12]])}
+    {chr(10).join([f"- {article.get('title')}" for article in article_sample[:12]])}
     
     Generate 3 critical risks and 3 key opportunities for executives. Focus on DIVERSE scenarios:
     
@@ -388,30 +388,30 @@ def _extract_article_quotes_and_links(articles, analytics_data: Dict) -> List[An
     random.shuffle(shuffled_articles)
     
     # Sort by various criteria to get diversity
-    recent_articles = sorted(shuffled_articles, key=lambda x: x[8] if len(x) > 8 and x[8] else '', reverse=True)[:15]
+    recent_articles = sorted(shuffled_articles, key=lambda x: x.get('publication_date') or '', reverse=True)[:15]
     diverse_sources = []
     seen_sources = set()
-    
+
     # Ensure source diversity
     for article in recent_articles:
-        news_source = article[9] if len(article) > 9 else "Unknown Source"
+        news_source = article.get('news_source') or "Unknown Source"
         if news_source not in seen_sources or len(diverse_sources) < 5:
             diverse_sources.append(article)
             seen_sources.add(news_source)
         if len(diverse_sources) >= 8:
             break
-    
+
     # Extract meaningful quotes from diverse articles
     processed_count = 0
     for article in diverse_sources:
         if processed_count >= 6:  # Limit to top 6 quotes
             break
-            
-        uri = article[0] if len(article) > 0 else ""
-        title = article[1] if len(article) > 1 else ""
-        summary = article[2] if len(article) > 2 else ""
-        news_source = article[9] if len(article) > 9 else "Unknown Source"
-        publication_date = article[8] if len(article) > 8 else ""
+
+        uri = article.get('uri') or ""
+        title = article.get('title') or ""
+        summary = article.get('summary') or ""
+        news_source = article.get('news_source') or "Unknown Source"
+        publication_date = article.get('publication_date') or ""
         
         if not summary or len(summary.strip()) < 50:
             continue
@@ -766,15 +766,15 @@ def _prepare_articles_summary(articles, topic_name: str) -> str:
     sample_articles = articles[:20]  # Take top 20 for detailed context
     
     summary_parts.append(f"**Recent Article Examples for {topic_name}:**")
-    
+
     for i, article in enumerate(sample_articles, 1):
-        title = article[1] if len(article) > 1 else "No title"
-        summary = article[2] if len(article) > 2 else "No summary"
-        future_signal = article[3] if len(article) > 3 else "No signal"
-        sentiment = article[4] if len(article) > 4 else "Neutral"
-        time_to_impact = article[5] if len(article) > 5 else "Unknown"
-        publication_date = article[8] if len(article) > 8 else "Unknown"
-        news_source = article[9] if len(article) > 9 else "Unknown"
+        title = article.get('title') or "No title"
+        summary = article.get('summary') or "No summary"
+        future_signal = article.get('future_signal') or "No signal"
+        sentiment = article.get('sentiment') or "Neutral"
+        time_to_impact = article.get('time_to_impact') or "Unknown"
+        publication_date = article.get('publication_date') or "Unknown"
+        news_source = article.get('news_source') or "Unknown"
         
         # Extract first sentence or key point from summary
         key_point = summary.split('.')[0][:150] + "..." if summary and len(summary) > 150 else summary
@@ -814,20 +814,22 @@ def _prepare_articles_summary(articles, topic_name: str) -> str:
     sample_articles = []
     
     for article in articles[:30]:  # Limit to avoid token limits
-        if article[4]:  # sentiment
-            sentiments.append(article[4])
-        if article[7]:  # category
-            categories.append(article[7])
-        if article[6]:  # driver_type
-            drivers.append(article[6])
-        if article[3]:  # future_signal
-            signals.append(article[3])
-        if article[5]:  # time_to_impact
-            time_impacts.append(article[5])
-        
+        if article.get('sentiment'):
+            sentiments.append(article.get('sentiment'))
+        if article.get('category'):
+            categories.append(article.get('category'))
+        if article.get('driver_type'):
+            drivers.append(article.get('driver_type'))
+        if article.get('future_signal'):
+            signals.append(article.get('future_signal'))
+        if article.get('time_to_impact'):
+            time_impacts.append(article.get('time_to_impact'))
+
         # Add article summary for context
-        if article[2]:  # summary
-            sample_articles.append(f"- {article[1]}: {article[2][:150]}...")
+        if article.get('summary'):
+            title = article.get('title') or "Untitled"
+            summary = article.get('summary')
+            sample_articles.append(f"- {title}: {summary[:150]}...")
     
     # Count frequencies
     from collections import Counter
@@ -838,10 +840,14 @@ def _prepare_articles_summary(articles, topic_name: str) -> str:
     time_impact_counts = Counter(time_impacts)
     
     # Build analysis summary
+    # Get date range using dict access
+    start_date = articles[-1].get('publication_date', '')[:10] if articles and articles[-1].get('publication_date') else 'Unknown'
+    end_date = articles[0].get('publication_date', '')[:10] if articles and articles[0].get('publication_date') else 'Unknown'
+
     summary = f"""**Data Overview:**
 - Total articles: {len(articles)}
 - Topic: {topic_name}
-- Date range: {articles[-1][8][:10] if articles and articles[-1][8] else 'Unknown'} to {articles[0][8][:10] if articles and articles[0][8] else 'Unknown'}
+- Date range: {start_date} to {end_date}
 
 **Key Patterns:**
 - Sentiments: {', '.join([f"{s}: {c}" for s, c in sentiment_counts.most_common(3)])}

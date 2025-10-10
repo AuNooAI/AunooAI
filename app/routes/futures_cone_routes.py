@@ -574,21 +574,38 @@ def generate_futures_cone(
         # Calculate date range
         end_date = datetime.now()
         start_date = end_date - timedelta(days=timeframe_days)
-        
-        # Fetch articles from database with dynamic limit
-        query = """
-        SELECT title, summary, uri, publication_date, sentiment, category, 
-               future_signal, driver_type, time_to_impact
-        FROM articles 
-        WHERE topic = ? 
-        AND publication_date >= ? 
-        AND publication_date <= ?
-        AND (summary IS NOT NULL AND summary != '')
-        ORDER BY publication_date DESC
-        LIMIT ?
-        """
-        
-        articles = db.fetch_all(query, (topic, start_date.isoformat(), end_date.isoformat(), optimal_sample_size))
+
+        # Use database facade for PostgreSQL compatibility
+        # Convert dates to strings for TEXT column comparison
+        start_date_str = start_date.strftime('%Y-%m-%d %H:%M:%S')
+        end_date_str = end_date.strftime('%Y-%m-%d %H:%M:%S')
+
+        # Fetch articles using search_articles method (PostgreSQL compatible)
+        articles_list, total_count = db.facade.search_articles(
+            topic=topic,
+            pub_date_start=start_date_str,
+            pub_date_end=end_date_str,
+            page=1,
+            per_page=optimal_sample_size
+        )
+
+        # Convert to tuple format expected by prepare_analysis_summary
+        # Expected format: (title, summary, uri, publication_date, sentiment, category, future_signal, driver_type, time_to_impact)
+        articles = [
+            (
+                article.get('title'),
+                article.get('summary'),
+                article.get('uri'),
+                article.get('publication_date'),
+                article.get('sentiment'),
+                article.get('category'),
+                article.get('future_signal'),
+                article.get('driver_type'),
+                article.get('time_to_impact')
+            )
+            for article in articles_list
+            if article.get('summary')  # Filter out articles without summary
+        ]
         
         if not articles:
             raise HTTPException(

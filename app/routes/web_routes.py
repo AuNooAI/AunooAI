@@ -133,7 +133,7 @@ async def feed_group_manager(
 
 @router.get("/model-bias-arena", response_class=HTMLResponse)
 async def model_bias_arena_page(
-    request: Request, 
+    request: Request,
     session=Depends(verify_session)
 ):
     """Serves the model bias arena interface."""
@@ -149,4 +149,31 @@ async def model_bias_arena_page(
             "request": request,
             "session": request.session,
             "error": "Could not load model bias arena."
+        })
+
+
+@router.get("/consensus-analysis", response_class=HTMLResponse)
+async def consensus_analysis_page(
+    request: Request,
+    session=Depends(verify_session)
+):
+    """Serves the consensus analysis dashboard interface."""
+    try:
+        logger.info("Loading consensus analysis dashboard")
+        config = load_config()
+        # Extract topic names for the dropdown
+        topics = sorted([topic['name'] for topic in config.get('topics', [])])
+
+        return templates.TemplateResponse("consensus_analysis.html", {
+            "request": request,
+            "topics": topics,
+            "session": request.session
+        })
+    except Exception as e:
+        logger.error(f"Error loading consensus analysis dashboard: {e}", exc_info=True)
+        return templates.TemplateResponse("consensus_analysis.html", {
+            "request": request,
+            "topics": [],
+            "session": request.session,
+            "error": "Could not load consensus analysis dashboard."
         })

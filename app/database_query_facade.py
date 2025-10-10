@@ -32,6 +32,7 @@ from app.database_models import (t_keyword_monitor_settings as keyword_monitor_s
                                  t_monitored_keywords as monitored_keywords,
                                  t_keyword_groups as keyword_groups,
                                  t_analysis_versions as analysis_versions,
+                                 t_analysis_versions_v2 as analysis_versions_v2,
                                  t_organizational_profiles as organizational_profiles,
                                  t_keyword_alerts as keyword_alerts,
                                  t_oauth_allowlist as oauth_allowlist,
@@ -814,8 +815,10 @@ class DatabaseQueryFacade:
 
     #### EXECUTIVE SUMMARY ROUTES ####
     def get_articles_for_market_signal_analysis(self, timeframe_days, topic_name):
-        #caluclate the date 'now' - timeframe_days days
+        #calculate the date 'now' - timeframe_days days
         start_date = datetime.utcnow() - timedelta(days=timeframe_days)
+        # Convert to string for text column comparison
+        start_date_str = start_date.strftime('%Y-%m-%d %H:%M:%S')
 
         statement = select(
             articles.c.uri,
@@ -831,8 +834,8 @@ class DatabaseQueryFacade:
         ).where(
             and_(
                 articles.c.topic == topic_name,
-                articles.c.publication_date >= start_date,
-                articles.c.analyzed == 1
+                articles.c.publication_date >= start_date_str,
+                articles.c.analyzed == True  # Use True for boolean column
             )
         ).order_by(
             desc(articles.c.publication_date)
@@ -841,7 +844,9 @@ class DatabaseQueryFacade:
 
     def get_recent_articles_for_market_signal_analysis(self, timeframe_days, topic_name, optimal_sample_size):
         start_date = datetime.utcnow() - timedelta(days=timeframe_days)
-        
+        # Convert to string for text column comparison
+        start_date_str = start_date.strftime('%Y-%m-%d %H:%M:%S')
+
         statement = select(
             articles.c.uri,
             articles.c.title,
@@ -856,8 +861,8 @@ class DatabaseQueryFacade:
         ).where(
             and_(
                 articles.c.topic == topic_name,
-                articles.c.publication_date >= start_date,
-                articles.c.analyzed == 1,
+                articles.c.publication_date >= start_date_str,
+                articles.c.analyzed == True,  # Use True for boolean column
                 articles.c.summary != None,
                 articles.c.summary != ''
             )
@@ -876,7 +881,7 @@ class DatabaseQueryFacade:
                 articles.c.topic == topic_name,
                 articles.c.future_signal != None,
                 articles.c.future_signal != '',
-                articles.c.analyzed == 1
+                articles.c.analyzed == True  # Use True for boolean column
             )
         ).group_by(
             articles.c.future_signal
@@ -5240,3 +5245,63 @@ class DatabaseQueryFacade:
         except Exception as e:
             self.logger.error(f"Error getting all auspex prompts: {e}")
             return []
+
+    def get_cached_trend_analysis(self, cache_key: str):
+        """Get cached trend analysis by cache_key."""
+        try:
+            statement = select(
+                analysis_versions_v2.c.version_data,
+                analysis_versions_v2.c.created_at
+            ).where(
+                analysis_versions_v2.c.cache_key == cache_key
+            ).order_by(
+                analysis_versions_v2.c.created_at.desc()
+            ).limit(1)
+
+            result = self._execute_with_rollback(statement).mappings().fetchone()
+            return result
+        except Exception as e:
+            self.logger.error(f"Error getting cached trend analysis: {e}")
+            return None
+
+    def save_cached_trend_analysis(self, cache_key: str, topic: str, version_data: str, cache_metadata: str, created_at: str):
+        """Save cached trend analysis with PostgreSQL UPSERT."""
+        try:
+            # Import PostgreSQL-specific insert
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+            # PostgreSQL uses ON CONFLICT for UPSERT
+            statement = pg_insert(analysis_versions_v2).values(
+                cache_key=cache_key,
+                topic=topic,
+                version_data=version_data,
+                cache_metadata=cache_metadata,
+                created_at=created_at
+            ).on_conflict_do_update(
+                index_elements=['cache_key'],
+                set_={
+                    'topic': topic,
+                    'version_data': version_data,
+                    'cache_metadata': cache_metadata,
+                    'created_at': created_at
+                }
+            )
+
+            self._execute_with_rollback(statement)
+            self.connection.commit()
+        except Exception as e:
+            self.logger.error(f"Error saving cached trend analysis: {e}")
+            self.connection.rollback()
+            raise
+
+    def ensure_analysis_cache_table(self):
+        """Ensure the analysis_versions_v2 table exists."""
+        try:
+            # Create table if it doesn't exist using SQLAlchemy metadata
+            from app.database_models import metadata
+            analysis_versions_v2.create(self.connection, checkfirst=True)
+            self.connection.commit()
+        except Exception as e:
+            self.logger.error(f"Error ensuring analysis cache table: {e}")
+            self.connection.rollback()
+            raise

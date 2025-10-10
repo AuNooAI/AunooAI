@@ -703,21 +703,21 @@ def select_diverse_articles(articles: List, limit: int) -> List:
     """Select diverse articles based on category, sentiment, and recency."""
     if len(articles) <= limit:
         return articles
-    
+
     # Convert to dictionary format for easier processing
     article_dicts = []
     for i, article in enumerate(articles):
         article_dict = {
             'id': i,
-            'title': article[0],
-            'summary': article[1],
-            'uri': article[2],
-            'publication_date': article[3],
-            'sentiment': article[4],
-            'category': article[5],
-            'future_signal': article[6],
-            'driver_type': article[7],
-            'time_to_impact': article[8],
+            'title': article['title'],
+            'summary': article['summary'],
+            'uri': article['uri'],
+            'publication_date': article['publication_date'],
+            'sentiment': article['sentiment'],
+            'category': article['category'],
+            'future_signal': article['future_signal'],
+            'driver_type': article['driver_type'],
+            'time_to_impact': article['time_to_impact'],
             'similarity_score': 1.0 - (i / len(articles))  # Higher score for newer articles
         }
         article_dicts.append(article_dict)
@@ -770,11 +770,11 @@ def select_diverse_articles(articles: List, limit: int) -> List:
     for article_dict in selected:
         # Find the original article by matching key fields
         for original_article in articles:
-            if (original_article[0] == article_dict['title'] and 
-                original_article[3] == article_dict['publication_date']):
+            if (original_article['title'] == article_dict['title'] and
+                original_article['publication_date'] == article_dict['publication_date']):
                 selected_original.append(original_article)
                 break
-    
+
     return selected_original[:limit]
 
 def select_articles_deterministic(articles: List, limit: int, 
@@ -796,16 +796,16 @@ def select_articles_deterministic(articles: List, limit: int,
     article_data = []
     for i, article in enumerate(articles):
         # Create deterministic hash from stable content
-        stable_content = f"{article[0]}|{article[3]}|{article[5] or 'Unknown'}"  # title|date|category
+        stable_content = f"{article['title']}|{article['publication_date']}|{article['category'] or 'Unknown'}"  # title|date|category
         article_hash = hashlib.md5(stable_content.encode()).hexdigest()[:8]
-        
+
         article_data.append({
             'original_index': i,
             'original_article': article,
-            'title': article[0],
-            'publication_date': article[3],
-            'category': article[5] or 'Unknown',
-            'sentiment': article[4] or 'Neutral',
+            'title': article['title'],
+            'publication_date': article['publication_date'],
+            'category': article['category'] or 'Unknown',
+            'sentiment': article['sentiment'] or 'Neutral',
             'hash': article_hash,
             'recency_score': 1.0 - (i / len(articles))
         })
@@ -864,16 +864,16 @@ def prepare_analysis_summary(articles: List, topic: str) -> str:
     time_impacts = []
     
     for article in articles[:50]:  # Limit to avoid token limits
-        if article[4]:  # sentiment
-            sentiments.append(article[4])
-        if article[5]:  # category
-            categories.append(article[5])
-        if article[7]:  # driver_type
-            drivers.append(article[7])
-        if article[6]:  # future_signal
-            signals.append(article[6])
-        if article[8]:  # time_to_impact
-            time_impacts.append(article[8])
+        if article['sentiment']:
+            sentiments.append(article['sentiment'])
+        if article['category']:
+            categories.append(article['category'])
+        if article['driver_type']:
+            drivers.append(article['driver_type'])
+        if article['future_signal']:
+            signals.append(article['future_signal'])
+        if article['time_to_impact']:
+            time_impacts.append(article['time_to_impact'])
     
     # Count frequencies
     sentiment_counts = Counter(sentiments)
@@ -887,7 +887,7 @@ def prepare_analysis_summary(articles: List, topic: str) -> str:
 
 **Data Overview:**
 - Total articles analyzed: {len(articles)}
-- Date range: {str(articles[-1][3])[:10] if articles and articles[-1][3] else 'Unknown'} to {str(articles[0][3])[:10] if articles and articles[0][3] else 'Unknown'}
+- Date range: {str(articles[-1]['publication_date'])[:10] if articles and articles[-1]['publication_date'] else 'Unknown'} to {str(articles[0]['publication_date'])[:10] if articles and articles[0]['publication_date'] else 'Unknown'}
 
 **Sentiment Distribution:**
 {chr(10).join([f"- {sent}: {count} articles" for sent, count in sentiment_counts.most_common(5)])}
@@ -1148,26 +1148,22 @@ def generate_comprehensive_cache_key(
     return f"trend_convergence_{cache_hash}"
 
 async def get_cached_analysis(
-    cache_key: str, 
-    db: Database, 
+    cache_key: str,
+    db: Database,
     max_age_hours: int = 24
 ) -> Optional[Dict[str, Any]]:
     """Get cached analysis if valid and recent enough."""
-    
+
     try:
-        query = """
-        SELECT version_data, created_at FROM analysis_versions_v2 
-        WHERE cache_key = ? 
-        ORDER BY created_at DESC 
-        LIMIT 1
-        """
-        result = db.fetch_one(query, (cache_key,))
-        
+        # Use database facade for PostgreSQL compatibility
+        result = (DatabaseQueryFacade(db, logger)).get_cached_trend_analysis(cache_key)
+
         if result:
-            analysis_data = json.loads(result[0])
-            created_at = datetime.fromisoformat(result[1])
+            # Use column name access for dictionary-like objects
+            analysis_data = json.loads(result['version_data'])
+            created_at = datetime.fromisoformat(result['created_at'])
             age_hours = (datetime.now() - created_at).total_seconds() / 3600
-            
+
             if age_hours <= max_age_hours:
                 # Add cache metadata
                 analysis_data['_cache_info'] = {
@@ -1175,33 +1171,33 @@ async def get_cached_analysis(
                     'age_hours': round(age_hours, 2),
                     'cache_key': cache_key
                 }
-                
+
                 logger.info(f"Cache hit: {cache_key} (age: {age_hours:.1f}h)")
                 return analysis_data
             else:
                 logger.info(f"Cache expired: {cache_key} (age: {age_hours:.1f}h)")
-                
+
     except Exception as e:
         logger.error(f"Error retrieving cached analysis: {e}")
-    
+
     return None
 
 async def save_analysis_with_cache(
     cache_key: str,
-    topic: str, 
-    analysis_data: Dict[str, Any], 
+    topic: str,
+    analysis_data: Dict[str, Any],
     db: Database
 ):
     """Save analysis with comprehensive cache information."""
-    
+
     try:
         # Ensure enhanced cache table exists
         await ensure_cache_table_v2(db)
-        
+
         cache_metadata = {
             'article_count': analysis_data.get('articles_analyzed', 0),
             'total_trends': sum(
-                len(timeframe.get('trends', [])) 
+                len(timeframe.get('trends', []))
                 for timeframe in analysis_data.get('strategic_recommendations', {}).values()
                 if isinstance(timeframe, dict)
             ),
@@ -1209,50 +1205,29 @@ async def save_analysis_with_cache(
             'consistency_mode': analysis_data.get('consistency_mode'),
             'generation_time': analysis_data.get('generated_at')
         }
-        
-        query = """
-        INSERT OR REPLACE INTO analysis_versions_v2 
-        (cache_key, topic, version_data, cache_metadata, created_at)
-        VALUES (?, ?, ?, ?, ?)
-        """
-        
-        db.execute_query(query, (
+
+        # Use database facade for PostgreSQL compatibility
+        (DatabaseQueryFacade(db, logger)).save_cached_trend_analysis(
             cache_key,
             topic,
             json.dumps(analysis_data),
             json.dumps(cache_metadata),
             datetime.now().isoformat()
-        ))
-        
+        )
+
         logger.info(f"Cached analysis: {cache_key}")
-        
+
     except Exception as e:
         logger.error(f"Failed to cache analysis: {e}")
 
 async def ensure_cache_table_v2(db: Database):
     """Ensure the enhanced cache table exists."""
-    
-    create_table_query = """
-    CREATE TABLE IF NOT EXISTS analysis_versions_v2 (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        cache_key TEXT UNIQUE NOT NULL,
-        topic TEXT NOT NULL,
-        version_data TEXT NOT NULL,
-        cache_metadata TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        accessed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """
-    
-    db.execute_query(create_table_query)
-    
-    # Create index for efficient lookups
-    index_query = """
-    CREATE INDEX IF NOT EXISTS idx_cache_key_created 
-    ON analysis_versions_v2(cache_key, created_at DESC)
-    """
-    
-    db.execute_query(index_query)
+
+    try:
+        # Use database facade for PostgreSQL compatibility
+        (DatabaseQueryFacade(db, logger)).ensure_analysis_cache_table()
+    except Exception as e:
+        logger.error(f"Failed to ensure cache table: {e}")
 
 @router.get("/api/trend-convergence/{topic}/previous")
 async def load_previous_analysis(
