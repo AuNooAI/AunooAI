@@ -837,41 +837,68 @@ class BulkResearch:
         while time.time() - start_time < max_wait_time:
             try:
                 status_response = self.research.firecrawl_app.get_batch_scrape_status(batch_id)
-                
+
                 if not status_response:
                     logger.warning(f"No status response for batch {batch_id}")
                     await asyncio.sleep(poll_interval)
                     continue
-                
-                status = status_response.get('status')
+
+                # ✅ FIX: Firecrawl v2 returns object, not dict
+                status = getattr(status_response, 'status', None)
                 logger.debug(f"Batch {batch_id} status: {status}")
-                
+
                 if status == 'completed':
                     # Get results
                     results = {}
-                    data = status_response.get('data', [])
-                    
-                    for item in data:
-                        url = item.get('url')
-                        if item.get('success') and 'markdown' in item:
+                    data = getattr(status_response, 'data', [])
+
+                    logger.info(f"Batch {batch_id} returned {len(data)} items")
+
+                    # ✅ FIX: Firecrawl v2 SDK returns Document objects, not dicts
+                    # The SDK normalizes API camelCase to Python snake_case:
+                    # - metadata.sourceURL → metadata.source_url
+                    # - metadata.statusCode → metadata.status_code
+                    for idx, item in enumerate(data):
+                        # Each item is a Document object with:
+                        # - markdown: str
+                        # - metadata: DocumentMetadata object
+                        #   - source_url: str (the URL that was scraped)
+                        #   - status_code: int (HTTP status code)
+
+                        metadata = item.metadata if hasattr(item, 'metadata') else None
+
+                        if metadata:
+                            url = metadata.source_url if hasattr(metadata, 'source_url') else None
+                            status_code = metadata.status_code if hasattr(metadata, 'status_code') else None
+                            success = status_code == 200 if status_code else False
+                            error_msg = metadata.error if hasattr(metadata, 'error') else None
+                        else:
+                            # Fallback if no metadata
+                            url = None
+                            success = False
+                            error_msg = "No metadata in response"
+
+                        markdown = item.markdown if hasattr(item, 'markdown') else None
+
+                        if success and markdown:
                             # Apply token limiting
-                            content = item['markdown']
                             from app.analyzers.article_analyzer import ArticleAnalyzer
-                            truncated_content = ArticleAnalyzer.truncate_text(None, content, max_chars=65000)
-                            
-                            if len(content) > len(truncated_content):
-                                logger.info(f"Truncated content for {url}: {len(content)} -> {len(truncated_content)} chars")
-                            
+                            truncated_content = ArticleAnalyzer.truncate_text(None, markdown, max_chars=65000)
+
+                            if len(markdown) > len(truncated_content):
+                                logger.info(f"Truncated content for {url}: {len(markdown)} -> {len(truncated_content)} chars")
+
                             results[url] = truncated_content
                         else:
                             results[url] = None
-                            logger.warning(f"Failed to scrape {url}: {item.get('error', 'Unknown error')}")
+                            logger.warning(f"Failed to scrape {url}: {error_msg}")
                     
                     logger.info(f"Batch {batch_id} completed with {len(results)} results")
                     return results
                     
                 elif status == 'failed':
-                    logger.error(f"Batch {batch_id} failed: {status_response.get('error', 'Unknown error')}")
+                    error_msg = getattr(status_response, 'error', 'Unknown error')
+                    logger.error(f"Batch {batch_id} failed: {error_msg}")
                     return {}
                     
                 # Still processing, wait before next poll
@@ -957,7 +984,7 @@ class BulkResearch:
         try:
             self.research.set_topic(topic)
             self.research.set_ai_model(model_name)
-            
+
             # Initialize Firecrawl for batch scraping
             if not self.research.firecrawl_app:
                 logger.info("[stream] Initializing Firecrawl for batch scraping...")
@@ -966,18 +993,18 @@ class BulkResearch:
                     logger.info("[stream] ✅ Firecrawl initialized successfully for batch operations")
                 else:
                     logger.warning("[stream] ⚠️ Firecrawl initialization failed - will fallback to individual scraping")
-            
+
             os.makedirs("cache", exist_ok=True)
             self.article_analyzer = ArticleAnalyzer(
                 self.research.ai_model,
                 use_cache=True,
             )
-            
+
             # Initialize media bias module
             from app.models.media_bias import MediaBias
             media_bias = MediaBias(self.db)
             logger.info(f"[stream] Media bias module initialized, enabled: {media_bias.get_status().get('enabled', False)}")
-            
+
             self.bluesky_collector = None
             try:
                 self.bluesky_collector = CollectorFactory.get_collector('bluesky')
@@ -987,42 +1014,56 @@ class BulkResearch:
             logger.error(f"[stream] Setup error: {str(e)}")
             raise
 
+        # ✅ NEW: Pre-scrape all articles in batch for better performance
+        logger.info(f"[stream] 🚀 Pre-scraping {len(urls)} articles in batch mode...")
+        scraped_content = await self._batch_scrape_articles(urls, topic)
+        logger.info(f"[stream] ✅ Batch scraping completed: {len(scraped_content)} articles scraped")
+
         # Iterate through URLs one-by-one and yield results ----------------------
-        for url in urls:
+        for idx, url in enumerate(urls, 1):
             try:
-                logger.debug(f"[stream] Processing URL: {url}")  # noqa: E501
-                # --- identical fetching & analysing logic as in analyze_bulk_urls ---
-                article_content = None
-                if self.is_bluesky_url(url) and self.bluesky_collector:
-                    try:
-                        content_result = await self.bluesky_collector.fetch_article_content(url)
-                        if not content_result:
-                            raise ValueError(f"Failed to fetch Bluesky content for {url}")
-                        article_content = {
-                            "content": content_result.get("content", ""),
-                            "source": content_result.get("source", self.extract_source(url)),
-                            "publication_date": content_result.get("published_date", datetime.datetime.now().date().isoformat()),  # noqa: E501
-                            "title": content_result.get("title", ""),
-                        }
+                logger.debug(f"[stream] Processing URL {idx}/{len(urls)}: {url}")  # noqa: E501
+
+                # NOTE: Progress messages removed - batch scraping is now fast enough
+                # that we don't need to show progress updates to the user
+
+                # Get pre-scraped content from batch operation
+                article_content = scraped_content.get(url)
+
+                # If batch scraping failed for this URL, try individual fallback
+                if not article_content:
+                    logger.warning(f"[stream] No batch content for {url}, trying individual scraping")
+
+                    if self.is_bluesky_url(url) and self.bluesky_collector:
                         try:
-                            self.db.save_raw_article(url, article_content["content"], topic)
-                        except Exception:
-                            pass
-                    except Exception as bluesky_error:
-                        raise ValueError(f"Bluesky error: {str(bluesky_error)}")
-                else:
-                    try:
-                        article_content = await self.research.fetch_article_content(
-                            url,
-                            save_with_topic=True,
-                        )
-                        if not article_content or not article_content.get("content"):
-                            raise ValueError(f"Failed to fetch valid content for URL: {url}")
-                    except Exception as fetch_error:
-                        if "FOREIGN KEY constraint failed" in str(fetch_error):
-                            article_content = await self._direct_scrape(url)
-                        else:
-                            raise
+                            content_result = await self.bluesky_collector.fetch_article_content(url)
+                            if not content_result:
+                                raise ValueError(f"Failed to fetch Bluesky content for {url}")
+                            article_content = {
+                                "content": content_result.get("content", ""),
+                                "source": content_result.get("source", self.extract_source(url)),
+                                "publication_date": content_result.get("published_date", datetime.datetime.now().date().isoformat()),  # noqa: E501
+                                "title": content_result.get("title", ""),
+                            }
+                            try:
+                                self.db.save_raw_article(url, article_content["content"], topic)
+                            except Exception:
+                                pass
+                        except Exception as bluesky_error:
+                            raise ValueError(f"Bluesky error: {str(bluesky_error)}")
+                    else:
+                        try:
+                            article_content = await self.research.fetch_article_content(
+                                url,
+                                save_with_topic=True,
+                            )
+                            if not article_content or not article_content.get("content"):
+                                raise ValueError(f"Failed to fetch valid content for URL: {url}")
+                        except Exception as fetch_error:
+                            if "FOREIGN KEY constraint failed" in str(fetch_error):
+                                article_content = await self._direct_scrape(url)
+                            else:
+                                raise
 
                 # Basic validation ------------------------------------------------
                 if (
