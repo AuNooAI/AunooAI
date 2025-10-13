@@ -54,7 +54,8 @@ class OAuthUserManager:
                 user_id = self.db.facade.create_oauth_allowlist_user((email, name, provider, provider_id, avatar_url))
                 logger.info(f"Created new OAuth user: {email} ({provider})")
 
-            conn.commit()
+            # Facade methods handle their own commits - no conn.commit() needed here
+            # Removed: conn.commit() - fixes Week 1 migration issue (line 57)
 
             # Fetch the complete user record
             user_record = self.db.facade.get_oauth_allowlist_user_by_id(user_id)

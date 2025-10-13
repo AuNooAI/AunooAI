@@ -1716,168 +1716,320 @@ Remember to cite your sources and provide actionable insights where possible."""
             return None
 
     def get_topics(self):
-        """Get distinct topics from articles table.
-
-        Uses PostgreSQL-compatible connection for database-agnostic operation.
-        Migrated from SQLite-only implementation to support PostgreSQL.
         """
-        from sqlalchemy import text
+        Get list of all unique topics from articles.
 
-        conn = self._temp_get_connection()  # PostgreSQL-compatible
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 1 PostgreSQL migration (2025-10-13).
+
+        Returns:
+            List of topic names (strings)
+
+        Raises:
+            Exception: Database errors are logged and re-raised
+        """
+        from sqlalchemy import select, distinct
+        from app.database_models import t_articles
+
+        conn = self._temp_get_connection()
+
         try:
-            # Use text() for SQL statement with database-agnostic query
-            stmt = text("SELECT DISTINCT topic FROM articles WHERE topic IS NOT NULL ORDER BY topic")
-            result = conn.execute(stmt).fetchall()
+            stmt = select(distinct(t_articles.c.topic)).where(
+                t_articles.c.topic.isnot(None)
+            ).order_by(t_articles.c.topic)
 
-            # Return list of topic dictionaries with id and name
-            return [{"id": row[0], "name": row[0]} for row in result]
+            result = conn.execute(stmt).mappings()  # CRITICAL: .mappings() for PostgreSQL
+
+            topics = [row['topic'] for row in result if row['topic']]
+
+            logger.debug(f"Retrieved {len(topics)} topics")
+            return topics
+
         except Exception as e:
-            logger.error(f"Error in get_topics: {e}")
+            logger.error(f"Error getting topics: {e}")
+            conn.rollback()
             raise
 
     def get_recent_articles_by_topic(self, topic_name, limit=10, start_date=None, end_date=None):
-        # For PostgreSQL, delegate to facade which has the date fix
-        if self.db_type == 'postgresql':
-            return self.facade.get_recent_articles_by_topic(topic_name, limit, start_date, end_date)
+        """
+        Get recent articles for a specific topic.
 
-        # SQLite version below
-        logger.info(f"Database: Fetching {limit} recent articles for topic {topic_name} (date range: {start_date} to {end_date})")
-        with self.get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 1 PostgreSQL migration (2025-10-13).
+        Falls back to facade if available.
 
-            query = """
-                SELECT * FROM articles
-                WHERE topic = ?
-                {}
-                ORDER BY COALESCE(submission_date, publication_date) DESC, rowid DESC
-                LIMIT ?
-            """
+        Args:
+            topic_name: Topic name to filter by
+            limit: Maximum number of articles to return (default: 10)
+            start_date: Optional start date filter
+            end_date: Optional end date filter
 
-            params = [topic_name]
-            date_conditions = []
+        Returns:
+            List of article dictionaries ordered by publication_date DESC
 
-            if start_date:
-                date_conditions.append("AND COALESCE(submission_date, publication_date) >= ?")
-                params.append(start_date)
-            if end_date:
-                date_conditions.append("AND COALESCE(submission_date, publication_date) <= ?")
-                params.append(end_date)
+        Raises:
+            Exception: Database errors are logged and re-raised
+        """
+        # Try facade first if available (has optimized implementation)
+        if hasattr(self, 'facade') and self.facade:
+            try:
+                return self.facade.get_articles_by_topic(topic_name, limit=limit)
+            except Exception as e:
+                logger.warning(f"Facade method failed, using direct query: {e}")
 
-            date_clause = " ".join(date_conditions)
-            query = query.format(date_clause)
-            params.append(limit)
+        # Fallback to direct query
+        from sqlalchemy import select, or_, func
+        from app.database_models import t_articles
 
-            logger.debug(f"Executing query: {query} with params: {params}")
-            cursor.execute(query, params)
-            articles = [dict(row) for row in cursor.fetchall()]
-            logger.info(f"Found {len(articles)} articles in database")
+        conn = self._temp_get_connection()
+
+        try:
+            # Build base query
+            stmt = select(t_articles).where(t_articles.c.topic == topic_name)
+
+            # Add date filters if provided
+            if start_date or end_date:
+                date_col = func.coalesce(t_articles.c.submission_date, t_articles.c.publication_date)
+                if start_date:
+                    stmt = stmt.where(date_col >= start_date)
+                if end_date:
+                    stmt = stmt.where(date_col <= end_date)
+
+            # Order and limit
+            stmt = stmt.order_by(
+                func.coalesce(t_articles.c.submission_date, t_articles.c.publication_date).desc()
+            ).limit(limit)
+
+            result = conn.execute(stmt).mappings()  # CRITICAL: .mappings() for PostgreSQL
+            articles = [dict(row) for row in result]
 
             # Convert tags string back to list
             for article in articles:
-                if article['tags']:
+                if article.get('tags'):
                     article['tags'] = article['tags'].split(',')
                 else:
                     article['tags'] = []
 
+            logger.debug(f"Retrieved {len(articles)} articles for topic: {topic_name}")
             return articles
 
+        except Exception as e:
+            logger.error(f"Error getting articles for topic '{topic_name}': {e}")
+            conn.rollback()
+            raise
+
     def get_article_count_by_topic(self, topic_name: str) -> int:
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM articles WHERE topic = ?", (topic_name,))
-            return cursor.fetchone()[0]
+        """
+        Get count of articles for a specific topic.
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 1 PostgreSQL migration (2025-10-13).
+
+        Args:
+            topic_name: Topic name to count articles for
+
+        Returns:
+            Number of articles (integer)
+
+        Raises:
+            Exception: Database errors are logged and re-raised
+        """
+        from sqlalchemy import select, func
+        from app.database_models import t_articles
+
+        conn = self._temp_get_connection()
+
+        try:
+            stmt = select(func.count()).select_from(t_articles).where(
+                t_articles.c.topic == topic_name
+            )
+
+            result = conn.execute(stmt)
+            count = result.scalar() or 0
+
+            logger.debug(f"Article count for topic '{topic_name}': {count}")
+            return count
+
+        except Exception as e:
+            logger.error(f"Error getting article count for topic '{topic_name}': {e}")
+            conn.rollback()
+            raise
 
     def get_latest_article_date_by_topic(self, topic_name: str) -> Optional[str]:
-        logger.debug(f"Getting latest article date for topic: {topic_name}")
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT COALESCE(submission_date, publication_date) as article_date 
-                FROM articles 
-                WHERE topic = ? 
-                ORDER BY article_date DESC 
-                LIMIT 1
-            """, (topic_name,))
-            result = cursor.fetchone()
-            logger.debug(f"Latest article date for topic {topic_name}: {result[0] if result else None}")
-            return result[0] if result else None
+        """
+        Get latest article publication date for a topic.
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 1 PostgreSQL migration (2025-10-13).
+
+        Args:
+            topic_name: Topic name to get latest date for
+
+        Returns:
+            Latest publication date (string) or None if no articles
+
+        Raises:
+            Exception: Database errors are logged and re-raised
+        """
+        from sqlalchemy import select, func
+        from app.database_models import t_articles
+        from typing import Optional
+
+        conn = self._temp_get_connection()
+
+        try:
+            # Get MAX of COALESCE(submission_date, publication_date)
+            date_col = func.coalesce(t_articles.c.submission_date, t_articles.c.publication_date)
+            stmt = select(func.max(date_col)).where(t_articles.c.topic == topic_name)
+
+            result = conn.execute(stmt)
+            latest_date = result.scalar()
+
+            logger.debug(f"Latest article date for topic '{topic_name}': {latest_date}")
+            return latest_date
+
+        except Exception as e:
+            logger.error(f"Error getting latest article date for topic '{topic_name}': {e}")
+            conn.rollback()
+            raise
 
     def delete_topic(self, topic_name: str) -> bool:
-        """Delete a topic and all its associated data from the database."""
+        """
+        Delete a topic and all its associated data from the database.
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 1 PostgreSQL migration (2025-10-13).
+
+        Args:
+            topic_name: Name of topic to delete
+
+        Returns:
+            True if topic deleted successfully
+
+        Raises:
+            Exception: Database errors are logged and re-raised
+        """
+        from sqlalchemy import delete
+        from app.database_models import t_articles, t_raw_articles
+
+        conn = self._temp_get_connection()
+
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Delete articles associated with the topic
-                cursor.execute("DELETE FROM articles WHERE topic = ?", (topic_name,))
-                
-                # Delete raw articles associated with the topic
-                cursor.execute("DELETE FROM raw_articles WHERE topic = ?", (topic_name,))
-                
-                # Delete any other topic-related data here if needed
-                # For example:
-                # cursor.execute("DELETE FROM topic_metadata WHERE topic = ?", (topic_name,))
-                
-                conn.commit()
-                return True
-                
+            # Delete articles associated with the topic
+            stmt_articles = delete(t_articles).where(t_articles.c.topic == topic_name)
+            result_articles = conn.execute(stmt_articles)
+            logger.info(f"Deleted {result_articles.rowcount} articles for topic '{topic_name}'")
+
+            # Delete raw articles associated with the topic
+            stmt_raw = delete(t_raw_articles).where(t_raw_articles.c.topic == topic_name)
+            result_raw = conn.execute(stmt_raw)
+            logger.info(f"Deleted {result_raw.rowcount} raw articles for topic '{topic_name}'")
+
+            # Commit all changes
+            conn.commit()
+
+            logger.info(f"Topic deleted successfully: {topic_name}")
+            return True
+
         except Exception as e:
-            logger.error(f"Error deleting topic {topic_name} from database: {str(e)}")
-            return False
+            logger.error(f"Error deleting topic '{topic_name}': {e}")
+            conn.rollback()
+            raise
 
     def get_user(self, username: str):
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # First check if the users table exists
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
-                if not cursor.fetchone():
-                    logger.error("Users table does not exist")
-                    return None
-                
-                # Check if password_hash column exists
-                cursor.execute("PRAGMA table_info(users)")
-                columns = {row[1] for row in cursor.fetchall()}
+        """
+        Get user by username for authentication.
 
-                cursor.execute("""
-                    SELECT username, password_hash, force_password_change, completed_onboarding
-                    FROM users WHERE username = ?
-                """, (username,))
-                user = cursor.fetchone()
-                if user:
-                    return {
-                        "username": user[0],
-                        "password": user[1],  # Keep the key as 'password' for compatibility
-                        "force_password_change": bool(user[2]),
-                        "completed_onboarding": bool(user[3])
-                    }
-                return None
-        except Exception as e:
-            logger.error(f"Error getting user: {str(e)}")
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 1 PostgreSQL migration (2025-10-13).
+
+        Args:
+            username: Username to retrieve
+
+        Returns:
+            Dict with user data or None if not found
+
+        Raises:
+            Exception: Database errors are logged and re-raised
+        """
+        from sqlalchemy import select
+        from app.database_models import t_users
+
+        conn = self._temp_get_connection()
+
+        try:
+            stmt = select(
+                t_users.c.username,
+                t_users.c.password_hash,
+                t_users.c.force_password_change,
+                t_users.c.completed_onboarding
+            ).where(t_users.c.username == username)
+
+            result = conn.execute(stmt).mappings()  # CRITICAL: .mappings() for PostgreSQL
+            row = result.fetchone()
+
+            if row:
+                return {
+                    'username': row['username'],
+                    'password': row['password_hash'],  # Keep the key as 'password' for compatibility
+                    'force_password_change': bool(row['force_password_change']),
+                    'completed_onboarding': bool(row['completed_onboarding'])
+                }
+
             return None
 
-    def update_user_password(self, username: str, new_password: str) -> bool:
-        """Update user password and set force_password_change to false."""
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                # Hash the new password
-                hashed_password = get_password_hash(new_password)
-                
-                # Update password and force_password_change flag
-                cursor.execute("""
-                    UPDATE users 
-                    SET password_hash = ?, force_password_change = 0 
-                    WHERE username = ?
-                """, (hashed_password, username))
-                conn.commit()
-                
-                return cursor.rowcount > 0
         except Exception as e:
-            logger.error(f"Error updating user password: {str(e)}")
-            return False
+            logger.error(f"Error getting user '{username}': {e}")
+            conn.rollback()
+            raise
+
+    def update_user_password(self, username: str, new_password: str) -> bool:
+        """
+        Update user password and clear force_password_change flag.
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 1 PostgreSQL migration (2025-10-13).
+
+        Args:
+            username: Username to update
+            new_password: New plain text password (will be hashed)
+
+        Returns:
+            True if password updated, False if user not found
+
+        Raises:
+            Exception: Database errors are logged and re-raised
+        """
+        from sqlalchemy import update
+        from app.database_models import t_users
+
+        # Hash new password
+        password_hash = get_password_hash(new_password)
+
+        conn = self._temp_get_connection()
+
+        try:
+            stmt = update(t_users).where(
+                t_users.c.username == username
+            ).values(
+                password_hash=password_hash,
+                force_password_change=False
+            )
+
+            result = conn.execute(stmt)
+            conn.commit()
+
+            if result.rowcount > 0:
+                logger.info(f"Password updated successfully for user: {username}")
+                return True
+            else:
+                logger.warning(f"Password update failed - user not found: {username}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error updating password for user '{username}': {e}")
+            conn.rollback()
+            raise
 
     def backup_database(self, backup_name: str = None) -> str:
         """Create a backup of the current database"""
@@ -1923,40 +2075,141 @@ Remember to cite your sources and provide actionable insights where possible."""
                 raise
 
     def create_user(self, username, password_hash, force_password_change=False):
-        """Create a new user."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "INSERT INTO users (username, password_hash, force_password_change, completed_onboarding) VALUES (?, ?, ?, ?)",
-                (username, password_hash, force_password_change, False)
+        """
+        Create a new user account with hashed password.
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 1 PostgreSQL migration (2025-10-13).
+
+        Args:
+            username: Unique username
+            password_hash: Pre-hashed password
+            force_password_change: Whether to force password change on next login
+
+        Returns:
+            True if user created successfully
+
+        Raises:
+            IntegrityError: If username already exists
+            Exception: Other database errors
+        """
+        from sqlalchemy import insert
+        from sqlalchemy.exc import IntegrityError
+        from app.database_models import t_users
+
+        conn = self._temp_get_connection()
+
+        try:
+            stmt = insert(t_users).values(
+                username=username,
+                password_hash=password_hash,
+                force_password_change=force_password_change,
+                completed_onboarding=False
             )
+
+            conn.execute(stmt)
             conn.commit()
+
+            logger.info(f"User created successfully: {username}")
+            return True
+
+        except IntegrityError as e:
+            logger.warning(f"User creation failed - username already exists: {username}")
+            conn.rollback()
+            raise ValueError(f"Username '{username}' already exists")
+
+        except Exception as e:
+            logger.error(f"Error creating user '{username}': {e}")
+            conn.rollback()
+            raise
 
     def update_user_onboarding(self, username, completed):
-        """Update user's onboarding status."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                "UPDATE users SET completed_onboarding = ? WHERE username = ?",
-                (completed, username)
+        """
+        Update user onboarding completion status.
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 1 PostgreSQL migration (2025-10-13).
+
+        Args:
+            username: Username to update
+            completed: Whether onboarding is completed (True/False)
+
+        Returns:
+            True if updated, False if user not found
+
+        Raises:
+            Exception: Database errors are logged and re-raised
+        """
+        from sqlalchemy import update
+        from app.database_models import t_users
+
+        conn = self._temp_get_connection()
+
+        try:
+            stmt = update(t_users).where(
+                t_users.c.username == username
+            ).values(
+                completed_onboarding=completed
             )
+
+            result = conn.execute(stmt)
             conn.commit()
-            return cursor.rowcount > 0
+
+            if result.rowcount > 0:
+                logger.info(f"Onboarding status updated for user: {username} (completed={completed})")
+                return True
+            else:
+                logger.warning(f"Onboarding update failed - user not found: {username}")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error updating onboarding for user '{username}': {e}")
+            conn.rollback()
+            raise
 
     def set_force_password_change(self, username: str, force: bool = True) -> bool:
+        """
+        Set or clear force password change flag for user.
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 1 PostgreSQL migration (2025-10-13).
+
+        Args:
+            username: Username to update
+            force: Whether to force password change (default: True)
+
+        Returns:
+            True if updated, False if user not found
+
+        Raises:
+            Exception: Database errors are logged and re-raised
+        """
+        from sqlalchemy import update
+        from app.database_models import t_users
+
+        conn = self._temp_get_connection()
+
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    UPDATE users 
-                    SET force_password_change = ?
-                    WHERE username = ?
-                """, (1 if force else 0, username))
-                conn.commit()
+            stmt = update(t_users).where(
+                t_users.c.username == username
+            ).values(
+                force_password_change=force
+            )
+
+            result = conn.execute(stmt)
+            conn.commit()
+
+            if result.rowcount > 0:
+                logger.info(f"Force password change flag set for user: {username} (force={force})")
                 return True
+            else:
+                logger.warning(f"Force password change update failed - user not found: {username}")
+                return False
+
         except Exception as e:
-            logger.error(f"Error setting force_password_change: {str(e)}")
-            return False
+            logger.error(f"Error setting force password change for user '{username}': {e}")
+            conn.rollback()
+            raise
 
     def get_database_path(self, db_name: str) -> str:
         """Get the full path to a database file."""
@@ -2210,33 +2463,104 @@ Remember to cite your sources and provide actionable insights where possible."""
             raise
 
     def create_topic(self, topic_name: str) -> bool:
+        """
+        Create a new topic by adding an initial placeholder article.
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 1 PostgreSQL migration (2025-10-13).
+
+        Note: This method creates a placeholder article to register the topic.
+        The actual topic metadata should be managed in config.json (Phase 0).
+
+        Args:
+            topic_name: Unique name for the topic
+
+        Returns:
+            True if topic created successfully
+
+        Raises:
+            Exception: Database errors are logged and re-raised
+        """
+        from sqlalchemy import insert
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        from app.database_models import t_articles
+        from datetime import datetime
+
+        conn = self._temp_get_connection()
+
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                # Create an initial empty entry for the topic
-                cursor.execute("""
-                    INSERT OR IGNORE INTO articles 
-                    (topic, title, uri, submission_date) 
-                    VALUES (?, 'Topic Created', 'initial', datetime('now'))
-                """, (topic_name,))
-                return True
+            # Create initial placeholder article for the topic
+            # Use INSERT ... ON CONFLICT DO NOTHING for both SQLite and PostgreSQL
+            if self.db_type == 'postgresql':
+                # PostgreSQL: Use ON CONFLICT DO NOTHING
+                stmt = pg_insert(t_articles).values(
+                    topic=topic_name,
+                    title='Topic Created',
+                    uri='initial',
+                    submission_date=datetime.now()
+                ).on_conflict_do_nothing()
+            else:
+                # SQLite: Use INSERT OR IGNORE (handled in SQLAlchemy)
+                stmt = insert(t_articles).prefix_with('OR IGNORE').values(
+                    topic=topic_name,
+                    title='Topic Created',
+                    uri='initial',
+                    submission_date=datetime.now()
+                )
+
+            conn.execute(stmt)
+            conn.commit()
+
+            logger.info(f"Topic created successfully: {topic_name}")
+            return True
+
         except Exception as e:
-            logger.error(f"Error creating topic in database: {str(e)}")
-            return False
+            logger.error(f"Error creating topic '{topic_name}': {e}")
+            conn.rollback()
+            raise
 
     def update_topic(self, topic_name: str) -> bool:
+        """
+        Update topic metadata (currently verifies/creates topic).
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 1 PostgreSQL migration (2025-10-13).
+
+        Args:
+            topic_name: Name of topic to update
+
+        Returns:
+            True if topic exists or was created
+
+        Raises:
+            Exception: Database errors are logged and re-raised
+        """
+        from sqlalchemy import select, func
+        from app.database_models import t_articles
+
+        conn = self._temp_get_connection()
+
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                # Check if topic exists
-                cursor.execute("SELECT 1 FROM articles WHERE topic = ? LIMIT 1", (topic_name,))
-                if not cursor.fetchone():
-                    # If topic doesn't exist, create it
-                    return self.create_topic(topic_name)
-                return True
+            # Check if topic exists
+            stmt = select(func.count()).select_from(t_articles).where(
+                t_articles.c.topic == topic_name
+            )
+
+            result = conn.execute(stmt)
+            count = result.scalar()
+
+            if count == 0:
+                # If topic doesn't exist, create it
+                logger.info(f"Topic '{topic_name}' not found, creating...")
+                return self.create_topic(topic_name)
+
+            logger.debug(f"Topic '{topic_name}' exists with {count} articles")
+            return True
+
         except Exception as e:
-            logger.error(f"Error updating topic in database: {str(e)}")
-            return False
+            logger.error(f"Error updating topic '{topic_name}': {e}")
+            conn.rollback()
+            raise
 
     def _debug_schema(self):
         """Print the schema and foreign keys of relevant tables"""
