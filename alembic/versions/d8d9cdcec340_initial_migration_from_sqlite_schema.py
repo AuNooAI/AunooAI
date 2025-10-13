@@ -329,11 +329,15 @@ def upgrade() -> None:
     sa.Column('updated_at', sa.TIMESTAMP(), nullable=True),
     sa.Column('user_id', sa.Text(), nullable=True),
     sa.Column('metadata', sa.Text(), nullable=True),
+    sa.Column('profile_id', sa.Integer(), nullable=True),
     sa.ForeignKeyConstraint(['user_id'], ['users.username'], ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['profile_id'], ['organizational_profiles.id'], ondelete='SET NULL'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index('idx_auspex_chats_topic', 'auspex_chats', ['topic'], unique=False)
     op.create_index('idx_auspex_chats_user_id', 'auspex_chats', ['user_id'], unique=False)
+    op.create_index('idx_auspex_chats_profile_id', 'auspex_chats', ['profile_id'], unique=False)
+    op.create_index('idx_auspex_chats_user_profile', 'auspex_chats', ['user_id', 'profile_id'], unique=False)
     op.create_table('auspex_prompts',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('name', sa.Text(), nullable=False),
@@ -561,6 +565,8 @@ def downgrade() -> None:
     op.drop_index('idx_auspex_prompts_name', table_name='auspex_prompts')
     op.drop_index('idx_auspex_prompts_is_default', table_name='auspex_prompts')
     op.drop_table('auspex_prompts')
+    op.drop_index('idx_auspex_chats_user_profile', table_name='auspex_chats')
+    op.drop_index('idx_auspex_chats_profile_id', table_name='auspex_chats')
     op.drop_index('idx_auspex_chats_user_id', table_name='auspex_chats')
     op.drop_index('idx_auspex_chats_topic', table_name='auspex_chats')
     op.drop_table('auspex_chats')
