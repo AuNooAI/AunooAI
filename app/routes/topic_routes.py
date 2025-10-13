@@ -4,12 +4,13 @@ from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from app.database import Database
+from app.database_query_facade import DatabaseQueryFacade
 from app.security.session import verify_session
 from app.config.config import load_config, get_news_query, get_paper_query
 import json
 import os
 import logging
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 
 # Setup templates
@@ -21,6 +22,64 @@ router = APIRouter(prefix="/api")
 
 class DeleteTopicRequest(BaseModel):
     delete_articles: bool = False
+
+@router.get("/topics")
+async def get_topics_unified(
+    with_articles: bool = False,
+    include_config: bool = True,
+    session=Depends(verify_session)
+) -> List[Dict[str, Any]]:
+    """
+    Unified topic endpoint that combines config.json and database information.
+
+    Args:
+        with_articles: If True, only return topics that have articles in the database
+        include_config: If True, include full topic configuration (categories, signals, etc.)
+                       If False, return only name and description
+
+    Returns:
+        List of topic objects with requested information
+    """
+    try:
+        # Load topics from config.json (source of truth for definitions)
+        config = load_config()
+        all_topics = config.get('topics', [])
+
+        # If filtering to topics with articles, get database topics
+        if with_articles:
+            db = Database()
+            facade = DatabaseQueryFacade(db)
+            db_topics_info = facade.get_topics_with_article_counts()
+            db_topic_names = set(db_topics_info.keys())
+
+            # Filter to only topics that exist in database
+            all_topics = [t for t in all_topics if t['name'] in db_topic_names]
+
+            # Enrich with database statistics
+            for topic in all_topics:
+                topic_name = topic['name']
+                if topic_name in db_topics_info:
+                    topic['article_count'] = db_topics_info[topic_name]['article_count']
+                    topic['last_article_date'] = db_topics_info[topic_name]['last_article_date']
+
+        # If not including full config, return minimal information
+        if not include_config:
+            return [
+                {
+                    "name": t['name'],
+                    "description": t.get('description', ''),
+                    **({"article_count": t.get('article_count', 0)} if with_articles else {}),
+                    **({"last_article_date": t.get('last_article_date')} if with_articles else {})
+                }
+                for t in all_topics
+            ]
+
+        # Return full topic configuration
+        return all_topics
+
+    except Exception as e:
+        logger.error(f"Error getting topics: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/topic/{topic_name}")
 async def delete_topic(topic_name: str, request: Request, delete_request: DeleteTopicRequest = None, session=Depends(verify_session)):

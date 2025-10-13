@@ -66,6 +66,21 @@ def get_all_topics(config: Dict) -> List[str]:
     config = load_config()
     return [topic['name'] for topic in config.get('topics', [])]
 
+def validate_topic_exists(topic_name: str) -> bool:
+    """Validate that a topic exists in config.json.
+
+    Args:
+        topic_name: Name of the topic to validate
+
+    Returns:
+        True if topic exists in config.json, False otherwise
+    """
+    if not topic_name:
+        return False
+    config = load_config()
+    topic_names = {topic['name'] for topic in config.get('topics', [])}
+    return topic_name in topic_names
+
 def get_topic_description(topic_name: str) -> str:
     """Get description for a specific topic from config.json.
 

@@ -3914,6 +3914,13 @@ class DatabaseQueryFacade:
             Dictionary with success status and URI
         """
         try:
+            # Validate topic exists in config.json
+            topic = article_data.get('topic')
+            if topic:
+                from app.config.config import validate_topic_exists
+                if not validate_topic_exists(topic):
+                    raise ValueError(f"Invalid topic '{topic}'. Topic must be defined in config.json before use.")
+
             # Convert tags list to string if necessary
             if 'tags' in article_data and isinstance(article_data['tags'], list):
                 article_data['tags'] = ','.join(article_data['tags'])

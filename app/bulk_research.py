@@ -504,6 +504,13 @@ class BulkResearch:
             try:
                 for article in articles:
                     try:
+                        # Validate topic exists in config.json
+                        topic = article.get('topic')
+                        if topic:
+                            from app.config.config import validate_topic_exists
+                            if not validate_topic_exists(topic):
+                                raise ValueError(f"Invalid topic '{topic}'. Topic must be defined in config.json before use.")
+
                         # Prepare article data with relevance scores
                         article_data = {
                             'uri': article.get('uri', ''),
