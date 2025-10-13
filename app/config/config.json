@@ -129,6 +129,59 @@
         "Delayer",
         "Inhibitor"
       ]
+    },
+    {
+      "name": "Cloud Repatriation",
+      "description": "Is Cloud Repatriation occuring, and if so, how strong is the movement?",
+      "categories": [
+        "Public Cloud Providers",
+        "Private Cloud Infrastructure",
+        "Hybrid Cloud Models",
+        "Workload Migration",
+        "Cost Management",
+        "Security and Compliance",
+        "Performance and Latency",
+        "Cloud Vendor Lock-in",
+        "Data Sovereignty",
+        "Enterprise IT Strategy"
+      ],
+      "future_signals": [
+        "Widespread cloud exit",
+        "Selective workload repatriation",
+        "Hybrid equilibrium emerges",
+        "Cloud dominance continues"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "keywords": [
+        "Amazon Web Services",
+        "Microsoft Azure",
+        "Google Cloud",
+        "Kubernetes",
+        "OpenStack",
+        "VMware vSphere",
+        "cloud repatriation",
+        "cloud exit",
+        "workload migration",
+        "scam",
+        "fake cloud services"
+      ]
     }
   ],
   "ai_models": [

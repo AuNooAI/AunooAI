@@ -106,12 +106,12 @@ async def get_market_signals_analysis(
 
 async def _extract_market_signals_from_analytics(analytics_data: Dict, topic_name: str, research) -> List[MarketSignal]:
     """Extract market signals from topic-filtered future signals and analytics data."""
-    
+
     signals = []
-    
+
     try:
         # Get topic-filtered future signals with counts from the database directly
-        # Use the database from analytics_data context or get a new connection
+        # Use ALL articles as inputs to make predictions about the future
         from app.database import Database
         db = Database()
         future_signals_data = (DatabaseQueryFacade(db, logger)).get_topic_filtered_future_signals_with_counts_for_market_signal_analysis(topic_name)
@@ -187,13 +187,18 @@ async def _extract_market_signals_from_analytics(analytics_data: Dict, topic_nam
             # Determine the most likely time to impact for this signal
             impact = "Short-term"  # Default
             if time_to_impact_data.get('labels') and time_to_impact_data.get('values'):
-                # Filter out None values from labels and find corresponding values
-                valid_entries = [(label, value) for label, value in zip(time_to_impact_data['labels'], time_to_impact_data['values']) if label is not None]
+                # Filter out None values and markdown artifacts from labels
+                valid_entries = [(label, value) for label, value in zip(time_to_impact_data['labels'], time_to_impact_data['values'])
+                                if label is not None and not label.startswith('**') and not label.startswith('* ')]
                 
                 if valid_entries:
-                    # Find the dominant time impact across all signals (excluding None)
+                    # Find the dominant time impact across all signals (excluding None and artifacts)
                     max_entry = max(valid_entries, key=lambda x: x[1])
                     impact = max_entry[0]
+
+                    # Additional safety: strip any remaining markdown artifacts
+                    if impact and (impact.startswith('**') or impact.startswith('* ')):
+                        impact = impact.lstrip('*').strip()
                 
                 # For variety, distribute signals across different timeframes based on their characteristics
                 valid_labels = [entry[0] for entry in valid_entries]
@@ -286,19 +291,19 @@ async def _generate_risk_opportunity_cards(auspex, topic_name: str, articles, an
     - Partnership/acquisition opportunities
     - Operational efficiency gains
     
-    Ensure each risk and opportunity is DISTINCT and addresses different aspects. Vary timelines (2024-2030).
-    
+    Ensure each risk and opportunity is DISTINCT and addresses different aspects. Vary timelines (2025-2030).
+
     Format as JSON:
     {{
         "risks": [
             {{"title": "Market Correction Risk (2025-2030)", "description": "High investment levels create bubble risk. 95% of investors cite concerns about power reliability for datacenters, yet 70% anticipate increased funding driven by AI demand.", "timeline": "2025-2030", "probability": "High"}},
             {{"title": "Timeline Risk: AGI Overexpectation", "description": "Ambitious timelines for achieving AGI may be overly optimistic due to diminishing returns and operational challenges.", "timeline": "2025-2027", "probability": "Moderate"}},
-            {{"title": "Competitive Displacement Risk", "description": "Traditional companies may face rapid obsolescence as AI-native competitors emerge with superior operational models.", "timeline": "2024-2026", "probability": "High"}}
+            {{"title": "Competitive Displacement Risk", "description": "Traditional companies may face rapid obsolescence as AI-native competitors emerge with superior operational models.", "timeline": "2025-2028", "probability": "High"}}
         ],
         "opportunities": [
-            {{"title": "Infrastructure Build-out", "description": "Data center expansion creates competitive advantages for early movers who secure energy and infrastructure partnerships.", "timeline": "2024-2026", "probability": "High"}},
+            {{"title": "Infrastructure Build-out", "description": "Data center expansion creates competitive advantages for early movers who secure energy and infrastructure partnerships.", "timeline": "2025-2027", "probability": "High"}},
             {{"title": "Gradual Adoption Advantage", "description": "Companies focusing on sustainable, gradual AI integration may outperform those chasing unrealistic AGI timelines.", "timeline": "2025-2028", "probability": "Moderate"}},
-            {{"title": "Partnership Ecosystem Growth", "description": "Strategic partnerships between AI providers and traditional industries create new revenue streams and market access.", "timeline": "2024-2027", "probability": "High"}}
+            {{"title": "Partnership Ecosystem Growth", "description": "Strategic partnerships between AI providers and traditional industries create new revenue streams and market access.", "timeline": "2025-2029", "probability": "High"}}
         ]
     }}
     """
@@ -349,16 +354,16 @@ async def _generate_risk_opportunity_cards(auspex, topic_name: str, articles, an
     # Enhanced fallback based on analytics data with variety
     risk_templates = [
         ("Market Correction Risk", "High investment levels create bubble risk based on current sentiment trends.", "2025-2030", "High"),
-        ("Technology Timeline Risk", "Overly optimistic AI development timelines may lead to market disappointment.", "2024-2026", "Moderate"),
-        ("Competitive Disruption", "Established players may lose market share to AI-native competitors.", "2024-2027", "High"),
+        ("Technology Timeline Risk", "Overly optimistic AI development timelines may lead to market disappointment.", "2025-2027", "Moderate"),
+        ("Competitive Disruption", "Established players may lose market share to AI-native competitors.", "2025-2028", "High"),
         ("Regulatory Uncertainty", "Unclear AI regulations could impact business operations and compliance costs.", "2025-2028", "Moderate")
     ]
-    
+
     opportunity_templates = [
-        ("Infrastructure Build-out", "Data center expansion creates competitive advantages for early movers.", "2024-2026", "High"),
-        ("Operational Efficiency", "AI automation can significantly reduce operational costs and improve productivity.", "2024-2025", "High"),
+        ("Infrastructure Build-out", "Data center expansion creates competitive advantages for early movers.", "2025-2027", "High"),
+        ("Operational Efficiency", "AI automation can significantly reduce operational costs and improve productivity.", "2025-2026", "High"),
         ("Market Expansion", "AI capabilities enable entry into previously inaccessible market segments.", "2025-2027", "Moderate"),
-        ("Strategic Partnerships", "Collaboration opportunities emerge between AI providers and traditional industries.", "2024-2026", "High")
+        ("Strategic Partnerships", "Collaboration opportunities emerge between AI providers and traditional industries.", "2025-2028", "High")
     ]
     
     # Select random templates

@@ -873,6 +873,7 @@ class DatabaseQueryFacade:
 
     def get_topic_filtered_future_signals_with_counts_for_market_signal_analysis(self, topic_name):
         # We need actual counts, not just the config list
+        # Use ALL articles (including historical) as inputs for foresight analysis
         statement = select(
             articles.c.future_signal,
             func.count().label('count')
