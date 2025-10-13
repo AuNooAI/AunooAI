@@ -1716,11 +1716,24 @@ Remember to cite your sources and provide actionable insights where possible."""
             return None
 
     def get_topics(self):
-        with self.get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("SELECT DISTINCT topic FROM articles ORDER BY topic")
-            return [{"id": row['topic'], "name": row['topic']} for row in cursor.fetchall()]
+        """Get distinct topics from articles table.
+
+        Uses PostgreSQL-compatible connection for database-agnostic operation.
+        Migrated from SQLite-only implementation to support PostgreSQL.
+        """
+        from sqlalchemy import text
+
+        conn = self._temp_get_connection()  # PostgreSQL-compatible
+        try:
+            # Use text() for SQL statement with database-agnostic query
+            stmt = text("SELECT DISTINCT topic FROM articles WHERE topic IS NOT NULL ORDER BY topic")
+            result = conn.execute(stmt).fetchall()
+
+            # Return list of topic dictionaries with id and name
+            return [{"id": row[0], "name": row[0]} for row in result]
+        except Exception as e:
+            logger.error(f"Error in get_topics: {e}")
+            raise
 
     def get_recent_articles_by_topic(self, topic_name, limit=10, start_date=None, end_date=None):
         # For PostgreSQL, delegate to facade which has the date fix
