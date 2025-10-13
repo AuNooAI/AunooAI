@@ -72,12 +72,20 @@ class PromptTemplates:
             4. Time to Impact:
             Classify the time to impact as one of:
             {time_to_impact_options}
-            Provide a brief explanation for your classification.
+
+            **REQUIRED:** Provide a specific explanation for your time to impact classification. Explain:
+            - What evidence in the article indicates this timeframe?
+            - What specific developments or events suggest this timing?
+            - Why not a shorter or longer timeframe?
 
             5. Driver Type:
             Classify the article into one of these Driver Types:
             {driver_types}
-            Provide a brief explanation for your classification.
+
+            **REQUIRED:** Provide a specific explanation for your driver type classification. Explain:
+            - What specific actions, events, or forces in the article support this classification?
+            - How is this driving change (accelerating, delaying, blocking, initiating, terminating, or catalyzing)?
+            - What evidence shows this effect on the topic's progress?
 
             6. Political Bias:
             Analyze the political perspective and ideological stance of this article. Look for:
