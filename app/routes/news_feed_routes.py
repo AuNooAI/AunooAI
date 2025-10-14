@@ -216,6 +216,12 @@ async def get_six_articles_report(
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
 
+        # Parse starred articles if provided
+        starred_uris = None
+        if starred_articles:
+            starred_uris = [uri.strip() for uri in starred_articles.split(',') if uri.strip()]
+            logger.info(f"Received {len(starred_uris)} starred articles for six articles generation")
+
         # Create request
         request = NewsFeedRequest(
             date=target_date,
@@ -225,7 +231,8 @@ async def get_six_articles_report(
             model=model,
             profile_id=profile_id,
             persona=persona,
-            article_count=article_count
+            article_count=article_count,
+            starred_articles=starred_uris
         )
         
         # Generate only six articles report

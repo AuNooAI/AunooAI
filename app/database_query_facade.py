@@ -4676,6 +4676,32 @@ class DatabaseQueryFacade:
         result = self._execute_with_rollback(statement).scalar()
         return result if result else 0
 
+    def get_articles_by_uris(self, uris: List[str]) -> List[Dict]:
+        """
+        Fetch articles directly by their URIs, regardless of date filters.
+        Useful for retrieving starred articles that may have aged out of current date range.
+
+        Args:
+            uris: List of article URIs to fetch
+
+        Returns:
+            List of article dictionaries
+        """
+        if not uris:
+            return []
+
+        # Build query to fetch articles by URI
+        statement = select(articles).where(
+            articles.c.uri.in_(uris)
+        )
+
+        # Execute query
+        result = self._execute_with_rollback(statement).mappings()
+        articles_list = [dict(row) for row in result]
+
+        self.logger.info(f"Fetched {len(articles_list)} articles by URI out of {len(uris)} requested")
+        return articles_list
+
     def get_topic_articles_count(self, topic_name: str) -> int:
         """Get total count of articles for a specific topic.
 

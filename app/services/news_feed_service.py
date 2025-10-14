@@ -463,9 +463,57 @@ class NewsFeedService:
     
     async def _generate_six_articles_report(self, articles_data: List[Dict], date: datetime, request: NewsFeedRequest) -> List[Dict]:
         """Generate detailed six articles report using Auspex service"""
-        
+
         logger.info(f"Starting six articles generation for {len(articles_data)} articles on {date.date()}")
-        
+
+        # Filter articles if starred articles are provided
+        if request.starred_articles and len(request.starred_articles) > 0:
+            logger.info(f"Filtering articles to only starred URIs: {len(request.starred_articles)} articles")
+            logger.info(f"Starred URIs from request: {request.starred_articles[:3] if len(request.starred_articles) > 3 else request.starred_articles}")
+            logger.info(f"Sample article URIs from dataset: {[article.get('uri', 'NO_URI')[:100] for article in articles_data[:3]]}")
+
+            # First try to find starred articles in the current dataset
+            starred_articles_data = [
+                article for article in articles_data
+                if article.get('uri') in request.starred_articles
+            ]
+
+            # If we didn't find all starred articles, fetch them directly from DB by URI
+            if len(starred_articles_data) < len(request.starred_articles):
+                logger.info(f"Only found {len(starred_articles_data)}/{len(request.starred_articles)} starred articles in current dataset")
+                logger.info(f"Fetching missing starred articles directly from database by URI")
+
+                from starlette.concurrency import run_in_threadpool
+
+                # Fetch starred articles directly by their URIs (bypassing date filters)
+                missing_starred = await run_in_threadpool(
+                    self.facade.get_articles_by_uris,
+                    request.starred_articles
+                )
+
+                if missing_starred:
+                    logger.info(f"Found {len(missing_starred)} starred articles from database")
+                    # Convert to list of dicts and merge with existing starred articles
+                    starred_articles_data = list(starred_articles_data) + list(missing_starred)
+                    # Remove duplicates by URI
+                    seen_uris = set()
+                    unique_starred = []
+                    for article in starred_articles_data:
+                        uri = article.get('uri')
+                        if uri and uri not in seen_uris:
+                            seen_uris.add(uri)
+                            unique_starred.append(article)
+                    starred_articles_data = unique_starred
+                    logger.info(f"Total unique starred articles after DB fetch: {len(starred_articles_data)}")
+
+            if starred_articles_data:
+                logger.info(f"Using {len(starred_articles_data)} starred articles for analysis")
+                articles_data = starred_articles_data
+            else:
+                logger.warning(f"No starred articles found. Using all {len(articles_data)} articles.")
+                logger.warning(f"First starred URI: {request.starred_articles[0] if request.starred_articles else 'None'}")
+                logger.warning(f"First dataset URI: {articles_data[0].get('uri', 'None') if articles_data else 'None'}")
+
         # Get organizational profile if specified
         try:
             org_profile = await self._get_organizational_profile(request.profile_id)
@@ -481,7 +529,8 @@ class NewsFeedService:
                 date,
                 org_profile,
                 persona=request.persona,
-                article_count=request.article_count
+                article_count=request.article_count,
+                starred_articles=request.starred_articles
             )
             logger.info("Successfully built six articles prompt")
         except Exception as e:
@@ -500,8 +549,9 @@ class NewsFeedService:
             system_message = """You are a CEO-focused news analyst. You MUST return articles in the new CEO Daily format.
 
 CRITICAL: Use ONLY these field names in your JSON response:
+- uri (string - REQUIRED: the exact URI from the Article Corpus)
 - title (string)
-- source (string) 
+- source (string)
 - date (string YYYY-MM-DD)
 - url (string)
 - executive_takeaway (string, max 20 words)
@@ -662,22 +712,70 @@ Return ONLY a JSON array starting with [ and ending with ]. No other text."""
     
     async def _generate_six_articles_with_political_analysis(self, articles_data: List[Dict], date: datetime, request: NewsFeedRequest) -> List[Dict]:
         """Generate six articles with enhanced political analysis based on related articles"""
-        
+
+        # Filter articles if starred articles are provided
+        if request.starred_articles and len(request.starred_articles) > 0:
+            logger.info(f"Filtering articles to only starred URIs: {len(request.starred_articles)} articles")
+            logger.info(f"Starred URIs from request: {request.starred_articles[:3] if len(request.starred_articles) > 3 else request.starred_articles}")
+            logger.info(f"Sample article URIs from dataset: {[article.get('uri', 'NO_URI')[:100] for article in articles_data[:3]]}")
+
+            # First try to find starred articles in the current dataset
+            starred_articles_data = [
+                article for article in articles_data
+                if article.get('uri') in request.starred_articles
+            ]
+
+            # If we didn't find all starred articles, fetch them directly from DB by URI
+            if len(starred_articles_data) < len(request.starred_articles):
+                logger.info(f"Only found {len(starred_articles_data)}/{len(request.starred_articles)} starred articles in current dataset")
+                logger.info(f"Fetching missing starred articles directly from database by URI")
+
+                from starlette.concurrency import run_in_threadpool
+
+                # Fetch starred articles directly by their URIs (bypassing date filters)
+                missing_starred = await run_in_threadpool(
+                    self.facade.get_articles_by_uris,
+                    request.starred_articles
+                )
+
+                if missing_starred:
+                    logger.info(f"Found {len(missing_starred)} starred articles from database")
+                    # Convert to list of dicts and merge with existing starred articles
+                    starred_articles_data = list(starred_articles_data) + list(missing_starred)
+                    # Remove duplicates by URI
+                    seen_uris = set()
+                    unique_starred = []
+                    for article in starred_articles_data:
+                        uri = article.get('uri')
+                        if uri and uri not in seen_uris:
+                            seen_uris.add(uri)
+                            unique_starred.append(article)
+                    starred_articles_data = unique_starred
+                    logger.info(f"Total unique starred articles after DB fetch: {len(starred_articles_data)}")
+
+            if starred_articles_data:
+                logger.info(f"Using {len(starred_articles_data)} starred articles for analysis")
+                articles_data = starred_articles_data
+            else:
+                logger.warning(f"No starred articles found. Using all {len(articles_data)} articles.")
+                logger.warning(f"First starred URI: {request.starred_articles[0] if request.starred_articles else 'None'}")
+                logger.warning(f"First dataset URI: {articles_data[0].get('uri', 'None') if articles_data else 'None'}")
+
         # Group articles by news source and bias to find related articles with political leanings
         articles_by_source = {}
         articles_with_bias = []
-        
+
         for article in articles_data:
             source = article.get('news_source', 'Unknown')
             bias = article.get('bias')
-            
+
             if source not in articles_by_source:
                 articles_by_source[source] = []
             articles_by_source[source].append(article)
-            
+
             if bias and bias.lower() in ['left', 'left-center', 'right', 'right-center', 'mixed']:
                 articles_with_bias.append(article)
-        
+
         # Get organizational profile if specified
         org_profile = await self._get_organizational_profile(request.profile_id)
 
@@ -689,7 +787,8 @@ Return ONLY a JSON array starting with [ and ending with ]. No other text."""
             date,
             org_profile,
             persona=request.persona,
-            article_count=request.article_count
+            article_count=request.article_count,
+            starred_articles=request.starred_articles
         )
         
         try:
@@ -700,8 +799,9 @@ Return ONLY a JSON array starting with [ and ending with ]. No other text."""
             system_message = """You are a CEO-focused news analyst. You MUST return articles in the new CEO Daily format.
 
 CRITICAL: Use ONLY these field names in your JSON response:
+- uri (string - REQUIRED: the exact URI from the Article Corpus)
 - title (string)
-- source (string) 
+- source (string)
 - date (string YYYY-MM-DD)
 - url (string)
 - executive_takeaway (string, max 20 words)
@@ -810,7 +910,7 @@ Focus on stories with:
 
 Return ONLY the JSON response."""
     
-    def _build_six_articles_analyst_prompt(self, articles_data: List[Dict], date: datetime, org_profile: Optional[Dict] = None, persona: str = "CEO", article_count: int = 6) -> str:
+    def _build_six_articles_analyst_prompt(self, articles_data: List[Dict], date: datetime, org_profile: Optional[Dict] = None, persona: str = "CEO", article_count: int = 6, starred_articles: Optional[List[str]] = None) -> str:
         """Build AI prompt for six articles detailed analysis with organizational context"""
 
         # Prepare all articles for comprehensive analysis
@@ -867,9 +967,18 @@ Return ONLY the JSON response."""
 - **Priorities**: {persona_info['priorities']}
 - **Time**: Will only read {article_count} items/day — each must add distinct value"""
 
+        # Add starred articles instruction if provided
+        starred_instruction = ""
+        if starred_articles and len(starred_articles) > 0:
+            starred_instruction = f"""
+
+⭐ **CRITICAL INSTRUCTION - STARRED ARTICLES**:
+The user has pre-selected {len(starred_articles)} articles by starring them. You MUST analyze and include ALL of these starred articles in your output. These starred articles represent the user's explicit choices and should be prioritized. The article corpus provided contains ONLY the starred articles the user selected. Do not select any articles outside of this pre-selected set."""
+
         return f"""🎯 {persona_info['title']} Daily Top-{article_count} AI Articles — Analyst Prompt
 
 You are an analyst selecting the {article_count} most important articles published in the last 24 hours for {persona_info['description']} interested in AI's strategic, technical, and societal impacts, with specific focus on {persona_info['focus']}.
+{starred_instruction}
 
 {audience_profile}
 
@@ -1030,7 +1139,7 @@ START YOUR RESPONSE WITH [ AND END WITH ] - NOTHING ELSE."""
         
         return profile_text
 
-    def _build_enhanced_six_articles_analyst_prompt(self, articles_data: List[Dict], articles_with_bias: List[Dict], articles_by_source: Dict, date: datetime, org_profile: Optional[Dict] = None, persona: str = "CEO", article_count: int = 6) -> str:
+    def _build_enhanced_six_articles_analyst_prompt(self, articles_data: List[Dict], articles_with_bias: List[Dict], articles_by_source: Dict, date: datetime, org_profile: Optional[Dict] = None, persona: str = "CEO", article_count: int = 6, starred_articles: Optional[List[str]] = None) -> str:
         """Build enhanced AI prompt that considers related articles and political leanings"""
 
         # Prepare all articles for analysis
@@ -1109,9 +1218,18 @@ START YOUR RESPONSE WITH [ AND END WITH ] - NOTHING ELSE."""
 - **Priorities**: {persona_info['priorities']}
 - **Time**: Will only read {article_count} items/day — each must add distinct value"""
 
+        # Add starred articles instruction if provided
+        starred_instruction = ""
+        if starred_articles and len(starred_articles) > 0:
+            starred_instruction = f"""
+
+⭐ **CRITICAL INSTRUCTION - STARRED ARTICLES**:
+The user has pre-selected {len(starred_articles)} articles by starring them. You MUST analyze and include ALL of these starred articles in your output. These starred articles represent the user's explicit choices and should be prioritized. The article corpus provided contains ONLY the starred articles the user selected. Do not select any articles outside of this pre-selected set."""
+
         return f"""🎯 {persona_info['title']} Daily Top-{article_count} AI Articles — Analyst Prompt
 
 You are an analyst selecting the {article_count} most important articles published in the last 24 hours for {persona_info['description']} interested in AI's strategic, technical, and societal impacts, with specific focus on {persona_info['focus']}.
+{starred_instruction}
 
 {audience_profile}
 
