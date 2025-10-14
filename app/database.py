@@ -466,15 +466,33 @@ Remember to cite your sources and provide actionable insights where possible."""
     # ------------------------------------------------------------------
 
     def get_podcast_settings(self):
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM settings_podcasts LIMIT 1")
-            settings = cursor.fetchone()
-            
-            if settings:
-                columns = [col[0] for col in cursor.description]
-                return dict(zip(columns, settings))
+        """
+        Get all podcast settings as dictionary.
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 2 PostgreSQL migration (2025-10-13).
+
+        Returns:
+            Dict of setting key-value pairs or default settings
+
+        Raises:
+            Exception: Database errors are logged and re-raised
+        """
+        from sqlalchemy import select
+        from app.database_models import t_settings_podcasts
+
+        conn = self._temp_get_connection()
+
+        try:
+            stmt = select(t_settings_podcasts).limit(1)
+            result = conn.execute(stmt).mappings()
+            row = result.fetchone()
+
+            if row:
+                conn.commit()  # CRITICAL: Commit to close transaction
+                return dict(row)
             else:
+                conn.commit()  # CRITICAL: Commit to close transaction
                 # Default settings if none exist
                 return {
                     "id": 1,
@@ -485,51 +503,71 @@ Remember to cite your sources and provide actionable insights where possible."""
                     "uploads_folder": "podcast_uploads",
                     "output_folder": "podcasts"
                 }
-                
+
+        except Exception as e:
+            logger.error(f"Error getting podcast settings: {e}")
+            conn.rollback()
+            raise
+
     def update_podcast_settings(self, settings):
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            
+        """
+        Batch update multiple podcast settings.
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 2 PostgreSQL migration (2025-10-13).
+
+        Args:
+            settings: Dictionary of settings to update
+
+        Returns:
+            True if all settings updated successfully
+
+        Raises:
+            Exception: Database errors are logged and re-raised
+        """
+        from sqlalchemy import insert, update, select, func
+        from app.database_models import t_settings_podcasts
+
+        conn = self._temp_get_connection()
+
+        try:
             # Check if settings exist
-            cursor.execute("SELECT COUNT(*) FROM settings_podcasts")
-            count = cursor.fetchone()[0]
-            
+            count_stmt = select(func.count()).select_from(t_settings_podcasts)
+            count = conn.execute(count_stmt).scalar()
+
             if count == 0:
                 # Insert new settings
-                cursor.execute("""
-                    INSERT INTO settings_podcasts (
-                        podcast_enabled, transcribe_enabled, openai_model, 
-                        transcript_format, uploads_folder, output_folder
-                    ) VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    settings.get('podcast_enabled', 0),
-                    settings.get('transcribe_enabled', 1),
-                    settings.get('openai_model', 'whisper-1'),
-                    settings.get('transcript_format', 'text'),
-                    settings.get('uploads_folder', 'podcast_uploads'),
-                    settings.get('output_folder', 'podcasts')
-                ))
+                stmt = insert(t_settings_podcasts).values(
+                    podcast_enabled=settings.get('podcast_enabled', 0),
+                    transcribe_enabled=settings.get('transcribe_enabled', 1),
+                    openai_model=settings.get('openai_model', 'whisper-1'),
+                    transcript_format=settings.get('transcript_format', 'text'),
+                    uploads_folder=settings.get('uploads_folder', 'podcast_uploads'),
+                    output_folder=settings.get('output_folder', 'podcasts')
+                )
+                conn.execute(stmt)
+                logger.debug("Podcast settings inserted")
             else:
                 # Update existing settings
-                cursor.execute("""
-                    UPDATE settings_podcasts SET
-                        podcast_enabled = ?,
-                        transcribe_enabled = ?,
-                        openai_model = ?,
-                        transcript_format = ?,
-                        uploads_folder = ?,
-                        output_folder = ?
-                """, (
-                    settings.get('podcast_enabled', 0),
-                    settings.get('transcribe_enabled', 1),
-                    settings.get('openai_model', 'whisper-1'),
-                    settings.get('transcript_format', 'text'),
-                    settings.get('uploads_folder', 'podcast_uploads'),
-                    settings.get('output_folder', 'podcasts')
-                ))
-            
+                stmt = update(t_settings_podcasts).values(
+                    podcast_enabled=settings.get('podcast_enabled', 0),
+                    transcribe_enabled=settings.get('transcribe_enabled', 1),
+                    openai_model=settings.get('openai_model', 'whisper-1'),
+                    transcript_format=settings.get('transcript_format', 'text'),
+                    uploads_folder=settings.get('uploads_folder', 'podcast_uploads'),
+                    output_folder=settings.get('output_folder', 'podcasts')
+                )
+                conn.execute(stmt)
+                logger.debug("Podcast settings updated")
+
             conn.commit()
+            logger.info("Podcast settings saved successfully")
             return True
+
+        except Exception as e:
+            logger.error(f"Error updating podcast settings: {e}")
+            conn.rollback()
+            raise
 
     # ------------------------------------------------------------------
     # Newsletter prompt methods
@@ -550,12 +588,14 @@ Remember to cite your sources and provide actionable insights where possible."""
             result = cursor.fetchone()
             
             if result:
+                conn.commit()  # CRITICAL: Commit to close transaction
                 return {
                     "content_type_id": result[0],
                     "prompt_template": result[1],
                     "description": result[2],
                     "last_updated": result[3]
                 }
+            conn.commit()  # CRITICAL: Commit to close transaction
             return None
 
     def get_all_newsletter_prompts(self) -> list:
@@ -747,85 +787,121 @@ Remember to cite your sources and provide actionable insights where possible."""
             conn.commit()
 
     def get_recent_articles(self, limit=10):
-        with self.get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT * FROM articles
-                ORDER BY COALESCE(submission_date, publication_date) DESC, rowid DESC
-                LIMIT ?
-            """, (limit,))
-            articles = [dict(row) for row in cursor.fetchall()]
-            
+        """
+        Get most recent articles ordered by submission/publication date.
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 2 PostgreSQL migration (2025-10-13).
+
+        Args:
+            limit: Maximum number of articles to return (default: 10)
+
+        Returns:
+            List of article dictionaries ordered by date DESC
+
+        Raises:
+            Exception: Database errors are logged and re-raised
+        """
+        from sqlalchemy import select, func
+        from app.database_models import t_articles
+
+        conn = self._temp_get_connection()
+
+        try:
+            # Use COALESCE for date ordering, but avoid rowid (PostgreSQL incompatible)
+            # Instead use uri as tiebreaker which exists in both databases
+            stmt = select(t_articles).order_by(
+                func.coalesce(t_articles.c.submission_date, t_articles.c.publication_date).desc(),
+                t_articles.c.uri.desc()
+            ).limit(limit)
+
+            result = conn.execute(stmt).mappings()
+            articles = [dict(row) for row in result]
+
             # Convert tags string back to list
             for article in articles:
-                if article['tags']:
+                if article.get('tags'):
                     article['tags'] = article['tags'].split(',')
                 else:
                     article['tags'] = []
-            
+
+            logger.debug(f"Retrieved {len(articles)} recent articles")
+            conn.commit()  # CRITICAL: Commit to close transaction
             return articles
 
-    def update_or_create_article(self, article_data: dict) -> bool:
-        try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Check if article exists
-                cursor.execute("""
-                    SELECT 1 FROM articles WHERE uri = ?
-                """, (article_data['uri'],))
-                
-                exists = cursor.fetchone() is not None
-                
-                if exists:
-                    # Update existing article
-                    cursor.execute("""
-                        UPDATE articles 
-                        SET title = ?, news_source = ?, summary = ?, 
-                            sentiment = ?, time_to_impact = ?, category = ?,
-                            future_signal = ?, future_signal_explanation = ?,
-                            publication_date = ?, topic = ?, analyzed = TRUE,
-                            sentiment_explanation = ?, time_to_impact_explanation = ?,
-                            tags = ?, driver_type = ?, driver_type_explanation = ?
-                        WHERE uri = ?
-                    """, (
-                        article_data['title'], article_data['news_source'],
-                        article_data['summary'], article_data['sentiment'],
-                        article_data['time_to_impact'], article_data['category'],
-                        article_data['future_signal'], article_data['future_signal_explanation'],
-                        article_data['publication_date'], article_data['topic'],
-                        article_data['sentiment_explanation'], article_data['time_to_impact_explanation'],
-                        article_data['tags'], article_data['driver_type'],
-                        article_data['driver_type_explanation'], article_data['uri']
-                    ))
-                else:
-                    # Insert new article
-                    cursor.execute("""
-                        INSERT INTO articles (
-                            uri, title, news_source, summary, sentiment,
-                            time_to_impact, category, future_signal,
-                            future_signal_explanation, publication_date, topic,
-                            sentiment_explanation, time_to_impact_explanation,
-                            tags, driver_type, driver_type_explanation, analyzed
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)
-                    """, (
-                        article_data['uri'], article_data['title'],
-                        article_data['news_source'], article_data['summary'],
-                        article_data['sentiment'], article_data['time_to_impact'],
-                        article_data['category'], article_data['future_signal'],
-                        article_data['future_signal_explanation'],
-                        article_data['publication_date'], article_data['topic'],
-                        article_data['sentiment_explanation'],
-                        article_data['time_to_impact_explanation'],
-                        article_data['tags'], article_data['driver_type'],
-                        article_data['driver_type_explanation']
-                    ))
-                
-                return True
-                
         except Exception as e:
-            logger.error(f"Error saving article: {str(e)}")
+            logger.error(f"Error getting recent articles: {e}")
+            conn.rollback()
+            raise
+
+    def update_or_create_article(self, article_data: dict) -> bool:
+        """
+        Update existing article or create new one (upsert operation).
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 2 PostgreSQL migration (2025-10-13).
+
+        Args:
+            article_data: Article data dictionary with uri as primary key
+
+        Returns:
+            True if operation successful, False otherwise
+
+        Raises:
+            Exception: Database errors are logged
+        """
+        from sqlalchemy import insert, update, select
+        from app.database_models import t_articles
+
+        if 'uri' not in article_data:
+            logger.error("Article data must include 'uri' field")
+            return False
+
+        uri = article_data['uri']
+        conn = self._temp_get_connection()
+
+        try:
+            # Check if article exists
+            check_stmt = select(t_articles.c.uri).where(t_articles.c.uri == uri)
+            exists = conn.execute(check_stmt).fetchone()
+
+            if exists:
+                # Update existing article
+                # Build update dict with only fields present in article_data
+                update_values = {}
+                fields = ['title', 'news_source', 'summary', 'sentiment', 'time_to_impact',
+                         'category', 'future_signal', 'future_signal_explanation',
+                         'publication_date', 'topic', 'sentiment_explanation',
+                         'time_to_impact_explanation', 'tags', 'driver_type',
+                         'driver_type_explanation']
+
+                for field in fields:
+                    if field in article_data:
+                        update_values[field] = article_data[field]
+
+                update_values['analyzed'] = True
+
+                stmt = update(t_articles).where(
+                    t_articles.c.uri == uri
+                ).values(**update_values)
+
+                conn.execute(stmt)
+                logger.debug(f"Article updated: {uri}")
+            else:
+                # Insert new article
+                insert_values = dict(article_data)
+                insert_values['analyzed'] = True
+
+                stmt = insert(t_articles).values(**insert_values)
+                conn.execute(stmt)
+                logger.debug(f"Article created: {uri}")
+
+            conn.commit()
+            return True
+
+        except Exception as e:
+            logger.error(f"Error upserting article '{uri}': {e}")
+            conn.rollback()
             return False
 
     def get_article(self, uri):
@@ -846,9 +922,11 @@ Remember to cite your sources and provide actionable insights where possible."""
             else:
                 article_dict['tags'] = []
             logger.debug(f"Article found: {article_dict['title']}")
+            conn.commit()  # CRITICAL: Commit to close transaction
             return article_dict
         else:
             logger.debug("Article not found")
+            conn.commit()  # CRITICAL: Commit to close transaction
             return None
             
     def save_article(self, article_data):
@@ -859,6 +937,7 @@ Remember to cite your sources and provide actionable insights where possible."""
         Uses SQLAlchemy facade for PostgreSQL compatibility.
         """
         try:
+            conn.commit()  # CRITICAL: Commit to close transaction
             return self.facade.upsert_article(article_data)
         except Exception as e:
             logging.error(f"Error in save_article: {str(e)}")
@@ -879,184 +958,171 @@ Remember to cite your sources and provide actionable insights where possible."""
             return False
 
     def save_article_analysis_cache(self, article_uri: str, analysis_type: str, content: str, model_used: str, metadata: dict = None) -> bool:
-        """Save analysis result to cache with expiration."""
+        """Save analysis result to cache with expiration.
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+
+        Args:
+            article_uri: Article URI
+            analysis_type: Type of analysis (e.g., 'sentiment', 'summary')
+            content: Analysis result text
+            model_used: AI model name used
+            metadata: Optional metadata dictionary
+
+        Returns:
+            True if cached successfully, False otherwise
+        """
         from datetime import datetime, timedelta
-        import sqlite3
-        
+        from sqlalchemy import insert, update, select
+        from sqlalchemy.exc import IntegrityError
+        from app.database_models import t_article_analysis_cache
+
         expires_at = datetime.utcnow() + timedelta(days=7)  # Cache for 7 days
         metadata_json = json.dumps(metadata) if metadata else None
-        
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            try:
-                # Create table without foreign key constraint for better cache flexibility
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS article_analysis_cache (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        article_uri TEXT NOT NULL,
-                        analysis_type TEXT NOT NULL,
-                        content TEXT NOT NULL,
-                        model_used TEXT NOT NULL,
-                        generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        expires_at TIMESTAMP,
-                        metadata TEXT,
-                        UNIQUE(article_uri, analysis_type, model_used)
-                    )
-                """)
-                
-                # Insert or replace cached analysis
-                cursor.execute("""
-                    INSERT OR REPLACE INTO article_analysis_cache 
-                    (article_uri, analysis_type, content, model_used, expires_at, metadata)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (article_uri, analysis_type, content, model_used, expires_at, metadata_json))
-                
-                conn.commit()
-                logger.info(f"Cached {analysis_type} analysis for article {article_uri} with model {model_used}")
-                return True
-            except sqlite3.IntegrityError as ie:
-                # Handle foreign key constraint violations specifically
-                if "FOREIGN KEY constraint failed" in str(ie):
-                    logger.warning(f"Article {article_uri} not found in articles table, but caching analysis anyway")
-                    # Try to migrate the table to remove foreign key constraint
-                    try:
-                        # Check if we need to migrate the table structure
-                        cursor.execute("PRAGMA table_info(article_analysis_cache)")
-                        columns = cursor.fetchall()
-                        
-                        # Check if table has foreign key constraint by looking at schema
-                        cursor.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='article_analysis_cache'")
-                        schema_result = cursor.fetchone()
-                        
-                        if schema_result and "FOREIGN KEY" in schema_result[0]:
-                            logger.info("Migrating cache table to remove foreign key constraint")
-                            
-                            # Create new table without foreign key
-                            cursor.execute("""
-                                CREATE TABLE article_analysis_cache_new (
-                                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                    article_uri TEXT NOT NULL,
-                                    analysis_type TEXT NOT NULL,
-                                    content TEXT NOT NULL,
-                                    model_used TEXT NOT NULL,
-                                    generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                                    expires_at TIMESTAMP,
-                                    metadata TEXT,
-                                    UNIQUE(article_uri, analysis_type, model_used)
-                                )
-                            """)
-                            
-                            # Copy existing data
-                            cursor.execute("""
-                                INSERT INTO article_analysis_cache_new 
-                                SELECT id, article_uri, analysis_type, content, model_used, generated_at, expires_at, metadata 
-                                FROM article_analysis_cache
-                            """)
-                            
-                            # Drop old table and rename
-                            cursor.execute("DROP TABLE article_analysis_cache")
-                            cursor.execute("ALTER TABLE article_analysis_cache_new RENAME TO article_analysis_cache")
-                            
-                            # Now insert the new record
-                            cursor.execute("""
-                                INSERT OR REPLACE INTO article_analysis_cache 
-                                (article_uri, analysis_type, content, model_used, expires_at, metadata)
-                                VALUES (?, ?, ?, ?, ?, ?)
-                            """, (article_uri, analysis_type, content, model_used, expires_at, metadata_json))
-                            
-                            conn.commit()
-                            logger.info(f"Cached {analysis_type} analysis for article {article_uri} with model {model_used} (migrated table)")
-                            return True
-                        else:
-                            # Table already doesn't have foreign key, something else went wrong
-                            logger.error(f"Unexpected integrity error: {ie}")
-                            conn.rollback()
-                            return False
-                            
-                    except Exception as migrate_error:
-                        logger.error(f"Failed to migrate cache table: {migrate_error}")
-                        conn.rollback()
-                        return False
-                else:
-                    logger.error(f"Integrity error saving analysis cache: {ie}")
-                    conn.rollback()
-                    return False
-            except Exception as e:
-                logger.error(f"Error saving analysis cache: {e}")
-                conn.rollback()
-                return False
+
+        conn = self._temp_get_connection()
+
+        try:
+            # Check if cache entry exists
+            check_stmt = select(t_article_analysis_cache.c.id).where(
+                (t_article_analysis_cache.c.article_uri == article_uri) &
+                (t_article_analysis_cache.c.analysis_type == analysis_type) &
+                (t_article_analysis_cache.c.model_used == model_used)
+            )
+            exists = conn.execute(check_stmt).fetchone()
+
+            if exists:
+                # Update existing cache
+                stmt = update(t_article_analysis_cache).where(
+                    (t_article_analysis_cache.c.article_uri == article_uri) &
+                    (t_article_analysis_cache.c.analysis_type == analysis_type) &
+                    (t_article_analysis_cache.c.model_used == model_used)
+                ).values(
+                    content=content,
+                    generated_at=datetime.utcnow(),
+                    expires_at=expires_at,
+                    metadata=metadata_json
+                )
+                conn.execute(stmt)
+            else:
+                # Insert new cache entry
+                stmt = insert(t_article_analysis_cache).values(
+                    article_uri=article_uri,
+                    analysis_type=analysis_type,
+                    content=content,
+                    model_used=model_used,
+                    generated_at=datetime.utcnow(),
+                    expires_at=expires_at,
+                    metadata=metadata_json
+                )
+                conn.execute(stmt)
+
+            conn.commit()
+            logger.info(f"Cached {analysis_type} analysis for article {article_uri} with model {model_used}")
+            return True
+
+        except IntegrityError as ie:
+            logger.error(f"Integrity error saving analysis cache: {ie}")
+            conn.rollback()
+            return False
+        except Exception as e:
+            logger.error(f"Error saving analysis cache: {e}")
+            conn.rollback()
+            return False
 
     def get_article_analysis_cache(self, article_uri: str, analysis_type: str, model_used: str = None) -> dict:
-        """Get cached analysis result if not expired."""
+        """Get cached analysis result if not expired.
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+
+        Args:
+            article_uri: Article URI
+            analysis_type: Type of analysis
+            model_used: Optional AI model name filter
+
+        Returns:
+            Dict with cached analysis data or None if not found/expired
+        """
         from datetime import datetime
-        
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            try:
-                # Create table if it doesn't exist
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS article_analysis_cache (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        article_uri TEXT NOT NULL,
-                        analysis_type TEXT NOT NULL,
-                        content TEXT NOT NULL,
-                        model_used TEXT NOT NULL,
-                        generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        expires_at TIMESTAMP,
-                        metadata TEXT,
-                        FOREIGN KEY (article_uri) REFERENCES articles(uri) ON DELETE CASCADE,
-                        UNIQUE(article_uri, analysis_type, model_used)
-                    )
-                """)
-                
-                # Query for cached analysis
-                if model_used:
-                    cursor.execute("""
-                        SELECT content, model_used, generated_at, metadata 
-                        FROM article_analysis_cache 
-                        WHERE article_uri = ? AND analysis_type = ? AND model_used = ? 
-                        AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-                        ORDER BY generated_at DESC LIMIT 1
-                    """, (article_uri, analysis_type, model_used))
-                else:
-                    cursor.execute("""
-                        SELECT content, model_used, generated_at, metadata 
-                        FROM article_analysis_cache 
-                        WHERE article_uri = ? AND analysis_type = ? 
-                        AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
-                        ORDER BY generated_at DESC LIMIT 1
-                    """, (article_uri, analysis_type))
-                
-                result = cursor.fetchone()
-                if result:
-                    metadata = json.loads(result[3]) if result[3] else {}
-                    return {
-                        'content': result[0],
-                        'model_used': result[1],
-                        'generated_at': result[2],
-                        'metadata': metadata
-                    }
-                return None
-            except Exception as e:
-                logger.error(f"Error getting analysis cache: {e}")
-                return None
+        from sqlalchemy import select, and_, or_
+        from app.database_models import t_article_analysis_cache
+
+        conn = self._temp_get_connection()
+
+        try:
+            # Build query
+            conditions = [
+                t_article_analysis_cache.c.article_uri == article_uri,
+                t_article_analysis_cache.c.analysis_type == analysis_type,
+                or_(
+                    t_article_analysis_cache.c.expires_at.is_(None),
+                    t_article_analysis_cache.c.expires_at > datetime.utcnow()
+                )
+            ]
+
+            if model_used:
+                conditions.append(t_article_analysis_cache.c.model_used == model_used)
+
+            stmt = select(
+                t_article_analysis_cache.c.content,
+                t_article_analysis_cache.c.model_used,
+                t_article_analysis_cache.c.generated_at,
+                t_article_analysis_cache.c.metadata
+            ).where(
+                and_(*conditions)
+            ).order_by(
+                t_article_analysis_cache.c.generated_at.desc()
+            ).limit(1)
+
+            result = conn.execute(stmt).mappings()
+            row = result.fetchone()
+
+            if row:
+                metadata_dict = json.loads(row['metadata']) if row['metadata'] else {}
+                return {
+                    'content': row['content'],
+                    'model_used': row['model_used'],
+                    'generated_at': row['generated_at'],
+                    'metadata': metadata_dict
+                }
+            return None
+
+        except Exception as e:
+            logger.error(f"Error getting analysis cache: {e}")
+            return None
 
     def clean_expired_analysis_cache(self) -> int:
-        """Clean up expired analysis cache entries."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute("""
-                    DELETE FROM article_analysis_cache 
-                    WHERE expires_at IS NOT NULL AND expires_at < CURRENT_TIMESTAMP
-                """)
-                conn.commit()
-                deleted_count = cursor.rowcount
-                logger.info(f"Cleaned up {deleted_count} expired analysis cache entries")
-                return deleted_count
-            except Exception as e:
-                logger.error(f"Error cleaning analysis cache: {e}")
-                return 0
+        """Clean up expired analysis cache entries.
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+
+        Returns:
+            Number of entries removed
+        """
+        from datetime import datetime
+        from sqlalchemy import delete
+        from app.database_models import t_article_analysis_cache
+
+        conn = self._temp_get_connection()
+
+        try:
+            stmt = delete(t_article_analysis_cache).where(
+                (t_article_analysis_cache.c.expires_at.isnot(None)) &
+                (t_article_analysis_cache.c.expires_at < datetime.utcnow())
+            )
+
+            result = conn.execute(stmt)
+            conn.commit()
+
+            deleted_count = result.rowcount
+            logger.info(f"Cleaned up {deleted_count} expired analysis cache entries")
+            return deleted_count
+
+        except Exception as e:
+            logger.error(f"Error cleaning analysis cache: {e}")
+            conn.rollback()
+            conn.commit()  # CRITICAL: Commit to close transaction
+            return 0
 
     def save_signal_instruction(self, name: str, description: str, instruction: str, topic: str = None, is_active: bool = True) -> bool:
         """Save a custom signal instruction for threat hunting."""
@@ -1090,6 +1156,7 @@ Remember to cite your sources and provide actionable insights where possible."""
             except Exception as e:
                 logger.error(f"Error saving signal instruction: {e}")
                 conn.rollback()
+                conn.commit()  # CRITICAL: Commit to close transaction
                 return False
 
     def get_signal_instructions(self, topic: str = None, active_only: bool = True) -> List[Dict]:
@@ -1534,7 +1601,9 @@ Remember to cite your sources and provide actionable insights where possible."""
             row = result.fetchone()
             if row:
                 # Convert row to dictionary using _mapping for SQLAlchemy Row object
+                conn.commit()  # CRITICAL: Commit to close transaction
                 return dict(row._mapping)
+            conn.commit()  # CRITICAL: Commit to close transaction
             return None
         except Exception as e:
             conn.rollback()
@@ -1542,57 +1611,111 @@ Remember to cite your sources and provide actionable insights where possible."""
             raise
 
     def get_articles_by_ids(self, article_ids):
-        with self.get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            
-            placeholders = ','.join(['?' for _ in article_ids])
-            query = f"SELECT * FROM articles WHERE uri IN ({placeholders})"
-            
-            cursor.execute(query, article_ids)
+        """
+        Get multiple articles by their URIs (batch fetch).
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 2 PostgreSQL migration (2025-10-13).
+
+        Args:
+            article_ids: List of article URIs to retrieve
+
+        Returns:
+            List of article dictionaries
+
+        Raises:
+            Exception: Database errors are logged and re-raised
+        """
+        from sqlalchemy import select
+        from app.database_models import t_articles
+
+        if not article_ids:
+            return []
+
+        conn = self._temp_get_connection()
+
+        try:
+            stmt = select(t_articles).where(t_articles.c.uri.in_(article_ids))
+            result = conn.execute(stmt).mappings()
+
             articles = []
-            for row in cursor.fetchall():
+            for row in result:
                 article = dict(row)
-                if article['tags']:
+
+                # Convert tags string back to list
+                if article.get('tags'):
                     article['tags'] = article['tags'].split(',')
                 else:
                     article['tags'] = []
-                
+
                 # If 'url' doesn't exist, use 'uri' as a fallback
                 if 'url' not in article and 'uri' in article:
                     article['url'] = article['uri']
-                
+
                 articles.append(article)
-            
-            print(f"Fetched {len(articles)} articles from database")  # Add this line for debugging
-            
+
+            logger.debug(f"Retrieved {len(articles)} articles by IDs (requested {len(article_ids)})")
+
             # Check for missing articles
             fetched_ids = set(article['uri'] for article in articles)
             missing_ids = set(article_ids) - fetched_ids
             if missing_ids:
-                print(f"Warning: Could not fetch articles with IDs: {missing_ids}")
-            
+                logger.warning(f"Could not fetch articles with IDs: {missing_ids}")
+
+            conn.commit()  # CRITICAL: Commit to close transaction
             return articles
 
+        except Exception as e:
+            logger.error(f"Error getting articles by IDs: {e}")
+            conn.rollback()
+            raise
+
     def get_all_articles(self):
-        with self.get_connection() as conn:
-            conn.row_factory = sqlite3.Row
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM articles")
+        """
+        Get all articles from database.
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 2 PostgreSQL migration (2025-10-13).
+
+        WARNING: This can return large result sets. Consider using pagination.
+
+        Returns:
+            List of all article dictionaries
+
+        Raises:
+            Exception: Database errors are logged and re-raised
+        """
+        from sqlalchemy import select
+        from app.database_models import t_articles
+
+        conn = self._temp_get_connection()
+
+        try:
+            stmt = select(t_articles).order_by(t_articles.c.submission_date.desc())
+            result = conn.execute(stmt).mappings()
+
             articles = []
-            for row in cursor.fetchall():
+            for row in result:
                 article = dict(row)
+
                 # Handle potentially missing fields
                 for field in ['tags', 'sentiment', 'category', 'future_signal', 'time_to_impact']:
                     if field not in article or article[field] is None:
                         article[field] = '' if field != 'tags' else []
-                
+
                 if article['tags'] and isinstance(article['tags'], str):
                     article['tags'] = article['tags'].split(',')
-                
+
                 articles.append(article)
-            
+
+            logger.info(f"Retrieved all {len(articles)} articles")
+            conn.commit()  # CRITICAL: Commit to close transaction
             return articles
+
+        except Exception as e:
+            logger.error(f"Error getting all articles: {e}")
+            conn.rollback()
+            raise
 
     def fetch_all(self, query, params=None):
         """Fetch all rows from a query (PostgreSQL-compatible)"""
@@ -1618,19 +1741,49 @@ Remember to cite your sources and provide actionable insights where possible."""
                 result = conn.execute(text(query), params or {}).mappings()
 
             # Convert to list of dicts
-            return [dict(row) for row in result]
+            result_list = [dict(row) for row in result]
+            conn.commit()  # CRITICAL: Commit to close transaction
+            return result_list
         except Exception as e:
             conn.rollback()
             logger.error(f"Error in fetch_all: {e}")
             raise
 
     def get_categories(self):
-        query = "SELECT DISTINCT category FROM articles WHERE category IS NOT NULL AND category != '' ORDER BY category"
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(query)
-            categories = [row[0] for row in cursor.fetchall()]
-        return categories
+        """
+        Get list of all unique article categories.
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 2 PostgreSQL migration (2025-10-13).
+
+        Returns:
+            List of category names (strings)
+
+        Raises:
+            Exception: Database errors are logged and re-raised
+        """
+        from sqlalchemy import select, distinct
+        from app.database_models import t_articles
+
+        conn = self._temp_get_connection()
+
+        try:
+            stmt = select(distinct(t_articles.c.category)).where(
+                t_articles.c.category.isnot(None),
+                t_articles.c.category != ''
+            ).order_by(t_articles.c.category)
+
+            result = conn.execute(stmt)
+            categories = [row[0] for row in result]
+
+            logger.debug(f"Retrieved {len(categories)} categories")
+            conn.commit()  # CRITICAL: Commit to close transaction
+            return categories
+
+        except Exception as e:
+            logger.error(f"Error getting categories: {e}")
+            conn.rollback()
+            raise
 
     def get_database_info(self):
         with self.get_connection() as conn:
@@ -1648,6 +1801,7 @@ Remember to cite your sources and provide actionable insights where possible."""
             cursor.execute("SELECT MAX(submission_date) FROM articles;")
             last_entry = cursor.fetchone()[0]
             
+            conn.commit()  # CRITICAL: Commit to close transaction
             return {
                 "tables": tables,
                 "article_count": article_count,
@@ -1655,64 +1809,113 @@ Remember to cite your sources and provide actionable insights where possible."""
             }
 
     def save_raw_article(self, uri, raw_markdown, topic, create_placeholder=False):
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            current_time = datetime.now().isoformat()
+        """
+        Save or update raw markdown content for an article.
 
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 2 PostgreSQL migration (2025-10-13).
+
+        Args:
+            uri: Article URI (primary key)
+            raw_markdown: Raw markdown content
+            topic: Topic name
+            create_placeholder: Ignored - article must exist before saving raw content
+
+        Returns:
+            Dict with success message
+
+        Raises:
+            ValueError: If article doesn't exist
+            Exception: Database errors are logged and re-raised
+        """
+        from sqlalchemy import insert, update, select
+        from app.database_models import t_articles, t_raw_articles
+        from datetime import datetime
+
+        conn = self._temp_get_connection()
+
+        try:
             # Ensure parent article exists before saving raw article
-            cursor.execute("SELECT uri FROM articles WHERE uri = ?", (uri,))
-            if not cursor.fetchone():
+            check_stmt = select(t_articles.c.uri).where(t_articles.c.uri == uri)
+            if not conn.execute(check_stmt).fetchone():
                 # NEVER create placeholders - article must exist with full data first
                 logger.error(f"No article entry found for URI: {uri}. Raw article will not be saved.")
                 logger.error("Article must be created with full data (title, summary, etc.) before saving raw content.")
                 logger.error(f"create_placeholder parameter ignored: {create_placeholder}")
                 raise ValueError(f"No article entry found for URI: {uri} - article must be created first with full data")
-            
-            cursor.execute("SELECT * FROM raw_articles WHERE uri = ?", (uri,))
-            existing_raw_article = cursor.fetchone()
-            
+
+            current_time = datetime.now()
+
+            # Check if raw article exists
+            check_raw_stmt = select(t_raw_articles.c.uri).where(t_raw_articles.c.uri == uri)
+            existing_raw_article = conn.execute(check_raw_stmt).fetchone()
+
             if existing_raw_article:
-                update_query = """
-                UPDATE raw_articles SET
-                    raw_markdown = ?, last_updated = ?, topic = ?
-                WHERE uri = ?
-                """
-                cursor.execute(update_query, (raw_markdown, current_time, topic, uri))
+                # Update existing
+                stmt = update(t_raw_articles).where(
+                    t_raw_articles.c.uri == uri
+                ).values(
+                    raw_markdown=raw_markdown,
+                    last_updated=current_time,
+                    topic=topic
+                )
+                conn.execute(stmt)
+                logger.debug(f"Raw article updated: {uri}")
             else:
-                insert_query = """
-                INSERT INTO raw_articles (uri, raw_markdown, submission_date, last_updated, topic)
-                VALUES (?, ?, ?, ?, ?)
-                """
-                cursor.execute(insert_query, (uri, raw_markdown, current_time, current_time, topic))
-            
+                # Insert new
+                stmt = insert(t_raw_articles).values(
+                    uri=uri,
+                    raw_markdown=raw_markdown,
+                    submission_date=current_time,
+                    last_updated=current_time,
+                    topic=topic
+                )
+                conn.execute(stmt)
+                logger.debug(f"Raw article created: {uri}")
+
             conn.commit()
-        
-        return {"message": "Raw article saved successfully"}
+            return {"message": "Raw article saved successfully"}
+
+        except Exception as e:
+            logger.error(f"Error saving raw article '{uri}': {e}")
+            conn.rollback()
+            raise
 
     def get_raw_article(self, uri: str):
-        """Retrieve a raw article from the database."""
+        """
+        Get raw markdown content for an article.
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 2 PostgreSQL migration (2025-10-13).
+
+        Args:
+            uri: Article URI to retrieve
+
+        Returns:
+            Dict with raw_markdown and metadata, or None if not found
+
+        Raises:
+            Exception: Database errors are logged, returns None
+        """
+        from sqlalchemy import select
+        from app.database_models import t_raw_articles
+
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # First check if the raw_articles table exists
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='raw_articles'")
-                if not cursor.fetchone():
-                    logger.warning("raw_articles table does not exist yet")
-                    return None
-                
-                cursor.execute("SELECT * FROM raw_articles WHERE uri = ?", (uri,))
-                result = cursor.fetchone()
-                if result:
-                    return {
-                        "uri": result[0],
-                        "raw_markdown": result[1],
-                        "submission_date": result[2],
-                        "last_updated": result[3]
-                    }
-                return None
+            conn = self._temp_get_connection()
+
+            stmt = select(t_raw_articles).where(t_raw_articles.c.uri == uri)
+            result = conn.execute(stmt).mappings()
+            row = result.fetchone()
+
+            if row:
+                conn.commit()  # CRITICAL: Commit to close transaction
+                return dict(row)
+            conn.commit()  # CRITICAL: Commit to close transaction
+            return None
+
         except Exception as e:
-            logger.error(f"Error retrieving raw article: {str(e)}")
+            logger.error(f"Error retrieving raw article '{uri}': {e}")
+            conn.commit()  # CRITICAL: Commit to close transaction
             return None
 
     def get_topics(self):
@@ -1743,6 +1946,7 @@ Remember to cite your sources and provide actionable insights where possible."""
             topics = [row['topic'] for row in result if row['topic']]
 
             logger.debug(f"Retrieved {len(topics)} topics")
+            conn.commit()  # CRITICAL: Commit to close transaction
             return topics
 
         except Exception as e:
@@ -1811,6 +2015,7 @@ Remember to cite your sources and provide actionable insights where possible."""
                     article['tags'] = []
 
             logger.debug(f"Retrieved {len(articles)} articles for topic: {topic_name}")
+            conn.commit()  # CRITICAL: Commit to close transaction
             return articles
 
         except Exception as e:
@@ -1848,6 +2053,7 @@ Remember to cite your sources and provide actionable insights where possible."""
             count = result.scalar() or 0
 
             logger.debug(f"Article count for topic '{topic_name}': {count}")
+            conn.commit()  # CRITICAL: Commit to close transaction
             return count
 
         except Exception as e:
@@ -1886,6 +2092,7 @@ Remember to cite your sources and provide actionable insights where possible."""
             latest_date = result.scalar()
 
             logger.debug(f"Latest article date for topic '{topic_name}': {latest_date}")
+            conn.commit()  # CRITICAL: Commit to close transaction
             return latest_date
 
         except Exception as e:
@@ -1969,6 +2176,7 @@ Remember to cite your sources and provide actionable insights where possible."""
             row = result.fetchone()
 
             if row:
+                conn.commit()  # CRITICAL: Commit to close transaction
                 return {
                     'username': row['username'],
                     'password': row['password_hash'],  # Keep the key as 'password' for compatibility
@@ -1976,6 +2184,7 @@ Remember to cite your sources and provide actionable insights where possible."""
                     'completed_onboarding': bool(row['completed_onboarding'])
                 }
 
+            conn.commit()  # CRITICAL: Commit to close transaction
             return None
 
         except Exception as e:
@@ -2024,6 +2233,7 @@ Remember to cite your sources and provide actionable insights where possible."""
                 return True
             else:
                 logger.warning(f"Password update failed - user not found: {username}")
+                conn.commit()  # CRITICAL: Commit to close transaction
                 return False
 
         except Exception as e:
@@ -2160,6 +2370,7 @@ Remember to cite your sources and provide actionable insights where possible."""
                 return True
             else:
                 logger.warning(f"Onboarding update failed - user not found: {username}")
+                conn.commit()  # CRITICAL: Commit to close transaction
                 return False
 
         except Exception as e:
@@ -2204,6 +2415,7 @@ Remember to cite your sources and provide actionable insights where possible."""
                 return True
             else:
                 logger.warning(f"Force password change update failed - user not found: {username}")
+                conn.commit()  # CRITICAL: Commit to close transaction
                 return False
 
         except Exception as e:
@@ -2216,6 +2428,7 @@ Remember to cite your sources and provide actionable insights where possible."""
         # Ensure the database name ends with .db
         if not db_name.endswith('.db'):
             db_name = f"{db_name}.db"
+        conn.commit()  # CRITICAL: Commit to close transaction
         return os.path.join(DATABASE_DIR, db_name)
 
     def download_database(self, db_name: str) -> str:
@@ -2253,9 +2466,11 @@ Remember to cite your sources and provide actionable insights where possible."""
         try:
             statement = select(func.count()).select_from(t_articles)
             result = conn.execute(statement)
+            conn.commit()  # CRITICAL: Commit to close transaction
             return result.scalar() or 0
         except Exception as e:
             logger.error(f"Error getting total articles: {e}")
+            conn.commit()  # CRITICAL: Commit to close transaction
             return 0
 
     async def get_articles_today(self) -> int:
@@ -2270,9 +2485,11 @@ Remember to cite your sources and provide actionable insights where possible."""
                 cast(t_articles.c.submission_date, Date) == today
             )
             result = conn.execute(statement)
+            conn.commit()  # CRITICAL: Commit to close transaction
             return result.scalar() or 0
         except Exception as e:
             logger.error(f"Error getting articles today: {e}")
+            conn.commit()  # CRITICAL: Commit to close transaction
             return 0
 
     async def get_keyword_group_count(self) -> int:
@@ -2284,9 +2501,11 @@ Remember to cite your sources and provide actionable insights where possible."""
         try:
             statement = select(func.count()).select_from(t_keyword_groups)
             result = conn.execute(statement)
+            conn.commit()  # CRITICAL: Commit to close transaction
             return result.scalar() or 0
         except Exception as e:
             logger.error(f"Error getting keyword group count: {e}")
+            conn.commit()  # CRITICAL: Commit to close transaction
             return 0
 
     async def get_topic_count(self) -> int:
@@ -2298,9 +2517,11 @@ Remember to cite your sources and provide actionable insights where possible."""
         try:
             statement = select(func.count(func.distinct(t_articles.c.topic))).select_from(t_articles)
             result = conn.execute(statement)
+            conn.commit()  # CRITICAL: Commit to close transaction
             return result.scalar() or 0
         except Exception as e:
             logger.error(f"Error getting topic count: {e}")
+            conn.commit()  # CRITICAL: Commit to close transaction
             return 0
 
     def add_article_annotation(self, article_uri: str, author: str, content: str, is_private: bool = False) -> int:
@@ -2315,6 +2536,7 @@ Remember to cite your sources and provide actionable insights where possible."""
                 """, (article_uri, author, content, is_private))
                 annotation_id = cursor.lastrowid
                 logger.debug(f"Successfully added annotation with ID: {annotation_id}")
+                conn.commit()  # CRITICAL: Commit to close transaction
                 return annotation_id
         except sqlite3.Error as e:
             logger.error(f"Database error adding annotation: {str(e)}")
@@ -2342,6 +2564,7 @@ Remember to cite your sources and provide actionable insights where possible."""
                 cursor.execute(query, (article_uri,))
                 annotations = [dict(row) for row in cursor.fetchall()]
                 logger.debug(f"Found {len(annotations)} annotations")
+                conn.commit()  # CRITICAL: Commit to close transaction
                 return annotations
         except sqlite3.Error as e:
             logger.error(f"Database error getting annotations: {str(e)}")
@@ -2358,18 +2581,21 @@ Remember to cite your sources and provide actionable insights where possible."""
                 SET content = ?, is_private = ?
                 WHERE id = ?
             """, (content, is_private, annotation_id))
+            conn.commit()  # CRITICAL: Commit to close transaction
             return cursor.rowcount > 0
 
     def delete_article_annotation(self, annotation_id: int) -> bool:
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM article_annotations WHERE id = ?", (annotation_id,))
+            conn.commit()  # CRITICAL: Commit to close transaction
             return cursor.rowcount > 0
 
     def bulk_delete_articles(self, uris: List[str]) -> int:
         """Delete multiple articles using PostgreSQL-compatible SQLAlchemy Core."""
         if not uris:
             logger.warning("No URIs provided for bulk delete")
+            conn.commit()  # CRITICAL: Commit to close transaction
             return 0
 
         logger.info(f"Attempting to bulk delete {len(uris)} articles")
@@ -2552,9 +2778,11 @@ Remember to cite your sources and provide actionable insights where possible."""
             if count == 0:
                 # If topic doesn't exist, create it
                 logger.info(f"Topic '{topic_name}' not found, creating...")
+                conn.commit()  # CRITICAL: Commit to close transaction
                 return self.create_topic(topic_name)
 
             logger.debug(f"Topic '{topic_name}' exists with {count} articles")
+            conn.commit()  # CRITICAL: Commit to close transaction
             return True
 
         except Exception as e:
@@ -2591,9 +2819,11 @@ Remember to cite your sources and provide actionable insights where possible."""
                     "SELECT name FROM sqlite_master WHERE type='table' AND name=?;",
                     (table_name,),
                 )
+                conn.commit()  # CRITICAL: Commit to close transaction
                 return cursor.fetchone() is not None
         except sqlite3.Error as e:
             logging.error(f"Error checking if table {table_name} exists: {e}")
+            conn.commit()  # CRITICAL: Commit to close transaction
             return False
 
     # ------------------------------------------------------------------
@@ -2712,43 +2942,121 @@ Remember to cite your sources and provide actionable insights where possible."""
     # ------------------------------------------------------------------
 
     def get_podcast_setting(self, key: str):
-        """Return the raw JSON string stored for *key* in settings_podcasts.
-        If the key is not present, return ``None``.
         """
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT value FROM settings_podcasts WHERE key = ?", (key,))
-            row = cursor.fetchone()
+        Get a specific podcast setting by key.
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 2 PostgreSQL migration (2025-10-13).
+
+        Args:
+            key: Setting key to retrieve
+
+        Returns:
+            Setting value or None if not found
+
+        Raises:
+            Exception: Database errors are logged and re-raised
+        """
+        from sqlalchemy import select
+        from app.database_models import t_settings_podcasts
+
+        conn = self._temp_get_connection()
+
+        try:
+            stmt = select(t_settings_podcasts.c.value).where(
+                t_settings_podcasts.c.key == key
+            )
+            result = conn.execute(stmt)
+            row = result.fetchone()
+
+            conn.commit()  # CRITICAL: Commit to close transaction
             return row[0] if row else None
 
+        except Exception as e:
+            logger.error(f"Error getting podcast setting '{key}': {e}")
+            conn.rollback()
+            raise
+
     def set_podcast_setting(self, key: str, value: str) -> bool:
-        """Insert or update the given *key* with *value* in settings_podcasts.
-        The *value* should be a JSON-serialised string.
         """
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO settings_podcasts (key, value)
-                VALUES (?, ?)
-                ON CONFLICT(key) DO UPDATE SET value = excluded.value
-                """,
-                (key, value),
+        Set a podcast setting (upsert operation).
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 2 PostgreSQL migration (2025-10-13).
+
+        Args:
+            key: Setting key
+            value: Setting value (should be JSON-serialized string)
+
+        Returns:
+            True if setting saved successfully
+
+        Raises:
+            Exception: Database errors are logged and re-raised
+        """
+        from sqlalchemy import insert, update, select
+        from sqlalchemy.dialects.postgresql import insert as pg_insert
+        from app.database_models import t_settings_podcasts
+
+        conn = self._temp_get_connection()
+
+        try:
+            # Check if setting exists
+            check_stmt = select(t_settings_podcasts.c.key).where(
+                t_settings_podcasts.c.key == key
             )
+            exists = conn.execute(check_stmt).fetchone()
+
+            if exists:
+                # Update existing
+                stmt = update(t_settings_podcasts).where(
+                    t_settings_podcasts.c.key == key
+                ).values(value=value)
+                conn.execute(stmt)
+            else:
+                # Insert new
+                stmt = insert(t_settings_podcasts).values(key=key, value=value)
+                conn.execute(stmt)
+
             conn.commit()
+            logger.debug(f"Podcast setting saved: {key}")
             return True
 
+        except Exception as e:
+            logger.error(f"Error setting podcast setting '{key}': {e}")
+            conn.rollback()
+            raise
+
     def get_podcast_settings(self):
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM settings_podcasts LIMIT 1")
-            settings = cursor.fetchone()
-            
-            if settings:
-                columns = [col[0] for col in cursor.description]
-                return dict(zip(columns, settings))
+        """
+        Get all podcast settings as dictionary.
+
+        PostgreSQL-compatible implementation using SQLAlchemy Core.
+        Migrated as part of Week 2 PostgreSQL migration (2025-10-13).
+        (Duplicate method - should be consolidated)
+
+        Returns:
+            Dict of setting key-value pairs or default settings
+
+        Raises:
+            Exception: Database errors are logged and re-raised
+        """
+        from sqlalchemy import select
+        from app.database_models import t_settings_podcasts
+
+        conn = self._temp_get_connection()
+
+        try:
+            stmt = select(t_settings_podcasts).limit(1)
+            result = conn.execute(stmt).mappings()
+            row = result.fetchone()
+
+            if row:
+                conn.commit()  # CRITICAL: Commit to close transaction
+                return dict(row)
             else:
                 # Default settings if none exist
+                conn.commit()  # CRITICAL: Commit to close transaction
                 return {
                     "id": 1,
                     "podcast_enabled": 0,
@@ -2759,22 +3067,31 @@ Remember to cite your sources and provide actionable insights where possible."""
                     "output_folder": "podcasts"
                 }
 
+        except Exception as e:
+            logger.error(f"Error getting podcast settings: {e}")
+            conn.rollback()
+            raise
+
     # Auspex Chat Management Methods
     def create_auspex_chat(self, topic: str, title: str = None, user_id: str = None, profile_id: int = None, metadata: dict = None) -> int:
         """Create a new Auspex chat session with optional organizational profile."""
+        # Facade handles transaction management
         return self.facade.create_auspex_chat(topic, title, user_id, profile_id, metadata)
 
     def update_auspex_chat_profile(self, chat_id: int, profile_id: int) -> bool:
         """Update an existing chat session with a profile_id."""
+        # Facade handles transaction management
         return self.facade.update_auspex_chat_profile(chat_id, profile_id)
 
     def get_auspex_chats(self, topic: str = None, user_id: str = None, limit: int = 50) -> List[Dict]:
         """Get Auspex chat sessions with message counts from PostgreSQL."""
         # Use facade to query PostgreSQL, not SQLite
+        # Facade handles transaction management
         return self.facade.get_auspex_chats(topic=topic, user_id=user_id, limit=limit)
 
     def get_auspex_chat(self, chat_id: int) -> Optional[Dict]:
         """Get a specific Auspex chat."""
+        # Facade handles transaction management
         return self.facade.get_auspex_chat(chat_id)
 
     def update_auspex_chat(self, chat_id: int, title: str = None, metadata: dict = None) -> bool:
@@ -2793,6 +3110,7 @@ Remember to cite your sources and provide actionable insights where possible."""
                 params.append(json.dumps(metadata))
                 
             if not updates:
+                conn.commit()  # CRITICAL: Commit to close transaction
                 return True
                 
             updates.append("updated_at = CURRENT_TIMESTAMP")
@@ -2805,12 +3123,14 @@ Remember to cite your sources and provide actionable insights where possible."""
 
     def delete_auspex_chat(self, chat_id: int) -> bool:
         """Delete an Auspex chat and all its messages."""
+        # Facade handles transaction management
         return self.facade.delete_auspex_chat(chat_id)
 
     def add_auspex_message(self, chat_id: int, role: str, content: str,
                           model_used: str = None, tokens_used: int = None,
                           metadata: dict = None) -> int:
         """Add a message to an Auspex chat."""
+        # Facade handles transaction management
         return self.facade.add_auspex_message(chat_id, role, content, model_used, tokens_used, metadata)
 
     def get_auspex_messages(self, chat_id: int) -> List[Dict]:

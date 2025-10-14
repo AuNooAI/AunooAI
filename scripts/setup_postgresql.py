@@ -378,6 +378,43 @@ def install_python_dependencies():
     return True
 
 
+def configure_database_timeouts(db_config):
+    """
+    Configure PostgreSQL timeout safeguards to prevent connection leaks.
+
+    CRITICAL: Sets idle_in_transaction_session_timeout to prevent the application
+    from freezing due to uncommitted transactions (discovered in Week 4 testing).
+
+    Reference: WEEK4-COMPLETION-REPORT.md - Critical Bug Fix
+    """
+    logger.info("Configuring database timeout safeguards...")
+
+    # Set 60-second timeout for idle transactions
+    # This prevents connection leaks from causing application freezes
+    timeout_sql = f"ALTER DATABASE {db_config['db_name']} SET idle_in_transaction_session_timeout = '60s';"
+
+    env = os.environ.copy()
+    env['PGPASSWORD'] = db_config['db_password']
+
+    result = subprocess.run(
+        ['psql', '-h', db_config['db_host'], '-p', db_config['db_port'],
+         '-U', db_config['db_user'], '-d', db_config['db_name'], '-c', timeout_sql],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env
+    )
+
+    if result.returncode != 0:
+        logger.warning(f"⚠️  Could not set idle transaction timeout: {result.stderr}")
+        logger.warning("This may lead to connection leaks under high load")
+        return False
+
+    logger.info("✅ Idle transaction timeout set to 60 seconds")
+    logger.info("   This prevents connection leaks from uncommitted transactions")
+    return True
+
+
 def create_signal_tables(db_config):
     """Create signal_instructions and signal_alerts tables."""
     logger.info("Creating signal tables...")
@@ -472,6 +509,9 @@ def run_migrations(db_config):
 
     logger.info("✅ Database migrations completed")
 
+    # Configure database timeouts (CRITICAL for preventing connection leaks)
+    configure_database_timeouts(db_config)
+
     # Create signal tables
     create_signal_tables(db_config)
 
@@ -544,6 +584,16 @@ def main():
     logger.info(f"\n💡 Your .env file has been updated with PostgreSQL settings.")
     logger.info(f"💡 A backup was saved to .env.backup")
     logger.info(f"\n🚀 You can now start the application with: python app/run.py")
+
+    logger.info(f"\n🔍 Database Health Monitoring:")
+    logger.info(f"   Check for stuck transactions:")
+    logger.info(f"   PGPASSWORD={db_config['db_password']} psql -U {db_config['db_user']} -d {db_config['db_name']} -h localhost -c \\")
+    logger.info(f"     \"SELECT pid, state, NOW() - query_start AS duration FROM pg_stat_activity WHERE state = 'idle in transaction';\"")
+    logger.info(f"\n⚠️  IMPORTANT: Week 4 PostgreSQL Migration Notes:")
+    logger.info(f"   - Transaction timeout set to 60s to prevent connection leaks")
+    logger.info(f"   - All database operations MUST call conn.commit() after queries")
+    logger.info(f"   - Monitor for 'idle in transaction' connections regularly")
+    logger.info(f"   - Reference: spec-files-aunoo/WEEK4-COMPLETION-REPORT.md")
 
     return True
 

@@ -76,9 +76,15 @@ class NewsFeedService:
             end_date = target_date + timedelta(days=1)
             date_params = [target_date.strftime('%Y-%m-%d')]
         elif date_range == '24h':
+            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=1)
             end_date = now
-            date_params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+        elif date_range == '72h':
+            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
+            start_date = now - timedelta(days=3)
+            end_date = now
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
         elif date_range == '7d':
             start_date = now - timedelta(days=7)
             end_date = now
@@ -179,9 +185,15 @@ class NewsFeedService:
             target_date = custom_date.replace(hour=0, minute=0, second=0, microsecond=0)
             date_params = [target_date.strftime('%Y-%m-%d')]
         elif date_range == '24h':
+            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=1)
             end_date = now
-            date_params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
+        elif date_range == '72h':
+            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
+            start_date = now - timedelta(days=3)
+            end_date = now
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
         elif date_range == '7d':
             start_date = now - timedelta(days=7)
             end_date = now

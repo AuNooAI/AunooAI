@@ -717,11 +717,9 @@
                             <label class="form-label small">Date Range:</label>
                             <select id="date-range-select" class="form-select form-select-sm" onchange="handleDateRangeChange()">
                     <option value="24h">Last 24 Hours</option>
-                    <option value="7d">Last 7 Days</option>
+                    <option value="72h">Last 72 Hours</option>
+                    <option value="7d" selected>Last 7 Days</option>
                     <option value="30d">Last 30 Days</option>
-                                <option value="3m" selected>Last 90 Days</option>
-                    <option value="1y">Last Year</option>
-                    <option value="all">All Time</option>
                     <option value="custom">Custom Date</option>
                 </select>
             </div>
@@ -1939,12 +1937,12 @@ document.addEventListener('DOMContentLoaded', function() {
     // Load available voices for podcast generation
     loadAvailableVoices();
 
-    // Default to last 90 days
+    // Default to last 7 days
     try {
         const dr = document.getElementById('date-range-select');
         if (dr) {
-            dr.value = '3m';
-            document.getElementById('date-range-text').textContent = 'Last 90 Days';
+            dr.value = '7d';
+            document.getElementById('date-range-text').textContent = 'Last 7 Days';
             handleDateRangeChange();
         }
     } catch (_) { /* best-effort */ }
@@ -4725,6 +4723,11 @@ function handleDateRangeChange() {
                 displayText = 'Last 24 Hours';
                 selectedDateInput.value = now.toISOString().split('T')[0];
                 break;
+            case '72h':
+                startDate = new Date(now.getTime() - 72 * 60 * 60 * 1000);
+                displayText = 'Last 72 Hours';
+                selectedDateInput.value = ''; // Clear single date, use date_range instead
+                break;
             case '7d':
                 startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
                 displayText = 'Last 7 Days';
@@ -4734,20 +4737,6 @@ function handleDateRangeChange() {
                 startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
                 displayText = 'Last 30 Days';
                 selectedDateInput.value = ''; // Clear single date, use date_range instead
-                break;
-            case '3m':
-                startDate = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
-                displayText = 'Last 3 Months';
-                selectedDateInput.value = ''; // Clear single date, use date_range instead
-                break;
-            case '1y':
-                startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
-                displayText = 'Last Year';
-                selectedDateInput.value = ''; // Clear single date, use date_range instead
-                break;
-            case 'all':
-                displayText = 'All Time';
-                selectedDateInput.value = 'all';
                 break;
         }
         
@@ -4841,8 +4830,10 @@ function renderArticles(articlesData) {
     listContainer.innerHTML = '';
     
     if (!articlesData.items || articlesData.items.length === 0) {
-        listContainer.innerHTML = '<div class="alert alert-info">No articles available.</div>';
-        document.getElementById('articles-filters').style.display = 'none';
+        listContainer.innerHTML = '<div class="alert alert-info">No articles available for the current filters. Try adjusting your search or date range.</div>';
+        // Keep filters visible so user can adjust search/filters
+        const filtersEl = document.getElementById('articles-filters');
+        if (filtersEl) filtersEl.style.display = 'block';
         return;
     }
     

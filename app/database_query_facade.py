@@ -74,8 +74,8 @@ class DatabaseQueryFacade:
 
     def _execute_with_rollback(self, statement, params=None, operation_name="query"):
         """
-        Execute a statement with automatic rollback on error.
-        This ensures PostgreSQL transactions don't stay in failed state.
+        Execute a statement with automatic rollback on error and commit on success.
+        This ensures PostgreSQL transactions don't stay in idle in transaction state.
 
         Args:
             statement: SQLAlchemy statement or text() object
@@ -84,9 +84,13 @@ class DatabaseQueryFacade:
         """
         try:
             if params is not None:
-                return self.connection.execute(statement, params)
+                result = self.connection.execute(statement, params)
             else:
-                return self.connection.execute(statement)
+                result = self.connection.execute(statement)
+            # CRITICAL: Commit after successful operation to close transaction
+            # This prevents "idle in transaction" state in PostgreSQL
+            self.connection.commit()
+            return result
         except Exception as e:
             self.logger.error(f"Error executing {operation_name}: {e}")
             try:
@@ -3774,7 +3778,7 @@ class DatabaseQueryFacade:
         return result
 
     def get_last_check_time_using_timezone_format(self):
-        from datetime import datetime
+        from datetime import datetime, timezone
         statement = select(keyword_monitor_status.c.last_check_time).where(keyword_monitor_status.c.id == 1)
 
         result = self._execute_with_rollback(statement).mappings().fetchone()
@@ -3794,7 +3798,9 @@ class DatabaseQueryFacade:
                 # If it's already in the right format, return as-is
                 return last_check
         else:
-            # It's a datetime object
+            # It's a datetime object - ensure it's timezone-aware
+            if last_check.tzinfo is None:
+                last_check = last_check.replace(tzinfo=timezone.utc)
             return last_check.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
     def get_podcast_transcript(self, podcast_id):
@@ -4500,9 +4506,11 @@ class DatabaseQueryFacade:
         ])
 
         # Build quality-based ordering using CASE expressions
+        # Note: mediabias table stores lowercase values ('high', 'very high', etc.)
         factual_reporting_order = case(
-            (articles.c.factual_reporting == 'High', 3),
-            (articles.c.factual_reporting == 'Mostly Factual', 2),
+            (articles.c.factual_reporting == 'very high', 4),
+            (articles.c.factual_reporting == 'high', 3),
+            (articles.c.factual_reporting == 'mostly factual', 2),
             else_=1
         )
 

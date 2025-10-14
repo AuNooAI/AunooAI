@@ -7,10 +7,10 @@ Provides detailed health and status information for monitoring and debugging.
 import os
 import time
 import psutil
-import sqlite3
 from datetime import datetime
 from typing import Dict, Any
 from pathlib import Path
+from sqlalchemy.exc import OperationalError
 
 from fastapi import APIRouter, status, Request, Depends
 from fastapi.responses import JSONResponse, HTMLResponse
@@ -45,7 +45,7 @@ def get_database_health() -> Dict[str, Any]:
             cursor.execute("BEGIN IMMEDIATE")
             cursor.execute("ROLLBACK")
             locked = False
-        except sqlite3.OperationalError:
+        except OperationalError:
             locked = True
 
         return {
@@ -247,18 +247,31 @@ def get_autopolling_status() -> Dict[str, Any]:
     """Check autopolling/keyword monitor status."""
     try:
         from app.database import Database
+        from sqlalchemy import text
+
         db_instance = Database()
-        conn = db_instance.get_connection()
-        cursor = conn.cursor()
+        db_type = os.getenv('DB_TYPE', 'sqlite').lower()
 
-        # Check if tables exist
-        cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name IN ('keyword_monitor_settings', 'keyword_monitor_status')
-            ORDER BY name
-        """)
+        # Get raw connection for database-agnostic queries
+        conn = db_instance._temp_get_connection()
 
-        tables = [row[0] for row in cursor.fetchall()]
+        # Check if tables exist - database-agnostic approach
+        if db_type == 'postgresql':
+            result = conn.execute(text("""
+                SELECT tablename FROM pg_tables
+                WHERE schemaname = 'public'
+                AND tablename IN ('keyword_monitor_settings', 'keyword_monitor_status')
+                ORDER BY tablename
+            """))
+            tables = [row[0] for row in result]
+        else:  # sqlite
+            result = conn.execute(text("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name IN ('keyword_monitor_settings', 'keyword_monitor_status')
+                ORDER BY name
+            """))
+            tables = [row[0] for row in result]
+
         if not tables:
             return {
                 "status": "unknown",
@@ -266,13 +279,13 @@ def get_autopolling_status() -> Dict[str, Any]:
             }
 
         # Get settings from keyword_monitor_settings
-        cursor.execute("""
+        result = conn.execute(text("""
             SELECT is_enabled, daily_request_limit
             FROM keyword_monitor_settings
             LIMIT 1
-        """)
+        """))
 
-        settings_row = cursor.fetchone()
+        settings_row = result.fetchone()
         if not settings_row:
             return {
                 "status": "unknown",
@@ -282,19 +295,22 @@ def get_autopolling_status() -> Dict[str, Any]:
         is_enabled, daily_request_limit = settings_row
 
         # Get status from keyword_monitor_status
-        cursor.execute("""
+        result = conn.execute(text("""
             SELECT requests_today, last_check_time, last_error
             FROM keyword_monitor_status
             LIMIT 1
-        """)
+        """))
 
-        status_row = cursor.fetchone()
+        status_row = result.fetchone()
         requests_today = 0
         last_check_time = None
         last_error = None
 
         if status_row:
             requests_today, last_check_time, last_error = status_row
+
+        # CRITICAL: Commit to close transaction
+        conn.commit()
 
         return {
             "status": "enabled" if is_enabled else "disabled",
@@ -307,6 +323,11 @@ def get_autopolling_status() -> Dict[str, Any]:
         }
 
     except Exception as e:
+        # Rollback on error
+        try:
+            conn.rollback()
+        except:
+            pass
         return {
             "status": "error",
             "error": str(e)

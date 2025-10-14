@@ -238,8 +238,27 @@ def main():
     logger.info("\n" + "=" * 60)
     logger.info("Setup completed successfully!")
     logger.info("=" * 60)
+
+    # Check if PostgreSQL was configured and show relevant notes
+    env_path = Path(".env")
+    db_type = None
+    if env_path.exists():
+        with open(env_path, 'r') as f:
+            for line in f:
+                if line.startswith('DB_TYPE='):
+                    db_type = line.split('=')[1].strip().lower()
+                    break
+
     logger.info("\nYou can now start the application with:")
     logger.info("  python app/run.py")
+
+    if db_type == 'postgresql':
+        logger.info("\n⚠️  PostgreSQL Configuration Notes:")
+        logger.info("  - Transaction timeout is set to 60s to prevent connection leaks")
+        logger.info("  - All database operations MUST call conn.commit() after queries")
+        logger.info("  - Monitor for 'idle in transaction' connections if performance issues occur")
+        logger.info("  - See spec-files-aunoo/WEEK4-COMPLETION-REPORT.md for details")
+
     logger.info("")
     return True
 

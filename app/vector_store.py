@@ -27,7 +27,75 @@ try:
 except ImportError:  # pragma: no cover
     openai = None  # type: ignore
 
+# --- WEEK 3 PHASE 3: ChromaDB Async Infrastructure ---
+import asyncio
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
+from functools import wraps
+
 logger = logging.getLogger(__name__)
+
+# Thread Pool Configuration for Async ChromaDB Operations
+# ChromaDB uses SQLite for metadata storage which causes file-level locking.
+# To prevent blocking FastAPI's async event loop, we run all ChromaDB operations
+# in a dedicated thread pool and serialize write operations with a lock.
+_VECTOR_THREAD_POOL_SIZE = int(os.getenv("CHROMADB_THREAD_POOL_SIZE", "4"))
+_VECTOR_EXECUTOR = ThreadPoolExecutor(
+    max_workers=_VECTOR_THREAD_POOL_SIZE,
+    thread_name_prefix="chromadb_worker_"
+)
+_CHROMADB_WRITE_LOCK = threading.Lock()
+
+logger.info(f"ChromaDB thread pool initialized with {_VECTOR_THREAD_POOL_SIZE} workers")
+
+# Retry Decorator with Exponential Backoff
+# ChromaDB operations can fail due to file locks or transient errors.
+# This decorator retries up to 3 times with exponential backoff (2s, 4s, 8s).
+def _retry_chromadb_operation(max_retries: int = 3, base_delay: float = 2.0):
+    """Decorator to retry ChromaDB operations with exponential backoff.
+
+    Args:
+        max_retries: Maximum number of retry attempts (default: 3)
+        base_delay: Base delay in seconds for exponential backoff (default: 2.0)
+
+    Returns:
+        Decorated function that retries on failure
+    """
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+
+                    # Don't retry on certain errors
+                    error_msg = str(e).lower()
+                    if any(term in error_msg for term in ["not found", "invalid", "does not exist"]):
+                        logger.warning(f"Non-retryable error in {func.__name__}: {e}")
+                        raise
+
+                    if attempt < max_retries - 1:
+                        delay = base_delay * (2 ** attempt)  # Exponential backoff: 2s, 4s, 8s
+                        logger.warning(
+                            f"ChromaDB operation {func.__name__} failed (attempt {attempt + 1}/{max_retries}), "
+                            f"retrying in {delay}s: {e}"
+                        )
+                        time.sleep(delay)
+                    else:
+                        logger.error(
+                            f"ChromaDB operation {func.__name__} failed after {max_retries} attempts: {e}"
+                        )
+
+            # If all retries failed, raise the last exception
+            raise last_exception
+
+        return wrapper
+    return decorator
 
 # pylint: disable=line-too-long
 # flake8: noqa: E501
@@ -762,4 +830,250 @@ def embedding_projection(vecs: List[List[float]]) -> Dict[str, Any]:
         "points": out,
         "centroids": centroids,
         "sizes": sizes,
-    } 
+    }
+
+# --------------------------------------------------------------------------------------
+# WEEK 3 PHASE 3: Async Wrappers for ChromaDB Operations
+# --------------------------------------------------------------------------------------
+# These async wrappers run blocking ChromaDB operations in a dedicated thread pool
+# to prevent blocking FastAPI's async event loop. Write operations are serialized
+# using a lock to prevent SQLite file lock contention.
+
+@_retry_chromadb_operation(max_retries=3, base_delay=2.0)
+async def upsert_article_async(article: Dict[str, Any]) -> None:
+    """Async wrapper for upsert_article() with retry logic and thread pool execution.
+
+    This function runs the blocking ChromaDB upsert operation in a thread pool
+    to prevent blocking the FastAPI async event loop. Write operations are
+    serialized using a lock to prevent SQLite file lock contention.
+
+    Args:
+        article: Article dictionary with uri, title, summary, etc.
+
+    Raises:
+        Exception: If upsert fails after retries
+    """
+    loop = asyncio.get_event_loop()
+
+    def _sync_upsert_with_lock():
+        """Execute upsert with write lock to prevent concurrent writes."""
+        with _CHROMADB_WRITE_LOCK:
+            logger.debug(f"Upserting article {article.get('uri')} with lock acquired")
+            upsert_article(article)
+
+    await loop.run_in_executor(_VECTOR_EXECUTOR, _sync_upsert_with_lock)
+    logger.debug(f"Async upsert completed for article {article.get('uri')}")
+
+
+@_retry_chromadb_operation(max_retries=3, base_delay=2.0)
+async def search_articles_async(
+    query: str,
+    top_k: int = 10,
+    metadata_filter: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
+    """Async wrapper for search_articles() with retry logic and thread pool execution.
+
+    This function runs the blocking ChromaDB search operation in a thread pool
+    to prevent blocking the FastAPI async event loop. Read operations don't
+    require locking since SQLite allows concurrent reads.
+
+    Args:
+        query: Search query text
+        top_k: Number of results to return (default: 10)
+        metadata_filter: Optional metadata filter dictionary
+
+    Returns:
+        List of search results with id, score, and metadata
+
+    Raises:
+        Exception: If search fails after retries
+    """
+    loop = asyncio.get_event_loop()
+
+    def _sync_search():
+        """Execute search without lock (reads are concurrent-safe)."""
+        logger.debug(f"Searching articles with query: {query[:50]}...")
+        return search_articles(query, top_k, metadata_filter)
+
+    result = await loop.run_in_executor(_VECTOR_EXECUTOR, _sync_search)
+    logger.debug(f"Async search completed, found {len(result)} results")
+    return result
+
+
+@_retry_chromadb_operation(max_retries=3, base_delay=2.0)
+async def similar_articles_async(uri: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    """Async wrapper for similar_articles() with retry logic and thread pool execution.
+
+    This function runs the blocking ChromaDB similarity search in a thread pool
+    to prevent blocking the FastAPI async event loop. Read operations don't
+    require locking since SQLite allows concurrent reads.
+
+    Args:
+        uri: Article URI to find similar articles for
+        top_k: Number of similar articles to return (default: 5)
+
+    Returns:
+        List of similar articles with id, score, and metadata
+
+    Raises:
+        Exception: If similarity search fails after retries
+    """
+    loop = asyncio.get_event_loop()
+
+    def _sync_similar():
+        """Execute similarity search without lock (reads are concurrent-safe)."""
+        logger.debug(f"Finding similar articles for URI: {uri}")
+        return similar_articles(uri, top_k)
+
+    result = await loop.run_in_executor(_VECTOR_EXECUTOR, _sync_similar)
+    logger.debug(f"Async similarity search completed, found {len(result)} results")
+    return result
+
+
+@_retry_chromadb_operation(max_retries=3, base_delay=2.0)
+async def get_vectors_by_metadata_async(
+    limit: Optional[int] = None,
+    where: Optional[Dict[str, Any]] = None
+):
+    """Async wrapper for get_vectors_by_metadata() with retry logic and thread pool execution.
+
+    This function runs the blocking ChromaDB metadata query in a thread pool
+    to prevent blocking the FastAPI async event loop. Read operations don't
+    require locking since SQLite allows concurrent reads.
+
+    Args:
+        limit: Maximum number of vectors to fetch
+        where: Metadata filter dictionary (e.g., {"topic": "AI"})
+
+    Returns:
+        Tuple of (vectors_array, metadatas_list, ids_list)
+
+    Raises:
+        Exception: If metadata query fails after retries
+    """
+    loop = asyncio.get_event_loop()
+
+    def _sync_get_vectors():
+        """Execute metadata query without lock (reads are concurrent-safe)."""
+        logger.debug(f"Fetching vectors with limit={limit}, where={where}")
+        return get_vectors_by_metadata(limit, where)
+
+    result = await loop.run_in_executor(_VECTOR_EXECUTOR, _sync_get_vectors)
+    vecs, metas, ids = result
+    logger.debug(f"Async get_vectors completed, fetched {len(ids)} vectors")
+    return result
+
+
+@_retry_chromadb_operation(max_retries=3, base_delay=2.0)
+async def embedding_projection_async(vecs: List[List[float]]) -> Dict[str, Any]:
+    """Async wrapper for embedding_projection() with retry logic and thread pool execution.
+
+    This function runs the blocking clustering operation in a thread pool
+    to prevent blocking the FastAPI async event loop. This is a pure computation
+    operation that doesn't interact with ChromaDB.
+
+    Args:
+        vecs: List of embedding vectors to cluster
+
+    Returns:
+        Dictionary with points, centroids, and cluster sizes
+
+    Raises:
+        Exception: If clustering fails after retries
+    """
+    loop = asyncio.get_event_loop()
+
+    def _sync_projection():
+        """Execute clustering without lock (no ChromaDB interaction)."""
+        logger.debug(f"Computing embedding projection for {len(vecs)} vectors")
+        return embedding_projection(vecs)
+
+    result = await loop.run_in_executor(_VECTOR_EXECUTOR, _sync_projection)
+    logger.debug("Async embedding projection completed")
+    return result
+
+
+# --------------------------------------------------------------------------------------
+# Health Check and Cleanup Functions
+# --------------------------------------------------------------------------------------
+
+def check_chromadb_health() -> Dict[str, Any]:
+    """Check ChromaDB health and return status information.
+
+    Returns:
+        Dictionary with health status:
+        - healthy: bool indicating if ChromaDB is operational
+        - collection_exists: bool indicating if articles collection exists
+        - collection_count: number of documents in collection (if available)
+        - thread_pool_size: configured thread pool size
+        - error: error message if unhealthy
+    """
+    health_status = {
+        "healthy": False,
+        "collection_exists": False,
+        "collection_count": 0,
+        "thread_pool_size": _VECTOR_THREAD_POOL_SIZE,
+        "error": None
+    }
+
+    try:
+        # Try to get ChromaDB client
+        client = get_chroma_client()
+        if client is None:
+            health_status["error"] = "ChromaDB client is None"
+            return health_status
+
+        # Try to get collection
+        collection = _get_collection()
+        if collection is None:
+            health_status["error"] = "Collection is None"
+            return health_status
+
+        health_status["collection_exists"] = True
+
+        # Try to count documents
+        try:
+            result = collection.count()
+            health_status["collection_count"] = result
+        except Exception as count_err:
+            logger.warning(f"Could not count collection documents: {count_err}")
+            # Not a fatal error, continue
+
+        health_status["healthy"] = True
+        logger.info("ChromaDB health check passed")
+
+    except Exception as exc:
+        health_status["error"] = str(exc)
+        logger.error(f"ChromaDB health check failed: {exc}")
+
+    return health_status
+
+
+def shutdown_vector_store() -> None:
+    """Shutdown the vector store thread pool and cleanup resources.
+
+    This function should be called during application shutdown to ensure
+    all pending ChromaDB operations complete and resources are cleaned up.
+    """
+    global _VECTOR_EXECUTOR, _CHROMA_CLIENT
+
+    try:
+        logger.info("Shutting down ChromaDB thread pool...")
+
+        # Shutdown thread pool executor
+        if _VECTOR_EXECUTOR is not None:
+            _VECTOR_EXECUTOR.shutdown(wait=True, cancel_futures=False)
+            logger.info(f"ChromaDB thread pool shutdown complete ({_VECTOR_THREAD_POOL_SIZE} workers)")
+
+        # Close ChromaDB client if it has a close method
+        if _CHROMA_CLIENT is not None and hasattr(_CHROMA_CLIENT, 'close'):
+            try:
+                _CHROMA_CLIENT.close()
+                logger.info("ChromaDB client closed")
+            except Exception as close_err:
+                logger.warning(f"Error closing ChromaDB client: {close_err}")
+
+    except Exception as exc:
+        logger.error(f"Error during vector store shutdown: {exc}")
+    finally:
+        logger.info("Vector store shutdown complete") 

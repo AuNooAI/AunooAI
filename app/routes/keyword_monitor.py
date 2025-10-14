@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 import io
 import csv
 from pathlib import Path
-import sqlite3
+from sqlalchemy.exc import OperationalError, DatabaseError
 from fastapi.responses import JSONResponse
 from app.config.config import load_config
 from app.relevance import RelevanceCalculator, RelevanceCalculatorError
@@ -1533,7 +1533,7 @@ async def clean_orphaned_topics(db=Depends(get_database_instance), session=Depen
         # Get all topics referenced in keyword groups
         try:
             keyword_topics = db.facade.get_all_topics_referenced_in_keyword_groups()
-        except sqlite3.OperationalError as e:
+        except (OperationalError, DatabaseError) as e:
             logger.error(f"Database error: {str(e)}")
             return {
                 "status": "error",
@@ -1611,7 +1611,7 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
                         uri, topic = row
                         if topic not in active_topics:
                             orphaned_article_uris.add(uri)
-                except sqlite3.OperationalError as e:
+                except (OperationalError, DatabaseError) as e:
                     logger.error(f"Error querying articles table: {str(e)}")
         except Exception as e:
             logger.error(f"Error checking articles schema: {str(e)}")
@@ -1623,7 +1623,7 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
                     uri, topic = row
                     if topic not in active_topics:
                         orphaned_article_uris.add(uri)
-            except sqlite3.OperationalError as e:
+            except (OperationalError, DatabaseError) as e:
                 logger.error(f"Error querying news_search_results: {str(e)}")
 
         # Check if paper_search_results table exists
@@ -1633,7 +1633,7 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
                     uri, topic = row
                     if topic not in active_topics:
                         orphaned_article_uris.add(uri)
-            except sqlite3.OperationalError as e:
+            except (OperationalError, DatabaseError) as e:
                 logger.error(f"Error querying paper_search_results: {str(e)}")
 
         # Now check for articles that are not in any search results
@@ -1648,7 +1648,7 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
 
             if has_news_results or has_paper_results:
                 orphaned_article_uris.update(db.facade.get_orphaned_urls_from_news_results_and_or_paper_results(has_news_results, has_paper_results))
-        except sqlite3.OperationalError as e:
+        except (OperationalError, DatabaseError) as e:
             logger.error(f"Error checking articles without search results: {str(e)}")
 
         if not orphaned_article_uris:
@@ -1678,7 +1678,7 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
                         alerts_deleted += db.facade.delete_keyword_article_matches_from_new_table_structure_by_url(uri)
                     else:
                         alerts_deleted += db.facade.delete_keyword_article_matches_from_old_table_structure_by_url(uri)
-            except sqlite3.OperationalError as e:
+            except (OperationalError, DatabaseError) as e:
                 logger.error(f"Error deleting alerts: {str(e)}")
 
         # Delete from search results tables
@@ -1692,7 +1692,7 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
 
                 if db.facade.check_if_paper_search_results_table_exists():
                     db.facade.delete_paper_search_results_by_article_urls(placeholders, batch)
-            except sqlite3.OperationalError as e:
+            except (OperationalError, DatabaseError) as e:
                 logger.error(f"Error deleting search results: {str(e)}")
 
         # Finally delete the articles
@@ -1700,7 +1700,7 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
             try:
                 placeholders = ','.join(['?'] * len(batch))
                 articles_deleted += db.facade.delete_articles_by_article_urls(placeholders, batch)
-            except sqlite3.OperationalError as e:
+            except (OperationalError, DatabaseError) as e:
                 logger.error(f"Error deleting articles: {str(e)}")
 
         return {

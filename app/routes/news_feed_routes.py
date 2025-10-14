@@ -121,7 +121,7 @@ async def get_news_articles_only(
     date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format"),
     date_range: Optional[str] = Query("24h", description="Date range: 24h, 7d, 30d, 3m, 1y, all, or custom"),
     topic: Optional[str] = Query(None, description="Optional topic filter"),
-    max_articles: int = Query(30, ge=10, le=100),
+    max_articles: int = Query(1000, ge=10, le=10000),
     model: str = Query("gpt-4.1-mini"),
     page: int = Query(1, ge=1, description="Page number for pagination"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
@@ -130,7 +130,7 @@ async def get_news_articles_only(
     db: Database = Depends(get_database_instance)
 ):
     """Get paginated article list similar to topic dashboard"""
-    
+
     try:
         # Parse date if provided
         target_date = None
@@ -139,22 +139,22 @@ async def get_news_articles_only(
                 target_date = datetime.strptime(date, "%Y-%m-%d")
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
-        
-        # Create request
+
+        # Create request with increased limit for browsing
         request = NewsFeedRequest(
             date=target_date,
             date_range=date_range,
             topic=topic,
-            max_articles=max_articles,
+            max_articles=max_articles,  # Increased default to 1000 for better browsing
             model=model,
             profile_id=profile_id
         )
-        
-        # Generate article list
+
+        # Generate article list - fetch more articles for browsing
         news_feed_service = get_news_feed_service(db)
         articles_data = await news_feed_service._get_articles_for_date_range(
             date_range or "24h",
-            max_articles,
+            max_articles,  # Now defaults to 1000 instead of 30
             topic,
             target_date
         )

@@ -6,9 +6,13 @@ from app.security.session import verify_session
 from typing import List, Optional
 from pydantic import BaseModel
 import os
-import sqlite3
 from urllib.parse import unquote_plus
 import logging
+from sqlalchemy.exc import IntegrityError
+# Only import sqlite3 if needed for SQLite-specific operations
+db_type = os.getenv('DB_TYPE', 'sqlite').lower()
+if db_type == 'sqlite':
+    import sqlite3
 from sqlalchemy import select, insert, delete, text
 from app.database_models import (
     t_keyword_groups as keyword_groups,
@@ -318,7 +322,8 @@ async def create_article_annotation(
         )
         logger.debug(f"Created annotation with ID: {annotation_id}")
         return {"id": annotation_id}
-    except sqlite3.IntegrityError as e:
+    except IntegrityError as e:
+        # Works for both PostgreSQL and SQLite
         logger.error(f"Database integrity error: {str(e)}")
         raise HTTPException(
             status_code=400,
@@ -388,10 +393,12 @@ async def reset_articles_data(
     - ChromaDB vector store
     """
     try:
+        db_type = os.getenv('DB_TYPE', 'sqlite').lower()
         conn = db._temp_get_connection()
 
-        # Disable foreign key checks temporarily for smoother deletion
-        conn.execute(text("PRAGMA foreign_keys = OFF"))
+        # Disable foreign key checks temporarily for smoother deletion (SQLite only)
+        if db_type == 'sqlite':
+            conn.execute(text("PRAGMA foreign_keys = OFF"))
 
         # Delete in correct order to respect foreign key relationships
         tables_to_clear = [
@@ -432,16 +439,24 @@ async def reset_articles_data(
                 logger.warning(f"Error clearing table {table}: {str(e)}")
                 # Continue with other tables even if one fails
 
-        # Re-enable foreign key checks
-        conn.execute(text("PRAGMA foreign_keys = ON"))
+        # Re-enable foreign key checks (SQLite only)
+        if db_type == 'sqlite':
+            conn.execute(text("PRAGMA foreign_keys = ON"))
 
         # Commit the existing transaction
         conn.commit()
 
         # Run VACUUM to reclaim disk space
         logger.info("Running VACUUM to reclaim disk space...")
-        conn.execute(text("VACUUM"))
-        logger.info("VACUUM completed")
+        if db_type == 'sqlite':
+            conn.execute(text("VACUUM"))
+            logger.info("VACUUM completed (SQLite)")
+        elif db_type == 'postgresql':
+            # PostgreSQL VACUUM requires autocommit mode
+            conn.connection.set_isolation_level(0)  # Autocommit mode
+            conn.execute(text("VACUUM ANALYZE"))
+            conn.connection.set_isolation_level(1)  # Back to transaction mode
+            logger.info("VACUUM ANALYZE completed (PostgreSQL)")
 
         # Also clear ChromaDB vector store
         try:
@@ -459,6 +474,7 @@ async def reset_articles_data(
         total_deleted = sum(v for v in deleted_counts.values() if isinstance(v, int))
         logger.info(f"Successfully reset articles data. Total rows deleted: {total_deleted}")
 
+        conn.commit()  # CRITICAL: Commit to close transaction
         return {
             "message": f"Successfully reset articles data (including ChromaDB). Deleted {total_deleted} total rows.",
             "details": deleted_counts
@@ -547,6 +563,7 @@ async def clear_topic_articles(
         article_count = count_result.scalar()
 
         if article_count == 0:
+            conn.commit()  # CRITICAL: Commit to close transaction
             return {
                 "message": f"No articles found for topic '{topic_name}'",
                 "articles_deleted": 0
@@ -572,9 +589,17 @@ async def clear_topic_articles(
         conn.commit()
 
         # Run VACUUM to reclaim disk space
+        db_type = os.getenv('DB_TYPE', 'sqlite').lower()
         logger.info("Running VACUUM to reclaim disk space...")
-        conn.execute(text("VACUUM"))
-        logger.info("VACUUM completed")
+        if db_type == 'sqlite':
+            conn.execute(text("VACUUM"))
+            logger.info("VACUUM completed (SQLite)")
+        elif db_type == 'postgresql':
+            # PostgreSQL VACUUM requires autocommit mode
+            conn.connection.set_isolation_level(0)  # Autocommit mode
+            conn.execute(text("VACUUM ANALYZE"))
+            conn.connection.set_isolation_level(1)  # Back to transaction mode
+            logger.info("VACUUM ANALYZE completed (PostgreSQL)")
 
         return {
             "message": f"Successfully cleared {article_count} articles for topic '{topic_name}'",
@@ -615,9 +640,17 @@ async def reset_auspex_chats(
         conn.commit()
 
         # Run VACUUM to reclaim disk space
+        db_type = os.getenv('DB_TYPE', 'sqlite').lower()
         logger.info("Running VACUUM to reclaim disk space...")
-        conn.execute(text("VACUUM"))
-        logger.info("VACUUM completed")
+        if db_type == 'sqlite':
+            conn.execute(text("VACUUM"))
+            logger.info("VACUUM completed (SQLite)")
+        elif db_type == 'postgresql':
+            # PostgreSQL VACUUM requires autocommit mode
+            conn.connection.set_isolation_level(0)  # Autocommit mode
+            conn.execute(text("VACUUM ANALYZE"))
+            conn.connection.set_isolation_level(1)  # Back to transaction mode
+            logger.info("VACUUM ANALYZE completed (PostgreSQL)")
 
         return {
             "message": f"Successfully reset Auspex chats. Deleted {chats_count} chats and {messages_count} messages.",
@@ -656,6 +689,7 @@ async def get_backups(session=Depends(verify_session)):
 
         sorted_backups = sorted(backups, key=lambda x: x["date"], reverse=True)
         logger.info(f"Returning {len(sorted_backups)} backups")
+        conn.commit()  # CRITICAL: Commit to close transaction
         return sorted_backups
 
     except Exception as e:
@@ -678,6 +712,7 @@ async def list_backups(session=Depends(verify_session)):
                     "date": datetime.fromtimestamp(stats.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
                 })
 
+        conn.commit()  # CRITICAL: Commit to close transaction
         return backups
 
     except Exception as e:
@@ -749,6 +784,7 @@ async def export_topic_configurations(db: Database = Depends(get_database_instan
         if row:
             export_data["keyword_monitor_settings"] = dict(row)
 
+        conn.commit()  # CRITICAL: Commit to close transaction
         return export_data
 
     except Exception as e:
@@ -920,50 +956,94 @@ async def import_topic_configurations(
 
 @router.post("/api/databases/reset")
 async def reset_database(db: Database = Depends(get_database_instance), session=Depends(verify_session)):
-    """Reset the database to its initial state"""
-    try:
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
+    """
+    Reset the database to its initial state.
 
-            # Begin transaction
-            cursor.execute("BEGIN IMMEDIATE")
+    PostgreSQL-compatible implementation with conditional logic.
+    Migrated as part of Week 2 PostgreSQL migration (2025-10-13).
+    """
+    try:
+        db_type = os.getenv('DB_TYPE', 'sqlite').lower()
+
+        if db_type == 'postgresql':
+            # PostgreSQL reset logic
+            conn = db._temp_get_connection()
 
             try:
-                # Disable foreign key checks temporarily
-                cursor.execute("PRAGMA foreign_keys = OFF")
+                # Get list of tables
+                result = conn.execute(text("""
+                    SELECT tablename FROM pg_tables
+                    WHERE schemaname = 'public'
+                """))
+                tables = [row[0] for row in result]
 
-                # Drop existing tables
-                cursor.execute("""
-                    SELECT name FROM sqlite_master
-                    WHERE type='table' AND name NOT IN ('sqlite_sequence')
-                """)
-                tables = cursor.fetchall()
-
+                # Drop tables in order (respect foreign keys with CASCADE)
                 for table in tables:
-                    cursor.execute(f"DROP TABLE IF EXISTS {table[0]}")
+                    conn.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
+                    logger.info(f"Dropped table: {table}")
 
-                # Re-enable foreign key checks
-                cursor.execute("PRAGMA foreign_keys = ON")
+                conn.commit()
 
-                # Reinitialize database with new schema
+                # Reinitialize database schema
                 db.init_db()
 
-                cursor.execute("COMMIT")
-
-                # Run VACUUM to reclaim disk space
-                logger.info("Running VACUUM to reclaim disk space...")
-                cursor.execute("VACUUM")
-                logger.info("VACUUM completed")
-
+                logger.info("PostgreSQL database reset completed")
                 return {"message": "Database reset successfully"}
 
             except Exception as e:
-                cursor.execute("ROLLBACK")
+                conn.rollback()
                 raise HTTPException(
                     status_code=500,
                     detail=f"Failed to reset database: {str(e)}"
                 )
 
+        else:
+            # SQLite reset logic (original code)
+            with db.get_connection() as conn:
+                cursor = conn.cursor()
+
+                # Begin transaction
+                cursor.execute("BEGIN IMMEDIATE")
+
+                try:
+                    # Disable foreign key checks temporarily
+                    cursor.execute("PRAGMA foreign_keys = OFF")
+
+                    # Drop existing tables
+                    cursor.execute("""
+                        SELECT name FROM sqlite_master
+                        WHERE type='table' AND name NOT IN ('sqlite_sequence')
+                    """)
+                    tables = cursor.fetchall()
+
+                    for table in tables:
+                        cursor.execute(f"DROP TABLE IF EXISTS {table[0]}")
+
+                    # Re-enable foreign key checks
+                    cursor.execute("PRAGMA foreign_keys = ON")
+
+                    # Reinitialize database with new schema
+                    db.init_db()
+
+                    cursor.execute("COMMIT")
+
+                    # Run VACUUM to reclaim disk space
+                    logger.info("Running VACUUM to reclaim disk space...")
+                    cursor.execute("VACUUM")
+                    logger.info("SQLite database reset completed")
+
+                    conn.commit()  # CRITICAL: Commit to close transaction
+                    return {"message": "Database reset successfully"}
+
+                except Exception as e:
+                    cursor.execute("ROLLBACK")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"Failed to reset database: {str(e)}"
+                    )
+
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error resetting database: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -1007,6 +1087,7 @@ async def export_articles_enriched(
         export_data["total_articles"] = len(export_data["articles"])
         logger.info(f"Exported {export_data['total_articles']} enriched articles")
 
+        conn.commit()  # CRITICAL: Commit to close transaction
         return export_data
 
     except Exception as e:
@@ -1054,6 +1135,7 @@ async def export_articles_raw(
         export_data["total_articles"] = len(export_data["articles"])
         logger.info(f"Exported {export_data['total_articles']} raw articles")
 
+        conn.commit()  # CRITICAL: Commit to close transaction
         return export_data
 
     except Exception as e:

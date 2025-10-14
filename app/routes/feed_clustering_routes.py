@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from typing import List, Optional, Dict, Any
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import asyncio
 
 from ..database import Database, get_database_instance
@@ -24,8 +24,8 @@ async def get_feed_items_for_clustering(
         db = get_database_instance()
     conn = db.get_connection()
     
-    # Calculate date threshold
-    date_threshold = datetime.now() - timedelta(days=days_back)
+    # Calculate date threshold with timezone awareness
+    date_threshold = datetime.now(timezone.utc) - timedelta(days=days_back)
     
     try:
         # Get items from each source type separately to ensure balanced representation

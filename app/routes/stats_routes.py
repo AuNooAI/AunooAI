@@ -19,19 +19,31 @@ def timeago_filter(value):
     if not value:
         return ""
     try:
-        now = datetime.now(timezone.utc)  # Get current time in UTC
-        
         # Convert input value to timezone-aware datetime
         if isinstance(value, str):
             try:
                 dt = datetime.fromisoformat(value.replace('Z', '+00:00'))
             except ValueError:
                 # Handle other date string formats if needed
-                dt = datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
-                dt = dt.replace(tzinfo=timezone.utc)
+                try:
+                    dt = datetime.strptime(value, '%Y-%m-%d %H:%M:%S')
+                    dt = dt.replace(tzinfo=timezone.utc)
+                except ValueError:
+                    # Try parsing as date only
+                    dt = datetime.strptime(value, '%Y-%m-%d')
+                    dt = dt.replace(tzinfo=timezone.utc)
         else:
+            # Handle datetime objects - make them timezone-aware if they aren't
             dt = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-            
+
+        # Ensure dt is timezone-aware
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+
+        # Get current time in UTC (timezone-aware)
+        now = datetime.now(timezone.utc)
+
+        # Both are now timezone-aware, safe to subtract
         diff = now - dt
         
         # Handle future dates

@@ -27,6 +27,22 @@ t_analysis_versions_v2 = Table(
     Index('idx_topic_created', 'topic', 'created_at')
 )
 
+t_article_analysis_cache = Table(
+    'article_analysis_cache', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('article_uri', Text, nullable=False),
+    Column('analysis_type', Text, nullable=False),
+    Column('content', Text, nullable=False),
+    Column('model_used', Text, nullable=False),
+    Column('generated_at', TIMESTAMP, default=text('CURRENT_TIMESTAMP')),
+    Column('expires_at', TIMESTAMP),
+    Column('metadata', Text),
+    UniqueConstraint('article_uri', 'analysis_type', 'model_used'),
+    Index('idx_article_analysis_cache_uri', 'article_uri'),
+    Index('idx_article_analysis_cache_type', 'analysis_type'),
+    Index('idx_article_analysis_cache_expires', 'expires_at')
+)
+
 t_articles = Table(
     'articles', metadata,
     Column('uri', Text, primary_key=True),
