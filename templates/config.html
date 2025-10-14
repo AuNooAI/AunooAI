@@ -41,8 +41,44 @@
                 <div class="left-panel">
                     <h2>Database Management</h2>
                     <p class="text-muted mb-4">Manage your databases and configure active database settings.</p>
-                    
-                    <div class="config-item">
+
+                    <!-- Database Type Info Panels -->
+                    <div id="postgresql-info" class="alert alert-info database-type-info" style="display: none;">
+                        <div class="d-flex align-items-center mb-2">
+                            <i class="fas fa-database me-2"></i>
+                            <strong>PostgreSQL Database</strong>
+                            <span class="badge bg-primary ms-2">Production Database</span>
+                        </div>
+                        <p class="mb-2">This instance is using PostgreSQL. Database creation, switching, and file downloads
+                           should be managed through PostgreSQL admin tools (psql, pgAdmin, etc.).</p>
+                        <p class="mb-2"><small>
+                            <strong>Connection:</strong> <code id="postgresql-connection-string"></code>
+                        </small></p>
+                        <p class="mb-0"><small>
+                            <strong>Connection Pool:</strong>
+                            <span id="postgresql-pool-info" class="text-muted">
+                                20 base + 10 overflow = 30 max concurrent connections
+                            </span>
+                        </small></p>
+                        <p class="mb-0 mt-2" id="postgresql-health-status" style="display: none;">
+                            <small>
+                                <i class="fas fa-exclamation-triangle text-warning"></i>
+                                <span id="postgresql-health-message"></span>
+                            </small>
+                        </p>
+                    </div>
+
+                    <div id="sqlite-info" class="alert alert-info database-type-info" style="display: none;">
+                        <div class="d-flex align-items-center mb-2">
+                            <i class="fas fa-database me-2"></i>
+                            <strong>SQLite Database</strong>
+                            <span class="badge bg-info ms-2">File-Based Database</span>
+                        </div>
+                        <p class="mb-0">This instance is using SQLite file-based databases. You can create, switch,
+                           and download database files from this interface.</p>
+                    </div>
+
+                    <div class="config-item sqlite-only">
                         <h3>Active Database</h3>
                         <div class="form-group">
                             <select id="active-database" class="form-select"
@@ -53,14 +89,14 @@
                         </div>
                     </div>
 
-                    <div class="config-item">
+                    <div class="config-item sqlite-only">
                         <h3>Available Databases</h3>
                         <ul id="database-list">
                             <!-- Database list will be populated dynamically -->
                         </ul>
                     </div>
 
-                    <div class="config-item">
+                    <div class="config-item sqlite-only">
                         <h3>New Database</h3>
                         <form id="create-database-form">
                             <div class="form-group">
@@ -84,8 +120,8 @@
                                     data-tooltip="Create a backup of the current database">
                                 <i class="fas fa-save"></i> Backup
                             </button>
-                            <button id="download-database" onclick="showDownloadDialog()"
-                                    data-tooltip="Download a database file">
+                            <button id="download-database" class="sqlite-only" onclick="showDownloadDialog()"
+                                    data-tooltip="Download a database file (SQLite only)">
                                 <i class="fas fa-download"></i> Download
                             </button>
                             <button id="reset-database" class="danger" onclick="resetDatabase()"
@@ -1131,6 +1167,36 @@
         margin-bottom: 8px;
         font-weight: 600;
     }
+
+    /* Database Type Info Panels */
+    .database-type-info {
+        border-radius: 12px;
+        border-left: 4px solid;
+        margin-bottom: 20px;
+    }
+
+    .database-type-info.alert-info {
+        border-left-color: var(--primary-color);
+        background-color: rgba(255, 105, 180, 0.05);
+    }
+
+    .database-type-info code {
+        background-color: rgba(0, 0, 0, 0.05);
+        padding: 2px 6px;
+        border-radius: 4px;
+        font-family: 'Courier New', monospace;
+        font-size: 0.9em;
+    }
+
+    .database-type-info .badge {
+        font-size: 0.75em;
+        padding: 0.35em 0.65em;
+    }
+
+    /* Hide elements with sqlite-only class when not needed */
+    .sqlite-only.hidden {
+        display: none !important;
+    }
 </style>
 
 <script>
@@ -1322,11 +1388,63 @@
             }
 
             const data = await response.json();
-            console.log('Loaded database info:', data); // Debug log
+            console.log('Loaded database info:', data);
 
             // Update database type
             const dbType = data.db_type || 'sqlite';
             document.getElementById('db-type').textContent = dbType.toUpperCase();
+
+            // Show/hide database type info panels
+            if (dbType === 'postgresql') {
+                document.getElementById('postgresql-info').style.display = 'block';
+                document.getElementById('sqlite-info').style.display = 'none';
+
+                // Set PostgreSQL connection string
+                const connString = `${data.host || 'localhost'}:${data.port || 5432}/${data.name}`;
+                document.getElementById('postgresql-connection-string').textContent = connString;
+
+                // Hide SQLite-only UI elements
+                document.querySelectorAll('.sqlite-only').forEach(el => {
+                    el.style.display = 'none';
+                });
+
+                // Update backup button tooltip
+                const backupBtn = document.getElementById('backup-database');
+                backupBtn.setAttribute('data-tooltip', 'Create a PostgreSQL backup using pg_dump');
+
+                // Check for stuck transactions (PostgreSQL only)
+                try {
+                    const healthResponse = await fetch('/api/database-health');
+                    if (healthResponse.ok) {
+                        const healthData = await healthResponse.json();
+
+                        if (healthData.stuck_transactions > 0) {
+                            // Show warning
+                            const healthStatus = document.getElementById('postgresql-health-status');
+                            const healthMessage = document.getElementById('postgresql-health-message');
+                            healthStatus.style.display = 'block';
+                            healthMessage.textContent =
+                                `Warning: ${healthData.stuck_transactions} stuck transaction(s) detected. ` +
+                                `They will auto-terminate after 60 seconds.`;
+                        }
+                    }
+                } catch (error) {
+                    console.warn('Could not check database health:', error);
+                }
+
+            } else {
+                document.getElementById('postgresql-info').style.display = 'none';
+                document.getElementById('sqlite-info').style.display = 'block';
+
+                // Show SQLite-only UI elements
+                document.querySelectorAll('.sqlite-only').forEach(el => {
+                    el.style.display = '';
+                });
+
+                // Update backup button tooltip
+                const backupBtn = document.getElementById('backup-database');
+                backupBtn.setAttribute('data-tooltip', 'Create a backup copy of the database file');
+            }
 
             // Update basic info
             document.getElementById('db-name').textContent = data.name || 'N/A';
@@ -1369,7 +1487,7 @@
             console.error('Error loading database info:', error);
             document.getElementById('database-info').innerHTML =
                 '<div class="alert alert-danger">Error loading database information</div>';
-            throw error; // Re-throw to handle in calling function
+            throw error;
         }
     }
 
@@ -2200,8 +2318,9 @@
 
     async function reindexChromaDB() {
         const confirmed = confirm(
-            'This will re-index all articles from the SQLite database into ChromaDB.\n\n' +
+            'This will re-index all articles from the database into ChromaDB.\n\n' +
             'The existing ChromaDB collection will be deleted and recreated.\n\n' +
+            'Note: ChromaDB uses its own SQLite database (separate from main database).\n\n' +
             'This may take several minutes depending on the number of articles.\n\n' +
             'Continue?'
         );

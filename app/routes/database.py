@@ -44,6 +44,71 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+# Helper functions for database type detection and operations
+def get_db_type() -> str:
+    """Get the current database type from environment."""
+    return os.getenv('DB_TYPE', 'sqlite').lower()
+
+def check_external_command(command: str) -> bool:
+    """
+    Check if an external command is available in the system PATH.
+
+    Args:
+        command: Command name to check (e.g., 'pg_dump', 'alembic')
+
+    Returns:
+        True if command is available, False otherwise
+    """
+    import subprocess
+    try:
+        result = subprocess.run(
+            ['which', command],
+            capture_output=True,
+            timeout=5
+        )
+        return result.returncode == 0
+    except Exception as e:
+        logger.warning(f"Error checking for command '{command}': {e}")
+        return False
+
+def execute_vacuum(db: Database, db_type: str = None):
+    """
+    Execute VACUUM with correct syntax for database type.
+
+    CRITICAL: PostgreSQL VACUUM must be run with autocommit=True
+    or outside of a transaction block. Always commit before VACUUM.
+
+    Implementation Notes:
+    - PostgreSQL: Uses VACUUM ANALYZE (reclaims space + updates statistics)
+                  Requires set_isolation_level(0) for autocommit mode
+    - SQLite: Uses standard VACUUM within transaction
+    - Both: Proper error handling and logging
+    """
+    if db_type is None:
+        db_type = get_db_type()
+
+    conn = db._temp_get_connection()
+
+    try:
+        if db_type == 'postgresql':
+            # CRITICAL: Commit any pending transaction first
+            conn.commit()
+
+            # PostgreSQL VACUUM ANALYZE requires autocommit mode
+            # Set isolation level to 0 (autocommit) temporarily
+            conn.connection.set_isolation_level(0)  # Autocommit mode
+            conn.execute(text("VACUUM ANALYZE"))
+            conn.connection.set_isolation_level(1)  # Back to transaction mode
+            logger.info("PostgreSQL VACUUM ANALYZE completed")
+        else:
+            # SQLite: VACUUM can run in transaction
+            conn.execute(text("VACUUM"))
+            conn.commit()
+            logger.info("SQLite VACUUM completed")
+    except Exception as e:
+        logger.error(f"VACUUM failed for {db_type}: {e}")
+        raise
+
 # Add this model for the bulk delete request
 class BulkDeleteRequest(BaseModel):
     uris: List[str]
@@ -364,14 +429,206 @@ async def delete_article_annotation(
 
 @router.post("/api/databases/backup")
 async def create_database_backup(db: Database = Depends(get_database_instance), session=Depends(verify_session)):
-    """Create a backup of the current database"""
+    """
+    Create a backup of the current database.
+
+    PostgreSQL: Uses pg_dump with custom format (compressed)
+    SQLite: File copy with integrity check
+    """
     try:
-        from scripts.db_merge import DatabaseMerger
-        merger = DatabaseMerger()
-        backup_path = merger.create_backup()
-        return {"message": f"Database backup created successfully", "backup_file": backup_path.name}
+        db_type = get_db_type()
+
+        if db_type == 'postgresql':
+            # PostgreSQL backup using pg_dump
+            import subprocess
+            from app.config.settings import db_settings
+
+            # CRITICAL: Check if pg_dump is available
+            if not check_external_command('pg_dump'):
+                raise HTTPException(
+                    status_code=500,
+                    detail="pg_dump command not found. Please install PostgreSQL client tools."
+                )
+
+            backup_dir = Path(DATABASE_DIR) / "backups"
+            backup_dir.mkdir(parents=True, exist_ok=True)
+
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_filename = f"{db_settings.DB_NAME}_backup_{timestamp}.dump"
+            backup_path = backup_dir / backup_filename
+
+            # Build pg_dump command with custom format (compressed)
+            env = os.environ.copy()
+            env['PGPASSWORD'] = db_settings.DB_PASSWORD
+
+            cmd = [
+                'pg_dump',
+                '-h', db_settings.DB_HOST,
+                '-p', str(db_settings.DB_PORT),
+                '-U', db_settings.DB_USER,
+                '-d', db_settings.DB_NAME,
+                '-F', 'c',  # Custom format (compressed, allows selective restore)
+                '-f', str(backup_path),
+                '--verbose'
+            ]
+
+            logger.info(f"Running pg_dump for database: {db_settings.DB_NAME}")
+
+            result = subprocess.run(
+                cmd,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=300  # 5 minute timeout
+            )
+
+            if result.returncode != 0:
+                logger.error(f"pg_dump failed: {result.stderr}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Backup failed: {result.stderr}"
+                )
+
+            backup_size = os.path.getsize(backup_path)
+            logger.info(f"PostgreSQL backup created: {backup_path} ({backup_size} bytes)")
+
+            return {
+                "message": "PostgreSQL backup created successfully",
+                "backup_file": backup_filename,
+                "backup_path": str(backup_path),
+                "size": backup_size,
+                "size_mb": round(backup_size / (1024 * 1024), 2),
+                "db_type": "postgresql"
+            }
+
+        else:
+            # SQLite backup (file copy with integrity check)
+            backup_dir = Path(DATABASE_DIR) / "backups"
+            backup_dir.mkdir(parents=True, exist_ok=True)
+
+            # Get current database path
+            db_name = db.get_active_database()
+            source_path = Path(DATABASE_DIR) / db_name
+
+            if not source_path.exists():
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Database file not found: {source_path}"
+                )
+
+            # Create backup with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_filename = f"{source_path.stem}_backup_{timestamp}.db"
+            backup_path = backup_dir / backup_filename
+
+            # Perform integrity check before backup
+            conn = db._temp_get_connection()
+            integrity_stmt = text("PRAGMA integrity_check")
+            integrity_result = conn.execute(integrity_stmt)
+            integrity_value = integrity_result.scalar()
+            conn.commit()
+
+            if integrity_value != "ok":
+                logger.warning(f"Database integrity check failed: {integrity_value}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Database integrity check failed: {integrity_value}"
+                )
+
+            # Copy database file
+            shutil.copy2(source_path, backup_path)
+
+            backup_size = os.path.getsize(backup_path)
+            logger.info(f"SQLite backup created: {backup_path} ({backup_size} bytes)")
+
+            return {
+                "message": "SQLite backup created successfully",
+                "backup_file": backup_filename,
+                "backup_path": str(backup_path),
+                "size": backup_size,
+                "size_mb": round(backup_size / (1024 * 1024), 2),
+                "db_type": "sqlite"
+            }
+
+    except HTTPException:
+        raise
+    except subprocess.TimeoutExpired:
+        logger.error("Backup operation timed out after 5 minutes")
+        raise HTTPException(status_code=500, detail="Backup operation timed out")
     except Exception as e:
-        logger.error(f"Error creating database backup: {str(e)}")
+        logger.error(f"Error creating database backup: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/api/database-health")
+async def get_database_health(db: Database = Depends(get_database_instance)):
+    """
+    Get database health metrics (PostgreSQL-specific).
+
+    Returns:
+    - Stuck transactions count
+    - Active connections
+    - Longest running query
+    - Connection pool stats
+    """
+    try:
+        db_type = get_db_type()
+
+        if db_type != 'postgresql':
+            return {
+                "message": "Health check only available for PostgreSQL",
+                "db_type": db_type
+            }
+
+        conn = db._temp_get_connection()
+
+        # Check for stuck transactions
+        stuck_query = text("""
+            SELECT COUNT(*) as stuck_count
+            FROM pg_stat_activity
+            WHERE state = 'idle in transaction'
+            AND datname = :db_name
+        """)
+
+        from app.config.settings import db_settings
+        result = conn.execute(stuck_query, {"db_name": db_settings.DB_NAME}).mappings()
+        row = result.fetchone()
+        stuck_count = row['stuck_count'] if row else 0
+
+        # Get connection pool usage
+        pool_query = text("""
+            SELECT
+                COUNT(*) as active_connections,
+                MAX(EXTRACT(EPOCH FROM (NOW() - query_start))) as longest_query_seconds
+            FROM pg_stat_activity
+            WHERE datname = :db_name
+            AND state = 'active'
+        """)
+
+        result = conn.execute(pool_query, {"db_name": db_settings.DB_NAME}).mappings()
+        row = result.fetchone()
+
+        # CRITICAL: Commit to close transaction
+        conn.commit()
+
+        return {
+            "db_type": "postgresql",
+            "healthy": stuck_count == 0,
+            "stuck_transactions": stuck_count,
+            "active_connections": row['active_connections'] if row else 0,
+            "longest_query_seconds": float(row['longest_query_seconds']) if row and row['longest_query_seconds'] else 0,
+            "pool_config": {
+                "pool_size": 20,
+                "max_overflow": 10,
+                "max_connections": 30
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error checking database health: {str(e)}")
+        try:
+            conn.rollback()
+        except:
+            pass
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/reset-articles-data")
@@ -380,7 +637,12 @@ async def reset_articles_data(
     session=Depends(verify_session)
 ):
     """
-    Reset all article-related data including:
+    Reset all article-related data including ChromaDB vector store.
+
+    PostgreSQL-compatible implementation using SQLAlchemy Core with
+    proper transaction management and query patterns.
+
+    Clears:
     - articles and raw_articles
     - article_annotations
     - keyword_alerts, keyword_article_matches
@@ -389,18 +651,16 @@ async def reset_articles_data(
     - feed_items, feed_group_sources
     - model_bias_arena_runs, model_bias_arena_results, model_bias_arena_articles
     - analysis_versions, analysis_versions_v2, article_analysis_cache
-    - signal_alerts, incident_status
-    - ChromaDB vector store
+    - signal_alerts, incident_status (if exists)
+    - ChromaDB vector store (separate SQLite database)
     """
     try:
-        db_type = os.getenv('DB_TYPE', 'sqlite').lower()
         conn = db._temp_get_connection()
+        db_type = get_db_type()
 
-        # Disable foreign key checks temporarily for smoother deletion (SQLite only)
-        if db_type == 'sqlite':
-            conn.execute(text("PRAGMA foreign_keys = OFF"))
+        logger.info(f"Starting article data reset for {db_type}")
 
-        # Delete in correct order to respect foreign key relationships
+        # Define deletion order (respects foreign key relationships)
         tables_to_clear = [
             # Dependent tables first
             'keyword_article_matches',
@@ -418,70 +678,89 @@ async def reset_articles_data(
             'analysis_versions',
             'podcasts',
             'raw_articles',
-            # Main tables
+            # Keyword tables
             'monitored_keywords',
             'keyword_groups',
+            # Main table last
             'articles'
         ]
 
         deleted_counts = {}
+
         for table in tables_to_clear:
             try:
-                # Get count before deletion
-                count_result = conn.execute(text(f"SELECT COUNT(*) FROM {table}"))
+                # Get count before deletion using .scalar()
+                count_stmt = text(f"SELECT COUNT(*) FROM {table}")
+                count_result = conn.execute(count_stmt)
                 count = count_result.scalar()
 
-                # Delete all rows
-                conn.execute(text(f"DELETE FROM {table}"))
-                deleted_counts[table] = count
-                logger.info(f"Deleted {count} rows from {table}")
+                if count > 0:
+                    # Use TRUNCATE for PostgreSQL (faster, resets sequences)
+                    # Use DELETE for SQLite (TRUNCATE not supported)
+                    if db_type == 'postgresql':
+                        # TRUNCATE CASCADE removes dependent rows automatically
+                        delete_stmt = text(f"TRUNCATE TABLE {table} CASCADE")
+                        conn.execute(delete_stmt)
+                    else:
+                        # SQLite: Standard DELETE
+                        delete_stmt = text(f"DELETE FROM {table}")
+                        conn.execute(delete_stmt)
+
+                    deleted_counts[table] = count
+                    logger.info(f"Cleared {count} rows from {table}")
+                else:
+                    deleted_counts[table] = 0
+
             except Exception as e:
                 logger.warning(f"Error clearing table {table}: {str(e)}")
+                deleted_counts[table] = f"Error: {str(e)}"
                 # Continue with other tables even if one fails
 
-        # Re-enable foreign key checks (SQLite only)
-        if db_type == 'sqlite':
-            conn.execute(text("PRAGMA foreign_keys = ON"))
-
-        # Commit the existing transaction
+        # CRITICAL: Commit transaction before VACUUM
         conn.commit()
+        logger.info("Transaction committed, starting VACUUM")
 
         # Run VACUUM to reclaim disk space
-        logger.info("Running VACUUM to reclaim disk space...")
-        if db_type == 'sqlite':
-            conn.execute(text("VACUUM"))
-            logger.info("VACUUM completed (SQLite)")
-        elif db_type == 'postgresql':
-            # PostgreSQL VACUUM requires autocommit mode
-            conn.connection.set_isolation_level(0)  # Autocommit mode
-            conn.execute(text("VACUUM ANALYZE"))
-            conn.connection.set_isolation_level(1)  # Back to transaction mode
-            logger.info("VACUUM ANALYZE completed (PostgreSQL)")
+        execute_vacuum(db, db_type)
 
-        # Also clear ChromaDB vector store
+        # Clear ChromaDB vector store (separate SQLite database)
         try:
             from app.vector_store import get_chroma_client
             client = get_chroma_client()
+
             try:
-                client.delete_collection("articles")
-                logger.info("Deleted ChromaDB 'articles' collection")
-                deleted_counts['chromadb_articles'] = 'Collection deleted'
+                # Check if collection exists before deleting
+                collections = client.list_collections()
+                if any(c.name == "articles" for c in collections):
+                    client.delete_collection("articles")
+                    logger.info("Deleted ChromaDB 'articles' collection")
+                    deleted_counts['chromadb_articles'] = 'Collection deleted'
+                else:
+                    logger.info("ChromaDB 'articles' collection did not exist")
+                    deleted_counts['chromadb_articles'] = 'Collection did not exist'
             except Exception as chroma_error:
-                logger.warning(f"ChromaDB collection may not exist or already deleted: {str(chroma_error)}")
+                logger.warning(f"ChromaDB deletion issue: {str(chroma_error)}")
+                deleted_counts['chromadb_articles'] = f"Error: {str(chroma_error)}"
         except Exception as e:
-            logger.warning(f"Could not clear ChromaDB: {str(e)}")
+            logger.warning(f"Could not access ChromaDB: {str(e)}")
+            deleted_counts['chromadb_articles'] = f"Error: {str(e)}"
 
         total_deleted = sum(v for v in deleted_counts.values() if isinstance(v, int))
-        logger.info(f"Successfully reset articles data. Total rows deleted: {total_deleted}")
+        logger.info(f"Article data reset complete. Total rows deleted: {total_deleted}")
 
-        conn.commit()  # CRITICAL: Commit to close transaction
         return {
             "message": f"Successfully reset articles data (including ChromaDB). Deleted {total_deleted} total rows.",
-            "details": deleted_counts
+            "details": deleted_counts,
+            "db_type": db_type
         }
 
     except Exception as e:
-        logger.error(f"Error resetting articles data: {str(e)}")
+        logger.error(f"Error resetting articles data: {str(e)}", exc_info=True)
+        # Rollback on error
+        try:
+            conn.rollback()
+        except:
+            pass
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/api/reindex-chromadb")
@@ -551,64 +830,62 @@ async def clear_topic_articles(
     db: Database = Depends(get_database_instance),
     session=Depends(verify_session)
 ):
-    """Clear all articles for a specific topic without deleting the topic itself"""
+    """
+    Clear all articles for a specific topic without deleting the topic itself.
+
+    PostgreSQL-compatible implementation using SQLAlchemy Core with
+    parameterized queries.
+    """
     try:
         conn = db._temp_get_connection()
+        db_type = get_db_type()
 
-        # Get count before deletion
-        count_result = conn.execute(
-            text("SELECT COUNT(*) FROM articles WHERE topic = :topic"),
-            {"topic": topic_name}
-        )
+        logger.info(f"Clearing articles for topic '{topic_name}' ({db_type})")
+
+        # Get count before deletion using parameterized query
+        count_stmt = text("SELECT COUNT(*) FROM articles WHERE topic = :topic")
+        count_result = conn.execute(count_stmt, {"topic": topic_name})
         article_count = count_result.scalar()
 
         if article_count == 0:
-            conn.commit()  # CRITICAL: Commit to close transaction
             return {
                 "message": f"No articles found for topic '{topic_name}'",
-                "articles_deleted": 0
+                "articles_deleted": 0,
+                "topic_name": topic_name
             }
 
-        # Delete articles for this topic
-        conn.execute(
-            text("DELETE FROM articles WHERE topic = :topic"),
-            {"topic": topic_name}
-        )
+        # Delete articles for this topic (parameterized for SQL injection safety)
+        delete_stmt = text("DELETE FROM articles WHERE topic = :topic")
+        conn.execute(delete_stmt, {"topic": topic_name})
         logger.info(f"Deleted {article_count} articles for topic '{topic_name}'")
 
         # Also delete from raw_articles if it has a topic column
         try:
-            conn.execute(
-                text("DELETE FROM raw_articles WHERE topic = :topic"),
-                {"topic": topic_name}
-            )
+            raw_delete_stmt = text("DELETE FROM raw_articles WHERE topic = :topic")
+            conn.execute(raw_delete_stmt, {"topic": topic_name})
         except Exception as e:
             logger.warning(f"Could not delete from raw_articles (may not have topic column): {str(e)}")
 
-        # Commit the existing transaction
+        # CRITICAL: Commit the transaction before VACUUM
         conn.commit()
+        logger.info("Transaction committed, starting VACUUM")
 
         # Run VACUUM to reclaim disk space
-        db_type = os.getenv('DB_TYPE', 'sqlite').lower()
-        logger.info("Running VACUUM to reclaim disk space...")
-        if db_type == 'sqlite':
-            conn.execute(text("VACUUM"))
-            logger.info("VACUUM completed (SQLite)")
-        elif db_type == 'postgresql':
-            # PostgreSQL VACUUM requires autocommit mode
-            conn.connection.set_isolation_level(0)  # Autocommit mode
-            conn.execute(text("VACUUM ANALYZE"))
-            conn.connection.set_isolation_level(1)  # Back to transaction mode
-            logger.info("VACUUM ANALYZE completed (PostgreSQL)")
+        execute_vacuum(db, db_type)
 
         return {
             "message": f"Successfully cleared {article_count} articles for topic '{topic_name}'",
             "articles_deleted": article_count,
-            "topic_name": topic_name
+            "topic_name": topic_name,
+            "db_type": db_type
         }
 
     except Exception as e:
-        logger.error(f"Error clearing articles for topic '{topic_name}': {str(e)}")
+        logger.error(f"Error clearing articles for topic '{topic_name}': {str(e)}", exc_info=True)
+        try:
+            conn.rollback()
+        except:
+            pass
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -617,49 +894,58 @@ async def reset_auspex_chats(
     db: Database = Depends(get_database_instance),
     session=Depends(verify_session)
 ):
-    """Reset all Auspex chat history (messages and chats)"""
+    """
+    Reset all Auspex chat history (messages and chats).
+
+    PostgreSQL-compatible implementation using SQLAlchemy Core.
+    """
     try:
         conn = db._temp_get_connection()
+        db_type = get_db_type()
 
-        # Get counts before deletion
-        messages_result = conn.execute(text("SELECT COUNT(*) FROM auspex_messages"))
+        logger.info(f"Starting Auspex chat reset for {db_type}")
+
+        # Get counts before deletion using .scalar()
+        messages_stmt = text("SELECT COUNT(*) FROM auspex_messages")
+        messages_result = conn.execute(messages_stmt)
         messages_count = messages_result.scalar()
 
-        chats_result = conn.execute(text("SELECT COUNT(*) FROM auspex_chats"))
+        chats_stmt = text("SELECT COUNT(*) FROM auspex_chats")
+        chats_result = conn.execute(chats_stmt)
         chats_count = chats_result.scalar()
 
         # Delete messages first (foreign key to chats)
-        conn.execute(text("DELETE FROM auspex_messages"))
-        logger.info(f"Deleted {messages_count} messages from auspex_messages")
+        if db_type == 'postgresql':
+            # Use TRUNCATE CASCADE for PostgreSQL
+            conn.execute(text("TRUNCATE TABLE auspex_messages CASCADE"))
+            conn.execute(text("TRUNCATE TABLE auspex_chats CASCADE"))
+        else:
+            # Use DELETE for SQLite
+            conn.execute(text("DELETE FROM auspex_messages"))
+            conn.execute(text("DELETE FROM auspex_chats"))
 
-        # Delete chats
-        conn.execute(text("DELETE FROM auspex_chats"))
-        logger.info(f"Deleted {chats_count} chats from auspex_chats")
+        logger.info(f"Deleted {messages_count} messages and {chats_count} chats")
 
-        # Commit the existing transaction
+        # CRITICAL: Commit the transaction before VACUUM
         conn.commit()
+        logger.info("Transaction committed, starting VACUUM")
 
         # Run VACUUM to reclaim disk space
-        db_type = os.getenv('DB_TYPE', 'sqlite').lower()
-        logger.info("Running VACUUM to reclaim disk space...")
-        if db_type == 'sqlite':
-            conn.execute(text("VACUUM"))
-            logger.info("VACUUM completed (SQLite)")
-        elif db_type == 'postgresql':
-            # PostgreSQL VACUUM requires autocommit mode
-            conn.connection.set_isolation_level(0)  # Autocommit mode
-            conn.execute(text("VACUUM ANALYZE"))
-            conn.connection.set_isolation_level(1)  # Back to transaction mode
-            logger.info("VACUUM ANALYZE completed (PostgreSQL)")
+        execute_vacuum(db, db_type)
 
         return {
             "message": f"Successfully reset Auspex chats. Deleted {chats_count} chats and {messages_count} messages.",
             "chats_deleted": chats_count,
-            "messages_deleted": messages_count
+            "messages_deleted": messages_count,
+            "db_type": db_type
         }
 
     except Exception as e:
-        logger.error(f"Error resetting Auspex chats: {str(e)}")
+        logger.error(f"Error resetting Auspex chats: {str(e)}", exc_info=True)
+        try:
+            conn.rollback()
+        except:
+            pass
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/backups")
@@ -957,95 +1243,162 @@ async def import_topic_configurations(
 @router.post("/api/databases/reset")
 async def reset_database(db: Database = Depends(get_database_instance), session=Depends(verify_session)):
     """
-    Reset the database to its initial state.
+    Reset the database to its initial state using Alembic migrations.
 
-    PostgreSQL-compatible implementation with conditional logic.
-    Migrated as part of Week 2 PostgreSQL migration (2025-10-13).
+    CRITICAL: Uses Alembic to recreate schema, not db.init_db()
+
+    WARNING: This is a destructive operation that deletes ALL data.
     """
     try:
-        db_type = os.getenv('DB_TYPE', 'sqlite').lower()
+        db_type = get_db_type()
+        conn = db._temp_get_connection()
+
+        logger.warning(f"DATABASE RESET INITIATED for {db_type}")
+
+        # CRITICAL: Check if alembic is available
+        if not check_external_command('alembic'):
+            raise HTTPException(
+                status_code=500,
+                detail="alembic command not found. Please ensure Alembic is installed."
+            )
 
         if db_type == 'postgresql':
-            # PostgreSQL reset logic
-            conn = db._temp_get_connection()
+            # PostgreSQL: Drop all tables, then run Alembic migrations
+            logger.info("Dropping all PostgreSQL tables...")
 
-            try:
-                # Get list of tables
-                result = conn.execute(text("""
-                    SELECT tablename FROM pg_tables
-                    WHERE schemaname = 'public'
-                """))
-                tables = [row[0] for row in result]
+            # Get list of all tables in public schema (use .mappings())
+            tables_query = text("""
+                SELECT tablename
+                FROM pg_tables
+                WHERE schemaname = 'public'
+                AND tablename != 'alembic_version'
+                ORDER BY tablename
+            """)
+            result = conn.execute(tables_query).mappings()  # CRITICAL: .mappings()
+            tables = [row['tablename'] for row in result]
 
-                # Drop tables in order (respect foreign keys with CASCADE)
-                for table in tables:
+            logger.info(f"Found {len(tables)} tables to drop")
+
+            # Drop all tables with CASCADE
+            for table in tables:
+                try:
                     conn.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
                     logger.info(f"Dropped table: {table}")
+                except Exception as e:
+                    logger.warning(f"Error dropping table {table}: {e}")
 
-                conn.commit()
+            # Also drop alembic_version to force fresh migration
+            conn.execute(text("DROP TABLE IF EXISTS alembic_version CASCADE"))
 
-                # Reinitialize database schema
-                db.init_db()
+            # CRITICAL: Commit drops
+            conn.commit()
+            logger.info("All tables dropped, running Alembic migrations...")
 
-                logger.info("PostgreSQL database reset completed")
-                return {"message": "Database reset successfully"}
+            # Run Alembic migrations to recreate schema
+            import subprocess
+            result = subprocess.run(
+                ["alembic", "upgrade", "head"],
+                capture_output=True,
+                text=True,
+                cwd="/home/orochford/tenants/skunkworkx.aunoo.ai",
+                timeout=120  # 2 minute timeout
+            )
 
-            except Exception as e:
-                conn.rollback()
+            if result.returncode != 0:
+                logger.error(f"Alembic migration failed: {result.stderr}")
                 raise HTTPException(
                     status_code=500,
-                    detail=f"Failed to reset database: {str(e)}"
+                    detail=f"Migration failed: {result.stderr}"
                 )
 
+            logger.info(f"Alembic migrations completed: {result.stdout}")
+
+            return {
+                "message": "PostgreSQL database reset successfully",
+                "db_type": "postgresql",
+                "tables_dropped": len(tables),
+                "migration_output": result.stdout
+            }
+
         else:
-            # SQLite reset logic (original code)
-            with db.get_connection() as conn:
-                cursor = conn.cursor()
+            # SQLite: Drop all tables, then run Alembic migrations
+            logger.info("Dropping all SQLite tables...")
 
-                # Begin transaction
-                cursor.execute("BEGIN IMMEDIATE")
+            # Get list of all tables (use .mappings())
+            tables_query = text("""
+                SELECT name FROM sqlite_master
+                WHERE type='table'
+                AND name NOT LIKE 'sqlite_%'
+                AND name != 'alembic_version'
+            """)
+            result = conn.execute(tables_query).mappings()  # CRITICAL: .mappings()
+            tables = [row['name'] for row in result]
 
+            logger.info(f"Found {len(tables)} tables to drop")
+
+            # Disable foreign key checks for SQLite
+            conn.execute(text("PRAGMA foreign_keys = OFF"))
+
+            # Drop all tables
+            for table in tables:
                 try:
-                    # Disable foreign key checks temporarily
-                    cursor.execute("PRAGMA foreign_keys = OFF")
-
-                    # Drop existing tables
-                    cursor.execute("""
-                        SELECT name FROM sqlite_master
-                        WHERE type='table' AND name NOT IN ('sqlite_sequence')
-                    """)
-                    tables = cursor.fetchall()
-
-                    for table in tables:
-                        cursor.execute(f"DROP TABLE IF EXISTS {table[0]}")
-
-                    # Re-enable foreign key checks
-                    cursor.execute("PRAGMA foreign_keys = ON")
-
-                    # Reinitialize database with new schema
-                    db.init_db()
-
-                    cursor.execute("COMMIT")
-
-                    # Run VACUUM to reclaim disk space
-                    logger.info("Running VACUUM to reclaim disk space...")
-                    cursor.execute("VACUUM")
-                    logger.info("SQLite database reset completed")
-
-                    conn.commit()  # CRITICAL: Commit to close transaction
-                    return {"message": "Database reset successfully"}
-
+                    conn.execute(text(f"DROP TABLE IF EXISTS {table}"))
+                    logger.info(f"Dropped table: {table}")
                 except Exception as e:
-                    cursor.execute("ROLLBACK")
-                    raise HTTPException(
-                        status_code=500,
-                        detail=f"Failed to reset database: {str(e)}"
-                    )
+                    logger.warning(f"Error dropping table {table}: {e}")
+
+            # Drop alembic_version
+            conn.execute(text("DROP TABLE IF EXISTS alembic_version"))
+
+            # Re-enable foreign key checks
+            conn.execute(text("PRAGMA foreign_keys = ON"))
+
+            # CRITICAL: Commit drops
+            conn.commit()
+
+            # Run VACUUM to reclaim space
+            conn.execute(text("VACUUM"))
+            conn.commit()
+
+            logger.info("Running Alembic migrations...")
+
+            # Run Alembic migrations
+            import subprocess
+            result = subprocess.run(
+                ["alembic", "upgrade", "head"],
+                capture_output=True,
+                text=True,
+                cwd="/home/orochford/tenants/skunkworkx.aunoo.ai",
+                timeout=120  # 2 minute timeout
+            )
+
+            if result.returncode != 0:
+                logger.error(f"Alembic migration failed: {result.stderr}")
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Migration failed: {result.stderr}"
+                )
+
+            logger.info(f"Alembic migrations completed: {result.stdout}")
+
+            return {
+                "message": "SQLite database reset successfully",
+                "db_type": "sqlite",
+                "tables_dropped": len(tables),
+                "migration_output": result.stdout
+            }
 
     except HTTPException:
         raise
+    except subprocess.TimeoutExpired:
+        logger.error("Database reset operation timed out after 2 minutes")
+        raise HTTPException(status_code=500, detail="Reset operation timed out")
     except Exception as e:
-        logger.error(f"Error resetting database: {str(e)}")
+        logger.error(f"Error resetting database: {str(e)}", exc_info=True)
+        try:
+            conn.rollback()
+        except:
+            pass
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/api/export-articles-enriched")

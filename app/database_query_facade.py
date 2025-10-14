@@ -5096,9 +5096,30 @@ class DatabaseQueryFacade:
             return None
 
     def get_auspex_chats(self, topic: str = None, user_id: str = None, limit: int = 50):
-        """Get Auspex chat sessions with optional filters."""
+        """Get Auspex chat sessions with optional filters and message counts."""
         try:
-            query = select(auspex_chats).order_by(desc(auspex_chats.c.updated_at))
+            # Subquery to count messages per chat
+            message_count_subquery = (
+                select(
+                    auspex_messages.c.chat_id,
+                    func.count().label('message_count')
+                )
+                .group_by(auspex_messages.c.chat_id)
+                .subquery()
+            )
+
+            # Main query with LEFT JOIN to get message counts
+            query = (
+                select(
+                    auspex_chats,
+                    func.coalesce(message_count_subquery.c.message_count, 0).label('message_count')
+                )
+                .outerjoin(
+                    message_count_subquery,
+                    auspex_chats.c.id == message_count_subquery.c.chat_id
+                )
+                .order_by(desc(auspex_chats.c.updated_at))
+            )
 
             if topic:
                 query = query.where(auspex_chats.c.topic == topic)
