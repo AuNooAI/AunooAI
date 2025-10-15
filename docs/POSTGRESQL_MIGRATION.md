@@ -1,0 +1,487 @@
+# PostgreSQL Migration Status
+
+**Last Updated**: 2025-10-15
+**Migration Progress**: ~60% Complete
+**Status**: 🟡 In Progress - Usable but with limitations
+
+---
+
+## Quick Status
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| Core Articles System | ✅ Complete | Full PostgreSQL support |
+| Topic Management | ⚠️ Partial | Some methods still SQLite-only |
+| User Authentication | ❌ Incomplete | Major issues with PostgreSQL |
+| Vector Store (ChromaDB) | ✅ Complete | Works with both databases |
+| AI Analysis | ✅ Complete | Full PostgreSQL support |
+| Newsletter System | ⚠️ Partial | Template management issues |
+| Database Admin Tools | ❌ Incomplete | SQLite-specific |
+
+---
+
+## What Works with PostgreSQL
+
+### ✅ Fully Functional
+
+These features work correctly with PostgreSQL:
+
+1. **Article Management**
+   - Save articles (`save_article`)
+   - Delete articles (`delete_article`)
+   - Search articles (`search_articles`)
+   - Article retrieval by URI (`get_article`)
+   - Bulk operations (`bulk_delete_articles`)
+
+2. **AI and Analysis**
+   - Auspex chat service
+   - AI-powered research
+   - Sentiment analysis
+   - Content analysis
+   - Analysis caching (partial)
+
+3. **Vector Search**
+   - Semantic search via ChromaDB
+   - Article embeddings
+   - Similarity matching
+
+4. **API Routes**
+   - Most REST API endpoints
+   - Authentication middleware
+   - Session management (partial)
+
+---
+
+## What Doesn't Work with PostgreSQL
+
+### ❌ Known Issues
+
+According to the [Complete Migration Audit](../spec-files-aunoo/plans/COMPLETE_MIGRATION_AUDIT.md), **41 database methods** still use SQLite-only patterns:
+
+#### 1. User Management (CRITICAL) 🔴
+
+**Affected Methods:**
+- `get_user(username)` - Line ~1816
+- `create_user(username, password, ...)` - Line ~1912
+- `update_user_password(username, pwd)` - Line ~1848
+- `update_user_onboarding(username, ...)` - Line ~1922
+- `set_force_password_change(username)` - Line ~1933
+
+**Impact:**
+- ❌ OAuth login may fail
+- ❌ Traditional login may fail
+- ❌ User registration broken
+- ❌ Password changes don't work
+- ❌ Onboarding flow broken
+
+**Workaround:** Use SQLite for environments requiring user management features.
+
+#### 2. Topic Management (HIGH PRIORITY) 🟠
+
+**Affected Methods:**
+- `get_topics()` - Line ~1718
+- `create_topic(topic_name)` - Line ~2199
+- `update_topic(topic_name)` - Line ~2214
+- `delete_topic(topic_name)` - Line ~1793
+- `get_article_count_by_topic(topic)` - Line ~1772
+- `get_latest_article_date_by_topic()` - Line ~1778
+
+**Impact:**
+- ⚠️ Topic listing may be incomplete
+- ⚠️ Cannot create/delete topics
+- ⚠️ Topic statistics incorrect
+
+**Workaround:** Pre-create topics using SQLite migration, then switch to PostgreSQL.
+
+#### 3. Newsletter System (MEDIUM) 🟡
+
+**Affected Methods:**
+- `get_newsletter_prompt(id)` - Line ~538
+- `get_all_newsletter_prompts()` - Line ~561
+- `update_newsletter_prompt(...)` - Line ~593
+
+**Impact:**
+- ⚠️ Newsletter templates won't load
+- ⚠️ Cannot update newsletter prompts
+- ⚠️ Newsletter generation may fail
+
+#### 4. Configuration Management (MEDIUM) 🟡
+
+**Affected Methods:**
+- `get_config_item(name)` - Line ~736
+- `save_config_item(name, content)` - Line ~743
+- `get_podcast_settings()` - Line ~468
+- `set_podcast_setting(key, val)` - Line ~2387
+- `update_podcast_settings(settings)` - Line ~489
+
+**Impact:**
+- ⚠️ Application settings may not persist
+- ⚠️ Podcast configuration broken
+- ⚠️ Custom configurations lost
+
+#### 5. Article Analysis Caching (MEDIUM) 🟡
+
+**Affected Methods:**
+- `save_article_analysis_cache(...)` - Line ~881
+- `get_article_analysis_cache(...)` - Line ~989
+- `clean_expired_analysis_cache()` - Line ~1044
+
+**Impact:**
+- ⚠️ AI analysis results won't cache
+- ⚠️ Repeated expensive API calls
+- ⚠️ Performance degradation
+
+#### 6. Database Administration (LOW) 🟢
+
+**Affected Methods:**
+- `get_database_info()` - Line ~1635
+- `create_database(name)` - Line ~626
+- `set_active_database(name)` - Line ~681
+- `reset_database()` - Line ~1894
+- `table_exists(table_name)` - Line ~2248
+
+**Impact:**
+- ℹ️ Admin tools won't work
+- ℹ️ Database introspection broken
+- ℹ️ Multi-database features unavailable
+
+---
+
+## Migration Progress by Priority
+
+### Phase 1: Critical User Auth (Day 1) ⏳ Not Started
+- **Methods**: 6 user management methods
+- **Effort**: 4-6 hours
+- **Status**: Not started
+- **Priority**: CRITICAL
+
+### Phase 2: Topic Management (Day 1-2) ⏳ Not Started
+- **Methods**: 7 topic methods
+- **Effort**: 6-8 hours
+- **Status**: Not started
+- **Priority**: HIGH
+
+### Phase 3: Article Operations (Day 2-3) ⏳ Not Started
+- **Methods**: 7 article methods
+- **Effort**: 8-10 hours
+- **Status**: Not started
+- **Priority**: MEDIUM
+
+### Phase 4: Config & Settings (Day 3-4) ⏳ Not Started
+- **Methods**: 9 configuration methods
+- **Effort**: 6-8 hours
+- **Status**: Not started
+- **Priority**: MEDIUM
+
+### Phase 5: Caching & Admin (Day 4-5) ⏳ Not Started
+- **Methods**: 12 remaining methods
+- **Effort**: 6-8 hours
+- **Status**: Not started
+- **Priority**: LOW
+
+**Total Estimated Effort**: 3-5 days
+
+---
+
+## How to Use PostgreSQL Today
+
+### Recommended Approach
+
+1. **Use SQLite for Full Features**
+   ```bash
+   docker-compose up -d aunooai-dev
+   ```
+   - All features work
+   - User management works
+   - Topic management works
+   - No database setup required
+
+2. **Use PostgreSQL for Production Data at Scale**
+   ```bash
+   docker-compose --profile postgres up -d
+   ```
+   - Better performance for large datasets
+   - Better concurrency
+   - Production-grade reliability
+   - **BUT** avoid features listed in "What Doesn't Work"
+
+### Hybrid Approach
+
+For production deployments needing both PostgreSQL benefits AND full feature support:
+
+1. **Setup**: Use SQLite for initial setup
+   - Create admin users
+   - Configure topics
+   - Set up newsletter templates
+   - Configure application settings
+
+2. **Migration**: Export data and import to PostgreSQL
+   ```bash
+   # Export from SQLite
+   python scripts/export_sqlite_data.py > data.json
+
+   # Import to PostgreSQL
+   python scripts/import_to_postgres.py data.json
+   ```
+
+3. **Production**: Run on PostgreSQL
+   - Most features work
+   - Better performance
+   - Monitor for issues with unmigrated features
+
+---
+
+## Testing Your PostgreSQL Setup
+
+### Quick Health Check
+
+```bash
+# Start PostgreSQL instance
+docker-compose --profile postgres up -d
+
+# Wait for startup
+sleep 10
+
+# Check PostgreSQL connectivity
+docker-compose exec postgres psql -U aunoo_user -d aunoo_db -c "SELECT version();"
+
+# Check application logs
+docker-compose logs aunooai-dev-postgres | grep -i "postgres\|migration\|error"
+
+# Test basic article operations (should work)
+curl -X GET http://localhost:6006/api/articles
+
+# Test user operations (may fail)
+curl -X POST http://localhost:6006/api/users \
+  -H "Content-Type: application/json" \
+  -d '{"username":"test","password":"test123"}'
+```
+
+### Full Feature Test
+
+Create a test script to verify functionality:
+
+```python
+from app.database import Database
+
+db = Database()
+
+# Test 1: Articles (should work)
+try:
+    articles = db.get_recent_articles(limit=5)
+    print(f"✅ Articles: {len(articles)} found")
+except Exception as e:
+    print(f"❌ Articles: {e}")
+
+# Test 2: Topics (may fail)
+try:
+    topics = db.get_topics()
+    print(f"✅ Topics: {len(topics)} found")
+except Exception as e:
+    print(f"❌ Topics: {e}")
+
+# Test 3: Users (likely fails)
+try:
+    user = db.get_user('admin')
+    print(f"✅ Users: Found admin")
+except Exception as e:
+    print(f"❌ Users: {e}")
+
+# Test 4: Config (may fail)
+try:
+    config = db.get_config_item('test')
+    print(f"✅ Config: Retrieved")
+except Exception as e:
+    print(f"❌ Config: {e}")
+```
+
+---
+
+## Common Error Patterns
+
+### Error 1: Attribute Error on Database Results
+
+```python
+# ❌ WRONG (SQLite pattern)
+result = cursor.execute("SELECT * FROM users WHERE username = ?", (username,))
+user = result.fetchone()
+user_id = user[0]  # Fails with PostgreSQL!
+
+# ✅ CORRECT (PostgreSQL-compatible)
+from sqlalchemy import select
+from app.database_models import t_users
+
+conn = self._temp_get_connection()
+stmt = select(t_users).where(t_users.c.username == username)
+result = conn.execute(stmt).mappings()  # CRITICAL: .mappings()
+user = result.fetchone()
+user_id = user['id'] if user else None  # Column name access
+```
+
+### Error 2: Missing .mappings()
+
+```python
+# ❌ WRONG
+result = conn.execute(stmt)
+rows = [dict(row) for row in result]  # Fails!
+
+# ✅ CORRECT
+result = conn.execute(stmt).mappings()  # Add .mappings()
+rows = [dict(row) for row in result]  # Now works!
+```
+
+### Error 3: SQLite System Tables
+
+```python
+# ❌ WRONG (SQLite-specific)
+cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+
+# ✅ CORRECT (database-agnostic)
+if self.db_type == 'postgresql':
+    cursor.execute("SELECT tablename FROM pg_tables WHERE schemaname='public'")
+else:
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+```
+
+---
+
+## Migration Pattern Template
+
+When migrating a method from SQLite to PostgreSQL:
+
+```python
+# BEFORE (SQLite-only)
+def get_example(self, param: str):
+    with self.get_connection() as conn:  # ❌ SQLite only
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM table WHERE col = ?", (param,))
+        return cursor.fetchone()
+
+# AFTER (PostgreSQL-compatible)
+def get_example(self, param: str):
+    from sqlalchemy import select
+    from app.database_models import t_table
+
+    conn = self._temp_get_connection()  # ✅ Works for both
+    try:
+        stmt = select(t_table).where(t_table.c.col == param)
+        result = conn.execute(stmt).mappings()  # ✅ .mappings() required
+        row = result.fetchone()
+        return dict(row) if row else None
+    except Exception as e:
+        logger.error(f"Error in get_example: {e}")
+        conn.rollback()
+        raise
+```
+
+**Key Changes:**
+1. ✅ Replace `self.get_connection()` → `self._temp_get_connection()`
+2. ✅ Replace raw SQL → SQLAlchemy Core statements
+3. ✅ **ALWAYS** add `.mappings()` to result
+4. ✅ Access columns by name, not index
+5. ✅ Add proper error handling
+
+---
+
+## Getting Help
+
+### For Migration Issues
+
+1. Check the [Complete Migration Audit](../spec-files-aunoo/plans/COMPLETE_MIGRATION_AUDIT.md)
+2. Review the [Compilation Instructions](../spec-files-aunoo/compile.claude.md)
+3. See [Database Schema Documentation](./database.md)
+
+### For Docker Issues
+
+1. Check [Docker Setup Guide](./DOCKER.md)
+2. Review container logs: `docker-compose logs -f`
+3. Verify environment variables: `docker-compose exec aunooai-dev-postgres env | grep DB_`
+
+### For Database Issues
+
+1. Test PostgreSQL connectivity
+2. Check migration status: `alembic current`
+3. View database logs: `docker-compose logs postgres`
+
+---
+
+## Contributing to the Migration
+
+If you want to help complete the PostgreSQL migration:
+
+1. **Pick a priority area** from the phases above
+2. **Review the pattern template** in this document
+3. **Migrate one method at a time**
+4. **Test thoroughly** with both SQLite and PostgreSQL
+5. **Update the migration audit** document
+6. **Submit a pull request**
+
+### Testing Checklist
+
+When migrating a method:
+
+- [ ] Works with SQLite
+- [ ] Works with PostgreSQL
+- [ ] Uses `.mappings()` for all queries
+- [ ] Accesses columns by name, not index
+- [ ] Has proper error handling
+- [ ] Has rollback on errors
+- [ ] Logs errors appropriately
+- [ ] Updated docstrings
+- [ ] Updated tests
+- [ ] Updated migration audit doc
+
+---
+
+## Timeline
+
+| Milestone | Target Date | Status |
+|-----------|-------------|--------|
+| Phase 1 Complete | TBD | ⏳ Not Started |
+| Phase 2 Complete | TBD | ⏳ Not Started |
+| Phase 3 Complete | TBD | ⏳ Not Started |
+| Phase 4 Complete | TBD | ⏳ Not Started |
+| Phase 5 Complete | TBD | ⏳ Not Started |
+| Full Migration | TBD | ⏳ Not Started |
+
+**Estimated Total Time**: 3-5 days of focused development work
+
+---
+
+## FAQs
+
+### Q: Should I use PostgreSQL in production?
+
+**A:** It depends on your use case:
+- ✅ **Yes** if you need high concurrency, large datasets, or multiple app instances
+- ❌ **No** if you need user management, topic creation, or newsletter features
+- 🤔 **Maybe** if you can work around the limitations
+
+### Q: Will SQLite be deprecated?
+
+**A:** No. SQLite will remain fully supported as it's the simpler option for development and single-instance deployments.
+
+### Q: How do I report migration issues?
+
+**A:** Check the existing [migration audit](../spec-files-aunoo/plans/COMPLETE_MIGRATION_AUDIT.md) first, then file an issue if it's not documented.
+
+### Q: Can I migrate my SQLite data to PostgreSQL?
+
+**A:** Yes, but currently requires manual export/import. An automated migration tool is planned.
+
+### Q: What about ChromaDB?
+
+**A:** ChromaDB (vector store) works independently with both SQLite and PostgreSQL. It stores embeddings in its own SQLite database.
+
+---
+
+## See Also
+
+- [Complete Migration Audit](../spec-files-aunoo/plans/COMPLETE_MIGRATION_AUDIT.md) - Detailed analysis
+- [Docker Setup](./DOCKER.md) - Docker configuration
+- [Database Schema](./database.md) - Database structure
+- [Compilation Guide](../spec-files-aunoo/compile.claude.md) - Development guidelines
+
+---
+
+**For the most up-to-date migration status, always refer to the [Complete Migration Audit](../spec-files-aunoo/plans/COMPLETE_MIGRATION_AUDIT.md).**

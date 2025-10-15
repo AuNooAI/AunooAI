@@ -22,7 +22,9 @@ services:
     networks:
       - aunooai
 
-  # Development Instance (SQLite)
+  # Development Instance (SQLite - for local development without PostgreSQL)
+  # NOTE: This instance uses SQLite for simplicity and quick local testing
+  # For production-like testing, use aunooai-dev-postgres instead
   aunooai-dev:
     image: aunooai:latest
     build:
@@ -52,7 +54,10 @@ services:
     networks:
       - aunooai
 
-  # Development Instance with PostgreSQL
+  # Development Instance with PostgreSQL (recommended for production-like testing)
+  # NOTE: PostgreSQL migration is in progress - some features may use SQLite-only methods
+  # See spec-files-aunoo/plans/COMPLETE_MIGRATION_AUDIT.md for migration status
+  # Start with: docker-compose --profile postgres up -d
   aunooai-dev-postgres:
     image: aunooai:latest
     build:
@@ -76,8 +81,11 @@ services:
       - DB_NAME=aunoo_db
       - DB_USER=aunoo_user
       - DB_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+      # Connection Pooling Configuration
       - DB_POOL_SIZE=20
       - DB_MAX_OVERFLOW=10
+      - DB_POOL_TIMEOUT=30
+      - DB_POOL_RECYCLE=3600
       # API Keys (pass from host environment)
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
@@ -93,6 +101,8 @@ services:
       - aunooai
 
   # Production Instance with PostgreSQL
+  # NOTE: PostgreSQL migration is in progress - some features may use SQLite-only methods
+  # Start with: docker-compose --profile prod up -d
   aunooai-prod:
     image: aunooai:latest
     build:
@@ -116,8 +126,11 @@ services:
       - DB_NAME=aunoo_db_prod
       - DB_USER=aunoo_user
       - DB_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+      # Connection Pooling Configuration (higher for production)
       - DB_POOL_SIZE=50
       - DB_MAX_OVERFLOW=20
+      - DB_POOL_TIMEOUT=30
+      - DB_POOL_RECYCLE=3600
       # API Keys (pass from host environment)
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
@@ -133,6 +146,8 @@ services:
       - aunooai
 
   # Staging Instance with PostgreSQL
+  # NOTE: PostgreSQL migration is in progress - some features may use SQLite-only methods
+  # Start with: docker-compose --profile staging up -d
   aunooai-staging:
     image: aunooai:latest
     build:
@@ -156,8 +171,11 @@ services:
       - DB_NAME=aunoo_db_staging
       - DB_USER=aunoo_user
       - DB_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+      # Connection Pooling Configuration
       - DB_POOL_SIZE=30
       - DB_MAX_OVERFLOW=15
+      - DB_POOL_TIMEOUT=30
+      - DB_POOL_RECYCLE=3600
       # API Keys (pass from host environment)
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
