@@ -1376,16 +1376,16 @@ async def delete_articles_by_topic(topic_name: str, db=Depends(get_database_inst
         article_uris = []
 
         # From news_search_results
-        article_uris.extend([row[0] for row in db.facade.get_article_urls_from_news_search_results_by_topic(topic_name)])
+        article_uris.extend([row['article_uri'] for row in db.facade.get_article_urls_from_news_search_results_by_topic(topic_name)])
 
         # From paper_search_results
-        article_uris.extend([row[0] for row in db.facade.get_article_urls_from_paper_search_results_by_topic(topic_name)])
+        article_uris.extend([row['article_uri'] for row in db.facade.get_article_urls_from_paper_search_results_by_topic(topic_name)])
 
         # Direct topic reference if the column exists
         has_topic_column = db.facade.check_if_articles_table_has_topic_column()
 
         if has_topic_column:
-            article_uris.extend([row[0] for row in db.facade.article_urls_by_topic(topic_name)])
+            article_uris.extend([row['uri'] for row in db.facade.article_urls_by_topic(topic_name)])
 
         # Remove duplicates
         article_uris = list(set(article_uris))
@@ -1608,7 +1608,8 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
             if has_topic_column:
                 try:
                     for row in db.facade.get_urls_and_topics_from_articles():
-                        uri, topic = row
+                        uri = row['uri']
+                        topic = row['topic']
                         if topic not in active_topics:
                             orphaned_article_uris.add(uri)
                 except (OperationalError, DatabaseError) as e:
@@ -1620,7 +1621,8 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
         if db.facade.check_if_news_search_results_table_exists():
             try:
                 for row in db.facade.get_urls_and_topics_from_news_search_results():
-                    uri, topic = row
+                    uri = row['article_uri']
+                    topic = row['topic']
                     if topic not in active_topics:
                         orphaned_article_uris.add(uri)
             except (OperationalError, DatabaseError) as e:
@@ -1630,7 +1632,8 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
         if db.facade.check_if_paper_search_results_table_exists():
             try:
                 for row in db.facade.get_urls_and_topics_from_paper_search_results():
-                    uri, topic = row
+                    uri = row['article_uri']
+                    topic = row['topic']
                     if topic not in active_topics:
                         orphaned_article_uris.add(uri)
             except (OperationalError, DatabaseError) as e:
@@ -1719,30 +1722,59 @@ async def clean_orphaned_articles(db=Depends(get_database_instance), session=Dep
 async def clean_all_orphaned(db=Depends(get_database_instance), session=Depends(verify_session)):
     """Clean up all orphaned data - both topics and articles in one operation"""
     try:
+        topics_result = None
+        articles_result = None
+        has_errors = False
+        error_messages = []
+
         # First clean orphaned topics
         try:
-            topics_result = await clean_orphaned_topics(db)
+            topics_result = await clean_orphaned_topics(db, session)
             logger.info(f"Completed orphaned topics cleanup: {topics_result}")
+            if topics_result.get("status") == "error":
+                has_errors = True
+                error_messages.append(f"Topics cleanup error: {topics_result.get('message', 'Unknown error')}")
         except Exception as e:
-            logger.error(f"Error in topics cleanup: {str(e)}")
+            has_errors = True
+            error_msg = f"Error cleaning up orphaned topics: {str(e)}"
+            error_messages.append(error_msg)
+            logger.error(error_msg)
+            logger.error(traceback.format_exc())
             topics_result = {
                 "status": "error",
-                "message": f"Error cleaning up orphaned topics: {str(e)}",
+                "message": error_msg,
                 "orphaned_topics": []
             }
-        
+
         # Then clean orphaned articles
         try:
-            articles_result = await clean_orphaned_articles(db)
+            articles_result = await clean_orphaned_articles(db, session)
             logger.info(f"Completed orphaned articles cleanup: {articles_result}")
+            if articles_result.get("status") == "error":
+                has_errors = True
+                error_messages.append(f"Articles cleanup error: {articles_result.get('message', 'Unknown error')}")
         except Exception as e:
-            logger.error(f"Error in articles cleanup: {str(e)}")
+            has_errors = True
+            error_msg = f"Error cleaning up orphaned articles: {str(e)}"
+            error_messages.append(error_msg)
+            logger.error(error_msg)
+            logger.error(traceback.format_exc())
             articles_result = {
                 "status": "error",
-                "message": f"Error cleaning up orphaned articles: {str(e)}",
-                "orphaned_count": 0
+                "message": error_msg,
+                "orphaned_count": 0,
+                "alerts_deleted": 0
             }
-        
+
+        # Return appropriate status based on whether errors occurred
+        if has_errors:
+            return {
+                "status": "partial" if (topics_result or articles_result) else "error",
+                "message": "; ".join(error_messages),
+                "topics_result": topics_result,
+                "articles_result": articles_result
+            }
+
         return {
             "status": "success",
             "topics_result": topics_result,

@@ -2967,26 +2967,42 @@
             }
 
             const result = await response.json();
-            
+
+            // Check for errors or partial success
+            if (result.status === 'error') {
+                throw new Error(result.message || 'Failed to clean orphaned data');
+            }
+
             // Format a nice summary
-            let message = 'Clean-up completed:\n\n';
-            
+            let message = '';
+
+            if (result.status === 'partial') {
+                message = '⚠️ Clean-up completed with some errors:\n\n';
+                if (result.message) {
+                    message += `Errors: ${result.message}\n\n`;
+                }
+            } else {
+                message = 'Clean-up completed successfully:\n\n';
+            }
+
             // Topics summary
             const topicsResult = result && result.topics_result;
-            if (topicsResult && topicsResult.orphaned_topics && topicsResult.orphaned_topics.length > 0) {
+            if (topicsResult && topicsResult.status === 'error') {
+                message += `❌ Topics cleanup failed: ${topicsResult.message}\n`;
+            } else if (topicsResult && topicsResult.orphaned_topics && topicsResult.orphaned_topics.length > 0) {
                 message += `✅ Removed ${topicsResult.orphaned_topics.length} orphaned topics\n`;
-                
+
                 if (topicsResult.cleanup_results) {
                     let totalGroups = 0;
                     let totalKeywords = 0;
                     let totalAlerts = 0;
-                    
+
                     Object.values(topicsResult.cleanup_results).forEach(result => {
                         totalGroups += result.groups_deleted || 0;
                         totalKeywords += result.keywords_deleted || 0;
                         totalAlerts += result.alerts_deleted || 0;
                     });
-                    
+
                     message += `   - ${totalGroups} groups\n`;
                     message += `   - ${totalKeywords} keywords\n`;
                     message += `   - ${totalAlerts} alerts\n`;
@@ -2994,15 +3010,17 @@
             } else {
                 message += '✓ No orphaned topics found\n';
             }
-            
+
             // Articles summary
             const articlesResult = result && result.articles_result;
-            if (articlesResult && articlesResult.orphaned_count > 0) {
-                message += `✅ Removed ${articlesResult.orphaned_count} orphaned articles and ${articlesResult.alerts_deleted} associated alerts\n`;
+            if (articlesResult && articlesResult.status === 'error') {
+                message += `❌ Articles cleanup failed: ${articlesResult.message}\n`;
+            } else if (articlesResult && articlesResult.orphaned_count > 0) {
+                message += `✅ Removed ${articlesResult.orphaned_count} orphaned articles and ${articlesResult.alerts_deleted || 0} associated alerts\n`;
             } else {
                 message += '✓ No orphaned articles found\n';
             }
-            
+
             alert(message);
             loadDatabaseInfo(); // Refresh database info
         } catch (error) {
