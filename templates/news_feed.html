@@ -854,7 +854,7 @@
                         <label class="form-label small mb-0">Sort:</label>
                         <select id="sort-select" class="form-select form-select-sm" onchange="handleSortChange()">
                             <option value="date_asc">Date (Oldest First)</option>
-                            <option value="date_desc">Date (Newest First)</option>
+                            <option value="date_desc" selected>Date (Newest First)</option>
                             <option value="category_date_asc">Category (Oldest First)</option>
                             <option value="category_date_desc">Category (Newest First)</option>
                             <option value="bias_date_asc">Political Bias (Oldest First)</option>
@@ -6348,7 +6348,7 @@ let allArticlesData = [];
 let filteredArticlesData = [];
 let currentPage = 1;
 const articlesPerPage = 25;
-let currentSort = 'date_asc';
+let currentSort = 'date_desc';
 let currentSearchTerm = '';
 
 // Handle sort change

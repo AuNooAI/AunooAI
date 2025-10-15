@@ -254,6 +254,7 @@ class BulkResearch:
                 result["submission_date"] = datetime.datetime.now().date().isoformat()
                 result["uri"] = url  # Ensure URL is included
                 result["analyzed"] = True  # Add this line to include the analyzed field
+                result["topic"] = topic  # Add topic to the result
                 
                 # Add media bias data if not already present
                 try:
@@ -556,9 +557,13 @@ class BulkResearch:
                         if existing:
                             # Update existing article (exclude uri from values)
                             update_data = {k: v for k, v in article_data.items() if k != 'uri'}
+                            # DEBUG: Log summary update
+                            logger.info(f"🔍 UPDATE: uri={article_data['uri'][:80]}... summary_length={len(update_data.get('summary', ''))} chars")
+                            logger.debug(f"🔍 Summary being saved: {update_data.get('summary', '')[:150]}...")
                             stmt = update(t_articles).where(t_articles.c.uri == article_data['uri']).values(**update_data)
                         else:
                             # Insert new article
+                            logger.info(f"🔍 INSERT: uri={article_data['uri'][:80]}... summary_length={len(article_data.get('summary', ''))} chars")
                             stmt = insert(t_articles).values(article_data)
 
                         conn.execute(stmt)
