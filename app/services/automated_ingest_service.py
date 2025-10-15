@@ -236,8 +236,9 @@ class AutomatedIngestService:
             # Update article data with analysis results
             tags = analysis_result.get('tags', [])
             tags_str = ','.join(tags) if isinstance(tags, list) else str(tags) if tags else None
-            
+
             article_data.update({
+                'summary': analysis_result.get('summary'),  # ✅ CRITICAL: Include AI-generated summary
                 'category': analysis_result.get('category'),
                 'sentiment': analysis_result.get('sentiment'),
                 'future_signal': analysis_result.get('future_signal'),
@@ -248,8 +249,8 @@ class AutomatedIngestService:
                 'tags': tags_str,
                 'analyzed': True
             })
-            
-            self.logger.debug(f"Analyzed article {uri}: category={analysis_result.get('category')}, sentiment={analysis_result.get('sentiment')}, future_signal={analysis_result.get('future_signal')}")
+
+            self.logger.debug(f"Analyzed article {uri}: category={analysis_result.get('category')}, sentiment={analysis_result.get('sentiment')}, future_signal={analysis_result.get('future_signal')}, summary_length={len(analysis_result.get('summary', ''))}")
             
             return article_data
             
@@ -854,8 +855,9 @@ class AutomatedIngestService:
             # Update article data with analysis results
             tags = analysis_result.get('tags', [])
             tags_str = ','.join(tags) if isinstance(tags, list) else str(tags) if tags else None
-            
+
             article_data.update({
+                'summary': analysis_result.get('summary'),  # ✅ CRITICAL: Include AI-generated summary
                 'category': analysis_result.get('category'),
                 'sentiment': analysis_result.get('sentiment'),
                 'future_signal': analysis_result.get('future_signal'),
@@ -866,8 +868,8 @@ class AutomatedIngestService:
                 'tags': tags_str,
                 'analyzed': True
             })
-            
-            self.logger.debug(f"Async analyzed article {uri}: category={analysis_result.get('category')}, sentiment={analysis_result.get('sentiment')}, future_signal={analysis_result.get('future_signal')}")
+
+            self.logger.debug(f"Async analyzed article {uri}: category={analysis_result.get('category')}, sentiment={analysis_result.get('sentiment')}, future_signal={analysis_result.get('future_signal')}, summary_length={len(analysis_result.get('summary', ''))}")
             
             return article_data
             
