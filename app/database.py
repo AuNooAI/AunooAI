@@ -4,8 +4,8 @@ import os
 import json
 from app.config.settings import DATABASE_DIR
 from datetime import datetime
-from typing import List, Tuple, Optional, Dict
-from sqlalchemy import create_engine
+from typing import List, Tuple, Optional, Dict, Any
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 import logging
@@ -16,6 +16,130 @@ from fastapi.responses import FileResponse
 from pathlib import Path
 from urllib.parse import unquote_plus
 import threading
+
+
+# PostgreSQL compatibility wrapper for SQLite-style database access
+class PostgreSQLConnectionWrapper:
+    """Wrapper to make PostgreSQL SQLAlchemy connection work like SQLite connection."""
+
+    def __init__(self, sqlalchemy_connection):
+        self._connection = sqlalchemy_connection
+        self._transaction = None
+
+    def cursor(self):
+        """Return a cursor-like object for PostgreSQL."""
+        return PostgreSQLCursorWrapper(self._connection)
+
+    def execute(self, query, params=None):
+        """Execute query directly (for PRAGMA statements which are no-ops on PostgreSQL)."""
+        # Ignore SQLite-specific PRAGMA statements
+        if query.strip().upper().startswith('PRAGMA'):
+            logger.debug(f"Ignoring SQLite PRAGMA statement: {query}")
+            return self.cursor()
+
+        # For other queries, use cursor
+        cursor = self.cursor()
+        cursor.execute(query, params)
+        return cursor
+
+    def commit(self):
+        """Commit transaction."""
+        if self._transaction:
+            self._transaction.commit()
+            self._transaction = None
+        else:
+            self._connection.commit()
+
+    def rollback(self):
+        """Rollback transaction."""
+        if self._transaction:
+            self._transaction.rollback()
+            self._transaction = None
+        else:
+            self._connection.rollback()
+
+    def close(self):
+        """Close connection (no-op as connections are pooled)."""
+        pass
+
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit."""
+        if exc_type:
+            self.rollback()
+        # Don't close pooled connections
+        return False
+
+
+class PostgreSQLCursorWrapper:
+    """Cursor wrapper to make PostgreSQL results work like SQLite cursor."""
+
+    def __init__(self, connection):
+        self._connection = connection
+        self._result = None
+
+    def execute(self, query, params=None):
+        """Execute a query with parameter binding."""
+        # Convert SQLite ? placeholders to :param style for SQLAlchemy
+        if params and '?' in query:
+            # Convert positional (?) to named (:param1, :param2, etc.)
+            param_dict = {}
+            parts = query.split('?')
+            new_query = parts[0]
+
+            for i, part in enumerate(parts[1:], 1):
+                param_name = f'param{i}'
+                new_query += f':{param_name}' + part
+                param_dict[param_name] = params[i-1] if isinstance(params, (list, tuple)) else params
+
+            query = new_query
+            params = param_dict
+
+        # Execute using SQLAlchemy text()
+        try:
+            self._result = self._connection.execute(text(query), params or {})
+        except Exception as e:
+            logger.error(f"Query execution failed: {query[:200]}... Error: {e}")
+            raise
+
+        return self
+
+    def fetchall(self):
+        """Fetch all rows as tuples (like SQLite)."""
+        if self._result is None:
+            return []
+        return [tuple(row) for row in self._result]
+
+    def fetchone(self):
+        """Fetch one row as tuple (like SQLite)."""
+        if self._result is None:
+            return None
+        row = self._result.fetchone()
+        return tuple(row) if row else None
+
+    def fetchmany(self, size=None):
+        """Fetch multiple rows as tuples (like SQLite)."""
+        if self._result is None:
+            return []
+        rows = self._result.fetchmany(size) if size else self._result.fetchmany()
+        return [tuple(row) for row in rows]
+
+    @property
+    def rowcount(self):
+        """Return number of affected rows."""
+        return self._result.rowcount if self._result else -1
+
+    @property
+    def lastrowid(self):
+        """Return last inserted row ID."""
+        return self._result.lastrowid if self._result and hasattr(self._result, 'lastrowid') else None
+
+    def close(self):
+        """Close cursor (no-op)."""
+        pass
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -131,14 +255,24 @@ class Database:
         return self._sqlalchemy_connections[thread_id]
 
     def get_connection(self):
-        """Get a thread-local database connection with optimized settings and retry logic"""
+        """Get a database connection compatible with both SQLite and PostgreSQL.
+
+        For PostgreSQL, returns a compatibility wrapper that provides SQLite-like cursor interface.
+        For SQLite, returns native connection.
+        """
+        if self.db_type == 'postgresql':
+            # Return PostgreSQL compatibility wrapper
+            logger.debug("Returning PostgreSQL-compatible connection wrapper")
+            return PostgreSQLConnectionWrapper(self._temp_get_connection())
+
+        # Original SQLite code below
         thread_id = threading.get_ident()
-        
+
         # Check connection pool limits
         if len(self._connections) >= self.MAX_CONNECTIONS:
             logger.warning(f"Connection pool limit reached ({self.MAX_CONNECTIONS}). Cleaning up stale connections.")
             self._cleanup_stale_connections()
-        
+
         if thread_id not in self._connections:
             for attempt in range(self.RETRY_ATTEMPTS):
                 try:

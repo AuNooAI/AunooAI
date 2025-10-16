@@ -79,12 +79,12 @@ def check_postgresql_installed():
 
 
 def install_postgresql_debian():
-    """Install PostgreSQL on Debian/Ubuntu."""
+    """Install PostgreSQL on Debian/Ubuntu with pgvector extension."""
     logger.info("Installing PostgreSQL on Debian/Ubuntu...")
 
     commands = [
         ['sudo', 'apt-get', 'update'],
-        ['sudo', 'apt-get', 'install', '-y', 'postgresql', 'postgresql-contrib'],
+        ['sudo', 'apt-get', 'install', '-y', 'postgresql', 'postgresql-contrib', 'postgresql-16-pgvector'],
         ['sudo', 'systemctl', 'start', 'postgresql'],
         ['sudo', 'systemctl', 'enable', 'postgresql']
     ]
@@ -101,11 +101,11 @@ def install_postgresql_debian():
 
 
 def install_postgresql_redhat():
-    """Install PostgreSQL on RedHat/CentOS/Fedora."""
+    """Install PostgreSQL on RedHat/CentOS/Fedora with pgvector extension."""
     logger.info("Installing PostgreSQL on RedHat/CentOS/Fedora...")
 
     commands = [
-        ['sudo', 'dnf', 'install', '-y', 'postgresql-server', 'postgresql-contrib'],
+        ['sudo', 'dnf', 'install', '-y', 'postgresql-server', 'postgresql-contrib', 'pgvector'],
         ['sudo', 'postgresql-setup', '--initdb'],
         ['sudo', 'systemctl', 'start', 'postgresql'],
         ['sudo', 'systemctl', 'enable', 'postgresql']
@@ -123,7 +123,7 @@ def install_postgresql_redhat():
 
 
 def install_postgresql_macos():
-    """Install PostgreSQL on macOS using Homebrew."""
+    """Install PostgreSQL on macOS using Homebrew with pgvector extension."""
     logger.info("Installing PostgreSQL on macOS...")
 
     # Check if Homebrew is installed
@@ -135,6 +135,7 @@ def install_postgresql_macos():
 
     commands = [
         ['brew', 'install', 'postgresql@14'],
+        ['brew', 'install', 'pgvector'],
         ['brew', 'services', 'start', 'postgresql@14']
     ]
 

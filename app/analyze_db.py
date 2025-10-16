@@ -398,21 +398,22 @@ class AnalyzeDB:
 
     def get_topic_options(self, topic: str):
         """Return distinct lists of categories, future signals, sentiments, time-to-impact, and driver types available for a given topic."""
-        query = """
-        SELECT DISTINCT 
+        from sqlalchemy import text
+
+        query = text("""
+        SELECT DISTINCT
             category,
             future_signal,
             sentiment,
             time_to_impact,
             driver_type
         FROM articles
-        WHERE topic = ?
-        """
+        WHERE topic = :topic
+        """)
 
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute(query, (topic,))
-            results = cursor.fetchall()
+        conn = self.db._temp_get_connection()
+        result = conn.execute(query, {"topic": topic})
+        results = result.fetchall()
 
         categories = sorted({row[0] for row in results if row[0]})
         future_signals = sorted({row[1] for row in results if row[1]})

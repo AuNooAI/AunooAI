@@ -1,9 +1,9 @@
 version: '3.8'
 
 services:
-  # PostgreSQL Database Service
+  # PostgreSQL Database Service with pgvector extension
   postgres:
-    image: postgres:14-alpine
+    image: ankane/pgvector:v0.6.0
     restart: unless-stopped
     environment:
       POSTGRES_USER: aunoo_user

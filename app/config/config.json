@@ -129,6 +129,62 @@
         "Delayer",
         "Inhibitor"
       ]
+    },
+    {
+      "name": "Geopolitical Hotspots",
+      "description": "Tracking geopolitical hotspots for war, famine, natural, economic and political disasters",
+      "categories": [
+        "War Zones",
+        "Famine and Food Security",
+        "Natural Disasters",
+        "Economic Crises",
+        "Political Instability",
+        "Refugee and Migration Flows",
+        "International Sanctions and Embargoes",
+        "Peacekeeping and Conflict Resolution",
+        "Resource Scarcity",
+        "Terrorism and Insurgency",
+        "Climate Change Impact",
+        "Humanitarian Aid and Response",
+        "Cyber Warfare and Security",
+        "Diplomatic Relations",
+        "Global Supply Chain Disruptions",
+        "Other"
+      ],
+      "future_signals": [
+        "Escalation to armed conflict",
+        "Peace agreements reached",
+        "Widespread famine outbreak",
+        "Natural disaster triggers crisis",
+        "Economic collapse imminent"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "keywords": [
+        "Early Warning Systems",
+        "geopolitics",
+        "conflict zones",
+        "famine",
+        "war",
+        "conflict",
+        "emergency"
+      ]
     }
   ],
   "ai_models": [
