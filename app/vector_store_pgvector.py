@@ -26,6 +26,14 @@ except ImportError:
 from sqlalchemy import text
 from app.database import get_database_instance
 
+# Import async database for native async operations
+try:
+    from app.services.async_db import AsyncDatabase
+    _async_db_available = True
+except ImportError:
+    _async_db_available = False
+    logger.warning("AsyncDatabase not available, async operations will use thread pool")
+
 logger = logging.getLogger(__name__)
 
 # Singleton OpenAI client for embeddings
@@ -193,13 +201,51 @@ def upsert_article(article: Dict[str, Any]) -> None:
 
 
 async def upsert_article_async(article: Dict[str, Any]) -> None:
-    """Async wrapper for upsert_article.
+    """Native async implementation for upserting article embeddings.
 
     Args:
         article: Article dictionary with uri, title, summary, etc.
     """
-    loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, upsert_article, article)
+    # Check if native async is available
+    if not _async_db_available:
+        # Fallback to thread pool
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, upsert_article, article)
+        return
+
+    try:
+        # Get document text for embedding
+        doc_text = (
+            article.get("raw")
+            or article.get("summary")
+            or article.get("title")
+            or ""
+        )
+        if not doc_text:
+            logger.debug("No textual content for article %s – skipping vector index", article.get("uri"))
+            return
+
+        # Generate embedding (sync call, but relatively fast)
+        embeddings = _embed_texts([doc_text])
+        embedding = embeddings[0]
+
+        # Convert embedding to PostgreSQL array format
+        embedding_str = '[' + ','.join(str(x) for x in embedding) + ']'
+
+        # CRITICAL FIX: Use global singleton AsyncDatabase instance to avoid creating new connection pools
+        from app.services.async_db import get_async_database_instance
+        async_db = get_async_database_instance()
+        async with async_db.get_connection() as conn:
+            await conn.execute("""
+                UPDATE articles
+                SET embedding = $1::vector
+                WHERE uri = $2
+            """, embedding_str, article["uri"])
+
+        logger.debug("Async upserted embedding for article %s", article.get("uri"))
+
+    except Exception as exc:
+        logger.error("Async vector upsert failed for article %s: %s", article.get("uri"), exc)
 
 
 def search_articles(
@@ -299,7 +345,7 @@ async def search_articles_async(
     top_k: int = 10,
     metadata_filter: Optional[Dict[str, Any]] = None,
 ) -> List[Dict[str, Any]]:
-    """Async wrapper for search_articles.
+    """Native async implementation of vector search using asyncpg.
 
     Args:
         query: Search query text
@@ -309,8 +355,94 @@ async def search_articles_async(
     Returns:
         List of search results with id, score, and metadata
     """
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, search_articles, query, top_k, metadata_filter)
+    logger.info("Async vector search: query='%s', top_k=%d, filters=%s", query, top_k, metadata_filter)
+
+    # Check if native async is available
+    if not _async_db_available:
+        # Fallback to thread pool
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, search_articles, query, top_k, metadata_filter)
+
+    try:
+        # Generate query embedding (this is still blocking, but relatively fast)
+        embeddings = _embed_texts([query])
+        query_embedding = embeddings[0]
+
+        # Build WHERE clause for filters
+        where_clauses = ["embedding IS NOT NULL"]
+        params = {"limit": top_k}
+
+        if metadata_filter:
+            for key, value in metadata_filter.items():
+                where_clauses.append(f"{key} = ${len(params) + 1}")
+                params[key] = value
+
+        where_clause = " AND ".join(where_clauses)
+
+        # CRITICAL FIX: Use global singleton AsyncDatabase instance to avoid creating new connection pools
+        from app.services.async_db import get_async_database_instance
+        async_db = get_async_database_instance()
+        async with async_db.get_connection() as conn:
+            # Convert embedding to PostgreSQL array format
+            embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
+
+            # Execute query with asyncpg
+            query_sql = f"""
+                SELECT
+                    uri as id,
+                    (embedding <=> $1::vector) as score,
+                    title,
+                    news_source,
+                    category,
+                    future_signal,
+                    sentiment,
+                    time_to_impact,
+                    topic,
+                    publication_date,
+                    tags,
+                    summary
+                FROM articles
+                WHERE {where_clause}
+                ORDER BY embedding <=> $1::vector
+                LIMIT ${len(params) + 1}
+            """
+
+            # Build params list for asyncpg (positional)
+            param_values = [embedding_str]
+            if metadata_filter:
+                param_values.extend(metadata_filter.values())
+            param_values.append(top_k)
+
+            rows = await conn.fetch(query_sql, *param_values)
+
+            docs = []
+            for row in rows:
+                docs.append({
+                    "id": row["id"],
+                    "score": float(row["score"]),
+                    "metadata": {
+                        "title": row.get("title"),
+                        "news_source": row.get("news_source"),
+                        "category": row.get("category"),
+                        "future_signal": row.get("future_signal"),
+                        "sentiment": row.get("sentiment"),
+                        "time_to_impact": row.get("time_to_impact"),
+                        "topic": row.get("topic"),
+                        "publication_date": row.get("publication_date"),
+                        "tags": row.get("tags"),
+                        "summary": row.get("summary"),
+                        "uri": row["id"],
+                    }
+                })
+
+            logger.info("Async vector search returned %d results", len(docs))
+            return docs
+
+    except Exception as exc:
+        logger.error("Async vector search failed for query '%s': %s", query, exc)
+        # Fallback to sync version on error
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, search_articles, query, top_k, metadata_filter)
 
 
 def similar_articles(uri: str, top_k: int = 5) -> List[Dict[str, Any]]:
@@ -341,22 +473,29 @@ def similar_articles(uri: str, top_k: int = 5) -> List[Dict[str, Any]]:
             logger.warning("No embedding found for article %s", uri)
             return []
 
-        # Find similar articles (excluding the reference article)
+        # Extract the embedding once
+        reference_embedding = row[0]
+
+        # Find similar articles using the extracted embedding (avoiding subquery repetition)
         stmt = text("""
             SELECT
                 uri as id,
-                (embedding <=> (SELECT embedding FROM articles WHERE uri = :uri)) as score,
+                (embedding <=> CAST(:ref_embedding AS vector)) as score,
                 title,
                 news_source,
                 category,
                 topic
             FROM articles
             WHERE uri != :uri AND embedding IS NOT NULL
-            ORDER BY embedding <=> (SELECT embedding FROM articles WHERE uri = :uri)
+            ORDER BY embedding <=> CAST(:ref_embedding AS vector)
             LIMIT :limit
         """)
 
-        result = conn.execute(stmt, {"uri": uri, "limit": top_k})
+        result = conn.execute(stmt, {
+            "uri": uri,
+            "ref_embedding": str(reference_embedding),
+            "limit": top_k
+        })
 
         docs = []
         for row in result.mappings():
@@ -379,7 +518,7 @@ def similar_articles(uri: str, top_k: int = 5) -> List[Dict[str, Any]]:
 
 
 async def similar_articles_async(uri: str, top_k: int = 5) -> List[Dict[str, Any]]:
-    """Async wrapper for similar_articles.
+    """Native async implementation for finding similar articles.
 
     Args:
         uri: Article URI to find similar articles for
@@ -388,8 +527,66 @@ async def similar_articles_async(uri: str, top_k: int = 5) -> List[Dict[str, Any
     Returns:
         List of similar articles with id, score, and metadata
     """
-    loop = asyncio.get_event_loop()
-    return await loop.run_in_executor(None, similar_articles, uri, top_k)
+    # Check if native async is available
+    if not _async_db_available:
+        # Fallback to thread pool
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, similar_articles, uri, top_k)
+
+    try:
+        # CRITICAL FIX: Use global singleton AsyncDatabase instance to avoid creating new connection pools
+        from app.services.async_db import get_async_database_instance
+        async_db = get_async_database_instance()
+        async with async_db.get_connection() as conn:
+            # Get the embedding for the reference article
+            ref_row = await conn.fetchrow("""
+                SELECT embedding
+                FROM articles
+                WHERE uri = $1 AND embedding IS NOT NULL
+            """, uri)
+
+            if not ref_row or ref_row["embedding"] is None:
+                logger.warning("No embedding found for article %s", uri)
+                return []
+
+            # Extract embedding
+            reference_embedding = str(ref_row["embedding"])
+
+            # Find similar articles using native async query
+            rows = await conn.fetch("""
+                SELECT
+                    uri as id,
+                    (embedding <=> $1::vector) as score,
+                    title,
+                    news_source,
+                    category,
+                    topic
+                FROM articles
+                WHERE uri != $2 AND embedding IS NOT NULL
+                ORDER BY embedding <=> $1::vector
+                LIMIT $3
+            """, reference_embedding, uri, top_k)
+
+            docs = []
+            for row in rows:
+                docs.append({
+                    "id": row["id"],
+                    "score": float(row["score"]),
+                    "metadata": {
+                        "title": row.get("title"),
+                        "news_source": row.get("news_source"),
+                        "category": row.get("category"),
+                        "topic": row.get("topic"),
+                    }
+                })
+
+            return docs
+
+    except Exception as exc:
+        logger.error("Async similar articles search failed for %s: %s", uri, exc)
+        # Fallback to sync version
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, similar_articles, uri, top_k)
 
 
 def get_vectors_by_metadata(

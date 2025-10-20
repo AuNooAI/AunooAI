@@ -898,19 +898,19 @@ class AutomatedIngestService:
         }
 
     async def _upsert_to_vector_db_async(self, article_data: Dict[str, Any], raw_content: str = None):
-        """Async vector database upsert"""
+        """Async vector database upsert - OPTIMIZED for pgvector"""
         try:
-            from app.vector_store import upsert_article
-            
+            # CRITICAL FIX: Use native async pgvector function to avoid thread pool overhead
+            from app.vector_store_pgvector import upsert_article_async
+
             # Prepare article for vector indexing
             vector_article = article_data.copy()
             if raw_content:
                 vector_article['raw'] = raw_content
-            
-            # Run in thread executor since vector operations might not be async
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, upsert_article, vector_article)
-            
+
+            # Use native async function - no thread pool needed
+            await upsert_article_async(vector_article)
+
         except Exception as e:
             self.logger.error(f"Vector database upsert failed: {e}")
             raise
@@ -1117,7 +1117,8 @@ class AutomatedIngestService:
                                     # ✅ VECTOR DATABASE UPSERT (using raw_content from memory)
                                     try:
                                         self.logger.info(f"🔍 Step 7: Upserting to vector database...")
-                                        from app.vector_store import upsert_article
+                                        # CRITICAL FIX: Use native async pgvector function
+                                        from app.vector_store_pgvector import upsert_article_async
 
                                         # Create a copy of enriched article for vector indexing
                                         vector_article = enriched_article.copy()
@@ -1131,8 +1132,8 @@ class AutomatedIngestService:
 
                                         # Ensure we have some content for indexing
                                         if vector_article.get('raw') or vector_article.get('summary') or vector_article.get('title'):
-                                            # Index into vector database
-                                            upsert_article(vector_article)
+                                            # Index into vector database using native async function
+                                            await upsert_article_async(vector_article)
                                             results["vector_indexed"] += 1
                                             self.logger.info(f"   ✅ Vector database upsert completed")
                                         else:
