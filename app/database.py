@@ -3331,10 +3331,12 @@ Remember to cite your sources and provide actionable insights where possible."""
         """Get the default Auspex system prompt."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            # Use TRUE for PostgreSQL, 1 for SQLite
+            is_default_value = "TRUE" if self.db_type == 'postgresql' else "1"
+            cursor.execute(f"""
                 SELECT id, name, title, content, description, is_default, created_at, updated_at, user_created
-                FROM auspex_prompts 
-                WHERE is_default = 1
+                FROM auspex_prompts
+                WHERE is_default = {is_default_value}
                 LIMIT 1
             """)
             
