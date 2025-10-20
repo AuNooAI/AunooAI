@@ -875,6 +875,23 @@
     display: block;
 }
 
+/* Citation controls */
+.citation-select {
+    width: 90px;
+    min-width: 90px;
+}
+
+.custom-citation-input {
+    width: 70px;
+    min-width: 70px;
+    display: none;
+    transition: all 0.3s ease;
+}
+
+.custom-citation-input.show {
+    display: block;
+}
+
 /* Improve header layout for when custom field is shown */
 @media (max-width: 1200px) {
     .floating-chat-header {
@@ -950,7 +967,19 @@
         min-width: 60px;
         font-size: 0.8rem;
     }
-    
+
+    .citation-select {
+        width: 85px;
+        min-width: 85px;
+        font-size: 0.8rem;
+    }
+
+    .custom-citation-input {
+        width: 60px;
+        min-width: 60px;
+        font-size: 0.8rem;
+    }
+
     .context-info {
         width: 100%;
         padding: 6px 10px;

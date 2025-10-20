@@ -167,10 +167,20 @@ class ChatMessageRequest(BaseModel):
     chat_id: int = Field(..., description="Chat session ID")
     message: str = Field(..., description="User message")
     model: str | None = Field(None, description="Model to use for response")
-    limit: int | None = Field(50, description="Number of articles to analyze (auto-sized based on context)")
+    limit: int | None = Field(50, description="Number of articles to retrieve and analyze (max articles to search for)")
     tools_config: dict | None = Field(None, description="Individual tool configuration settings")
     profile_id: int | None = Field(None, description="Organizational profile ID for contextualized analysis")
     custom_prompt: str | None = Field(None, description="Custom system prompt to override the default template")
+    article_detail_limit: int | None = Field(
+        None,
+        ge=5,
+        le=300,
+        description=(
+            "Number of articles to include in detailed citation context. "
+            "If not specified, defaults to 25. "
+            "Range: 5-300. Examples: 10 (quick), 25 (standard), 50 (deep), 100+ (comprehensive)"
+        )
+    )
 
 class PromptRequest(BaseModel):
     name: str = Field(..., description="Unique prompt name")
@@ -282,8 +292,11 @@ async def delete_chat_session(chat_id: int, session=Depends(verify_session)):
 # Chat Messaging
 @router.post("/chat/message", status_code=status.HTTP_200_OK)
 async def send_chat_message(req: ChatMessageRequest, session=Depends(verify_session)):
-    """Send a message to Auspex and get streaming response."""
-    logger.info(f"Received chat message - chat_id: {req.chat_id}, message: '{req.message}', model: {req.model}")
+    """Send a message to Auspex and get streaming response with configurable citation depth."""
+    logger.info(
+        f"Received chat message - chat_id: {req.chat_id}, message: '{req.message}', "
+        f"model: {req.model}, limit: {req.limit}, article_detail_limit: {req.article_detail_limit}"
+    )
     
     auspex = get_auspex_service()
     
@@ -311,7 +324,7 @@ async def send_chat_message(req: ChatMessageRequest, session=Depends(verify_sess
                 # Update the chat session to include the profile_id
                 auspex.db.update_auspex_chat_profile(req.chat_id, req.profile_id)
             
-            async for chunk in auspex.chat_with_tools(req.chat_id, req.message, req.model, req.limit, req.tools_config, req.profile_id, req.custom_prompt):
+            async for chunk in auspex.chat_with_tools(req.chat_id, req.message, req.model, req.limit, req.tools_config, req.profile_id, req.custom_prompt, req.article_detail_limit):
                 yield f"data: {json.dumps({'content': chunk})}\n\n"
             logger.info("Chat response completed successfully")
             yield f"data: {json.dumps({'done': True})}\n\n"

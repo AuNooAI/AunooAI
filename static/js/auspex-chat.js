@@ -8,6 +8,8 @@ class FloatingChat {
             modelSelect: document.getElementById('floatingModelSelect'),
             sampleSizeMode: document.getElementById('floatingSampleSizeMode'),
             customLimit: document.getElementById('floatingCustomLimit'),
+            citationMode: document.getElementById('floatingCitationMode'),
+            citationLimit: document.getElementById('floatingCitationLimit'),
             messages: document.getElementById('floatingChatMessages'),
             input: document.getElementById('floatingChatInput'),
             sendBtn: document.getElementById('floatingChatSend'),
@@ -38,6 +40,8 @@ class FloatingChat {
             model: 'auspex_floating_last_model',
             sampleSizeMode: 'auspex_floating_sample_size_mode',
             customLimit: 'auspex_floating_custom_limit',
+            citationMode: 'auspex_floating_citation_mode',
+            citationLimit: 'auspex_floating_citation_limit',
             customQueries: 'auspex_floating_custom_queries',
             minimized: 'auspex_floating_minimized',
             toolsConfig: 'auspex_floating_tools_config'
@@ -352,8 +356,21 @@ class FloatingChat {
             this.elements.customLimit.value = savedCustomLimit;
         }
 
-        // Initialize sample size mode
+        const savedCitationMode = localStorage.getItem(this.storageKeys.citationMode);
+        if (savedCitationMode) {
+            this.elements.citationMode.value = savedCitationMode;
+        } else {
+            this.elements.citationMode.value = 'auto'; // Default to auto
+        }
+
+        const savedCitationLimit = localStorage.getItem(this.storageKeys.citationLimit);
+        if (savedCitationLimit) {
+            this.elements.citationLimit.value = savedCitationLimit;
+        }
+
+        // Initialize sample size mode and citation mode
         this.handleSampleSizeModeChange();
+        this.handleCitationModeChange();
         
         // Apply settings after loading dropdowns with a longer delay to ensure DOM is ready
         if (savedTopic) {
@@ -399,6 +416,21 @@ class FloatingChat {
             this.elements.customLimit.addEventListener('change', () => {
                 localStorage.setItem(this.storageKeys.customLimit, this.elements.customLimit.value);
                 this.updateContextInfo();
+            });
+        }
+
+        // Citation mode change
+        if (this.elements.citationMode) {
+            this.elements.citationMode.addEventListener('change', () => {
+                localStorage.setItem(this.storageKeys.citationMode, this.elements.citationMode.value);
+                this.handleCitationModeChange();
+            });
+        }
+
+        // Custom citation limit change
+        if (this.elements.citationLimit) {
+            this.elements.citationLimit.addEventListener('change', () => {
+                localStorage.setItem(this.storageKeys.citationLimit, this.elements.citationLimit.value);
             });
         }
 
@@ -737,7 +769,8 @@ class FloatingChat {
                     model: model,
                     limit: limit,
                     profile_id: profileId,
-                    tools_config: this.toolsConfig
+                    tools_config: this.toolsConfig,
+                    article_detail_limit: this.getCitationLimit()
                 })
             });
 
@@ -1611,7 +1644,7 @@ class FloatingChat {
 
     handleSampleSizeModeChange() {
         const mode = this.elements.sampleSizeMode.value;
-        
+
         if (mode === 'custom') {
             this.elements.customLimit.classList.add('show');
             this.elements.customLimit.style.display = 'block';
@@ -1619,8 +1652,39 @@ class FloatingChat {
             this.elements.customLimit.classList.remove('show');
             this.elements.customLimit.style.display = 'none';
         }
-        
+
         this.updateContextInfo();
+    }
+
+    handleCitationModeChange() {
+        const mode = this.elements.citationMode.value;
+
+        if (mode === 'custom') {
+            this.elements.citationLimit.classList.add('show');
+            this.elements.citationLimit.style.display = 'block';
+        } else {
+            this.elements.citationLimit.classList.remove('show');
+            this.elements.citationLimit.style.display = 'none';
+        }
+    }
+
+    getCitationLimit() {
+        const mode = this.elements.citationMode ? this.elements.citationMode.value : 'auto';
+
+        switch (mode) {
+            case 'auto':
+                return 25; // Default
+            case 'quick':
+                return 10;
+            case 'deep':
+                return 50;
+            case 'comprehensive':
+                return 100;
+            case 'custom':
+                return parseInt(this.elements.citationLimit.value) || 25;
+            default:
+                return 25;
+        }
     }
 
     updateContextInfo() {

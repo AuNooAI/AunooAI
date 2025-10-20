@@ -1,5 +1,16 @@
 # ChromaDB to pgvector Migration - Detailed Implementation Specification
 
+> **🎉 MIGRATION STATUS: ✅ COMPLETE (as of 2025-10-16)**
+>
+> This document is preserved as a reference for the migration process that has been successfully completed.
+> The system now uses PostgreSQL pgvector v0.6.0 in production.
+>
+> For completion details and current status, see:
+> - [PGVECTOR_MIGRATION_SUMMARY.md](../spec-files-aunoo/plans/PGVECTOR_MIGRATION_SUMMARY.md)
+> - [SPECIFICATION_AUDIT_REPORT.md](./SPECIFICATION_AUDIT_REPORT.md)
+
+---
+
 ## Table of Contents
 1. [Overview](#overview)
 2. [Consumer Code Compatibility](#consumer-code-compatibility)

@@ -21,215 +21,163 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_MODEL = "gpt-4.1-mini"
 
+# Citation depth configuration
+DEFAULT_CITATION_LIMIT = 25      # Default number of articles to include in detailed context
+MIN_CITATION_LIMIT = 5           # Minimum useful citation count
+MAX_CITATION_LIMIT = 300         # Maximum to prevent context overflow
+
 # Default system prompt for Auspex
 DEFAULT_AUSPEX_PROMPT = """You are Auspex, an advanced AI research assistant specialized in analyzing news trends, sentiment patterns, and providing strategic insights using AuNoo's strategic-foresight methodology.
 
-CRITICAL RESPONSE FORMAT REQUIREMENTS:
-When analyzing articles, you MUST provide responses in this EXACT structure:
+## Core Research Principles
 
-## Summary of Search Results for "[Query/Topic]"
+**Your Role:** Conduct rigorous, evidence-based research and analysis using AuNoo's tools and databases. Synthesize findings into clear, actionable insights while maintaining intellectual honesty about limitations and uncertainties.
 
-- **Total articles found:** [X] (most semantically relevant subset analyzed)
-- **Category focus:**  
-  - [Category 1]: ~[X] articles  
-  - [Category 2]: ~[X] articles related to [specific aspect]  
-  - [Category 3]: Several articles touching on [specific themes]  
-  - [Additional categories with counts and descriptions]
+**ALWAYS CITE SOURCES INLINE:** When you reference a specific finding, data point, claim, or event, immediately cite the source article using markdown format: **[Article Title](URL)**
 
-- **Sentiment distribution:**  
-  - Neutral: Majority (~[X]%)  
-  - Positive: ~[X]%  
-  - Critical: ~[X]% (notably on [specific concerns])  
-  - None specified: Remainder  
+Examples:
+- "Turkey deployed disaster relief teams to Gaza ([Turkey sends aid to Gaza](https://example.com/article1))"
+- "According to [AI Regulation Update](https://example.com/article2), the EU AI Act negotiations continue"
+- "Venture capital AI investment dropped 23% quarter-over-quarter - Source: [VC Trends Report](https://example.com/article3)"
 
-- **Future signal distribution:**  
-  - [Signal type]: ~[X]%  
-  - [Signal type]: ~[X]%  
-  - [Signal type]: Few  
-  - None specified: Some  
+**Response Style:**
+- Write naturally and adapt your structure to the query type
+- Use inline citations throughout (not just a list at the end)
+- Provide specific data: numbers, percentages, names, dates, amounts
+- Focus on "why" and "so what" - implications matter more than descriptions
+- Be concise but substantive - avoid filler and generic statements
+- Note gaps, limitations, and areas of uncertainty
 
-- **Time to Impact:**  
-  - Immediate to short-term: [Description of articles and focus areas]  
-  - Mid-term: [Description with specific examples]  
-  - Long-term: [Description of forward-looking content]
+**Optional Structural Elements:**
+You may include these elements when they add value (not required for every response):
+- Statistical summaries (article counts, distributions)
+- Tables for comparative analysis
+- Bulleted key takeaways
+- Separate article references section (in addition to inline citations)
 
----
+Adapt your format to match the query type - exploratory questions need different structures than specific fact-finding queries.
 
-## Detailed Analysis: [Topic/Query Focus]
+## AuNoo Strategic Foresight Framework
 
-### 1. **[Major Theme 1]**
-- [Detailed analysis with specific examples and data points]
-- **[Specific Country/Entity]** [specific actions taken with amounts/details]
-- **[Another Entity]** [specific initiatives with concrete details]
-- [Additional bullet points with specifics]
+Analyze articles across multiple dimensions to identify patterns and implications:
 
-### 2. **[Major Theme 2]**
-- [Analysis framework with real examples]
-- [Specific comparisons and contrasts]
-- [Concrete data points and implications]
+**Key Dimensions:**
+- **Categories**: Thematic sub-clusters (e.g., "AI in Healthcare", "AI Policy")
+- **Future Signals**: Weak Signal, Emerging Trend, Established Trend, Disruption
+- **Sentiments**: Positive, Neutral, Critical, Negative
+- **Time to Impact**: Immediate (0-6mo), Short-term (6-18mo), Mid-term (18-36mo), Long-term (3y+)
+- **Driver Types**: Technology, Policy, Economic, Social, Environmental
 
-### 3. **[Major Theme 3]**
-- [International cooperation vs rivalry analysis]
-- [Specific initiatives and their implications]
-- [Policy and governance considerations]
+**Analysis Approach:**
+1. Identify dominant patterns across dimensions
+2. Cross-reference signals, sentiment, and timing
+3. Note outliers and unexpected combinations
+4. Extract strategic implications from patterns
+5. Assess source diversity and representativeness
 
-### 4. **[Major Theme 4]**
-- [Corporate and private sector involvement]
-- [Specific companies and their roles]
-- [Investment figures and strategic implications]
+## Available Research Tools
 
-### 5. **[Major Theme 5]**
-- [Risk analysis and challenges]
-- [Expert warnings and concerns]
-- [Future implications and scenarios]
+You have access to sophisticated search and analysis tools. Use them strategically:
 
----
+**Primary Search Tool:**
+- `enhanced_database_search(query, topic, limit)` - Your default for most queries. Combines semantic vector search with intelligent fallback to keyword search. Automatically detects date patterns like "last 7 days" and applies temporal filters.
 
-## Key Themes and Highlights
+**Specialized Tools:**
+- `search_news(query, max_results, days_back)` - For breaking news or very recent content (<24 hours)
+- `get_topic_articles(topic, limit, days_back)` - Broad overview of all articles in a topic
+- `analyze_sentiment_trends(topic, time_period)` - Sentiment distribution analysis
+- `get_article_categories(topic)` - Category breakdown for topic planning
+- `search_articles_by_categories(categories, topic, limit)` - Category-specific deep dives
+- `search_articles_by_keywords(keywords, topic, limit)` - Precise keyword matching
+- `follow_up_query(original_query, follow_up, topic, context)` - Iterative exploration
 
-| Theme                          | Summary                                                                                          | Representative Articles / Examples                           |
-|--------------------------------|--------------------------------------------------------------------------------------------------|--------------------------------------------------------------|
-| [Theme 1]                      | [Detailed summary with specifics]                                                              | [Specific examples with concrete details]                   |
-| [Theme 2]                      | [Analysis with data points and trends]                                                         | [Examples with figures and outcomes]                        |
-| [Theme 3]                      | [Strategic implications and developments]                                                       | [Specific initiatives and results]                          |
-| [Theme 4]                      | [Investment and business analysis]                                                              | [Company names, amounts, strategic moves]                   |
-| [Theme 5]                      | [Risk assessment and challenges]                                                               | [Expert quotes, comparative analysis]                       |
+**Tool Selection Strategy:**
+- Default to `enhanced_database_search()` - it's smart and adapts automatically
+- Use `search_news()` only when user explicitly asks for "latest" or "breaking" news
+- Use category/keyword tools when you need precision over semantic understanding
+- Use `follow_up_query()` for iterative, conversational analysis
 
----
+## Search Strategy Best Practices
 
-## Conclusion
+**Query Formulation:**
+- Include explicit time references: "last 7 days", "past month", "recent"
+- Be specific with concepts but natural in language
+- Mention categories when relevant
+- State the analysis goal clearly
 
-[Comprehensive conclusion that synthesizes all themes, provides strategic outlook, identifies key trends, discusses implications, and offers balanced perspective on future developments. Must be substantial and actionable.]
+**Result Validation:**
+- Check article count (optimal: 25-100 for focused analysis)
+- Verify source diversity (aim for 10-20 unique sources)
+- Confirm date range matches query intent
+- Note any gaps or biases in coverage
 
----
+**Iterative Analysis:**
+Treat research as a conversation - start broad, then drill down based on findings.
 
-STRATEGIC FORESIGHT FRAMEWORK:
-AuNoo follows strategic-foresight methodology with these key components:
-- **Categories**: Thematic sub-clusters inside a topic for organized analysis
-- **Future Signals**: Concise hypotheses about possible future states
-- **Sentiments**: Positive/Neutral/Negative plus nuanced variants for emotional analysis
-- **Time to Impact**: Immediate, Short-Term (3-18m), Mid-Term (18-60m), Long-Term (5y+)
-- **Driver Types**: Accelerators, Blockers, Catalysts, Delayers, Initiators, Terminators
+## Critical Research Standards
 
-Your capabilities include:
-- Analyzing vast amounts of news data and research with strategic foresight
-- Identifying emerging trends and patterns across multiple dimensions
-- Providing sentiment analysis and future impact predictions
-- Accessing real-time news data through specialized tools
-- Comparing different categories and topics with structured analysis
-- Offering strategic foresight and risk analysis
-- Performing semantic search with diversity filtering
-- Conducting structured analysis with comprehensive insights
-- Making follow-up queries for deeper investigation
+**NEVER HALLUCINATE:**
+- If no articles found, clearly state this
+- Don't create fictional analysis or connections
+- Note limitations and gaps honestly
 
-You have access to the following tools (when tools are enabled):
-- search_news: Search for current news articles (PRIORITIZED for "latest/recent" queries)
-- get_topic_articles: Retrieve articles from the database for specific topics
-- analyze_sentiment_trends: Analyze sentiment patterns over time
-- get_article_categories: Get category distributions for topics
-- search_articles_by_keywords: Search articles by specific keywords
-- semantic_search_and_analyze: Perform comprehensive semantic search with diversity filtering and structured analysis
-- follow_up_query: Conduct follow-up searches based on previous results for deeper insights
+**VERIFY ENTITY MENTIONS:**
+- When asked about specific companies/entities, only analyze articles that actually mention them
+- Report exact counts: "X of Y articles mention [entity]"
+- Don't conflate general topic coverage with entity-specific coverage
 
-DATA SOURCE UNDERSTANDING:
-- **Database Articles**: Pre-collected articles with enriched metadata including sentiment analysis, category classification, relevance scores, future signals, and time-to-impact assessments
-- **Real-time News**: Fresh articles from news APIs with basic metadata
-- **Tool-based Analysis**: Dynamic sentiment/category analysis performed on-demand across multiple articles
-- **Semantic Analysis**: Structured analysis with diversity filtering, key themes extraction, and temporal distribution
-- **Strategic Foresight Data**: Articles enriched with future signals, driver types, and impact timing
+**SOURCE EVERYTHING:**
+- Cite inline using markdown: [Article Title](URL)
+- Every specific claim, statistic, or quote needs a citation
+- Examples:
+  - "Investment increased 45% ([VC Report Q4](https://example.com))"
+  - "According to [EU AI Act Update](https://example.com), negotiations continue"
+  - "Turkey deployed aid teams - Source: [Relief Efforts](https://example.com)"
 
-When analyzing articles, always consider:
-1. **Sentiment Analysis**:
-   - Distribution of sentiments across articles with percentages
-   - Sentiment trends over time and correlation with events
-   - Nuanced sentiment variants and their implications
+**DISTINGUISH DATA SOURCES:**
+- Clearly label database articles vs real-time news
+- Note time windows and coverage periods
+- Indicate when mixing historical and recent data
 
-2. **Future Impact Analysis**:
-   - Distribution of future signals and their likelihood
-   - Time to impact predictions with strategic implications
-   - Driver types analysis (accelerators vs blockers vs catalysts)
-   - Risk assessment and opportunity identification
+## Analysis Quality Standards
 
-3. **Category Analysis**:
-   - Distribution of articles across thematic categories
-   - Category-specific trends and cross-category comparisons
-   - Emerging sub-themes and topic evolution
+**Provide Specific Data:**
+- Use exact numbers, percentages, and counts
+- Name companies, organizations, countries, people
+- Quote key figures and statistics
+- Reference concrete examples from articles
 
-4. **Temporal Analysis**:
-   - Publication date patterns and timing significance
-   - Time-based impact analysis and trend acceleration
-   - Seasonal patterns and cyclical behaviors
+**Show Your Work:**
+- Report article counts and distributions when relevant
+- Note source diversity (number of unique sources)
+- Indicate time windows and date ranges
+- Acknowledge gaps and limitations
 
-CRITICAL PRIORITIES:
-- **NEVER HALLUCINATE**: If no articles are found, clearly state this and do not create fictional analysis
-- **VERIFY ENTITY MENTIONS**: When asked about specific companies/vendors, only analyze articles that actually mention those entities
-- When users ask for "latest", "recent", "current", or "breaking" news, prioritize real-time news search results
-- For comprehensive analysis, use semantic_search_and_analyze for structured insights with diversity filtering
-- When users want deeper investigation, use follow_up_query to explore specific aspects
-- Apply strategic foresight methodology to all analysis
-- Clearly distinguish between real-time news data and database/historical data
-- Always provide statistical breakdowns and strategic takeaways
+**Focus on Implications:**
+- Don't just describe what's happening - explain why it matters
+- Identify strategic implications for decision-makers
+- Note emerging patterns and potential inflection points
+- Provide actionable insights, not just summaries
 
-ENTITY-SPECIFIC QUERY HANDLING:
-When users ask about specific companies, vendors, or entities:
-- Only analyze articles that actually mention the specified entity by name
-- If no articles mention the entity, clearly state this fact
-- Do not create fictional connections between general topic articles and the specific entity
-- Provide the exact count of articles that mention the entity vs total articles in the topic
+**Maintain Intellectual Honesty:**
+- Acknowledge conflicting evidence when present
+- Note areas of uncertainty
+- Distinguish speculation from evidence
+- Recommend further research when appropriate
 
-RESPONSE FORMAT: When you receive database articles with analysis instructions, you MUST follow the EXACT format specified in the context. This includes:
+## Formatting Guidelines
 
-1. **Summary of Search Results** with precise statistical breakdowns:
-   - Total articles found and analyzed subset
-   - Category distribution with specific counts/approximations  
-   - Sentiment distribution with numbers
-   - Future signal distribution with counts
-   - Time to impact distribution
+Use markdown effectively but don't over-structure:
+- **Bold** for emphasis and key metrics
+- Bullet points for lists and breakdowns
+- Tables when comparing multiple dimensions (optional, use when it adds clarity)
+- > Block quotes for important article quotes
+- [Article Title](URL) for all inline citations
 
-2. **Future Impact Predictions Analysis** with structured sections:
-   - General Trends in Future Signals (identify dominant patterns)
-   - Time to Impact analysis (timing patterns and implications)
-   - Category-Specific Future Impact Insights (detailed breakdown by category)
-   - Notable Specific Predictions (key predictions with timing)
+**Follow-up Suggestions:**
+If you offer follow-up questions, limit to 2-3 high-priority natural language questions. Write them as a user would ask: "What are the latest developments in AI safety regulations?" NOT as technical function calls.
 
-3. **Summary Table** organizing predictions by:
-   - Future Signal | Time to Impact | Category(s) | Sentiment | Key Themes
-
-4. **Strategic Conclusion** with actionable insights about patterns and trajectory
-
-CRITICAL ANALYSIS REQUIREMENTS:
-- Count articles carefully and provide specific numbers
-- Categorize systematically across all strategic foresight dimensions
-- Identify dominant patterns and outliers in future signals
-- Analyze category-specific trends and predictions
-- Extract specific predictions with timing context
-- Provide strategic implications for decision-makers
-- Use the exact formatting structure provided in context
-
-STRUCTURED ANALYSIS CAPABILITIES:
-- **Diversity Filtering**: Ensuring varied sources and categories for comprehensive coverage
-- **Key Themes Extraction**: Identifying main topics and trending subjects with strategic relevance
-- **Temporal Distribution**: Understanding timing patterns and peak activity periods
-- **Sentiment Breakdown**: Comprehensive sentiment analysis with strategic implications
-- **Future Signals Analysis**: Identifying and assessing potential future developments
-- **Driver Type Classification**: Understanding what accelerates or impedes trends
-- **Strategic Risk Assessment**: Evaluating threats and opportunities
-
-FORMAT GUIDELINES:
-Use markdown for better readability:
-- Use ## for section headings
-- Use bullet points for lists and breakdowns
-- Use **bold** for emphasis and key metrics
-- Use `code` for technical terms and categories
-- Use > for quotes from articles
-- Use tables when comparing multiple articles or showing distributions
-
-Always provide thorough, insightful analysis backed by data with specific statistics and strategic breakdowns. When asked about trends or patterns, gather current information and apply strategic foresight methodology. Be concise but comprehensive, ensuring every claim is supported by specific data points and strategic reasoning.
-
-FOLLOW-UP SUGGESTIONS CONSTRAINT:
-If you include follow-up suggestions, limit them to exactly 2-3 high-priority natural language questions only. Write them as questions a user would ask, not as technical function calls. For example: "What are the latest developments in AI safety regulations?" NOT "search_articles_by_keywords('AI safety regulations')". Focus on the most strategic follow-up questions users would want to explore.
-
-Remember to cite your sources and provide actionable strategic insights where possible."""
+Remember: You are a strategic research assistant. Focus on extracting meaning and implications from data, not just reporting what you found. Every claim should be sourced with inline citations."""
 
 class OptimizedContextManager:
     """Manages context window optimization for Auspex."""
@@ -797,6 +745,7 @@ class AuspexService:
                         formatted_article = {
                             "uri": uri,
                             "title": article.get("title", "Unknown Title"),
+                            "url": article.get("url") or article.get("link") or uri,  # Use uri as fallback
                             "summary": article.get("summary", "No summary available"),
                             "category": article.get("category", "Uncategorized"),
                             "sentiment": article.get("sentiment", "Neutral"),
@@ -927,7 +876,29 @@ class AuspexService:
             logger.error(f"Error deleting chat session: {e}")
             return False
 
-    async def chat_with_tools(self, chat_id: int, message: str, model: str = None, limit: int = 50, tools_config: Dict = None, profile_id: int = None, custom_prompt: str = None) -> AsyncGenerator[str, None]:
+    def get_citation_limit(self, total_articles: int, user_override: Optional[int] = None) -> int:
+        """
+        Determine citation limit based on user preference or default.
+
+        Args:
+            total_articles: Total number of articles available
+            user_override: User-specified limit (takes precedence if provided)
+
+        Returns:
+            int: Number of articles to include in detailed context
+        """
+        # User override takes precedence
+        if user_override is not None:
+            limit = max(MIN_CITATION_LIMIT, min(user_override, MAX_CITATION_LIMIT))
+            logger.info(f"Using user-specified citation limit: {limit}")
+            return min(limit, total_articles)  # Can't cite more than available
+
+        # Use default
+        limit = min(DEFAULT_CITATION_LIMIT, total_articles)
+        logger.info(f"Using default citation limit: {limit} (available: {total_articles})")
+        return limit
+
+    async def chat_with_tools(self, chat_id: int, message: str, model: str = None, limit: int = 50, tools_config: Dict = None, profile_id: int = None, custom_prompt: str = None, article_detail_limit: Optional[int] = None) -> AsyncGenerator[str, None]:
         """Chat with Auspex with optional tool usage and custom system prompt override."""
         if not model:
             model = DEFAULT_MODEL
@@ -989,8 +960,8 @@ class AuspexService:
             needs_tools = use_tools and await self._should_use_tools(message)
             
             if needs_tools:
-                # Use tools to gather information
-                tool_results = await self._use_mcp_tools(message, chat_id, limit, tools_config)
+                # Use tools to gather information with citation limit
+                tool_results = await self._use_mcp_tools(message, chat_id, limit, tools_config, article_detail_limit)
                 if tool_results:
                     # Add tool results as assistant context to avoid overriding system instructions
                     llm_messages.append({
@@ -1193,23 +1164,23 @@ CURRENT SESSION CONTEXT:
         
         return should_use
 
-    async def _use_mcp_tools(self, message: str, chat_id: int, limit: int, tools_config: Dict = None) -> Optional[str]:
+    async def _use_mcp_tools(self, message: str, chat_id: int, limit: int, tools_config: Dict = None, citation_limit: Optional[int] = None) -> Optional[str]:
         """Use the original sophisticated database navigation logic from chat_routes.py"""
-        logger.info(f"_use_mcp_tools called for message: '{message}', chat_id: {chat_id}")
-        
+        logger.info(f"_use_mcp_tools called for message: '{message}', chat_id: {chat_id}, citation_limit: {citation_limit}")
+
         try:
             # Get chat info to determine topic
             chat = self.db.get_auspex_chat(chat_id)
             if not chat:
                 logger.error(f"Chat not found for chat_id: {chat_id}")
                 return None
-                
+
             topic = chat['topic']
             logger.info(f"Chat topic: {topic}")
-            
+
             # Use the original sophisticated search logic
-            return await self._original_chat_database_logic(message, topic, limit)
-            
+            return await self._original_chat_database_logic(message, topic, limit, citation_limit)
+
         except Exception as e:
             logger.error(f"Error in _use_mcp_tools: {e}")
             return None
@@ -1250,7 +1221,7 @@ CURRENT SESSION CONTEXT:
         active_descriptions = [tool_descriptions.get(tool, tool) for tool in enabled_tools]
         return f"Active: {', '.join(active_descriptions)}"
 
-    async def _original_chat_database_logic(self, message: str, topic: str, limit: int) -> Optional[str]:
+    async def _original_chat_database_logic(self, message: str, topic: str, limit: int, citation_limit: Optional[int] = None) -> Optional[str]:
         try:
             analyze_db = AnalyzeDB(self.db)
             ai_model = get_ai_model(DEFAULT_MODEL)
@@ -1348,6 +1319,7 @@ CURRENT SESSION CONTEXT:
                         vector_articles.append({
                             "uri": uri,
                             "title": metadata.get("title", "Unknown Title"),
+                            "url": metadata.get("url") or metadata.get("link") or uri,  # Use uri as fallback
                             "summary": metadata.get("summary", "No summary available"),
                             "category": metadata.get("category", "Uncategorized"),
                             "sentiment": metadata.get("sentiment", "Neutral"),
@@ -1753,9 +1725,17 @@ Analyzing the {len(articles)} most recent articles
 
 I can help you reformulate your search or provide information about what topics and categories are available in the database."""
 
-            # Format articles for context (original format)
+            # Determine citation limit
+            actual_citation_limit = self.get_citation_limit(len(articles), citation_limit)
+            logger.info(f"Using citation limit of {actual_citation_limit} for {len(articles)} total articles")
+
+            # Format articles for context (original format) with citation limit
+            articles_to_include = articles[:actual_citation_limit]
+            remaining_articles_count = len(articles) - actual_citation_limit
+
             context = "\n\n".join([
                 f"Title: {article.get('title', 'No title')}\n"
+                f"URL: {article.get('url') or article.get('link') or article.get('uri', 'No URL')}\n"
                 f"Summary: {article.get('summary', 'No summary')}\n"
                 f"Category: {article.get('category', 'No category')}\n"
                 f"Future Signal: {article.get('future_signal', 'No signal')}\n"
@@ -1764,69 +1744,76 @@ I can help you reformulate your search or provide information about what topics 
                 f"Tags: {', '.join(article.get('tags', [])) if article.get('tags') else 'None'}\n"
                 f"Publication Date: {article.get('publication_date', 'Unknown')}"
                 + (f"\nSimilarity Score: {article.get('similarity_score', 'N/A')}" if 'similarity_score' in article else "")
-                for article in articles if isinstance(article, dict)
+                for article in articles_to_include if isinstance(article, dict)
             ])
 
-            # Build the final context in original format with sophisticated analysis instructions
+            # Add note about remaining articles if any
+            if remaining_articles_count > 0:
+                context += f"\n\n... and {remaining_articles_count} more articles available (showing detailed context for {actual_citation_limit} most relevant)"
+
+            # Build the final context with flexible analysis instructions
             final_context = f"""
 {search_summary}
 
-Here are the {len(articles)} most relevant articles out of {total_count} total matches:
+Here are the {actual_citation_limit} most relevant articles out of {total_count} total matches (detailed context provided for {actual_citation_limit}):
 
 {context}
 
 User Question: {message}
 
-IMPORTANT ANALYSIS INSTRUCTIONS:
-You MUST provide a comprehensive analysis with the following EXACT structure and format:
-
-## Summary of Search Results
-
-- **Total articles found in database for query:** {total_count}
-- **Analyzed subset:** {len(articles)} most relevant articles
-- **General category distribution (approximate):**
-  [Provide detailed breakdown of categories with counts like "AI and Society: Several", "The Path to AGI: Multiple", etc.]
-
-- **Sentiment distribution:**
-  [Provide specific counts like "Positive: ~9", "Neutral: ~15", "Negative: ~3", etc.]
-
-- **Future signal distribution among articles with this metadata:**
-  [Provide breakdown like "AI will accelerate: ~18", "AI will evolve gradually: ~6", etc.]
-
-- **Time to impact distribution:**
-  [Provide breakdown like "Immediate: Few", "Short-term: Several", etc.]
-
 ---
 
-## Future Impact Predictions Analysis
+## Analysis Instructions
 
-### 1. **General Trends in Future Signals**
-[Analyze the dominant future signals and what they indicate about expectations]
+**Research Context:**
+- Total articles found: {total_count}
+- Articles with full context: {actual_citation_limit}
+- Remaining articles: {remaining_articles_count} (summaries analyzed but not shown in detail)
 
-### 2. **Time to Impact**
-[Analyze the timing patterns and what they suggest about expected changes]
+**Your Task:**
+Analyze these articles to answer the user's question. Apply your strategic foresight methodology and research principles.
 
-### 3. **Category-Specific Future Impact Insights**
-[For each major category, provide detailed analysis of future signals, sentiment, and predictions]
+**Critical Requirements:**
 
-### 4. **Notable Specific Predictions**
-[List key specific predictions from the articles with timing and context]
+1. **CITE INLINE THROUGHOUT:**
+   - Every specific claim, data point, or finding must cite the source article
+   - Format: "Turkey deployed relief teams ([Turkey sends aid](https://example.com))"
+   - Or: "According to [Article Title](URL), trend continues..."
+   - Or: "Investment increased 45% - Source: [VC Report](https://example.com)"
 
----
+2. **BE SPECIFIC:**
+   - Use exact numbers from articles (not "many" or "several")
+   - Name companies, countries, organizations, people
+   - Quote key statistics and figures
+   - Provide concrete examples
 
-## Summary Table of Future Impact Predictions by Key Dimensions
+3. **ANALYZE, DON'T JUST SUMMARIZE:**
+   - Explain why findings matter (implications)
+   - Identify patterns across articles
+   - Note emerging trends or shifts
+   - Assess strategic significance
+   - Consider multiple dimensions: categories, sentiments, timing, drivers
 
-| Future Signal        | Time to Impact     | Category(s)                  | Sentiment        | Key Themes                                   |
-|----------------------|--------------------|-----------------------------|------------------|----------------------------------------------|
-[Create detailed table organizing the predictions by these dimensions]
+4. **SHOW YOUR WORK:**
+   - Report distributions when relevant (e.g., "15 of 25 articles are positive sentiment")
+   - Note source diversity (e.g., "covering 18 unique sources")
+   - Acknowledge gaps or limitations
+   - Flag conflicting information if present
 
----
+5. **ADAPT YOUR FORMAT:**
+   - Structure your response to fit the question type
+   - Use tables only when they add clarity (optional)
+   - Include statistical breakdowns when they're useful (optional)
+   - Write naturally - don't force a rigid template
 
-## Conclusion
+**Available Metadata to Consider:**
+- Categories: {', '.join(topic_options.get('categories', [])[:10])}{"..." if len(topic_options.get('categories', [])) > 10 else ""}
+- Sentiments: {', '.join(topic_options.get('sentiments', []))}
+- Future Signals: {', '.join(topic_options.get('futureSignals', [])[:5])}{"..." if len(topic_options.get('futureSignals', [])) > 5 else ""}
+- Time to Impact: {', '.join(topic_options.get('timeToImpacts', []))}
 
-[Provide strategic insights about the overall patterns, implications, and future trajectory based on the analysis]
-
-CRITICAL: Count and categorize the articles carefully. Use specific numbers and approximations. Analyze the strategic foresight data (categories, sentiments, future signals, time to impact) systematically. Provide actionable insights for decision-makers."""
+Use these dimensions to identify patterns, but don't force analysis into a rigid template. Focus on what's most relevant to answering the user's question.
+"""
 
             logger.debug(f"Sending {len(articles)} articles to LLM for analysis using {search_method}")
             return final_context
@@ -1842,13 +1829,24 @@ CRITICAL: Count and categorize the articles carefully. Use specific numbers and 
                     per_page=limit
                 )
                 if articles:
+                    # Determine citation limit for fallback search
+                    fallback_citation_limit = self.get_citation_limit(len(articles), citation_limit)
+
                     return f"""## Fallback Search Results
 Found {count} articles using simple keyword search for "{message}" in topic {topic}.
 
 ## Articles Summary
-{self._format_articles_summary(articles[:limit], "fallback search")}
+{self._format_articles_summary(articles[:limit], "fallback search", fallback_citation_limit)}
 
-INSTRUCTIONS: Analyze these articles using the EXACT format template provided in your system prompt."""
+## Analysis Instructions
+
+Analyze these articles to answer the user's question. Remember to:
+1. **Cite inline** - Every claim needs a source: [Article Title](URL)
+2. **Be specific** - Use exact numbers, names, and data from articles
+3. **Focus on implications** - Explain why findings matter, not just what they are
+4. **Adapt your format** - Structure your response naturally to fit the question
+
+Apply your strategic foresight methodology and research principles from your system prompt."""
                 else:
                     return f"""## No Results Found
 No articles found for query "{message}" in topic {topic}. 
@@ -2052,50 +2050,82 @@ Please try rephrasing your question or contact support if the issue persists."""
         
         return selected[:limit]
 
-    def _format_articles_summary(self, articles: List[Dict], search_type: str) -> str:
-        """Format articles into a structured summary for the LLM."""
+    def _format_articles_summary(self, articles: List[Dict], search_type: str, detail_limit: Optional[int] = None) -> str:
+        """
+        Format articles into a structured summary for the LLM.
+
+        Args:
+            articles: List of article dictionaries
+            search_type: Type of search performed
+            detail_limit: Number of articles to include in detailed context.
+                         If None, uses DEFAULT_CITATION_LIMIT.
+
+        Returns:
+            Formatted summary string with article statistics and details
+        """
         if not articles:
             return f"No articles found via {search_type}"
-        
+
+        # Determine detail limit
+        if detail_limit is None:
+            detail_limit = DEFAULT_CITATION_LIMIT
+            logger.debug(f"No detail_limit specified, using default: {detail_limit}")
+        else:
+            # Validate range
+            detail_limit = max(MIN_CITATION_LIMIT, min(detail_limit, MAX_CITATION_LIMIT))
+            logger.info(f"Using citation detail limit: {detail_limit}")
+
+        # Cap at available articles
+        detail_limit = min(detail_limit, len(articles))
+
         # Calculate statistics
         total_articles = len(articles)
         unique_sources = len(set(article.get('news_source', 'Unknown') for article in articles))
-        
+
         # Date range
         dates = [article.get('publication_date') for article in articles if article.get('publication_date')]
         date_range = f"from {min(dates)} to {max(dates)}" if dates else "unknown date range"
-        
+
         # Category distribution
         categories = {}
         for article in articles:
             cat = article.get('category', 'Unknown')
             categories[cat] = categories.get(cat, 0) + 1
-        
+
         # Sentiment distribution
         sentiments = {}
         for article in articles:
             sent = article.get('sentiment', 'Unknown')
             sentiments[sent] = sentiments.get(sent, 0) + 1
-        
+
         # Format summary
         category_dist = chr(10).join([f"- {cat}: {count} articles ({count/total_articles*100:.1f}%)" for cat, count in categories.items()])
         sentiment_dist = chr(10).join([f"- {sent}: {count} articles ({count/total_articles*100:.1f}%)" for sent, count in sentiments.items()])
-        
-        # Format article details - limit to first 10
+
+        # Format article details with dynamic limit
         article_details = []
-        for i, article in enumerate(articles[:10]):
+        for i, article in enumerate(articles[:detail_limit]):
             similarity_text = f" | Similarity: {article.get('similarity_score', 0):.3f}" if 'similarity_score' in article else ""
+            url = article.get('url') or article.get('link') or article.get('uri', 'No URL')
             detail = (f"[{i+1}] {article['title'][:100]}...\n" +
+                     f"    URL: {url}\n" +
                      f"    Category: {article.get('category', 'N/A')} | Sentiment: {article.get('sentiment', 'N/A')}" +
                      f" | Future Signal: {article.get('future_signal', 'N/A')}" + similarity_text +
                      f"\n    Summary: {article.get('summary', 'No summary')[:200]}...")
             article_details.append(detail)
-        
+
         article_details_text = chr(10).join(article_details)
-        more_articles_text = f"\n... and {len(articles) - 10} more articles" if len(articles) > 10 else ""
-        
+
+        # Dynamic "more articles" text
+        remaining_count = len(articles) - detail_limit
+        if remaining_count > 0:
+            more_articles_text = f"\n\n... and {remaining_count} more articles available (showing detailed context for {detail_limit} most relevant)"
+        else:
+            more_articles_text = ""
+
         summary = f"""Search Method: {search_type}
 Total Articles: {total_articles}
+Detailed Context Provided: {detail_limit} articles
 Unique Sources: {unique_sources}
 Date Range: {date_range}
 
@@ -2105,9 +2135,9 @@ Category Distribution:
 Sentiment Distribution:
 {sentiment_dist}
 
-Article Details:
+Article Details (First {detail_limit}):
 {article_details_text}{more_articles_text}"""
-        
+
         return summary
 
     async def _generate_streaming_response(self, messages: List[Dict], model: str) -> AsyncGenerator[str, None]:
