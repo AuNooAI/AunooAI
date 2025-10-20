@@ -222,9 +222,11 @@ class Database:
                 engine = create_engine(
                     database_url,
                     echo=True,
-                    pool_pre_ping=True,
+                    pool_pre_ping=True,  # Check connection health on checkout
+                    pool_recycle=3600,    # Recycle connections after 1 hour (before they go stale)
                     pool_size=10,
-                    max_overflow=5
+                    max_overflow=5,
+                    pool_timeout=30       # Timeout waiting for connection from pool
                 )
             else:
                 # Use SQLite connection (default)
