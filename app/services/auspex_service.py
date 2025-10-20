@@ -1070,7 +1070,18 @@ When analyzing sentiment patterns, trends, or providing insights, ALWAYS conside
             try:
                 analyze_db = AnalyzeDB(self.db)
                 topic_options = analyze_db.get_topic_options(topic)
-                
+
+                # Add null check for topic_options
+                if not topic_options:
+                    logger.warning(f"No topic options found for topic: {topic}")
+                    topic_options = {
+                        'categories': [],
+                        'sentiments': [],
+                        'futureSignals': [],
+                        'timeToImpacts': [],
+                        'driverTypes': []
+                    }
+
                 # Enhanced system prompt with profile context prioritized
                 # Insert organizational context early in the prompt for maximum impact
                 base_content = base_prompt['content']
