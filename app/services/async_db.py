@@ -149,7 +149,17 @@ class AsyncDatabase:
                     result = await conn.execute(query, *params)
                     # Parse result like "UPDATE 1" to get row count
                     if result:
-                        return int(result.split()[-1])
+                        try:
+                            # Extract numeric value from result string
+                            parts = result.split()
+                            if parts:
+                                # Get the last part and try to convert to int
+                                last_part = parts[-1]
+                                return int(last_part)
+                        except (ValueError, IndexError) as e:
+                            logger.warning(f"Could not parse row count from result '{result}': {e}")
+                            # Return 1 to indicate success even if we can't parse the count
+                            return 1
                     return 0
                 else:
                     # SQLite with aiosqlite
