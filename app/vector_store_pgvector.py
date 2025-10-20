@@ -487,6 +487,120 @@ async def get_vectors_by_metadata_async(
     return await loop.run_in_executor(None, get_vectors_by_metadata, limit, where)
 
 
+def get_by_ids(
+    ids: List[str],
+    include: Optional[List[str]] = None
+) -> Dict[str, Any]:
+    """Fetch articles by their URIs - ChromaDB-compatible interface.
+
+    This function provides a ChromaDB-compatible interface for fetching articles
+    by their IDs (URIs) from pgvector. It's used by legacy routes that still use
+    the old ChromaDB API.
+
+    Args:
+        ids: List of article URIs to fetch
+        include: List of fields to include ("metadatas", "documents", "embeddings")
+
+    Returns:
+        Dictionary with requested fields (ids, metadatas, documents, embeddings)
+    """
+    if not ids:
+        return {"ids": [], "metadatas": [], "documents": [], "embeddings": []}
+
+    include = include or ["metadatas"]
+
+    try:
+        db = get_database_instance()
+        conn = db._temp_get_connection()
+
+        # Build parameter placeholders
+        placeholders = ", ".join(f":id{i}" for i in range(len(ids)))
+        params = {f"id{i}": uri for i, uri in enumerate(ids)}
+
+        # Select fields based on include parameter
+        select_fields = ["uri"]
+        if "embeddings" in include:
+            select_fields.append("embedding")
+
+        # Always fetch all metadata fields
+        metadata_fields = [
+            "title", "summary", "news_source", "publication_date",
+            "category", "sentiment", "sentiment_explanation",
+            "future_signal", "driver_type", "time_to_impact",
+            "topic", "bias", "factual_reporting", "mbfc_credibility_rating",
+            "tags", "topic_alignment_score", "keyword_relevance_score",
+            "confidence_score", "overall_match_explanation",
+            "extracted_article_topics", "extracted_article_keywords"
+        ]
+        select_fields.extend(metadata_fields)
+
+        select_clause = ", ".join(select_fields)
+
+        stmt = text(f"""
+            SELECT {select_clause}
+            FROM articles
+            WHERE uri IN ({placeholders})
+        """)
+
+        result = conn.execute(stmt, params)
+
+        response = {
+            "ids": [],
+            "metadatas": [],
+            "documents": [],
+            "embeddings": []
+        }
+
+        for row in result.mappings():
+            response["ids"].append(row["uri"])
+
+            if "metadatas" in include:
+                metadata = {}
+                for field in metadata_fields:
+                    value = row.get(field)
+                    if value is not None:
+                        metadata[field] = value
+                response["metadatas"].append(metadata)
+
+            if "documents" in include:
+                # Use summary as document text
+                response["documents"].append(row.get("summary") or "")
+
+            if "embeddings" in include:
+                embedding = row.get("embedding")
+                if embedding:
+                    # Parse pgvector format '[0.1,0.2,...]' to list
+                    if isinstance(embedding, str):
+                        embedding = [float(x) for x in embedding.strip('[]').split(',')]
+                    response["embeddings"].append(embedding)
+                else:
+                    response["embeddings"].append(None)
+
+        logger.debug("get_by_ids: Fetched %d articles out of %d requested", len(response["ids"]), len(ids))
+        return response
+
+    except Exception as exc:
+        logger.error("get_by_ids failed: %s", exc)
+        return {"ids": [], "metadatas": [], "documents": [], "embeddings": []}
+
+
+async def get_by_ids_async(
+    ids: List[str],
+    include: Optional[List[str]] = None
+) -> Dict[str, Any]:
+    """Async wrapper for get_by_ids.
+
+    Args:
+        ids: List of article URIs to fetch
+        include: List of fields to include
+
+    Returns:
+        Dictionary with ids, metadatas, documents, embeddings
+    """
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, get_by_ids, ids, include)
+
+
 def check_pgvector_health() -> Dict[str, Any]:
     """Check pgvector health and return status information.
 

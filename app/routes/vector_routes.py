@@ -1143,18 +1143,18 @@ async def vector_summary(
     from textwrap import shorten  # noqa: E501
 
     # --------------------------------------------------------------------------------
-    # 1. Fetch metadata for the requested IDs from the vector store (Chroma)
+    # 1. Fetch metadata for the requested IDs from pgvector
     # --------------------------------------------------------------------------------
-    collection = _vector_collection()
+    from app.vector_store import get_by_ids
     try:
         # Fetch metadata for the requested IDs (max 100)
-        res = collection.get(  # type: ignore[arg-type]
+        res = get_by_ids(
             ids=req.ids[:100],
             include=["metadatas"],
         )
     except Exception as exc:
         logger = logging.getLogger(__name__)
-        logger.error("Chroma get failed for summary: %s", exc)
+        logger.error("pgvector get_by_ids failed for summary: %s", exc)
         raise HTTPException(status_code=500, detail="Vector store error")
 
     metas: list[dict] = res.get("metadatas", [])
@@ -1309,17 +1309,17 @@ async def vector_summary_raw(
     """
 
     import litellm
+    from app.vector_store import get_by_ids
     logger = logging.getLogger(__name__)
 
-    # 1) Fetch documents + metadata from Chroma
-    collection = _vector_collection()
+    # 1) Fetch documents + metadata from pgvector
     try:
-        res = collection.get(  # type: ignore[arg-type]
+        res = get_by_ids(
             ids=req.ids[:20],
             include=["metadatas", "documents"],
         )
     except Exception as exc:
-        logger.error("Chroma get failed for raw summary: %s", exc)
+        logger.error("pgvector get_by_ids failed for raw summary: %s", exc)
         raise HTTPException(status_code=500, detail="Vector store error")
 
     metas: list[dict] = res.get("metadatas", [])
@@ -1445,17 +1445,17 @@ async def article_insights(
     """
 
     import litellm
+    from app.vector_store import get_by_ids
     logger = logging.getLogger(__name__)
 
-    # 1) Fetch metadatas (and summaries) from Chroma
-    collection = _vector_collection()
+    # 1) Fetch metadatas from pgvector
     try:
-        res = collection.get(  # type: ignore[arg-type]
+        res = get_by_ids(
             ids=req.ids[:100],
             include=["metadatas"],
         )
     except Exception as exc:
-        logger.error("Chroma get failed for article-insights: %s", exc)
+        logger.error("pgvector get_by_ids failed for article-insights: %s", exc)
         raise HTTPException(status_code=500, detail="Vector store error")
 
     metas: list[dict] = res.get("metadatas", [])

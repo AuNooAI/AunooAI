@@ -18,12 +18,14 @@ from app.vector_store_pgvector import (
     search_articles,
     similar_articles,
     get_vectors_by_metadata,
+    get_by_ids,
 
     # Async functions
     upsert_article_async,
     search_articles_async,
     similar_articles_async,
     get_vectors_by_metadata_async,
+    get_by_ids_async,
 
     # Health check
     check_pgvector_health as check_chromadb_health,  # Renamed for compatibility
@@ -47,12 +49,14 @@ __all__ = [
     'search_articles',
     'similar_articles',
     'get_vectors_by_metadata',
+    'get_by_ids',
 
     # Async functions
     'upsert_article_async',
     'search_articles_async',
     'similar_articles_async',
     'get_vectors_by_metadata_async',
+    'get_by_ids_async',
 
     # Health check
     'check_chromadb_health',  # Keep old name for compatibility
