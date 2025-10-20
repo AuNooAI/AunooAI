@@ -96,7 +96,7 @@ class NewsFeedRequest(BaseModel):
     date: Optional[datetime] = None
     date_range: Optional[str] = None  # Date range: "24h", "7d", "30d", "3m", "1y", "all", or "start_date,end_date"
     topic: Optional[str] = None
-    max_articles: int = Field(default=50, ge=10, le=200)
+    max_articles: int = Field(default=50, ge=10, le=10000)  # Increased from 200 to 10000 to match route limits
     include_bias_analysis: bool = True
     model: str = "gpt-4o"
     profile_id: Optional[int] = None  # Organizational profile for contextualized analysis
