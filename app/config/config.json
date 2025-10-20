@@ -185,6 +185,57 @@
         "conflict",
         "emergency"
       ]
+    },
+    {
+      "name": "Religion, Magic and Occultism",
+      "description": "Tracking news and research into and about Religion, Magic and Occultism",
+      "categories": [
+        "Major World Religions",
+        "New Religious Movements",
+        "Esoteric and Occult Traditions",
+        "Magic Practices and Rituals",
+        "Religious and Occult Research",
+        "Cultural and Historical Contexts",
+        "Religion and Society",
+        "Occultism in Popular Culture",
+        "Religious Conflicts and Cooperation",
+        "Regulation and Legal Issues",
+        "Spirituality and Mysticism",
+        "Paranormal Phenomena",
+        "Religious Technology and Media",
+        "Skepticism and Criticism",
+        "Other"
+      ],
+      "future_signals": [
+        "Resurgence of occult practices",
+        "Decline in traditional religious adherence",
+        "Mainstream acceptance of alternative spirituality",
+        "Increased regulation of occult activities",
+        "Rise of digital religion and magic"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "keywords": [
+        "religion",
+        "magic",
+        "occultism"
+      ]
     }
   ],
   "ai_models": [

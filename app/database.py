@@ -1276,20 +1276,9 @@ Remember to cite your sources and provide actionable insights where possible."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
-                # Create table if it doesn't exist
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS signal_instructions (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        name TEXT NOT NULL UNIQUE,
-                        description TEXT,
-                        instruction TEXT NOT NULL,
-                        topic TEXT,
-                        is_active BOOLEAN DEFAULT TRUE,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                
+                # NOTE: signal_instructions table created via Alembic migration
+                # See: alembic/versions/b6a5ff4214f5_add_incident_status_table.py
+
                 # Insert or replace signal instruction
                 cursor.execute("""
                     INSERT OR REPLACE INTO signal_instructions 
@@ -1311,20 +1300,9 @@ Remember to cite your sources and provide actionable insights where possible."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
-                # Create table if it doesn't exist
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS signal_instructions (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        name TEXT NOT NULL UNIQUE,
-                        description TEXT,
-                        instruction TEXT NOT NULL,
-                        topic TEXT,
-                        is_active BOOLEAN DEFAULT TRUE,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                
+                # NOTE: signal_instructions table created via Alembic migration
+                # See: alembic/versions/b6a5ff4214f5_add_incident_status_table.py
+
                 # Query signal instructions
                 if topic:
                     if active_only:
@@ -1401,24 +1379,9 @@ Remember to cite your sources and provide actionable insights where possible."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
-                # Create table if it doesn't exist
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS signal_alerts (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        article_uri TEXT NOT NULL,
-                        instruction_id INTEGER NOT NULL,
-                        instruction_name TEXT NOT NULL,
-                        confidence REAL NOT NULL,
-                        threat_level TEXT NOT NULL,
-                        summary TEXT,
-                        detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        is_acknowledged BOOLEAN DEFAULT FALSE,
-                        acknowledged_at TIMESTAMP,
-                        FOREIGN KEY (instruction_id) REFERENCES signal_instructions(id) ON DELETE CASCADE,
-                        UNIQUE(article_uri, instruction_id)
-                    )
-                """)
-                
+                # NOTE: signal_alerts table created via Alembic migration
+                # See: alembic/versions/b6a5ff4214f5_add_incident_status_table.py
+
                 # Insert or replace alert
                 cursor.execute("""
                     INSERT OR REPLACE INTO signal_alerts 
@@ -1440,24 +1403,9 @@ Remember to cite your sources and provide actionable insights where possible."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
-                # Create table if it doesn't exist
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS signal_alerts (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        article_uri TEXT NOT NULL,
-                        instruction_id INTEGER NOT NULL,
-                        instruction_name TEXT NOT NULL,
-                        confidence REAL NOT NULL,
-                        threat_level TEXT NOT NULL,
-                        summary TEXT,
-                        detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        is_acknowledged BOOLEAN DEFAULT FALSE,
-                        acknowledged_at TIMESTAMP,
-                        FOREIGN KEY (instruction_id) REFERENCES signal_instructions(id) ON DELETE CASCADE,
-                        UNIQUE(article_uri, instruction_id)
-                    )
-                """)
-                
+                # NOTE: signal_alerts table created via Alembic migration
+                # See: alembic/versions/b6a5ff4214f5_add_incident_status_table.py
+
                 # Build query with filters - simplified to avoid JOIN issues
                 if topic:
                     # If topic filter is specified, use JOIN
@@ -1608,26 +1556,15 @@ Remember to cite your sources and provide actionable insights where possible."""
                 return False
 
     def create_incident_status_table(self) -> bool:
-        """Create the incident status tracking table."""
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            try:
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS incident_status (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        incident_name TEXT NOT NULL,
-                        topic TEXT NOT NULL,
-                        status TEXT NOT NULL DEFAULT 'active',  -- 'active', 'seen', 'deleted'
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        UNIQUE(incident_name, topic)
-                    )
-                """)
-                conn.commit()
-                return True
-            except Exception as e:
-                logger.error(f"Error creating incident_status table: {e}")
-                return False
+        """
+        Create the incident status tracking table.
+
+        NOTE: This table is now managed by Alembic migrations.
+        See: alembic/versions/b6a5ff4214f5_add_incident_status_table.py
+        This method is kept for backward compatibility but does nothing.
+        """
+        # Table created via Alembic migration - no action needed
+        return True
 
     def update_incident_status(self, incident_name: str, topic: str, status: str) -> bool:
         """Update or create incident status."""

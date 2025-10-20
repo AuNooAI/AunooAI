@@ -150,14 +150,18 @@ class AsyncDatabase:
                     # Parse result like "UPDATE 1" to get row count
                     if result:
                         try:
+                            # Log the result for debugging
+                            logger.debug(f"PostgreSQL execute result: '{result}' (type: {type(result)})")
                             # Extract numeric value from result string
                             parts = result.split()
                             if parts:
                                 # Get the last part and try to convert to int
                                 last_part = parts[-1]
+                                logger.debug(f"Parsed parts: {parts}, last_part: '{last_part}'")
                                 return int(last_part)
                         except (ValueError, IndexError) as e:
-                            logger.warning(f"Could not parse row count from result '{result}': {e}")
+                            logger.error(f"Could not parse row count from result '{result}': {e}")
+                            logger.error(f"Result type: {type(result)}, Result repr: {repr(result)}")
                             # Return 1 to indicate success even if we can't parse the count
                             return 1
                     return 0

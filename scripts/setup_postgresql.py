@@ -25,6 +25,7 @@ import secrets
 import string
 from pathlib import Path
 import argparse
+from urllib.parse import quote_plus
 
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -314,6 +315,10 @@ def update_env_file(db_config):
         logger.info(f"✅ Backed up .env to {backup_path}")
 
     # Update or add PostgreSQL configuration
+    # URL-encode credentials to handle special characters like / + =
+    encoded_user = quote_plus(db_config['db_user'])
+    encoded_password = quote_plus(db_config['db_password'])
+
     config_vars = {
         'DB_TYPE': 'postgresql',
         'DB_HOST': db_config['db_host'],
@@ -321,8 +326,8 @@ def update_env_file(db_config):
         'DB_NAME': db_config['db_name'],
         'DB_USER': db_config['db_user'],
         'DB_PASSWORD': db_config['db_password'],
-        'DATABASE_URL': f"postgresql+asyncpg://{db_config['db_user']}:{db_config['db_password']}@{db_config['db_host']}:{db_config['db_port']}/{db_config['db_name']}",
-        'SYNC_DATABASE_URL': f"postgresql+psycopg2://{db_config['db_user']}:{db_config['db_password']}@{db_config['db_host']}:{db_config['db_port']}/{db_config['db_name']}",
+        'DATABASE_URL': f"postgresql+asyncpg://{encoded_user}:{encoded_password}@{db_config['db_host']}:{db_config['db_port']}/{db_config['db_name']}",
+        'SYNC_DATABASE_URL': f"postgresql+psycopg2://{encoded_user}:{encoded_password}@{db_config['db_host']}:{db_config['db_port']}/{db_config['db_name']}",
         'DB_POOL_SIZE': '20',
         'DB_MAX_OVERFLOW': '10',
         'DB_POOL_TIMEOUT': '30',

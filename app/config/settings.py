@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from typing import Dict
 import shutil
 import logging
+from urllib.parse import quote_plus
 
 logger = logging.getLogger(__name__)
 
@@ -88,8 +89,10 @@ class DatabaseSettings:
     def get_database_url(self):
         """Get database URL from environment"""
         if self.DB_TYPE == 'postgresql':
-            # PostgreSQL connection
-            return f"postgresql+asyncpg://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+            # PostgreSQL connection with URL-encoded credentials
+            user = quote_plus(self.DB_USER)
+            password = quote_plus(self.DB_PASSWORD)
+            return f"postgresql+asyncpg://{user}:{password}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
         else:
             # SQLite connection (default)
             db_path = os.path.join(DATABASE_DIR, 'fnaapp.db')
@@ -98,8 +101,10 @@ class DatabaseSettings:
     def get_sync_database_url(self):
         """Get synchronous database URL for Alembic migrations"""
         if self.DB_TYPE == 'postgresql':
-            # PostgreSQL connection (sync)
-            return f"postgresql+psycopg2://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+            # PostgreSQL connection (sync) with URL-encoded credentials
+            user = quote_plus(self.DB_USER)
+            password = quote_plus(self.DB_PASSWORD)
+            return f"postgresql+psycopg2://{user}:{password}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
         else:
             # SQLite connection (default)
             db_path = os.path.join(DATABASE_DIR, 'fnaapp.db')
