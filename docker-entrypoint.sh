@@ -86,12 +86,28 @@ if [ -n "$DB_TYPE" ]; then
     fi
     echo "✅ Database migrations completed successfully"
 
+    # Initialize media bias data
+    echo "Initializing media bias data..."
+    if python scripts/init_media_bias.py; then
+      echo "✅ Media bias data initialized"
+    else
+      echo "⚠️  Media bias initialization failed (non-fatal)"
+    fi
+
     # PostgreSQL migration status warning
     echo ""
     echo "NOTE: PostgreSQL migration is in progress."
     echo "Some database methods may still use SQLite-only patterns."
     echo "See spec-files-aunoo/plans/COMPLETE_MIGRATION_AUDIT.md for details."
     echo ""
+  else
+    # SQLite initialization
+    echo "Initializing media bias data (SQLite)..."
+    if python scripts/init_media_bias.py; then
+      echo "✅ Media bias data initialized"
+    else
+      echo "⚠️  Media bias initialization failed (non-fatal)"
+    fi
   fi
 fi
 

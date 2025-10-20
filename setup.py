@@ -213,6 +213,28 @@ def initialize_org_profiles():
             logger.info("Organizational profiles script not found - skipping")
             return True
 
+def initialize_media_bias():
+    """Initialize media bias data from CSV."""
+    logger.info("\nInitializing media bias data...")
+
+    script_path = Path("scripts/init_media_bias.py")
+    if script_path.exists():
+        try:
+            result = subprocess.run([sys.executable, str(script_path)], check=False)
+            if result.returncode == 0:
+                return True
+            else:
+                logger.warning("⚠️  Media bias initialization had warnings (non-fatal)")
+                logger.info("You can manually run: python scripts/init_media_bias.py")
+                return True
+        except Exception as e:
+            logger.warning(f"⚠️  Could not initialize media bias data: {e}")
+            logger.info("You can manually run: python scripts/init_media_bias.py")
+            return True
+    else:
+        logger.warning("Media bias initialization script not found - skipping")
+        return True
+
 def main():
     """Run the setup process."""
     logger.info("Starting setup process...")
@@ -234,6 +256,9 @@ def main():
 
     # Initialize organizational profiles (non-fatal)
     initialize_org_profiles()
+
+    # Initialize media bias data (non-fatal)
+    initialize_media_bias()
 
     logger.info("\n" + "=" * 60)
     logger.info("Setup completed successfully!")
