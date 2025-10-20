@@ -43,6 +43,7 @@ DEPLOYMENT_INFO.txt
 cursor.rules
 CLAUDE.md
 spec-files-aunoo/
+.claude/
 # OS specific
 .DS_Store
 Thumbs.db

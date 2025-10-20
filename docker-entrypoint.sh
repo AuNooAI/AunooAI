@@ -78,10 +78,13 @@ if [ -n "$DB_TYPE" ]; then
 
     # Run migrations
     echo "Running database migrations..."
-    alembic upgrade head || {
-      echo "WARNING: Migration failed or incomplete"
-      echo "This may be expected for first run or if migrations are up to date"
-    }
+    if ! alembic upgrade head; then
+      echo "❌ ERROR: Database migrations FAILED!"
+      echo "This is a critical error - the database is not initialized."
+      echo "Container will exit."
+      exit 1
+    fi
+    echo "✅ Database migrations completed successfully"
 
     # PostgreSQL migration status warning
     echo ""

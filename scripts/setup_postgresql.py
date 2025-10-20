@@ -416,6 +416,33 @@ def configure_database_timeouts(db_config):
     return True
 
 
+def create_pgvector_extension(db_config):
+    """Create pgvector extension as superuser (required for vector support)."""
+    logger.info("Creating pgvector extension...")
+
+    # Create extension as postgres superuser
+    create_ext_cmd = f"CREATE EXTENSION IF NOT EXISTS vector;"
+    result = subprocess.run(
+        ['sudo', '-u', 'postgres', 'psql', '-d', db_config['db_name'], '-c', create_ext_cmd],
+        capture_output=True,
+        text=True,
+        check=False
+    )
+
+    if result.returncode != 0:
+        if 'already exists' in result.stderr:
+            logger.info("pgvector extension already exists")
+            return True
+        else:
+            logger.error(f"Failed to create pgvector extension: {result.stderr}")
+            logger.warning("⚠️  Migrations may fail without pgvector extension!")
+            logger.warning("   Install with: sudo apt-get install postgresql-16-pgvector")
+            return False
+
+    logger.info("✅ pgvector extension created successfully")
+    return True
+
+
 def create_signal_tables(db_config):
     """Create signal_instructions and signal_alerts tables."""
     logger.info("Creating signal tables...")
@@ -568,7 +595,11 @@ def main():
     logger.info("\n⚙️  Updating configuration...")
     update_env_file(db_config)
 
-    # Step 5: Run migrations
+    # Step 5: Create pgvector extension (MUST be before migrations)
+    logger.info("\n🔌 Creating pgvector extension...")
+    create_pgvector_extension(db_config)
+
+    # Step 6: Run migrations
     logger.info("\n🔄 Running database migrations...")
     if not run_migrations(db_config):
         logger.warning("⚠️  Migrations failed. You may need to run 'alembic upgrade head' manually.")
