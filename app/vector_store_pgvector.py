@@ -179,7 +179,7 @@ def upsert_article(article: Dict[str, Any]) -> None:
 
         stmt = text("""
             UPDATE articles
-            SET embedding = :embedding::vector
+            SET embedding = CAST(:embedding AS vector)
             WHERE uri = :uri
         """)
 
@@ -345,14 +345,14 @@ def similar_articles(uri: str, top_k: int = 5) -> List[Dict[str, Any]]:
         stmt = text("""
             SELECT
                 uri as id,
-                (embedding <=> (SELECT embedding FROM articles WHERE uri = :uri)::vector) as score,
+                (embedding <=> (SELECT embedding FROM articles WHERE uri = :uri)) as score,
                 title,
                 news_source,
                 category,
                 topic
             FROM articles
             WHERE uri != :uri AND embedding IS NOT NULL
-            ORDER BY embedding <=> (SELECT embedding FROM articles WHERE uri = :uri)::vector
+            ORDER BY embedding <=> (SELECT embedding FROM articles WHERE uri = :uri)
             LIMIT :limit
         """)
 
