@@ -356,10 +356,16 @@ class Database:
     def perform_wal_checkpoint(self, mode="PASSIVE"):
         """
         Perform WAL checkpoint to prevent WAL file from growing indefinitely
-        
+        SQLite-specific operation, skipped for PostgreSQL
+
         Args:
             mode: Checkpoint mode - "PASSIVE", "FULL", or "RESTART"
         """
+        # WAL checkpoints are SQLite-specific
+        if self.db_type == 'postgresql':
+            logger.debug(f"Skipping WAL checkpoint for PostgreSQL")
+            return None
+
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -371,7 +377,7 @@ class Database:
                     cursor.execute("PRAGMA wal_checkpoint(RESTART)")
                 else:
                     cursor.execute("PRAGMA wal_checkpoint")
-                
+
                 result = cursor.fetchone()
                 if result:
                     logger.info(f"WAL checkpoint ({mode}) completed: {result}")
@@ -381,7 +387,12 @@ class Database:
             return None
 
     def get_wal_info(self):
-        """Get WAL file information"""
+        """Get WAL file information - SQLite-specific operation"""
+        # WAL info is SQLite-specific
+        if self.db_type == 'postgresql':
+            logger.debug(f"Skipping WAL info for PostgreSQL")
+            return None
+
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
@@ -1922,19 +1933,25 @@ Remember to cite your sources and provide actionable insights where possible."""
     def get_database_info(self):
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            
-            # Get tables
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+
+            # Get tables - database-aware query
+            if self.db_type == 'postgresql':
+                cursor.execute("""
+                    SELECT table_name FROM information_schema.tables
+                    WHERE table_schema = 'public' AND table_type = 'BASE TABLE';
+                """)
+            else:
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
             tables = [row[0] for row in cursor.fetchall()]
-            
+
             # Get article count
             cursor.execute("SELECT COUNT(*) FROM articles;")
             article_count = cursor.fetchone()[0]
-            
+
             # Get last entry date
             cursor.execute("SELECT MAX(submission_date) FROM articles;")
             last_entry = cursor.fetchone()[0]
-            
+
             conn.commit()  # CRITICAL: Commit to close transaction
             return {
                 "tables": tables,
@@ -2926,18 +2943,23 @@ Remember to cite your sources and provide actionable insights where possible."""
 
     def _debug_schema(self):
         """Print the schema and foreign keys of relevant tables"""
+        # This is a debug method - only works with SQLite
+        if self.db_type == 'postgresql':
+            logger.debug("Schema debugging is SQLite-specific, skipping for PostgreSQL")
+            return
+
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            tables = ['articles', 'keyword_alerts', 'article_annotations', 
+            tables = ['articles', 'keyword_alerts', 'article_annotations',
                      'raw_articles', 'tags', 'article_tags']
-            
+
             for table in tables:
                 logger.debug(f"\nSchema for {table}:")
                 cursor.execute(f"PRAGMA table_info({table})")
                 columns = cursor.fetchall()
                 for col in columns:
                     logger.debug(f"  {col}")
-                    
+
                 logger.debug(f"\nForeign keys for {table}:")
                 cursor.execute(f"PRAGMA foreign_key_list({table})")
                 foreign_keys = cursor.fetchall()
@@ -2949,13 +2971,21 @@ Remember to cite your sources and provide actionable insights where possible."""
         try:
             with self.get_connection() as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?;",
-                    (table_name,),
-                )
+
+                if self.db_type == 'postgresql':
+                    cursor.execute("""
+                        SELECT table_name FROM information_schema.tables
+                        WHERE table_schema = 'public' AND table_name = %s;
+                    """, (table_name,))
+                else:
+                    cursor.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name=?;",
+                        (table_name,),
+                    )
+
                 conn.commit()  # CRITICAL: Commit to close transaction
                 return cursor.fetchone() is not None
-        except sqlite3.Error as e:
+        except Exception as e:
             logging.error(f"Error checking if table {table_name} exists: {e}")
             conn.commit()  # CRITICAL: Commit to close transaction
             return False
