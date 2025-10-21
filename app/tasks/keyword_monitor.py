@@ -130,12 +130,16 @@ class KeywordMonitor:
             from app.collectors.bluesky_collector import BlueskyCollector
             return BlueskyCollector()
 
+        elif provider == 'semantic_scholar':
+            from app.collectors.semantic_scholar_collector import SemanticScholarCollector
+            return SemanticScholarCollector()
+
         elif provider == 'arxiv':
             from app.collectors.arxiv_collector import ArxivCollector
             return ArxivCollector()
 
         else:
-            raise ValueError(f"Unknown provider '{provider}'. Valid options: 'newsapi', 'thenewsapi', 'newsdata', 'bluesky', 'arxiv'")
+            raise ValueError(f"Unknown provider '{provider}'. Valid options: 'newsapi', 'thenewsapi', 'newsdata', 'bluesky', 'semantic_scholar', 'arxiv'")
 
     def _init_collectors(self):
         """Initialize all selected collectors (multi-collector support)"""
@@ -187,11 +191,12 @@ class KeywordMonitor:
         seen_urls = {}
         unique_articles = []
 
-        # Provider priority: newsapi > thenewsapi > newsdata > bluesky > arxiv
+        # Provider priority: newsapi > thenewsapi > newsdata > semantic_scholar/bluesky > arxiv
         provider_priority = {
             'newsapi': 5,
             'thenewsapi': 4,
             'newsdata': 3,
+            'semantic_scholar': 2,
             'bluesky': 2,
             'arxiv': 1
         }

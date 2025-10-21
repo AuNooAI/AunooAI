@@ -236,6 +236,53 @@
         "magic",
         "occultism"
       ]
+    },
+    {
+      "name": "Patent Cliffs ",
+      "description": "Tracking loss-of-exclusivity (LOE) events, biosimilar/generic entry, revenue exposure, R&D renewal, pricing & access shifts, regulatory/IP changes, and M&A responses across global pharma/biotech\u2014mapped to threats/opportunities for STM publishing.",
+      "categories": [
+        "Big Pharma Revenue Exposure",
+        "Generics & Biosimilars",
+        "R&D & Pipeline Renewal",
+        "Pricing & Market Access",
+        "Regulatory & IP Policy",
+        "Investor & M&A Activity",
+        "Emerging Market Dynamics",
+        "Supply Chain & Manufacturing",
+        "Therapy Areas & Indications",
+        "Digital/AI Drug Discovery"
+      ],
+      "future_signals": [
+        "AI-driven target discovery revolutionizes R&D",
+        "Biotech funding crunch or rebound",
+        "Out-licensing, spin-outs, and divestitures",
+        "Wave of LOE announcements",
+        "Biosimilar approval acceleration",
+        "Adaptive trials & real-world evidence uptake",
+        "Patent linkage/extension reforms"
+      ],
+      "sentiment": [
+        "Optimistic",
+        "Negative",
+        "Neutral",
+        "Concerned",
+        "Hyperbolic"
+      ],
+      "time_to_impact": [
+        "Short-term (6-18 months)",
+        "Immediate (0-6 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Accelerator",
+        "Catalyst",
+        "Initiator",
+        "Delayer",
+        "Blocker",
+        "Terminator",
+        "Inferred"
+      ]
     }
   ],
   "ai_models": [

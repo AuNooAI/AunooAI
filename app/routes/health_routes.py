@@ -36,17 +36,20 @@ def get_database_health() -> Dict[str, Any]:
         result = cursor.execute("SELECT COUNT(*) as count FROM articles").fetchone()
         article_count = result[0] if result else 0
 
-        # Get database file size
+        # Get database file size (SQLite only)
         db_path = Path("app/data/fnaapp.db")
         db_size_mb = db_path.stat().st_size / (1024 * 1024) if db_path.exists() else 0
 
-        # Check for locked database
-        try:
-            cursor.execute("BEGIN IMMEDIATE")
-            cursor.execute("ROLLBACK")
-            locked = False
-        except OperationalError:
-            locked = True
+        # Check for locked database (different approach for PostgreSQL vs SQLite)
+        locked = False
+        if db_instance.db_type == 'sqlite':
+            try:
+                cursor.execute("BEGIN IMMEDIATE")
+                cursor.execute("ROLLBACK")
+                locked = False
+            except OperationalError:
+                locked = True
+        # PostgreSQL doesn't have the same locking behavior, always report as not locked
 
         return {
             "status": "healthy",

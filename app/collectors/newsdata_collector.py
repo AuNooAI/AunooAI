@@ -315,7 +315,7 @@ class NewsdataCollector(ArticleCollector):
                 'summary': article.get('description', ''),
                 'content': article.get('content', ''),  # NewsData.io provides full content
                 'authors': article.get('creator', []) or [],
-                'published_date': published_date,
+                'published_date': published_date.isoformat() if isinstance(published_date, datetime) else published_date,
                 'url': article.get('link', ''),
                 'source': source_name,
                 'topic': topic,

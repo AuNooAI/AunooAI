@@ -2038,7 +2038,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 })
                 .then(topics => {
                     console.log('Topics loaded:', topics);
-                    sel.innerHTML = '<option value="">All Topics</option>' + topics.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
+                    sel.innerHTML = '<option value="">All Topics</option>' + topics.map(t => `<option value="${t.name.trim()}">${t.name.trim()}</option>`).join('');
                     console.log('Topic dropdown populated with', topics.length, 'topics');
                     const savedTopic = localStorage.getItem('newsFeedTopic');
                     console.log('Saved topic from localStorage:', savedTopic);
@@ -2781,7 +2781,7 @@ async function loadArticles(page = 1) {
             params.append('date', customDate);
         }
 
-        const topic = document.getElementById('topic-select').value.trim();
+        const topic = (document.getElementById('topic-select')?.value || '').trim();
         if (topic) {
             params.append('topic', topic);
         }
@@ -2884,7 +2884,7 @@ async function loadSixArticles(forceRegenerate = false) {
             params.append('date', customDate);
         }
 
-        const topic = document.getElementById('topic-select').value.trim();
+        const topic = (document.getElementById('topic-select')?.value || '').trim();
         if (topic) {
             params.append('topic', topic);
         }
@@ -4824,24 +4824,31 @@ let activeFilters = {
 };
 
 function renderArticles(articlesData) {
+    console.log('[DEBUG] renderArticles called with articlesData:', articlesData);
+    console.log('[DEBUG] articlesData.items?', articlesData.items ? articlesData.items.length : 'undefined');
+
     const listContainer = document.getElementById('articles-list');
     if (!listContainer) return;
-    
+
     listContainer.innerHTML = '';
-    
+
     if (!articlesData.items || articlesData.items.length === 0) {
+        console.log('[DEBUG] No articles in articlesData.items - showing alert');
         listContainer.innerHTML = '<div class="alert alert-info">No articles available for the current filters. Try adjusting your search or date range.</div>';
         // Keep filters visible so user can adjust search/filters
         const filtersEl = document.getElementById('articles-filters');
         if (filtersEl) filtersEl.style.display = 'block';
         return;
     }
-    
+
+    console.log('[DEBUG] Building filter badges from', articlesData.items.length, 'articles');
     // Build filter badges from available data
     buildFilterBadges(articlesData.items);
-    
+
+    console.log('[DEBUG] Applying article filters to', articlesData.items.length, 'articles');
     // Apply current filters
     const filteredArticles = applyArticleFilters(articlesData.items);
+    console.log('[DEBUG] After filtering, have', filteredArticles.length, 'articles');
     
     const articlesList = document.createElement('div');
     articlesList.className = 'list-group list-group-flush mt-2';
@@ -5228,29 +5235,40 @@ function toggleFilter(filterType, value) {
 }
 
 function applyArticleFilters(articles) {
-    return articles.filter(article => {
+    console.log('[DEBUG] applyArticleFilters called with', articles.length, 'articles');
+    console.log('[DEBUG] activeFilters state:', {
+        bias: activeFilters.bias.size,
+        factuality: activeFilters.factuality.size,
+        category: activeFilters.category.size,
+        signals: activeFilters.signals.size
+    });
+
+    const result = articles.filter(article => {
         // Check bias filter
         if (activeFilters.bias.size > 0 && !activeFilters.bias.has(article.bias)) {
+            console.log('[DEBUG] Article filtered out by bias:', article.title, 'has bias:', article.bias);
             return false;
         }
-        
+
         // Check factuality filter
         if (activeFilters.factuality.size > 0 && !activeFilters.factuality.has(article.factual_reporting)) {
+            console.log('[DEBUG] Article filtered out by factuality:', article.title, 'has factuality:', article.factual_reporting);
             return false;
         }
-        
+
         // Check category filter
         if (activeFilters.category.size > 0 && !activeFilters.category.has(article.category)) {
+            console.log('[DEBUG] Article filtered out by category:', article.title, 'has category:', article.category);
             return false;
         }
-        
+
         // Check signal filter
         if (activeFilters.signals.size > 0) {
             let hasMatchingSignal = false;
             if (article.tags) {
-                const tags = Array.isArray(article.tags) ? article.tags : 
+                const tags = Array.isArray(article.tags) ? article.tags :
                             (typeof article.tags === 'string' ? article.tags.split(',').map(tag => tag.trim()).filter(tag => tag) : []);
-                
+
                 for (const tag of tags) {
                     if (tag.startsWith('signal:')) {
                         const signalName = tag.replace('signal:SIGNAL_', '').replace(/_/g, ' ');
@@ -5262,12 +5280,16 @@ function applyArticleFilters(articles) {
                 }
             }
             if (!hasMatchingSignal) {
+                console.log('[DEBUG] Article filtered out by signals:', article.title);
                 return false;
             }
         }
-        
+
         return true;
     });
+
+    console.log('[DEBUG] applyArticleFilters returning', result.length, 'articles (filtered out', articles.length - result.length, ')');
+    return result;
 }
 
 let factualFilterMode = 'factual'; // 'factual' or 'opinion'
@@ -6371,24 +6393,27 @@ function handleSearchInput() {
 
 // Apply filters and display current page
 function applyFiltersAndDisplay() {
+    console.log('[DEBUG] applyFiltersAndDisplay called - allArticlesData.length:', allArticlesData ? allArticlesData.length : 'null');
     if (!allArticlesData || !Array.isArray(allArticlesData) || allArticlesData.length === 0) {
-        console.warn('No valid articles data available for filtering');
+        console.warn('[DEBUG] No valid articles data available for filtering');
         return;
     }
-    
+
+    console.log('[DEBUG] Filtering with search term:', currentSearchTerm || '(empty)');
     // Filter articles based on search term
     filteredArticlesData = allArticlesData.filter(article => {
         if (!currentSearchTerm) return true;
-        
+
         const searchableText = [
             article.title || '',
             article.summary || '',
             article.tags || '',
             article.category || ''
         ].join(' ').toLowerCase();
-        
+
         return searchableText.includes(currentSearchTerm);
     });
+    console.log('[DEBUG] After search filter: filteredArticlesData.length:', filteredArticlesData.length);
     
     // Sort articles
     filteredArticlesData.sort((a, b) => {
@@ -6459,15 +6484,19 @@ function updatePaginationInfo() {
 
 // Display current page of articles
 function displayCurrentPage() {
+    console.log('[DEBUG] displayCurrentPage called - filteredArticlesData.length:', filteredArticlesData.length);
     const start = (currentPage - 1) * articlesPerPage;
     const end = start + articlesPerPage;
     const pageArticles = filteredArticlesData.slice(start, end);
+    console.log('[DEBUG] Slicing articles from', start, 'to', end, '- got', pageArticles.length, 'articles');
 
     // Pass total_items from window.lastArticlesData to preserve the correct count
     const totalItems = (window.lastArticlesData && window.lastArticlesData.total_items)
         ? window.lastArticlesData.total_items
         : filteredArticlesData.length;
+    console.log('[DEBUG] totalItems:', totalItems);
 
+    console.log('[DEBUG] Calling renderArticles with', pageArticles.length, 'articles');
     renderArticles({ items: pageArticles, total_items: totalItems });
 
     // Check for cached analysis indicators
@@ -6496,10 +6525,10 @@ function nextPage() {
 async function autoLoadArticles() {
     try {
         console.log('Auto-loading database articles...');
-        
+
         // Get current settings
         const dateRange = document.getElementById('date-range-select')?.value || '3m';
-        const topic = document.getElementById('topic-select')?.value || '';
+        const topic = (document.getElementById('topic-select')?.value || '').trim();
         
         // Convert date range to days for database query
         let days = 90; // Default
@@ -10533,15 +10562,15 @@ async function loadTopicsForSignals() {
         
         if (signalTopicSelect && topics) {
             const currentValue = signalTopicSelect.value;
-            signalTopicSelect.innerHTML = '<option value="">All Topics</option>' + 
-                topics.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
+            signalTopicSelect.innerHTML = '<option value="">All Topics</option>' +
+                topics.map(t => `<option value="${t.name.trim()}">${t.name.trim()}</option>`).join('');
             signalTopicSelect.value = currentValue; // Restore selection
         }
-        
+
         if (signalModalSelect && topics) {
             const currentValue = signalModalSelect.value;
-            signalModalSelect.innerHTML = '<option value="">All Topics (Global Signal)</option>' + 
-                topics.map(t => `<option value="${t.name}">${t.name}</option>`).join('');
+            signalModalSelect.innerHTML = '<option value="">All Topics (Global Signal)</option>' +
+                topics.map(t => `<option value="${t.name.trim()}">${t.name.trim()}</option>`).join('');
             signalModalSelect.value = currentValue; // Restore selection
         }
         

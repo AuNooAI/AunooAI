@@ -975,11 +975,19 @@ async def get_available_providers():
             "configured": True
         })
 
+    # Semantic Scholar always available (API key optional for better rate limits)
+    available.append({
+        "id": "semantic_scholar",
+        "name": "Semantic Scholar",
+        "description": "200M+ academic papers (all disciplines)",
+        "configured": True
+    })
+
     # ArXiv always available (no API key required)
     available.append({
         "id": "arxiv",
         "name": "ArXiv",
-        "description": "Academic papers",
+        "description": "Academic papers (STEM only)",
         "configured": True
     })
 
