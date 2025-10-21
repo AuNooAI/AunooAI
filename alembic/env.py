@@ -1,5 +1,5 @@
 from logging.config import fileConfig
-from sqlalchemy import engine_from_config
+from sqlalchemy import engine_from_config, create_engine
 from sqlalchemy import pool
 from alembic import context
 import sys
@@ -24,15 +24,15 @@ if config.config_file_name is not None:
 # Set target metadata from models
 target_metadata = metadata
 
-# Override sqlalchemy.url from settings
-config.set_main_option("sqlalchemy.url", db_settings.get_sync_database_url())
+# Get database URL directly (don't use config.set_main_option to avoid % interpolation issues)
+database_url = db_settings.get_sync_database_url()
 
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode."""
-    url = config.get_main_option("sqlalchemy.url")
+    # Use database_url directly to avoid configparser interpolation issues
     context.configure(
-        url=url,
+        url=database_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -44,9 +44,9 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+    # Create engine directly from database_url to avoid configparser interpolation issues
+    connectable = create_engine(
+        database_url,
         poolclass=pool.NullPool,
     )
 

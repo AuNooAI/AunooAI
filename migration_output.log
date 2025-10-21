@@ -1,0 +1,48 @@
+2025-10-21 10:51:08,415 - app.config.settings - INFO - Checking config files:
+2025-10-21 10:51:08,415 - app.config.settings - INFO - Config path: /home/orochford/tenants/multi.aunoo.ai/app/config/config.json
+2025-10-21 10:51:08,415 - app.config.settings - INFO - Config sample path: /home/orochford/tenants/multi.aunoo.ai/app/config/config.json.sample
+INFO  [alembic.runtime.migration] Context impl PostgresqlImpl.
+INFO  [alembic.runtime.migration] Will assume transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade e0aa2eb4fa0a -> simple_multiuser_v2, simple multi-user support with OAuth integration
+
+============================================================
+SIMPLE MULTI-USER MIGRATION v2 - Starting...
+============================================================
+
+[1/8] Extending users table with new columns...
+✓ Users table extended
+
+[2/8] Ensuring admin user exists...
+✓ Upgraded user 'admin' to admin role
+
+[3/8] Migrating OAuth users to users table...
+✓ Migrated 0 OAuth users to users table
+
+[4/8] Populating email for existing users...
+✓ Populated email for 0 users
+
+[5/8] Creating unique constraint on email...
+✓ Email uniqueness enforced
+
+[6/8] Adding created_by column to articles...
+✓ Articles attribution column added
+
+[7/8] Assigning existing articles to admin...
+✓ Assigned 53 existing articles to admin
+
+[8/8] Migration Summary:
+============================================================
+  Total Users: 1
+  - Admins: 1
+  - Regular Users: 0
+  - OAuth Users: 0
+============================================================
+
+✅ MIGRATION COMPLETE!
+
+Next Steps:
+1. Login as admin and change password immediately
+2. Create additional users via /config page (Users tab)
+3. Test OAuth login (if configured)
+============================================================
+

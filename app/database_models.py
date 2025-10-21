@@ -321,8 +321,17 @@ t_users = Table(
     'users', metadata,
     Column('username', Text, primary_key=True),
     Column('password_hash', Text, nullable=False),
-    Column('force_password_change', Boolean, default=text('0')),
-    Column('completed_onboarding', Boolean, default=text('0'))
+    Column('email', Text, unique=True, nullable=False),  # Added 2025-10-21
+    Column('role', Text, default='user', nullable=False),  # Added 2025-10-21
+    Column('is_active', Boolean, default=True, nullable=False),  # Added 2025-10-21
+    Column('force_password_change', Boolean, default=text('FALSE')),
+    Column('completed_onboarding', Boolean, default=text('FALSE')),
+    Column('created_at', TIMESTAMP, server_default=text('CURRENT_TIMESTAMP')),  # Added 2025-10-21
+    Index('idx_users_email', 'email'),
+    Index('idx_users_is_active', 'is_active'),
+    Index('idx_users_role', 'role'),
+    CheckConstraint("role IN ('admin', 'user')", name='check_user_role'),
+    UniqueConstraint('email', name='uq_users_email')
 )
 
 t_article_annotations = Table(

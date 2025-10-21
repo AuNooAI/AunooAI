@@ -70,6 +70,7 @@ from app.routes.dataset_routes import router as dataset_router
 from app.routes.keyword_monitor_api import router as keyword_monitor_api_router
 from app.routes.oauth_routes import router as oauth_router
 from app.routes.websocket_routes import router as websocket_router
+from app.routes.user_management_routes import router as user_management_router  # Multi-user support (Added 2025-10-21)
 
 # ElevenLabs SDK imports used in podcast endpoints
 from elevenlabs import ElevenLabs, PodcastConversationModeData, PodcastTextSource
@@ -118,6 +119,7 @@ app.include_router(keyword_monitor_page_router)
 app.include_router(keyword_monitor_api_router, prefix="/api")
 app.include_router(keyword_alerts_router, prefix="/api")  # Bulk delete articles endpoint
 app.include_router(onboarding_router)
+app.include_router(user_management_router)  # User management API (Added 2025-10-21)
 
 class ArticleData(BaseModel):
     title: str
@@ -645,6 +647,15 @@ async def config_page(request: Request, session=Depends(verify_session)):
     except Exception as e:
         logger.error(f"Error loading config page: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/users-test", response_class=HTMLResponse)
+async def users_test_page(request: Request, session=Depends(verify_session)):
+    """Test page for user management debugging"""
+    return templates.TemplateResponse(
+        "users_test.html",
+        get_template_context(request, {"session": session})
+    )
 
 @app.post("/config/add_model")
 async def add_model(model_data: AddModelRequest):

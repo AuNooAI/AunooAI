@@ -92,6 +92,19 @@ async def login(
                 status_code=status.HTTP_401_UNAUTHORIZED
             )
 
+        # CRITICAL: Check if user account is active (Added 2025-10-21)
+        if not user.get('is_active', True):
+            logger.warning(f"Login attempt for inactive user: {username}")
+            return templates.TemplateResponse(
+                "login.html",
+                {
+                    "request": request,
+                    "session": request.session,
+                    "error": "This account has been deactivated. Please contact an administrator."
+                },
+                status_code=status.HTTP_401_UNAUTHORIZED
+            )
+
         request.session["user"] = username
         
         # Check if password change is required

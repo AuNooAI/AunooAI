@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Users Tab Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .test { padding: 10px; margin: 10px 0; border: 1px solid #ddd; }
+        .pass { background-color: #d4edda; }
+        .fail { background-color: #f8d7da; }
+        .info { background-color: #d1ecf1; }
+        pre { background: #f5f5f5; padding: 10px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>User Management Test Page</h1>
+
+    <div id="status" class="test info">
+        <strong>Testing...</strong>
+    </div>
+
+    <h2>Test Results:</h2>
+    <div id="results"></div>
+
+    <h2>Console Output:</h2>
+    <pre id="console-output"></pre>
+
+    <script>
+        let consoleOutput = [];
+        const originalLog = console.log;
+        const originalError = console.error;
+        const originalWarn = console.warn;
+
+        console.log = function(...args) {
+            consoleOutput.push('[LOG] ' + args.join(' '));
+            updateConsoleOutput();
+            originalLog.apply(console, args);
+        };
+
+        console.error = function(...args) {
+            consoleOutput.push('[ERROR] ' + args.join(' '));
+            updateConsoleOutput();
+            originalError.apply(console, args);
+        };
+
+        console.warn = function(...args) {
+            consoleOutput.push('[WARN] ' + args.join(' '));
+            updateConsoleOutput();
+            originalWarn.apply(console, args);
+        };
+
+        function updateConsoleOutput() {
+            document.getElementById('console-output').textContent = consoleOutput.join('\n');
+        }
+
+        function addResult(name, passed, details) {
+            const div = document.createElement('div');
+            div.className = 'test ' + (passed ? 'pass' : 'fail');
+            div.innerHTML = `<strong>${passed ? '✅' : '❌'} ${name}</strong><br>${details}`;
+            document.getElementById('results').appendChild(div);
+        }
+
+        async function runTests() {
+            console.log('Starting user management tests...');
+
+            // Test 1: Check if we can access the API
+            try {
+                const response = await fetch('/api/users/me');
+                if (response.ok) {
+                    const data = await response.json();
+                    addResult('API /api/users/me', true, `Logged in as: ${data.username} (${data.role})`);
+                    console.log('Current user:', data);
+                } else {
+                    addResult('API /api/users/me', false, `Status: ${response.status} - ${await response.text()}`);
+                }
+            } catch (error) {
+                addResult('API /api/users/me', false, `Error: ${error.message}`);
+            }
+
+            // Test 2: Check if we can list users (admin only)
+            try {
+                const response = await fetch('/api/users/');
+                if (response.ok) {
+                    const data = await response.json();
+                    addResult('API /api/users/', true, `Found ${data.users.length} users`);
+                    console.log('Users list:', data.users);
+                } else {
+                    addResult('API /api/users/', false, `Status: ${response.status} - Not admin or error`);
+                }
+            } catch (error) {
+                addResult('API /api/users/', false, `Error: ${error.message}`);
+            }
+
+            // Test 3: Check DOM elements
+            const usersTabButton = document.getElementById('users-tab');
+            addResult('Users tab button exists', !!usersTabButton, usersTabButton ? 'Element found' : 'Element not found');
+
+            const usersTab = document.getElementById('users');
+            addResult('Users tab content exists', !!usersTab, usersTab ? 'Element found' : 'Element not found');
+
+            const adminSection = document.getElementById('admin-user-management');
+            addResult('Admin section exists', !!adminSection, adminSection ? 'Element found' : 'Element not found');
+
+            const createUserForm = document.getElementById('create-user-form');
+            addResult('Create user form exists', !!createUserForm, createUserForm ? 'Element found' : 'Element not found');
+
+            document.getElementById('status').className = 'test pass';
+            document.getElementById('status').innerHTML = '<strong>✅ Tests Complete</strong>';
+        }
+
+        // Run tests when page loads
+        document.addEventListener('DOMContentLoaded', runTests);
+    </script>
+</body>
+</html>

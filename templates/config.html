@@ -31,6 +31,11 @@
                 <i class="fas fa-lock"></i> Security
             </button>
         </li>
+        <li class="nav-item" role="presentation">
+            <button class="nav-link" id="users-tab" data-bs-toggle="tab" data-bs-target="#users" type="button" role="tab">
+                <i class="fas fa-users"></i> Users
+            </button>
+        </li>
     </ul>
 
     <!-- Tab content -->
@@ -492,6 +497,119 @@
                     <div class="alert alert-info mt-4">
                         <i class="fas fa-info-circle"></i>
                         For maximum security, use a unique password that you don't use elsewhere.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Users Management Tab (Added 2025-10-21) -->
+        <div class="tab-pane fade" id="users" role="tabpanel">
+            <div class="config-layout">
+                <div class="left-panel">
+                    <h2>User Management</h2>
+                    <p class="text-muted mb-4">Manage user accounts and permissions. <span id="current-user-role-display"></span></p>
+
+                    <!-- Admin-only section for creating users -->
+                    <div id="admin-user-management" style="display: none;">
+                        <h3>Create New User</h3>
+                        <form id="create-user-form" class="mb-5">
+                            <div class="form-group">
+                                <label for="create-username" class="form-label">Username</label>
+                                <input type="text" id="create-username" name="create-username" class="form-control"
+                                       placeholder="Enter username" autocomplete="off" required>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="create-email" class="form-label">Email</label>
+                                <input type="email" id="create-email" name="create-email" class="form-control"
+                                       placeholder="user@example.com" autocomplete="off" required>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="create-password" class="form-label">Password</label>
+                                <input type="password" id="create-password" name="create-password" class="form-control"
+                                       placeholder="Enter password (min 8 characters)"
+                                       autocomplete="new-password" required>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="create-role" class="form-label">Role</label>
+                                <select id="create-role" name="create-role" class="form-control" required>
+                                    <option value="user">User</option>
+                                    <option value="admin">Admin</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <div class="form-check">
+                                    <input type="checkbox" id="force-password-change" name="force-password-change"
+                                           class="form-check-input" checked>
+                                    <label for="force-password-change" class="form-check-label">
+                                        <i class="fas fa-key text-warning"></i> Require password change on first login
+                                    </label>
+                                    <small class="form-text text-muted d-block">
+                                        User must change their password when they first log in
+                                    </small>
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <div class="form-check">
+                                    <input type="checkbox" id="skip-onboarding" name="skip-onboarding"
+                                           class="form-check-input">
+                                    <label for="skip-onboarding" class="form-check-label">
+                                        <i class="fas fa-forward text-info"></i> Skip onboarding wizard
+                                    </label>
+                                    <small class="form-text text-muted d-block">
+                                        Mark onboarding as completed (user won't see the welcome wizard)
+                                    </small>
+                                </div>
+                            </div>
+
+                            <button type="submit" class="btn btn-primary mt-3">
+                                <i class="fas fa-user-plus"></i> Create User
+                            </button>
+                        </form>
+                    </div>
+
+                    <h3>All Users</h3>
+                    <div id="users-list-container">
+                        <div class="text-center text-muted py-4">
+                            <i class="fas fa-spinner fa-spin fa-2x mb-2"></i>
+                            <p>Loading users...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="right-panel">
+                    <h2>User Roles</h2>
+                    <p class="text-muted mb-4">Understanding user permissions:</p>
+
+                    <div class="alert alert-info mb-4">
+                        <h5><i class="fas fa-user-shield"></i> Admin</h5>
+                        <p class="mb-0">Full system access including:</p>
+                        <ul class="mt-2 mb-0">
+                            <li>Create and manage user accounts</li>
+                            <li>Access all configuration settings</li>
+                            <li>View and manage all content</li>
+                            <li>Change system-wide settings</li>
+                        </ul>
+                    </div>
+
+                    <div class="alert alert-secondary mb-4">
+                        <h5><i class="fas fa-user"></i> User</h5>
+                        <p class="mb-0">Standard access including:</p>
+                        <ul class="mt-2 mb-0">
+                            <li>View and create content</li>
+                            <li>Change own password</li>
+                            <li>Access research features</li>
+                            <li>Cannot manage other users</li>
+                        </ul>
+                    </div>
+
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        <strong>Shared Workspace:</strong> All users have access to view and manage all topics and content.
                     </div>
                 </div>
             </div>
@@ -3032,5 +3150,274 @@
             button.innerHTML = '<i class="fas fa-magic"></i> Clean All Orphaned';
         }
     }
+
+    // ==================== User Management Functions (Added 2025-10-21) ====================
+
+    console.log('=== USER MANAGEMENT SCRIPT LOADED ===');
+    let currentUserInfo = null;
+
+    // Load current user info and initialize user management
+    async function loadCurrentUserInfo() {
+        try {
+            console.log('[Users] Loading current user info...');
+            const response = await fetch('/api/users/me');
+            console.log('[Users] /api/users/me response status:', response.status);
+
+            if (!response.ok) {
+                console.error('[Users] Failed to load current user info, status:', response.status);
+                const text = await response.text();
+                console.error('[Users] Response:', text);
+                return;
+            }
+
+            currentUserInfo = await response.json();
+            console.log('[Users] Current user info:', currentUserInfo);
+
+            // Update role display
+            const roleDisplay = document.getElementById('current-user-role-display');
+            if (roleDisplay) {
+                const roleClass = currentUserInfo.role === 'admin' ? 'badge bg-primary' : 'badge bg-secondary';
+                roleDisplay.innerHTML = `<span class="${roleClass}">${currentUserInfo.role}</span>`;
+                console.log('[Users] Updated role display');
+            } else {
+                console.warn('[Users] Role display element not found');
+            }
+
+            // Show admin section if user is admin
+            console.log('[Users] User role:', currentUserInfo.role);
+            if (currentUserInfo.role === 'admin') {
+                console.log('[Users] User is admin, showing admin section...');
+                const adminSection = document.getElementById('admin-user-management');
+                if (adminSection) {
+                    adminSection.style.display = 'block';
+                    console.log('[Users] Admin section displayed');
+                } else {
+                    console.error('[Users] Admin section element not found!');
+                }
+            } else {
+                console.log('[Users] User is not admin, hiding admin section');
+            }
+
+        } catch (error) {
+            console.error('[Users] Error loading current user info:', error);
+        }
+    }
+
+    // Load users list
+    async function loadUsers() {
+        try {
+            const response = await fetch('/api/users/');
+
+            // Handle non-admin users gracefully
+            if (response.status === 403) {
+                const container = document.getElementById('users-list-container');
+                if (container) {
+                    container.innerHTML = `
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i>
+                            <strong>Access Restricted</strong><br>
+                            Only administrators can view the full user list.
+                            If you need access to user management features, please contact your system administrator.
+                        </div>
+                    `;
+                }
+                return;
+            }
+
+            if (!response.ok) {
+                throw new Error('Failed to load users');
+            }
+
+            const data = await response.json();
+            const users = data.users || [];
+
+            const container = document.getElementById('users-list-container');
+            if (!container) return;
+
+            if (users.length === 0) {
+                container.innerHTML = '<p class="text-muted">No users found.</p>';
+                return;
+            }
+
+            let html = '<div class="table-responsive"><table class="table table-striped">';
+            html += '<thead><tr><th>Username</th><th>Email</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+
+            for (const user of users) {
+                const statusBadge = user.is_active ?
+                    '<span class="badge bg-success">Active</span>' :
+                    '<span class="badge bg-danger">Inactive</span>';
+
+                const roleBadge = user.role === 'admin' ?
+                    '<span class="badge bg-primary">Admin</span>' :
+                    '<span class="badge bg-secondary">User</span>';
+
+                const oauthBadge = user.is_oauth ?
+                    ' <span class="badge bg-info">OAuth</span>' : '';
+
+                const isCurrentUser = currentUserInfo && user.username === currentUserInfo.username;
+
+                let actions = '';
+                if (currentUserInfo && currentUserInfo.role === 'admin') {
+                    if (isCurrentUser) {
+                        actions = '<span class="text-muted">You</span>';
+                    } else {
+                        actions = `
+                            <button class="btn btn-sm btn-danger" onclick="deleteUser('${user.username}')">
+                                <i class="fas fa-trash"></i> Delete
+                            </button>
+                        `;
+                    }
+                }
+
+                html += `<tr>
+                    <td>${user.username}${isCurrentUser ? ' <strong>(You)</strong>' : ''}</td>
+                    <td>${user.email}</td>
+                    <td>${roleBadge}${oauthBadge}</td>
+                    <td>${statusBadge}</td>
+                    <td>${actions}</td>
+                </tr>`;
+            }
+
+            html += '</tbody></table></div>';
+            container.innerHTML = html;
+
+        } catch (error) {
+            console.error('Error loading users:', error);
+            const container = document.getElementById('users-list-container');
+            if (container) {
+                container.innerHTML = `<div class="alert alert-danger">Error loading users: ${error.message}</div>`;
+            }
+        }
+    }
+
+    // Delete user function (needs to be global for onclick handlers)
+    async function deleteUser(username) {
+        if (!confirm(`Are you sure you want to delete user "${username}"? This action cannot be undone.`)) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/users/${username}`, {
+                method: 'DELETE'
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to delete user');
+            }
+
+            showAlert('User deleted successfully', 'success');
+            loadUsers();
+
+        } catch (error) {
+            console.error('Error deleting user:', error);
+            showAlert('Error deleting user: ' + error.message, 'danger');
+        }
+    }
+
+    // Initialize user management when DOM is ready
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('[Users] DOM loaded, setting up user management...');
+
+        // Attach create user form handler
+        const createUserForm = document.getElementById('create-user-form');
+        if (createUserForm) {
+            console.log('[Users] Attaching create user form handler...');
+            createUserForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+
+                // Use FormData API for more reliable value extraction (especially for password fields)
+                const formData = new FormData(e.target);
+                const username = formData.get('create-username') || '';
+                const email = formData.get('create-email') || '';
+                const password = formData.get('create-password') || '';
+                const role = formData.get('create-role') || '';
+                const forcePasswordChange = formData.get('force-password-change') === 'on';
+                const skipOnboarding = formData.get('skip-onboarding') === 'on';
+
+                console.log('[Users] Form submitted via FormData!');
+                console.log('[Users] Username:', username);
+                console.log('[Users] Email:', email);
+                console.log('[Users] Password length:', password.length);
+                console.log('[Users] Password value (first 3 chars):', password.substring(0, 3) + '...');
+                console.log('[Users] Role:', role);
+                console.log('[Users] Force password change:', forcePasswordChange);
+                console.log('[Users] Skip onboarding:', skipOnboarding);
+
+                if (password.length < 8) {
+                    console.error('[Users] Password too short! Length is', password.length, 'but need 8+');
+                    showAlert('Password must be at least 8 characters (current length: ' + password.length + ')', 'danger');
+                    return;
+                }
+
+                console.log('[Users] Password validation passed, creating user...');
+
+                try {
+                    const response = await fetch('/api/users/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            username,
+                            email,
+                            password,
+                            role,
+                            force_password_change: forcePasswordChange,
+                            completed_onboarding: skipOnboarding
+                        })
+                    });
+
+                    if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.detail || 'Failed to create user');
+                    }
+
+                    showAlert('User created successfully', 'success');
+
+                    // Reset form
+                    createUserForm.reset();
+
+                    // Reload users list
+                    loadUsers();
+
+                } catch (error) {
+                    console.error('Error creating user:', error);
+                    showAlert('Error creating user: ' + error.message, 'danger');
+                }
+            });
+        } else {
+            console.warn('[Users] Create user form not found!');
+        }
+
+        // Setup tab event listener
+        const usersTabButton = document.getElementById('users-tab');
+        console.log('[Users] Users tab button element:', usersTabButton);
+
+        if (usersTabButton) {
+            console.log('[Users] Attaching event listeners to users tab...');
+
+            // Use Bootstrap's shown.bs.tab event (fires after tab is fully shown)
+            usersTabButton.addEventListener('shown.bs.tab', function (event) {
+                console.log('[Users] Users tab shown event fired!');
+                loadCurrentUserInfo();
+                loadUsers();
+            });
+
+            console.log('[Users] Event listeners attached successfully');
+        } else {
+            console.error('[Users] ERROR: Users tab button NOT FOUND! Check HTML.');
+        }
+
+        // Load user info if Users tab is already active on page load
+        const usersTab = document.getElementById('users');
+        if (usersTab && usersTab.classList.contains('active')) {
+            console.log('[Users] Users tab is already active, loading data...');
+            loadCurrentUserInfo();
+            loadUsers();
+        }
+    });
+
+    // ==================== End User Management Functions ====================
 </script>{% endblock %}
 

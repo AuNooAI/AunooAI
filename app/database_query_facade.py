@@ -1076,6 +1076,111 @@ class DatabaseQueryFacade:
 
         return result.inserted_primary_key[0]
 
+    # ==================== USER MANAGEMENT METHODS (Multi-User Support) ====================
+    # Added 2025-10-21 for simple multi-user implementation with role-based access
+
+    def create_user(self, username: str, email: str, password_hash: str,
+                    role: str = 'user', is_active: bool = True,
+                    force_password_change: bool = False,
+                    completed_onboarding: bool = False):
+        """Create a new user with email and role support."""
+        from app.database_models import t_users
+        from sqlalchemy import insert
+
+        # Force username to lowercase for consistency
+        username = username.lower()
+        email = email.lower()
+
+        stmt = insert(t_users).values(
+            username=username,
+            email=email,
+            password_hash=password_hash,
+            role=role,
+            is_active=is_active,
+            force_password_change=force_password_change,
+            completed_onboarding=completed_onboarding
+        )
+        self._execute_with_rollback(stmt, operation_name="create_user")
+        self.connection.commit()
+
+        # Return created user
+        return self.get_user_by_username(username)
+
+    def get_user_by_username(self, username: str):
+        """Get user by username (case-insensitive)."""
+        from app.database_models import t_users
+        from sqlalchemy import select
+
+        stmt = select(t_users).where(t_users.c.username == username.lower())
+        result = self._execute_with_rollback(stmt, operation_name="get_user_by_username")
+        row = result.fetchone()
+        return dict(row._mapping) if row else None
+
+    def get_user_by_email(self, email: str):
+        """Get user by email (case-insensitive)."""
+        from app.database_models import t_users
+        from sqlalchemy import select
+
+        # Handle None email gracefully
+        if email is None:
+            return None
+
+        stmt = select(t_users).where(t_users.c.email == email.lower())
+        result = self._execute_with_rollback(stmt, operation_name="get_user_by_email")
+        row = result.fetchone()
+        return dict(row._mapping) if row else None
+
+    def list_all_users(self, include_inactive: bool = False):
+        """List all users, optionally including inactive users."""
+        from app.database_models import t_users
+        from sqlalchemy import select
+
+        stmt = select(t_users)
+        if not include_inactive:
+            stmt = stmt.where(t_users.c.is_active == True)
+        stmt = stmt.order_by(t_users.c.username)
+
+        result = self._execute_with_rollback(stmt, operation_name="list_all_users")
+        return [dict(row._mapping) for row in result.fetchall()]
+
+    def update_user(self, username: str, **updates):
+        """Update user fields by username."""
+        from app.database_models import t_users
+        from sqlalchemy import update
+
+        stmt = update(t_users).where(t_users.c.username == username.lower()).values(**updates)
+        self._execute_with_rollback(stmt, operation_name="update_user")
+        self.connection.commit()
+        return True
+
+    def deactivate_user_by_username(self, username: str):
+        """Soft delete user by setting is_active=False."""
+        from app.database_models import t_users
+        from sqlalchemy import update
+
+        stmt = update(t_users).where(t_users.c.username == username.lower()).values(is_active=False)
+        self._execute_with_rollback(stmt, operation_name="deactivate_user_by_username")
+        self.connection.commit()
+        return True
+
+    def check_user_is_admin(self, username: str):
+        """Check if user has admin role."""
+        user = self.get_user_by_username(username)
+        return user and user.get('role') == 'admin' if user else False
+
+    def count_admin_users(self):
+        """Count active admin users (critical for preventing last admin deletion)."""
+        from app.database_models import t_users
+        from sqlalchemy import select, func, and_
+
+        stmt = select(func.count()).select_from(t_users).where(
+            and_(t_users.c.role == 'admin', t_users.c.is_active == True)
+        )
+        result = self._execute_with_rollback(stmt, operation_name="count_admin_users")
+        return result.scalar() or 0
+
+    # ==================== END USER MANAGEMENT METHODS ====================
+
     #### ENDPOINT QUERIES ####
     def get_oauth_allow_list(self):
         with self.db.get_connection() as conn:

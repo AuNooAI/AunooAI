@@ -224,7 +224,7 @@ def get_current_user_info(request: Request):
 
     # Check for OAuth user first
     oauth_user = get_oauth_user_by_session(session_data)
-    if oauth_user and oauth_user.get('email'):
+    if oauth_user:
         # Get role from users table
         from app.database import get_database_instance
         db = get_database_instance()
