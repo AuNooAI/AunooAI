@@ -151,6 +151,7 @@ t_keyword_monitor_settings = Table(
     Column('daily_request_limit', Integer, nullable=False, default=text('100')),
     Column('search_date_range', Integer, nullable=False, default=text('7')),
     Column('provider', Text, nullable=False, default=text("'newsapi'")),
+    Column('providers', Text, nullable=True, default=text("'[\"newsapi\"]'")),  # JSON array for multi-collector support
     Column('auto_ingest_enabled', Boolean, nullable=False, default=text('FALSE')),
     Column('min_relevance_threshold', REAL, nullable=False, default=text('0.0')),
     Column('quality_control_enabled', Boolean, nullable=False, default=text('TRUE')),

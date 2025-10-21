@@ -218,13 +218,21 @@
                             <small class="text-muted">Maximum API requests allowed per day (default: 100 for NewsAPI)</small>
                         </div>
                         <div class="form-group mt-3">
-                            <label for="provider">News Provider</label>
-                            <select class="form-select" id="provider" name="provider">
-                                <option value="newsapi">NewsAPI</option>
-                                <option value="thenewsapi">TheNewsAPI</option>
-                                <option value="newsdata">NewsData.io</option>
-                            </select>
-                            <small class="text-muted">Select which news provider to use for keyword monitoring</small>
+                            <label class="form-label">News Providers (select multiple)</label>
+                            <div id="provider-checkboxes" class="provider-checkboxes">
+                                <!-- Checkboxes will be populated dynamically -->
+                                <div class="text-muted">Loading available providers...</div>
+                            </div>
+                            <small class="text-muted">
+                                <i class="fas fa-info-circle"></i>
+                                Select multiple providers to search across different sources simultaneously.
+                                Each provider has its own rate limits.
+                            </small>
+                            <div id="no-providers-warning" class="alert alert-warning mt-2" style="display: none;">
+                                <i class="fas fa-exclamation-triangle"></i>
+                                No news providers configured. Please configure API keys in the
+                                <a href="/config#providers" target="_blank">Configuration page</a>.
+                            </div>
                         </div>
                     </div>
 
@@ -623,12 +631,52 @@ function updateRequestCounters(requestsToday, requestLimit) {
     updateResetTimer();
 }
 
+async function loadAvailableProviders() {
+    try {
+        const response = await fetch('/api/keyword-monitor/available-providers');
+        const data = await response.json();
+
+        const container = document.getElementById('provider-checkboxes');
+        const noProvidersWarning = document.getElementById('no-providers-warning');
+
+        if (data.providers && data.providers.length > 0) {
+            container.innerHTML = '';
+            noProvidersWarning.style.display = 'none';
+
+            data.providers.forEach(provider => {
+                const div = document.createElement('div');
+                div.className = 'form-check';
+                div.innerHTML = `
+                    <input class="form-check-input" type="checkbox"
+                           id="provider-${provider.id}" name="providers" value="${provider.id}">
+                    <label class="form-check-label" for="provider-${provider.id}">
+                        <strong>${provider.name}</strong>
+                        <span class="text-muted">(${provider.description})</span>
+                    </label>
+                `;
+                container.appendChild(div);
+            });
+        } else {
+            container.innerHTML = '<p class="text-muted">No providers configured</p>';
+            noProvidersWarning.style.display = 'block';
+        }
+    } catch (error) {
+        console.error('Error loading available providers:', error);
+        const container = document.getElementById('provider-checkboxes');
+        container.innerHTML = '<p class="text-danger">Error loading providers</p>';
+    }
+}
+
 async function showSettingsModal() {
     try {
+        // First load available providers
+        await loadAvailableProviders();
+
+        // Then load settings
         const response = await fetch('/api/keyword-monitor/settings');
         if (response.ok) {
             const settings = await response.json();
-            
+
             // Update both the main counter and settings form
             updateRequestCounters(settings.requests_today, settings.daily_request_limit);
 
@@ -636,21 +684,44 @@ async function showSettingsModal() {
             // Note: check_interval and interval_unit are now configured from keyword alerts page
             document.getElementById('dailyRequestLimit').value = settings.daily_request_limit;
             document.getElementById('searchDateRange').value = settings.search_date_range || 7;
-            
+
             const fields = settings.search_fields.split(',');
             document.querySelectorAll('[name="searchFields"]').forEach(cb => {
                 cb.checked = fields.includes(cb.value);
             });
-            
+
             document.getElementById('language').value = settings.language;
             document.getElementById('sortBy').value = settings.sort_by;
             document.getElementById('pageSize').value = settings.page_size;
-            document.getElementById('provider').value = settings.provider;
+
+            // Update provider checkboxes (multi-collector support)
+            // Wait a bit for checkboxes to be created
+            setTimeout(() => {
+                if (settings.providers) {
+                    try {
+                        const providers = JSON.parse(settings.providers);
+                        document.querySelectorAll('[name="providers"]').forEach(cb => {
+                            cb.checked = providers.includes(cb.value);
+                        });
+                    } catch (e) {
+                        console.error('Error parsing providers:', e);
+                        // Fallback to single provider
+                        document.querySelectorAll('[name="providers"]').forEach(cb => {
+                            cb.checked = cb.value === settings.provider;
+                        });
+                    }
+                } else if (settings.provider) {
+                    // Fallback for legacy single provider
+                    document.querySelectorAll('[name="providers"]').forEach(cb => {
+                        cb.checked = cb.value === settings.provider;
+                    });
+                }
+            }, 100);
         }
     } catch (error) {
         console.error('Error loading settings:', error);
     }
-    
+
     const modal = new bootstrap.Modal(document.getElementById('settingsModal'));
     modal.show();
 }
@@ -710,6 +781,19 @@ async function saveSettings() {
             .map(cb => cb.value)
             .join(',');
 
+        // Collect selected providers (multi-collector support)
+        const selectedProviders = Array.from(
+            document.querySelectorAll('[name="providers"]:checked')
+        ).map(cb => cb.value);
+
+        console.log('Selected providers:', selectedProviders);
+
+        // Validate at least one provider is selected
+        if (selectedProviders.length === 0) {
+            alert('Please select at least one provider');
+            return;
+        }
+
         // First, get current settings to preserve auto-ingest configuration
         let currentSettings = {};
         try {
@@ -721,6 +805,10 @@ async function saveSettings() {
             console.warn('Could not load current settings:', error);
         }
 
+        // Build providers JSON string
+        const providersJson = JSON.stringify(selectedProviders);
+        console.log('Providers JSON to save:', providersJson);
+
         const settings = {
             // Preserve existing check interval settings (configured from keyword alerts page)
             check_interval: currentSettings.check_interval || 15,
@@ -731,7 +819,8 @@ async function saveSettings() {
             language: document.getElementById('language').value,
             sort_by: document.getElementById('sortBy').value,
             page_size: parseInt(document.getElementById('pageSize').value),
-            provider: document.getElementById('provider').value,
+            provider: selectedProviders[0],  // Legacy - use first provider
+            providers: providersJson,  // ALWAYS send providers (not null/undefined)
             // Preserve existing auto-ingest settings (configured from keyword alerts page)
             auto_ingest_enabled: currentSettings.auto_ingest_enabled || false,
             min_relevance_threshold: currentSettings.min_relevance_threshold || 0.3,

@@ -53,7 +53,9 @@ def get_keyword_monitor_jobs() -> Dict:
 class KeywordMonitor:
     def __init__(self, db: Database):
         self.db = db
-        self.collector = None
+        self.collector = None  # Legacy single collector (deprecated)
+        self.collectors = {}  # Dictionary of collectors {provider_name: collector_instance}
+        self.active_providers = []  # List of active provider names
         self.last_collector_init_attempt = None
         # Initialize auto-ingest service if available
         self.auto_ingest_service = None
@@ -103,36 +105,161 @@ class KeywordMonitor:
             self.search_date_range = 7  # Default to 7 days
             self.provider = 'newsapi'  # Default provider
 
-    def _init_collector(self):
-        """Initialize the news collector based on settings"""
-        try:
-            provider = self.db.facade.get_keyword_monitoring_provider()
+    def _create_collector(self, provider: str):
+        """Factory method to create individual collector instance"""
+        import os
 
-            if provider == 'thenewsapi':
-                from app.collectors.thenewsapi_collector import TheNewsAPICollector
-                self.collector = TheNewsAPICollector()
-            elif provider == 'newsdata':
-                from app.collectors.newsdata_collector import NewsdataCollector
-                # Check if NewsData.io is configured before trying to initialize
-                if not NewsdataCollector.is_configured():
-                    raise ValueError("NewsData.io API key not configured in environment variables")
-                self.collector = NewsdataCollector()
-            elif provider == 'newsapi' or not provider:
-                from app.collectors.newsapi_collector import NewsAPICollector
-                # Check if NewsAPI key is configured
-                import os
-                newsapi_key = os.getenv('PROVIDER_NEWSAPI_API_KEY') or os.getenv('PROVIDER_NEWSAPI_KEY')
-                if not newsapi_key:
-                    raise ValueError(f"NewsAPI key not configured. Current provider: '{provider}'. Please set provider to 'thenewsapi' or 'newsdata' if you don't have a NewsAPI key.")
-                self.collector = NewsAPICollector(self.db)
-            else:
-                raise ValueError(f"Unknown provider '{provider}'. Valid options: 'newsapi', 'thenewsapi', 'newsdata'")
+        if provider == 'newsapi':
+            from app.collectors.newsapi_collector import NewsAPICollector
+            newsapi_key = os.getenv('PROVIDER_NEWSAPI_API_KEY') or os.getenv('PROVIDER_NEWSAPI_KEY')
+            if not newsapi_key:
+                raise ValueError(f"NewsAPI key not configured. Please set PROVIDER_NEWSAPI_API_KEY environment variable.")
+            return NewsAPICollector(self.db)
+
+        elif provider == 'thenewsapi':
+            from app.collectors.thenewsapi_collector import TheNewsAPICollector
+            return TheNewsAPICollector()
+
+        elif provider == 'newsdata':
+            from app.collectors.newsdata_collector import NewsdataCollector
+            if not NewsdataCollector.is_configured():
+                raise ValueError("NewsData.io API key not configured in environment variables")
+            return NewsdataCollector()
+
+        elif provider == 'bluesky':
+            from app.collectors.bluesky_collector import BlueskyCollector
+            return BlueskyCollector()
+
+        elif provider == 'arxiv':
+            from app.collectors.arxiv_collector import ArxivCollector
+            return ArxivCollector()
+
+        else:
+            raise ValueError(f"Unknown provider '{provider}'. Valid options: 'newsapi', 'thenewsapi', 'newsdata', 'bluesky', 'arxiv'")
+
+    def _init_collectors(self):
+        """Initialize all selected collectors (multi-collector support)"""
+        try:
+            import json
+
+            # Get providers from database as JSON array
+            providers_json = self.db.facade.get_keyword_monitoring_providers()
+            self.active_providers = json.loads(providers_json)
+
+            logger.info(f"Initializing collectors for providers: {self.active_providers}")
+
+            self.collectors = {}
+            initialized_count = 0
+
+            for provider in self.active_providers:
+                try:
+                    collector = self._create_collector(provider)
+                    if collector:
+                        self.collectors[provider] = collector
+                        initialized_count += 1
+                        logger.info(f"✓ Initialized collector: {provider}")
+                except Exception as e:
+                    logger.error(f"✗ Failed to initialize {provider}: {e}")
+                    # Continue with other collectors
+
+            if initialized_count == 0:
+                logger.error("No collectors were initialized successfully")
+                return False
+
+            # Also set first collector as legacy self.collector for backward compatibility
+            if self.collectors:
+                self.collector = list(self.collectors.values())[0]
 
             self.last_collector_init_attempt = datetime.now()
+            logger.info(f"Successfully initialized {initialized_count}/{len(self.active_providers)} collectors")
             return True
+
         except Exception as e:
-            logger.error(f"Error initializing collector: {str(e)}")
+            logger.error(f"Error initializing collectors: {str(e)}")
             return False
+
+    def _init_collector(self):
+        """Legacy method - now delegates to _init_collectors for multi-collector support"""
+        return self._init_collectors()
+
+    def _deduplicate_articles(self, articles: List[Dict]) -> List[Dict]:
+        """Remove duplicate articles based on URL, prioritizing providers with better metadata"""
+        seen_urls = {}
+        unique_articles = []
+
+        # Provider priority: newsapi > thenewsapi > newsdata > bluesky > arxiv
+        provider_priority = {
+            'newsapi': 5,
+            'thenewsapi': 4,
+            'newsdata': 3,
+            'bluesky': 2,
+            'arxiv': 1
+        }
+
+        for article in articles:
+            url = article.get('url', '').strip()
+            if not url:
+                continue
+
+            if url not in seen_urls:
+                seen_urls[url] = article
+                unique_articles.append(article)
+            else:
+                # Article already exists - keep the one from higher priority provider
+                existing = seen_urls[url]
+
+                current_priority = provider_priority.get(
+                    article.get('collector_source', ''), 0
+                )
+                existing_priority = provider_priority.get(
+                    existing.get('collector_source', ''), 0
+                )
+
+                if current_priority > existing_priority:
+                    # Replace with higher priority version
+                    seen_urls[url] = article
+                    unique_articles = [
+                        a for a in unique_articles if a.get('url') != url
+                    ]
+                    unique_articles.append(article)
+
+        logger.info(
+            f"Deduplicated {len(articles)} articles → {len(unique_articles)} unique articles"
+        )
+        return unique_articles
+
+    async def _search_with_collector(
+        self,
+        provider: str,
+        collector,
+        keyword_text: str,
+        topic: str,
+        start_date: datetime
+    ) -> List[Dict]:
+        """Search with individual collector, handling errors gracefully"""
+        try:
+            logger.info(f"Searching with {provider} for keyword: '{keyword_text}'...")
+
+            articles = await collector.search_articles(
+                query=keyword_text,
+                topic=topic,
+                max_results=self.page_size,
+                start_date=start_date,
+                search_fields=self.search_fields,
+                language=self.language,
+                sort_by=self.sort_by
+            )
+
+            # Tag articles with provider source
+            for article in articles:
+                article['collector_source'] = provider
+
+            logger.info(f"{provider}: Found {len(articles)} articles")
+            return articles
+
+        except Exception as e:
+            logger.error(f"{provider} search failed: {e}")
+            return []
 
     def check_and_reset_counter(self):
         """Check if the API usage counter needs to be reset for a new day"""
@@ -217,21 +344,41 @@ class KeywordMonitor:
                     start_date = datetime.now() - timedelta(days=self.search_date_range)
 
                     logger.debug(f"Searching for articles with keyword: '{keyword_text}', topic: '{topic}', start_date: {start_date.isoformat()}")
-                    articles = await self.collector.search_articles(
-                        query=keyword_text,
-                        topic=topic,
-                        max_results=self.page_size,
-                        start_date=start_date,  # Use calculated start_date
-                        search_fields=self.search_fields,
-                        language=self.language,
-                        sort_by=self.sort_by
-                    )
+
+                    # MULTI-COLLECTOR: Search across all active collectors in parallel
+                    search_tasks = []
+                    for provider, collector in self.collectors.items():
+                        task = self._search_with_collector(
+                            provider=provider,
+                            collector=collector,
+                            keyword_text=keyword_text,
+                            topic=topic,
+                            start_date=start_date
+                        )
+                        search_tasks.append(task)
+
+                    # Execute all searches in parallel
+                    results = await asyncio.gather(*search_tasks, return_exceptions=True)
+
+                    # Combine results from all collectors
+                    all_articles = []
+                    for i, result in enumerate(results):
+                        provider = list(self.collectors.keys())[i]
+
+                        if isinstance(result, Exception):
+                            logger.error(f"{provider} search failed: {result}")
+                            continue
+
+                        all_articles.extend(result)
+
+                    # Deduplicate articles across providers
+                    articles = self._deduplicate_articles(all_articles)
 
                     if not articles:
                         logger.warning(f"No articles found or error occurred for keyword: {keyword_text}")
                         continue
 
-                    logger.info(f"Found {len(articles)} new articles for keyword: {keyword_text}")
+                    logger.info(f"Found {len(articles)} unique articles for keyword: {keyword_text} (from {len(all_articles)} total across collectors)")
                     # Log details of first few articles to help debug
                     for i, article in enumerate(articles[:3]):  # Log up to first 3 articles
                         logger.debug(f"Article {i+1}: title='{article.get('title', '')}', url='{article.get('url', '')}', published={article.get('published_date', '')}")

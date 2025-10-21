@@ -99,7 +99,8 @@ class KeywordMonitorSettings(BaseModel):
     sort_by: str
     page_size: int
     daily_request_limit: int = 100
-    provider: str = "newsapi"
+    provider: str = "newsapi"  # Legacy single provider (deprecated)
+    providers: Optional[str] = None  # JSON array of selected providers
     # Auto-ingest settings
     auto_ingest_enabled: bool = False
     min_relevance_threshold: float = 0.0
@@ -833,6 +834,9 @@ async def get_settings(db=Depends(get_database_instance), session=Depends(verify
         logger.debug(f"Settings query result: {settings}")
 
         if settings:
+            # Get providers from facade
+            providers_json = db.facade.get_keyword_monitoring_providers()
+
             response_data = {
                 "check_interval": settings[0],
                 "interval_unit": settings[1],
@@ -843,6 +847,7 @@ async def get_settings(db=Depends(get_database_instance), session=Depends(verify
                 "daily_request_limit": settings[6],
                 "is_enabled": settings[7],
                 "provider": settings[8],
+                "providers": providers_json,  # JSON array of selected providers
                 "auto_ingest_enabled": settings[9],
                 "min_relevance_threshold": settings[10],
                 "quality_control_enabled": settings[11],
@@ -870,6 +875,7 @@ async def get_settings(db=Depends(get_database_instance), session=Depends(verify
                 "daily_request_limit": 100,
                 "is_enabled": True,
                 "provider": "newsapi",
+                "providers": '["newsapi"]',  # Default to newsapi
                 "auto_ingest_enabled": False,
                 "min_relevance_threshold": 0.0,
                 "quality_control_enabled": True,
@@ -890,6 +896,8 @@ async def get_settings(db=Depends(get_database_instance), session=Depends(verify
 async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_database_instance), session=Depends(verify_session)):
     """Save keyword monitor settings"""
     try:
+            logger.info(f"Saving keyword monitor settings. Provider: {settings.provider}, Providers: {settings.providers}")
+
             # Update or insert settings (including auto-ingest settings)
             db.facade.update_or_insert_keyword_monitor_settings((
                 settings.check_interval,
@@ -909,12 +917,73 @@ async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_databas
                 settings.llm_max_tokens,
                 settings.max_articles_per_run
             ))
-            
+
+            # Save providers array if provided (multi-collector support)
+            # ALWAYS save if provided, even if empty (will use default)
+            if settings.providers is not None and settings.providers != "":
+                logger.info(f"Updating providers to: {settings.providers}")
+                db.facade.update_keyword_monitoring_providers(settings.providers)
+            else:
+                logger.warning(f"No providers provided, keeping existing configuration")
+
             return {"success": True}
             
     except Exception as e:
         logger.error(f"Error saving settings: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/available-providers")
+async def get_available_providers():
+    """Get list of configured providers that can be used for keyword monitoring"""
+    import os
+
+    available = []
+
+    # Check NewsAPI (matches newsapi_collector.py)
+    if os.getenv('PROVIDER_NEWSAPI_API_KEY') or os.getenv('PROVIDER_NEWSAPI_KEY'):
+        available.append({
+            "id": "newsapi",
+            "name": "NewsAPI",
+            "description": "100 requests/day",
+            "configured": True
+        })
+
+    # Check TheNewsAPI (matches thenewsapi_collector.py)
+    if os.getenv('PROVIDER_THENEWSAPI_API_KEY') or os.getenv('PROVIDER_THENEWSAPI_KEY'):
+        available.append({
+            "id": "thenewsapi",
+            "name": "TheNewsAPI",
+            "description": "100 requests/day",
+            "configured": True
+        })
+
+    # Check NewsData.io (matches newsdata_collector.py)
+    if os.getenv('PROVIDER_NEWSDATA_API_KEY') or os.getenv('NEWSDATA_API_KEY'):
+        available.append({
+            "id": "newsdata",
+            "name": "NewsData.io",
+            "description": "200 requests/day",
+            "configured": True
+        })
+
+    # Check Bluesky (matches bluesky_collector.py)
+    if os.getenv('PROVIDER_BLUESKY_USERNAME') and os.getenv('PROVIDER_BLUESKY_PASSWORD'):
+        available.append({
+            "id": "bluesky",
+            "name": "Bluesky",
+            "description": "Social media posts",
+            "configured": True
+        })
+
+    # ArXiv always available (no API key required)
+    available.append({
+        "id": "arxiv",
+        "name": "ArXiv",
+        "description": "Academic papers",
+        "configured": True
+    })
+
+    return {"providers": available}
 
 @router.get("/trends")
 async def get_trends(db=Depends(get_database_instance), session=Depends(verify_session)):

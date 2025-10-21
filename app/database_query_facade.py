@@ -137,10 +137,34 @@ class DatabaseQueryFacade:
         return self.get_keyword_monitor_settings_by_id(1)
 
     def get_keyword_monitoring_provider(self):
+        """Get single provider (legacy method - use get_keyword_monitoring_providers for multi-collector)"""
         row = self.get_keyword_monitor_settings_by_id(1)
         # TODO: Make this default configurable?
         provider = row['provider'] if row else 'newsapi'
         return provider
+
+    def get_keyword_monitoring_providers(self):
+        """Get selected providers as JSON array string"""
+        row = self.get_keyword_monitor_settings_by_id(1)
+        if row and row.get('providers'):
+            return row['providers']
+        # Fallback to single provider for backward compatibility
+        elif row and row.get('provider'):
+            import json
+            return json.dumps([row['provider']])
+        # Ultimate fallback
+        return '["newsapi"]'
+
+    def update_keyword_monitoring_providers(self, providers_json: str):
+        """Update providers JSON array"""
+        from sqlalchemy import update
+        from app.database_models import t_keyword_monitor_settings
+
+        stmt = update(t_keyword_monitor_settings).where(
+            t_keyword_monitor_settings.c.id == 1
+        ).values(providers=providers_json)
+
+        self._execute_with_rollback(stmt)
 
     def get_keyword_monitoring_counter(self):
         return self.get_keyword_monitor_status_by_id(1)
