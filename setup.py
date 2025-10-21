@@ -190,9 +190,25 @@ def initialize_org_profiles():
     # Run appropriate initialization based on database type
     if db_type == 'postgresql':
         # For PostgreSQL, we need Alembic migrations to be run first
-        logger.info("PostgreSQL detected - organizational profiles should be created via migrations")
-        logger.info("Run: alembic upgrade head")
-        return True
+        logger.info("PostgreSQL detected - running Alembic migrations...")
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "alembic", "upgrade", "head"],
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            logger.info("✅ Database migrations completed successfully")
+            logger.info("   - Multi-user tables created")
+            logger.info("   - Organizational profiles initialized")
+            logger.info("   - Default admin user created (admin/admin)")
+            return True
+        except subprocess.CalledProcessError as e:
+            logger.error(f"❌ Database migrations FAILED!")
+            logger.error(f"   Error: {e.stderr}")
+            logger.info("\nYou can manually run migrations with:")
+            logger.info("  alembic upgrade head")
+            return False
     else:
         # For SQLite, run the migration script that creates profiles
         script_path = Path("scripts/migrate_organizational_profiles.py")
@@ -278,10 +294,13 @@ def main():
     logger.info("  python app/run.py")
 
     if db_type == 'postgresql':
-        logger.info("\n⚠️  PostgreSQL Configuration Notes:")
-        logger.info("  - Transaction timeout is set to 60s to prevent connection leaks")
-        logger.info("  - All database operations MUST call conn.commit() after queries")
-        logger.info("  - Monitor for 'idle in transaction' connections if performance issues occur")
+        logger.info("\n✅ PostgreSQL Configuration Complete:")
+        logger.info("  - Database migrations applied")
+        logger.info("  - Multi-user support enabled")
+        logger.info("  - Default admin user: admin / admin")
+        logger.info("  - Transaction timeout: 60s (prevents connection leaks)")
+        logger.info("\n⚠️  Important:")
+        logger.info("  - Change admin password on first login")
         logger.info("  - See spec-files-aunoo/WEEK4-COMPLETION-REPORT.md for details")
 
     logger.info("")
