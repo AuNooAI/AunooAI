@@ -7,6 +7,7 @@ openai==1.99.9
 tiktoken>=0.5.0  # For accurate OpenAI token counting
 markdown
 pydantic>=1.8.0
+email-validator>=2.0.0  # Required for Pydantic EmailStr validation
 aiosqlite
 firecrawl-py
 sqlalchemy>=1.4.23
