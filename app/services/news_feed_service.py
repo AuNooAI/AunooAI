@@ -62,7 +62,7 @@ class NewsFeedService:
             processing_time_seconds=processing_time
         )
     
-    async def _get_articles_for_date_range(self, date_range: str, max_articles: int, topic: Optional[str] = None, custom_date: Optional[datetime] = None, bias_filter: Optional[str] = None) -> List[Dict]:
+    async def _get_articles_for_date_range(self, date_range: str, max_articles: int, topic: Optional[str] = None, custom_date: Optional[datetime] = None, bias_filter: Optional[str] = None, offset: int = 0, limit: int = None) -> List[Dict]:
         """Get articles for a date range with optional bias filtering using database_query_facade"""
         from starlette.concurrency import run_in_threadpool
 
@@ -121,10 +121,12 @@ class NewsFeedService:
                 date_params,
                 max_articles,
                 topic,
-                bias_filter
+                bias_filter,
+                offset,
+                limit
             )
 
-            logger.info(f"Found {len(articles_list)} articles for date range: {date_range}")
+            logger.info(f"Found {len(articles_list)} articles for date range: {date_range} (offset={offset}, limit={limit or max_articles})")
             return articles_list
         except Exception as e:
             logger.error(f"Error fetching articles: {e}")
@@ -401,7 +403,7 @@ class NewsFeedService:
     
     async def _generate_article_list(self, articles_data: List[Dict], date: datetime, request: NewsFeedRequest, page: int = 1, per_page: int = 20) -> Dict:
         """Generate paginated article list similar to topic dashboard"""
-        
+
         # Get the actual total count from database (not limited by max_articles)
         total_articles = await self._get_total_articles_count_for_date_range(
             request.date_range or "24h",
@@ -409,11 +411,10 @@ class NewsFeedService:
             request.date,
             request.bias_filter
         )
-        
-        # Calculate pagination
-        start_idx = (page - 1) * per_page
-        end_idx = start_idx + per_page
-        paginated_articles = articles_data[start_idx:end_idx]
+
+        # Articles_data is already paginated from the database query,
+        # so we don't need to slice it here
+        paginated_articles = articles_data
         
         # Convert articles to the expected format
         article_items = []

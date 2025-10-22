@@ -180,6 +180,13 @@ class DatabaseCreator:
                     name TEXT UNIQUE,
                     applied_at TEXT DEFAULT CURRENT_TIMESTAMP
                 );
+
+                -- Performance indexes for articles table
+                CREATE INDEX IF NOT EXISTS idx_articles_publication_date ON articles(publication_date);
+                CREATE INDEX IF NOT EXISTS idx_articles_topic ON articles(topic);
+                CREATE INDEX IF NOT EXISTS idx_articles_category ON articles(category);
+                CREATE INDEX IF NOT EXISTS idx_articles_sentiment ON articles(sentiment);
+                CREATE INDEX IF NOT EXISTS idx_articles_pubdate_category ON articles(publication_date, category);
             """)
 
             # Create default admin user

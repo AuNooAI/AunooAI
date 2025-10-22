@@ -1,6 +1,6 @@
 from fastapi import APIRouter, status, Depends, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict
 import json
 import logging
@@ -158,10 +158,28 @@ class ConsensusAnalysisRequest(BaseModel):
     model: str = Field("gpt-4o-mini", description="AI model to use for analysis")
     articleLimit: int = Field(100, description="Number of articles to analyze")
 
+    @field_validator('topic')
+    @classmethod
+    def sanitize_topic(cls, v: str) -> str:
+        """Sanitize topic name - strip whitespace and normalize spaces."""
+        if v:
+            import re
+            return re.sub(r'\s+', ' ', v.strip())
+        return v
+
 class ChatSessionRequest(BaseModel):
     topic: str = Field(..., description="Topic for the chat session")
     title: str | None = Field(None, description="Optional title for the chat")
     profile_id: int | None = Field(None, description="Organizational profile ID for contextualized analysis")
+
+    @field_validator('topic')
+    @classmethod
+    def sanitize_topic(cls, v: str) -> str:
+        """Sanitize topic name - strip whitespace and normalize spaces."""
+        if v:
+            import re
+            return re.sub(r'\s+', ' ', v.strip())
+        return v
 
 class ChatMessageRequest(BaseModel):
     chat_id: int = Field(..., description="Chat session ID")

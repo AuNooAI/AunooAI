@@ -149,6 +149,15 @@ class Research:
     def set_topic(self, topic_name: str):
         """Set the current topic for analysis."""
         logger.info(f"🎯 set_topic called with: '{topic_name}'")
+
+        # CRITICAL FIX: Sanitize topic name - strip whitespace and normalize spaces
+        # This fixes issues where UI text wrapping causes extra spaces/newlines in topic names
+        if topic_name:
+            import re
+            # Strip leading/trailing whitespace and collapse multiple spaces/newlines into single space
+            topic_name = re.sub(r'\s+', ' ', topic_name.strip())
+            logger.info(f"🧹 Sanitized topic name to: '{topic_name}'")
+
         logger.info(f"🎯 Current topic before: '{self.current_topic}'")
         logger.info(f"🎯 Available topics: {list(self.topic_configs.keys())}")
 

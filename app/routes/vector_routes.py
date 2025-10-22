@@ -8,7 +8,7 @@ import urllib.parse
 
 from fastapi import APIRouter, Query, Depends, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.security.session import verify_session, verify_session_optional
 from app.vector_store import (
@@ -1676,6 +1676,15 @@ class _IncidentTrackingRequest(BaseModel):
     profile_id: Optional[int] = Field(None, description="Organizational profile ID for contextualized analysis")
     test_articles: Optional[List[Dict]] = Field(None, description="Optional test articles to analyze instead of database query")
 
+    @field_validator('topic')
+    @classmethod
+    def sanitize_topic(cls, v: str) -> str:
+        """Sanitize topic name - strip whitespace and normalize spaces."""
+        if v:
+            import re
+            return re.sub(r'\s+', ' ', v.strip())
+        return v
+
 @router.post("/incident-tracking")
 async def analyze_incidents(
     req: _IncidentTrackingRequest,
@@ -2289,6 +2298,15 @@ class _SignalInstructionRequest(BaseModel):
     topic: Optional[str] = Field(None, description="Topic to apply this signal to")
     is_active: bool = Field(True, description="Whether this signal is active")
 
+    @field_validator('topic')
+    @classmethod
+    def sanitize_topic(cls, v: str) -> str:
+        """Sanitize topic name - strip whitespace and normalize spaces."""
+        if v:
+            import re
+            return re.sub(r'\s+', ' ', v.strip())
+        return v
+
 @router.post("/signal-instructions")
 async def save_signal_instruction(
     req: _SignalInstructionRequest,
@@ -2376,6 +2394,15 @@ class _RealTimeSignalsRequest(BaseModel):
     instruction_ids: Optional[List[int]] = Field(None, description="Specific signal instruction IDs to use")
     model: str = Field("gpt-4o-mini", description="AI model to use for analysis")
     force_regenerate: bool = Field(False, description="Force regeneration bypassing cache")
+
+    @field_validator('topic')
+    @classmethod
+    def sanitize_topic(cls, v: str) -> str:
+        """Sanitize topic name - strip whitespace and normalize spaces."""
+        if v:
+            import re
+            return re.sub(r'\s+', ' ', v.strip())
+        return v
 
 @router.post("/real-time-signals")
 async def analyze_real_time_signals(
@@ -2707,6 +2734,15 @@ class _RunSignalRequest(BaseModel):
     max_articles: int = Field(100, ge=10, le=500, description="Maximum articles to analyze")
     model: str = Field("gpt-4o-mini", description="AI model to use")
     tag_flagged_articles: bool = Field(True, description="Tag articles that match signals")
+
+    @field_validator('topic')
+    @classmethod
+    def sanitize_topic(cls, v: str) -> str:
+        """Sanitize topic name - strip whitespace and normalize spaces."""
+        if v:
+            import re
+            return re.sub(r'\s+', ' ', v.strip())
+        return v
 
 @router.post("/run-signals")
 async def run_signal_instructions(

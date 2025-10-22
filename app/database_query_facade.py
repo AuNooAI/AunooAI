@@ -4549,7 +4549,9 @@ class DatabaseQueryFacade:
         date_params: list,
         max_articles: int,
         topic: str = None,
-        bias_filter: str = None
+        bias_filter: str = None,
+        offset: int = 0,
+        limit: int = None
     ):
         """
         Get articles for news feed with complex filtering and quality-based ordering.
@@ -4557,9 +4559,11 @@ class DatabaseQueryFacade:
         Args:
             date_condition_type: Type of date filter ('custom', '24h', '7d', '30d', '3m', '1y', 'all')
             date_params: List of date parameters for the WHERE clause
-            max_articles: Maximum number of articles to return
+            max_articles: Maximum number of articles to return (deprecated, use limit instead)
             topic: Optional topic filter (matches topic field or title/summary LIKE pattern)
             bias_filter: Optional bias filter ('no_bias' or specific bias value)
+            offset: Number of articles to skip (for pagination)
+            limit: Maximum number of articles to return (overrides max_articles if provided)
 
         Returns:
             List of article dictionaries
@@ -4694,7 +4698,11 @@ class DatabaseQueryFacade:
             factual_reporting_order.desc(),
             news_source_order.desc(),
             articles.c.publication_date.desc()
-        ).limit(max_articles)
+        )
+
+        # Apply pagination (use limit parameter if provided, otherwise max_articles)
+        actual_limit = limit if limit is not None else max_articles
+        statement = statement.limit(actual_limit).offset(offset)
 
         # Execute and return results
         results = self._execute_with_rollback(statement).mappings().fetchall()

@@ -224,8 +224,8 @@ class Database:
                     echo=True,
                     pool_pre_ping=True,  # Check connection health on checkout
                     pool_recycle=3600,    # Recycle connections after 1 hour (before they go stale)
-                    pool_size=10,
-                    max_overflow=5,
+                    pool_size=20,         # Increased from 10 to support background processing
+                    max_overflow=10,      # Increased from 5 for peak loads
                     pool_timeout=30       # Timeout waiting for connection from pool
                 )
             else:
@@ -412,13 +412,54 @@ class Database:
             self.perform_wal_checkpoint("FULL")
         except Exception as e:
             logger.error(f"Final WAL checkpoint failed: {e}")
-        
+
         for conn in self._connections.values():
             try:
                 conn.close()
             except Exception:
                 pass
         self._connections.clear()
+
+    def reset_poisoned_connections(self):
+        """Reset connections stuck in failed transaction state.
+
+        This method detects and cleans up database connections that have
+        failed transactions, preventing connection pool contamination that
+        causes 'Can't reconnect until invalid transaction is rolled back' errors.
+
+        PostgreSQL-specific: Checks for connections in transaction state and attempts rollback.
+        SQLite: No-op as SQLite doesn't have the same transaction state issues.
+        """
+        if self.db_type != 'postgresql':
+            logger.debug("reset_poisoned_connections: skipping for non-PostgreSQL database")
+            return
+
+        cleaned_count = 0
+        removed_count = 0
+
+        # Check SQLAlchemy connections
+        for thread_id, conn in list(self._sqlalchemy_connections.items()):
+            try:
+                # Check if connection is in failed transaction state
+                if hasattr(conn, 'in_transaction') and conn.in_transaction():
+                    try:
+                        conn.rollback()
+                        logger.info(f"Rolled back stuck transaction on connection {thread_id}")
+                        cleaned_count += 1
+                    except Exception as rollback_error:
+                        # Connection is truly poisoned, remove it from pool
+                        logger.warning(f"Removing poisoned connection {thread_id}: {rollback_error}")
+                        try:
+                            conn.close()
+                        except Exception:
+                            pass
+                        del self._sqlalchemy_connections[thread_id]
+                        removed_count += 1
+            except Exception as check_error:
+                logger.error(f"Error checking connection {thread_id}: {check_error}")
+
+        if cleaned_count > 0 or removed_count > 0:
+            logger.info(f"Connection pool cleanup: rolled back {cleaned_count} transactions, removed {removed_count} poisoned connections")
 
     def __del__(self):
         """Cleanup connections when the object is destroyed"""

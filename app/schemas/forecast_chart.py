@@ -3,7 +3,7 @@ Pydantic schemas for forecast chart data structures.
 """
 
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
 
 class ForecastChartRequest(BaseModel):
@@ -11,6 +11,15 @@ class ForecastChartRequest(BaseModel):
     topic: str = Field(..., description="Topic to analyze for forecast")
     timeframe: str = Field(default="365", description="Time period in days for data collection")
     title_prefix: str = Field(default="AI & Machine Learning", description="Prefix for chart title")
+
+    @field_validator('topic')
+    @classmethod
+    def sanitize_topic(cls, v: str) -> str:
+        """Sanitize topic name - strip whitespace and normalize spaces."""
+        if v:
+            import re
+            return re.sub(r'\s+', ' ', v.strip())
+        return v
 
 class ConsensusBand(BaseModel):
     """Model for consensus band data."""

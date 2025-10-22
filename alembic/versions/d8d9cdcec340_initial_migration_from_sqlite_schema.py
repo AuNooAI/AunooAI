@@ -88,6 +88,12 @@ def upgrade() -> None:
     op.create_index('idx_articles_ingest_status', 'articles', ['ingest_status'], unique=False)
     op.create_index('idx_articles_quality_score', 'articles', ['quality_score'], unique=False)
     op.create_index('idx_articles_uri', 'articles', ['uri'], unique=True)
+    # Performance indexes for frequently queried columns
+    op.create_index('idx_articles_publication_date', 'articles', ['publication_date'], unique=False)
+    op.create_index('idx_articles_topic', 'articles', ['topic'], unique=False)
+    op.create_index('idx_articles_category', 'articles', ['category'], unique=False)
+    op.create_index('idx_articles_sentiment', 'articles', ['sentiment'], unique=False)
+    op.create_index('idx_articles_pubdate_category', 'articles', ['publication_date', 'category'], unique=False)
     op.create_table('articles_scenario_1',
     sa.Column('uri', sa.Text(), nullable=False),
     sa.Column('title', sa.Text(), nullable=True),

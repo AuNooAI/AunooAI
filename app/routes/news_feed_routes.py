@@ -140,23 +140,30 @@ async def get_news_articles_only(
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
 
-        # Create request with increased limit for browsing
+        # Create request
         request = NewsFeedRequest(
             date=target_date,
             date_range=date_range,
             topic=topic,
-            max_articles=max_articles,  # Increased default to 1000 for better browsing
+            max_articles=max_articles,
             model=model,
             profile_id=profile_id
         )
 
-        # Generate article list - fetch more articles for browsing
+        # Calculate SQL pagination parameters
+        offset = (page - 1) * per_page
+        limit = per_page
+
+        # Generate article list - fetch ONLY the requested page from database
         news_feed_service = get_news_feed_service(db)
         articles_data = await news_feed_service._get_articles_for_date_range(
             date_range or "24h",
-            max_articles,  # Now defaults to 1000 instead of 30
+            max_articles,  # Kept for backwards compatibility
             topic,
-            target_date
+            target_date,
+            None,  # bias_filter
+            offset,  # SQL OFFSET for pagination
+            limit    # SQL LIMIT for pagination
         )
         
         if not articles_data:

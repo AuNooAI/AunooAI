@@ -610,9 +610,31 @@ async def get_database_health(db: Database = Depends(get_database_instance)):
         # CRITICAL: Commit to close transaction
         conn.commit()
 
+        # CRITICAL FIX: Check application connection pool for poisoned connections
+        # This helps diagnose "Can't reconnect until invalid transaction is rolled back" issues
+        poisoned_connections = []
+        total_app_connections = 0
+
+        try:
+            for thread_id, app_conn in db._sqlalchemy_connections.items():
+                total_app_connections += 1
+                try:
+                    if hasattr(app_conn, 'in_transaction') and app_conn.in_transaction():
+                        poisoned_connections.append({
+                            "thread_id": thread_id,
+                            "status": "in_transaction"
+                        })
+                except Exception as check_error:
+                    poisoned_connections.append({
+                        "thread_id": thread_id,
+                        "status": f"check_failed: {check_error}"
+                    })
+        except Exception as pool_check_error:
+            logger.warning(f"Failed to check connection pool: {pool_check_error}")
+
         return {
             "db_type": "postgresql",
-            "healthy": stuck_count == 0,
+            "healthy": stuck_count == 0 and len(poisoned_connections) == 0,
             "stuck_transactions": stuck_count,
             "active_connections": row['active_connections'] if row else 0,
             "longest_query_seconds": float(row['longest_query_seconds']) if row and row['longest_query_seconds'] else 0,
@@ -620,6 +642,11 @@ async def get_database_health(db: Database = Depends(get_database_instance)):
                 "pool_size": 20,
                 "max_overflow": 10,
                 "max_connections": 30
+            },
+            "application_pool": {
+                "total_connections": total_app_connections,
+                "poisoned_connections": len(poisoned_connections),
+                "poisoned_details": poisoned_connections if len(poisoned_connections) > 0 else None
             }
         }
 

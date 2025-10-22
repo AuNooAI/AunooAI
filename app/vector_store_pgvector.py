@@ -162,6 +162,7 @@ def upsert_article(article: Dict[str, Any]) -> None:
     Args:
         article: Article dict with uri, title, summary, raw, etc.
     """
+    conn = None
     try:
         # Get document text for embedding
         doc_text = (
@@ -198,6 +199,13 @@ def upsert_article(article: Dict[str, Any]) -> None:
 
     except Exception as exc:
         logger.error("Vector upsert failed for article %s: %s", article.get("uri"), exc)
+        # CRITICAL FIX: Rollback failed transaction to prevent connection pool contamination
+        if conn is not None:
+            try:
+                conn.rollback()
+                logger.debug("Rolled back failed transaction for article %s", article.get("uri"))
+            except Exception as rollback_error:
+                logger.error("Rollback failed for article %s: %s", article.get("uri"), rollback_error)
 
 
 async def upsert_article_async(article: Dict[str, Any]) -> None:
@@ -265,6 +273,7 @@ def search_articles(
     """
     logger.info("Vector search: query='%s', top_k=%d, filters=%s", query, top_k, metadata_filter)
 
+    conn = None
     try:
         # Generate query embedding
         embeddings = _embed_texts([query])
@@ -337,6 +346,13 @@ def search_articles(
 
     except Exception as exc:
         logger.error("Vector search failed for query '%s': %s", query, exc)
+        # CRITICAL FIX: Rollback any failed transaction (read-only shouldn't create one, but safety first)
+        if conn is not None:
+            try:
+                conn.rollback()
+                logger.debug("Rolled back failed search transaction for query '%s'", query)
+            except Exception as rollback_error:
+                logger.error("Rollback failed for search query '%s': %s", query, rollback_error)
         return []
 
 
@@ -455,6 +471,7 @@ def similar_articles(uri: str, top_k: int = 5) -> List[Dict[str, Any]]:
     Returns:
         List of similar articles with id, score, and metadata
     """
+    conn = None
     try:
         db = get_database_instance()
         conn = db._temp_get_connection()
@@ -514,6 +531,13 @@ def similar_articles(uri: str, top_k: int = 5) -> List[Dict[str, Any]]:
 
     except Exception as exc:
         logger.error("Similar articles search failed for %s: %s", uri, exc)
+        # CRITICAL FIX: Rollback any failed transaction
+        if conn is not None:
+            try:
+                conn.rollback()
+                logger.debug("Rolled back failed similar_articles transaction for %s", uri)
+            except Exception as rollback_error:
+                logger.error("Rollback failed for similar_articles %s: %s", uri, rollback_error)
         return []
 
 
@@ -604,6 +628,7 @@ def get_vectors_by_metadata(
     """
     import numpy as np
 
+    conn = None
     try:
         db = get_database_instance()
         conn = db._temp_get_connection()
@@ -663,7 +688,13 @@ def get_vectors_by_metadata(
 
     except Exception as exc:
         logger.error("get_vectors_by_metadata failed: %s", exc)
-        import numpy as np
+        # CRITICAL FIX: Rollback any failed transaction
+        if conn is not None:
+            try:
+                conn.rollback()
+                logger.debug("Rolled back failed get_vectors_by_metadata transaction")
+            except Exception as rollback_error:
+                logger.error("Rollback failed for get_vectors_by_metadata: %s", rollback_error)
         return np.empty((0, 0), dtype=np.float32), [], []
 
 
@@ -706,6 +737,7 @@ def get_by_ids(
 
     include = include or ["metadatas"]
 
+    conn = None
     try:
         db = get_database_instance()
         conn = db._temp_get_connection()
@@ -778,6 +810,13 @@ def get_by_ids(
 
     except Exception as exc:
         logger.error("get_by_ids failed: %s", exc)
+        # CRITICAL FIX: Rollback any failed transaction
+        if conn is not None:
+            try:
+                conn.rollback()
+                logger.debug("Rolled back failed get_by_ids transaction")
+            except Exception as rollback_error:
+                logger.error("Rollback failed for get_by_ids: %s", rollback_error)
         return {"ids": [], "metadatas": [], "documents": [], "embeddings": []}
 
 
@@ -812,6 +851,7 @@ def check_pgvector_health() -> Dict[str, Any]:
         "error": None
     }
 
+    conn = None
     try:
         db = get_database_instance()
         conn = db._temp_get_connection()
@@ -839,5 +879,12 @@ def check_pgvector_health() -> Dict[str, Any]:
     except Exception as exc:
         health_status["error"] = str(exc)
         logger.error(f"pgvector health check failed: {exc}")
+        # CRITICAL FIX: Rollback any failed transaction
+        if conn is not None:
+            try:
+                conn.rollback()
+                logger.debug("Rolled back failed pgvector health check transaction")
+            except Exception as rollback_error:
+                logger.error("Rollback failed for pgvector health check: %s", rollback_error)
 
     return health_status

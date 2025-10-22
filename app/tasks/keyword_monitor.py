@@ -303,6 +303,13 @@ class KeywordMonitor:
         new_articles_count = 0
         processed_keywords = 0
 
+        # CRITICAL FIX: Clean up any poisoned connections before heavy processing
+        # This prevents "Can't reconnect until invalid transaction is rolled back" errors
+        try:
+            self.db.reset_poisoned_connections()
+        except Exception as e:
+            logger.warning(f"Connection cleanup failed: {e}")
+
         try:
             # Check if counter needs reset before starting
             self.check_and_reset_counter()
