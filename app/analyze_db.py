@@ -12,6 +12,25 @@ logging.basicConfig(
 class AnalyzeDB:
     def __init__(self, db):
         self.db = db
+        self.db_type = getattr(db, 'db_type', 'sqlite').lower()
+
+    def _build_date_filter(self, days: int, date_field: str = 'submission_date') -> tuple[str, list]:
+        """Build database-specific date filter SQL.
+
+        Args:
+            days: Number of days to look back
+            date_field: Name of the date column to filter on
+
+        Returns:
+            tuple: (sql_condition, params_list)
+        """
+        if self.db_type == 'postgresql':
+            # PostgreSQL: Cast TEXT to timestamp and compare with NOW() - INTERVAL
+            # submission_date is stored as TEXT, so we need to cast it
+            return f"{date_field}::timestamp >= NOW() - INTERVAL '{days} days'", []
+        else:
+            # SQLite: date('now', '-30 days')
+            return f"{date_field} >= date('now', ?)", [f'-{days} days']
 
     def get_sentiment_distribution(self, timeframe, category, topic, *, sentiment=None,
                                    time_to_impact=None, driver_type=None, curated=True):
@@ -167,7 +186,7 @@ class AnalyzeDB:
     def get_integrated_analysis(self, timeframe, category, topic=None):
         """Get integrated analysis data with topic support."""
         query = """
-        SELECT COALESCE(driver_type, 'Unknown') as driver_type, 
+        SELECT COALESCE(driver_type, 'Unknown') as driver_type,
                time_to_impact, sentiment, future_signal, COUNT(*) as count
         FROM articles
         WHERE 1=1
@@ -176,8 +195,9 @@ class AnalyzeDB:
 
         if timeframe != 'all':
             days = int(timeframe)
-            query += " AND submission_date >= date('now', ?)"
-            params.append(f'-{days} days')
+            date_condition, date_params = self._build_date_filter(days)
+            query += f" AND {date_condition}"
+            params.extend(date_params)
 
         if category:
             query += " AND category = ?"
@@ -190,7 +210,7 @@ class AnalyzeDB:
         query += " GROUP BY driver_type, time_to_impact, sentiment, future_signal"
 
         logger.info(f"Executing query: {query} with params: {params}")
-        
+
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, params)
@@ -205,7 +225,7 @@ class AnalyzeDB:
                 'count': row[4]
             } for row in results
         ]
-        
+
         logger.info(f"Processed data: {data}")
         return data
 
@@ -290,8 +310,9 @@ class AnalyzeDB:
         # Timeframe filter
         if timeframe and timeframe != 'all':
             days = int(timeframe)
-            conditions.append("submission_date >= date('now', ?)")
-            params.append(f'-{days} days')
+            date_condition, date_params = self._build_date_filter(days)
+            conditions.append(date_condition)
+            params.extend(date_params)
 
         # Category filter (support list or single value)
         if category and isinstance(category, str):
