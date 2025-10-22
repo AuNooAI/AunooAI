@@ -545,8 +545,8 @@ def run_migrations(db_config):
     # Configure database timeouts (CRITICAL for preventing connection leaks)
     configure_database_timeouts(db_config)
 
-    # Create signal tables
-    create_signal_tables(db_config)
+    # Note: Signal tables are now created by Alembic migrations (b6a5ff4214f5)
+    # No longer creating them manually to avoid conflicts
 
     return True
 
