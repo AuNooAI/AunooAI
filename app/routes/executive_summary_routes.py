@@ -265,33 +265,40 @@ async def _generate_risk_opportunity_cards(auspex, topic_name: str, articles, an
     
     prompt = f"""
     Analysis Context ({current_time}): Based on analysis of {analytics_summary['total_articles']} recent articles about "{topic_name}", identify strategic risks and opportunities.
-    
+
     Key Analytics Insights:
     - Dominant sentiment: {analytics_summary['top_sentiment']}
     - Primary future signal: {analytics_summary['top_future_signal']}
     - Expected time to impact: {analytics_summary['top_time_to_impact']}
     - Overall trend: {analytics_summary['sentiment_trend']}
-    
+
     Recent article headlines (diverse sample):
     {chr(10).join([f"- {article.get('title')}" for article in article_sample[:12]])}
-    
+
     Generate 3 critical risks and 3 key opportunities for executives. Focus on DIVERSE scenarios:
-    
+
     Risk Categories to Consider:
     - Market correction/bubble risks
-    - Technology adoption timeline risks  
+    - Technology adoption timeline risks
     - Competitive displacement risks
     - Regulatory/compliance risks
     - Infrastructure/scaling risks
-    
+
     Opportunity Categories to Consider:
     - Infrastructure build-out advantages
     - Market positioning opportunities
     - Technology adoption benefits
     - Partnership/acquisition opportunities
     - Operational efficiency gains
-    
+
     Ensure each risk and opportunity is DISTINCT and addresses different aspects. Vary timelines (2025-2030).
+
+    IMPORTANT FORMATTING RULES:
+    - DO NOT include inline article citations with URLs in the description field
+    - DO NOT use markdown links like [text](url) in the description
+    - Write clean, professional descriptions without embedded links
+    - Source attribution is handled separately in the "Key Article Insights" section
+    - Focus on clear, actionable strategic insights
 
     Format as JSON:
     {{
@@ -352,18 +359,19 @@ async def _generate_risk_opportunity_cards(auspex, topic_name: str, articles, an
         logger.error(f"Error generating risk/opportunity cards: {str(e)}")
     
     # Enhanced fallback based on analytics data with variety
+    # Note: Fallback templates intentionally exclude inline citations - see Key Article Insights section for sources
     risk_templates = [
-        ("Market Correction Risk", "High investment levels create bubble risk based on current sentiment trends.", "2025-2030", "High"),
-        ("Technology Timeline Risk", "Overly optimistic AI development timelines may lead to market disappointment.", "2025-2027", "Moderate"),
-        ("Competitive Disruption", "Established players may lose market share to AI-native competitors.", "2025-2028", "High"),
-        ("Regulatory Uncertainty", "Unclear AI regulations could impact business operations and compliance costs.", "2025-2028", "Moderate")
+        ("Market Correction Risk", f"High investment levels in {topic_name} create bubble risk based on current sentiment trends and market dynamics.", "2025-2030", "High"),
+        ("Technology Timeline Risk", "Overly optimistic development timelines may lead to market disappointment and missed strategic opportunities.", "2025-2027", "Moderate"),
+        ("Competitive Disruption", "Established players may lose market share to innovative competitors with superior operational models.", "2025-2028", "High"),
+        ("Regulatory Uncertainty", "Unclear regulations could impact business operations, compliance costs, and strategic planning.", "2025-2028", "Moderate")
     ]
 
     opportunity_templates = [
-        ("Infrastructure Build-out", "Data center expansion creates competitive advantages for early movers.", "2025-2027", "High"),
-        ("Operational Efficiency", "AI automation can significantly reduce operational costs and improve productivity.", "2025-2026", "High"),
-        ("Market Expansion", "AI capabilities enable entry into previously inaccessible market segments.", "2025-2027", "Moderate"),
-        ("Strategic Partnerships", "Collaboration opportunities emerge between AI providers and traditional industries.", "2025-2028", "High")
+        ("Infrastructure Build-out", f"Expansion in {topic_name} infrastructure creates competitive advantages for early movers and strategic investors.", "2025-2027", "High"),
+        ("Operational Efficiency", "Automation and optimization can significantly reduce operational costs and improve productivity metrics.", "2025-2026", "High"),
+        ("Market Expansion", "New capabilities enable entry into previously inaccessible market segments and customer bases.", "2025-2027", "Moderate"),
+        ("Strategic Partnerships", "Collaboration opportunities emerge between technology providers and traditional industries.", "2025-2028", "High")
     ]
     
     # Select random templates
@@ -417,7 +425,12 @@ def _extract_article_quotes_and_links(articles, analytics_data: Dict) -> List[An
         summary = article.get('summary') or ""
         news_source = article.get('news_source') or "Unknown Source"
         publication_date = article.get('publication_date') or ""
-        
+
+        # Skip articles without URIs - we need valid links for citations
+        if not uri or uri.strip() == "":
+            logger.warning(f"Skipping article without URI: {title[:50]}")
+            continue
+
         if not summary or len(summary.strip()) < 50:
             continue
             
