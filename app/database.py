@@ -254,6 +254,27 @@ class Database:
             # TODO: END TEMPORARY PATCH
         else:
             logger.debug(f"Reusing existing SQLAlchemy connection for thread {thread_id}")
+            # CRITICAL FIX: Always rollback any pending invalid transactions
+            # Per SQLAlchemy docs: "When a connection is invalidated, any Transaction
+            # that was in progress is now in an invalid state, and must be explicitly
+            # rolled back in order to remove it from the Connection"
+            # Reference: https://docs.sqlalchemy.org/en/20/errors.html
+            conn = self._sqlalchemy_connections[thread_id]
+            try:
+                # Always rollback to ensure clean state, especially after connection invalidation
+                conn.rollback()
+                logger.debug(f"Rolled back any pending transaction on connection for thread {thread_id}")
+            except Exception as e:
+                logger.error(f"Error rolling back transaction: {e}")
+                # If rollback fails, the connection is likely unusable - recreate it
+                logger.warning(f"Recreating connection due to rollback failure for thread {thread_id}")
+                try:
+                    conn.close()
+                except:
+                    pass
+                del self._sqlalchemy_connections[thread_id]
+                # Recursively call to create a new connection
+                return self._temp_get_connection()
         return self._sqlalchemy_connections[thread_id]
 
     def get_connection(self):
