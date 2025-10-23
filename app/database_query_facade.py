@@ -69,8 +69,24 @@ class DatabaseQueryFacade:
         self.db = db
         self.logger = logger
 
-        # TODO: Reduce verbosity by "caching" the connection variable here.
-        self.connection = self.db._temp_get_connection()
+    @property
+    def connection(self):
+        """Get a fresh connection from the database pool.
+
+        CRITICAL: This is now a property that always returns a fresh connection
+        instead of caching one. This prevents "This Connection is closed" errors
+        when the pool recycles connections or they become stale.
+        """
+        return self.db._temp_get_connection()
+
+    def _get_connection(self):
+        """Get a fresh connection from the database pool.
+
+        CRITICAL: We don't cache connections at the facade level anymore.
+        This prevents "This Connection is closed" errors when the pool
+        recycles connections or they become stale.
+        """
+        return self.db._temp_get_connection()
 
     def _execute_with_rollback(self, statement, params=None, operation_name="query"):
         """
@@ -82,19 +98,23 @@ class DatabaseQueryFacade:
             params: Optional parameters dict for text() queries
             operation_name: Description of the operation for logging
         """
+        # CRITICAL FIX: Get fresh connection for each operation to avoid
+        # "This Connection is closed" errors from stale cached connections
+        connection = self._get_connection()
+
         try:
             if params is not None:
-                result = self.connection.execute(statement, params)
+                result = connection.execute(statement, params)
             else:
-                result = self.connection.execute(statement)
+                result = connection.execute(statement)
             # CRITICAL: Commit after successful operation to close transaction
             # This prevents "idle in transaction" state in PostgreSQL
-            self.connection.commit()
+            connection.commit()
             return result
         except Exception as e:
             self.logger.error(f"Error executing {operation_name}: {e}")
             try:
-                self.connection.rollback()
+                connection.rollback()
             except Exception as rollback_error:
                 self.logger.error(f"Error during rollback: {rollback_error}")
             raise
@@ -4293,14 +4313,14 @@ class DatabaseQueryFacade:
             last_updated = func.current_timestamp()
         )
         self._execute_with_rollback(statement)
-        self.connection.commit()
+        # NOTE: commit is handled by _execute_with_rollback
 
     def update_media_bias_last_updated(self):
         statement = update(mediabias_settings).where(mediabias_settings.c.id == 1).values(
             last_updated = func.current_timestamp()
         )
         result = self._execute_with_rollback(statement)
-        self.connection.commit()
+        # NOTE: commit is handled by _execute_with_rollback
 
         return result.rowcount
 
