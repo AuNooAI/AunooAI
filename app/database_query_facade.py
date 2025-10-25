@@ -4695,6 +4695,7 @@ class DatabaseQueryFacade:
             articles.c.publication_date,
             articles.c.submission_date,
             articles.c.category,
+            articles.c.topic,  # Add topic field for Auspex context
             articles.c.sentiment,
             articles.c.sentiment_explanation,
             articles.c.time_to_impact,

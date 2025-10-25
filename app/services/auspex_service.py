@@ -290,14 +290,14 @@ class OptimizedContextManager:
             "id": uri[-8:] if uri else "unknown",
             "uri": uri,  # Keep full URI for link generation
             "url": article.get("url", "") or uri,  # Keep URL for link generation
-            "title": article.get("title", "")[:title_len],
+            "title": (article.get("title") or "")[:title_len],
             "summary": compressed_summary,
-            "category": article.get("category", "Other"),
-            "sentiment": article.get("sentiment", "Neutral")[:10],
-            "signal": article.get("future_signal", "None")[:25],
-            "impact": article.get("time_to_impact", "Unknown")[:12],
-            "date": article.get("publication_date", "")[:10],
-            "source": article.get("news_source", "")[:15],
+            "category": article.get("category") or "Other",
+            "sentiment": (article.get("sentiment") or "Neutral")[:10],
+            "signal": (article.get("future_signal") or "None")[:25],
+            "impact": (article.get("time_to_impact") or "Unknown")[:12],
+            "date": (article.get("publication_date") or "")[:10],
+            "source": (article.get("news_source") or "")[:15],
             "score": round(relevance_score, 2) if relevance_score else round(article.get("similarity_score", 0), 2)
         }
     
@@ -363,10 +363,10 @@ class OptimizedContextManager:
         # Strategy 2: Ensure sentiment diversity (25% of selections)
         sentiment_quota = int(target_count * 0.25)
         remaining_articles = [a for a in articles if a not in selected]
-        
+
         sentiments = ["Positive", "Negative", "Neutral", "Critical"]
         for sentiment in sentiments:
-            sent_articles = [a for a in remaining_articles if a.get("sentiment", "").startswith(sentiment)]
+            sent_articles = [a for a in remaining_articles if a.get("sentiment") and str(a.get("sentiment")).startswith(sentiment)]
             if sent_articles and len(selected) < target_count:
                 sent_articles.sort(key=lambda x: x.get("similarity_score", 0), reverse=True)
                 selected.extend(sent_articles[:max(1, sentiment_quota // len(sentiments))])
@@ -623,7 +623,11 @@ class AuspexService:
         for pattern in entity_patterns:
             matches = re.findall(pattern, query, re.IGNORECASE)
             for match in matches:
-                entity = match.strip()
+                if not match:  # Skip None or empty matches
+                    continue
+                entity = match.strip() if isinstance(match, str) else str(match).strip()
+                if not entity:  # Skip if empty after stripping
+                    continue
                 # More sophisticated filtering
                 entity_lower = entity.lower()
                 # Skip common false positives and partial words
@@ -1175,6 +1179,63 @@ CURRENT SESSION CONTEXT:
         
         return should_use
 
+    async def _extract_search_query(self, message: str) -> str:
+        """Extract the actual search query from a complex message that may contain both instructions and search intent.
+
+        This is useful when users paste large custom prompt templates that include AI instructions
+        along with the actual search query. We use a fast LLM to extract just the search intent.
+        """
+        # If the message is short (< 500 chars), it's probably a direct query
+        if len(message) < 500:
+            return message
+
+        # Check if message looks like a template (has multiple sections, markdown headers, etc.)
+        template_indicators = ['##', '###', 'template', 'instruction', 'format', 'section', 'structure']
+        has_template_markers = sum(1 for indicator in template_indicators if indicator in message.lower()) >= 2
+
+        if not has_template_markers:
+            return message
+
+        # Use a fast LLM to extract search intent
+        logger.info(f"Message appears to be a complex template ({len(message)} chars). Extracting search intent...")
+
+        try:
+            extraction_prompt = """You are analyzing a user message to extract the core search query.
+
+The user may have pasted a large template with AI instructions, formatting requirements, and other metadata. Your job is to identify the ACTUAL search query - what articles they want to find.
+
+Extract ONLY the search query portion. This should be:
+- A concise phrase or sentence describing what articles to search for
+- Include any time constraints (e.g., "past 7 days", "last month")
+- Include any topic/category constraints
+- Remove ALL formatting instructions, template structure, output requirements, and AI instructions
+
+If there is NO clear search query (it's pure instructions), return "general recent articles".
+
+User message:
+---
+{message}
+---
+
+Extracted search query (respond with ONLY the query, no explanation):"""
+
+            response = litellm.completion(
+                model="gpt-4.1-mini",  # Fast and cheap model for extraction
+                messages=[
+                    {"role": "user", "content": extraction_prompt.format(message=message[:3000])}  # Limit to 3000 chars to avoid huge costs
+                ],
+                temperature=0.0,
+                max_tokens=100
+            )
+
+            extracted_query = response.choices[0].message.content.strip()
+            logger.info(f"Extracted search query: '{extracted_query}'")
+            return extracted_query
+
+        except Exception as e:
+            logger.error(f"Error extracting search query: {e}. Using original message.")
+            return message
+
     async def _use_mcp_tools(self, message: str, chat_id: int, limit: int, tools_config: Dict = None, citation_limit: Optional[int] = None) -> Optional[str]:
         """Use the original sophisticated database navigation logic from chat_routes.py"""
         logger.info(f"_use_mcp_tools called for message: '{message}', chat_id: {chat_id}, citation_limit: {citation_limit}")
@@ -1233,40 +1294,55 @@ CURRENT SESSION CONTEXT:
         return f"Active: {', '.join(active_descriptions)}"
 
     async def _original_chat_database_logic(self, message: str, topic: str, limit: int, citation_limit: Optional[int] = None) -> Optional[str]:
+        # Initialize topic_options outside try block to ensure it's available in exception handler
+        topic_options = {
+            'categories': [],
+            'sentiments': [],
+            'futureSignals': [],
+            'timeToImpacts': []
+        }
+
         try:
             analyze_db = AnalyzeDB(self.db)
             ai_model = get_ai_model(DEFAULT_MODEL)
-            
+
             # Validate inputs
             if not message or not topic or not limit:
                 logger.error(f"Invalid inputs: message='{message}', topic='{topic}', limit={limit}")
                 return f"## Search Error\nInvalid search parameters. Please ensure you have selected a topic and entered a message."
-            
+
             # Get available options for this topic (original logic)
             try:
-                topic_options = analyze_db.get_topic_options(topic)
+                topic_options_result = analyze_db.get_topic_options(topic)
+                if topic_options_result:
+                    topic_options = topic_options_result
             except Exception as e:
                 logger.warning(f"Error getting topic options for {topic}: {e}")
-                topic_options = None
-            
-            # Add comprehensive null check for topic_options
-            if not topic_options:
-                logger.warning(f"No topic options found for topic: {topic}")
-                topic_options = {
-                    'categories': [],
-                    'sentiments': [],
-                    'futureSignals': [],
-                    'timeToImpacts': []
-                }
+
+            # Log if using default options
+            if not topic_options or not any(topic_options.values()):
+                logger.warning(f"Using default empty topic options for topic: {topic}")
 
             # Enhanced search strategy: Use both SQL and vector search (original logic)
             # First, try vector search for semantic understanding
             vector_articles = []
             try:
+                # Extract the actual search query from complex messages (e.g., custom prompts)
+                search_query = await self._extract_search_query(message)
+                logger.info(f"Using search query: '{search_query}' (original message length: {len(message)} chars)")
+
+                # If citation_limit is specified and higher than limit, use it for vector search
+                # This ensures we fetch enough articles to meet the citation requirement
+                search_limit = limit
+                if citation_limit and citation_limit > limit:
+                    search_limit = min(citation_limit, 500)  # Cap at 500 to prevent excessive searches
+                    logger.info(f"Increasing search limit from {limit} to {search_limit} to meet citation_limit of {citation_limit}")
+
                 # Build metadata filter for vector search
                 metadata_filter = {"topic": topic}
-                
+
                 # EXPLICIT CHECK for common date patterns (safety net)
+                # Use the extracted search query for pattern matching
                 explicit_date_patterns = {
                     "trends from the last 7 days": 7,
                     "trends from the past 7 days": 7,
@@ -1282,33 +1358,36 @@ CURRENT SESSION CONTEXT:
                     "last 30 days": 30,
                     "past 30 days": 30,
                 }
-                
-                message_lower = message.lower()
+
+                # Use search_query (not original message) for date pattern detection
+                search_query_lower = search_query.lower()
                 explicit_days_back = None
                 for pattern, days in explicit_date_patterns.items():
-                    if pattern in message_lower:
+                    if pattern in search_query_lower:
                         explicit_days_back = days
                         logger.info(f"EXPLICIT DATE PATTERN MATCH: '{pattern}' -> {days} days")
                         break
-                
+
                 if explicit_days_back:
                     cutoff_datetime = datetime.now() - timedelta(days=explicit_days_back)
-                    cutoff_timestamp = int(cutoff_datetime.timestamp())
-                    # Use proper ChromaDB syntax for combining filters
+                    # Format as date string to match publication_date column format (YYYY-MM-DD HH:MM:SS)
+                    cutoff_date_str = cutoff_datetime.strftime('%Y-%m-%d %H:%M:%S')
+                    # Use string comparison with publication_date (text column)
                     metadata_filter = {
                         "$and": [
                             {"topic": topic},
-                            {"publication_date_ts": {"$gte": cutoff_timestamp}}
+                            {"publication_date": {"$gte": cutoff_date_str}}
                         ]
                     }
-                    logger.info(f"EXPLICIT date filter applied: publication_date_ts >= {cutoff_timestamp} ({cutoff_datetime.strftime('%Y-%m-%d %H:%M:%S')})")
+                    logger.info(f"EXPLICIT date filter applied: publication_date >= '{cutoff_date_str}'")
                     logger.info(f"Final metadata_filter: {metadata_filter}")
                 else:
                     metadata_filter = {"topic": topic}
-                
+
+                # Use extracted search_query (not original message) for vector search
                 vector_results = vector_search_articles(
-                    query=message,
-                    top_k=limit,  # Use the actual limit instead of hardcoded 100
+                    query=search_query,
+                    top_k=search_limit,  # Use search_limit which may be increased by citation_limit
                     metadata_filter=metadata_filter
                 )
                 
@@ -1346,8 +1425,9 @@ CURRENT SESSION CONTEXT:
 
                 # NEW: Add entity-specific filtering for queries asking about specific companies/vendors
                 # SKIP entity filtering for system-generated thematic category queries
-                is_thematic_query = "comprehensive consensus analysis" in message.lower() or "comprehensive analysis" in message.lower()
-                detected_entities = self._extract_entity_names(message) if not is_thematic_query else []
+                # Use search_query (not original message) for entity detection
+                is_thematic_query = "comprehensive consensus analysis" in search_query.lower() or "comprehensive analysis" in search_query.lower()
+                detected_entities = self._extract_entity_names(search_query) if not is_thematic_query else []
                 if detected_entities:
                     logger.info(f"Detected entity-specific query. Entities: {detected_entities}")
                     vector_articles_before_filter = len(vector_articles)
@@ -1830,7 +1910,7 @@ Use these dimensions to identify patterns, but don't force analysis into a rigid
             return final_context
 
         except Exception as e:
-            logger.error(f"Error in original chat database logic: {e}")
+            logger.error(f"Error in original chat database logic: {e}", exc_info=True)
             # Fallback: Try simple search as last resort
             try:
                 articles, count = self.db.search_articles(

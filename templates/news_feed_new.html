@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}News Narrator{% endblock %}
+{% block title %}News Narrator - Proof of Concept v2{% endblock %}
 
 {% block extra_js %}
 <!-- Marked.js for markdown rendering in insights -->
@@ -7,7 +7,32 @@
 {% endblock %}
 
 {% block content %}
+<!--
+==================================================
+  NEWS FEED - PROOF OF CONCEPT V2
+  Modernized UI/UX with improved layout and usability
+  - Removed Topic Analysis tab
+  - Card-based article grid
+  - Streamlined configuration panel
+  - Enhanced mobile responsiveness
+==================================================
+-->
 <style>
+/* ==============================================
+   CSS CUSTOM PROPERTIES (THEME COLORS)
+   ============================================== */
+:root {
+    --primary-dark: #1a1a1a;
+    --primary-gray: #4a4a4a;
+    --light-gray: #f5f5f7;
+    --border-light: #e5e5e5;
+    --accent-blue: #5dade2;
+    --accent-blue-light: #e6f2ff;
+    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
+    --transition-fast: 0.2s ease;
+}
+
 /* Modal z-index fix - ensure modals appear above navbar */
 .modal {
     z-index: 9999 !important;
@@ -16,26 +41,46 @@
     z-index: 9998 !important;
 }
 
-/* Techmeme-inspired minimalist design */
+/* ==============================================
+   MODERN MINIMALIST DESIGN
+   ============================================== */
 .news-feed-container {
-    max-width: 1000px;
+    max-width: 100%;
     margin: 0 auto;
-    padding: 20px;
+    padding: 24px 48px;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     line-height: 1.6;
 }
 
+@media (max-width: 768px) {
+    .news-feed-container {
+        padding: 24px 16px;
+    }
+}
+
 .news-header {
-    border-bottom: 3px solid #000;
-    margin-bottom: 30px;
-    padding-bottom: 15px;
+    border-bottom: 3px solid var(--primary-dark);
+    margin-bottom: 24px;
+    padding-bottom: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
 }
 
 .news-title {
-    font-size: 2.2rem;
+    font-size: 2rem;
     font-weight: 700;
     margin: 0;
-    color: #000;
+    color: var(--primary-dark);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.news-title-icon {
+    color: var(--accent-blue);
 }
 
 .news-date {
@@ -44,72 +89,313 @@
     margin-top: 5px;
 }
 
+/* ==============================================
+   STICKY NAVIGATION TABS
+   ============================================== */
 .news-nav {
-    margin: 20px 0;
-    border-bottom: 1px solid #ddd;
+    margin: 20px 0 24px;
+    border-bottom: 1px solid var(--border-light);
+    position: sticky;
+    top: 0;
+    background: white;
+    z-index: 100;
+    padding: 8px 0;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .nav-tabs {
     border-bottom: none;
+    gap: 4px;
 }
 
 .nav-tabs .nav-link {
     border: none;
     border-bottom: 3px solid transparent;
-    color: #666;
-    font-weight: 500;
-    padding: 10px 20px;
+    color: var(--primary-gray);
+    font-weight: 600;
+    padding: 12px 24px;
     background: none;
+    transition: var(--transition-fast);
+    border-radius: 8px 8px 0 0;
 }
 
 .nav-tabs .nav-link.active {
-    border-bottom-color: #000;
-    color: #000;
-    background: none;
+    border-bottom-color: var(--primary-dark);
+    color: var(--primary-dark);
+    background: var(--light-gray);
 }
 
-.nav-tabs .nav-link:hover {
-    border-bottom-color: #999;
-    color: #333;
+.nav-tabs .nav-link:hover:not(.active) {
+    border-bottom-color: var(--primary-gray);
+    color: var(--primary-dark);
+    background: rgba(0, 0, 0, 0.02);
 }
 
-.story-item {
-    margin-bottom: 40px;
-    padding-bottom: 30px;
-    border-bottom: 1px solid #eee;
+/* ==============================================
+   CARD-BASED ARTICLE GRID
+   ============================================== */
+#articles-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 400px), 1fr));
+    gap: 20px;
+    margin-top: 24px;
 }
 
-.story-item:last-child {
-    border-bottom: none;
+/* Single column layout for Article Investigator - wide cards stacked vertically */
+@media (min-width: 992px) {
+    #articles-list {
+        grid-template-columns: 1fr;
+        max-width: 100%;
+    }
+}
+
+.story-item,
+.article-card {
+    background: white;
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    padding: 20px;
+    transition: var(--transition-fast);
+    box-shadow: var(--shadow-sm);
+    margin-bottom: 0;
+    display: flex;
+    flex-direction: column;
+    height: auto; /* Changed from 100% to auto */
+    min-height: 250px;
+}
+
+/* Prevent internal content squashing */
+.story-item > *,
+.article-card > * {
+    width: 100%;
+}
+
+.story-item .row,
+.story-item .d-flex,
+.article-card .row,
+.article-card .d-flex {
+    flex-wrap: wrap !important;
+    gap: 8px;
+}
+
+/* Ensure metadata sections don't get squashed */
+.story-item .metadata-section,
+.story-item .article-details {
+    display: block;
+    width: 100%;
+}
+
+.story-item .col,
+.story-item .col-6,
+.story-item .col-md-6 {
+    min-width: 200px;
+    flex: 1 1 auto;
+}
+
+/* Article expanded state - span full grid width inline */
+.list-group-item.expanded {
+    grid-column: 1 / -1 !important;
+    display: flex;
+    flex-direction: column;
+}
+
+.article-details {
+    width: 100% !important;
+    max-width: 100% !important;
+}
+
+/* Grid layout for expanded article details on desktop */
+@media (min-width: 992px) {
+    .article-details-grid {
+        display: grid;
+        grid-template-columns: 1fr 350px;
+        gap: 20px;
+    }
+}
+
+@media (max-width: 991px) {
+    .article-details-grid {
+        display: block;
+    }
+}
+
+/* Improved metadata layout in expanded state */
+.article-details .metadata-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 16px;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
+.article-details .metadata-badges .badge {
+    padding: 4px 10px;
+    font-size: 0.8rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+@media (max-width: 768px) {
+    .article-details .metadata-badges {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .article-details .metadata-badges .badge {
+        font-size: 0.75rem;
+    }
+}
+
+/* Card metadata badges - prevent overflow in collapsed view */
+.story-item .col-md-4 .badge,
+.list-group-item .col-md-4 .badge {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* Cache indicator - small badge style */
+.cache-indicator {
+    display: inline-block !important;
+    font-size: 0.65rem !important;
+    padding: 2px 8px !important;
+    background: #e3f2fd !important;
+    border: 1px solid #90caf9 !important;
+    border-radius: 12px !important;
+    margin-top: 12px !important;
+    margin-bottom: 0 !important;
+    color: #1976d2 !important;
+    font-weight: 500 !important;
+    width: auto !important;
+    max-width: fit-content !important;
+    flex-basis: 100% !important;  /* Force to new line in flex container */
+    order: 999 !important;  /* Ensure it appears last */
+}
+
+/* Handle list-group-item class from JavaScript */
+.list-group-item {
+    background: white;
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 0;
+    transition: var(--transition-fast);
+    box-shadow: var(--shadow-sm);
+}
+
+.list-group-item:hover {
+    box-shadow: var(--shadow-md);
+    border-color: var(--accent-blue);
+    transform: translateY(-2px);
+}
+
+/* Override Bootstrap list-group defaults */
+.list-group {
+    display: grid;
+    grid-template-columns: inherit;
+    gap: inherit;
+}
+
+/* Table view - full width */
+#articles-list.table-view {
+    display: block !important;
+    width: 100%;
+}
+
+#articles-list.table-view .table-responsive {
+    width: 100%;
+    max-width: 100%;
+}
+
+/* Table expand arrow - matches card view */
+.expand-arrow-btn-table {
+    width: 20px;
+    height: 40px;
+    padding: 0;
+    font-size: 12px;
+    border: none;
+    background: #5dade2;
+    color: white;
+    border-radius: 0 8px 8px 0;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    position: absolute;
+    left: -2px;
+    top: 50%;
+    transform: translateY(-50%);
+    box-shadow: 2px 0 4px rgba(0,0,0,0.1);
+}
+
+.expand-arrow-btn-table:hover {
+    background: #3498db;
+}
+
+.expand-arrow-btn-table.expanded {
+    background: #28a745;
+}
+
+/* Grouped article styling */
+.list-group-item.grouped-article {
+    /* Removed blue border for multi-source cards */
+    background: white;
+}
+
+.grouped-sources-badge {
+    background: #5dade2;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+}
+
+.story-item:hover,
+.article-card:hover {
+    box-shadow: var(--shadow-md);
+    border-color: var(--accent-blue);
+    transform: translateY(-2px);
 }
 
 .story-headline {
-    font-size: 1.4rem;
+    font-size: 1.1rem;
     font-weight: 600;
-    line-height: 1.3;
-    margin-bottom: 10px;
-    color: #000;
+    line-height: 1.4;
+    margin-bottom: 12px;
+    color: var(--primary-dark);
 }
 
 .story-headline a {
     color: inherit;
     text-decoration: none;
+    transition: color var(--transition-fast);
 }
 
 .story-headline a:hover {
-    color: #0066cc;
+    color: var(--accent-blue);
 }
 
 .story-summary {
-    font-size: 1rem;
-    color: #333;
-    margin-bottom: 15px;
+    font-size: 0.9rem;
+    color: var(--primary-gray);
+    margin-bottom: 16px;
+    flex-grow: 1;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
 }
 
 .story-meta {
-    font-size: 0.85rem;
-    color: #666;
-    margin-bottom: 10px;
+    font-size: 0.8rem;
+    color: #999;
+    margin-bottom: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-light);
 }
 
 .source-info {
@@ -124,6 +410,10 @@
     font-size: 0.75rem;
     font-weight: 500;
     margin-left: 5px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .bias-left { background: #e3f2fd; color: #1976d2; }
@@ -140,6 +430,10 @@
     font-size: 0.75rem;
     font-weight: 500;
     margin-left: 5px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .factuality-very-high { background: #e8f5e8; color: #2e7d32; }
@@ -169,7 +463,7 @@
 }
 
 .related-item a {
-    color: #0066cc;
+    color: #5dade2;
     text-decoration: none;
 }
 
@@ -177,33 +471,144 @@
     text-decoration: underline;
 }
 
+/* ==============================================
+   STREAMLINED CONFIGURATION PANEL
+   ============================================== */
 .controls {
-    background: var(--bs-light);
-    padding: 1rem;
-    border-radius: var(--bs-border-radius);
-    margin-bottom: 2rem;
+    background: white;
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    padding: 0;
+    margin-bottom: 24px;
+    box-shadow: var(--shadow-sm);
+}
+
+.controls-header {
+    padding: 8px 12px;
+    background: #f8f9fa;
+    border-bottom: 1px solid var(--border-light);
+    border-radius: 12px 12px 0 0;
+}
+
+.controls-header h6 {
+    margin: 0;
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+#controlsContent {
+    padding: 16px 20px;
+    background: white;
+    border-radius: 0 0 12px 12px;
+    transition: all 0.3s ease;
+    overflow: hidden;
+}
+
+/* ==============================================
+   LEFT SIDEBAR NAVIGATION
+   ============================================== */
+.page-layout-container {
+    display: flex;
+    gap: 0;
+    align-items: flex-start;
+}
+
+.sidebar-nav {
+    width: 220px;
+    background: #fff;
+    border-right: 1px solid #dee2e6;
+    padding: 12px;
+    flex-shrink: 0;
+    min-height: 500px;
+}
+
+.sidebar-nav .nav {
+    flex-direction: column;
+    gap: 8px;
+}
+
+.sidebar-nav .nav-link {
+    color: #495057;
+    padding: 12px 16px;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    font-size: 0.95rem;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: #fff;
+}
+
+.sidebar-nav .nav-link:hover {
+    background: rgba(255, 105, 180, 0.1);
+    border-color: #FF69B4;
+    color: #FF69B4;
+}
+
+.sidebar-nav .nav-link.active {
+    background: linear-gradient(135deg, #FF69B4, #FF1493);
+    border-color: #FF69B4;
+    color: #fff;
+    font-weight: 500;
+}
+
+.sidebar-nav .nav-link i {
+    width: 20px;
+    text-align: center;
+    font-size: 1rem;
+}
+
+.main-content-area {
+    flex-grow: 1;
+    min-width: 0;
+    padding-left: 24px;
+}
+
+/* Hide old horizontal tabs */
+.news-nav {
+    display: none;
+}
+
+/* Mobile responsiveness - show horizontal tabs on small screens */
+@media (max-width: 768px) {
+    .page-layout-container {
+        flex-direction: column;
+    }
+
+    .sidebar-nav {
+        display: none;
+    }
+
+    .news-nav {
+        display: block;
+    }
+
+    .main-content-area {
+        padding-left: 0;
+    }
 }
 
 .controls-row {
-    display: flex;
-    gap: 1.5rem;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
     align-items: center;
-    flex-wrap: wrap;
 }
 
 .control-group-inline {
     display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    flex-shrink: 0;
+    flex-direction: column;
+    gap: 6px;
 }
 
 .control-group-inline label {
-    font-size: 0.9rem;
-    font-weight: 600;
-    color: var(--bs-dark);
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--primary-gray);
     margin: 0;
-    white-space: nowrap;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
 }
 
 .selected-date-compact {
@@ -319,43 +724,192 @@
     border-radius: 3px;
 }
 
+/* ==============================================
+   MODERN BUTTON STYLES
+   ============================================== */
 .btn {
     font-size: 0.9rem;
-    padding: 6px 12px;
-    border-radius: 3px;
-    font-weight: 500;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-weight: 600;
+    transition: var(--transition-fast);
 }
 
 .btn-primary {
-    background: #000;
-    border-color: #000;
+    background: linear-gradient(135deg, #FF69B4, #FF1493);
+    border-color: #FF69B4;
+    color: white;
 }
 
 .btn-primary:hover {
-    background: #333;
-    border-color: #333;
+    background: linear-gradient(135deg, #FF1493, #FF69B4);
+    border-color: #FF1493;
+    color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(255, 105, 180, 0.3);
 }
 
+.btn-outline-primary {
+    color: var(--accent-blue);
+    border-color: var(--accent-blue);
+}
+
+.btn-outline-primary:hover {
+    background: var(--accent-blue);
+    border-color: var(--accent-blue);
+    color: white;
+}
+
+.btn-baby-blue {
+    background: #5dade2;
+    border-color: #5dade2;
+    color: white;
+}
+
+.btn-baby-blue:hover {
+    background: #3498db;
+    border-color: #3498db;
+    color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(93, 173, 226, 0.3);
+}
+
+.btn-outline-baby-blue {
+    background: white;
+    border: 1px solid #5dade2;
+    color: #5dade2;
+}
+
+.btn-outline-baby-blue:hover {
+    background: #5dade2;
+    border-color: #5dade2;
+    color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(93, 173, 226, 0.3);
+}
+
+/* ==============================================
+   LOADING STATES & SKELETON SCREENS
+   ============================================== */
 .loading {
     text-align: center;
-    padding: 40px;
-    color: #666;
+    padding: 48px 24px;
+    color: var(--primary-gray);
+}
+
+.loading .spinner-border {
+    width: 3rem;
+    height: 3rem;
+    border-width: 0.3em;
+    color: var(--accent-blue);
+}
+
+.skeleton {
+    background: linear-gradient(
+        90deg,
+        var(--border-light) 0%,
+        #f0f0f0 50%,
+        var(--border-light) 100%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s ease-in-out infinite;
+    border-radius: 8px;
+}
+
+@keyframes skeleton-loading {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+.skeleton-card {
+    height: 250px;
+    margin-bottom: 20px;
+}
+
+.skeleton-text {
+    height: 16px;
+    margin-bottom: 12px;
+    width: 100%;
+}
+
+.skeleton-text.short {
+    width: 60%;
 }
 
 .error-message {
     background: #ffebee;
     color: #c62828;
-    padding: 15px;
-    border-radius: 5px;
+    padding: 16px 20px;
+    border-radius: 12px;
     margin-bottom: 20px;
+    border-left: 4px solid #c62828;
+    box-shadow: var(--shadow-sm);
+}
+
+/* ==============================================
+   FILTER UI WITH CHIPS
+   ============================================== */
+#articles-filters,
+#incident-filters,
+#signal-alert-filters {
+    background: white;
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    padding: 0;
+    margin-bottom: 20px;
+    box-shadow: var(--shadow-sm);
+}
+
+#filter-panel-content {
+    transition: all 0.3s ease;
+    overflow: hidden;
+}
+
+.filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: var(--accent-blue-light);
+    border: 1px solid var(--accent-blue);
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--accent-blue);
+    cursor: pointer;
+    transition: var(--transition-fast);
+}
+
+.filter-chip:hover {
+    background: var(--accent-blue);
+    color: white;
+}
+
+.filter-chip.active {
+    background: var(--accent-blue);
+    color: white;
+}
+
+.filter-chip .count-badge {
+    background: white;
+    color: var(--accent-blue);
+    padding: 2px 6px;
+    border-radius: 10px;
+    font-size: 0.7rem;
+    font-weight: 700;
+}
+
+.filter-chip.active .count-badge {
+    background: rgba(255,255,255,0.3);
+    color: white;
 }
 
 .executive-summary {
-    background: #f8f9fa;
+    background: var(--light-gray);
     padding: 20px;
-    border-radius: 5px;
+    border-radius: 12px;
     margin-bottom: 30px;
-    border-left: 4px solid #000;
+    border-left: 4px solid var(--accent-blue);
 }
 
 .key-themes {
@@ -366,7 +920,7 @@
     font-size: 1.1rem;
     font-weight: 600;
     margin-bottom: 10px;
-    color: #000;
+    color: var(--primary-dark);
 }
 
 .theme-list {
@@ -409,35 +963,76 @@
     margin-right: 8px;
 }
 
+/* ==============================================
+   MOBILE RESPONSIVE OPTIMIZATIONS
+   ============================================== */
 @media (max-width: 768px) {
     .news-feed-container {
-        padding: 15px;
+        padding: 16px;
     }
-    
+
+    .news-header {
+        padding-bottom: 12px;
+    }
+
     .news-title {
-        font-size: 1.8rem;
+        font-size: 1.5rem;
     }
-    
+
     .story-headline {
-        font-size: 1.2rem;
+        font-size: 1rem;
     }
-    
+
+    /* Single column article grid on mobile */
+    #articles-list {
+        grid-template-columns: 1fr !important;
+        gap: 16px;
+    }
+
+    /* Allow full-width content on mobile */
+    .story-item .col,
+    .story-item .col-6,
+    .story-item .col-md-6 {
+        min-width: 100%;
+        flex: 1 1 100%;
+    }
+
+    /* Stack configuration controls vertically */
     .controls-row {
-        flex-direction: column;
-        align-items: stretch;
-        gap: 1rem;
+        grid-template-columns: 1fr;
+        gap: 12px;
     }
-    
+
     .control-group-inline {
-        justify-content: space-between;
         width: 100%;
     }
-    
-    .control-group-inline input,
-    .control-group-inline select {
-        width: auto !important;
-        flex: 1;
-        margin-left: 1rem;
+
+    .control-group-inline label {
+        font-size: 0.7rem;
+    }
+
+    /* Make tabs scrollable on mobile */
+    .nav-tabs {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .nav-tabs .nav-link {
+        flex-shrink: 0;
+        padding: 10px 16px;
+        font-size: 0.85rem;
+    }
+
+    /* Touch-friendly buttons */
+    .btn {
+        min-height: 44px;
+        padding: 10px 16px;
+    }
+
+    /* Sticky nav adjustment */
+    .news-nav {
+        top: 50px;
     }
     }
 
@@ -459,7 +1054,7 @@
 
     .tag-category {
         background-color: #e6f3ff;
-        color: #0066cc;
+        color: #5dade2;
         border-color: #99ccff;
     }
 
@@ -506,7 +1101,7 @@
     /* Bias tags */
     .tag-bias-left {
         background-color: #e6f2ff;
-        color: #0066cc;
+        color: #5dade2;
         border-color: #99ccff;
     }
 
@@ -693,20 +1288,21 @@
     }
 
 /* ============================================
-   NEWS TICKER - TECHMEME-INSPIRED DESIGN
+   MODERN NEWS TICKER DESIGN
    ============================================ */
 
 .news-ticker-container {
-    background: #f8f9fa;
-    border: 1px solid #dee2e6;
-    border-left: 3px solid #0066cc;
+    background: var(--light-gray);
+    border: 1px solid var(--border-light);
+    border-left: 4px solid var(--accent-blue);
     padding: 0;
-    margin: -20px -20px 20px -20px;
+    margin: -24px -24px 24px -24px;
     position: relative;
     overflow: hidden;
-    height: 40px;
+    height: 44px;
     display: none; /* Hidden by default */
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    box-shadow: var(--shadow-sm);
+    border-radius: 0 0 12px 12px;
 
     /* Performance optimization */
     will-change: transform;
@@ -720,13 +1316,13 @@
 
 /* Breaking News Label */
 .ticker-header {
-    background: #0066cc;
-    color: #fff;
-    padding: 0 12px;
-    font-weight: 600;
-    font-size: 0.8rem;
+    background: var(--accent-blue);
+    color: white;
+    padding: 0 16px;
+    font-weight: 700;
+    font-size: 0.75rem;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.8px;
     position: absolute;
     left: 0;
     top: 0;
@@ -734,8 +1330,10 @@
     z-index: 12;
     display: flex;
     align-items: center;
-    min-width: 90px;
-    border-right: 1px solid #dee2e6;
+    gap: 6px;
+    min-width: 100px;
+    border-right: 1px solid var(--border-light);
+    border-radius: 0 0 0 12px;
 }
 
 .ticker-header i {
@@ -766,8 +1364,8 @@
 
 .ticker-controls .btn:hover {
     background: #e9ecef;
-    color: #0066cc;
-    border-color: #0066cc;
+    color: #5dade2;
+    border-color: #5dade2;
 }
 
 .ticker-controls .btn:active {
@@ -791,7 +1389,7 @@
     height: 100%;
 
     /* GPU-accelerated animation */
-    animation: scroll-left 60s linear infinite;
+    animation: scroll-left 120s linear infinite;
     transform: translateZ(0); /* Force GPU acceleration */
     backface-visibility: hidden;
     perspective: 1000px;
@@ -843,7 +1441,7 @@
 }
 
 .ticker-item a:hover {
-    color: #0066cc;
+    color: #5dade2;
     text-decoration: none;
 }
 
@@ -1027,32 +1625,32 @@
 /* High contrast mode support */
 @media (prefers-contrast: high) {
     .news-ticker-container {
-        border: 2px solid #000;
+        border: 2px solid var(--primary-dark);
         border-left-width: 4px;
     }
 
     .ticker-item {
-        border-right: 2px solid #000;
+        border-right: 2px solid var(--primary-dark);
     }
 
     .ticker-header {
-        border-right: 2px solid #000;
+        border-right: 2px solid var(--primary-dark);
     }
 
     .ticker-controls .btn {
-        border: 2px solid #000;
+        border: 2px solid var(--primary-dark);
     }
 }
 
 /* Focus styles for keyboard navigation */
 .ticker-item a:focus-visible {
-    outline: 2px solid #0066cc;
+    outline: 2px solid var(--accent-blue);
     outline-offset: 2px;
-    border-radius: 3px;
+    border-radius: 6px;
 }
 
 .ticker-controls .btn:focus-visible {
-    outline: 2px solid #0066cc;
+    outline: 2px solid var(--accent-blue);
     outline-offset: 2px;
 }
 
@@ -1152,11 +1750,11 @@
 
     <!-- Controls -->
     <div class="controls">
-        <div class="d-flex justify-content-between align-items-center mb-2">
-            <h6 class="mb-0">
+        <div class="controls-header d-flex justify-content-between align-items-center">
+            <h6>
                 <i class="fas fa-cogs me-2"></i>Configuration
             </h6>
-            <button type="button" class="btn btn-sm btn-outline-secondary" id="toggleControlsBtn" onclick="toggleControlsPanel()">
+            <button class="btn btn-sm btn-link text-decoration-none p-0" onclick="toggleControlsPanel()" title="Collapse/Expand configuration">
                 <i class="fas fa-chevron-up" id="controlsToggleIcon"></i>
             </button>
         </div>
@@ -1267,23 +1865,58 @@
         <input type="hidden" id="selected-date" value="2025-09-15" />
     </div>
 
-    <!-- Navigation -->
-    <div class="news-nav">
-        <ul class="nav nav-tabs" id="news-tabs">
-            <li class="nav-item">
-                <a class="nav-link active" id="insights-tab" data-bs-toggle="tab" href="#insights-content">Narrative Explorer</a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link" id="articles-tab" data-bs-toggle="tab" href="#articles-content">Article Investigator</a>
-            </li>
-            <li class="nav-item">
-                <a class="nav-link" id="six-articles-tab" data-bs-toggle="tab" href="#six-articles-content">Six Articles</a>
-            </li>
-        </ul>
-    </div>
+    <!-- Two-Column Layout: Sidebar + Content -->
+    <div class="page-layout-container">
+        <!-- Left Sidebar Navigation -->
+        <div class="sidebar-nav">
+            <!-- Generate Insights Button -->
+            <div class="px-2 mb-3">
+                <button id="sidebar-insights-btn" class="btn btn-baby-blue w-100" onclick="smartGenerateInsights()">
+                    <i class="fas fa-brain me-2"></i><span id="sidebar-insights-btn-text">Generate Insights</span>
+                </button>
+            </div>
 
-    <!-- Content -->
-    <div class="tab-content" id="news-content">
+            <ul class="nav flex-column" id="sidebar-tabs">
+                <li class="nav-item">
+                    <a class="nav-link active" id="sidebar-insights-tab" data-bs-toggle="tab" href="#insights-content">
+                        <i class="fas fa-chart-line"></i>
+                        <span>Narrative Explorer</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" id="sidebar-articles-tab" data-bs-toggle="tab" href="#articles-content">
+                        <i class="fas fa-newspaper"></i>
+                        <span>Article Investigator</span>
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link" id="sidebar-six-articles-tab" data-bs-toggle="tab" href="#six-articles-content">
+                        <i class="fas fa-layer-group"></i>
+                        <span>Six Articles</span>
+                    </a>
+                </li>
+            </ul>
+        </div>
+
+        <!-- Main Content Area -->
+        <div class="main-content-area">
+            <!-- Navigation (for mobile only) -->
+            <div class="news-nav">
+                <ul class="nav nav-tabs" id="news-tabs">
+                    <li class="nav-item">
+                        <a class="nav-link active" id="insights-tab" data-bs-toggle="tab" href="#insights-content">Narrative Explorer</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="articles-tab" data-bs-toggle="tab" href="#articles-content">Article Investigator</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="six-articles-tab" data-bs-toggle="tab" href="#six-articles-content">Six Articles</a>
+                    </li>
+                </ul>
+            </div>
+
+            <!-- Content -->
+            <div class="tab-content" id="news-content">
         <!-- Articles Tab -->
         <div class="tab-pane fade" id="articles-content">
             <div id="articles-loading" class="loading" style="display: none;">
@@ -1296,8 +1929,14 @@
             
             <!-- Filter Section -->
             <div id="articles-filters" class="mb-3" style="display: none;">
-                <div class="d-flex flex-wrap gap-2 align-items-center p-2 bg-light rounded">
+                <div class="d-flex justify-content-between align-items-center p-2 bg-light rounded-top border-bottom">
                     <span class="text-muted small fw-bold">Filters:</span>
+                    <button class="btn btn-sm btn-link text-decoration-none p-0" onclick="toggleFilterPanel()" title="Collapse/Expand filters">
+                        <i class="fas fa-chevron-up" id="filter-collapse-icon"></i>
+                    </button>
+                </div>
+                <div id="filter-panel-content" class="p-2 bg-light rounded-bottom">
+                    <div class="d-flex flex-wrap gap-2 align-items-center">
                     <div class="d-flex align-items-center gap-1">
                         <span class="text-muted small">Bias:</span>
                         <div id="bias-filters" class="d-flex flex-wrap gap-1"></div>
@@ -1334,11 +1973,33 @@
                     <button class="btn btn-sm btn-outline-secondary" onclick="clearAllFilters()" title="Clear all filters">
                         <i class="fas fa-times"></i> Clear
                     </button>
+                    </div>
                 </div>
             </div>
-            
+
+            <!-- Article View Toolbar -->
+            <div id="article-toolbar" class="d-flex align-items-center justify-content-between mb-2 mt-2" style="gap: 8px;">
+                <div class="d-flex align-items-center gap-2">
+                    <strong class="small text-muted">View Options</strong>
+                    <div class="btn-group btn-group-sm">
+                        <button class="btn btn-outline-primary active" id="article-card-view-btn" onclick="toggleArticleView('cards')" title="Card view">
+                            <i class="fas fa-th-large"></i>
+                        </button>
+                        <button class="btn btn-outline-primary" id="article-table-view-btn" onclick="toggleArticleView('table')" title="Table view">
+                            <i class="fas fa-table"></i>
+                        </button>
+                    </div>
+                    <div class="form-check form-switch ms-2">
+                        <input class="form-check-input" type="checkbox" id="article-group-duplicates-toggle" checked onchange="handleArticleGroupingChange()">
+                        <label class="form-check-label small text-muted" for="article-group-duplicates-toggle">
+                            Group by title
+                        </label>
+                    </div>
+                </div>
+            </div>
+
             <div id="articles-list"></div>
-            
+
             <!-- Pagination Controls -->
             <div id="pagination-container" class="d-flex justify-content-between align-items-center mt-3" style="display: none;">
                 <div class="pagination-info">
@@ -1363,8 +2024,6 @@
         <!-- Six Articles Tab -->
         <div class="tab-pane fade" id="six-articles-content">
             <div class="mb-3">
-                <h5 class="mb-3">AI-Generated Six Articles</h5>
-
                 <!-- Persona and Article Count Selectors -->
                 <div class="row mb-3">
                     <div class="col-md-6">
@@ -1458,35 +2117,22 @@
 
         <!-- Insights Tab -->
         <div class="tab-pane fade show active" id="insights-content">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <h5 class="mb-0">
-                    <i class="fas fa-chart-line me-2"></i>Article & Category Insights
-                </h5>
-                <button id="smart-insights-btn" class="btn btn-primary" onclick="smartGenerateInsights()">
-                    <i class="fas fa-brain me-2"></i><span id="insights-btn-text">Generate Insights</span>
-                </button>
-            </div>
-            
             <!-- Insights Navigation -->
-            <ul class="nav nav-pills nav-fill mb-3" id="insights-nav">
+            <!-- Insights Sub-Navigation (Topic Analysis removed in v2) -->
+            <ul class="nav nav-pills nav-fill mb-3 insights-nav" id="insights-nav">
                 <li class="nav-item">
                     <a class="nav-link active" id="incident-tracking-nav" data-bs-toggle="pill" href="#incident-tracking-panel">
-                        <i class="fas fa-crosshairs me-1"></i>Incident Tracking
+                        <i class="fas fa-crosshairs me-1"></i> Highlights
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link" id="article-insights-nav" data-bs-toggle="pill" href="#article-insights-panel">
-                        <i class="fas fa-newspaper me-1"></i>AI Insights
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" id="category-insights-nav" data-bs-toggle="pill" href="#category-insights-panel">
-                        <i class="fas fa-layer-group me-1"></i>Topic Analysis
+                        <i class="fas fa-lightbulb me-1"></i> Narratives
                     </a>
                 </li>
                 <li class="nav-item">
                     <a class="nav-link" id="realtime-signals-nav" data-bs-toggle="pill" href="#realtime-signals-panel">
-                        <i class="fas fa-radar me-1"></i>Real-time Signals
+                        <i class="fas fa-broadcast-tower me-1"></i> Reporters
                     </a>
                 </li>
             </ul>
@@ -1515,39 +2161,15 @@
                     </div>
                 </div>
 
-                <!-- Category Insights Panel -->
-                <div class="tab-pane fade" id="category-insights-panel">
-                    <!-- Multi-topic warning -->
-                    <div id="category-multi-topic-warning" class="alert alert-warning" style="display: none;">
-                        <i class="fas fa-exclamation-triangle me-2"></i>
-                        <strong>Single Topic Only:</strong> Topic Analysis only works with a single topic selection. Please select one topic to view category distribution.
-                    </div>
-                    <div id="category-insights-loading" class="loading" style="display: none;">
-                        <div class="spinner-border" role="status">
-                            <span class="visually-hidden">Loading...</span>
-                        </div>
-                        <div>Analyzing categories...</div>
-                    </div>
-                    <div id="category-insights-error" class="error-message" style="display: none;"></div>
-                    <div id="category-insights-container">
-                        <div class="text-center p-5">
-                            <i class="fas fa-layer-group fa-3x text-muted mb-3"></i>
-                            <h5>Category Distribution</h5>
-                            <p class="text-muted mb-3">See how articles are distributed across categories.</p>
-                            <p class="text-muted mb-4">Select topics and date range above, then click the button below to generate insights.</p>
-                            <button class="btn btn-primary btn-lg" onclick="generateInsights()">
-                                <i class="fas fa-magic me-2"></i>Generate Insights
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
+                <!-- Category Insights Panel - REMOVED IN V2 -->
+                <!-- This feature has been removed to simplify the UI. -->
+                <!-- The multi-topic limitation made it less useful for most users. -->
 
                 <!-- Incident Tracking Panel -->
                 <div class="tab-pane fade show active" id="incident-tracking-panel">
                     <div id="incident-toolbar" class="d-flex align-items-center justify-content-between mb-2" style="gap: 8px;">
                         <div class="d-flex align-items-center gap-2">
-                            <strong class="small text-muted">Incident Options</strong>
+                            <strong class="small text-muted">Highlight Options</strong>
                             <div class="btn-group btn-group-sm">
                                 <button class="btn btn-outline-primary active" id="incident-card-view-btn" onclick="toggleIncidentView('cards')" title="Card view">
                                     <i class="fas fa-th-large"></i>
@@ -1570,8 +2192,13 @@
                             </select>
                         </div>
                         <div id="incident-toolbar-right" class="d-flex align-items-center gap-2">
-                            <button class="btn btn-outline-secondary btn-sm" onclick="showIncidentConfigModal()" title="Configure incident tracking prompts and ontology">
-                                <i class="fas fa-cogs me-1"></i>Configure
+                            <button class="btn btn-outline-secondary btn-sm"
+                                    onclick="showIncidentConfigModal()"
+                                    title="Configure Incident Tracking"
+                                    data-bs-toggle="tooltip"
+                                    data-bs-placement="left"
+                                    style="width: 32px; height: 32px; padding: 0; display: flex; align-items: center; justify-content: center;">
+                                <i class="fas fa-cogs"></i>
                             </button>
                         </div>
                     </div>
@@ -1579,7 +2206,7 @@
                     <!-- Incident Filters -->
                     <div id="incident-filters" class="mb-3" style="display: none;">
                         <div class="d-flex flex-wrap gap-2 align-items-center p-2 bg-light rounded">
-                            <span class="text-muted small fw-bold">Filter Incidents:</span>
+                            <span class="text-muted small fw-bold">Filter Highlights:</span>
                             <div class="d-flex align-items-center gap-1">
                                 <span class="text-muted small">Type:</span>
                                 <div id="incident-type-filters" class="d-flex flex-wrap gap-1"></div>
@@ -1624,14 +2251,14 @@
                 <div class="tab-pane fade" id="realtime-signals-panel">
                     <div class="d-flex justify-content-between align-items-center mb-3">
                         <h6 class="mb-0">
-                            <i class="fas fa-radar me-2"></i>Signal Instructions
+                            <i class="fas fa-radar me-2"></i>Reporter Instructions
                         </h6>
                         <div class="btn-group btn-group-sm">
-                            <button class="btn btn-success" onclick="runAllSignals()" title="Run all active signals">
+                            <button class="btn btn-success" onclick="runAllSignals()" title="Run all active reporters">
                                 <i class="fas fa-play me-1"></i>Run All
                             </button>
                             <button class="btn btn-primary" onclick="showAddSignalModal()">
-                                <i class="fas fa-plus me-1"></i>Add Signal
+                                <i class="fas fa-plus me-1"></i>Add Reporter
                             </button>
                         </div>
                     </div>
@@ -1752,7 +2379,8 @@
             </div>
         </div>
     </div>
-</div>
+        </div><!-- END main-content-area -->
+    </div><!-- END page-layout-container -->
 
 <!-- Add Signal Instruction Modal -->
 <div class="modal fade" id="addSignalModal" tabindex="-1" aria-labelledby="addSignalModalLabel" aria-hidden="true">
@@ -2415,8 +3043,9 @@
                             <i class="fas fa-tachometer-alt me-1"></i>Scroll Speed:
                         </label>
                         <select id="ticker-speed" class="form-select" required>
+                            <option value="lazy" selected>Lazy (120 seconds)</option>
                             <option value="slow">Slow (90 seconds)</option>
-                            <option value="medium" selected>Medium (60 seconds)</option>
+                            <option value="medium">Medium (60 seconds)</option>
                             <option value="fast">Fast (30 seconds)</option>
                         </select>
                         <div class="form-text">
@@ -2536,6 +3165,50 @@
         }
     };
 })();
+
+// Sidebar Navigation Handler
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize sidebar navigation
+    const sidebarLinks = document.querySelectorAll('.sidebar-nav .nav-link');
+
+    sidebarLinks.forEach(link => {
+        link.addEventListener('click', function(e) {
+            e.preventDefault();
+
+            // Remove active class from all sidebar links
+            sidebarLinks.forEach(l => l.classList.remove('active'));
+
+            // Add active class to clicked link
+            this.classList.add('active');
+
+            // Also sync with mobile horizontal tabs if they exist
+            const href = this.getAttribute('href');
+            const mobileLink = document.querySelector(`.news-nav .nav-link[href="${href}"]`);
+            if (mobileLink) {
+                document.querySelectorAll('.news-nav .nav-link').forEach(l => l.classList.remove('active'));
+                mobileLink.classList.add('active');
+            }
+
+            // Trigger Bootstrap tab show
+            const tabTrigger = new bootstrap.Tab(this);
+            tabTrigger.show();
+        });
+    });
+
+    // Sync mobile tabs with sidebar when clicked
+    const mobileTabLinks = document.querySelectorAll('.news-nav .nav-link');
+    mobileTabLinks.forEach(link => {
+        link.addEventListener('click', function(e) {
+            const href = this.getAttribute('href');
+            const sidebarLink = document.querySelector(`.sidebar-nav .nav-link[href="${href}"]`);
+            if (sidebarLink) {
+                sidebarLinks.forEach(l => l.classList.remove('active'));
+                sidebarLink.classList.add('active');
+            }
+        });
+    });
+});
+
 document.addEventListener('DOMContentLoaded', function() {
     console.log('=== FIRST DOMContentLoaded handler executing ===');
     // Initialize with the selected date (September 15, 2025)
@@ -2667,12 +3340,32 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }, 500); // Small delay to ensure DOM is fully ready
 
-    // Don't auto-load articles to prevent freeze - user can click Generate Feed
-    console.log('Initial article loading disabled to prevent freeze');
-    
-    // Show a helpful message in the articles area
+    // Try to restore cached article data from localStorage
+    try {
+        const cachedArticles = localStorage.getItem('newsNarratorArticlesCache');
+        const cacheTimestamp = localStorage.getItem('newsNarratorArticlesCacheTime');
+        const cacheExpiry = 60 * 60 * 1000; // 1 hour cache
+
+        if (cachedArticles && cacheTimestamp) {
+            const cacheAge = Date.now() - parseInt(cacheTimestamp);
+            if (cacheAge < cacheExpiry) {
+                console.log('[Page Load] Found cached articles, restoring...');
+                const data = JSON.parse(cachedArticles);
+                window.lastArticlesData = data;
+                renderArticles(data);
+            } else {
+                console.log('[Page Load] Cached articles expired');
+                localStorage.removeItem('newsNarratorArticlesCache');
+                localStorage.removeItem('newsNarratorArticlesCacheTime');
+            }
+        }
+    } catch (e) {
+        console.error('[Page Load] Error restoring cached articles:', e);
+    }
+
+    // If no cache, show a helpful message in the articles area
     const articlesContainer = document.getElementById('articles-list');
-    if (articlesContainer) {
+    if (articlesContainer && !articlesContainer.querySelector('.article-item')) {
         articlesContainer.innerHTML = `
             <div class="text-center p-4">
                 <i class="fas fa-newspaper fa-3x text-muted mb-3"></i>
@@ -2682,9 +3375,31 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
     }
     
-    // Show a helpful message in the six articles area too
+    // Try to restore cached Six Articles from localStorage
+    try {
+        const cachedSixArticles = localStorage.getItem('newsNarratorSixArticlesCache');
+        const cacheTimestamp = localStorage.getItem('newsNarratorSixArticlesCacheTime');
+        const cacheExpiry = 60 * 60 * 1000; // 1 hour cache
+
+        if (cachedSixArticles && cacheTimestamp) {
+            const cacheAge = Date.now() - parseInt(cacheTimestamp);
+            if (cacheAge < cacheExpiry) {
+                console.log('[Page Load] Found cached Six Articles, restoring...');
+                const data = JSON.parse(cachedSixArticles);
+                renderSixArticles(data);
+            } else {
+                console.log('[Page Load] Cached Six Articles expired');
+                localStorage.removeItem('newsNarratorSixArticlesCache');
+                localStorage.removeItem('newsNarratorSixArticlesCacheTime');
+            }
+        }
+    } catch (e) {
+        console.error('[Page Load] Error restoring cached Six Articles:', e);
+    }
+
+    // Show a helpful message in the six articles area too if no cache
     const sixArticlesContainer = document.getElementById('six-articles-report');
-    if (sixArticlesContainer) {
+    if (sixArticlesContainer && !sixArticlesContainer.querySelector('.article-analysis')) {
         sixArticlesContainer.innerHTML = `
             <div class="text-center p-4">
                 <i class="fas fa-star fa-3x text-muted mb-3"></i>
@@ -3531,6 +4246,29 @@ async function loadArticles(page = 1) {
                 data.articles.total_items = data.articles.items.length;
             }
             window.lastArticlesData = data.articles; // Store for filtering
+
+            // Save to localStorage for page refresh restoration
+            try {
+                localStorage.setItem('newsNarratorArticlesCache', JSON.stringify(data.articles));
+                localStorage.setItem('newsNarratorArticlesCacheTime', Date.now().toString());
+                console.log('[Cache] Articles saved to localStorage');
+            } catch (e) {
+                console.error('[Cache] Error saving articles to localStorage:', e);
+            }
+
+            // DEBUG: Log article topics to verify they're loaded correctly
+            console.log('=== ARTICLES LOADED ===');
+            console.log(`Total articles: ${data.articles.items?.length || 0}`);
+            if (data.articles.items && data.articles.items.length > 0) {
+                console.log('First 3 articles topics:');
+                data.articles.items.slice(0, 3).forEach((art, i) => {
+                    console.log(`  ${i+1}. Title: "${art.title?.substring(0, 50)}..."`);
+                    console.log(`     Topic: "${art.topic}" | Category: "${art.category}"`);
+                    console.log(`     Has topic field: ${'topic' in art}`);
+                });
+            }
+            console.log('=======================');
+
             renderArticles(data.articles);  // News feed API returns data.articles
             renderArticlesPagination(data.articles);
         } else {
@@ -3639,6 +4377,15 @@ async function loadSixArticles(forceRegenerate = false) {
         }
         renderSixArticles(data.six_articles);
         showSaveButton();
+
+        // Save to localStorage for page refresh restoration
+        try {
+            localStorage.setItem('newsNarratorSixArticlesCache', JSON.stringify(data.six_articles));
+            localStorage.setItem('newsNarratorSixArticlesCacheTime', Date.now().toString());
+            console.log('[Cache] Six Articles saved to localStorage');
+        } catch (e) {
+            console.error('[Cache] Error saving Six Articles to localStorage:', e);
+        }
 
     } catch (error) {
         console.error('Error loading six articles:', error);
@@ -5523,12 +6270,83 @@ let activeFilters = {
     signals: new Set()  // Add signal filtering
 };
 
+// Article view management (card vs table)
+let currentArticleView = 'cards';
+let groupDuplicateArticles = true; // Default to grouping enabled
+
+function toggleArticleView(viewType) {
+    currentArticleView = viewType;
+
+    // Update button states
+    document.getElementById('article-card-view-btn').classList.toggle('active', viewType === 'cards');
+    document.getElementById('article-table-view-btn').classList.toggle('active', viewType === 'table');
+
+    // Save preference
+    try {
+        localStorage.setItem('newsNarratorArticleView', viewType);
+    } catch (e) {
+        console.warn('Failed to save view preference:', e);
+    }
+
+    // Re-render with current view
+    if (window.lastArticlesData) {
+        renderArticles(window.lastArticlesData);
+    }
+}
+
+function handleArticleGroupingChange() {
+    const toggle = document.getElementById('article-group-duplicates-toggle');
+    groupDuplicateArticles = toggle.checked;
+
+    // Save preference
+    try {
+        localStorage.setItem('newsNarratorGroupDuplicates', groupDuplicateArticles ? 'true' : 'false');
+    } catch (e) {
+        console.warn('Failed to save grouping preference:', e);
+    }
+
+    // Re-render with grouping
+    if (window.lastArticlesData) {
+        renderArticles(window.lastArticlesData);
+    }
+}
+
+// Load saved view preferences
+document.addEventListener('DOMContentLoaded', function() {
+    try {
+        const savedView = localStorage.getItem('newsNarratorArticleView');
+        if (savedView) {
+            currentArticleView = savedView;
+            document.getElementById('article-card-view-btn').classList.toggle('active', savedView === 'cards');
+            document.getElementById('article-table-view-btn').classList.toggle('active', savedView === 'table');
+        }
+
+        const savedGrouping = localStorage.getItem('newsNarratorGroupDuplicates');
+        const toggle = document.getElementById('article-group-duplicates-toggle');
+
+        if (savedGrouping === 'false') {
+            // Only disable if explicitly set to false
+            groupDuplicateArticles = false;
+            if (toggle) toggle.checked = false;
+        } else {
+            // Default to enabled
+            groupDuplicateArticles = true;
+            if (toggle) toggle.checked = true;
+        }
+    } catch (e) {
+        console.warn('Failed to load view preferences:', e);
+    }
+});
+
 function renderArticles(articlesData) {
     console.log('[DEBUG] renderArticles called with articlesData:', articlesData);
     console.log('[DEBUG] articlesData.items?', articlesData.items ? articlesData.items.length : 'undefined');
 
     const listContainer = document.getElementById('articles-list');
     if (!listContainer) return;
+
+    // Remove table-view class for card view
+    listContainer.classList.remove('table-view');
 
     listContainer.innerHTML = '';
 
@@ -5547,16 +6365,29 @@ function renderArticles(articlesData) {
 
     console.log('[DEBUG] Applying article filters to', articlesData.items.length, 'articles');
     // Apply current filters
-    const filteredArticles = applyArticleFilters(articlesData.items);
+    let filteredArticles = applyArticleFilters(articlesData.items);
     console.log('[DEBUG] After filtering, have', filteredArticles.length, 'articles');
-    
+
+    // Group duplicates if enabled
+    if (groupDuplicateArticles) {
+        filteredArticles = groupArticlesByTitle(filteredArticles);
+    }
+
+    // Render based on current view
+    if (currentArticleView === 'table') {
+        renderArticleTable(filteredArticles);
+        return;
+    }
+
+    // Card view rendering
     const articlesList = document.createElement('div');
     articlesList.className = 'list-group list-group-flush mt-2';
     
     filteredArticles.forEach(article => {
         const articleItem = document.createElement('div');
-        articleItem.className = 'list-group-item position-relative';
-        
+        const isGrouped = article.grouped && article.groupedArticles;
+        articleItem.className = `list-group-item position-relative ${isGrouped ? 'grouped-article' : ''}`;
+
         const isStarred = starredArticles.has(article.uri);
         
         articleItem.innerHTML = `
@@ -5576,98 +6407,120 @@ function renderArticles(articlesData) {
             
             
             <!-- Expand arrow (left side) -->
-            <button class="btn btn-sm position-absolute expand-arrow-btn" 
-                    style="top: 50%; left: -2px; transform: translateY(-50%); width: 20px; height: 40px; padding: 0; font-size: 12px; border: none; background: #007bff; color: white; border-radius: 0 8px 8px 0; box-shadow: 2px 0 4px rgba(0,0,0,0.1);"
+            <button class="btn btn-sm position-absolute expand-arrow-btn"
+                    style="top: 50%; left: -2px; transform: translateY(-50%); width: 20px; height: 40px; padding: 0; font-size: 12px; border: none; background: #5dade2; color: white; border-radius: 0 8px 8px 0; box-shadow: 2px 0 4px rgba(0,0,0,0.1);"
                     onclick="toggleArticleDetails('${article.uri}', this)"
                     title="Show detailed view">
                 <i class="fas fa-chevron-right"></i>
             </button>
             
-            <!-- Two Column Layout -->
-            <div class="row" style="margin-left: 30px; margin-right: 30px;">
-                <!-- Column 1: Content -->
-                <div class="col-md-8">
-                    <h6 class="mb-2">
-                        <a href="${article.uri}" target="_blank" rel="noopener" class="text-decoration-none">
-                            ${escapeHTML(article.title)}
-                        </a>
-                        <span class="cached-indicator" id="cached-${article.uri.replace(/[^a-zA-Z0-9]/g, '_')}" style="display: none;">
-                            <span class="badge bg-info text-white ms-2" style="font-size: 8px;">
-                                <i class="fas fa-database me-1"></i>Cached
-                            </span>
+            <!-- Content -->
+            <div style="margin-left: 30px; margin-right: 30px;">
+                <h6 class="mb-2">
+                    <a href="${article.uri}" target="_blank" rel="noopener" class="text-decoration-none">
+                        ${escapeHTML(article.title)}
+                    </a>
+                    ${article.grouped && article.groupedArticles ? `<span class="grouped-sources-badge ms-2"><i class="fas fa-layer-group me-1"></i>${article.groupedArticles.length} sources</span>` : ''}
+                    <span class="cached-indicator" id="cached-${article.uri.replace(/[^a-zA-Z0-9]/g, '_')}" style="display: none;">
+                        <span class="badge bg-info text-white ms-2" style="font-size: 8px;">
+                            <i class="fas fa-database me-1"></i>Cached
                         </span>
-                        <span class="signal-flags" id="signal-flags-${article.uri.replace(/[^a-zA-Z0-9]/g, '_')}"></span>
-                    </h6>
-                    <p class="mb-1 small text-muted">
-                        <i class="fas fa-building me-1"></i>${formatSource(article.news_source, article.uri)}
-                        <span class="ms-2">
-                            <i class="fas fa-calendar me-1"></i>${formatPubDate(article.publication_date, false)}
-                        </span>
-                    </p>
-                    <p class="mb-0 small text-secondary" style="line-height: 1.4;">
-                        ${escapeHTML(article.summary)}
-                    </p>
+                    </span>
+                    <span class="signal-flags" id="signal-flags-${article.uri.replace(/[^a-zA-Z0-9]/g, '_')}"></span>
+                </h6>
+
+                <!-- Metadata badges row -->
+                <div class="d-flex flex-wrap gap-2 mb-2">
+                    ${article.bias ? `<span class="badge ${getBiasClass(article.bias)}">${article.bias}</span>` : ''}
+                    ${article.factual_reporting ? `<span class="badge ${getFactualityClass(article.factual_reporting)}">${article.factual_reporting}</span>` : ''}
+                    ${article.mbfc_credibility_rating ? `<span class="badge bg-info text-white">${article.mbfc_credibility_rating}</span>` : ''}
+                    ${article.category ? `<span class="badge bg-light text-dark">${article.category}</span>` : ''}
                 </div>
-                
-                <!-- Column 2: Metadata -->
-                <div class="col-md-4">
-                    <div class="d-flex flex-column gap-1 h-100 justify-content-center">
-                        ${article.bias ? `
-                        <div class="d-flex align-items-center">
-                            <span class="text-muted small me-2" style="min-width: 80px;">Political Bias:</span>
-                            <span class="badge ${getBiasClass(article.bias)}">${article.bias}</span>
-                        </div>` : ''}
-                        
-                        ${article.factual_reporting ? `
-                        <div class="d-flex align-items-center">
-                            <span class="text-muted small me-2" style="min-width: 80px;">Factual:</span>
-                            <span class="badge ${getFactualityClass(article.factual_reporting)}">${article.factual_reporting}</span>
-                        </div>` : ''}
-                        
-                        ${article.mbfc_credibility_rating ? `
-                        <div class="d-flex align-items-center">
-                            <span class="text-muted small me-2" style="min-width: 80px;">Credibility:</span>
-                            <span class="badge bg-info text-white">${article.mbfc_credibility_rating}</span>
-                        </div>` : ''}
-                        
-                        ${article.category ? `
-                        <div class="d-flex align-items-center">
-                            <span class="text-muted small me-2" style="min-width: 80px;">Category:</span>
-                            <span class="badge bg-light text-dark">${article.category}</span>
-                        </div>` : ''}
-                        
-                    </div>
-                </div>
+
+                <p class="mb-1 small text-muted">
+                    <i class="fas fa-building me-1"></i>${formatSource(article.news_source, article.uri)}
+                    <span class="ms-2">
+                        <i class="fas fa-calendar me-1"></i>${formatPubDate(article.publication_date, false)}
+                    </span>
+                </p>
+                <p class="mb-0 small text-secondary" style="line-height: 1.4;">
+                    ${escapeHTML(article.summary)}
+                </p>
             </div>
             
             <!-- Detailed View (Initially Hidden) -->
-            <div class="article-details" id="details-${article.uri.replace(/[^a-zA-Z0-9]/g, '_')}" style="display: none; margin-left: 20px; margin-right: 10px; margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #007bff;">
-                <div class="row">
-                    <!-- Left Column: Enhanced Summary & Analysis -->
-                    <div class="col-md-8">
-                        <h6 class="text-primary mb-3">
-                            <i class="fas fa-search-plus me-2"></i>Detailed Analysis
-                        </h6>
-                        
+            <div class="article-details" id="details-${article.uri.replace(/[^a-zA-Z0-9]/g, '_')}" style="display: none; margin-left: 20px; margin-right: 10px; margin-top: 15px; padding: 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #5dade2; position: relative;">
+
+                <!-- Close button at top-right -->
+                <button class="btn btn-sm position-absolute"
+                        style="top: 8px; right: 8px; width: 28px; height: 28px; padding: 0; border-radius: 50%; background: white; border: 1px solid #dee2e6; color: #6c757d; font-size: 16px; line-height: 1; box-shadow: 0 2px 4px rgba(0,0,0,0.1); z-index: 10;"
+                        onclick="toggleArticleDetails('${article.uri}', this.closest('.list-group-item').querySelector('.expand-arrow-btn'))"
+                        onmouseover="this.style.background='#dc3545'; this.style.color='white'; this.style.borderColor='#dc3545';"
+                        onmouseout="this.style.background='white'; this.style.color='#6c757d'; this.style.borderColor='#dee2e6';"
+                        title="Close detailed view">
+                    <i class="fas fa-times"></i>
+                </button>
+
+                <!-- Metadata Badges (Horizontal Layout - Full Width) -->
+                <div class="metadata-badges mb-3">
+                    ${article.bias ? `<span class="badge ${getBiasClass(article.bias)}"><i class="fas fa-balance-scale me-1"></i>${article.bias}</span>` : ''}
+                    ${article.factual_reporting ? `<span class="badge ${getFactualityClass(article.factual_reporting)}"><i class="fas fa-check-circle me-1"></i>${article.factual_reporting}</span>` : ''}
+                    ${article.mbfc_credibility_rating ? `<span class="badge bg-info text-white"><i class="fas fa-certificate me-1"></i>${article.mbfc_credibility_rating}</span>` : ''}
+                    ${article.category ? `<span class="badge bg-light text-dark"><i class="fas fa-folder me-1"></i>${article.category}</span>` : ''}
+                    ${article.sentiment ? `<span class="badge ${getSentimentClass(article.sentiment)}"><i class="fas fa-heart me-1"></i>${article.sentiment}</span>` : ''}
+                </div>
+
+                <!-- Two Column Grid Layout -->
+                <div class="article-details-grid">
+                    <!-- Left Column: Main Content -->
+                    <div>
+                        <!-- Full Summary Section -->
                         <div class="mb-3">
-                            <h6 class="text-secondary">Full Summary</h6>
-                            <p class="small">${escapeHTML(article.summary)}</p>
+                            <h6 class="text-primary mb-2">
+                                <i class="fas fa-align-left me-2"></i>Full Summary
+                            </h6>
+                            <p class="small mb-0">${escapeHTML(article.summary)}</p>
                         </div>
-                        
+
+                        <!-- Auspex Analysis Section -->
                         <div class="mb-3">
-                            <h6 class="text-secondary">Auspex Analysis</h6>
+                            <h6 class="text-primary mb-2">
+                                <i class="fas fa-search-plus me-2"></i>Auspex Analysis
+                            </h6>
                             <div class="analysis-content bg-white p-3 rounded border" id="analysis-${article.uri.replace(/[^a-zA-Z0-9]/g, '_')}">
                                 <div class="analysis-text bg-light p-2 rounded small text-muted">
                                     Analysis will be generated automatically when you expand this article.
                                 </div>
                             </div>
                         </div>
-                        
-                        
                     </div>
-                    
-                    <!-- Right Column: Complete Metadata -->
-                    <div class="col-md-4">
+
+                    <!-- Right Column: Sidebar Content -->
+                    <div>
+                        ${article.grouped && article.groupedArticles ? `
+                        <!-- Grouped Sources Section -->
+                        <div class="mb-3 p-3 bg-white rounded border">
+                            <h6 class="text-primary mb-2">
+                                <i class="fas fa-newspaper me-2"></i>All Sources (${article.groupedArticles.length})
+                            </h6>
+                            <div class="d-flex flex-column gap-2">
+                                ${article.groupedArticles.map(ga => `
+                                    <div class="border rounded p-2 small">
+                                        <div class="mb-1">
+                                            <a href="${ga.uri}" target="_blank" class="text-decoration-none">${formatSource(ga.news_source, ga.uri)}</a>
+                                        </div>
+                                        <div>
+                                            ${ga.bias ? `<span class="badge ${getBiasClass(ga.bias)} me-1" style="font-size: 10px;">${ga.bias}</span>` : ''}
+                                            ${ga.factual_reporting ? `<span class="badge ${getFactualityClass(ga.factual_reporting)}" style="font-size: 10px;">${ga.factual_reporting}</span>` : ''}
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                        ` : ''}
+
+                        <!-- Additional Metadata -->
+                        <div class="metadata-grid mb-3">
                         <h6 class="text-primary mb-3">
                             <i class="fas fa-info-circle me-2"></i>Complete Metadata
                         </h6>
@@ -5802,9 +6655,11 @@ function renderArticles(articlesData) {
                         </div>
                     </div>
                 </div>
+                <!-- End article-details-grid -->
             </div>
+            <!-- End article-details -->
         `;
-        
+
         articlesList.appendChild(articleItem);
     });
     
@@ -5832,6 +6687,224 @@ function renderArticles(articlesData) {
     
     // Update pagination based on filtered results
     updatePaginationForFilters(articlesData, filteredArticles);
+}
+
+function renderArticleTable(articles) {
+    const listContainer = document.getElementById('articles-list');
+    if (!listContainer) return;
+
+    // Add table-view class for full-width styling
+    listContainer.classList.add('table-view');
+
+    if (!articles || articles.length === 0) {
+        listContainer.innerHTML = '<div class="alert alert-info">No articles match the current filters.</div>';
+        return;
+    }
+
+    let html = `
+        <div class="table-responsive" style="max-height: 80vh; overflow-y: auto; width: 100%;">
+            <table class="table table-hover table-sm" style="min-width: 1400px; width: 100%;">
+                <thead class="table-light sticky-top">
+                    <tr>
+                        <th style="width: 50px;"></th>
+                        <th style="width: 400px;">Title</th>
+                        <th style="width: 180px;">Source</th>
+                        <th style="width: 120px;">Date</th>
+                        <th style="width: 130px;">Bias</th>
+                        <th style="width: 150px;">Factuality</th>
+                        <th style="width: 120px;">Credibility</th>
+                        <th style="width: 100px;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+
+    articles.forEach((article, index) => {
+        const isStarred = starredArticles.has(article.uri);
+        const isGrouped = article.grouped && article.groupedArticles;
+        const articleId = article.uri.replace(/[^a-zA-Z0-9]/g, '_');
+
+        html += `
+            <tr style="${isGrouped ? 'background: white;' : ''}">
+                <td class="text-center" style="position: relative; padding-left: 30px;">
+                    <!-- Expand arrow - matches card view -->
+                    <button class="expand-arrow-btn-table"
+                            id="expand-btn-${articleId}"
+                            onclick="toggleArticleDetailsInTableRow('${article.uri}', this)"
+                            title="Show detailed view">
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
+                    <!-- Star button -->
+                    <button class="btn btn-sm star-btn"
+                            style="width: 24px; height: 24px; padding: 0; font-size: 12px; border: none; background: ${isStarred ? '#ffc107' : 'rgba(255, 193, 7, 0.1)'}; color: ${isStarred ? 'white' : '#ffc107'};"
+                            onclick="toggleStarArticle('${article.uri}', this)"
+                            title="${isStarred ? 'Remove from Six Articles' : 'Add to Six Articles'}">★</button>
+                </td>
+                <td>
+                    <a href="${article.uri}" target="_blank" rel="noopener" class="text-decoration-none">
+                        ${escapeHTML(article.title)}
+                    </a>
+                    ${isGrouped ? `<span class="grouped-sources-badge ms-2"><i class="fas fa-layer-group me-1"></i>${article.groupedArticles.length} sources</span>` : ''}
+                </td>
+                <td class="small">${formatSource(article.news_source, article.uri)}</td>
+                <td class="small">${formatPubDate(article.publication_date, false)}</td>
+                <td>${article.bias ? `<span class="badge ${getBiasClass(article.bias)}">${article.bias}</span>` : '<span class="text-muted">N/A</span>'}</td>
+                <td>${article.factual_reporting ? `<span class="badge ${getFactualityClass(article.factual_reporting)}">${article.factual_reporting}</span>` : '<span class="text-muted">N/A</span>'}</td>
+                <td>${article.mbfc_credibility_rating ? `<span class="badge bg-info text-white">${article.mbfc_credibility_rating}</span>` : '<span class="text-muted">N/A</span>'}</td>
+                <td>
+                    <button class="btn btn-sm btn-outline-danger" onclick="excludeArticle('${article.uri}', this)" title="Remove">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </td>
+            </tr>
+            <tr id="details-row-${articleId}" style="display: none;">
+                <td colspan="8" class="p-0">
+                    <div class="article-details" style="margin-left: 20px; margin-right: 10px; margin-top: 15px; margin-bottom: 15px; padding: 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #5dade2;">
+
+                        <!-- Metadata Badges (Horizontal Layout - Full Width) -->
+                        <div class="metadata-badges mb-3">
+                            ${article.bias ? `<span class="badge ${getBiasClass(article.bias)}"><i class="fas fa-balance-scale me-1"></i>${article.bias}</span>` : ''}
+                            ${article.factual_reporting ? `<span class="badge ${getFactualityClass(article.factual_reporting)}"><i class="fas fa-check-circle me-1"></i>${article.factual_reporting}</span>` : ''}
+                            ${article.mbfc_credibility_rating ? `<span class="badge bg-info text-white"><i class="fas fa-certificate me-1"></i>${article.mbfc_credibility_rating}</span>` : ''}
+                            ${article.category ? `<span class="badge bg-light text-dark"><i class="fas fa-folder me-1"></i>${article.category}</span>` : ''}
+                        </div>
+
+                        <!-- Two Column Grid Layout -->
+                        <div class="article-details-grid">
+                            <!-- Left Column: Main Content -->
+                            <div>
+                                <!-- Full Summary Section -->
+                                <div class="mb-3">
+                                    <h6 class="text-primary mb-2">
+                                        <i class="fas fa-align-left me-2"></i>Full Summary
+                                    </h6>
+                                    <p class="small mb-0">${escapeHTML(article.summary)}</p>
+                                </div>
+
+                                <!-- Auspex Analysis Section -->
+                                <div class="mb-3">
+                                    <h6 class="text-primary mb-2">
+                                        <i class="fas fa-search-plus me-2"></i>Auspex Analysis
+                                    </h6>
+                                    <div class="analysis-content bg-white p-3 rounded border" id="analysis-${articleId}">
+                                        <div class="analysis-text bg-light p-2 rounded small text-muted">
+                                            Analysis will be generated automatically when you expand this article.
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Right Column: Sidebar Content -->
+                            <div>
+                                ${isGrouped ? `
+                                <!-- Grouped Sources Section -->
+                                <div class="mb-3 p-3 bg-white rounded border">
+                                    <h6 class="text-primary mb-2">
+                                        <i class="fas fa-newspaper me-2"></i>All Sources (${article.groupedArticles.length})
+                                    </h6>
+                                    <div class="d-flex flex-column gap-2">
+                                        ${article.groupedArticles.map(ga => `
+                                            <div class="border rounded p-2 small">
+                                                <div class="mb-1">
+                                                    <a href="${ga.uri}" target="_blank" class="text-decoration-none">${formatSource(ga.news_source, ga.uri)}</a>
+                                                </div>
+                                                <div>
+                                                    ${ga.bias ? `<span class="badge ${getBiasClass(ga.bias)} me-1" style="font-size: 10px;">${ga.bias}</span>` : ''}
+                                                    ${ga.factual_reporting ? `<span class="badge ${getFactualityClass(ga.factual_reporting)}" style="font-size: 10px;">${ga.factual_reporting}</span>` : ''}
+                                                </div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                        <!-- End article-details-grid -->
+                    </div>
+                    <!-- End article-details -->
+                </td>
+            </tr>
+        `;
+    });
+
+    html += `
+                </tbody>
+            </table>
+        </div>
+    `;
+
+    listContainer.innerHTML = html;
+}
+
+function toggleArticleDetailsInTableRow(uri, buttonElement) {
+    const articleId = uri.replace(/[^a-zA-Z0-9]/g, '_');
+    const detailsRow = document.getElementById(`details-row-${articleId}`);
+    const icon = buttonElement.querySelector('i');
+
+    if (!detailsRow) return;
+
+    if (detailsRow.style.display === 'none') {
+        // Expand
+        detailsRow.style.display = '';
+        icon.className = 'fas fa-chevron-down';
+        buttonElement.title = 'Hide detailed view';
+        buttonElement.classList.add('expanded');
+
+        // Animate expansion
+        detailsRow.style.opacity = '0';
+        setTimeout(() => {
+            detailsRow.style.transition = 'opacity 0.3s ease';
+            detailsRow.style.opacity = '1';
+        }, 10);
+
+        // Trigger analysis generation like in card view
+        generateArticleAnalysis(uri);
+    } else {
+        // Collapse
+        detailsRow.style.transition = 'opacity 0.3s ease';
+        detailsRow.style.opacity = '0';
+        setTimeout(() => {
+            detailsRow.style.display = 'none';
+        }, 300);
+
+        buttonElement.classList.remove('expanded');
+        icon.className = 'fas fa-chevron-right';
+        buttonElement.title = 'Show detailed view';
+    }
+}
+
+function groupArticlesByTitle(articles) {
+    // Group articles by normalized title (lowercase, remove punctuation)
+    const titleGroups = new Map();
+
+    articles.forEach(article => {
+        const normalizedTitle = article.title.toLowerCase()
+            .replace(/[^\w\s]/g, '')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        if (!titleGroups.has(normalizedTitle)) {
+            titleGroups.set(normalizedTitle, []);
+        }
+        titleGroups.get(normalizedTitle).push(article);
+    });
+
+    // Convert groups to array, combining duplicates
+    const groupedArticles = [];
+    titleGroups.forEach((group, normalizedTitle) => {
+        if (group.length === 1) {
+            // Single article, no grouping needed
+            groupedArticles.push(group[0]);
+        } else {
+            // Multiple articles with same title - create grouped article
+            const primaryArticle = { ...group[0] };
+            primaryArticle.grouped = true;
+            primaryArticle.groupedArticles = group;
+            groupedArticles.push(primaryArticle);
+        }
+    });
+
+    return groupedArticles;
 }
 
 function buildFilterBadges(articles) {
@@ -6109,7 +7182,7 @@ function clearAllFilters() {
     activeFilters.bias.clear();
     activeFilters.factuality.clear();
     activeFilters.category.clear();
-    
+
     // Re-render articles without filters
     const articlesData = window.lastArticlesData;
     if (articlesData) {
@@ -6118,21 +7191,44 @@ function clearAllFilters() {
     }
 }
 
-// Article detailed view functionality
+function toggleFilterPanel() {
+    const content = document.getElementById('filter-panel-content');
+    const icon = document.getElementById('filter-collapse-icon');
+
+    if (!content || !icon) return;
+
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        icon.className = 'fas fa-chevron-up';
+    } else {
+        content.style.display = 'none';
+        icon.className = 'fas fa-chevron-down';
+    }
+}
+
+// Article detailed view functionality - inline expansion
 function toggleArticleDetails(articleUri, buttonElement) {
     const detailsId = `details-${articleUri.replace(/[^a-zA-Z0-9]/g, '_')}`;
     const detailsDiv = document.getElementById(detailsId);
     const icon = buttonElement.querySelector('i');
-    
+
     if (!detailsDiv) return;
-    
-    if (detailsDiv.style.display === 'none') {
-        // Expand
+
+    // Find the parent list-group-item to add expanded class
+    const articleCard = buttonElement.closest('.list-group-item');
+
+    if (detailsDiv.style.display === 'none' || !detailsDiv.style.display) {
+        // Expand inline
         detailsDiv.style.display = 'block';
         icon.className = 'fas fa-chevron-down';
         buttonElement.title = 'Hide detailed view';
         buttonElement.style.background = '#28a745'; // Green when expanded
-        
+
+        // Add expanded class to span full grid width
+        if (articleCard) {
+            articleCard.classList.add('expanded');
+        }
+
         // Animate expansion
         detailsDiv.style.opacity = '0';
         detailsDiv.style.transform = 'translateY(-10px)';
@@ -6147,9 +7243,7 @@ function toggleArticleDetails(articleUri, buttonElement) {
             const model = document.getElementById('model-select')?.value;
             const isValid = model && typeof model === 'string' && model.trim().length > 0;
             const analysisId = `analysis-${articleUri.replace(/[^a-zA-Z0-9]/g, '_')}`;
-            const relatedId = `related-${articleUri.replace(/[^a-zA-Z0-9]/g, '_')}`;
             const analysisDiv = document.getElementById(analysisId);
-            const relatedDiv = document.getElementById(relatedId);
 
             if (!isValid) {
                 showNotification('Select a valid AI model to generate analysis', 'warning');
@@ -6163,7 +7257,7 @@ function toggleArticleDetails(articleUri, buttonElement) {
                 }
                 // Load related articles for sidebar
                 loadRelatedArticlesSidebar(articleUri);
-                
+
                 // Generate research themes for sidebar (check if already loaded)
                 const themesDiv = document.getElementById(`themes-sidebar-${articleUri.replace(/[^a-zA-Z0-9]/g, '_')}`);
                 console.log(`Themes div check: exists=${!!themesDiv}, loaded=${themesDiv?.dataset.loaded}`);
@@ -6176,17 +7270,22 @@ function toggleArticleDetails(articleUri, buttonElement) {
             }
         } catch (_) { /* best-effort */ }
     } else {
-        // Collapse
+        // Collapse inline
         detailsDiv.style.transition = 'all 0.3s ease';
         detailsDiv.style.opacity = '0';
         detailsDiv.style.transform = 'translateY(-10px)';
         setTimeout(() => {
             detailsDiv.style.display = 'none';
         }, 300);
-        
+
+        // Remove expanded class
+        if (articleCard) {
+            articleCard.classList.remove('expanded');
+        }
+
         icon.className = 'fas fa-chevron-right';
         buttonElement.title = 'Show detailed view';
-        buttonElement.style.background = '#007bff'; // Blue when collapsed
+        buttonElement.style.background = '#5dade2'; // Baby blue when collapsed
     }
 }
 
@@ -7941,9 +9040,9 @@ async function loadRelatedArticlesSidebar(articleUri) {
             results.forEach((related, index) => {
                 if (index < 8) { // Show up to 8 in sidebar
                     html += `<div class="mb-1 d-flex align-items-center gap-1">
-                        <a href="${related.id}" target="_blank" 
+                        <a href="${related.id}" target="_blank"
                            class="text-decoration-none small flex-grow-1"
-                           style="font-size: 10px; line-height: 1.2; color: #0066cc;"
+                           style="font-size: 10px; line-height: 1.2; color: #5dade2;"
                            title="${escapeHTML(related.metadata?.title || 'Related article')}">
                             <i class="fas fa-external-link-alt me-1 text-muted"></i>
                             ${escapeHTML((related.metadata?.title || 'Related article').substring(0, 50))}${(related.metadata?.title || '').length > 50 ? '...' : ''}
@@ -8160,8 +9259,8 @@ async function launchAuspexDeepDive(articleUri) {
         if (!article) {
             throw new Error('Source article not found in current dataset');
         }
-        
-        const actualTopic = getCurrentTopic() || 'AI and Machine Learning';
+
+        const actualTopic = article.topic || getCurrentTopic() || 'AI and Machine Learning';
         const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
         
         showNotification('Launching Auspex deep-dive analysis...', 'info');
@@ -8223,21 +9322,38 @@ async function launchConsensusAnalysis(articleUri) {
         if (!article) {
             throw new Error('Source article not found in current dataset');
         }
-        
-        const actualTopic = getCurrentTopic() || 'AI and Machine Learning';
+
+        // Debug logging
+        console.log('=== CONSENSUS ANALYSIS DEBUG ===');
+        console.log('Article URI:', articleUri);
+        console.log('Article found:', !!article);
+        console.log('Article.topic:', article.topic);
+        console.log('getCurrentTopic():', getCurrentTopic());
+        console.log('Article keys:', Object.keys(article));
+
+        const actualTopic = article.topic || getCurrentTopic() || 'AI and Machine Learning';
+        console.log('Final topic selected:', actualTopic);
+        console.log('=================================');
+
+        // Show visible notification with ALL the debug info
+        const topicDebug = 'TOPIC: article=' + article.topic + ' | filter=' + getCurrentTopic() + ' | USING=' + actualTopic;
+        showNotification(topicDebug, 'warning');
+
         const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
-        
+
         showNotification('Launching consensus vs fringe analysis...', 'info');
         
         // Create Auspex chat session
+        console.log('Creating Auspex session with topic:', actualTopic);
         const response = await fetch('/api/auspex/chat/sessions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                topic: actualTopic,
+                topic: actualTopic.trim(),  // Trim whitespace from topic
                 title: `Consensus Analysis: ${article.title}`
             })
         });
+        console.log('Session creation response status:', response.status);
         
         if (!response.ok) {
             throw new Error(`Failed to create chat session: ${response.status}`);
@@ -8289,8 +9405,8 @@ async function launchTimelineAnalysis(articleUri) {
         if (!article) {
             throw new Error('Source article not found in current dataset');
         }
-        
-        const actualTopic = getCurrentTopic() || 'AI and Machine Learning';
+
+        const actualTopic = article.topic || getCurrentTopic() || 'AI and Machine Learning';
         const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
         
         showNotification('Launching impact timeline analysis...', 'info');
@@ -8629,8 +9745,8 @@ async function launchAuspexChat(articleUri) {
         if (!article) {
             throw new Error('Source article not found in current dataset');
         }
-        
-        const actualTopic = getCurrentTopic() || 'AI and Machine Learning';
+
+        const actualTopic = article.topic || getCurrentTopic() || 'AI and Machine Learning';
         const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
         
         showNotification('Setting up Auspex chat for this article...', 'info');
@@ -8779,30 +9895,32 @@ let insightsState = {
 };
 
 function updateInsightsButton() {
-    const btn = document.getElementById('smart-insights-btn');
-    const btnText = document.getElementById('insights-btn-text');
-    const icon = btn.querySelector('i');
+    const sidebarBtn = document.getElementById('sidebar-insights-btn');
+    const sidebarBtnText = document.getElementById('sidebar-insights-btn-text');
+    const sidebarIcon = sidebarBtn ? sidebarBtn.querySelector('i') : null;
+
+    if (!sidebarBtn) return;
 
     if (insightsState.isLoading) {
-        btn.disabled = true;
-        icon.className = 'fas fa-spinner fa-spin me-2';
-        btnText.textContent = 'Generating...';
+        sidebarBtn.disabled = true;
+        if (sidebarIcon) sidebarIcon.className = 'fas fa-spinner fa-spin me-2';
+        if (sidebarBtnText) sidebarBtnText.textContent = 'Generating...';
     } else if (insightsState.hasArticleCache || insightsState.hasCategoryCache || insightsState.hasIncidentCache) {
-        btn.disabled = false;
-        icon.className = 'fas fa-sync-alt me-2';
-        btnText.textContent = 'Regenerate';
-        btn.classList.remove('btn-primary', 'btn-info');
-        btn.classList.add('btn-outline-secondary');
+        sidebarBtn.disabled = false;
+        if (sidebarIcon) sidebarIcon.className = 'fas fa-sync-alt me-2';
+        if (sidebarBtnText) sidebarBtnText.textContent = 'Regenerate';
+        sidebarBtn.classList.remove('btn-baby-blue', 'btn-info');
+        sidebarBtn.classList.add('btn-outline-baby-blue');
         // When cached data exists, clicking regenerates
-        btn.onclick = () => smartGenerateInsights(true);
+        sidebarBtn.onclick = () => smartGenerateInsights(true);
     } else {
-        btn.disabled = false;
-        icon.className = 'fas fa-brain me-2';
-        btnText.textContent = 'Generate Insights';
-        btn.classList.remove('btn-info', 'btn-outline-secondary');
-        btn.classList.add('btn-primary');
+        sidebarBtn.disabled = false;
+        if (sidebarIcon) sidebarIcon.className = 'fas fa-brain me-2';
+        if (sidebarBtnText) sidebarBtnText.textContent = 'Generate Insights';
+        sidebarBtn.classList.remove('btn-info', 'btn-outline-baby-blue');
+        sidebarBtn.classList.add('btn-baby-blue');
         // When no cache, clicking generates normally
-        btn.onclick = () => smartGenerateInsights(false);
+        sidebarBtn.onclick = () => smartGenerateInsights(false);
     }
 }
 
@@ -9016,9 +10134,9 @@ async function loadArticleInsights(topics, startDate, endDate, daysLimit, forceR
                             // Add cache timestamp
                             const cacheTimestamp = cacheData.generated_at ? new Date(cacheData.generated_at).toLocaleString() : 'unknown time';
                             const cacheIndicator = document.createElement('div');
-                            cacheIndicator.className = 'alert alert-info py-2 mt-2';
-                            cacheIndicator.innerHTML = `<small><i class="fas fa-database me-1"></i>Loaded from database cache (generated: ${cacheTimestamp})</small>`;
-                            containerEl.appendChild(cacheIndicator);
+                            cacheIndicator.className = 'cache-indicator';
+                            cacheIndicator.innerHTML = `<i class="fas fa-database me-1"></i>Loaded from database cache (generated: ${cacheTimestamp})`;
+                            containerEl.parentElement.appendChild(cacheIndicator);
                             
                             return;
                         } else {
@@ -9232,9 +10350,9 @@ async function loadCategoryInsights(topics, startDate, endDate, daysLimit, force
                                 // Add cache timestamp
                                 const cacheTimestamp = new Date(cacheData.generated_at).toLocaleString();
                                 const cacheIndicator = document.createElement('div');
-                                cacheIndicator.className = 'alert alert-info py-2 mt-2';
-                                cacheIndicator.innerHTML = `<small><i class="fas fa-database me-1"></i>Loaded from database cache (generated: ${cacheTimestamp})</small>`;
-                                containerEl.appendChild(cacheIndicator);
+                                cacheIndicator.className = 'cache-indicator';
+                                cacheIndicator.innerHTML = `<i class="fas fa-database me-1"></i>Loaded from database cache (generated: ${cacheTimestamp})`;
+                                containerEl.parentElement.appendChild(cacheIndicator);
                                 
                                 return;
                             }
@@ -9971,8 +11089,19 @@ Write follow-up questions as natural language that users would ask, not as techn
 // Launch Deep Dive analysis for six articles
 async function launchSixArticleDeepDive(articleTitle, articleUrl) {
     try {
-        const actualTopic = getCurrentTopic() || 'AI and Machine Learning';
+        // Find article in lastSixArticles by title to get topic
+        const article = window.lastSixArticles?.find(a => a.title === articleTitle);
+        const actualTopic = (article?.topic) || getCurrentTopic() || 'AI and Machine Learning';
         const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
+
+        // Debug logging
+        console.log('=== SIX ARTICLE DEEP DIVE DEBUG ===');
+        console.log('Article title:', articleTitle);
+        console.log('Article found:', !!article);
+        console.log('Article topic:', article?.topic);
+        console.log('getCurrentTopic():', getCurrentTopic());
+        console.log('Using topic:', actualTopic);
+        console.log('===================================');
         
         showNotification('Launching deep-dive analysis...', 'info');
         
@@ -10025,8 +11154,19 @@ Target: Executive briefing quality, 900-1200 words with specific data points and
 // Launch Consensus analysis for six articles
 async function launchSixArticleConsensus(articleTitle, articleUrl) {
     try {
-        const actualTopic = getCurrentTopic() || 'AI and Machine Learning';
+        // Find article in lastSixArticles by title to get topic
+        const article = window.lastSixArticles?.find(a => a.title === articleTitle);
+        const actualTopic = (article?.topic) || getCurrentTopic() || 'AI and Machine Learning';
         const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
+
+        // Debug logging
+        console.log('=== SIX ARTICLE CONSENSUS DEBUG ===');
+        console.log('Article title:', articleTitle);
+        console.log('Article found:', !!article);
+        console.log('Article topic:', article?.topic);
+        console.log('getCurrentTopic():', getCurrentTopic());
+        console.log('Using topic:', actualTopic);
+        console.log('====================================');
         
         showNotification('Launching consensus analysis...', 'info');
         
@@ -10084,8 +11224,19 @@ Use your search and analysis tools to gather comprehensive evidence from authori
 // Launch Timeline analysis for six articles
 async function launchSixArticleTimeline(articleTitle, articleUrl) {
     try {
-        const actualTopic = getCurrentTopic() || 'AI and Machine Learning';
+        // Find article in lastSixArticles by title to get topic
+        const article = window.lastSixArticles?.find(a => a.title === articleTitle);
+        const actualTopic = (article?.topic) || getCurrentTopic() || 'AI and Machine Learning';
         const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
+
+        // Debug logging
+        console.log('=== SIX ARTICLE TIMELINE DEBUG ===');
+        console.log('Article title:', articleTitle);
+        console.log('Article found:', !!article);
+        console.log('Article topic:', article?.topic);
+        console.log('getCurrentTopic():', getCurrentTopic());
+        console.log('Using topic:', actualTopic);
+        console.log('===================================');
         
         showNotification('Launching timeline analysis...', 'info');
         
@@ -10144,8 +11295,19 @@ Use your search and analysis tools to gather comprehensive timeline evidence fro
 // Launch Chat with Auspex for six articles
 async function launchSixArticleChat(articleTitle, articleUrl) {
     try {
-        const actualTopic = getCurrentTopic() || 'AI and Machine Learning';
+        // Find article in lastSixArticles by title to get topic
+        const article = window.lastSixArticles?.find(a => a.title === articleTitle);
+        const actualTopic = (article?.topic) || getCurrentTopic() || 'AI and Machine Learning';
         const selectedModel = document.getElementById('model-select')?.value || 'gpt-4o-mini';
+
+        // Debug logging
+        console.log('=== SIX ARTICLE CHAT DEBUG ===');
+        console.log('Article title:', articleTitle);
+        console.log('Article found:', !!article);
+        console.log('Article topic:', article?.topic);
+        console.log('getCurrentTopic():', getCurrentTopic());
+        console.log('Using topic:', actualTopic);
+        console.log('===============================');
         
         showNotification('Setting up Auspex chat for CEO article...', 'info');
         
@@ -10467,9 +11629,9 @@ async function loadIncidentTracking(topics, startDate, endDate, daysLimit, force
                             // Add cache timestamp indicator
                             const cacheTimestamp = cacheData.generated_at ? new Date(cacheData.generated_at).toLocaleString() : 'unknown time';
                             const cacheIndicator = document.createElement('div');
-                            cacheIndicator.className = 'alert alert-info py-2 mt-2';
-                            cacheIndicator.innerHTML = `<small><i class="fas fa-database me-1"></i>Loaded from database cache (generated: ${cacheTimestamp})</small>`;
-                            containerEl.appendChild(cacheIndicator);
+                            cacheIndicator.className = 'cache-indicator';
+                            cacheIndicator.innerHTML = `<i class="fas fa-database me-1"></i>Loaded from database cache (generated: ${cacheTimestamp})`;
+                            containerEl.parentElement.appendChild(cacheIndicator);
 
                             return;
                         } else {
@@ -10841,7 +12003,7 @@ function renderIncidentTracking(incidents) {
             ${articlesHtml}
             ${leadsHtml}
             <!-- Detailed Analysis Section (Initially Hidden) -->
-            <div class="incident-analysis" id="incident-analysis-${escapeHTML(incident.name).replace(/[^a-zA-Z0-9]/g, '_')}" style="display: none; margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #007bff;">
+            <div class="incident-analysis" id="incident-analysis-${escapeHTML(incident.name).replace(/[^a-zA-Z0-9]/g, '_')}" style="display: none; margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #5dade2;">
                 <h6 class="text-primary mb-3">
                     <i class="fas fa-search-plus me-2"></i>Article Analysis
                 </h6>
@@ -12342,7 +13504,7 @@ function createIndividualIncidentCard(incident, globalMin, globalMax) {
                         <div class="mt-2 mb-2">
                             <small class="text-muted fw-bold">Timeline:</small>
                             <div class="timeline-ruler" style="position: relative; height: 8px; background: #e9ecef; border-radius: 4px; margin-top: 4px;">
-                                ${positions.map(pos => `<div style="position: absolute; left: ${pos}%; width: 3px; height: 8px; background: #007bff; border-radius: 1px;"></div>`).join('')}
+                                ${positions.map(pos => `<div style="position: absolute; left: ${pos}%; width: 3px; height: 8px; background: #5dade2; border-radius: 1px;"></div>`).join('')}
                             </div>
                             <div class="d-flex justify-content-between mt-1">
                                 <small class="text-muted">${new Date(events[0]).toLocaleDateString()}</small>
@@ -14585,7 +15747,7 @@ const NewsTicker = (function() {
         count: 10,
         timeRange: '24h',
         topic: '',
-        speed: 'medium',
+        speed: 'lazy',
         refreshInterval: 300, // seconds
         showSource: true,
         showTime: true,
@@ -14594,6 +15756,7 @@ const NewsTicker = (function() {
     };
 
     const SPEED_MAP = {
+        'lazy': 120,   // 120 seconds per cycle
         'slow': 90,    // 90 seconds per cycle
         'medium': 60,  // 60 seconds per cycle
         'fast': 30     // 30 seconds per cycle

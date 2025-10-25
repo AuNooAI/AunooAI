@@ -258,10 +258,13 @@ async def get_topic_articles(
         # For simplicity, let's assume passing pub_date_start/end filters submission_date correctly for now.
         # We might need to check/modify db.search_articles if this assumption is wrong.
         
+        # Check if user wants all topics (multi-topic selection)
+        search_topic = None if topic_name.lower() in ['all_topics', 'all'] else topic_name
+
         # First attempt: exact topic match using publication_date to align with news feed
         articles_list_raw, total_items = await run_in_threadpool(
             db.search_articles,
-            topic=topic_name,
+            topic=search_topic,  # None = all topics, string = specific topic
             page=page,
             per_page=per_page,
             pub_date_start=start_date, # Pass date filters
@@ -272,7 +275,8 @@ async def get_topic_articles(
         )
 
         # Fallback: if too few results with exact topic, try fuzzy keyword search (title/summary)
-        if (not articles_list_raw or total_items < 3):
+        # Skip fallback if user explicitly requested all topics
+        if (not articles_list_raw or total_items < 3) and search_topic is not None:
             fallback_per_page = max(per_page, 30)
             articles_list_raw, total_items = await run_in_threadpool(
                 db.search_articles,

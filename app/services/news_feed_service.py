@@ -432,6 +432,7 @@ class NewsFeedService:
                 'news_source': article_dict.get('news_source'),  # Let frontend handle None/empty
                 'publication_date': article_dict.get('publication_date'),
                 'category': article_dict.get('category'),
+                'topic': article_dict.get('topic'),  # Add topic field for Auspex context
                 'sentiment': article_dict.get('sentiment'),
                 'sentiment_explanation': article_dict.get('sentiment_explanation'),
                 'time_to_impact': article_dict.get('time_to_impact'),

@@ -1662,7 +1662,8 @@ async def article_insights(
 
 class _IncidentTrackingRequest(BaseModel):
     """Request for incident tracking analysis."""
-    topic: str = Field(..., description="Topic to analyze for incidents")
+    topic: Optional[str] = Field(None, description="Single topic (DEPRECATED - use topics)")
+    topics: Optional[List[str]] = Field(default=None, description="List of topics to analyze for incidents (max 10)")
     days_limit: int = Field(14, ge=1, le=90, description="Days back to analyze")
     start_date: Optional[str] = Field(None, description="Start date YYYY-MM-DD")
     end_date: Optional[str] = Field(None, description="End date YYYY-MM-DD")
@@ -1676,14 +1677,38 @@ class _IncidentTrackingRequest(BaseModel):
     profile_id: Optional[int] = Field(None, description="Organizational profile ID for contextualized analysis")
     test_articles: Optional[List[Dict]] = Field(None, description="Optional test articles to analyze instead of database query")
 
-    @field_validator('topic')
+    @field_validator('topic', mode='before')
     @classmethod
-    def sanitize_topic(cls, v: str) -> str:
+    def sanitize_topic(cls, v: Optional[str]) -> Optional[str]:
         """Sanitize topic name - strip whitespace and normalize spaces."""
         if v:
             import re
             return re.sub(r'\s+', ' ', v.strip())
         return v
+
+    @field_validator('topics', mode='before')
+    @classmethod
+    def sanitize_topics(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        """Sanitize and validate topics list."""
+        if v is None:
+            return None
+        if not isinstance(v, list):
+            return None
+        import re
+        # Sanitize each topic
+        sanitized = [re.sub(r'\s+', ' ', topic.strip()) for topic in v if topic and isinstance(topic, str) and topic.strip()]
+        # Enforce max limit
+        if len(sanitized) > 10:
+            raise ValueError("Maximum 10 topics allowed")
+        return sanitized if sanitized else None
+
+    def get_topics_list(self) -> List[str]:
+        """Get topics as a list, handling backward compatibility."""
+        if self.topics:
+            return self.topics
+        elif self.topic:
+            return [self.topic]
+        return []
 
 @router.post("/incident-tracking")
 async def analyze_incidents(
@@ -1694,13 +1719,17 @@ async def analyze_incidents(
     try:
         from app.database import get_database_instance
         db = get_database_instance()
-        
-        # Check cache first
-        cache_key = f"incident_tracking_{req.topic}_{req.start_date or 'no_start'}_{req.end_date or 'no_end'}_{req.days_limit}"
-        
+
+        # Get topics list (backward compatible)
+        topics_list = req.get_topics_list()
+
+        # Build cache key from sorted topics for consistent caching
+        topics_str = ','.join(sorted(topics_list)) if topics_list else 'all_topics'
+        cache_key = f"incident_tracking_{topics_str}_{req.start_date or 'no_start'}_{req.end_date or 'no_end'}_{req.days_limit}"
+
         # Get articles for analysis
         from datetime import datetime, timedelta
-        
+
         if req.start_date and req.end_date:
             start_date_dt = datetime.strptime(req.start_date, '%Y-%m-%d')
             end_date_dt = datetime.strptime(req.end_date, '%Y-%m-%d')
@@ -1711,7 +1740,7 @@ async def analyze_incidents(
         # Query articles - use same approach as working news feed service
         # NOTE: publication_date is TEXT, use strftime() to match database format
         query = """
-        SELECT uri, title, summary, news_source, publication_date, category, sentiment,
+        SELECT uri, title, summary, news_source, publication_date, category, sentiment, topic,
                bias, factual_reporting, mbfc_credibility_rating, bias_source
         FROM articles
         WHERE publication_date >= ? AND publication_date <= ?
@@ -1720,12 +1749,26 @@ async def analyze_incidents(
 
         # Format dates to match database TEXT format (space separator, not 'T')
         params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
-        
-        if req.topic:
-            query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
-            topic_pattern = f"%{req.topic}%"
-            params.extend([req.topic, topic_pattern, topic_pattern])
-        
+
+        # Add topic filtering for single or multiple topics
+        if topics_list:
+            if len(topics_list) == 1:
+                # Single topic - use existing pattern
+                query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
+                topic_pattern = f"%{topics_list[0]}%"
+                params.extend([topics_list[0], topic_pattern, topic_pattern])
+            else:
+                # Multiple topics - use IN clause with LIKE fallbacks
+                topic_placeholders = ','.join(['?' for _ in topics_list])
+                like_conditions = ' OR '.join([f"title LIKE ? OR summary LIKE ?" for _ in topics_list])
+                query += f" AND (topic IN ({topic_placeholders}) OR {like_conditions})"
+                # Add exact topic matches
+                params.extend(topics_list)
+                # Add LIKE patterns for each topic
+                for topic in topics_list:
+                    topic_pattern = f"%{topic}%"
+                    params.extend([topic_pattern, topic_pattern])
+
         query += " ORDER BY publication_date DESC LIMIT ?"
         params.append(req.max_articles)
         
@@ -1735,28 +1778,29 @@ async def analyze_incidents(
             articles = req.test_articles
         else:
             articles = db.fetch_all(query, params)
-        
+
         if not articles:
-            return {"incidents": [], "message": f"No articles found for topic '{req.topic}' in date range {start_date_dt.strftime('%Y-%m-%d')} to {end_date_dt.strftime('%Y-%m-%d')}"}
-        
+            topics_display = ', '.join(topics_list) if topics_list else 'all topics'
+            return {"incidents": [], "message": f"No articles found for topics '{topics_display}' in date range {start_date_dt.strftime('%Y-%m-%d')} to {end_date_dt.strftime('%Y-%m-%d')}"}
+
         # Define cache_uri for later use
         cache_uri = articles[0]['uri'] if hasattr(articles[0], '__getitem__') else articles[0].uri
-        
+
         # Check cache using first article as anchor (unless force regenerate)
         if not req.force_regenerate:
             cached = db.get_article_analysis_cache(
                 article_uri=cache_uri,
-                analysis_type=f"incident_tracking_{req.topic}",
+                analysis_type=f"incident_tracking_{topics_str}",
                 model_used="incident_analysis"
             )
-            
+
             if cached and cached.get("metadata", {}).get("cache_key") == cache_key:
-                logger.info(f"Cache HIT: incident tracking for {req.topic}")
+                logger.info(f"Cache HIT: incident tracking for {topics_str}")
                 import json
                 return json.loads(cached["content"])
-        
+
         if req.force_regenerate:
-            logger.info(f"Force regenerating incident tracking for {req.topic} (bypassing cache)")
+            logger.info(f"Force regenerating incident tracking for {topics_str} (bypassing cache)")
         
         # Prepare articles for LLM analysis with credibility markers
         def _norm(value):
@@ -2160,28 +2204,30 @@ Extraordinary Claims Protocol:
             cache_content = json_module.dumps(result, ensure_ascii=False, default=str)
             cache_metadata = {
                 "cache_key": cache_key,
-                "topic": req.topic,
+                "topics": topics_list,
+                "topics_str": topics_str,
                 "start_date": req.start_date,
                 "end_date": req.end_date,
                 "days_limit": req.days_limit,
                 "analysis_type": "incident_tracking"
             }
-            
+
             success = db.save_article_analysis_cache(
                 article_uri=cache_uri,
-                analysis_type=f"incident_tracking_{req.topic}",
+                analysis_type=f"incident_tracking_{topics_str}",
                 content=cache_content,
                 model_used="incident_analysis",
                 metadata=cache_metadata
             )
-            
+
             if success:
-                logger.info(f"Cache SAVE: incident tracking for {req.topic}")
+                logger.info(f"Cache SAVE: incident tracking for {topics_str}")
         except Exception as cache_error:
             logger.warning(f"Failed to cache incident tracking: {cache_error}")
-        
-        # Get incident statuses and filter out deleted ones
-        incident_statuses = db.get_incident_status(req.topic)
+
+        # Get incident statuses and filter out deleted ones (use first topic for backward compatibility)
+        primary_topic = topics_list[0] if topics_list else None
+        incident_statuses = db.get_incident_status(primary_topic) if primary_topic else {}
         
         # Filter out deleted incidents and mark seen ones
         filtered_incidents = []
@@ -2204,22 +2250,36 @@ Extraordinary Claims Protocol:
                     'publication_date': a.get('publication_date'),
                     'factual_reporting': a.get('factual_reporting'),
                     'mbfc_credibility_rating': a.get('mbfc_credibility_rating'),
-                    'bias': a.get('bias')
+                    'bias': a.get('bias'),
+                    'topic': a.get('topic')  # Include topic for badge display
                 }
 
-        # Add article metadata to each incident
+        # Add article metadata and topic to each incident
         for incident in filtered_incidents:
             if incident.get('article_uris'):
                 incident['article_metadata'] = []
+                # Track topics for this incident to display badge
+                incident_topics = set()
+
                 for uri in incident['article_uris']:
                     if uri in article_metadata:
+                        metadata = article_metadata[uri]
                         incident['article_metadata'].append({
                             'uri': uri,
-                            **article_metadata[uri]
+                            **metadata
                         })
+                        # Collect topic from article
+                        if metadata.get('topic'):
+                            incident_topics.add(metadata['topic'])
                     else:
                         # Article not in current dataset, just keep URI
                         incident['article_metadata'].append({'uri': uri})
+
+                # Set the primary topic for this incident (first topic found, or primary topic)
+                if incident_topics:
+                    incident['topic'] = sorted(incident_topics)[0]  # Use first topic alphabetically for consistency
+                elif len(topics_list) == 1:
+                    incident['topic'] = topics_list[0]  # Single topic selected
 
         result = {
             "incidents": filtered_incidents,
@@ -2234,23 +2294,24 @@ Extraordinary Claims Protocol:
             cache_content = json_module.dumps(result, ensure_ascii=False, default=str)
             cache_metadata = {
                 "cache_key": cache_key,
-                "topic": req.topic,
+                "topics": topics_list,
+                "topics_str": topics_str,
                 "start_date": req.start_date,
                 "end_date": req.end_date,
                 "days_limit": req.days_limit,
                 "analysis_type": "incident_tracking"
             }
-            
+
             success = db.save_article_analysis_cache(
                 article_uri=cache_uri,
-                analysis_type=f"incident_tracking_{req.topic}",
+                analysis_type=f"incident_tracking_{topics_str}",
                 content=cache_content,
                 model_used="incident_analysis",
                 metadata=cache_metadata
             )
-            
+
             if success:
-                logger.info(f"Cache SAVE: incident tracking for {req.topic}")
+                logger.info(f"Cache SAVE: incident tracking for {topics_str}")
         except Exception as cache_error:
             logger.warning(f"Failed to cache incident tracking: {cache_error}")
         

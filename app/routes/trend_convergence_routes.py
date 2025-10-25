@@ -1298,7 +1298,7 @@ async def create_organizational_profile(
     """Create a new organizational profile"""
     try:
         # Check if profile name already exists
-        existing = (DatabaseQueryFacade(db, logger)).get_organisational_profile(profile_data.name)
+        existing = (DatabaseQueryFacade(db, logger)).get_organisational_profile_by_name(profile_data.name)
         
         if existing:
             raise HTTPException(status_code=409, detail="Profile with this name already exists")

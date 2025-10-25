@@ -296,6 +296,17 @@ async def news_feed_page(request: Request, session=Depends(verify_session)):
     })
 
 
+@page_router.get("/news-feed-v2", response_class=HTMLResponse)
+async def news_feed_v2_page(request: Request, session=Depends(verify_session)):
+    """Render the NEW modernized news feed page (v2 - Proof of Concept)"""
+    return templates.TemplateResponse("news_feed_new.html", {
+        "request": request,
+        "page_title": "News Narrator v2 - Proof of Concept",
+        "show_share_button": True,
+        "session": session
+    })
+
+
 @page_router.get("/news-feed/overview", response_class=HTMLResponse)
 async def news_overview_page(
     request: Request,
