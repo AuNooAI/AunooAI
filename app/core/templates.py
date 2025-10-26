@@ -206,10 +206,14 @@ def build_analysis_url_filter(article, topic):
 def setup_templates():
     """Setup Jinja2 templates with custom class and filters."""
     templates = AppInfoJinja2Templates(directory="templates")
-    
+
+    # Enable auto-reload and disable caching for development
+    templates.env.auto_reload = True
+    templates.env.cache = {}
+
     # Register custom filters
     templates.env.filters["datetime"] = datetime_filter
     templates.env.filters["timeago"] = timeago_filter
     templates.env.filters["build_analysis_url"] = build_analysis_url_filter
-    
+
     return templates

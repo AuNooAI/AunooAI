@@ -20,6 +20,8 @@ router = APIRouter(prefix="/api/news-feed", tags=["news-feed"])
 logger = logging.getLogger(__name__)
 
 templates = Jinja2Templates(directory="templates")
+templates.env.auto_reload = True  # Force template reload on changes
+templates.env.cache = {}  # Disable template compilation cache
 
 
 @router.get("/available-dates")

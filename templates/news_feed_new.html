@@ -485,6 +485,7 @@
     padding: 0;
     margin-bottom: 24px;
     box-shadow: var(--shadow-sm);
+    overflow: visible;
 }
 
 .controls-header {
@@ -505,7 +506,14 @@
     background: white;
     border-radius: 0 0 12px 12px;
     transition: all 0.3s ease;
-    overflow: hidden;
+    overflow: visible;
+}
+
+/* Ensure dropdown menus in configuration panel are not clipped */
+#controlsContent .row,
+#controlsContent .col-md-6,
+#controlsContent .col-6 {
+    overflow: visible !important;
 }
 
 /* ==============================================
@@ -799,35 +807,6 @@
     color: white !important;
 }
 
-/* Topics selector dropdown toggle - AGGRESSIVE OVERRIDE */
-button#topic-select-btn,
-button#topic-select-btn:hover,
-button#topic-select-btn:focus,
-button#topic-select-btn:active,
-button#topic-select-btn.show,
-.dropdown button#topic-select-btn.btn-outline-primary.dropdown-toggle {
-    background: linear-gradient(135deg, #FF69B4, #FF1493) !important;
-    border-color: #FF69B4 !important;
-    color: white !important;
-}
-
-button#topic-select-btn span,
-button#topic-select-btn:hover span,
-button#topic-select-btn:focus span,
-button#topic-select-btn:active span,
-button#topic-select-btn.show span {
-    color: white !important;
-}
-
-#topic-select-btn .badge,
-#topic-select-btn:hover .badge,
-#topic-select-btn:focus .badge,
-#topic-select-btn:active .badge,
-#topic-select-btn.show .badge {
-    background: rgba(255, 255, 255, 0.3) !important;
-    color: white !important;
-}
-
 /* Profile management buttons - FORCE WHITE */
 .d-flex.gap-1 > button.btn-outline-primary,
 .d-flex.gap-1 > button.btn-outline-primary:hover,
@@ -842,6 +821,18 @@ button#topic-select-btn.show span {
 .d-flex.gap-1 > button.btn-outline-primary:hover i,
 .d-flex.gap-1 > button.btn-outline-primary:focus i,
 .d-flex.gap-1 > button.btn-outline-primary:active i {
+    color: white !important;
+}
+
+/* Topic dropdown button styling - WHITE TEXT */
+#topic-select-btn,
+#topic-select-btn .text-truncate,
+#topic-select-label {
+    color: white !important;
+}
+
+#topic-select-count {
+    background-color: rgba(255, 255, 255, 0.3) !important;
     color: white !important;
 }
 
@@ -1858,7 +1849,7 @@ button#topic-select-btn.show span {
     <div class="news-header" style="position: relative;">
         <h1 class="news-title">
             <i class="fas fa-newspaper news-title-icon"></i>
-            News Narrator
+            News Narrator <span style="font-size: 0.5em; color: #28a745; margin-left: 10px;">REDESIGNED</span>
         </h1>
         <button id="show-ticker-btn"
                 class="btn btn-sm btn-outline-primary"
@@ -1900,7 +1891,7 @@ button#topic-select-btn.show span {
                                     <span id="topic-select-label" class="text-truncate" style="flex: 1;">Select Topics</span>
                                     <span id="topic-select-count" class="badge bg-primary ms-2" style="display: none;">0</span>
                                 </button>
-                                <ul class="dropdown-menu w-100" id="topic-select-dropdown" style="max-height: 300px; overflow-y: auto;">
+                                <ul class="dropdown-menu w-100" id="topic-select-dropdown">
                                     <li><a class="dropdown-item" href="#" onclick="selectAllTopics(); return false;">
                                         <i class="fas fa-check-double me-1"></i> Select All
                                     </a></li>
@@ -3570,7 +3561,7 @@ document.addEventListener('DOMContentLoaded', function() {
         `;
     }
     
-    // Populate topics multi-select dropdown with checkboxes
+    // Populate topics dropdown with checkboxes
     try {
         const dropdown = document.getElementById('topic-select-dropdown');
         if (dropdown) {
@@ -8799,18 +8790,43 @@ function updateTopicSelectorDisplay() {
     const label = document.getElementById('topic-select-label');
     const countBadge = document.getElementById('topic-select-count');
 
-    if (!label || !countBadge) return;
+    console.log('updateTopicSelectorDisplay called:', {
+        selected: selected,
+        labelFound: !!label,
+        badgeFound: !!countBadge
+    });
+
+    if (!label || !countBadge) {
+        console.error('Topic selector elements not found!', { label, countBadge });
+        return;
+    }
 
     if (selected.length === 0) {
         label.textContent = 'Select Topics';
+        countBadge.textContent = '0';
         countBadge.style.display = 'none';
     } else if (selected.length === 1) {
         label.textContent = selected[0];
+        countBadge.textContent = '1';
         countBadge.style.display = 'none';
     } else {
         label.textContent = `${selected.length} topics selected`;
         countBadge.textContent = selected.length;
         countBadge.style.display = 'inline-block';
+    }
+
+    console.log('Display updated:', {
+        labelText: label.textContent,
+        badgeText: countBadge.textContent,
+        badgeDisplay: countBadge.style.display
+    });
+
+    // Save selected topics to localStorage for persistence
+    try {
+        localStorage.setItem('newsFeedTopics', JSON.stringify(selected));
+        console.log('Saved topics to localStorage:', selected);
+    } catch (e) {
+        console.error('Failed to save topics to localStorage:', e);
     }
 }
 
