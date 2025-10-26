@@ -26,6 +26,8 @@ ENV/
 
 # Application specific
 .env
+.env.encrypted
+.env.backup
 reports/
 app/config/config.json
 app/data/*.db
