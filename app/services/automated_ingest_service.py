@@ -1494,62 +1494,90 @@ class AutomatedIngestService:
     async def _firecrawl_batch_scrape(self, firecrawl_app, uris: List[str]) -> Dict[str, Optional[str]]:
         """
         Use Firecrawl's batch API to scrape multiple URLs
-        
+
         Args:
             firecrawl_app: Firecrawl application instance
             uris: List of URIs to scrape
-            
+
         Returns:
             Dictionary mapping URIs to scraped content
         """
         try:
             self.logger.info(f"Submitting batch scrape request for {len(uris)} URLs")
 
-            # Submit batch request using async method - following Firecrawl documentation
+            # Use Firecrawl SDK's built-in polling method instead of manual polling
             # Documentation: https://docs.firecrawl.dev/features/batch-scrape
+            # batch_scrape() handles submission + polling automatically
             # IMPORTANT: Firecrawl SDK is synchronous, so we must use run_in_executor to avoid blocking the event loop
             loop = asyncio.get_event_loop()
-            batch_response = await asyncio.wait_for(
-                loop.run_in_executor(
-                    None,
-                    lambda: firecrawl_app.start_batch_scrape(uris, formats=['markdown'])
-                ),
-                timeout=30.0  # 30 second timeout for batch submission
+
+            self.logger.info(f"Starting Firecrawl batch_scrape with poll_interval=5, wait_timeout=300")
+            batch_job = await loop.run_in_executor(
+                None,
+                lambda: firecrawl_app.batch_scrape(
+                    uris,
+                    formats=['markdown'],
+                    poll_interval=5,  # Check every 5 seconds
+                    wait_timeout=300  # Wait up to 5 minutes
+                )
             )
-            
-            # Check if we got a valid response with an ID
-            batch_id = getattr(batch_response, 'id', None) if batch_response else None
-            if not batch_response or not batch_id:
-                self.logger.error(f"Batch scrape failed: {batch_response}")
+
+            if not batch_job:
+                self.logger.error(f"Batch scrape returned None")
                 return {}
-            
-            self.logger.info(f"✅ Batch scrape submitted successfully with ID: {batch_id}")
-            
-            # Poll for completion
-            results = await self._poll_batch_completion(firecrawl_app, batch_id)
-            
+
+            # Check status
+            status = getattr(batch_job, 'status', None)
+            data = getattr(batch_job, 'data', [])
+
+            self.logger.info(f"✅ Batch scrape completed with status: {status}, {len(data)} results")
+
+            if status != 'completed':
+                self.logger.warning(f"Batch scrape status is '{status}', not 'completed'")
+                return {}
+
             # Process results
             processed_results = {}
-            for uri, content in results.items():
-                if content:
+            for idx, item in enumerate(data):
+                # Get URL from metadata
+                metadata = getattr(item, 'metadata', None) or (item.get('metadata') if isinstance(item, dict) else None)
+                url = None
+                if metadata:
+                    if isinstance(metadata, dict):
+                        url = metadata.get('sourceURL') or metadata.get('source_url')
+                    else:
+                        url = getattr(metadata, 'sourceURL', None) or getattr(metadata, 'source_url', None)
+
+                # Get markdown content
+                markdown = getattr(item, 'markdown', None) or (item.get('markdown') if isinstance(item, dict) else None)
+
+                if url and markdown:
                     # Apply token limiting
                     from app.analyzers.article_analyzer import ArticleAnalyzer
-                    truncated_content = ArticleAnalyzer.truncate_text(None, content, max_chars=65000)
-                    
-                    if len(content) > len(truncated_content):
-                        self.logger.info(f"Truncated content for {uri}: {len(content)} -> {len(truncated_content)} chars")
-                    
-                    processed_results[uri] = truncated_content
+                    truncated_content = ArticleAnalyzer.truncate_text(None, markdown, max_chars=65000)
+
+                    if len(markdown) > len(truncated_content):
+                        self.logger.info(f"Truncated content for {url}: {len(markdown)} -> {len(truncated_content)} chars")
+
+                    processed_results[url] = truncated_content
+                    self.logger.debug(f"✅ Successfully scraped {url} ({len(truncated_content)} chars)")
                 else:
-                    processed_results[uri] = None
-            
+                    if url:
+                        processed_results[url] = None
+                        self.logger.warning(f"❌ No markdown content for {url}")
+                    else:
+                        self.logger.warning(f"⚠️ Item {idx} has no URL in metadata")
+
+            self.logger.info(f"Batch scrape completed: {len([r for r in processed_results.values() if r])}/{len(processed_results)} successful")
             return processed_results
 
         except asyncio.TimeoutError:
-            self.logger.error(f"Firecrawl batch submission or polling timed out after waiting too long")
+            self.logger.error(f"Firecrawl batch scrape timed out")
             return {}
         except Exception as e:
             self.logger.error(f"Error in Firecrawl batch scraping: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             return {}
     
     async def _poll_batch_completion(self, firecrawl_app, batch_id: str, max_wait_time: int = 300) -> Dict[str, Optional[str]]:
