@@ -1504,12 +1504,17 @@ class AutomatedIngestService:
         """
         try:
             self.logger.info(f"Submitting batch scrape request for {len(uris)} URLs")
-            
+
             # Submit batch request using async method - following Firecrawl documentation
             # Documentation: https://docs.firecrawl.dev/features/batch-scrape
-            batch_response = firecrawl_app.start_batch_scrape(
-                uris,
-                formats=['markdown']
+            # IMPORTANT: Firecrawl SDK is synchronous, so we must use run_in_executor to avoid blocking the event loop
+            loop = asyncio.get_event_loop()
+            batch_response = await asyncio.wait_for(
+                loop.run_in_executor(
+                    None,
+                    lambda: firecrawl_app.start_batch_scrape(uris, formats=['markdown'])
+                ),
+                timeout=30.0  # 30 second timeout for batch submission
             )
             
             # Check if we got a valid response with an ID
@@ -1539,7 +1544,10 @@ class AutomatedIngestService:
                     processed_results[uri] = None
             
             return processed_results
-            
+
+        except asyncio.TimeoutError:
+            self.logger.error(f"Firecrawl batch submission or polling timed out after waiting too long")
+            return {}
         except Exception as e:
             self.logger.error(f"Error in Firecrawl batch scraping: {e}")
             return {}
@@ -1561,7 +1569,17 @@ class AutomatedIngestService:
         
         while time.time() - start_time < max_wait_time:
             try:
-                status_response = firecrawl_app.get_batch_scrape_status(batch_id)
+                # IMPORTANT: Use run_in_executor to avoid blocking the event loop
+                # Add timeout to prevent hanging if Firecrawl is unresponsive
+                loop = asyncio.get_event_loop()
+                status_response = await asyncio.wait_for(
+                    loop.run_in_executor(
+                        None,
+                        firecrawl_app.get_batch_scrape_status,
+                        batch_id
+                    ),
+                    timeout=10.0  # 10 second timeout for status check
+                )
                 
                 if not status_response:
                     self.logger.warning(f"No status response for batch {batch_id}")
@@ -1671,6 +1689,9 @@ class AutomatedIngestService:
                 # Increase poll interval gradually
                 poll_interval = min(poll_interval * 1.2, 30)
                 
+            except asyncio.TimeoutError:
+                self.logger.warning(f"Status check timed out for batch {batch_id}, will retry...")
+                await asyncio.sleep(poll_interval)
             except Exception as e:
                 self.logger.error(f"Error polling batch status: {e}")
                 await asyncio.sleep(poll_interval)

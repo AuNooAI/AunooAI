@@ -2549,7 +2549,7 @@ async def get_active_jobs_status(
 ):
     """
     Get status of all active background processing jobs
-    
+
     Returns:
         Dictionary containing active job information
     """
@@ -2557,10 +2557,10 @@ async def get_active_jobs_status(
         # Import keyword monitor jobs
         from app.tasks.keyword_monitor import get_keyword_monitor_jobs
         keyword_jobs = get_keyword_monitor_jobs()
-        
+
         active_jobs = []
         all_jobs_details = []
-        
+
         # Process bulk processing jobs
         for job_id, job in _processing_jobs.items():
             job_detail = {
@@ -2573,10 +2573,10 @@ async def get_active_jobs_status(
                 "job_type": "bulk_processing"
             }
             all_jobs_details.append(job_detail)
-            
+
             if job.status == "running":
                 active_jobs.append(job_detail)
-        
+
         # Process keyword monitor auto-ingest jobs
         for job_id, job in keyword_jobs.items():
             job_detail = {
@@ -2590,12 +2590,12 @@ async def get_active_jobs_status(
                 "article_count": job.article_count
             }
             all_jobs_details.append(job_detail)
-            
+
             if job.status == "running":
                 active_jobs.append(job_detail)
-        
+
         total_jobs = len(_processing_jobs) + len(keyword_jobs)
-        
+
         return {
             "success": True,
             "active_jobs": active_jobs,

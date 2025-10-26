@@ -3596,23 +3596,8 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Sync Cancel Task button visibility between old button and sidebar
-    const cancelBtn = document.getElementById('cancelBackgroundTaskBtn');
-    const cancelLink = document.getElementById('cancelBackgroundTaskLink');
-
-    if (cancelBtn && cancelLink) {
-        // Create MutationObserver to watch for style changes on the button
-        const observer = new MutationObserver(function(mutations) {
-            mutations.forEach(function(mutation) {
-                if (mutation.attributeName === 'style') {
-                    const display = cancelBtn.style.display;
-                    cancelLink.style.display = display;
-                }
-            });
-        });
-
-        observer.observe(cancelBtn, { attributes: true });
-    }
+    // Cancel task button is now handled directly via cancelBackgroundTaskLink
+    // No sync needed - using single element approach
 });
 
 // Debug initial page data
@@ -4382,7 +4367,11 @@ function showAlert(message, type = 'danger') {
 }
 
 async function checkKeywords(event) {
-    const button = event?.target?.closest('button') || document.querySelector('button[onclick*="checkKeywords"]');
+    // Handle both button and anchor (a) tags
+    const button = event?.target?.closest('button') ||
+                   event?.target?.closest('a') ||
+                   document.querySelector('button[onclick*="checkKeywords"]') ||
+                   document.querySelector('a[onclick*="checkKeywords"]');
 
     if (!button) {
         console.error('Could not find checkKeywords button');
@@ -4392,8 +4381,13 @@ async function checkKeywords(event) {
     const originalHtml = button.innerHTML;
 
     try {
-        // Set button state to loading
-        button.disabled = true;
+        // Set button state to loading (works for both button and anchor tags)
+        if (button.tagName === 'BUTTON') {
+            button.disabled = true;
+        } else {
+            button.style.pointerEvents = 'none';
+            button.style.opacity = '0.6';
+        }
         button.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking...';
 
         console.log("Starting keyword check with background task tracking...");
@@ -4422,7 +4416,12 @@ async function checkKeywords(event) {
             console.log("Operation started as background task:", result.task_id);
 
             // Restore button immediately since we're using progress modal
-            button.disabled = false;
+            if (button.tagName === 'BUTTON') {
+                button.disabled = false;
+            } else {
+                button.style.pointerEvents = '';
+                button.style.opacity = '';
+            }
             button.innerHTML = originalHtml;
 
             // Show progress modal with task ID for cancellation
@@ -4482,7 +4481,12 @@ async function checkKeywords(event) {
             console.log("Quick keyword check completed:", result);
 
             // Restore button for quick operations
-            button.disabled = false;
+            if (button.tagName === 'BUTTON') {
+                button.disabled = false;
+            } else {
+                button.style.pointerEvents = '';
+                button.style.opacity = '';
+            }
             button.innerHTML = originalHtml;
 
             if (response.status === 429) {
@@ -4506,7 +4510,12 @@ async function checkKeywords(event) {
 
         } else {
             // Handle error response - restore button first
-            button.disabled = false;
+            if (button.tagName === 'BUTTON') {
+                button.disabled = false;
+            } else {
+                button.style.pointerEvents = '';
+                button.style.opacity = '';
+            }
             button.innerHTML = originalHtml;
 
             if (response.status === 429) {
@@ -4529,7 +4538,12 @@ async function checkKeywords(event) {
         // Only restore button if it's not being used for background task progress
         // (background task path restores button immediately after starting)
         if (button.innerHTML.includes('Checking...')) {
-            button.disabled = false;
+            if (button.tagName === 'BUTTON') {
+                button.disabled = false;
+            } else {
+                button.style.pointerEvents = '';
+                button.style.opacity = '';
+            }
             button.innerHTML = originalHtml;
         }
     }
@@ -5177,10 +5191,11 @@ function startBackgroundTask(taskType, data, onProgress, onComplete, onError) {
             // Update the task ID and show page-level cancel button
             if (currentBackgroundTaskId === null) {
                 currentBackgroundTaskId = taskId;
-                const cancelBtn = document.getElementById('cancelBackgroundTaskBtn');
+                const cancelBtn = document.getElementById('cancelBackgroundTaskLink');
                 if (cancelBtn) {
-                    cancelBtn.style.display = 'inline-block';
-                    cancelBtn.disabled = false;
+                    cancelBtn.style.display = 'block';
+                    cancelBtn.style.pointerEvents = '';
+                    cancelBtn.style.opacity = '';
                 }
             }
 
@@ -5296,10 +5311,10 @@ function showProgressModal(title, message, taskId = null) {
     if (taskId) {
         currentBackgroundTaskId = taskId;
         console.log('Setting currentBackgroundTaskId to:', taskId);
-        const cancelBtn = document.getElementById('cancelBackgroundTaskBtn');
+        const cancelBtn = document.getElementById('cancelBackgroundTaskLink');
         console.log('Cancel button element:', cancelBtn);
         if (cancelBtn) {
-            cancelBtn.style.display = 'inline-block';
+            cancelBtn.style.display = 'block';
             console.log('Cancel button shown');
         } else {
             console.error('Cancel button not found in DOM!');
@@ -5403,7 +5418,7 @@ function hideProgressModal() {
     }
     // Clear the current task ID and hide the page-level cancel button
     currentBackgroundTaskId = null;
-    const cancelBtn = document.getElementById('cancelBackgroundTaskBtn');
+    const cancelBtn = document.getElementById('cancelBackgroundTaskLink');
     if (cancelBtn) {
         cancelBtn.style.display = 'none';
     }
@@ -5420,12 +5435,13 @@ async function cancelBackgroundTask() {
         return;
     }
 
-    const cancelBtn = document.getElementById('cancelBackgroundTaskBtn');
+    const cancelBtn = document.getElementById('cancelBackgroundTaskLink');
     const originalHtml = cancelBtn ? cancelBtn.innerHTML : '';
 
     try {
         if (cancelBtn) {
-            cancelBtn.disabled = true;
+            cancelBtn.style.pointerEvents = 'none';
+            cancelBtn.style.opacity = '0.6';
             cancelBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Cancelling...';
         }
 
@@ -9219,13 +9235,24 @@ async function updateProcessingStatus() {
                 if (result.active_jobs && result.active_jobs.length > 0) {
                     const bulkJobs = result.active_jobs.filter(j => j.job_type === 'bulk_processing').length;
                     const autoIngestJobs = result.active_jobs.filter(j => j.job_type === 'keyword_monitor_auto_ingest').length;
+                    const backgroundTasks = result.active_jobs.filter(j => j.job_type === 'background_task').length;
 
-                    if (bulkJobs > 0 && autoIngestJobs > 0) {
-                        badgeText = `Processing ${bulkJobs} bulk + ${autoIngestJobs} auto-ingest`;
-                    } else if (bulkJobs > 0) {
-                        badgeText = `Processing ${bulkJobs} bulk ${bulkJobs === 1 ? 'job' : 'jobs'}`;
-                    } else if (autoIngestJobs > 0) {
-                        badgeText = `Auto-ingesting ${autoIngestJobs} ${autoIngestJobs === 1 ? 'batch' : 'batches'}`;
+                    // Combine job types into a readable message
+                    const jobParts = [];
+                    if (bulkJobs > 0) {
+                        jobParts.push(`${bulkJobs} bulk`);
+                    }
+                    if (autoIngestJobs > 0) {
+                        jobParts.push(`${autoIngestJobs} auto-ingest`);
+                    }
+                    if (backgroundTasks > 0) {
+                        // Use task name if available
+                        const taskName = result.active_jobs.find(j => j.job_type === 'background_task')?.task_name || 'task';
+                        jobParts.push(`${backgroundTasks} ${taskName.toLowerCase()}`);
+                    }
+
+                    if (jobParts.length > 0) {
+                        badgeText = `Processing ${jobParts.join(' + ')}`;
                     }
                 }
 
