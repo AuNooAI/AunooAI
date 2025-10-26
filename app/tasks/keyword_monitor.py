@@ -82,7 +82,7 @@ class KeywordMonitor:
                     self.provider = settings['provider'] or 'newsapi'  # Default to newsapi if not set
                 else:
                     # Use defaults
-                    self.check_interval = 900  # 15 minutes
+                    self.check_interval = 1440  # 24 hours
                     self.search_fields = "title,description,content"
                     self.language = "en"
                     self.sort_by = "publishedAt"
@@ -95,7 +95,7 @@ class KeywordMonitor:
         except Exception as e:
             logger.error(f"Error loading settings: {str(e)}")
             # Use defaults
-            self.check_interval = 900
+            self.check_interval = 1440  # 24 hours
             self.search_fields = "title,description,content"
             self.language = "en"
             self.sort_by = "publishedAt"

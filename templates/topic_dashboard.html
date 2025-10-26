@@ -31,16 +31,42 @@
         background-color: #f4f7f9; /* Lighter background for the page */
     }
     .dashboard-header {
-        /* background-color: #fff; */ /* Original */
-        background-color: #ffffff; /* Keep it white but add other enhancements */
-        padding: 1.25rem 1.75rem; /* Slightly increased padding */
-        border-radius: 8px;
-        /* box-shadow: 0 2px 4px rgba(0,0,0,0.05); */ /* Original */
-        box-shadow: 0 4px 12px rgba(0,0,0,0.08); /* More pronounced shadow */
+        background-color: #ffffff;
+        padding: 1.25rem 1.75rem;
+        border-radius: 0;
         width: 100%;
         box-sizing: border-box;
-        border-bottom: 3px solid var(--bs-primary); /* Accent border */
-        margin-bottom: 1rem; /* Ensure some space below header before main content */
+        margin-bottom: 1rem;
+    }
+
+    /* Page Header - Matching news_feed_new.html */
+    .news-header {
+        border-bottom: 3px solid #FF69B4;
+        margin-bottom: 24px;
+        padding-bottom: 16px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+
+    .news-title {
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 0;
+        background: linear-gradient(135deg, #FF69B4, #FF1493);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .news-title-icon {
+        color: #FF69B4;
+        -webkit-text-fill-color: #FF69B4;
     }
     .dashboard-sidebar {
         background-color: #f8f9fa; 
@@ -708,15 +734,14 @@
 
     {# Header Section (Topic Selector, Date Range) #}
     <div class="dashboard-header">
-        {# Combined Row for Title, Topic Selector, and Date Range #}
-        <div class="row align-items-center gy-2 mb-3"> 
-            {# Column for Title #}
-            <div class="col-md-auto">
-                <h4 id="dashboard-title" class="text-primary fw-bold mb-0">Topic Dashboard</h4> 
-            </div>
-            
-            {# Column for Topic Selector - push to the right #}
-            <div class="col-md ms-md-auto" style="max-width: 300px;"> 
+        {# Page Header #}
+        <div class="news-header">
+            <h1 class="news-title">
+                <i class="fas fa-chart-bar news-title-icon"></i>
+                <span id="dashboard-title-text">Topic Dashboard</span>
+            </h1>
+            {# Topic Selector on the right #}
+            <div style="max-width: 300px;">
                  <select id="topicSelector" class="form-select form-select-sm" data-bs-toggle="tooltip" data-bs-placement="right" title="Select a topic to view its dashboard and insights.">
                     <option value="" selected disabled>Select a Topic...</option>
                     {% for topic in topics %}

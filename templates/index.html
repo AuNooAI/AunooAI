@@ -376,6 +376,36 @@
         font-weight: 500;
     }
 
+    /* Pink gradient header - matching news_feed_new.html */
+    .news-header {
+        border-bottom: 3px solid #FF69B4;
+        margin-bottom: 24px;
+        padding-bottom: 16px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+
+    .news-title {
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 0;
+        background: linear-gradient(135deg, #FF69B4, #FF1493);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .news-title-icon {
+        color: #FF69B4;
+        -webkit-text-fill-color: #FF69B4;
+    }
+
     .panel {
         background-color: white;
         border-radius: 8px;
@@ -830,11 +860,12 @@
 
 {% block content %}
 <div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <div>
-            <h2 class="mb-3">Operations Dashboard</h2>
-            <p class="text-muted">What is going on in the world?</p>
-        </div>
+    <div class="news-header">
+        <h1 class="news-title">
+            <i class="fas fa-tachometer-alt news-title-icon"></i>
+            <span>Operations Dashboard</span>
+        </h1>
+        <p class="text-muted mb-0">What is going on in the world?</p>
     </div>
 
     <!-- World Clock Section -->

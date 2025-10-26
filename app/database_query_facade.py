@@ -50,6 +50,7 @@ from app.database_models import (t_keyword_monitor_settings as keyword_monitor_s
                                  t_auspex_chats as auspex_chats,
                                  t_auspex_messages as auspex_messages,
                                  t_auspex_prompts as auspex_prompts,
+                                 t_dashboard_cache as dashboard_cache,
                                  # t_keyword_monitor_checks as keyword_monitor_checks,  # Table doesn't exist
                                  t_raw_articles as raw_articles)
                                  # t_paper_search_results as paper_search_results,  # Table doesn't exist
@@ -5528,3 +5529,153 @@ class DatabaseQueryFacade:
             self.logger.error(f"Error ensuring analysis cache table: {e}")
             self.connection.rollback()
             raise
+
+    # =============================================================================
+    # Dashboard Cache Methods
+    # =============================================================================
+
+    def upsert_dashboard_cache(
+        self,
+        cache_key: str,
+        dashboard_type: str,
+        date_range: str,
+        topic: Optional[str],
+        profile_id: Optional[int],
+        persona: Optional[str],
+        content_json: str,
+        summary_text: str,
+        article_count: int,
+        model_used: Optional[str],
+        generation_time_seconds: Optional[float]
+    ) -> None:
+        """Save or update a dashboard in cache (PostgreSQL UPSERT)."""
+        try:
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+            statement = pg_insert(dashboard_cache).values(
+                cache_key=cache_key,
+                dashboard_type=dashboard_type,
+                date_range=date_range,
+                topic=topic,
+                profile_id=profile_id,
+                persona=persona,
+                content_json=content_json,
+                summary_text=summary_text,
+                article_count=article_count,
+                model_used=model_used,
+                generation_time_seconds=generation_time_seconds,
+                generated_at=func.now()
+            ).on_conflict_do_update(
+                index_elements=['cache_key'],
+                set_={
+                    'dashboard_type': dashboard_type,
+                    'date_range': date_range,
+                    'topic': topic,
+                    'profile_id': profile_id,
+                    'persona': persona,
+                    'content_json': content_json,
+                    'summary_text': summary_text,
+                    'article_count': article_count,
+                    'model_used': model_used,
+                    'generation_time_seconds': generation_time_seconds,
+                    'generated_at': func.now()
+                }
+            )
+
+            self._execute_with_rollback(statement)
+            self.connection.commit()
+        except Exception as e:
+            self.logger.error(f"Error upserting dashboard cache: {e}")
+            self.connection.rollback()
+            raise
+
+    def get_dashboard_cache(self, cache_key: str) -> Optional[Dict]:
+        """Retrieve cached dashboard by key."""
+        try:
+            result = self._execute_with_rollback(
+                select(dashboard_cache).where(dashboard_cache.c.cache_key == cache_key)
+            ).mappings().fetchone()
+
+            if result:
+                data = dict(result)
+                # Parse JSON content
+                data['content'] = json.loads(data['content_json'])
+                return data
+            return None
+        except Exception as e:
+            self.logger.error(f"Error getting dashboard cache: {e}")
+            return None
+
+    def update_dashboard_cache_access(self, cache_key: str) -> None:
+        """Update the accessed_at timestamp for a dashboard."""
+        try:
+            self._execute_with_rollback(
+                update(dashboard_cache)
+                .where(dashboard_cache.c.cache_key == cache_key)
+                .values(accessed_at=func.now())
+            )
+            self.connection.commit()
+        except Exception as e:
+            self.logger.error(f"Error updating dashboard cache access: {e}")
+            self.connection.rollback()
+
+    def get_latest_dashboard_cache(
+        self,
+        dashboard_type: str,
+        topic: Optional[str] = None
+    ) -> Optional[Dict]:
+        """Get the most recently generated dashboard of this type/topic."""
+        try:
+            query = select(dashboard_cache).where(
+                dashboard_cache.c.dashboard_type == dashboard_type
+            )
+
+            if topic is not None:
+                query = query.where(dashboard_cache.c.topic == topic)
+
+            query = query.order_by(dashboard_cache.c.generated_at.desc()).limit(1)
+
+            result = self._execute_with_rollback(query).mappings().fetchone()
+
+            if result:
+                data = dict(result)
+                data['content'] = json.loads(data['content_json'])
+                return data
+            return None
+        except Exception as e:
+            self.logger.error(f"Error getting latest dashboard cache: {e}")
+            return None
+
+    def list_dashboard_cache(self, limit: int = 20) -> List[Dict]:
+        """List all cached dashboards, most recently accessed first."""
+        try:
+            results = self._execute_with_rollback(
+                select(dashboard_cache)
+                .order_by(dashboard_cache.c.accessed_at.desc())
+                .limit(limit)
+            ).mappings().fetchall()
+
+            dashboards = []
+            for result in results:
+                data = dict(result)
+                # Don't include full content in list view, just metadata
+                data.pop('content_json', None)
+                dashboards.append(data)
+
+            return dashboards
+        except Exception as e:
+            self.logger.error(f"Error listing dashboard cache: {e}")
+            return []
+
+    def delete_dashboard_cache(self, cache_key: str) -> bool:
+        """Delete a cached dashboard."""
+        try:
+            result = self._execute_with_rollback(
+                delete(dashboard_cache).where(dashboard_cache.c.cache_key == cache_key)
+            )
+            self.connection.commit()
+            return result.rowcount > 0
+        except Exception as e:
+            self.logger.error(f"Error deleting dashboard cache: {e}")
+            self.connection.rollback()
+            return False

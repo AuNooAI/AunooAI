@@ -60,3 +60,5 @@ en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_
 psutil>=5.8.0
 # MCP integration
 mcp
+# Dashboard export dependencies
+reportlab>=3.6.0

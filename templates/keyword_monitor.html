@@ -4,28 +4,33 @@
 
 {% block content %}
 <div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-start mb-2">
-        <div>
-            <h1 class="mb-2">Keyword Monitor</h1>
-            <p class="text-muted">Monitor news articles by configuring keyword groups and search terms</p>
-        </div>
-        <div class="d-flex align-items-center gap-2">
-            <div class="d-flex align-items-center">
-                <div class="me-2">
-                    <div class="text-muted small">API Usage Today</div>
-                    <div class="progress" style="width: 150px; height: 5px;" 
-                         data-tooltip="Shows current API usage against daily limit">
-                        <div id="mainRequestProgress" class="progress-bar" role="progressbar" style="width: 0%"></div>
+    <div class="page-header">
+        <div class="d-flex justify-content-between align-items-start">
+            <div class="d-flex align-items-center gap-3">
+                <h1 class="mb-0">
+                    <i class="fas fa-bullseye"></i>
+                    Keyword Monitor
+                </h1>
+                <p class="text-muted mb-0">Monitor news articles by configuring keyword groups and search terms</p>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <div class="d-flex align-items-center">
+                    <div class="me-2">
+                        <div class="text-muted small">API Usage Today</div>
+                        <div class="progress" style="width: 150px; height: 5px;"
+                             data-tooltip="Shows current API usage against daily limit">
+                            <div id="mainRequestProgress" class="progress-bar" role="progressbar" style="width: 0%"></div>
+                        </div>
+                        <div class="text-end small">
+                            <span id="mainRequestsUsed" class="text-muted">0</span>/<span id="mainRequestLimit">100</span>
+                            <div id="resetTimer" class="text-muted" style="font-size: 0.8rem;"
+                                 data-tooltip="Time until API quota resets"></div>
+                        </div>
                     </div>
-                    <div class="text-end small">
-                        <span id="mainRequestsUsed" class="text-muted">0</span>/<span id="mainRequestLimit">100</span>
-                        <div id="resetTimer" class="text-muted" style="font-size: 0.8rem;"
-                             data-tooltip="Time until API quota resets"></div>
-                    </div>
+                    <button class="btn btn-sm btn-secondary btn-xs" onclick="resetApiCounter()" id="resetCounterBtn" title="Reset the API counter if it's not resetting properly" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">
+                        <i class="fas fa-redo"></i> Reset
+                    </button>
                 </div>
-                <button class="btn btn-sm btn-secondary btn-xs" onclick="resetApiCounter()" id="resetCounterBtn" title="Reset the API counter if it's not resetting properly" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">
-                    <i class="fas fa-redo"></i> Reset
-                </button>
             </div>
         </div>
     </div>
@@ -226,7 +231,34 @@
         --dark-gray: #343a40;
     }
 
-    h1, h5, h6 {
+    /* Header section with pink border */
+    .page-header {
+        border-bottom: 3px solid #FF69B4;
+        margin-bottom: 24px;
+        padding-bottom: 16px;
+    }
+
+    /* Pink gradient title text */
+    h1 {
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 0 0 8px 0;
+        background: linear-gradient(135deg, #FF69B4, #FF1493);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    /* Keep icon pink (not gradient) */
+    h1 i {
+        color: #FF69B4;
+        -webkit-text-fill-color: #FF69B4;
+    }
+
+    h5, h6 {
         color: var(--primary-color);
     }
 

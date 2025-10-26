@@ -54,6 +54,7 @@ from app.routes.auto_ingest import router as auto_ingest_router
 from app.routes.chat_routes import router as chat_router
 from app.routes.database import router as database_router
 from app.routes.dashboard_routes import router as dashboard_router
+from app.routes.dashboard_cache_routes import router as dashboard_cache_router
 import shutil
 from app.utils.app_info import get_app_info
 from starlette.templating import _TemplateResponse  # Add this import at the top
@@ -198,6 +199,7 @@ app.include_router(vector_router)  # Vector/AI analysis routes (already has /api
 app.include_router(background_tasks_router)  # Background task management routes
 app.include_router(auto_ingest_router)  # Auto-ingest pipeline routes
 # app.include_router(news_feed_router)  # News feed routes - Now registered via app factory
+app.include_router(dashboard_cache_router)  # Dashboard cache and export routes
 
 def get_template_context(request: Request, additional_context: dict = None) -> dict:
     """Create a base template context with common variables."""

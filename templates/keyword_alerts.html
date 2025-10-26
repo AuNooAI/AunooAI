@@ -974,6 +974,17 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
     color: #ffffff;
 }
 
+/* Active button styling with pink gradient */
+.btn-outline-primary.active {
+    background: linear-gradient(135deg, #FF69B4, #FF1493);
+    border-color: #FF69B4;
+    color: white !important;
+}
+
+.btn-outline-primary.active i {
+    color: white !important;
+}
+
 /* Detoxify button styling */
 .detoxify-section {
     flex-shrink: 0;
@@ -1759,10 +1770,15 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 .sidebar-nav .nav {
     flex-direction: column;
     gap: 8px;
+    padding: 0;
+    margin: 0;
+    list-style: none;
 }
 
 .sidebar-nav .nav-item {
     width: 100%;
+    padding: 0;
+    margin: 0;
 }
 
 .sidebar-nav .nav-link {
@@ -1840,6 +1856,65 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     background: #2980b9;
     border-color: #2980b9;
     transform: translateY(0);
+}
+
+/* Sidebar nav button colors - need higher specificity */
+.sidebar-nav .nav-link.btn-baby-blue {
+    background: #5dade2 !important;
+    border-color: #5dade2 !important;
+    color: white !important;
+}
+
+.sidebar-nav .nav-link.btn-baby-blue:hover {
+    background: #3498db !important;
+    border-color: #3498db !important;
+    color: white !important;
+}
+
+.sidebar-nav .nav-link.btn-baby-blue:active {
+    background: #2980b9 !important;
+    border-color: #2980b9 !important;
+}
+
+/* Green button style */
+.btn-green {
+    background: #28a745;
+    border-color: #28a745;
+    color: white;
+    padding: 14px 20px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.btn-green:hover {
+    background: #218838;
+    border-color: #1e7e34;
+    color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+}
+
+.btn-green:active {
+    background: #1e7e34;
+    border-color: #1c7430;
+    transform: translateY(0);
+}
+
+.sidebar-nav .nav-link.btn-green {
+    background: #28a745 !important;
+    border-color: #28a745 !important;
+    color: white !important;
+}
+
+.sidebar-nav .nav-link.btn-green:hover {
+    background: #218838 !important;
+    border-color: #1e7e34 !important;
+    color: white !important;
+}
+
+.sidebar-nav .nav-link.btn-green:active {
+    background: #1e7e34 !important;
+    border-color: #1c7430 !important;
 }
 
 /* Mobile responsiveness */
@@ -1936,13 +2011,13 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
         <div class="sidebar-nav">
             <ul class="nav" id="sidebar-menu">
                 <li class="nav-item">
-                    <a class="nav-link active" href="/submit-article">
+                    <a class="nav-link btn-baby-blue" href="/submit-article">
                         <i class="fas fa-plus-circle"></i>
                         <span>Submit Articles</span>
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link btn-baby-blue" href="javascript:void(0)" onclick="checkKeywords(event)">
+                    <a class="nav-link btn-green" href="javascript:void(0)" onclick="checkKeywords(event)">
                         <i class="fas fa-sync"></i>
                         <span>Update Now</span>
                     </a>
@@ -2747,7 +2822,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                             <i class="fas fa-power-off me-1"></i>Enable Auto-Collection
                                         </label>
                                         <div class="form-check form-switch">
-                                            <input class="form-check-input" type="checkbox" id="autoPollingEnabled">
+                                            <input class="form-check-input" type="checkbox" id="autoPollingEnabled" checked>
                                         </div>
                                         <div class="form-text">Automatically check for new articles</div>
                                     </div>
@@ -2759,14 +2834,14 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                         </label>
                                         <select class="form-select" id="pollingInterval">
                                             <option value="15">Every 15 minutes</option>
-                                            <option value="30" selected>Every 30 minutes</option>
+                                            <option value="30">Every 30 minutes</option>
                                             <option value="60">Every hour</option>
                                             <option value="120">Every 2 hours</option>
                                             <option value="240">Every 4 hours</option>
                                             <option value="360">Every 6 hours</option>
                                             <option value="480">Every 8 hours</option>
                                             <option value="720">Every 12 hours</option>
-                                            <option value="1440">Every 24 hours</option>
+                                            <option value="1440" selected>Every 24 hours</option>
                                         </select>
                                         <div class="form-text">How often to check for new articles</div>
                                     </div>
@@ -2893,7 +2968,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                             <i class="fas fa-power-off me-1"></i>Enable Auto-Processing
                                         </label>
                                         <div class="form-check form-switch">
-                                            <input class="form-check-input" type="checkbox" id="autoIngestEnabled">
+                                            <input class="form-check-input" type="checkbox" id="autoIngestEnabled" checked>
                                         </div>
                                         <div class="form-text">Automatically analyze and enrich collected articles</div>
                                     </div>
@@ -2962,8 +3037,8 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                 <label for="llmTemperature" class="form-label">
                                     <i class="fas fa-thermometer-half me-1"></i>Temperature
                                 </label>
-                                <input type="number" class="form-control" id="llmTemperature" 
-                                       min="0" max="2" step="0.1" value="0.1">
+                                <input type="number" class="form-control" id="llmTemperature"
+                                       min="0" max="2" step="0.1" value="0.7">
                                 <div class="form-text">Lower = more consistent results</div>
                             </div>
                         </div>
@@ -2972,8 +3047,8 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                 <label for="llmMaxTokens" class="form-label">
                                     <i class="fas fa-coins me-1"></i>Max Tokens
                                 </label>
-                                <input type="number" class="form-control" id="llmMaxTokens" 
-                                       min="100" max="4000" step="100" value="1000">
+                                <input type="number" class="form-control" id="llmMaxTokens"
+                                       min="100" max="4000" step="100" value="200">
                                 <div class="form-text">Maximum response length</div>
                             </div>
                         </div>
@@ -2987,7 +3062,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                     <i class="fas fa-check-circle me-1"></i>Save Approved Only
                                 </label>
                                 <div class="form-check form-switch">
-                                    <input class="form-check-input" type="checkbox" id="autoSaveApprovedOnly">
+                                    <input class="form-check-input" type="checkbox" id="autoSaveApprovedOnly" checked>
                                 </div>
                                 <div class="form-text">Only save articles that pass quality control</div>
                             </div>
@@ -8332,7 +8407,7 @@ let autoIngestSettings = {
     min_relevance_threshold: 0.3,
     quality_control_enabled: true,
     auto_save_approved_only: false,
-    default_llm_model: 'gpt-4o-mini',
+    default_llm_model: 'gpt-4.1-mini',
     llm_temperature: 0.1,
     llm_max_tokens: 1000,
     max_articles_per_run: 50
@@ -8466,10 +8541,13 @@ async function loadNewsProviders() {
         let html = '';
         providers.forEach(provider => {
             const checkboxId = `provider-${provider.id}`;
+            // Exclude arxiv and semantic_scholar from default checked state
+            const isExcluded = provider.id === 'arxiv' || provider.id === 'semantic_scholar';
+            const defaultChecked = provider.configured && !isExcluded;
             html += `
                 <div class="form-check">
                     <input class="form-check-input" type="checkbox" id="${checkboxId}"
-                           name="providers" value="${provider.id}" ${provider.configured ? 'checked' : ''}>
+                           name="providers" value="${provider.id}" ${defaultChecked ? 'checked' : ''}>
                     <label class="form-check-label" for="${checkboxId}">
                         ${provider.name}
                         ${provider.description ? `<small class="text-muted d-block">${provider.description}</small>` : ''}
@@ -8512,15 +8590,15 @@ async function loadAvailableModels() {
                     const option = document.createElement('option');
                     option.value = model.name;
                     option.textContent = `${model.name} (${model.provider})`;
-                    if (model.name === currentValue || (model.name === 'gpt-4o-mini' && !currentValue)) {
+                    if (model.name === currentValue || (model.name === 'gpt-4.1-mini' && !currentValue)) {
                         option.selected = true;
                     }
                     defaultModelSelect.appendChild(option);
                 });
             } else {
                 const option = document.createElement('option');
-                option.value = 'gpt-4o-mini';
-                option.textContent = 'gpt-4o-mini (fallback)';
+                option.value = 'gpt-4.1-mini';
+                option.textContent = 'gpt-4.1-mini (fallback)';
                 option.selected = true;
                 defaultModelSelect.appendChild(option);
             }
@@ -8593,41 +8671,41 @@ async function loadAvailableModels() {
         const defaultModelSelect = document.getElementById('defaultLlmModel');
         if (defaultModelSelect && defaultModelSelect.children.length <= 1) {
             defaultModelSelect.innerHTML = `
-                <option value="gpt-4o-mini" selected>gpt-4o-mini</option>
+                <option value="gpt-4.1-mini" selected>gpt-4.1-mini</option>
                 <option value="gpt-4o">gpt-4o</option>
                 <option value="claude-3-haiku">claude-3-haiku</option>
                 <option value="claude-3-sonnet">claude-3-sonnet</option>
             `;
         }
-        
+
         const bulkModelSelect = document.getElementById('bulkLlmModel');
         if (bulkModelSelect && bulkModelSelect.children.length <= 1) {
             bulkModelSelect.innerHTML = `
                 <option value="">Use Default</option>
-                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                <option value="gpt-4.1-mini">gpt-4.1-mini</option>
                 <option value="gpt-4o">gpt-4o</option>
                 <option value="claude-3-haiku">claude-3-haiku</option>
                 <option value="claude-3-sonnet">claude-3-sonnet</option>
             `;
         }
-        
+
         // Fallback for modal dropdowns
         const modelSelect = document.getElementById('modelSelect');
         if (modelSelect) {
             modelSelect.innerHTML = `
                 <option value="">Select a model...</option>
-                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                <option value="gpt-4.1-mini">gpt-4.1-mini</option>
                 <option value="gpt-4o">gpt-4o</option>
                 <option value="claude-3-haiku">claude-3-haiku</option>
                 <option value="claude-3-sonnet">claude-3-sonnet</option>
             `;
         }
-        
+
         const analysisModelSelect = document.getElementById('analysisModelSelect');
         if (analysisModelSelect) {
             analysisModelSelect.innerHTML = `
                 <option value="">Select a model...</option>
-                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                <option value="gpt-4.1-mini">gpt-4.1-mini</option>
                 <option value="gpt-4o">gpt-4o</option>
                 <option value="claude-3-haiku">claude-3-haiku</option>
                 <option value="claude-3-sonnet">claude-3-sonnet</option>
@@ -8682,7 +8760,7 @@ async function loadAutoIngestStatus() {
         document.getElementById('autoIngestEnabled').checked = settings.auto_ingest_enabled || false;
         document.getElementById('qualityControlEnabled').checked = settings.quality_control_enabled !== false;
         document.getElementById('autoSaveApprovedOnly').checked = settings.auto_save_approved_only || false;
-        document.getElementById('defaultLlmModel').value = settings.default_llm_model || 'gpt-4o-mini';
+        document.getElementById('defaultLlmModel').value = settings.default_llm_model || 'gpt-4.1-mini';
         document.getElementById('llmTemperature').value = settings.llm_temperature || 0.1;
         document.getElementById('llmMaxTokens').value = settings.llm_max_tokens || 1000;
         document.getElementById('maxArticlesPerRun').value = settings.max_articles_per_run || 50;

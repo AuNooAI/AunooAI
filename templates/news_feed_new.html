@@ -562,6 +562,7 @@
 .sidebar-nav .nav-link span {
     overflow: hidden;
     text-overflow: ellipsis;
+    /* Do not add flex: 1 - this breaks centering */
 }
 
 .sidebar-nav .nav-link:hover {
@@ -776,6 +777,72 @@
     background: var(--accent-blue);
     border-color: var(--accent-blue);
     color: white;
+}
+
+.btn-outline-primary.active,
+.btn-outline-primary:active,
+.btn-outline-primary:focus,
+.btn-outline-primary.show,
+.btn-outline-primary.dropdown-toggle.show,
+.btn-group .btn-outline-primary.active {
+    background: linear-gradient(135deg, #FF69B4, #FF1493) !important;
+    border-color: #FF69B4 !important;
+    color: white !important;
+}
+
+.btn-outline-primary.active i,
+.btn-outline-primary:active i,
+.btn-outline-primary:focus i,
+.btn-outline-primary.show i,
+.btn-outline-primary.dropdown-toggle.show i,
+.btn-group .btn-outline-primary.active i {
+    color: white !important;
+}
+
+/* Topics selector dropdown toggle - AGGRESSIVE OVERRIDE */
+button#topic-select-btn,
+button#topic-select-btn:hover,
+button#topic-select-btn:focus,
+button#topic-select-btn:active,
+button#topic-select-btn.show,
+.dropdown button#topic-select-btn.btn-outline-primary.dropdown-toggle {
+    background: linear-gradient(135deg, #FF69B4, #FF1493) !important;
+    border-color: #FF69B4 !important;
+    color: white !important;
+}
+
+button#topic-select-btn span,
+button#topic-select-btn:hover span,
+button#topic-select-btn:focus span,
+button#topic-select-btn:active span,
+button#topic-select-btn.show span {
+    color: white !important;
+}
+
+#topic-select-btn .badge,
+#topic-select-btn:hover .badge,
+#topic-select-btn:focus .badge,
+#topic-select-btn:active .badge,
+#topic-select-btn.show .badge {
+    background: rgba(255, 255, 255, 0.3) !important;
+    color: white !important;
+}
+
+/* Profile management buttons - FORCE WHITE */
+.d-flex.gap-1 > button.btn-outline-primary,
+.d-flex.gap-1 > button.btn-outline-primary:hover,
+.d-flex.gap-1 > button.btn-outline-primary:focus,
+.d-flex.gap-1 > button.btn-outline-primary:active {
+    background: linear-gradient(135deg, #FF69B4, #FF1493) !important;
+    border-color: #FF69B4 !important;
+    color: white !important;
+}
+
+.d-flex.gap-1 > button.btn-outline-primary i,
+.d-flex.gap-1 > button.btn-outline-primary:hover i,
+.d-flex.gap-1 > button.btn-outline-primary:focus i,
+.d-flex.gap-1 > button.btn-outline-primary:active i {
+    color: white !important;
 }
 
 .btn-baby-blue {
@@ -1180,25 +1247,58 @@
 
     /* Insights Tab Styling */
     .insights-nav .nav-link {
-        border: 1px solid #ddd;
+        border: 1px solid #28a745;
         border-radius: 8px;
         margin: 0 2px;
-        color: #666;
+        background-color: #28a745;
+        color: white;
         font-weight: 500;
         padding: 8px 16px;
         transition: all 0.2s ease;
     }
 
-    .insights-nav .nav-link.active {
-        background-color: #000;
-        border-color: #000;
+    .insights-nav .nav-link i {
         color: white;
     }
 
+    .insights-nav .nav-link.active,
+    .insights-nav .nav-link.active:hover,
+    .insights-nav .nav-link.active:focus,
+    .nav-pills .insights-nav .nav-link.active {
+        background: linear-gradient(135deg, #FF69B4, #FF1493) !important;
+        border-color: #FF69B4 !important;
+        color: white !important;
+    }
+
+    .insights-nav .nav-link.active i,
+    .insights-nav .nav-link.active:hover i,
+    .insights-nav .nav-link.active:focus i {
+        color: white !important;
+    }
+
+    /* Global override for nav-pills active state */
+    .nav-pills .nav-link.active,
+    .nav-pills .show > .nav-link {
+        background: linear-gradient(135deg, #FF69B4, #FF1493) !important;
+        border-color: #FF69B4 !important;
+        color: white !important;
+    }
+
+    .nav-pills .nav-link.active i,
+    .nav-pills .show > .nav-link i {
+        color: white !important;
+    }
+
     .insights-nav .nav-link:hover:not(.active) {
-        background-color: #f8f9fa;
-        border-color: #999;
-        color: #333;
+        background-color: #218838;
+        border-color: #1e7e34;
+        color: white;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+    }
+
+    .insights-nav .nav-link:hover:not(.active) i {
+        color: white;
     }
 
     /* Insight Card Styling - matching topic dashboard */
@@ -1890,14 +1990,7 @@
     <div class="page-layout-container">
         <!-- Left Sidebar Navigation -->
         <div class="sidebar-nav">
-            <!-- Generate Insights Button -->
-            <div class="px-2 mb-3">
-                <button id="sidebar-insights-btn" class="btn btn-baby-blue w-100" onclick="smartGenerateInsights()">
-                    <i class="fas fa-brain me-2"></i><span id="sidebar-insights-btn-text">Generate Insights</span>
-                </button>
-            </div>
-
-            <ul class="nav flex-column" id="sidebar-tabs">
+            <ul class="nav flex-column p-0" id="sidebar-tabs">
                 <li class="nav-item">
                     <a class="nav-link active" id="sidebar-insights-tab" data-bs-toggle="tab" href="#insights-content">
                         <i class="fas fa-chart-line"></i>
@@ -1953,10 +2046,10 @@
                 <div class="d-flex justify-content-between align-items-center p-2 bg-light rounded-top border-bottom">
                     <span class="text-muted small fw-bold">Filters:</span>
                     <button class="btn btn-sm btn-link text-decoration-none p-0" onclick="toggleFilterPanel()" title="Collapse/Expand filters">
-                        <i class="fas fa-chevron-up" id="filter-collapse-icon"></i>
+                        <i class="fas fa-chevron-down" id="filter-collapse-icon"></i>
                     </button>
                 </div>
-                <div id="filter-panel-content" class="p-2 bg-light rounded-bottom">
+                <div id="filter-panel-content" class="p-2 bg-light rounded-bottom" style="display: none;">
                     <div class="d-flex flex-wrap gap-2 align-items-center">
                     <div class="d-flex align-items-center gap-1">
                         <span class="text-muted small">Bias:</span>
@@ -1988,9 +2081,6 @@
                     <div class="d-flex align-items-center" style="min-width: 240px;">
                         <input type="text" id="search-input" class="form-control form-control-sm" placeholder="Search titles, summaries, keywords..." onkeyup="handleSearchInput()">
                     </div>
-                    <button id="factual-toggle-btn" class="btn btn-sm btn-outline-primary" onclick="toggleFactualFilter()" title="Toggle between factual and opinion articles">
-                        <i class="fas fa-shield-alt"></i> Factual Only
-                    </button>
                     <button class="btn btn-sm btn-outline-secondary" onclick="clearAllFilters()" title="Clear all filters">
                         <i class="fas fa-times"></i> Clear
                     </button>
@@ -2045,81 +2135,94 @@
         <!-- Six Articles Tab -->
         <div class="tab-pane fade" id="six-articles-content">
             <div class="mb-3">
-                <!-- Persona and Article Count Selectors -->
-                <div class="row mb-3">
-                    <div class="col-md-6">
-                        <label for="six-articles-persona" class="form-label">
-                            <i class="fas fa-user-tie me-2"></i>Target Persona
-                        </label>
-                        <select id="six-articles-persona" class="form-select">
-                            <option value="CEO" selected>CEO (Chief Executive Officer)</option>
-                            <option value="CMO">CMO (Chief Marketing Officer)</option>
-                            <option value="CTO">CTO (Chief Technology Officer)</option>
-                            <option value="CISO">CISO (Chief Information Security Officer)</option>
-                            <option value="Custom">Custom</option>
-                        </select>
+                <!-- Article Generation Settings (Collapsible) -->
+                <div id="six-articles-settings" class="controls mb-3">
+                    <div class="controls-header d-flex justify-content-between align-items-center">
+                        <h6>
+                            <i class="fas fa-cog me-2"></i>Article Generation Settings
+                        </h6>
+                        <button class="btn btn-sm btn-link text-decoration-none p-0" onclick="toggleSixArticlesSettings()" title="Collapse/Expand settings">
+                            <i class="fas fa-chevron-down" id="six-articles-settings-collapse-icon"></i>
+                        </button>
                     </div>
-                    <div class="col-md-6">
-                        <label for="six-articles-count" class="form-label">
-                            <i class="fas fa-list-ol me-2"></i>Article Count
-                        </label>
-                        <select id="six-articles-count" class="form-select">
-                            <option value="1">1 Article</option>
-                            <option value="2">2 Articles</option>
-                            <option value="3">3 Articles</option>
-                            <option value="4">4 Articles</option>
-                            <option value="5">5 Articles</option>
-                            <option value="6" selected>6 Articles</option>
-                            <option value="7">7 Articles</option>
-                            <option value="8">8 Articles</option>
-                        </select>
-                    </div>
-                </div>
+                    <div id="six-articles-settings-content" class="p-3" style="display: none;">
+                        <!-- Persona and Article Count Selectors -->
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label for="six-articles-persona" class="form-label">
+                                    <i class="fas fa-user-tie me-2"></i>Target Persona
+                                </label>
+                                <select id="six-articles-persona" class="form-select">
+                                    <option value="CEO" selected>CEO (Chief Executive Officer)</option>
+                                    <option value="CMO">CMO (Chief Marketing Officer)</option>
+                                    <option value="CTO">CTO (Chief Technology Officer)</option>
+                                    <option value="CISO">CISO (Chief Information Security Officer)</option>
+                                    <option value="Custom">Custom</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="six-articles-count" class="form-label">
+                                    <i class="fas fa-list-ol me-2"></i>Article Count
+                                </label>
+                                <select id="six-articles-count" class="form-select">
+                                    <option value="1">1 Article</option>
+                                    <option value="2">2 Articles</option>
+                                    <option value="3">3 Articles</option>
+                                    <option value="4">4 Articles</option>
+                                    <option value="5">5 Articles</option>
+                                    <option value="6" selected>6 Articles</option>
+                                    <option value="7">7 Articles</option>
+                                    <option value="8">8 Articles</option>
+                                </select>
+                            </div>
+                        </div>
 
-                <!-- Podcast Settings -->
-                <div class="row mb-3">
-                    <div class="col-md-6">
-                        <label for="six-articles-voice" class="form-label">
-                            <i class="fas fa-volume-up me-2"></i>Podcast Voice
-                        </label>
-                        <select id="six-articles-voice" class="form-select">
-                            <option value="21m00Tcm4TlvDq8ikWAM" selected>Rachel (Default)</option>
-                            <!-- Will be populated from API -->
-                        </select>
-                    </div>
-                    <div class="col-md-6">
-                        <label for="six-articles-length" class="form-label">
-                            <i class="fas fa-clock me-2"></i>Length per Article (seconds)
-                        </label>
-                        <select id="six-articles-length" class="form-select">
-                            <option value="45">45 seconds</option>
-                            <option value="60">60 seconds</option>
-                            <option value="75">75 seconds</option>
-                            <option value="90" selected>90 seconds</option>
-                            <option value="105">105 seconds</option>
-                            <option value="120">120 seconds</option>
-                            <option value="135">135 seconds</option>
-                            <option value="150">150 seconds</option>
-                        </select>
+                        <!-- Podcast Settings -->
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                <label for="six-articles-voice" class="form-label">
+                                    <i class="fas fa-volume-up me-2"></i>Podcast Voice
+                                </label>
+                                <select id="six-articles-voice" class="form-select">
+                                    <option value="21m00Tcm4TlvDq8ikWAM" selected>Rachel (Default)</option>
+                                    <!-- Will be populated from API -->
+                                </select>
+                            </div>
+                            <div class="col-md-6">
+                                <label for="six-articles-length" class="form-label">
+                                    <i class="fas fa-clock me-2"></i>Length per Article (seconds)
+                                </label>
+                                <select id="six-articles-length" class="form-select">
+                                    <option value="45">45 seconds</option>
+                                    <option value="60">60 seconds</option>
+                                    <option value="75">75 seconds</option>
+                                    <option value="90" selected>90 seconds</option>
+                                    <option value="105">105 seconds</option>
+                                    <option value="120">120 seconds</option>
+                                    <option value="135">135 seconds</option>
+                                    <option value="150">150 seconds</option>
+                                </select>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
                 <!-- Action Buttons -->
                 <div class="d-flex gap-2">
-                    <button id="generate-btn" class="btn btn-primary" onclick="loadSixArticles()">
-                        <i class="fas fa-magic me-2"></i>Generate
-                    </button>
-                    <button id="regenerate-btn" class="btn btn-outline-secondary" onclick="loadSixArticles(true)">
-                        <i class="fas fa-sync-alt me-2"></i>Regenerate
+                    <button id="six-articles-generate-btn" class="btn btn-baby-blue" onclick="handleSixArticlesGenerate()">
+                        <i class="fas fa-pen me-2" id="six-articles-generate-icon"></i><span id="six-articles-generate-text">Write</span>
                     </button>
                     <div class="btn-group">
                         <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
                             <i class="fas fa-download me-2"></i>Export
                         </button>
                         <ul class="dropdown-menu dropdown-menu-end">
-                            <li><a class="dropdown-item" href="#" onclick="exportSixArticlesMarkdown()"><i class="fab fa-markdown me-2"></i>Download Markdown</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="exportDashboardMarkdown()"><i class="fab fa-markdown me-2"></i>Export Markdown</a></li>
+                            <li><a class="dropdown-item" href="#" onclick="exportSixArticlesMarkdown()"><i class="fab fa-markdown me-2"></i>Six Articles Markdown</a></li>
                             <li><a class="dropdown-item" href="#" onclick="exportSixArticlesHTML()"><i class="fas fa-code me-2"></i>Download HTML (Classic)</a></li>
                             <li><a class="dropdown-item" href="#" onclick="exportSixArticlesEnhanced()"><i class="fas fa-paint-brush me-2"></i>Download HTML (Enhanced)</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="#" onclick="exportDashboardPDF()"><i class="fas fa-file-pdf me-2"></i>Export to PDF</a></li>
                             <li><hr class="dropdown-divider"></li>
                             <li><a class="dropdown-item" href="#" onclick="generateSixArticlesPodcast()"><i class="fas fa-microphone me-2"></i>Generate Podcast</a></li>
                         </ul>
@@ -2158,6 +2261,23 @@
                 </li>
             </ul>
 
+            <!-- Generate and Export Buttons for Narrative Explorer -->
+            <div class="d-flex gap-2 mb-3" id="insights-action-buttons">
+                <button id="insights-generate-btn" class="btn btn-baby-blue" onclick="smartGenerateInsights()">
+                    <i class="fas fa-brain me-2"></i><span id="insights-generate-text">Generate Insights</span>
+                </button>
+                <div class="btn-group">
+                    <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="fas fa-download me-2"></i>Export
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end">
+                        <li><a class="dropdown-item" href="#" onclick="exportDashboardMarkdown()"><i class="fab fa-markdown me-2"></i>Export Markdown</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="exportDashboardPDF()"><i class="fas fa-file-pdf me-2"></i>Export to PDF</a></li>
+                        <li><a class="dropdown-item" href="#" onclick="exportDashboardCSV()"><i class="fas fa-file-csv me-2"></i>Export to CSV</a></li>
+                    </ul>
+                </div>
+            </div>
+
             <!-- Insights Content -->
             <div class="tab-content" id="insights-tab-content">
                 <!-- Article Insights Panel -->
@@ -2175,7 +2295,7 @@
                             <h5>Article Theme Analysis</h5>
                             <p class="text-muted mb-3">AI-powered thematic analysis of current articles with research suggestions.</p>
                             <p class="text-muted mb-4">Select topics and date range above, then click the button below to generate insights.</p>
-                            <button class="btn btn-primary btn-lg" onclick="generateInsights()">
+                            <button class="btn btn-baby-blue btn-lg" onclick="generateInsights()">
                                 <i class="fas fa-magic me-2"></i>Generate Insights
                             </button>
                         </div>
@@ -2188,9 +2308,56 @@
 
                 <!-- Incident Tracking Panel -->
                 <div class="tab-pane fade show active" id="incident-tracking-panel">
-                    <div id="incident-toolbar" class="d-flex align-items-center justify-content-between mb-2" style="gap: 8px;">
+                    <!-- Incident Filters -->
+                    <div id="incident-filters" class="controls mb-3" style="display: none;">
+                        <div class="controls-header d-flex justify-content-between align-items-center">
+                            <h6>
+                                <i class="fas fa-filter me-2"></i>Filters & Sorting
+                            </h6>
+                            <button class="btn btn-sm btn-link text-decoration-none p-0" onclick="toggleIncidentFilters()" title="Collapse/Expand filters">
+                                <i class="fas fa-chevron-down" id="incident-filter-collapse-icon"></i>
+                            </button>
+                        </div>
+                        <div id="incident-filter-content" class="p-3" style="display: none;">
+                            <div class="d-flex flex-wrap gap-2 align-items-center">
+                                <div class="d-flex align-items-center gap-1">
+                                    <span class="text-muted small">Type:</span>
+                                    <div id="incident-type-filters" class="d-flex flex-wrap gap-1"></div>
+                                </div>
+                                <div class="d-flex align-items-center gap-1">
+                                    <span class="text-muted small">Significance:</span>
+                                    <div id="incident-significance-filters" class="d-flex flex-wrap gap-1"></div>
+                                </div>
+                                <div class="d-flex align-items-center gap-1">
+                                    <span class="text-muted small">Status:</span>
+                                    <div id="incident-status-filters" class="d-flex flex-wrap gap-1"></div>
+                                </div>
+                                <div class="d-flex align-items-center gap-2 ms-auto">
+                                    <label class="form-label small mb-0">Sort:</label>
+                                    <select id="incident-sort-select" class="form-select form-select-sm" onchange="handleIncidentSortChange()" style="width: auto;">
+                                        <option value="significance_desc">Significance (High → Low)</option>
+                                        <option value="significance_asc">Significance (Low → High)</option>
+                                        <option value="entity_asc">Entity (A → Z)</option>
+                                        <option value="entity_desc">Entity (Z → A)</option>
+                                        <option value="type_asc">Type (A → Z)</option>
+                                        <option value="type_desc">Type (Z → A)</option>
+                                        <option value="name_asc">Name (A → Z)</option>
+                                        <option value="name_desc">Name (Z → A)</option>
+                                        <option value="timeline_desc">Timeline (Recent → Old)</option>
+                                        <option value="timeline_asc">Timeline (Old → Recent)</option>
+                                    </select>
+                                </div>
+                                <button class="btn btn-outline-secondary btn-sm" onclick="clearIncidentFilters()" title="Clear all filters">
+                                    <i class="fas fa-times me-1"></i>Clear
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- View Options Toolbar -->
+                    <div id="incident-toolbar" class="d-flex align-items-center justify-content-between mb-2 mt-2" style="gap: 8px;">
                         <div class="d-flex align-items-center gap-2">
-                            <strong class="small text-muted">Highlight Options</strong>
+                            <strong class="small text-muted">View Options</strong>
                             <div class="btn-group btn-group-sm">
                                 <button class="btn btn-outline-primary active" id="incident-card-view-btn" onclick="toggleIncidentView('cards')" title="Card view">
                                     <i class="fas fa-th-large"></i>
@@ -2199,18 +2366,6 @@
                                     <i class="fas fa-table"></i>
                                 </button>
                             </div>
-                            <select id="incident-sort-select" class="form-select form-select-sm" onchange="handleIncidentSortChange()" style="width: auto;">
-                                <option value="significance_desc">Significance (High → Low)</option>
-                                <option value="significance_asc">Significance (Low → High)</option>
-                                <option value="entity_asc">Entity (A → Z)</option>
-                                <option value="entity_desc">Entity (Z → A)</option>
-                                <option value="type_asc">Type (A → Z)</option>
-                                <option value="type_desc">Type (Z → A)</option>
-                                <option value="name_asc">Name (A → Z)</option>
-                                <option value="name_desc">Name (Z → A)</option>
-                                <option value="timeline_desc">Timeline (Recent → Old)</option>
-                                <option value="timeline_asc">Timeline (Old → Recent)</option>
-                            </select>
                         </div>
                         <div id="incident-toolbar-right" class="d-flex align-items-center gap-2">
                             <button class="btn btn-outline-secondary btn-sm"
@@ -2223,31 +2378,7 @@
                             </button>
                         </div>
                     </div>
-                    
-                    <!-- Incident Filters -->
-                    <div id="incident-filters" class="mb-3" style="display: none;">
-                        <div class="d-flex flex-wrap gap-2 align-items-center p-2 bg-light rounded">
-                            <span class="text-muted small fw-bold">Filter Highlights:</span>
-                            <div class="d-flex align-items-center gap-1">
-                                <span class="text-muted small">Type:</span>
-                                <div id="incident-type-filters" class="d-flex flex-wrap gap-1"></div>
-                            </div>
-                            <div class="d-flex align-items-center gap-1">
-                                <span class="text-muted small">Significance:</span>
-                                <div id="incident-significance-filters" class="d-flex flex-wrap gap-1"></div>
-                            </div>
-                            <div class="d-flex align-items-center gap-1">
-                                <span class="text-muted small">Status:</span>
-                                <div id="incident-status-filters" class="d-flex flex-wrap gap-1"></div>
-                            </div>
-                            <div class="d-flex align-items-center gap-2 ms-auto">
-                                <button class="btn btn-outline-secondary btn-sm" onclick="clearIncidentFilters()" title="Clear all filters">
-                                    <i class="fas fa-times me-1"></i>Clear
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    
+
                     <div id="incident-tracking-loading" class="loading" style="display: none;">
                         <div class="spinner-border" role="status">
                             <span class="visually-hidden">Loading...</span>
@@ -2261,7 +2392,7 @@
                             <h5>Incident Tracking</h5>
                             <p class="text-muted mb-3">Track specific incidents, entities, and events for threat hunting.</p>
                             <p class="text-muted mb-4">Select topics and date range above, then click the button below to generate insights.</p>
-                            <button class="btn btn-primary btn-lg" onclick="generateInsights()">
+                            <button class="btn btn-baby-blue btn-lg" onclick="generateInsights()">
                                 <i class="fas fa-magic me-2"></i>Generate Insights
                             </button>
                         </div>
@@ -2342,21 +2473,30 @@
                     </div>
                     
                     <!-- Signal Alert Filters -->
-                    <div id="signal-alert-filters" class="mb-3" style="display: none;">
-                        <div class="d-flex flex-wrap gap-2 align-items-center p-2 bg-light rounded">
-                            <span class="text-muted small fw-bold">Filter Alerts:</span>
-                            <div class="d-flex align-items-center gap-1">
-                                <span class="text-muted small">Instruction:</span>
-                                <div id="instruction-filters" class="d-flex flex-wrap gap-1"></div>
-                            </div>
-                            <div class="d-flex align-items-center gap-1">
-                                <span class="text-muted small">Threat Level:</span>
-                                <div id="threat-level-filters" class="d-flex flex-wrap gap-1"></div>
-                            </div>
-                            <div class="d-flex align-items-center gap-2 ms-auto">
-                                <button class="btn btn-outline-secondary btn-sm" onclick="clearAlertFilters()" title="Clear all filters">
-                                    <i class="fas fa-times me-1"></i>Clear
-                                </button>
+                    <div id="signal-alert-filters" class="controls mb-3" style="display: none;">
+                        <div class="controls-header d-flex justify-content-between align-items-center">
+                            <h6>
+                                <i class="fas fa-filter me-2"></i>Filter Alerts
+                            </h6>
+                            <button class="btn btn-sm btn-link text-decoration-none p-0" onclick="toggleAlertFilters()" title="Collapse/Expand filters">
+                                <i class="fas fa-chevron-up" id="alert-filter-collapse-icon"></i>
+                            </button>
+                        </div>
+                        <div id="alert-filter-content" class="p-3">
+                            <div class="d-flex flex-wrap gap-2 align-items-center">
+                                <div class="d-flex align-items-center gap-1">
+                                    <span class="text-muted small">Instruction:</span>
+                                    <div id="instruction-filters" class="d-flex flex-wrap gap-1"></div>
+                                </div>
+                                <div class="d-flex align-items-center gap-1">
+                                    <span class="text-muted small">Threat Level:</span>
+                                    <div id="threat-level-filters" class="d-flex flex-wrap gap-1"></div>
+                                </div>
+                                <div class="d-flex align-items-center gap-2 ms-auto">
+                                    <button class="btn btn-outline-secondary btn-sm" onclick="clearAlertFilters()" title="Clear all filters">
+                                        <i class="fas fa-times me-1"></i>Clear
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -4320,6 +4460,13 @@ async function loadArticles(page = 1) {
     }
 }
 
+// Wrapper function to handle Write/Rewrite button
+function handleSixArticlesGenerate() {
+    const generateText = document.getElementById('six-articles-generate-text');
+    const isRegenerate = generateText && generateText.textContent === 'Rewrite';
+    loadSixArticles(isRegenerate);
+}
+
 async function loadSixArticles(forceRegenerate = false) {
     const loadingEl = document.getElementById('six-articles-loading');
     const errorEl = document.getElementById('six-articles-error');
@@ -4397,7 +4544,12 @@ async function loadSixArticles(forceRegenerate = false) {
             console.log('First article related_articles:', data.six_articles[0].related_articles);
         }
         renderSixArticles(data.six_articles);
-        showSaveButton();
+
+        // Auto-save to database
+        await autoSaveDashboard('six_articles', { articles: data.six_articles }, {
+            view_type: 'Six Articles',
+            model_used: data.model_used || 'gpt-4o-mini'
+        });
 
         // Save to localStorage for page refresh restoration
         try {
@@ -4406,6 +4558,15 @@ async function loadSixArticles(forceRegenerate = false) {
             console.log('[Cache] Six Articles saved to localStorage');
         } catch (e) {
             console.error('[Cache] Error saving Six Articles to localStorage:', e);
+        }
+
+        // Update button to "Rewrite" after successful generation
+        const generateBtn = document.getElementById('six-articles-generate-btn');
+        const generateIcon = document.getElementById('six-articles-generate-icon');
+        const generateText = document.getElementById('six-articles-generate-text');
+        if (generateBtn && generateIcon && generateText) {
+            generateIcon.className = 'fas fa-pen-fancy me-2';
+            generateText.textContent = 'Rewrite';
         }
 
     } catch (error) {
@@ -7227,6 +7388,54 @@ function toggleFilterPanel() {
     }
 }
 
+// Toggle incident filters panel visibility
+function toggleIncidentFilters() {
+    const content = document.getElementById('incident-filter-content');
+    const icon = document.getElementById('incident-filter-collapse-icon');
+
+    if (!content || !icon) return;
+
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        icon.className = 'fas fa-chevron-up';
+    } else {
+        content.style.display = 'none';
+        icon.className = 'fas fa-chevron-down';
+    }
+}
+
+// Toggle alert filters panel visibility
+function toggleAlertFilters() {
+    const content = document.getElementById('alert-filter-content');
+    const icon = document.getElementById('alert-filter-collapse-icon');
+
+    if (!content || !icon) return;
+
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        icon.className = 'fas fa-chevron-up';
+    } else {
+        content.style.display = 'none';
+        icon.className = 'fas fa-chevron-down';
+    }
+}
+
+// Toggle Six Articles settings panel visibility
+function toggleSixArticlesSettings() {
+    const content = document.getElementById('six-articles-settings-content');
+    const icon = document.getElementById('six-articles-settings-collapse-icon');
+
+    if (!content || !icon) return;
+
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        icon.className = 'fas fa-chevron-up';
+    } else {
+        content.style.display = 'none';
+        icon.className = 'fas fa-chevron-down';
+    }
+}
+
 // Article detailed view functionality - inline expansion
 function toggleArticleDetails(articleUri, buttonElement) {
     const detailsId = `details-${articleUri.replace(/[^a-zA-Z0-9]/g, '_')}`;
@@ -9916,32 +10125,32 @@ let insightsState = {
 };
 
 function updateInsightsButton() {
-    const sidebarBtn = document.getElementById('sidebar-insights-btn');
-    const sidebarBtnText = document.getElementById('sidebar-insights-btn-text');
-    const sidebarIcon = sidebarBtn ? sidebarBtn.querySelector('i') : null;
+    const insightsBtn = document.getElementById('insights-generate-btn');
+    const insightsBtnText = document.getElementById('insights-generate-text');
+    const insightsIcon = insightsBtn ? insightsBtn.querySelector('i') : null;
 
-    if (!sidebarBtn) return;
+    if (!insightsBtn) return;
 
     if (insightsState.isLoading) {
-        sidebarBtn.disabled = true;
-        if (sidebarIcon) sidebarIcon.className = 'fas fa-spinner fa-spin me-2';
-        if (sidebarBtnText) sidebarBtnText.textContent = 'Generating...';
+        insightsBtn.disabled = true;
+        if (insightsIcon) insightsIcon.className = 'fas fa-spinner fa-spin me-2';
+        if (insightsBtnText) insightsBtnText.textContent = 'Generating...';
     } else if (insightsState.hasArticleCache || insightsState.hasCategoryCache || insightsState.hasIncidentCache) {
-        sidebarBtn.disabled = false;
-        if (sidebarIcon) sidebarIcon.className = 'fas fa-sync-alt me-2';
-        if (sidebarBtnText) sidebarBtnText.textContent = 'Regenerate';
-        sidebarBtn.classList.remove('btn-baby-blue', 'btn-info');
-        sidebarBtn.classList.add('btn-outline-baby-blue');
+        insightsBtn.disabled = false;
+        if (insightsIcon) insightsIcon.className = 'fas fa-sync-alt me-2';
+        if (insightsBtnText) insightsBtnText.textContent = 'Regenerate';
+        insightsBtn.classList.remove('btn-baby-blue', 'btn-info');
+        insightsBtn.classList.add('btn-outline-baby-blue');
         // When cached data exists, clicking regenerates
-        sidebarBtn.onclick = () => smartGenerateInsights(true);
+        insightsBtn.onclick = () => smartGenerateInsights(true);
     } else {
-        sidebarBtn.disabled = false;
-        if (sidebarIcon) sidebarIcon.className = 'fas fa-brain me-2';
-        if (sidebarBtnText) sidebarBtnText.textContent = 'Generate Insights';
-        sidebarBtn.classList.remove('btn-info', 'btn-outline-baby-blue');
-        sidebarBtn.classList.add('btn-baby-blue');
+        insightsBtn.disabled = false;
+        if (insightsIcon) insightsIcon.className = 'fas fa-brain me-2';
+        if (insightsBtnText) insightsBtnText.textContent = 'Generate Insights';
+        insightsBtn.classList.remove('btn-info', 'btn-outline-baby-blue');
+        insightsBtn.classList.add('btn-baby-blue');
         // When no cache, clicking generates normally
-        sidebarBtn.onclick = () => smartGenerateInsights(false);
+        insightsBtn.onclick = () => smartGenerateInsights(false);
     }
 }
 
@@ -10260,9 +10469,15 @@ async function loadArticleInsights(topics, startDate, endDate, daysLimit, forceR
         } catch (cacheError) {
             console.warn('[ArticleInsights] Failed to cache article insights:', cacheError);
         }
-        
+
         renderArticleInsights(data);
-        
+
+        // Auto-save to dashboard cache
+        await autoSaveDashboard('narratives', { insights: data }, {
+            view_type: 'Narratives',
+            model_used: 'dashboard_api'
+        });
+
     } catch (error) {
         console.error('Error loading article insights:', error);
         
@@ -10334,6 +10549,12 @@ async function loadCategoryInsights(topics, startDate, endDate, daysLimit, force
     const loadingEl = document.getElementById('category-insights-loading');
     const errorEl = document.getElementById('category-insights-error');
     const containerEl = document.getElementById('category-insights-container');
+
+    // Category insights removed in v2 - skip if elements don't exist
+    if (!loadingEl || !errorEl || !containerEl) {
+        console.log('[CategoryInsights] Category insights panel not found (removed in v2)');
+        return;
+    }
 
     loadingEl.style.display = 'block';
     errorEl.style.display = 'none';
@@ -11726,7 +11947,7 @@ async function loadIncidentTracking(topics, startDate, endDate, daysLimit, force
                 const cacheContent = JSON.stringify(data.incidents, null, 2);
                 const cacheMetadata = {
                     cache_key: cacheKey,
-                    topic: topic,
+                    topic: topicsStr,
                     start_date: startDate,
                     end_date: endDate,
                     days_limit: daysLimit || 14,
@@ -11742,7 +11963,7 @@ async function loadIncidentTracking(topics, startDate, endDate, daysLimit, force
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         article_uri: cacheUri,
-                        analysis_type: `incident_tracking_${topic}`,
+                        analysis_type: `incident_tracking_${topicsStr}`,
                         content: cacheContent,
                         model_name: 'incident_analysis',
                         metadata: cacheMetadata
@@ -11764,7 +11985,15 @@ async function loadIncidentTracking(topics, startDate, endDate, daysLimit, force
         }
 
         renderIncidentTracking(data.incidents);
-        
+
+        // Auto-save to dashboard cache
+        console.log('🎯 Calling autoSaveDashboard for highlights with', data.incidents.length, 'incidents');
+        await autoSaveDashboard('highlights', { incidents: data.incidents }, {
+            view_type: 'Highlights',
+            model_used: selectedModel
+        });
+        console.log('🎯 autoSaveDashboard completed for highlights');
+
     } catch (error) {
         console.error('Error loading incident tracking:', error);
         errorEl.innerHTML = `<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>Failed to load incident tracking: ${error.message}</div>`;
@@ -11789,28 +12018,29 @@ function renderIncidentTracking(incidents) {
     // Apply current filters
     const filteredIncidents = applyIncidentFilters(allIncidents);
     
-    // Toggle to hide implausible/low-quality
-    const toggleId = 'incident-hide-low-toggle';
-    let hideLow = true;
-    try { const saved = localStorage.getItem(toggleId); if (saved !== null) hideLow = saved === 'true'; } catch(_) {}
+    // Toggle to hide implausible/low-quality - DISABLED
+    // const toggleId = 'incident-hide-low-toggle';
+    let hideLow = false; // Always show all incidents
+    // try { const saved = localStorage.getItem(toggleId); if (saved !== null) hideLow = saved === 'true'; } catch(_) {}
 
-    const controlsHtml = `
-        <div class="form-check form-switch d-flex align-items-center gap-2 m-0" id="incident-controls-switch">
-            <input class="form-check-input" type="checkbox" id="${toggleId}" ${hideLow ? 'checked' : ''}>
-            <label class="form-check-label small mb-0" for="${toggleId}">Hide implausible or low-quality source incidents</label>
-        </div>
-    `;
-    // Insert controls into top toolbar (preserve existing buttons); fallback into container
-    const toolbar = document.getElementById('incident-toolbar-right');
-    if (toolbar) {
-        // Check if quality controls already exist to avoid duplicates
-        if (!toolbar.querySelector(`#${toggleId}`)) {
-            // Preserve existing buttons (like Configure) and add quality controls
-            toolbar.insertAdjacentHTML('beforeend', controlsHtml);
-        }
-    } else {
-        container.insertAdjacentHTML('afterbegin', `<div class="insight-item-card p-2 mb-2">${controlsHtml}</div>`);
-    }
+    // REMOVED: Hide low-quality toggle UI
+    // const controlsHtml = `
+    //     <div class="form-check form-switch d-flex align-items-center gap-2 m-0" id="incident-controls-switch">
+    //         <input class="form-check-input" type="checkbox" id="${toggleId}" ${hideLow ? 'checked' : ''}>
+    //         <label class="form-check-label small mb-0" for="${toggleId}">Hide implausible or low-quality source incidents</label>
+    //     </div>
+    // `;
+    // // Insert controls into top toolbar (preserve existing buttons); fallback into container
+    // const toolbar = document.getElementById('incident-toolbar-right');
+    // if (toolbar) {
+    //     // Check if quality controls already exist to avoid duplicates
+    //     if (!toolbar.querySelector(`#${toggleId}`)) {
+    //         // Preserve existing buttons (like Configure) and add quality controls
+    //         toolbar.insertAdjacentHTML('beforeend', controlsHtml);
+    //     }
+    // } else {
+    //     container.insertAdjacentHTML('afterbegin', `<div class="insight-item-card p-2 mb-2">${controlsHtml}</div>`);
+    // }
     
     const riskFlags = new Set(['extraordinary_claim','no_independent_verification','low_factuality_source','low_credibility_source','fringe_bias']);
     
@@ -12197,6 +12427,9 @@ async function generateInsights(forceRegenerate = false) {
     // After generating insights, update cache state and button
     await checkInsightsCache();
     updateInsightsButton();
+
+    // Show save/export buttons for insights
+    showInsightsSaveButtons();
 
     showNotification(`Insights generated for ${selectedTopics.length} topic(s)!`, 'success');
 }
@@ -16468,6 +16701,611 @@ function saveTickerSettings() {
 
 function resetTickerSettings() {
     NewsTicker.resetSettings();
+}
+
+// ============================================
+// DASHBOARD CACHE AND EXPORT
+// ============================================
+
+// Global variables to store dashboard cache keys per type
+let lastDashboardCacheKey = null;  // Legacy global for backward compatibility
+let dashboardCacheKeys = {
+    highlights: null,
+    narratives: null,
+    six_articles: null,
+    news_feed: null
+};
+
+/**
+ * Auto-save current dashboard to cache (called automatically after generation)
+ */
+async function autoSaveDashboard(dashboardType, dashboardContent, metadata = {}) {
+    try {
+        console.log('🔄 Auto-saving dashboard:', dashboardType, 'Content keys:', Object.keys(dashboardContent));
+
+        // Gather configuration data
+        const selectedTopics = getSelectedTopics();
+        const dateRangeSelect = document.getElementById('date-range-select');
+        const dateRange = dateRangeSelect ? dateRangeSelect.value : '24h';
+
+        // Prepare metadata
+        const finalMetadata = {
+            article_count: dashboardContent.items?.length || dashboardContent.articles?.length || dashboardContent.incidents?.length || dashboardContent.insights?.length || 0,
+            model_used: metadata.model_used || 'gpt-4o-mini',
+            view_type: metadata.view_type || dashboardType,
+            generated_at: new Date().toISOString(),
+            ...metadata
+        };
+
+        console.log('📤 Saving with metadata:', finalMetadata);
+
+        // Save to backend
+        const response = await fetch('/api/dashboard-cache/save', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                dashboard_type: dashboardType,
+                date_range: dateRange,
+                content: dashboardContent,
+                topic: selectedTopics.length > 0 ? selectedTopics.join(',') : null,
+                metadata: finalMetadata
+            })
+        });
+
+        console.log('📥 Save response status:', response.status);
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Auto-save failed with status:', response.status, errorText);
+            throw new Error(`HTTP ${response.status}: ${errorText}`);
+        }
+
+        const result = await response.json();
+
+        if (result.success) {
+            lastDashboardCacheKey = result.cache_key;
+
+            // Store cache key for this specific dashboard type
+            dashboardCacheKeys[dashboardType] = result.cache_key;
+
+            console.log('✅ Dashboard auto-saved successfully. Cache key:', result.cache_key);
+            console.log('✅ Stored cache key for type:', dashboardType);
+            console.log('✅ All cache keys:', dashboardCacheKeys);
+
+            // Store in window for debugging
+            window._lastDashboardCacheKey = lastDashboardCacheKey;
+            window._dashboardCacheKeys = dashboardCacheKeys;
+        } else {
+            console.warn('❌ Failed to auto-save dashboard:', result.message || result);
+        }
+
+    } catch (error) {
+        console.error('❌ Error auto-saving dashboard:', error);
+        console.error('❌ Error stack:', error.stack);
+        // Show notification only in console to not interrupt user experience
+        // but make it clear that exports won't work
+        console.warn('⚠️ Dashboard not saved - PDF/export features will show a warning');
+        console.warn('⚠️ Error details:', error.message);
+        // Show user a subtle notification
+        showToast('Warning', 'Dashboard auto-save failed. PDF export will not work.', 'warning');
+    }
+}
+
+/**
+ * Debug helper - check cache key status
+ */
+function checkCacheKeyStatus() {
+    const activeView = document.querySelector('.nav-pills .nav-link.active')?.textContent.trim();
+    console.log('=== Cache Key Status ===');
+    console.log('Active View:', activeView);
+    console.log('lastDashboardCacheKey (legacy):', lastDashboardCacheKey);
+    console.log('dashboardCacheKeys:', dashboardCacheKeys);
+    console.log('  - highlights:', dashboardCacheKeys.highlights);
+    console.log('  - narratives:', dashboardCacheKeys.narratives);
+    console.log('  - six_articles:', dashboardCacheKeys.six_articles);
+    console.log('  - news_feed:', dashboardCacheKeys.news_feed);
+    console.log('window._dashboardCacheKeys:', window._dashboardCacheKeys);
+    console.log('======================');
+}
+window.checkCacheKeyStatus = checkCacheKeyStatus;
+
+/**
+ * Export dashboard to PDF (server-side)
+ */
+async function exportDashboardPDF() {
+    try {
+        console.log('📄 exportDashboardPDF called');
+
+        // Determine which dashboard type is currently active
+        const activeView = document.querySelector('.nav-pills .nav-link.active')?.textContent.trim();
+        console.log('📄 Active view:', activeView);
+
+        // Map view name to dashboard type
+        let dashboardType = 'news_feed';
+        if (activeView === 'Six Articles') dashboardType = 'six_articles';
+        else if (activeView === 'Highlights') dashboardType = 'highlights';
+        else if (activeView === 'Narratives') dashboardType = 'narratives';
+
+        console.log('📄 Dashboard type:', dashboardType);
+        console.log('📄 All cache keys:', dashboardCacheKeys);
+
+        // Get the cache key for this specific dashboard type
+        let cacheKey = dashboardCacheKeys[dashboardType] || lastDashboardCacheKey || window._lastDashboardCacheKey;
+        console.log('📄 Cache key from memory for', dashboardType, ':', cacheKey);
+
+        // If no cache key in memory, try to get the latest from the database
+        if (!cacheKey) {
+            console.log('📄 No cache key in memory, fetching latest dashboard from database...');
+            showToast('Info', 'Fetching latest dashboard...', 'info');
+
+            try {
+                // Get current configuration
+                const selectedTopics = getSelectedTopics();
+                const dateRangeSelect = document.getElementById('date-range-select');
+                const dateRange = dateRangeSelect ? dateRangeSelect.value : '7d';
+                const topic = selectedTopics.length > 0 ? selectedTopics.join(',') : null;
+
+                // Generate cache key format (must match server-side format exactly)
+                // Server-side format: dashboard_type:date_range:topic:persona:profile_id
+                // For now, we don't use persona or profile_id in cache keys
+                const cacheKeyGuess = `${dashboardType}:${dateRange}:${topic || ''}:null:null`;
+
+                console.log('📄 Trying cache key:', cacheKeyGuess);
+
+                // Try to fetch with this cache key
+                const checkResponse = await fetch(`/api/dashboard-cache/get/${encodeURIComponent(cacheKeyGuess)}`);
+
+                if (checkResponse.ok) {
+                    const result = await checkResponse.json();
+                    if (result.success && result.dashboard) {
+                        cacheKey = cacheKeyGuess;
+                        console.log('✅ Found dashboard in database with key:', cacheKey);
+                    }
+                }
+            } catch (e) {
+                console.warn('Could not fetch latest dashboard:', e);
+            }
+        }
+
+        if (!cacheKey) {
+            console.error('❌ No cache key available for', dashboardType);
+            console.log('Try running: checkCacheKeyStatus() in console to debug');
+            showToast('Warning', `No ${activeView} dashboard has been generated yet. Please generate ${activeView} first.`, 'warning');
+            return;
+        }
+
+        console.log('✅ Exporting PDF with cache key:', cacheKey);
+        showToast('Info', 'Generating PDF...', 'info');
+
+        const response = await fetch('/api/dashboard-cache/export/pdf', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                cache_key: cacheKey
+            })
+        });
+
+        if (response.ok) {
+            // Download the PDF
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `dashboard-export-${new Date().toISOString().slice(0,10)}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+
+            showToast('Success', 'PDF exported successfully!', 'success');
+        } else {
+            const errorData = await response.json();
+            throw new Error(errorData.detail || 'Failed to export PDF');
+        }
+
+    } catch (error) {
+        console.error('Error exporting PDF:', error);
+        showToast('Error', `Failed to export PDF: ${error.message}`, 'danger');
+    }
+}
+
+/**
+ * Export dashboard to Markdown (client-side)
+ */
+function exportDashboardMarkdown() {
+    // Get current dashboard data
+    const activeView = document.querySelector('.nav-pills .nav-link.active')?.textContent.trim();
+    let dashboardContent = {};
+    let dashboardType = 'news_feed';
+
+    // Collect content based on active view
+    if (activeView === 'Six Articles' && window.lastSixArticles) {
+        dashboardContent = { articles: window.lastSixArticles };
+        dashboardType = 'six_articles';
+    } else if (activeView === 'Highlights' && window._lastIncidents) {
+        dashboardContent = { incidents: window._lastIncidents };
+        dashboardType = 'highlights';
+    } else if (activeView === 'Narratives') {
+        // Get insights from the container
+        const insightsContainer = document.getElementById('article-insights-container');
+        if (insightsContainer && insightsContainer.children.length > 0) {
+            // Parse insights from rendered cards
+            const insights = Array.from(insightsContainer.querySelectorAll('.insight-item-card')).map(card => {
+                const themeName = card.querySelector('h6')?.textContent || 'Unknown Theme';
+                const themeSummary = card.querySelector('p.small')?.textContent || '';
+                const articles = Array.from(card.querySelectorAll('.list-unstyled li a')).map(link => ({
+                    title: link.textContent.trim(),
+                    uri: link.getAttribute('href')
+                }));
+                return { theme_name: themeName, theme_summary: themeSummary, articles };
+            });
+            dashboardContent = { insights };
+            dashboardType = 'narratives';
+        }
+    } else if (window.currentArticlesData) {
+        dashboardContent = { items: window.currentArticlesData };
+    }
+
+    if (!dashboardContent.articles && !dashboardContent.items && !dashboardContent.incidents && !dashboardContent.insights) {
+        showToast('Warning', 'No dashboard content to export. Please generate content first.', 'warning');
+        return;
+    }
+
+    // Generate Markdown
+    const esc = (s) => String(s || '').replace(/[\\`*_{}[\]()#+\-.!]/g, '\\$&');
+    let markdown = `# Dashboard Export\n\n`;
+    markdown += `**Generated**: ${new Date().toLocaleString()}\n\n`;
+    markdown += `**View**: ${activeView || 'News Feed'}\n\n`;
+    markdown += `---\n\n`;
+
+    if (dashboardType === 'six_articles' && dashboardContent.articles) {
+        markdown += `## Six Most Interesting Articles\n\n`;
+        dashboardContent.articles.forEach((article, idx) => {
+            markdown += `### ${idx + 1}. ${esc(article.title || 'Untitled')}\n\n`;
+            if (article.url || article.uri) {
+                markdown += `**Link**: [Read original](${article.url || article.uri})\n\n`;
+            }
+            if (article.executive_takeaway) {
+                markdown += `> **Executive Takeaway**: ${esc(article.executive_takeaway)}\n\n`;
+            }
+            if (article.summary) {
+                markdown += `${esc(article.summary)}\n\n`;
+            }
+            if (article.source) {
+                markdown += `- **Source**: ${esc(article.source)}\n`;
+            }
+            if (article.date) {
+                markdown += `- **Date**: ${esc(article.date)}\n`;
+            }
+            markdown += `\n---\n\n`;
+        });
+    } else if (dashboardType === 'highlights' && dashboardContent.incidents) {
+        markdown += `## Highlights / Incident Tracking\n\n`;
+        markdown += `**Total Incidents**: ${dashboardContent.incidents.length}\n\n`;
+        dashboardContent.incidents.forEach((incident, idx) => {
+            markdown += `### ${idx + 1}. ${esc(incident.title || incident.name || 'Untitled Incident')}\n\n`;
+
+            // Metadata badges
+            if (incident.type) {
+                markdown += `- **Type**: ${esc(incident.type)}\n`;
+            }
+            if (incident.significance) {
+                markdown += `- **Significance**: ${esc(incident.significance)}\n`;
+            }
+            if (incident.plausibility) {
+                markdown += `- **Plausibility**: ${esc(incident.plausibility)}\n`;
+            }
+            if (incident.source_quality) {
+                markdown += `- **Source Quality**: ${esc(incident.source_quality)}\n`;
+            }
+
+            // Timeline
+            if (Array.isArray(incident.timeline) && incident.timeline.length > 0) {
+                const dates = incident.timeline.filter(Boolean);
+                if (dates.length > 0) {
+                    markdown += `- **Timeline**: ${dates[0]}`;
+                    if (dates.length > 1 && dates[dates.length - 1] !== dates[0]) {
+                        markdown += ` to ${dates[dates.length - 1]}`;
+                    }
+                    markdown += `\n`;
+                }
+            } else if (typeof incident.timeline === 'string' && incident.timeline) {
+                markdown += `- **Timeline**: ${esc(incident.timeline)}\n`;
+            }
+
+            markdown += `\n`;
+
+            // Description
+            if (incident.description) {
+                markdown += `${esc(incident.description)}\n\n`;
+            }
+
+            // Investigation leads
+            if (incident.investigation_leads) {
+                const leads = Array.isArray(incident.investigation_leads)
+                    ? incident.investigation_leads
+                    : [incident.investigation_leads];
+                if (leads.length > 0) {
+                    markdown += `**Investigation Leads**:\n`;
+                    leads.forEach(lead => {
+                        markdown += `- ${esc(lead)}\n`;
+                    });
+                    markdown += `\n`;
+                }
+            }
+
+            // Related articles
+            if (incident.article_uris && incident.article_uris.length > 0) {
+                markdown += `**Related Articles** (${incident.article_uris.length}):\n`;
+                incident.article_uris.slice(0, 10).forEach(uri => {
+                    markdown += `- <${uri}>\n`;
+                });
+                if (incident.article_uris.length > 10) {
+                    markdown += `- ... and ${incident.article_uris.length - 10} more\n`;
+                }
+                markdown += `\n`;
+            }
+
+            markdown += `---\n\n`;
+        });
+    } else if (dashboardType === 'narratives' && dashboardContent.insights) {
+        markdown += `## Narratives / Article Insights\n\n`;
+        markdown += `**Total Themes**: ${dashboardContent.insights.length}\n\n`;
+        dashboardContent.insights.forEach((insight, idx) => {
+            markdown += `### ${idx + 1}. ${esc(insight.theme_name || 'Unnamed Theme')}\n\n`;
+
+            if (insight.theme_summary) {
+                markdown += `${esc(insight.theme_summary)}\n\n`;
+            }
+
+            // Related articles
+            if (insight.articles && insight.articles.length > 0) {
+                markdown += `**Related Articles** (${insight.articles.length}):\n`;
+                insight.articles.forEach(article => {
+                    markdown += `- [${esc(article.title || 'Untitled')}](${article.uri})`;
+                    if (article.news_source) {
+                        markdown += ` - ${esc(article.news_source)}`;
+                    }
+                    markdown += `\n`;
+                });
+                markdown += `\n`;
+            }
+
+            markdown += `---\n\n`;
+        });
+    } else if (dashboardContent.items) {
+        markdown += `## Articles\n\n`;
+        dashboardContent.items.slice(0, 20).forEach((item, idx) => {
+            markdown += `### ${idx + 1}. ${esc(item.title || 'Untitled')}\n\n`;
+            if (item.summary) {
+                markdown += `${esc(item.summary)}\n\n`;
+            }
+            if (item.source || item.news_source) {
+                markdown += `- **Source**: ${esc(item.source || item.news_source)}\n`;
+            }
+            markdown += `\n`;
+        });
+    }
+
+    markdown += `\n---\n*Exported from Aunoo AI Dashboard*\n`;
+
+    // Download
+    const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+    const urlObj = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = urlObj;
+    a.download = `dashboard-export-${activeView?.toLowerCase().replace(/\s+/g, '-') || 'news-feed'}-${new Date().toISOString().slice(0,10)}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(urlObj);
+
+    showToast('Success', 'Markdown exported successfully!', 'success');
+}
+
+/**
+ * Export dashboard to PNG image (client-side screenshot placeholder)
+ * Note: For true image export, browser extensions or print-to-PDF can be used
+ */
+function exportDashboardImage() {
+    showToast('Info', 'Use browser Print > Save as PDF for best results, or take a screenshot.', 'info');
+
+    // Alternative: trigger print dialog
+    // window.print();
+}
+
+/**
+ * Export dashboard to CSV (client-side)
+ */
+function exportDashboardCSV() {
+    const activeView = document.querySelector('.nav-pills .nav-link.active')?.textContent.trim();
+
+    // CSV export is primarily for Highlights/Incidents
+    if (activeView === 'Highlights' && window._lastIncidents) {
+        const incidents = window._lastIncidents;
+
+        if (!incidents || incidents.length === 0) {
+            showToast('Warning', 'No incidents to export. Please generate insights first.', 'warning');
+            return;
+        }
+
+        // CSV headers
+        const headers = [
+            'Title',
+            'Type',
+            'Significance',
+            'Plausibility',
+            'Source Quality',
+            'Timeline Start',
+            'Timeline End',
+            'Description',
+            'Investigation Leads',
+            'Related Articles Count',
+            'Related Article URLs'
+        ];
+
+        // Build CSV rows
+        const rows = [headers];
+        incidents.forEach(incident => {
+            const escapeCSV = (str) => {
+                if (str === null || str === undefined) return '';
+                str = String(str);
+                // Escape quotes and wrap in quotes if contains comma, quote, or newline
+                if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                    return '"' + str.replace(/"/g, '""') + '"';
+                }
+                return str;
+            };
+
+            // Parse timeline
+            let timelineStart = '';
+            let timelineEnd = '';
+            if (Array.isArray(incident.timeline)) {
+                const dates = incident.timeline.filter(Boolean);
+                if (dates.length > 0) {
+                    timelineStart = dates[0];
+                    timelineEnd = dates[dates.length - 1];
+                }
+            } else if (typeof incident.timeline === 'string') {
+                timelineStart = incident.timeline;
+            }
+
+            // Parse investigation leads
+            let leadsText = '';
+            if (incident.investigation_leads) {
+                if (Array.isArray(incident.investigation_leads)) {
+                    leadsText = incident.investigation_leads.join('; ');
+                } else {
+                    leadsText = String(incident.investigation_leads);
+                }
+            }
+
+            // Parse article URIs
+            let articlesText = '';
+            if (incident.article_uris && Array.isArray(incident.article_uris)) {
+                articlesText = incident.article_uris.join('; ');
+            }
+
+            const row = [
+                escapeCSV(incident.title || incident.name || ''),
+                escapeCSV(incident.type || ''),
+                escapeCSV(incident.significance || ''),
+                escapeCSV(incident.plausibility || ''),
+                escapeCSV(incident.source_quality || ''),
+                escapeCSV(timelineStart),
+                escapeCSV(timelineEnd),
+                escapeCSV(incident.description || ''),
+                escapeCSV(leadsText),
+                escapeCSV(incident.article_uris ? incident.article_uris.length : 0),
+                escapeCSV(articlesText)
+            ];
+            rows.push(row);
+        });
+
+        // Convert to CSV string
+        const csvContent = rows.map(row => row.join(',')).join('\n');
+
+        // Download
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+        const urlObj = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = urlObj;
+        a.download = `dashboard-export-highlights-${new Date().toISOString().slice(0,10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(urlObj);
+
+        showToast('Success', 'CSV exported successfully!', 'success');
+
+    } else if (activeView === 'Narratives') {
+        // CSV export for Narratives/Insights
+        const insightsContainer = document.getElementById('article-insights-container');
+        if (!insightsContainer || insightsContainer.children.length === 0) {
+            showToast('Warning', 'No narratives to export. Please generate insights first.', 'warning');
+            return;
+        }
+
+        // Parse insights from rendered cards
+        const insights = Array.from(insightsContainer.querySelectorAll('.insight-item-card')).map(card => {
+            const themeName = card.querySelector('h6')?.textContent || 'Unknown Theme';
+            const themeSummary = card.querySelector('p.small')?.textContent || '';
+            const articles = Array.from(card.querySelectorAll('.list-unstyled li a'));
+            return {
+                theme_name: themeName,
+                theme_summary: themeSummary,
+                article_count: articles.length
+            };
+        });
+
+        // CSV headers
+        const headers = ['Theme Name', 'Theme Summary', 'Related Articles Count'];
+
+        // Build CSV rows
+        const rows = [headers];
+        insights.forEach(insight => {
+            const escapeCSV = (str) => {
+                if (str === null || str === undefined) return '';
+                str = String(str);
+                if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+                    return '"' + str.replace(/"/g, '""') + '"';
+                }
+                return str;
+            };
+
+            const row = [
+                escapeCSV(insight.theme_name),
+                escapeCSV(insight.theme_summary),
+                escapeCSV(insight.article_count)
+            ];
+            rows.push(row);
+        });
+
+        // Convert to CSV string
+        const csvContent = rows.map(row => row.join(',')).join('\n');
+
+        // Download
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+        const urlObj = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = urlObj;
+        a.download = `dashboard-export-narratives-${new Date().toISOString().slice(0,10)}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(urlObj);
+
+        showToast('Success', 'CSV exported successfully!', 'success');
+
+    } else {
+        showToast('Info', 'CSV export is available for Highlights and Narratives views.', 'info');
+    }
+}
+
+/**
+ * Show export buttons for Narrative Explorer (Insights)
+ */
+function showInsightsSaveButtons() {
+    const actionButtons = document.getElementById('insights-action-buttons');
+    if (actionButtons) {
+        actionButtons.style.display = 'flex';
+    }
+}
+
+/**
+ * Helper to show toast notifications
+ */
+function showToast(title, message, type = 'info') {
+    // Use existing toast system if available, or create a simple alert
+    if (window.showNotification) {
+        window.showNotification(title, message, type);
+    } else {
+        alert(`${title}: ${message}`);
+    }
 }
 
 // ============================================

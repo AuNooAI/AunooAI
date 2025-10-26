@@ -24,7 +24,34 @@
         padding: 0 20px;
     }
 
-    h1, h2, h5, h6 {
+    /* Header section with pink border */
+    .page-header {
+        border-bottom: 3px solid #FF69B4;
+        margin-bottom: 24px;
+        padding-bottom: 16px;
+    }
+
+    /* Pink gradient title text */
+    h2 {
+        font-size: 2rem;
+        font-weight: 700;
+        margin: 0 0 8px 0;
+        background: linear-gradient(135deg, #FF69B4, #FF1493);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    /* Keep icon pink (not gradient) */
+    h2 i {
+        color: #FF69B4;
+        -webkit-text-fill-color: #FF69B4;
+    }
+
+    h1, h5, h6 {
         color: var(--primary-color);
         margin-bottom: 20px;
     }
@@ -260,13 +287,20 @@
 </style>
 
 <div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2 class="mb-0">Submit Article</h2>
-        <a href="/keyword-alerts" class="btn btn-sm btn-outline-secondary">
+    <div class="page-header d-flex align-items-center gap-3">
+        <h2 class="mb-0">
+            <i class="fas fa-upload"></i>
+            Submit Article
+        </h2>
+        <p class="text-muted mb-0">Analyze and enrich news articles for your topics</p>
+    </div>
+
+    <div class="mb-4">
+        <a href="/keyword-alerts" class="btn btn-outline-primary">
             <i class="fas fa-arrow-left"></i> Back to News Firehose
         </a>
     </div>
-    
+
     <div class="row">
         <div class="col-md-12">
             <div class="card">

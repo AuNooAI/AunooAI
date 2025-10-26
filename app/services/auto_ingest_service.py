@@ -20,11 +20,11 @@ logger = logging.getLogger(__name__)
 @dataclass
 class AutoIngestConfig:
     """Configuration for auto-ingest pipeline"""
-    enabled: bool = False
+    enabled: bool = True
     quality_control_enabled: bool = True
     min_relevance_threshold: float = 0.3
-    llm_model: str = "gpt-4"
-    llm_temperature: float = 0.1
+    llm_model: str = "gpt-4.1-mini"
+    llm_temperature: float = 0.7
     batch_size: int = 5
     max_concurrent_batches: int = 2
 

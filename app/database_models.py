@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, CheckConstraint, Column, Enum, ForeignKey, Index, Integer, MetaData, REAL, TIMESTAMP, Table, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, CheckConstraint, Column, Enum, Float, ForeignKey, Index, Integer, MetaData, REAL, TIMESTAMP, Table, Text, UniqueConstraint, text
 
 metadata = MetaData()
 
@@ -375,6 +375,28 @@ t_auspex_prompts = Table(
     Column('user_created', ForeignKey('users.username', ondelete='SET NULL')),
     Index('idx_auspex_prompts_is_default', 'is_default'),
     Index('idx_auspex_prompts_name', 'name')
+)
+
+t_dashboard_cache = Table(
+    'dashboard_cache', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('cache_key', Text, nullable=False, unique=True),
+    Column('dashboard_type', Text, nullable=False),
+    Column('date_range', Text, nullable=False),
+    Column('topic', Text),
+    Column('profile_id', ForeignKey('organizational_profiles.id', ondelete='SET NULL')),
+    Column('persona', Text),
+    Column('content_json', Text, nullable=False),
+    Column('summary_text', Text),
+    Column('article_count', Integer, default=text('0')),
+    Column('model_used', Text),
+    Column('generation_time_seconds', Float),
+    Column('generated_at', TIMESTAMP, nullable=False, default=text('CURRENT_TIMESTAMP')),
+    Column('accessed_at', TIMESTAMP, default=text('CURRENT_TIMESTAMP')),
+    Index('idx_dashboard_cache_type', 'dashboard_type', 'generated_at'),
+    Index('idx_dashboard_cache_accessed', 'accessed_at'),
+    Index('idx_dashboard_cache_key', 'cache_key'),
+    Index('idx_dashboard_cache_topic', 'topic')
 )
 
 t_feed_group_sources = Table(
