@@ -1683,211 +1683,6 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
 }
-
-/* Status Ticker Bar - Matching news ticker height */
-.status-ticker-container {
-    background: var(--light-gray);
-    border: 1px solid #dee2e6;
-    border-left: 4px solid var(--accent-blue);
-    padding: 0 16px;
-    margin: -24px 0 24px 0;
-    position: relative;
-    overflow: hidden;
-    height: 44px;
-    display: flex;
-    align-items: center;
-    gap: 20px;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-    font-size: 0.9rem;
-}
-
-/* Page Header - Matching news_feed_new.html */
-.news-header {
-    border-bottom: 3px solid #FF69B4;
-    margin-bottom: 24px;
-    padding-bottom: 16px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 12px;
-}
-
-.news-title {
-    font-size: 2rem;
-    font-weight: 700;
-    margin: 0;
-    background: linear-gradient(135deg, #FF69B4, #FF1493);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.news-title-icon {
-    color: #FF69B4;
-    -webkit-text-fill-color: #FF69B4;
-}
-
-.status-bar {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    flex-wrap: wrap;
-    font-size: 0.9rem;
-}
-
-/* Left Sidebar Navigation - Matching news_feed_new.html */
-.page-layout-container {
-    display: flex;
-    gap: 0;
-    align-items: flex-start;
-}
-
-.sidebar-nav {
-    width: 220px;
-    background: #fff;
-    border-right: 1px solid #dee2e6;
-    padding: 12px;
-    flex-shrink: 0;
-    min-height: 500px;
-    box-sizing: border-box;
-}
-
-.sidebar-nav .nav {
-    flex-direction: column;
-    gap: 8px;
-}
-
-.sidebar-nav .nav-item {
-    width: 100%;
-}
-
-.sidebar-nav .nav-link {
-    color: #495057;
-    padding: 10px 12px;
-    border: 1px solid #dee2e6;
-    border-radius: 6px;
-    transition: all 0.2s ease;
-    font-size: 0.9rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    background: #fff;
-    text-decoration: none;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    box-sizing: border-box;
-    width: 100%;
-}
-
-.sidebar-nav .nav-link i {
-    width: 18px;
-    min-width: 18px;
-    text-align: center;
-    font-size: 0.95rem;
-    flex-shrink: 0;
-}
-
-.sidebar-nav .nav-link span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-.sidebar-nav .nav-link:hover {
-    background: rgba(255, 105, 180, 0.1);
-    border-color: #FF69B4;
-    color: #FF69B4;
-}
-
-.sidebar-nav .nav-link.active {
-    background: linear-gradient(135deg, #FF69B4, #FF1493);
-    border-color: #FF69B4;
-    color: #fff;
-    font-weight: 500;
-}
-
-.main-content-area {
-    flex-grow: 1;
-    min-width: 0;
-    padding-left: 24px;
-}
-
-/* Baby Blue Button Classes */
-.btn-baby-blue {
-    background: #5dade2;
-    border-color: #5dade2;
-    color: white;
-    padding: 14px 20px;
-    font-weight: 500;
-    transition: all 0.2s ease;
-    border-radius: 4px;
-}
-
-.btn-baby-blue:hover {
-    background: #3498db;
-    border-color: #3498db;
-    color: white;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(93, 173, 226, 0.3);
-}
-
-.btn-baby-blue:active {
-    background: #2980b9;
-    border-color: #2980b9;
-    transform: translateY(0);
-}
-
-/* Mobile responsiveness */
-@media (max-width: 768px) {
-    .page-layout-container {
-        flex-direction: column;
-    }
-
-    .sidebar-nav {
-        width: 100%;
-        min-height: auto;
-        border-right: none;
-        border-bottom: 1px solid #dee2e6;
-    }
-
-    .sidebar-nav .nav {
-        flex-direction: row;
-        flex-wrap: wrap;
-    }
-
-    .sidebar-nav .nav-item {
-        width: auto;
-    }
-
-    .sidebar-nav .nav-link {
-        border-left: none;
-        border-bottom: 3px solid transparent;
-        padding: 10px 16px;
-    }
-
-    .sidebar-nav .nav-link.active {
-        border-left: none;
-        border-bottom-color: #FF69B4;
-    }
-
-    .main-content-area {
-        padding-left: 0;
-        padding-top: 16px;
-    }
-
-    .status-ticker-container {
-        height: 38px;
-        margin: -15px -15px 15px -15px;
-        font-size: 0.85rem;
-        gap: 12px;
-        flex-wrap: wrap;
-    }
-}
 </style>
 {% endblock %}
 
@@ -1895,81 +1690,60 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 <!-- Import the media bias macros -->
 {% from "components/media_bias_display.html" import media_bias_badge, media_bias_icon %}
 
-<div class="container-fluid">
-    <div style="max-width: 1400px; margin: 0 auto; padding: 24px 48px;">
-        <!-- Status Ticker Bar -->
-        <div class="status-ticker-container">
-            <span class="text-muted">
-                <i class="fas fa-clock"></i> Last search: <span id="lastCheckTime">{{ last_check_time|default('Never', true) }}</span>
-            </span>
-            <!-- Auto-Processing Toggle -->
-            <div class="form-check form-switch mb-0">
-                <input class="form-check-input" type="checkbox" id="autoProcessToggle"
-                       {% if is_enabled %}checked{% endif %}
-                       onchange="toggleAutoProcessing(this.checked)">
-                <label class="form-check-label" for="autoProcessToggle">
-                    <strong>Auto-Processing {{ 'ON' if is_enabled else 'OFF' }}</strong>
-                </label>
+<div class="container mt-4">
+    <div class="d-flex justify-content-between align-items-start mb-4">
+        <div class="flex-grow-1">
+            <h2 class="mb-3">News Firehose</h2>
+            <div class="header-controls d-flex flex-column gap-3">
+                <div class="d-flex align-items-center gap-3">
+                    <span class="text-muted">
+                        <i class="fas fa-clock"></i> Last search: <span id="lastCheckTime">{{ last_check_time|default('Never', true) }}</span>
+                    </span>
+                    <!-- Processing Status Badge -->
+                    <span id="processingStatusBadge" class="badge bg-success" style="display: none;">
+                        <i class="fas fa-spinner fa-spin me-1"></i> Processing <span id="processingCount">0</span> jobs
+                    </span>
+                    {% if last_error %}
+                        <span class="text-danger">
+                            <i class="fas fa-exclamation-circle"></i> {{ last_error }}
+                        </span>
+                    {% endif %}
+                    <span class="text-muted" id="resetTimer" style="font-size: 0.9rem;">
+                        <i class="fas fa-refresh"></i> Loading reset time...
+                    </span>
+                    <span class="text-danger" id="rateLimitWarning" style="display: none; font-size: 0.9rem;">
+                        <i class="fas fa-exclamation-triangle"></i> Rate limit reached
+                    </span>
+                </div>
+                <div class="d-flex align-items-center gap-3">
+                    <!-- Prominent Submit Articles Button -->
+                    <a href="/submit-article" class="btn btn-primary">
+                        <i class="fas fa-plus-circle"></i> Submit Articles
+                    </a>
+                    <button class="btn btn-outline-primary" onclick="checkKeywords(event)">
+                        <i class="fas fa-sync"></i> Update Now
+                    </button>
+                    <button class="btn btn-danger" id="cancelBackgroundTaskBtn" onclick="cancelBackgroundTask()" style="display: none;">
+                        <i class="fas fa-stop"></i> Cancel Running Task
+                    </button>
+                    <button class="btn btn-outline-secondary" onclick="showAutoIngestSettings()">
+                        <i class="fas fa-cog"></i> Auto-Processing Settings
+                    </button>
+                    <a href="/keyword-monitor" class="btn btn-outline-secondary">
+                        <i class="fas fa-cog"></i> Manage Keywords
+                    </a>
+                    <div class="form-check form-switch ms-auto">
+                        <input class="form-check-input" type="checkbox" id="autoProcessToggle"
+                               {% if is_enabled %}checked{% endif %}
+                               onchange="toggleAutoProcessing(this.checked)">
+                        <label class="form-check-label" for="autoProcessToggle">
+                            <strong>Auto-Processing {{ 'ON' if is_enabled else 'OFF' }}</strong>
+                        </label>
+                    </div>
+                </div>
             </div>
-            <!-- Processing Status Badge -->
-            <span id="processingStatusBadge" class="badge bg-success" style="display: none;">
-                <i class="fas fa-spinner fa-spin me-1"></i> Processing <span id="processingCount">0</span> jobs
-            </span>
-            {% if last_error %}
-                <span class="text-danger">
-                    <i class="fas fa-exclamation-circle"></i> {{ last_error }}
-                </span>
-            {% endif %}
         </div>
-
-        <!-- Page Header -->
-        <div class="news-header">
-            <h1 class="news-title">
-                <i class="fas fa-rss news-title-icon"></i>
-                News Firehose
-            </h1>
-        </div>
-
-        <!-- Two-Column Layout: Sidebar + Content -->
-        <div class="page-layout-container">
-        <!-- Left Sidebar Navigation -->
-        <div class="sidebar-nav">
-            <ul class="nav" id="sidebar-menu">
-                <li class="nav-item">
-                    <a class="nav-link active" href="/submit-article">
-                        <i class="fas fa-plus-circle"></i>
-                        <span>Submit Articles</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link btn-baby-blue" href="javascript:void(0)" onclick="checkKeywords(event)">
-                        <i class="fas fa-sync"></i>
-                        <span>Update Now</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="javascript:void(0)" id="cancelBackgroundTaskLink" onclick="cancelBackgroundTask()" style="display: none;">
-                        <i class="fas fa-stop"></i>
-                        <span>Cancel Task</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="javascript:void(0)" onclick="showAutoIngestSettings()">
-                        <i class="fas fa-cog"></i>
-                        <span>Auto-Processing</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="/keyword-monitor">
-                        <i class="fas fa-tags"></i>
-                        <span>Manage Keywords</span>
-                    </a>
-                </li>
-            </ul>
-        </div>
-
-        <!-- Main Content Area -->
-        <div class="main-content-area">
+    </div>
 
     <!-- Enhanced trend chart section -->
     <div class="card mb-4">
@@ -2074,7 +1848,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                     </span>
                                     {% endfor %}
                                     {% if group.keywords|length > 3 %}
-                                    <span class="badge bg-secondary text-white" title="{{ group.keywords[3:]|join(', ') }}">+{{ group.keywords|length - 3 }} more</span>
+                                    <span class="badge bg-light text-dark border" title="{{ group.keywords[3:]|join(', ') }}">+{{ group.keywords|length - 3 }} more</span>
                                     {% endif %}
                                     <div class="ms-2">
                                         {% if group.total_count and group.total_count > group.unread_count %}
@@ -2089,7 +1863,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                 <div class="small">
                                     {% if group.alerts %}
                                         {% set latest_alert = group.alerts|first %}
-                                        <div class="detected-timestamp" data-timestamp="{{ latest_alert.detected_at }}">{{ latest_alert.detected_at }}</div>
+                                        <div>{{ latest_alert.detected_at }}</div>
                                         <div class="text-muted">Latest detection</div>
                                     {% else %}
                                         <div class="text-muted">No alerts</div>
@@ -2128,12 +1902,12 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                 </div>
                             </div>
                             <div class="d-flex gap-2 align-items-center" data-group-id="{{ group.id }}">
-                                <button class="btn btn-outline-primary btn-sm bulk-analyze-btn"
+                                <button class="btn btn-outline-primary btn-sm bulk-analyze-btn" 
                                         data-topic="{{ group.topic }}"
                                         data-group-id="{{ group.id }}"
                                         onclick="analyzeBulkArticles('{{ group.topic }}', '{{ group.id }}')"
                                         style="display: none;">
-                                    <i class="fas fa-microscope"></i>
+                                    <i class="fas fa-microscope"></i> 
                                     Analyze Selected (<span class="selected-count">0</span>)
                                 </button>
                                 <button class="btn btn-outline-danger btn-sm bulk-delete-btn"
@@ -2143,6 +1917,21 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                         style="display: none;">
                                     <i class="fas fa-trash"></i>
                                     Delete Selected (<span class="delete-count">0</span>)
+                                </button>
+                                <button class="btn btn-outline-success btn-sm btn-square" 
+                                        onclick="updateGroupNow('{{ group.topic }}', '{{ group.id }}')"
+                                        title="Check for new articles in this group">
+                                    <i class="fas fa-sync"></i>
+                                </button>
+                                <button class="btn btn-outline-info btn-sm btn-square" 
+                                        onclick="showBulkProcessModal('{{ group.topic }}', '{{ group.id }}')"
+                                        title="Bulk process all articles in this group">
+                                    <i class="fas fa-magic"></i>
+                                </button>
+                                <button class="btn btn-outline-info btn-sm btn-square" 
+                                        onclick="exportGroupAlerts('{{ group.topic }}', '{{ group.id }}')"
+                                        title="Export alerts for this group">
+                                    <i class="fas fa-download"></i>
                                 </button>
                                 <span class="badge bg-primary">{{ group.total_count|default(group.alerts|length) }} total</span>
                                 {% if group.enriched_count is defined and group.enriched_count > 0 %}
@@ -2170,17 +1959,17 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                             <div class="status-section d-flex align-items-center">
                                 <span class="filter-label me-3">Show:</span>
                                 <div class="status-filter-group" data-group-id="{{ group.id }}">
-                                    <input type="radio" class="btn-check" name="statusFilter_{{ group.id }}" id="statusAll_{{ group.id }}" value="all">
+                                    <input type="radio" class="btn-check" name="statusFilter_{{ group.id }}" id="statusAll_{{ group.id }}" value="all" checked>
                                     <label class="btn btn-outline-primary status-btn" for="statusAll_{{ group.id }}" title="Show all articles">
                                         <i class="fas fa-list me-1"></i>All
                                     </label>
-
+                                    
                                     <input type="radio" class="btn-check" name="statusFilter_{{ group.id }}" id="statusNew_{{ group.id }}" value="new">
                                     <label class="btn btn-outline-warning status-btn" for="statusNew_{{ group.id }}" title="Show only new articles">
                                         <i class="fas fa-plus-circle me-1"></i>New
                                     </label>
-
-                                    <input type="radio" class="btn-check" name="statusFilter_{{ group.id }}" id="statusAdded_{{ group.id }}" value="added" checked>
+                                    
+                                    <input type="radio" class="btn-check" name="statusFilter_{{ group.id }}" id="statusAdded_{{ group.id }}" value="added">
                                     <label class="btn btn-outline-success status-btn" for="statusAdded_{{ group.id }}" title="Show only analyzed articles">
                                         <i class="fas fa-check-circle me-1"></i>Added
                                     </label>
@@ -2426,7 +2215,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                     <td>
                                         <div class="source-info small">
                                             <div class="source-name">{{ alert.article.source }}</div>
-                                            <div class="text-muted published-date" data-date="{{ alert.article.publication_date }}">
+                                            <div class="text-muted">
                                                 {{ alert.article.publication_date or 'Unknown' }}
                                             </div>
                                             {% if alert.article.bias or alert.article.factual_reporting %}
@@ -2442,7 +2231,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                                 </span>
                                                 {% endif %}
                                                 {% if alert.article.bias_country %}
-                                                <span class="badge bg-secondary text-white" title="Country: {{ alert.article.bias_country }}">
+                                                <span class="badge bg-light text-dark border" title="Country: {{ alert.article.bias_country }}">
                                                     {{ alert.article.bias_country }}
                                                 </span>
                                                 {% endif %}
@@ -2452,11 +2241,11 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                     </td>
                                     <td style="width: 15%; min-width: 120px;">
                                         <div class="small">
-                                            <div class="published-date" data-date="{{ alert.article.publication_date }}">{{ alert.article.publication_date or 'Unknown' }}</div>
+                                            <div>{{ alert.article.publication_date or 'Unknown' }}</div>
                                             <div class="text-muted">Published</div>
                                         </div>
                                         <div class="small mt-1">
-                                            <div class="detected-timestamp" data-timestamp="{{ alert.detected_at }}">{{ alert.detected_at or 'Unknown' }}</div>
+                                            <div>{{ alert.detected_at or 'Unknown' }}</div>
                                             <div class="text-muted">Detected</div>
                                         </div>
                                     </td>
@@ -2568,10 +2357,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
         <a href="/keyword-monitor" class="alert-link">Set up keyword monitoring</a> to get notified about relevant articles.
     </div>
     {% endif %}
-
-        </div><!-- END main-content-area -->
-    </div><!-- END page-layout-container -->
-</div><!-- END container -->
+</div>
 
 <!-- Add this at the top of the page for error messages -->
 <div id="alertMessage" class="alert alert-danger alert-dismissible fade" role="alert" style="display: none;">
@@ -2769,111 +2555,6 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                             <option value="1440">Every 24 hours</option>
                                         </select>
                                         <div class="form-text">How often to check for new articles</div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Search Settings (from keyword_monitor) -->
-                    <div class="card mb-3">
-                        <div class="card-header bg-light">
-                            <h6 class="mb-0"><i class="fas fa-search me-2"></i>Search Configuration</h6>
-                        </div>
-                        <div class="card-body">
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <div class="mb-3">
-                                        <label for="searchDateRange" class="form-label">
-                                            <i class="fas fa-calendar me-1"></i>Search Date Range
-                                        </label>
-                                        <input type="number" class="form-control" id="searchDateRange"
-                                               min="1" max="30" value="7">
-                                        <div class="form-text">Number of days to look back when searching (1-30 days)</div>
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="mb-3">
-                                        <label for="dailyRequestLimit" class="form-label">
-                                            <i class="fas fa-tachometer-alt me-1"></i>Daily Request Limit
-                                        </label>
-                                        <input type="number" class="form-control" id="dailyRequestLimit"
-                                               min="1" value="100">
-                                        <div class="form-text">Maximum API requests per day (default: 100)</div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">
-                                    <i class="fas fa-plug me-1"></i>News Providers
-                                </label>
-                                <div id="provider-checkboxes" class="provider-checkboxes">
-                                    <div class="text-muted">Loading available providers...</div>
-                                </div>
-                                <div class="form-text">
-                                    <i class="fas fa-info-circle"></i>
-                                    Select multiple providers to search across different sources simultaneously.
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- News Collection Settings (applies to all collectors) -->
-                    <div class="card mb-3">
-                        <div class="card-header bg-light">
-                            <h6 class="mb-0"><i class="fas fa-newspaper me-2"></i>News Collection Settings</h6>
-                        </div>
-                        <div class="card-body">
-                            <div class="row">
-                                <div class="col-md-6">
-                                    <div class="mb-3">
-                                        <label class="form-label">Search Fields</label>
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="checkbox" id="searchTitle" name="searchFields" value="title" checked>
-                                            <label class="form-check-label">Title</label>
-                                        </div>
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="checkbox" id="searchDescription" name="searchFields" value="description" checked>
-                                            <label class="form-check-label">Description</label>
-                                        </div>
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="checkbox" id="searchContent" name="searchFields" value="content" checked>
-                                            <label class="form-check-label">Content</label>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="col-md-6">
-                                    <div class="mb-3">
-                                        <label for="language" class="form-label">Language</label>
-                                        <select class="form-select" id="language" name="language">
-                                            <option value="en">English</option>
-                                            <option value="ar">Arabic</option>
-                                            <option value="de">German</option>
-                                            <option value="es">Spanish</option>
-                                            <option value="fr">French</option>
-                                            <option value="he">Hebrew</option>
-                                            <option value="it">Italian</option>
-                                            <option value="nl">Dutch</option>
-                                            <option value="no">Norwegian</option>
-                                            <option value="pt">Portuguese</option>
-                                            <option value="ru">Russian</option>
-                                            <option value="sv">Swedish</option>
-                                            <option value="zh">Chinese</option>
-                                        </select>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label for="sortBy" class="form-label">Sort By</label>
-                                        <select class="form-select" id="sortBy" name="sortBy">
-                                            <option value="publishedAt">Newest First</option>
-                                            <option value="relevancy">Most Relevant</option>
-                                            <option value="popularity">Most Popular</option>
-                                        </select>
-                                    </div>
-                                    <div class="mb-3">
-                                        <label for="pageSize" class="form-label">Results Per Search</label>
-                                        <input type="number" class="form-control" id="pageSize"
-                                               name="pageSize" min="1" max="100" value="10">
-                                        <div class="form-text">Maximum 100 results per search</div>
                                     </div>
                                 </div>
                             </div>
@@ -3378,167 +3059,6 @@ function formatTimestamp(isoString) {
         return isoString;
     }
 }
-
-// Format timestamp to human-friendly format
-function formatDetectedTimestamp(timestamp) {
-    if (!timestamp || timestamp === 'Unknown') return 'Unknown';
-
-    try {
-        const date = new Date(timestamp);
-        const now = new Date();
-        const diffMs = now - date;
-        const diffMins = Math.floor(diffMs / 60000);
-        const diffHours = Math.floor(diffMs / 3600000);
-        const diffDays = Math.floor(diffMs / 86400000);
-
-        let relativeTime;
-        if (diffMins < 1) {
-            relativeTime = 'Just now';
-        } else if (diffMins < 60) {
-            relativeTime = `${diffMins} min${diffMins !== 1 ? 's' : ''} ago`;
-        } else if (diffHours < 24) {
-            relativeTime = `${diffHours} hour${diffHours !== 1 ? 's' : ''} ago`;
-        } else if (diffDays < 7) {
-            relativeTime = `${diffDays} day${diffDays !== 1 ? 's' : ''} ago`;
-        } else if (diffDays < 30) {
-            const weeks = Math.floor(diffDays / 7);
-            relativeTime = `${weeks} week${weeks !== 1 ? 's' : ''} ago`;
-        } else if (diffDays < 365) {
-            const months = Math.floor(diffDays / 30);
-            relativeTime = `${months} month${months !== 1 ? 's' : ''} ago`;
-        } else {
-            const years = Math.floor(diffDays / 365);
-            relativeTime = `${years} year${years !== 1 ? 's' : ''} ago`;
-        }
-
-        // Format full timestamp for tooltip
-        const options = {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-        };
-        const fullDate = date.toLocaleDateString('en-US', options);
-
-        return { relativeTime, fullDate };
-    } catch (e) {
-        console.error('Error formatting timestamp:', timestamp, e);
-        return 'Unknown';
-    }
-}
-
-// Update all detected timestamps on the page
-function updateDetectedTimestamps() {
-    const timestamps = document.querySelectorAll('.detected-timestamp');
-    timestamps.forEach(el => {
-        const timestamp = el.dataset.timestamp;
-        const formatted = formatDetectedTimestamp(timestamp);
-
-        if (typeof formatted === 'object') {
-            el.textContent = formatted.relativeTime;
-            el.setAttribute('title', formatted.fullDate);
-            el.style.cursor = 'help';
-        } else {
-            el.textContent = formatted;
-        }
-    });
-}
-
-// Format publication date to readable format
-function formatPublicationDate(dateString) {
-    if (!dateString || dateString === 'Unknown') return 'Unknown';
-
-    try {
-        const date = new Date(dateString);
-
-        // Format as "Oct 22, 2025"
-        const options = {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric'
-        };
-        const shortDate = date.toLocaleDateString('en-US', options);
-
-        // Format full date with time for tooltip
-        const fullOptions = {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-        };
-        const fullDate = date.toLocaleDateString('en-US', fullOptions);
-
-        return { shortDate, fullDate };
-    } catch (e) {
-        console.error('Error formatting publication date:', dateString, e);
-        return 'Unknown';
-    }
-}
-
-// Update all publication dates on the page
-function updatePublicationDates() {
-    const dates = document.querySelectorAll('.published-date');
-    dates.forEach(el => {
-        const dateString = el.dataset.date;
-        const formatted = formatPublicationDate(dateString);
-
-        if (typeof formatted === 'object') {
-            el.textContent = formatted.shortDate;
-            el.setAttribute('title', formatted.fullDate);
-            el.style.cursor = 'help';
-        } else {
-            el.textContent = formatted;
-        }
-    });
-}
-
-// Sidebar Navigation Handler
-document.addEventListener('DOMContentLoaded', function() {
-    // Format detected timestamps and publication dates
-    updateDetectedTimestamps();
-    updatePublicationDates();
-
-    // Update timestamps every minute
-    setInterval(updateDetectedTimestamps, 60000);
-
-
-    // Initialize sidebar navigation
-    const sidebarLinks = document.querySelectorAll('.sidebar-nav .nav-link');
-
-    sidebarLinks.forEach(link => {
-        link.addEventListener('click', function(e) {
-            // Don't prevent default for actual href links (Submit Articles, Manage Keywords)
-            if (this.getAttribute('href').startsWith('http') || this.getAttribute('href').startsWith('/')) {
-                return; // Allow normal navigation
-            }
-
-            // Remove active from all, add to clicked
-            sidebarLinks.forEach(l => l.classList.remove('active'));
-            this.classList.add('active');
-        });
-    });
-
-    // Sync Cancel Task button visibility between old button and sidebar
-    const cancelBtn = document.getElementById('cancelBackgroundTaskBtn');
-    const cancelLink = document.getElementById('cancelBackgroundTaskLink');
-
-    if (cancelBtn && cancelLink) {
-        // Create MutationObserver to watch for style changes on the button
-        const observer = new MutationObserver(function(mutations) {
-            mutations.forEach(function(mutation) {
-                if (mutation.attributeName === 'style') {
-                    const display = cancelBtn.style.display;
-                    cancelLink.style.display = display;
-                }
-            });
-        });
-
-        observer.observe(cancelBtn, { attributes: true });
-    }
-});
 
 // Debug initial page data
 document.addEventListener('DOMContentLoaded', function() {
@@ -4482,13 +4002,17 @@ document.addEventListener('DOMContentLoaded', function() {
             if (!paginationState[groupId]) {
                 paginationState[groupId] = { pageSize: 25 };
             }
-            // Trigger paginated load (showRead=false, skipMediaBias=true, page=1, status='added')
+            // Trigger paginated load (showRead=false, skipMediaBias=true, page=1, status='all')
             setTimeout(() => {
-                refreshGroupArticles(topic, groupId, false, true, 1, 'added');
+                refreshGroupArticles(topic, groupId, false, true, 1, 'all');
             }, 100 * groupId); // Stagger loads slightly
         }
     });
 
+    // Initialize reset timer
+    updateResetTimer();
+    setInterval(updateResetTimer, 60000);
+    
     // Add media bias info to all articles
     console.log('Initializing media bias enhancement');
     
@@ -4729,7 +4253,7 @@ function enhanceAllArticlesWithMediaBias() {
                         <span class="bias-badge ${factualClass}" title="Factual Reporting: ${matchedSource.factual}">
                             ${matchedSource.factual}
                         </span>
-                        ${matchedSource.country ? `<span class="badge bg-secondary text-white" title="Country: ${matchedSource.country}">${matchedSource.country}</span>` : ''}
+                        ${matchedSource.country ? `<span class="badge bg-light text-dark border" title="Country: ${matchedSource.country}">${matchedSource.country}</span>` : ''}
                     </div>
                 `;
                 
@@ -6192,19 +5716,19 @@ function updateGroupAlerts(card, data, groupId) {
                 <td>
                     <div class="source-info small">
                         <div class="source-name">${(alert.article.source || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
-                        <div class="text-muted published-date" data-date="${alert.article.publication_date}">
-                            ${alert.article.publication_date || 'Unknown'}
+                        <div class="text-muted">
+                            ${new Date(alert.article.publication_date).toLocaleString()}
                         </div>
                         ${mediaBiasHtml}
                     </div>
                 </td>
                 <td style="width: 15%; min-width: 120px;">
                     <div class="small">
-                        <div class="published-date" data-date="${alert.article.publication_date}">${alert.article.publication_date || 'Unknown'}</div>
+                        <div>${alert.article.publication_date || 'Unknown'}</div>
                         <div class="text-muted">Published</div>
                     </div>
                     <div class="small mt-1">
-                        <div class="detected-timestamp" data-timestamp="${alert.detected_at}">${alert.detected_at || 'Unknown'}</div>
+                        <div>${new Date(alert.detected_at).toLocaleString()}</div>
                         <div class="text-muted">Detected</div>
                     </div>
                 </td>
@@ -6341,11 +5865,7 @@ function updateGroupAlerts(card, data, groupId) {
         }
     } else {
         tableBody.innerHTML = html;
-
-        // Update timestamps and dates to human-friendly format
-        updateDetectedTimestamps();
-        updatePublicationDates();
-
+        
         // Mark this table as dynamically loaded so media bias enhancement knows to update status badges
         const table = tableBody.closest('table');
         if (table) {
@@ -6600,9 +6120,111 @@ function updateStatusDisplay(data) {
             lastErrorElem.style.display = 'none';
         }
     }
+
+    // This section is now handled by the earlier auto-processing toggle update
+    
+    // Update API usage
+    if (data.api_usage) {
+        const resetTimer = document.getElementById('resetTimer');
+        const rateLimitWarning = document.getElementById('rateLimitWarning');
+        
+        if (resetTimer) {
+            const percentage = (data.api_usage.requests_today / data.api_usage.limit) * 100;
+            resetTimer.innerHTML = `<i class="fas fa-refresh"></i> API usage: ${data.api_usage.requests_today}/${data.api_usage.limit}`;
+            
+            if (percentage >= 100) {
+                resetTimer.classList.add('text-danger');
+                resetTimer.classList.remove('text-warning', 'text-muted');
+                
+                // Show rate limit warning
+                if (rateLimitWarning) {
+                    rateLimitWarning.style.display = 'inline';
+                }
+            } else if (percentage >= 80) {
+                resetTimer.classList.add('text-warning');
+                resetTimer.classList.remove('text-danger', 'text-muted');
+                
+                // Hide rate limit warning
+                if (rateLimitWarning) {
+                    rateLimitWarning.style.display = 'none';
+                }
+            } else {
+                resetTimer.classList.add('text-muted');
+                resetTimer.classList.remove('text-danger', 'text-warning');
+                
+                // Hide rate limit warning
+                if (rateLimitWarning) {
+                    rateLimitWarning.style.display = 'none';
+                }
+            }
+        }
+    }
 }
 
-// API usage tracking removed - no longer displayed in UI
+// Update the reset timer function to properly display when API usage will reset
+function updateResetTimer() {
+    // Get current time in UTC/GMT
+    const now = new Date();
+    
+    // Create tomorrow's date at midnight UTC (when API counter resets)
+    const tomorrow = new Date(now);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+    tomorrow.setUTCHours(0, 0, 0, 0);
+    
+    const timeUntilReset = tomorrow - now;
+    const hours = Math.floor(timeUntilReset / (1000 * 60 * 60));
+    const minutes = Math.floor((timeUntilReset % (1000 * 60 * 60)) / (1000 * 60));
+    
+    const resetTimer = document.getElementById('resetTimer');
+    if (resetTimer) {
+        // Get current API usage if available
+        const usageText = resetTimer.dataset.usage || '';
+        resetTimer.innerHTML = `<i class="fas fa-refresh"></i> ${usageText} (Resets in ${hours}h ${minutes}m)`;
+        
+        // Update color based on API usage status
+        if (resetTimer.dataset.status === 'danger') {
+            resetTimer.classList.add('text-danger');
+        } else if (resetTimer.dataset.status === 'warning') {
+            resetTimer.classList.add('text-warning');
+        } else {
+            resetTimer.classList.remove('text-danger', 'text-warning');
+        }
+    }
+}
+
+// Fetch current API usage periodically
+function fetchApiUsage() {
+    fetch('/api/keyword-monitor/status', {
+        credentials: 'same-origin'
+    })
+        .then(response => response.json())
+        .then(data => {
+            if (data.api_usage) {
+                const resetTimer = document.getElementById('resetTimer');
+                if (resetTimer) {
+                    const usage = data.api_usage.requests_today;
+                    const limit = data.api_usage.limit;
+                    const percentage = (usage / limit) * 100;
+                    
+                    // Store the usage text for the reset timer
+                    resetTimer.dataset.usage = `API usage: ${usage}/${limit}`;
+                    
+                    // Update status for coloring
+                    if (percentage >= 100) {
+                        resetTimer.dataset.status = 'danger';
+                    } else if (percentage >= 80) {
+                        resetTimer.dataset.status = 'warning';
+                    } else {
+                        resetTimer.dataset.status = 'normal';
+                    }
+                    
+                    // Update the timer display
+                    updateResetTimer();
+                }
+            }
+        })
+        .catch(error => console.error('Error fetching API usage:', error));
+}
 
 // Function to manually reset the API counter
 async function resetApiCounter() {
@@ -8435,58 +8057,8 @@ function updateAutoIngestThresholdDisplay(value) {
 function showAutoIngestSettings() {
     loadAutoIngestStatus();
     loadAvailableModels(); // Refresh models when opening modal
-    loadNewsProviders(); // Load news providers checkboxes
     const modal = new bootstrap.Modal(document.getElementById('autoIngestSettingsModal'));
     modal.show();
-}
-
-// Load news providers for checkbox selection
-async function loadNewsProviders() {
-    try {
-        const response = await fetch('/api/keyword-monitor/available-providers');
-        if (!response.ok) {
-            console.warn('Could not load news providers:', response.status);
-            return;
-        }
-
-        const data = await response.json();
-        const container = document.getElementById('provider-checkboxes');
-
-        if (!container) return;
-
-        // API returns {providers: [array]}, extract the array
-        const providers = data.providers || [];
-
-        if (!providers || providers.length === 0) {
-            container.innerHTML = '<div class="text-muted small">No news providers configured</div>';
-            return;
-        }
-
-        // Build checkboxes HTML - using API response format (id, name, description, configured)
-        let html = '';
-        providers.forEach(provider => {
-            const checkboxId = `provider-${provider.id}`;
-            html += `
-                <div class="form-check">
-                    <input class="form-check-input" type="checkbox" id="${checkboxId}"
-                           name="providers" value="${provider.id}" ${provider.configured ? 'checked' : ''}>
-                    <label class="form-check-label" for="${checkboxId}">
-                        ${provider.name}
-                        ${provider.description ? `<small class="text-muted d-block">${provider.description}</small>` : ''}
-                    </label>
-                </div>
-            `;
-        });
-
-        container.innerHTML = html;
-
-    } catch (error) {
-        console.error('Error loading news providers:', error);
-        const container = document.getElementById('provider-checkboxes');
-        if (container) {
-            container.innerHTML = '<div class="text-danger small">Error loading providers</div>';
-        }
-    }
 }
 
 // Load available models from server
@@ -9253,6 +8825,4 @@ window.forceHideBadge = forceHideBadge;
 window.debugJobStatus = debugJobStatus;
 
 </script>
-    </div> <!-- Close max-width wrapper -->
-</div> <!-- Close container-fluid -->
 {% endblock %}

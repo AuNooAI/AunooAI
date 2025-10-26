@@ -59,7 +59,7 @@
 }
 
 .news-header {
-    border-bottom: 3px solid var(--primary-dark);
+    border-bottom: 3px solid #FF69B4;
     margin-bottom: 24px;
     padding-bottom: 16px;
     display: flex;
@@ -73,14 +73,18 @@
     font-size: 2rem;
     font-weight: 700;
     margin: 0;
-    color: var(--primary-dark);
+    background: linear-gradient(135deg, #FF69B4, #FF1493);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
     display: flex;
     align-items: center;
     gap: 8px;
 }
 
 .news-title-icon {
-    color: var(--accent-blue);
+    color: #FF69B4;
+    -webkit-text-fill-color: #FF69B4;
 }
 
 .news-date {
@@ -529,15 +533,35 @@
 
 .sidebar-nav .nav-link {
     color: #495057;
-    padding: 12px 16px;
+    padding: 10px 12px;
     border: 1px solid #dee2e6;
     border-radius: 6px;
     transition: all 0.2s ease;
-    font-size: 0.95rem;
+    font-size: 0.9rem;
     display: flex;
     align-items: center;
-    gap: 10px;
+    justify-content: center;
+    gap: 8px;
     background: #fff;
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-sizing: border-box;
+    width: 100%;
+}
+
+.sidebar-nav .nav-link i {
+    width: 18px;
+    min-width: 18px;
+    text-align: center;
+    font-size: 0.95rem;
+    flex-shrink: 0;
+}
+
+.sidebar-nav .nav-link span {
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .sidebar-nav .nav-link:hover {
@@ -551,12 +575,6 @@
     border-color: #FF69B4;
     color: #fff;
     font-weight: 500;
-}
-
-.sidebar-nav .nav-link i {
-    width: 20px;
-    text-align: center;
-    font-size: 1rem;
 }
 
 .main-content-area {
@@ -1738,7 +1756,10 @@
 
     <!-- Header -->
     <div class="news-header" style="position: relative;">
-        <h1 class="news-title">News Narrator</h1>
+        <h1 class="news-title">
+            <i class="fas fa-newspaper news-title-icon"></i>
+            News Narrator
+        </h1>
         <button id="show-ticker-btn"
                 class="btn btn-sm btn-outline-primary"
                 onclick="NewsTicker.show()"
