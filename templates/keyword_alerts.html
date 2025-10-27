@@ -8830,6 +8830,11 @@ async function saveAutoIngestSettings() {
         // Extract polling interval from the select (it's in minutes)
         const pollingIntervalMinutes = parseInt(document.getElementById('pollingInterval').value);
 
+        // Collect selected providers from checkboxes
+        const selectedProviders = Array.from(document.querySelectorAll('input[name="providers"]:checked'))
+            .map(cb => cb.value);
+        const providersJson = JSON.stringify(selectedProviders);
+
         // Build the settings object with all auto-processing fields
         const settings = {
             // Preserve existing search/provider settings from keyword_monitor.html
@@ -8842,6 +8847,7 @@ async function saveAutoIngestSettings() {
             daily_request_limit: currentSettings.daily_request_limit || 100,
             search_date_range: currentSettings.search_date_range || 7,
             provider: currentSettings.provider || "newsapi",
+            providers: providersJson,  // Selected news providers
 
             // Auto-processing settings from the modal
             auto_ingest_enabled: document.getElementById('autoIngestEnabled').checked,
