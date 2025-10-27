@@ -8523,10 +8523,17 @@ function updateAutoIngestThresholdDisplay(value) {
 }
 
 // Show auto-ingest settings modal
-function showAutoIngestSettings() {
-    loadAutoIngestStatus();
-    loadAvailableModels(); // Refresh models when opening modal
-    loadNewsProviders(); // Load news providers checkboxes
+async function showAutoIngestSettings() {
+    // Load models in parallel (independent of providers/status)
+    loadAvailableModels();
+
+    // Load providers FIRST (creates checkboxes as unchecked)
+    await loadNewsProviders();
+
+    // Then load status SECOND (sets checked state from database)
+    await loadAutoIngestStatus();
+
+    // Now show modal with correct state
     const modal = new bootstrap.Modal(document.getElementById('autoIngestSettingsModal'));
     modal.show();
 }
@@ -8557,9 +8564,8 @@ async function loadNewsProviders() {
         let html = '';
         providers.forEach(provider => {
             const checkboxId = `provider-${provider.id}`;
-            // Exclude arxiv and semantic_scholar from default checked state
-            const isExcluded = provider.id === 'arxiv' || provider.id === 'semantic_scholar';
-            const defaultChecked = provider.configured && !isExcluded;
+            // Never default-check - let loadAutoIngestStatus() set checked state from database
+            const defaultChecked = false;
             html += `
                 <div class="form-check">
                     <input class="form-check-input" type="checkbox" id="${checkboxId}"
@@ -8785,6 +8791,24 @@ async function loadAutoIngestStatus() {
         const threshold = settings.min_relevance_threshold || 0.3;
         document.getElementById('autoIngestRelevanceThreshold').value = threshold;
         updateAutoIngestThresholdDisplay(threshold);
+
+        // Update provider checkboxes based on saved settings
+        if (settings.providers) {
+            try {
+                const savedProviders = JSON.parse(settings.providers);
+                // Uncheck all first
+                document.querySelectorAll('input[name="providers"]').forEach(cb => cb.checked = false);
+                // Check saved providers
+                savedProviders.forEach(providerId => {
+                    const checkbox = document.querySelector(`input[name="providers"][value="${providerId}"]`);
+                    if (checkbox) {
+                        checkbox.checked = true;
+                    }
+                });
+            } catch (e) {
+                console.warn('Could not parse saved providers:', e);
+            }
+        }
 
         // Fetch statistics separately
         try {
