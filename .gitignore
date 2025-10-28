@@ -25,6 +25,7 @@ venv/
 ENV/
 
 # Application specific
+backups/
 .env
 .env.encrypted
 .env.backup
