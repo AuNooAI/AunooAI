@@ -806,7 +806,7 @@ class UnifiedFeedService:
                         if date == 'alltime':
                             combo_subclauses.append("(fi.source_type = ?)")
                         else:
-                            combo_subclauses.append(f"(fi.source_type = ? AND fi.publication_date >= date('now', '-{days} days'))")
+                            combo_subclauses.append(f"(fi.source_type = ? AND fi.publication_date >= NOW() - INTERVAL '{days} days')")
                         
                         params.extend([src])
                         
@@ -834,7 +834,7 @@ class UnifiedFeedService:
                             days = None
 
                         if days is not None:
-                            where_conditions.append(f"fi.publication_date >= date('now', '-{days} days')")
+                            where_conditions.append(f"fi.publication_date >= NOW() - INTERVAL '{days} days'")
                 
                 # Search filter
                 if search:
