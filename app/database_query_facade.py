@@ -1627,7 +1627,7 @@ class DatabaseQueryFacade:
             news_source = params[3],
             publication_date = params[4],
             submission_date = func.now(),
-            analyzed = 0,
+            analyzed = False,
             topic = 'General'
         )
         result = self._execute_with_rollback(statement)

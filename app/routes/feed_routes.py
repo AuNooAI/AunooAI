@@ -835,7 +835,7 @@ async def get_feed_item_enrichment(
             sentiment_explanation or future_signal or future_signal_explanation or
             driver_type_explanation or time_to_impact_explanation or
             (summary and summary.strip()) or (tags and tags.strip()) or
-            analyzed == 1
+            analyzed
         )
 
         logger.info(f"API: Enrichment check for {item_url}: category={category}, sentiment={sentiment}, analyzed={analyzed}, topic_alignment_score={topic_alignment_score}, quality_score={quality_score}, is_enriched={is_enriched}")

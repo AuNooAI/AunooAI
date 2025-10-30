@@ -224,7 +224,7 @@ class AsyncDatabase:
             SET
                 title = COALESCE(?, title),
                 summary = COALESCE(?, summary),
-                auto_ingested = 1,
+                auto_ingested = TRUE,
                 ingest_status = ?,
                 quality_score = ?,
                 quality_issues = ?,
