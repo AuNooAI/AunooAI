@@ -841,35 +841,49 @@ Remember to cite your sources and provide actionable insights where possible."""
 
     def update_newsletter_prompt(self, content_type_id: str, prompt_template: str, description: str = None) -> bool:
         """Update the prompt template for a specific newsletter content type."""
+        # Use SQLAlchemy Core for cross-database upsert
+        from sqlalchemy import select, update, insert
+        from app.database_models import t_newsletter_prompts
+
+        conn = self._temp_get_connection()
         try:
-            with self.get_connection() as conn:
-                cursor = conn.cursor()
-                
-                # Get current prompt to check if description should be updated
-                if description is None:
-                    cursor.execute(
-                        "SELECT description FROM newsletter_prompts WHERE content_type_id = ?",
-                        (content_type_id,)
-                    )
-                    result = cursor.fetchone()
-                    if result:
-                        description = result[0]
-                    else:
-                        description = "Custom prompt template"
-                
-                # Update the prompt
-                cursor.execute(
-                    """
-                    INSERT OR REPLACE INTO newsletter_prompts 
-                    (content_type_id, prompt_template, description, last_updated) 
-                    VALUES (?, ?, ?, datetime('now'))
-                    """, 
-                    (content_type_id, prompt_template, description)
+            # If description not provided, preserve existing
+            if description is None:
+                sel = select(t_newsletter_prompts.c.description).where(
+                    t_newsletter_prompts.c.content_type_id == content_type_id
                 )
-                conn.commit()
-                return True
+                existing = conn.execute(sel).fetchone()
+                description = existing[0] if existing else "Custom prompt template"
+
+            # Check existence
+            exists_stmt = select(t_newsletter_prompts.c.content_type_id).where(
+                t_newsletter_prompts.c.content_type_id == content_type_id
+            )
+            exists = conn.execute(exists_stmt).fetchone()
+
+            if exists:
+                upd = update(t_newsletter_prompts).where(
+                    t_newsletter_prompts.c.content_type_id == content_type_id
+                ).values(
+                    prompt_template=prompt_template,
+                    description=description,
+                    last_updated=text('CURRENT_TIMESTAMP')
+                )
+                conn.execute(upd)
+            else:
+                ins = insert(t_newsletter_prompts).values(
+                    content_type_id=content_type_id,
+                    prompt_template=prompt_template,
+                    description=description,
+                    last_updated=text('CURRENT_TIMESTAMP')
+                )
+                conn.execute(ins)
+
+            conn.commit()
+            return True
         except Exception as e:
             logger.error(f"Error updating newsletter prompt: {str(e)}")
+            conn.rollback()
             return False
 
     def create_database(self, name):
@@ -992,7 +1006,20 @@ Remember to cite your sources and provide actionable insights where possible."""
     def save_config_item(self, item_name, content):
         with self.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute("INSERT OR REPLACE INTO config (name, content) VALUES (?, ?)", (item_name, content))
+            if self.db_type == 'postgresql':
+                cursor.execute(
+                    """
+                    INSERT INTO config (name, content)
+                    VALUES (?, ?)
+                    ON CONFLICT (name) DO UPDATE SET content = EXCLUDED.content
+                    """,
+                    (item_name, content)
+                )
+            else:
+                cursor.execute(
+                    "INSERT OR REPLACE INTO config (name, content) VALUES (?, ?)",
+                    (item_name, content)
+                )
             conn.commit()
 
     def get_recent_articles(self, limit=10):
@@ -1338,16 +1365,31 @@ Remember to cite your sources and provide actionable insights where possible."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
-                # NOTE: signal_instructions table created via Alembic migration
-                # See: alembic/versions/b6a5ff4214f5_add_incident_status_table.py
+                # Upsert compatible with PostgreSQL and SQLite
+                if self.db_type == 'postgresql':
+                    cursor.execute(
+                        """
+                        INSERT INTO signal_instructions (name, description, instruction, topic, is_active, updated_at)
+                        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        ON CONFLICT (name) DO UPDATE SET
+                          description = EXCLUDED.description,
+                          instruction = EXCLUDED.instruction,
+                          topic = EXCLUDED.topic,
+                          is_active = EXCLUDED.is_active,
+                          updated_at = CURRENT_TIMESTAMP
+                        """,
+                        (name, description, instruction, topic, is_active)
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        INSERT OR REPLACE INTO signal_instructions 
+                        (name, description, instruction, topic, is_active, updated_at)
+                        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        """,
+                        (name, description, instruction, topic, is_active)
+                    )
 
-                # Insert or replace signal instruction
-                cursor.execute("""
-                    INSERT OR REPLACE INTO signal_instructions 
-                    (name, description, instruction, topic, is_active, updated_at)
-                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, (name, description, instruction, topic, is_active))
-                
                 conn.commit()
                 logger.info(f"Saved signal instruction: {name}")
                 return True
@@ -1443,13 +1485,31 @@ Remember to cite your sources and provide actionable insights where possible."""
             try:
                 # NOTE: signal_alerts table created via Alembic migration
                 # See: alembic/versions/b6a5ff4214f5_add_incident_status_table.py
-
-                # Insert or replace alert
-                cursor.execute("""
-                    INSERT OR REPLACE INTO signal_alerts 
-                    (article_uri, instruction_id, instruction_name, confidence, threat_level, summary, detected_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (article_uri, instruction_id, instruction_name, confidence, threat_level, summary, detected_at))
+                # Upsert alert
+                if self.db_type == 'postgresql':
+                    cursor.execute(
+                        """
+                        INSERT INTO signal_alerts 
+                        (article_uri, instruction_id, instruction_name, confidence, threat_level, summary, detected_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT (article_uri, instruction_id) DO UPDATE SET
+                          instruction_name = EXCLUDED.instruction_name,
+                          confidence = EXCLUDED.confidence,
+                          threat_level = EXCLUDED.threat_level,
+                          summary = EXCLUDED.summary,
+                          detected_at = EXCLUDED.detected_at
+                        """,
+                        (article_uri, instruction_id, instruction_name, confidence, threat_level, summary, detected_at)
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        INSERT OR REPLACE INTO signal_alerts 
+                        (article_uri, instruction_id, instruction_name, confidence, threat_level, summary, detected_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (article_uri, instruction_id, instruction_name, confidence, threat_level, summary, detected_at)
+                    )
                 
                 conn.commit()
                 logger.info(f"Saved signal alert for article {article_uri} with instruction {instruction_name}")
@@ -1636,10 +1696,25 @@ Remember to cite your sources and provide actionable insights where possible."""
                 # Create table if it doesn't exist
                 self.create_incident_status_table()
                 
-                cursor.execute("""
-                    INSERT OR REPLACE INTO incident_status (incident_name, topic, status, updated_at)
-                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-                """, (incident_name, topic, status))
+                if self.db_type == 'postgresql':
+                    cursor.execute(
+                        """
+                        INSERT INTO incident_status (incident_name, topic, status, updated_at)
+                        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                        ON CONFLICT (incident_name, topic) DO UPDATE SET
+                          status = EXCLUDED.status,
+                          updated_at = CURRENT_TIMESTAMP
+                        """,
+                        (incident_name, topic, status)
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        INSERT OR REPLACE INTO incident_status (incident_name, topic, status, updated_at)
+                        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                        """,
+                        (incident_name, topic, status)
+                    )
                 
                 conn.commit()
                 logger.info(f"Updated incident status: {incident_name} -> {status}")
@@ -2699,30 +2774,26 @@ Remember to cite your sources and provide actionable insights where possible."""
 
     def get_article_annotations(self, article_uri: str, include_private: bool = False) -> list:
         logger.debug(f"Getting annotations for article URI: {article_uri}")
+        from sqlalchemy import select, desc
+        from app.database_models import t_article_annotations
+
+        conn = self._temp_get_connection()
         try:
-            with self.get_connection() as conn:
-                conn.row_factory = sqlite3.Row
-                cursor = conn.cursor()
-                
-                query = """
-                    SELECT * FROM article_annotations 
-                    WHERE article_uri = ?
-                """
-                if not include_private:
-                    query += " AND is_private = 0"
-                query += " ORDER BY created_at DESC"
-                
-                logger.debug(f"Executing query: {query} with URI: {article_uri}")  # Fixed debug logging
-                cursor.execute(query, (article_uri,))
-                annotations = [dict(row) for row in cursor.fetchall()]
-                logger.debug(f"Found {len(annotations)} annotations")
-                conn.commit()  # CRITICAL: Commit to close transaction
-                return annotations
-        except sqlite3.Error as e:
-            logger.error(f"Database error getting annotations: {str(e)}")
-            raise
+            stmt = select(t_article_annotations).where(
+                t_article_annotations.c.article_uri == article_uri
+            )
+            if not include_private:
+                stmt = stmt.where(t_article_annotations.c.is_private == False)  # noqa: E712
+            stmt = stmt.order_by(desc(t_article_annotations.c.created_at))
+
+            result = conn.execute(stmt).mappings()
+            annotations = [dict(row) for row in result]
+            conn.commit()  # CRITICAL: Commit to close transaction
+            logger.debug(f"Found {len(annotations)} annotations")
+            return annotations
         except Exception as e:
             logger.error(f"Error getting annotations: {str(e)}")
+            conn.rollback()
             raise
 
     def update_article_annotation(self, annotation_id: int, content: str, is_private: bool) -> bool:
