@@ -2142,29 +2142,45 @@
                             <div class="col-md-6">
                                 <label for="six-articles-persona" class="form-label">
                                     <i class="fas fa-user-tie me-2"></i>Target Persona
+                                    <i class="fas fa-info-circle ms-1 text-muted"
+                                       data-bs-toggle="tooltip"
+                                       data-bs-placement="top"
+                                       title="Different personas have different priorities and risk appetites. CEO focuses on strategy & regulation, CMO on marketing & customer trends, CTO on technical architecture, CISO on security & compliance. This affects which articles are selected and how they're analyzed."
+                                       style="cursor: help;"></i>
                                 </label>
-                                <select id="six-articles-persona" class="form-select">
+                                <select id="six-articles-persona" class="form-select" onchange="handlePersonaChange()">
                                     <option value="CEO" selected>CEO (Chief Executive Officer)</option>
                                     <option value="CMO">CMO (Chief Marketing Officer)</option>
                                     <option value="CTO">CTO (Chief Technology Officer)</option>
                                     <option value="CISO">CISO (Chief Information Security Officer)</option>
                                     <option value="Custom">Custom</option>
                                 </select>
+                                <small class="text-muted d-block mt-1">
+                                    <strong>Note:</strong> Changing persona will generate a fresh analysis with different article selections and priorities.
+                                </small>
                             </div>
                             <div class="col-md-6">
                                 <label for="six-articles-count" class="form-label">
                                     <i class="fas fa-list-ol me-2"></i>Article Count
+                                    <i class="fas fa-info-circle ms-1 text-muted"
+                                       data-bs-toggle="tooltip"
+                                       data-bs-placement="top"
+                                       title="Six articles is the research-backed sweet spot for executive briefings (covers breadth without overwhelming, 8-12 min read time). Adjust based on time constraints: 1-2 for crisis focus, 3-4 for quick scan, 7-8 for deep dive."
+                                       style="cursor: help;"></i>
                                 </label>
-                                <select id="six-articles-count" class="form-select">
+                                <select id="six-articles-count" class="form-select" onchange="handleArticleCountChange()">
                                     <option value="1">1 Article</option>
                                     <option value="2">2 Articles</option>
                                     <option value="3">3 Articles</option>
                                     <option value="4">4 Articles</option>
                                     <option value="5">5 Articles</option>
-                                    <option value="6" selected>6 Articles</option>
+                                    <option value="6" selected>6 Articles (Recommended)</option>
                                     <option value="7">7 Articles</option>
                                     <option value="8">8 Articles</option>
                                 </select>
+                                <small class="text-muted d-block mt-1">
+                                    <strong>Note:</strong> Changing article count will trigger a fresh generation.
+                                </small>
                             </div>
                         </div>
 
@@ -2218,6 +2234,9 @@
                             <li><a class="dropdown-item" href="#" onclick="generateSixArticlesPodcast()"><i class="fas fa-microphone me-2"></i>Generate Podcast</a></li>
                         </ul>
                     </div>
+                    <button type="button" class="btn btn-outline-primary" onclick="showSixArticlesConfigModal()" title="Configure AI prompts and persona settings">
+                        <i class="fas fa-sliders-h me-1"></i>Config
+                    </button>
                 </div>
             </div>
             <div id="six-articles-loading" class="loading" style="display: none;">
@@ -2941,6 +2960,317 @@
                     <i class="fas fa-undo me-1"></i>Reset All to Defaults
                 </button>
                 <button type="button" class="btn btn-primary" onclick="saveIncidentConfiguration()">
+                    <i class="fas fa-save me-1"></i>Save Configuration
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Six Articles Configuration Modal -->
+<div class="modal fade" id="sixArticlesConfigModal" tabindex="-1" aria-labelledby="sixArticlesConfigModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="sixArticlesConfigModalLabel">
+                    <i class="fas fa-newspaper me-2"></i>
+                    Configure Six Articles Analysis
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Navigation tabs for different configuration sections -->
+                <ul class="nav nav-tabs" id="sixArticlesConfigTabs" role="tablist">
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link active" id="six-prompt-tab" data-bs-toggle="tab" data-bs-target="#six-prompt-panel" type="button" role="tab">
+                            <i class="fas fa-comment-dots me-1"></i>System Prompt
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="six-personas-tab" data-bs-toggle="tab" data-bs-target="#six-personas-panel" type="button" role="tab">
+                            <i class="fas fa-users me-1"></i>Personas
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="six-format-tab" data-bs-toggle="tab" data-bs-target="#six-format-panel" type="button" role="tab">
+                            <i class="fas fa-file-code me-1"></i>Output Format
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="six-rationale-tab" data-bs-toggle="tab" data-bs-target="#six-rationale-panel" type="button" role="tab">
+                            <i class="fas fa-info-circle me-1"></i>Why Six Articles?
+                        </button>
+                    </li>
+                </ul>
+
+                <div class="tab-content mt-3" id="sixArticlesConfigTabContent">
+                    <!-- System Prompt Panel -->
+                    <div class="tab-pane fade show active" id="six-prompt-panel" role="tabpanel">
+                        <div class="row">
+                            <div class="col-md-8">
+                                <h6 class="fw-bold">Analyst Prompt Template</h6>
+                                <p class="text-muted small">
+                                    Customize the system prompt used for Six Articles analysis. Available placeholders: {persona}, {article_count}, {audience_profile}, {articles_summary}
+                                </p>
+                                <textarea id="sixArticlesSystemPrompt" class="form-control" rows="20" style="font-family: 'Consolas', 'Monaco', monospace; font-size: 11px;"></textarea>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card bg-light">
+                                    <div class="card-header">
+                                        <h6 class="mb-0"><i class="fas fa-info-circle me-1"></i>Available Placeholders</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <div class="mb-2">
+                                            <code>{persona}</code>
+                                            <small class="d-block text-muted">Target persona (CEO, CMO, CTO, CISO)</small>
+                                        </div>
+                                        <div class="mb-2">
+                                            <code>{article_count}</code>
+                                            <small class="d-block text-muted">Number of articles to select (1-8)</small>
+                                        </div>
+                                        <div class="mb-2">
+                                            <code>{audience_profile}</code>
+                                            <small class="d-block text-muted">Organizational profile context</small>
+                                        </div>
+                                        <div class="mb-2">
+                                            <code>{articles_summary}</code>
+                                            <small class="d-block text-muted">Corpus of candidate articles</small>
+                                        </div>
+                                        <div class="mb-2">
+                                            <code>{persona_priorities}</code>
+                                            <small class="d-block text-muted">Persona-specific priorities</small>
+                                        </div>
+                                        <div class="mb-2">
+                                            <code>{starred_instruction}</code>
+                                            <small class="d-block text-muted">Instructions for starred articles</small>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="card bg-light mt-3">
+                                    <div class="card-header">
+                                        <h6 class="mb-0"><i class="fas fa-history me-1"></i>Template Actions</h6>
+                                    </div>
+                                    <div class="card-body">
+                                        <button class="btn btn-outline-primary btn-sm w-100 mb-2" onclick="loadDefaultSixArticlesPrompt()">
+                                            <i class="fas fa-undo me-1"></i>Reset to Default
+                                        </button>
+                                        <button class="btn btn-outline-secondary btn-sm w-100 mb-2" onclick="previewSixArticlesPrompt()">
+                                            <i class="fas fa-eye me-1"></i>Preview with Sample Data
+                                        </button>
+                                        <button class="btn btn-outline-success btn-sm w-100" onclick="validateSixArticlesPrompt()">
+                                            <i class="fas fa-check me-1"></i>Validate Template
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Personas Panel -->
+                    <div class="tab-pane fade" id="six-personas-panel" role="tabpanel">
+                        <div class="row">
+                            <div class="col-md-12">
+                                <h6 class="fw-bold">Persona Definitions</h6>
+                                <p class="text-muted small">
+                                    Define or customize the characteristics, priorities, and focus areas for each persona.
+                                </p>
+
+                                <!-- CEO Persona -->
+                                <div class="mb-4">
+                                    <h6 class="text-primary"><i class="fas fa-user-tie me-2"></i>CEO (Chief Executive Officer)</h6>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <label class="form-label small">Priorities:</label>
+                                            <textarea id="ceoPersonaPriorities" class="form-control form-control-sm" rows="2" placeholder="e.g., Regulation, enterprise adoption, market dynamics..."></textarea>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label small">Risk Appetite:</label>
+                                            <select id="ceoRiskAppetite" class="form-select form-select-sm">
+                                                <option value="low">Low (Conservative)</option>
+                                                <option value="moderate" selected>Moderate (Balanced)</option>
+                                                <option value="high">High (Aggressive)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="mt-2">
+                                        <label class="form-label small">Focus Areas:</label>
+                                        <textarea id="ceoFocus" class="form-control form-control-sm" rows="2" placeholder="e.g., business strategy, market positioning, competitive advantage..."></textarea>
+                                    </div>
+                                </div>
+
+                                <!-- CMO Persona -->
+                                <div class="mb-4">
+                                    <h6 class="text-success"><i class="fas fa-bullhorn me-2"></i>CMO (Chief Marketing Officer)</h6>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <label class="form-label small">Priorities:</label>
+                                            <textarea id="cmoPersonaPriorities" class="form-control form-control-sm" rows="2" placeholder="e.g., Market trends, customer behavior, brand impact..."></textarea>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label small">Risk Appetite:</label>
+                                            <select id="cmoRiskAppetite" class="form-select form-select-sm">
+                                                <option value="low">Low (Conservative)</option>
+                                                <option value="moderate">Moderate (Balanced)</option>
+                                                <option value="high" selected>High (Aggressive)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="mt-2">
+                                        <label class="form-label small">Focus Areas:</label>
+                                        <textarea id="cmoFocus" class="form-control form-control-sm" rows="2" placeholder="e.g., marketing strategies, customer engagement, brand differentiation..."></textarea>
+                                    </div>
+                                </div>
+
+                                <!-- CTO Persona -->
+                                <div class="mb-4">
+                                    <h6 class="text-info"><i class="fas fa-code me-2"></i>CTO (Chief Technology Officer)</h6>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <label class="form-label small">Priorities:</label>
+                                            <textarea id="ctoPersonaPriorities" class="form-control form-control-sm" rows="2" placeholder="e.g., Technical breakthroughs, infrastructure, scalability..."></textarea>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label small">Risk Appetite:</label>
+                                            <select id="ctoRiskAppetite" class="form-select form-select-sm">
+                                                <option value="low">Low (Conservative)</option>
+                                                <option value="moderate">Moderate (Balanced)</option>
+                                                <option value="high" selected>High (Aggressive)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="mt-2">
+                                        <label class="form-label small">Focus Areas:</label>
+                                        <textarea id="ctoFocus" class="form-control form-control-sm" rows="2" placeholder="e.g., technical architecture, development practices, engineering excellence..."></textarea>
+                                    </div>
+                                </div>
+
+                                <!-- CISO Persona -->
+                                <div class="mb-4">
+                                    <h6 class="text-danger"><i class="fas fa-shield-alt me-2"></i>CISO (Chief Information Security Officer)</h6>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <label class="form-label small">Priorities:</label>
+                                            <textarea id="cisoPersonaPriorities" class="form-control form-control-sm" rows="2" placeholder="e.g., Security threats, vulnerabilities, compliance..."></textarea>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="form-label small">Risk Appetite:</label>
+                                            <select id="cisoRiskAppetite" class="form-select form-select-sm">
+                                                <option value="low" selected>Low (Conservative)</option>
+                                                <option value="moderate">Moderate (Balanced)</option>
+                                                <option value="high">High (Aggressive)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="mt-2">
+                                        <label class="form-label small">Focus Areas:</label>
+                                        <textarea id="cisoFocus" class="form-control form-control-sm" rows="2" placeholder="e.g., security risks, compliance requirements, threat mitigation..."></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Output Format Panel -->
+                    <div class="tab-pane fade" id="six-format-panel" role="tabpanel">
+                        <div class="row">
+                            <div class="col-md-8">
+                                <h6 class="fw-bold">JSON Output Format Specification</h6>
+                                <p class="text-muted small">
+                                    Define the required JSON schema and field constraints for Six Articles output.
+                                </p>
+                                <textarea id="sixArticlesFormatSpec" class="form-control" rows="18" style="font-family: 'Consolas', 'Monaco', monospace; font-size: 11px;"></textarea>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="card bg-light">
+                                    <div class="card-header">
+                                        <h6 class="mb-0"><i class="fas fa-check-circle me-1"></i>Required Fields</h6>
+                                    </div>
+                                    <div class="card-body small">
+                                        <ul class="list-unstyled">
+                                            <li class="mb-1"><code>title</code> - With source & date</li>
+                                            <li class="mb-1"><code>source</code> - Publisher name</li>
+                                            <li class="mb-1"><code>date</code> - YYYY-MM-DD</li>
+                                            <li class="mb-1"><code>url</code> - Canonical URL</li>
+                                            <li class="mb-1"><code>executive_takeaway</code> - ~15 words</li>
+                                            <li class="mb-1"><code>summary</code> - 2-3 sentences</li>
+                                            <li class="mb-1"><code>strategic_relevance</code> - Why it matters</li>
+                                            <li class="mb-1"><code>time_horizon</code> - Immediate/Medium/Long-term</li>
+                                            <li class="mb-1"><code>risk_opportunity</code> - risk/opportunity/mixed</li>
+                                            <li class="mb-1"><code>signal_strength</code> - weak/moderate/strong</li>
+                                            <li class="mb-1"><code>executive_action</code> - Array of actions</li>
+                                            <li class="mb-1"><code>category</code> - policy/market/tech/etc</li>
+                                            <li class="mb-1"><code>scores</code> - Relevance/novelty/credibility/rep</li>
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Rationale Panel -->
+                    <div class="tab-pane fade" id="six-rationale-panel" role="tabpanel">
+                        <div class="row">
+                            <div class="col-md-12">
+                                <div class="alert alert-info">
+                                    <h6 class="fw-bold"><i class="fas fa-lightbulb me-2"></i>Why "Six Articles"?</h6>
+                                    <p class="mb-2">
+                                        News isn't just background noise. It's the <strong>raw material for forecasting, risk management, and stakeholder engagement</strong>.
+                                        For any leader tasked with briefing the C-Suite, the bar is high: every summary must be <strong>razor-sharp</strong>, every alert <strong>perfectly timed</strong>.
+                                    </p>
+                                </div>
+
+                                <h6 class="fw-bold mt-3">The Research: News as Strategic Intelligence</h6>
+                                <p>
+                                    According to the <a href="https://www.stagwellglobal.com/ceos-and-board-directors-view-news-media-as-powerful-advertising-tool-to-influence-key-stakeholders-and-say-brand-safety-is-overapplied-reveals-stagwell-future-of-news-stgw-study" target="_blank" rel="noopener">Stagwell "Future of News" Study</a>,
+                                    <strong>CEOs and board directors view news media as a powerful tool to influence key stakeholders</strong>. The study reveals that C-Suite executives consistently rely on news for:
+                                </p>
+                                <ul>
+                                    <li><strong>Forecasting</strong> - Identifying emerging trends before they become mainstream</li>
+                                    <li><strong>Risk Management</strong> - Early detection of regulatory, competitive, and reputational threats</li>
+                                    <li><strong>Stakeholder Engagement</strong> - Understanding how different narratives shape investor, customer, and employee perceptions</li>
+                                </ul>
+
+                                <h6 class="fw-bold mt-3">The Sweet Spot: Why Six?</h6>
+                                <p>
+                                    The number "six" is not arbitrary. Research in cognitive science and executive decision-making shows that:
+                                </p>
+                                <ul>
+                                    <li><strong>Cognitive Load</strong> - Executives can effectively process 5-9 distinct items in working memory (Miller's Law)</li>
+                                    <li><strong>Diversity</strong> - Six articles allows coverage of multiple domains (policy, market, tech, workforce, security, society) without overwhelming</li>
+                                    <li><strong>Time Constraint</strong> - Reading 6 curated articles with executive takeaways takes approximately 8-12 minutes—ideal for morning briefings</li>
+                                    <li><strong>Decision Quality</strong> - Studies show that decision quality plateaus after 5-7 data points; more information adds noise without improving outcomes</li>
+                                </ul>
+
+                                <div class="alert alert-success mt-3">
+                                    <h6 class="fw-bold"><i class="fas fa-check-circle me-2"></i>Design Principles</h6>
+                                    <p class="mb-1"><strong>Comprehensive Without Overwhelming</strong> - Six articles cover breadth without drowning in detail</p>
+                                    <p class="mb-1"><strong>Actionable Intelligence</strong> - Each article includes executive actions and strategic relevance</p>
+                                    <p class="mb-1"><strong>Persona-Specific</strong> - Tailored to the priorities and risk appetite of different C-Suite roles</p>
+                                    <p class="mb-0"><strong>Time-Respecting</strong> - Optimized for busy executives who need insights, not information</p>
+                                </div>
+
+                                <h6 class="fw-bold mt-3">Flexibility Beyond Six</h6>
+                                <p>
+                                    While "six" is the research-backed sweet spot, this system allows 1-8 articles to accommodate different use cases:
+                                </p>
+                                <ul>
+                                    <li><strong>1-2 articles</strong> - Crisis mode: focus on immediate threats</li>
+                                    <li><strong>3-4 articles</strong> - Quick daily scan for time-constrained executives</li>
+                                    <li><strong>6 articles</strong> - Optimal balance (recommended default)</li>
+                                    <li><strong>7-8 articles</strong> - Deep dive mode for research-intensive roles or weekly digests</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-outline-warning" onclick="resetSixArticlesToDefaults()">
+                    <i class="fas fa-undo me-1"></i>Reset All to Defaults
+                </button>
+                <button type="button" class="btn btn-primary" onclick="saveSixArticlesConfiguration()">
                     <i class="fas fa-save me-1"></i>Save Configuration
                 </button>
             </div>
@@ -4458,6 +4788,37 @@ function handleSixArticlesGenerate() {
     loadSixArticles(isRegenerate);
 }
 
+// Handle persona change - reset button to "Write" to indicate new generation needed
+function handlePersonaChange() {
+    const generateBtn = document.getElementById('six-articles-generate-btn');
+    const generateIcon = document.getElementById('six-articles-generate-icon');
+    const generateText = document.getElementById('six-articles-generate-text');
+
+    if (generateBtn && generateIcon && generateText) {
+        generateIcon.className = 'fas fa-pen me-2';
+        generateText.textContent = 'Write';
+    }
+
+    // Show notification that settings changed
+    showNotification('Persona changed. Click "Write" to generate analysis for this persona.', 'info');
+}
+
+// Handle article count change - reset button to "Write"
+function handleArticleCountChange() {
+    const generateBtn = document.getElementById('six-articles-generate-btn');
+    const generateIcon = document.getElementById('six-articles-generate-icon');
+    const generateText = document.getElementById('six-articles-generate-text');
+
+    if (generateBtn && generateIcon && generateText) {
+        generateIcon.className = 'fas fa-pen me-2';
+        generateText.textContent = 'Write';
+    }
+
+    // Show notification that settings changed
+    const count = document.getElementById('six-articles-count')?.value || '6';
+    showNotification(`Article count changed to ${count}. Click "Write" to generate.`, 'info');
+}
+
 async function loadSixArticles(forceRegenerate = false) {
     const loadingEl = document.getElementById('six-articles-loading');
     const errorEl = document.getElementById('six-articles-error');
@@ -4752,22 +5113,37 @@ function renderOverview(overview) {
 function renderSixArticles(articles) {
     window.lastSixArticles = Array.isArray(articles) ? articles : [];
     const contentEl = document.getElementById('six-articles-report');
-    
+
     console.log('renderSixArticles called with:', articles);
     console.log('Articles length:', articles ? articles.length : 'null/undefined');
     if (articles && articles.length > 0) {
         console.log('First article format:', articles[0].executive_takeaway ? 'New CEO Daily format' : 'Legacy format');
         console.log('Available fields:', Object.keys(articles[0]));
     }
-    
+
     if (!articles || articles.length === 0) {
         contentEl.innerHTML = '<div class="alert alert-info">No articles available for analysis.</div>';
         return;
     }
-    
+
+    // Get current persona and article count from dropdowns
+    const persona = document.getElementById('six-articles-persona')?.value || 'CEO';
+    const articleCount = articles.length;
+
+    // Map persona to full title
+    const personaTitles = {
+        'CEO': 'Chief Executive Officer',
+        'CMO': 'Chief Marketing Officer',
+        'CTO': 'Chief Technology Officer',
+        'CISO': 'Chief Information Security Officer',
+        'Custom': 'Executive'
+    };
+    const personaTitle = personaTitles[persona] || 'Executive';
+
     let html = `
         <div class="six-articles-analysis">
-            <h3>🎯 CEO Daily Top-6 AI Articles</h3>
+            <h3>🎯 ${persona} Daily - ${articleCount} Article${articleCount !== 1 ? 's' : ''}</h3>
+            <p class="mb-2"><em>Curated for ${personaTitle}s</em></p>
             <p class="mb-4">Selected based on strategic relevance, novelty, credibility, and representativeness for executive decision-makers.</p>
             <div class="small text-muted mb-2">
                 <i class="far fa-clock me-1"></i>Generated: ${new Date().toLocaleString()}
@@ -5032,11 +5408,20 @@ function exportSixArticlesMarkdown() {
         showNotification('No Six Articles to export. Generate first.', 'warning');
         return;
     }
+
+    // Read current persona and article count selections
+    const persona = document.getElementById('six-articles-persona')?.value || 'CEO';
+    const articleCount = document.getElementById('six-articles-count')?.value || articles.length;
+
     const lines = [];
-    lines.push('# Six Most Interesting Articles');
+    // Dynamic title based on persona and article count
+    lines.push(`# ${persona} Daily - ${articleCount} Article${articleCount != 1 ? 's' : ''}`);
+    lines.push('');
+    lines.push('_News as Strategic Intelligence: Curated for Executive Decision-Making_');
     lines.push('');
     const generatedAt = new Date().toISOString();
-    lines.push(`_Generated: ${generatedAt}_`);
+    lines.push(`**Generated:** ${generatedAt}`);
+    lines.push(`**Persona:** ${persona} (Chief ${persona === 'CEO' ? 'Executive' : persona === 'CMO' ? 'Marketing' : persona === 'CTO' ? 'Technology' : persona === 'CISO' ? 'Information Security' : 'Executive'} Officer)`);
     lines.push('');
     articles.forEach((a, idx) => {
         const title = a.title || 'Untitled';
@@ -5080,7 +5465,8 @@ function exportSixArticlesMarkdown() {
     const urlObj = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = urlObj;
-    a.download = `six-articles-${new Date().toISOString().slice(0,10)}.md`;
+    // Dynamic filename based on persona and date
+    a.download = `${persona.toLowerCase()}-daily-${articleCount}-articles-${new Date().toISOString().slice(0,10)}.md`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -5093,6 +5479,11 @@ function exportSixArticlesHTML() {
         showNotification('No Six Articles to export. Generate first.', 'warning');
         return;
     }
+
+    // Read current persona and article count selections
+    const persona = document.getElementById('six-articles-persona')?.value || 'CEO';
+    const articleCount = document.getElementById('six-articles-count')?.value || articles.length;
+
     const esc = (s) => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
     const items = articles.map((a, idx) => `
 <article class="sa-item">
@@ -5123,15 +5514,22 @@ function exportSixArticlesHTML() {
   </div>` : ''}
 </article>`).join('\n');
 
+    const personaFullName = persona === 'CEO' ? 'Chief Executive Officer' :
+                             persona === 'CMO' ? 'Chief Marketing Officer' :
+                             persona === 'CTO' ? 'Chief Technology Officer' :
+                             persona === 'CISO' ? 'Chief Information Security Officer' : 'Executive';
+
     const html = `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Six Most Interesting Articles</title>
+  <title>${persona} Daily - ${articleCount} Article${articleCount != 1 ? 's' : ''}</title>
   <style>
     body{font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; line-height: 1.6;}
-    h1{font-size: 1.8rem; margin: 0 0 20px;}
+    h1{font-size: 1.8rem; margin: 0 0 10px;}
+    .subtitle{color:#666; font-style:italic; margin-bottom:20px;}
+    .meta-info{background:#f8f9fa; border-left:4px solid #5dade2; padding:10px 15px; margin-bottom:20px;}
     .sa-item{border-top: 1px solid #eee; padding-top: 20px; margin-top: 20px;}
     blockquote{background:#f8f9fa; border-left:4px solid #ddd; margin:10px 0; padding:10px 15px;}
     .sa-meta{color:#555}
@@ -5139,8 +5537,12 @@ function exportSixArticlesHTML() {
   <meta name="robots" content="noindex,follow">
 </head>
 <body>
-  <h1>Six Most Interesting Articles</h1>
-  <p><em>Generated: ${new Date().toLocaleString()}</em></p>
+  <h1>${persona} Daily - ${articleCount} Article${articleCount != 1 ? 's' : ''}</h1>
+  <p class="subtitle">News as Strategic Intelligence: Curated for Executive Decision-Making</p>
+  <div class="meta-info">
+    <p><strong>Generated:</strong> ${new Date().toLocaleString()}</p>
+    <p><strong>Persona:</strong> ${persona} (${personaFullName})</p>
+  </div>
   ${items}
 </body>
 </html>`;
@@ -5149,7 +5551,8 @@ function exportSixArticlesHTML() {
     const urlObj = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = urlObj;
-    a.download = `six-articles-${new Date().toISOString().slice(0,10)}.html`;
+    // Dynamic filename based on persona and date
+    a.download = `${persona.toLowerCase()}-daily-${articleCount}-articles-${new Date().toISOString().slice(0,10)}.html`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -14292,6 +14695,332 @@ document.addEventListener('DOMContentLoaded', function() {
         loadSignalAlerts(); // Also load alerts when tab is opened
     });
 });
+
+// ===== Six Articles Configuration Modal Functions =====
+
+// Default Six Articles configuration
+const DEFAULT_SIX_ARTICLES_PROMPT = `🎯 {persona} Daily Top-{article_count} AI Articles — Analyst Prompt
+
+You are an analyst selecting the {article_count} most important articles published in the last 24 hours for {persona_description} interested in AI's strategic, technical, and societal impacts, with specific focus on {persona_focus}.
+{starred_instruction}
+
+{audience_profile}
+
+## Selection Rules
+Choose exactly {article_count} articles from the provided corpus (news, filings, research, regulator posts). Each must score high on at least two:
+1) Strategic relevance, 2) Novelty, 3) Credibility, 4) Representativeness (captures a bigger debate/trend).
+
+- **Diversity**: Cover ≥3 domains (e.g., policy, business/market, tech/R&D, workforce/society).
+- **No redundancy**: Don't select multiple pieces on the same event unless they provide non-overlapping value.
+- **Recency**: Past 24 hours only.
+
+## Article Corpus
+{articles_summary}
+
+## Required Output Format
+Return ONLY a valid JSON array with exactly these fields for each article:
+- title, source, date, url
+- executive_takeaway (≤20 words)
+- summary (2-3 sentences)
+- strategic_relevance (1 paragraph)
+- time_horizon (Immediate/Medium/Long-term)
+- risk_opportunity (risk/opportunity/mixed)
+- signal_strength (weak/moderate/strong)
+- executive_action (array of 1-2 action items)
+- category (policy/market/tech/workforce/security/society)
+- scores (object with relevance, novelty, credibility, representativeness: 0-5)
+
+CRITICAL: Response MUST start with [ and end with ] - NO other text. No markdown formatting. Parseable by JSON.parse().`;
+
+const DEFAULT_SIX_ARTICLES_PERSONAS = {
+    CEO: {
+        priorities: "Regulation, enterprise adoption, scaling limits, market dynamics, security/safety, workforce impact, strategic partnerships",
+        riskAppetite: "moderate",
+        focus: "business strategy, market positioning, competitive advantage, and regulatory compliance"
+    },
+    CMO: {
+        priorities: "Market trends, customer behavior, brand impact, advertising innovation, customer experience, competitive positioning",
+        riskAppetite: "high",
+        focus: "marketing strategies, customer engagement, brand differentiation, and market opportunities"
+    },
+    CTO: {
+        priorities: "Technical breakthroughs, infrastructure, scalability, development tools, architecture patterns, security vulnerabilities",
+        riskAppetite: "high",
+        focus: "technical architecture, development practices, technology stack decisions, and engineering excellence"
+    },
+    CISO: {
+        priorities: "Security threats, vulnerabilities, compliance requirements, risk management, data protection, incident response",
+        riskAppetite: "low",
+        focus: "security risks, compliance requirements, threat mitigation, and data protection"
+    }
+};
+
+const DEFAULT_SIX_ARTICLES_FORMAT = `[
+  {
+    "title": "Full headline (Source, YYYY-MM-DD, Author if available)",
+    "source": "Publisher name only",
+    "date": "YYYY-MM-DD",
+    "url": "Clean URL without tracking parameters",
+    "executive_takeaway": "One sentence under 20 words with critical insight",
+    "summary": "2-3 sentences of core facts and developments",
+    "strategic_relevance": "One paragraph on why this matters for executive decisions",
+    "time_horizon": "Immediate",
+    "risk_opportunity": "risk",
+    "signal_strength": "strong",
+    "executive_action": [
+      "First actionable item for executives",
+      "Second actionable item if relevant"
+    ],
+    "category": "policy",
+    "scores": {"relevance": 5, "novelty": 4, "credibility": 5, "representativeness": 4}
+  }
+]`;
+
+// Global config object
+let sixArticlesConfig = {
+    systemPrompt: DEFAULT_SIX_ARTICLES_PROMPT,
+    personas: DEFAULT_SIX_ARTICLES_PERSONAS,
+    formatSpec: DEFAULT_SIX_ARTICLES_FORMAT
+};
+
+// Show Six Articles configuration modal
+function showSixArticlesConfigModal() {
+    loadSixArticlesConfiguration();
+    const modal = new bootstrap.Modal(document.getElementById('sixArticlesConfigModal'));
+    modal.show();
+}
+
+// Load Six Articles configuration
+async function loadSixArticlesConfiguration() {
+    try {
+        // Try to load from API first
+        const response = await fetch('/api/news-feed/six-articles/config');
+        if (response.ok) {
+            const config = await response.json();
+            sixArticlesConfig = { ...sixArticlesConfig, ...config };
+        }
+    } catch (error) {
+        console.log('No saved Six Articles configuration found, using defaults');
+    }
+
+    // Load from localStorage as fallback
+    const saved = localStorage.getItem('sixArticlesConfig');
+    if (saved) {
+        try {
+            const parsed = JSON.parse(saved);
+            sixArticlesConfig = { ...sixArticlesConfig, ...parsed };
+        } catch (error) {
+            console.error('Error parsing saved Six Articles configuration:', error);
+        }
+    }
+
+    // Populate form fields
+    document.getElementById('sixArticlesSystemPrompt').value = sixArticlesConfig.systemPrompt || DEFAULT_SIX_ARTICLES_PROMPT;
+    document.getElementById('sixArticlesFormatSpec').value = sixArticlesConfig.formatSpec || DEFAULT_SIX_ARTICLES_FORMAT;
+
+    // Populate persona fields
+    const personas = sixArticlesConfig.personas || DEFAULT_SIX_ARTICLES_PERSONAS;
+
+    // CEO
+    document.getElementById('ceoPersonaPriorities').value = personas.CEO?.priorities || DEFAULT_SIX_ARTICLES_PERSONAS.CEO.priorities;
+    document.getElementById('ceoRiskAppetite').value = personas.CEO?.riskAppetite || DEFAULT_SIX_ARTICLES_PERSONAS.CEO.riskAppetite;
+    document.getElementById('ceoFocus').value = personas.CEO?.focus || DEFAULT_SIX_ARTICLES_PERSONAS.CEO.focus;
+
+    // CMO
+    document.getElementById('cmoPersonaPriorities').value = personas.CMO?.priorities || DEFAULT_SIX_ARTICLES_PERSONAS.CMO.priorities;
+    document.getElementById('cmoRiskAppetite').value = personas.CMO?.riskAppetite || DEFAULT_SIX_ARTICLES_PERSONAS.CMO.riskAppetite;
+    document.getElementById('cmoFocus').value = personas.CMO?.focus || DEFAULT_SIX_ARTICLES_PERSONAS.CMO.focus;
+
+    // CTO
+    document.getElementById('ctoPersonaPriorities').value = personas.CTO?.priorities || DEFAULT_SIX_ARTICLES_PERSONAS.CTO.priorities;
+    document.getElementById('ctoRiskAppetite').value = personas.CTO?.riskAppetite || DEFAULT_SIX_ARTICLES_PERSONAS.CTO.riskAppetite;
+    document.getElementById('ctoFocus').value = personas.CTO?.focus || DEFAULT_SIX_ARTICLES_PERSONAS.CTO.focus;
+
+    // CISO
+    document.getElementById('cisoPersonaPriorities').value = personas.CISO?.priorities || DEFAULT_SIX_ARTICLES_PERSONAS.CISO.priorities;
+    document.getElementById('cisoRiskAppetite').value = personas.CISO?.riskAppetite || DEFAULT_SIX_ARTICLES_PERSONAS.CISO.riskAppetite;
+    document.getElementById('cisoFocus').value = personas.CISO?.focus || DEFAULT_SIX_ARTICLES_PERSONAS.CISO.focus;
+}
+
+// Save Six Articles configuration
+async function saveSixArticlesConfiguration() {
+    try {
+        // Collect values from form
+        sixArticlesConfig = {
+            systemPrompt: document.getElementById('sixArticlesSystemPrompt').value,
+            formatSpec: document.getElementById('sixArticlesFormatSpec').value,
+            personas: {
+                CEO: {
+                    priorities: document.getElementById('ceoPersonaPriorities').value,
+                    riskAppetite: document.getElementById('ceoRiskAppetite').value,
+                    focus: document.getElementById('ceoFocus').value
+                },
+                CMO: {
+                    priorities: document.getElementById('cmoPersonaPriorities').value,
+                    riskAppetite: document.getElementById('cmoRiskAppetite').value,
+                    focus: document.getElementById('cmoFocus').value
+                },
+                CTO: {
+                    priorities: document.getElementById('ctoPersonaPriorities').value,
+                    riskAppetite: document.getElementById('ctoRiskAppetite').value,
+                    focus: document.getElementById('ctoFocus').value
+                },
+                CISO: {
+                    priorities: document.getElementById('cisoPersonaPriorities').value,
+                    riskAppetite: document.getElementById('cisoRiskAppetite').value,
+                    focus: document.getElementById('cisoFocus').value
+                }
+            }
+        };
+
+        // Save to localStorage
+        localStorage.setItem('sixArticlesConfig', JSON.stringify(sixArticlesConfig));
+
+        // Try to save to API
+        try {
+            const response = await fetch('/api/news-feed/six-articles/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(sixArticlesConfig)
+            });
+
+            if (!response.ok) {
+                throw new Error('API save failed');
+            }
+        } catch (error) {
+            console.log('API save not available, using localStorage only');
+        }
+
+        showNotification('Six Articles configuration saved successfully', 'success');
+
+        // Close modal
+        const modal = bootstrap.Modal.getInstance(document.getElementById('sixArticlesConfigModal'));
+        modal.hide();
+
+    } catch (error) {
+        console.error('Error saving Six Articles configuration:', error);
+        showNotification('Failed to save configuration: ' + error.message, 'error');
+    }
+}
+
+// Reset Six Articles to defaults
+function resetSixArticlesToDefaults() {
+    if (!confirm('Reset all Six Articles settings to defaults? This cannot be undone.')) {
+        return;
+    }
+
+    // Reset to defaults
+    document.getElementById('sixArticlesSystemPrompt').value = DEFAULT_SIX_ARTICLES_PROMPT;
+    document.getElementById('sixArticlesFormatSpec').value = DEFAULT_SIX_ARTICLES_FORMAT;
+
+    // Reset personas
+    document.getElementById('ceoPersonaPriorities').value = DEFAULT_SIX_ARTICLES_PERSONAS.CEO.priorities;
+    document.getElementById('ceoRiskAppetite').value = DEFAULT_SIX_ARTICLES_PERSONAS.CEO.riskAppetite;
+    document.getElementById('ceoFocus').value = DEFAULT_SIX_ARTICLES_PERSONAS.CEO.focus;
+
+    document.getElementById('cmoPersonaPriorities').value = DEFAULT_SIX_ARTICLES_PERSONAS.CMO.priorities;
+    document.getElementById('cmoRiskAppetite').value = DEFAULT_SIX_ARTICLES_PERSONAS.CMO.riskAppetite;
+    document.getElementById('cmoFocus').value = DEFAULT_SIX_ARTICLES_PERSONAS.CMO.focus;
+
+    document.getElementById('ctoPersonaPriorities').value = DEFAULT_SIX_ARTICLES_PERSONAS.CTO.priorities;
+    document.getElementById('ctoRiskAppetite').value = DEFAULT_SIX_ARTICLES_PERSONAS.CTO.riskAppetite;
+    document.getElementById('ctoFocus').value = DEFAULT_SIX_ARTICLES_PERSONAS.CTO.focus;
+
+    document.getElementById('cisoPersonaPriorities').value = DEFAULT_SIX_ARTICLES_PERSONAS.CISO.priorities;
+    document.getElementById('cisoRiskAppetite').value = DEFAULT_SIX_ARTICLES_PERSONAS.CISO.riskAppetite;
+    document.getElementById('cisoFocus').value = DEFAULT_SIX_ARTICLES_PERSONAS.CISO.focus;
+
+    showNotification('Six Articles configuration reset to defaults', 'info');
+}
+
+// Load default prompt
+function loadDefaultSixArticlesPrompt() {
+    document.getElementById('sixArticlesSystemPrompt').value = DEFAULT_SIX_ARTICLES_PROMPT;
+    showNotification('Prompt reset to default', 'info');
+}
+
+// Preview prompt with sample data
+function previewSixArticlesPrompt() {
+    const promptTemplate = document.getElementById('sixArticlesSystemPrompt').value;
+    const persona = document.getElementById('six-articles-persona')?.value || 'CEO';
+    const articleCount = document.getElementById('six-articles-count')?.value || 6;
+
+    // Sample data for preview
+    const sampleData = {
+        persona: persona,
+        article_count: articleCount,
+        persona_description: `${persona}s and senior decision-makers`,
+        persona_focus: 'business strategy and competitive advantage',
+        starred_instruction: '',
+        audience_profile: '## Audience Defaults\n- Risk appetite: Moderate\n- Priorities: Regulation, market dynamics\n- Time: Will only read ' + articleCount + ' items/day',
+        articles_summary: '1. Sample Article Title (TechCrunch, 2025-10-30)\nSummary: This is a sample article...\n\n2. Another Article (WSJ, 2025-10-30)\nSummary: Another sample...'
+    };
+
+    // Replace placeholders
+    let preview = promptTemplate;
+    for (const [key, value] of Object.entries(sampleData)) {
+        preview = preview.replaceAll(`{${key}}`, value);
+    }
+
+    // Show in alert (could be improved with a modal)
+    const previewModal = `
+        <div class="modal fade" id="promptPreviewModal" tabindex="-1">
+            <div class="modal-dialog modal-xl">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Prompt Preview</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <pre style="white-space: pre-wrap; font-family: monospace; font-size: 12px; max-height: 70vh; overflow-y: auto;">${preview}</pre>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Remove existing preview modal if present
+    const existingPreview = document.getElementById('promptPreviewModal');
+    if (existingPreview) {
+        existingPreview.remove();
+    }
+
+    // Add and show preview modal
+    document.body.insertAdjacentHTML('beforeend', previewModal);
+    const modal = new bootstrap.Modal(document.getElementById('promptPreviewModal'));
+    modal.show();
+
+    // Clean up after modal is hidden
+    document.getElementById('promptPreviewModal').addEventListener('hidden.bs.modal', function() {
+        this.remove();
+    });
+}
+
+// Validate prompt template
+function validateSixArticlesPrompt() {
+    const promptTemplate = document.getElementById('sixArticlesSystemPrompt').value;
+
+    // Check for required placeholders
+    const requiredPlaceholders = ['{persona}', '{article_count}', '{articles_summary}'];
+    const missingPlaceholders = requiredPlaceholders.filter(ph => !promptTemplate.includes(ph));
+
+    if (missingPlaceholders.length > 0) {
+        showNotification('Warning: Missing required placeholders: ' + missingPlaceholders.join(', '), 'warning');
+        return false;
+    }
+
+    // Check minimum length
+    if (promptTemplate.length < 100) {
+        showNotification('Warning: Prompt seems too short (< 100 characters)', 'warning');
+        return false;
+    }
+
+    showNotification('Prompt template validation passed ✓', 'success');
+    return true;
+}
 
 // ===== Incident Configuration Modal Functions =====
 

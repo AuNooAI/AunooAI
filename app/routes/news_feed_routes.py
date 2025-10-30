@@ -211,12 +211,16 @@ async def get_six_articles_report(
     starred_articles: Optional[str] = Query(None, description="Comma-separated URIs of starred articles"),
     persona: Optional[str] = Query("CEO", description="Target persona: CEO, CMO, CTO, CISO, or Custom"),
     article_count: int = Query(6, ge=1, le=8, description="Number of articles to select (1-8)"),
+    session=Depends(verify_session),
     db: Database = Depends(get_database_instance),
     force_regenerate: bool = Query(False, description="Bypass cache and regenerate fresh output")
 ):
     """Generate only the six articles detailed report"""
 
     try:
+        # Get user_id from session for loading custom config
+        user_id = session.get("user_id")
+
         # Parse date if provided
         target_date = None
         if date:
@@ -231,7 +235,7 @@ async def get_six_articles_report(
             starred_uris = [uri.strip() for uri in starred_articles.split(',') if uri.strip()]
             logger.info(f"Received {len(starred_uris)} starred articles for six articles generation")
 
-        # Create request
+        # Create request with user_id
         request = NewsFeedRequest(
             date=target_date,
             date_range=date_range,
@@ -241,7 +245,8 @@ async def get_six_articles_report(
             profile_id=profile_id,
             persona=persona,
             article_count=article_count,
-            starred_articles=starred_uris
+            starred_articles=starred_uris,
+            user_id=user_id
         )
         
         # Generate only six articles report
@@ -439,6 +444,134 @@ async def get_six_articles_markdown(
     except Exception as e:
         logger.error(f"Error generating markdown six articles: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/six-articles/config")
+async def get_six_articles_config(
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """
+    Get Six Articles configuration (system prompt, personas, format spec)
+    Returns user-specific config or defaults if none exists
+    """
+    try:
+        user_id = session.get("user_id")
+
+        # Try to load user-specific config from database
+        config = db.facade.get_six_articles_config(user_id)
+
+        if config:
+            return config
+
+        # Return defaults if no custom config exists
+        default_config = {
+            "systemPrompt": None,  # Will use hardcoded default in service
+            "personas": {
+                "CEO": {
+                    "priorities": "Regulation, enterprise adoption, scaling limits, market dynamics, security/safety, workforce impact, strategic partnerships",
+                    "riskAppetite": "moderate",
+                    "focus": "business strategy, market positioning, competitive advantage, and regulatory compliance"
+                },
+                "CMO": {
+                    "priorities": "Market trends, customer behavior, brand impact, advertising innovation, customer experience, competitive positioning",
+                    "riskAppetite": "high",
+                    "focus": "marketing strategies, customer engagement, brand differentiation, and market opportunities"
+                },
+                "CTO": {
+                    "priorities": "Technical breakthroughs, infrastructure, scalability, development tools, architecture patterns, security vulnerabilities",
+                    "riskAppetite": "high",
+                    "focus": "technical architecture, development practices, technology stack decisions, and engineering excellence"
+                },
+                "CISO": {
+                    "priorities": "Security threats, vulnerabilities, compliance requirements, risk management, data protection, incident response",
+                    "riskAppetite": "low",
+                    "focus": "security risks, compliance requirements, threat mitigation, and data protection"
+                }
+            },
+            "formatSpec": None  # Will use hardcoded default in service
+        }
+
+        return default_config
+
+    except Exception as e:
+        logger.error(f"Error retrieving Six Articles config: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve configuration")
+
+
+@router.post("/six-articles/config")
+async def save_six_articles_config(
+    config: dict,
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """
+    Save Six Articles configuration (system prompt, personas, format spec)
+    Stored per-user in database
+    """
+    try:
+        user_id = session.get("user_id")
+
+        # Validate config structure
+        if "personas" in config:
+            required_personas = ["CEO", "CMO", "CTO", "CISO"]
+            for persona in required_personas:
+                if persona not in config["personas"]:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Missing required persona: {persona}"
+                    )
+
+        # Save to database
+        success = db.facade.save_six_articles_config(user_id, config)
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to save configuration")
+
+        logger.info(f"Six Articles config saved for user {user_id}")
+        return {"status": "success", "message": "Configuration saved successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving Six Articles config: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save configuration")
+
+
+@router.get("/six-articles/config/defaults")
+async def get_six_articles_defaults(session=Depends(verify_session)):
+    """
+    Get default Six Articles configuration
+    Useful for reset functionality
+    """
+    default_config = {
+        "systemPrompt": None,  # Indicates use of hardcoded default
+        "personas": {
+            "CEO": {
+                "priorities": "Regulation, enterprise adoption, scaling limits, market dynamics, security/safety, workforce impact, strategic partnerships",
+                "riskAppetite": "moderate",
+                "focus": "business strategy, market positioning, competitive advantage, and regulatory compliance"
+            },
+            "CMO": {
+                "priorities": "Market trends, customer behavior, brand impact, advertising innovation, customer experience, competitive positioning",
+                "riskAppetite": "high",
+                "focus": "marketing strategies, customer engagement, brand differentiation, and market opportunities"
+            },
+            "CTO": {
+                "priorities": "Technical breakthroughs, infrastructure, scalability, development tools, architecture patterns, security vulnerabilities",
+                "riskAppetite": "high",
+                "focus": "technical architecture, development practices, technology stack decisions, and engineering excellence"
+            },
+            "CISO": {
+                "priorities": "Security threats, vulnerabilities, compliance requirements, risk management, data protection, incident response",
+                "riskAppetite": "low",
+                "focus": "security risks, compliance requirements, threat mitigation, and data protection"
+            }
+        },
+        "formatSpec": None  # Indicates use of hardcoded default
+    }
+
+    return default_config
 
 
 def _convert_overview_to_markdown(overview) -> str:
