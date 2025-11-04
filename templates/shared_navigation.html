@@ -1,0 +1,155 @@
+<!-- Shared Navigation - Matches React SharedNavigation component -->
+<div class="shared-nav-sidebar">
+  <!-- Logo/Brand -->
+  <div class="shared-nav-header">
+    <h2 class="shared-nav-logo">AuNoo AI</h2>
+    <p class="shared-nav-subtitle">Operations Platform</p>
+  </div>
+
+  <!-- Navigation -->
+  <nav class="shared-nav-menu">
+    <ul class="shared-nav-list">
+      <li class="shared-nav-item">
+        <a href="/" class="shared-nav-link {% if current_page == 'health' %}shared-nav-active{% endif %}">
+          <i class="fas fa-activity"></i>
+          <span>Health</span>
+        </a>
+      </li>
+      <li class="shared-nav-item">
+        <a href="/trend-convergence" class="shared-nav-link {% if current_page == 'anticipate' %}shared-nav-active{% endif %}">
+          <i class="fas fa-trending-up"></i>
+          <span>Anticipate</span>
+        </a>
+      </li>
+      <li class="shared-nav-item">
+        <a href="/news-feed" class="shared-nav-link {% if current_page == 'investigate' %}shared-nav-active{% endif %}">
+          <i class="fas fa-search"></i>
+          <span>Investigate</span>
+        </a>
+      </li>
+      <li class="shared-nav-item">
+        <a href="/keyword-alerts" class="shared-nav-link {% if current_page == 'gather' %}shared-nav-active{% endif %}">
+          <i class="fas fa-database"></i>
+          <span>Gather</span>
+        </a>
+      </li>
+    </ul>
+  </nav>
+
+  <!-- Footer -->
+  <div class="shared-nav-footer">
+    v1.0.0
+  </div>
+</div>
+
+<!-- Shared Navigation Styles -->
+<style>
+/* Shared Navigation - Matches React/Tailwind styles from trend-convergence */
+.shared-nav-layout {
+  display: flex;
+  height: 100vh;
+  background-color: #f3f4f6;
+}
+
+.shared-nav-sidebar {
+  width: 16rem; /* 256px - matches w-64 */
+  background-color: white;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #e5e7eb;
+  flex-shrink: 0;
+}
+
+.shared-nav-header {
+  padding: 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.shared-nav-logo {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #ec4899; /* pink-500 */
+  margin: 0;
+}
+
+.shared-nav-subtitle {
+  font-size: 0.75rem;
+  color: #6b7280;
+  margin-top: 0.25rem;
+  margin-bottom: 0;
+}
+
+.shared-nav-menu {
+  flex: 1;
+  padding: 1rem;
+}
+
+.shared-nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.shared-nav-item {
+  margin: 0;
+}
+
+.shared-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  font-weight: 500;
+  color: #374151;
+  text-decoration: none;
+  transition: all 0.15s ease;
+}
+
+.shared-nav-link:hover {
+  background-color: #f9fafb;
+  color: #ec4899;
+}
+
+.shared-nav-link.shared-nav-active {
+  background-color: #fdf2f8;
+  color: #ec4899;
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+.shared-nav-link i {
+  width: 1.25rem;
+  height: 1.25rem;
+  font-size: 1.25rem;
+}
+
+.shared-nav-footer {
+  padding: 1rem;
+  border-top: 1px solid #e5e7eb;
+  font-size: 0.75rem;
+  color: #6b7280;
+  text-align: center;
+}
+
+.shared-nav-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2rem;
+}
+
+/* Override any conflicting base.html styles */
+body {
+  margin: 0;
+  overflow: hidden;
+}
+
+.container {
+  max-width: 100%;
+  padding: 0;
+  margin: 0;
+}
+</style>

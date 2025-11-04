@@ -48,7 +48,7 @@ async def get_topics_unified(
         # If filtering to topics with articles, get database topics
         if with_articles:
             db = Database()
-            facade = DatabaseQueryFacade(db)
+            facade = DatabaseQueryFacade(db, logger)
             db_topics_info = facade.get_topics_with_article_counts()
             db_topic_names = set(db_topics_info.keys())
 

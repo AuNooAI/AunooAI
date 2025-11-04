@@ -2275,7 +2275,7 @@ class DatabaseQueryFacade:
             articles.c.topic
         )
         
-        db_topics = {row[0]: {"article_count": row[1], "last_article_date": row[2]}
+        db_topics = {row['topic']: {"article_count": row['article_count'], "last_article_date": row['last_article_date']}
                         for row in self._execute_with_rollback(statement).mappings().fetchall()}
         return db_topics
 

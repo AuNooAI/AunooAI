@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Aunoo{% endblock %}</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="/static/css/styles.css">
+    {% block extra_css %}{% endblock %}
+
+    <style>
+        /* Reset body and container for sidebar layout */
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+
+        /* Shared Navigation Sidebar Layout */
+        .shared-nav-layout {
+            display: flex;
+            height: 100vh;
+            background-color: #f3f4f6;
+        }
+
+        .shared-nav-sidebar {
+            width: 16rem; /* 256px */
+            background-color: white;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid #e5e7eb;
+            flex-shrink: 0;
+            overflow-y: auto;
+        }
+
+        .shared-nav-header {
+            padding: 1.5rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .shared-nav-logo {
+            font-size: 1.125rem;
+            font-weight: 600;
+            color: #ec4899;
+            margin: 0;
+            letter-spacing: 0.05em;
+        }
+
+        .shared-nav-menu {
+            flex: 1;
+            padding: 1rem 0.75rem;
+        }
+
+        /* Section Labels */
+        .nav-section-label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #9ca3af;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 0.5rem 0.75rem;
+            margin-top: 0.5rem;
+        }
+
+        .nav-section-label:first-child {
+            margin-top: 0;
+        }
+
+        .shared-nav-list {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 0.125rem;
+        }
+
+        .shared-nav-item {
+            margin: 0;
+        }
+
+        .shared-nav-link {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.625rem 0.75rem;
+            border-radius: 0.375rem;
+            font-size: 0.875rem;
+            font-weight: 400;
+            color: #374151;
+            text-decoration: none;
+            transition: all 0.15s ease;
+            position: relative;
+        }
+
+        .shared-nav-link span {
+            flex: 1;
+        }
+
+        .shared-nav-link:hover {
+            background-color: #f9fafb;
+            color: #ec4899;
+        }
+
+        .shared-nav-link.shared-nav-active {
+            background-color: #fdf2f8;
+            color: #ec4899;
+        }
+
+        .shared-nav-link i:first-child {
+            width: 1.125rem;
+            font-size: 1.125rem;
+            text-align: center;
+        }
+
+        .nav-chevron {
+            width: 0.75rem !important;
+            font-size: 0.625rem !important;
+            margin-left: auto;
+            transition: transform 0.2s ease;
+        }
+
+        .shared-nav-link.open .nav-chevron {
+            transform: rotate(180deg);
+        }
+
+        /* Submenu Styles */
+        .nav-submenu {
+            list-style: none;
+            margin: 0;
+            padding: 0;
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+        }
+
+        .nav-submenu.open {
+            max-height: 500px;
+        }
+
+        .nav-submenu-link {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.5rem 0.75rem 0.5rem 2.5rem;
+            font-size: 0.8125rem;
+            color: #6b7280;
+            text-decoration: none;
+            transition: all 0.15s ease;
+            border-radius: 0.375rem;
+        }
+
+        .nav-submenu-link:hover {
+            background-color: #f9fafb;
+            color: #ec4899;
+        }
+
+        .nav-submenu-link.active {
+            color: #ec4899;
+            font-weight: 500;
+        }
+
+        .nav-submenu-link i {
+            width: 1rem;
+            font-size: 0.875rem;
+        }
+
+        /* Dark Mode Toggle */
+        .toggle-switch {
+            width: 2.5rem;
+            height: 1.25rem;
+            background-color: #e5e7eb;
+            border-radius: 0.625rem;
+            position: relative;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            margin-left: auto;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            top: 0.125rem;
+            left: 0.125rem;
+            width: 1rem;
+            height: 1rem;
+            background-color: white;
+            border-radius: 50%;
+            transition: transform 0.2s;
+        }
+
+        .toggle-switch input:checked + .toggle-slider {
+            transform: translateX(1.25rem);
+        }
+
+        .toggle-switch input:checked ~ {
+            background-color: #ec4899;
+        }
+
+        #dark-mode-toggle:has(input:checked) .toggle-switch {
+            background-color: #ec4899;
+        }
+
+        /* User Profile Footer */
+        .shared-nav-footer {
+            padding: 1rem;
+            border-top: 1px solid #e5e7eb;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            background-color: #f9fafb;
+        }
+
+        .user-profile {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex: 1;
+        }
+
+        .user-avatar {
+            width: 2rem;
+            height: 2rem;
+            border-radius: 50%;
+            background-color: #ec4899;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.875rem;
+        }
+
+        .user-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .user-name {
+            font-size: 0.8125rem;
+            font-weight: 500;
+            color: #374151;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .user-email {
+            font-size: 0.6875rem;
+            color: #9ca3af;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .logout-link {
+            width: 2rem;
+            height: 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.375rem;
+            color: #6b7280;
+            transition: all 0.15s ease;
+        }
+
+        .logout-link:hover {
+            background-color: #fee2e2;
+            color: #dc2626;
+        }
+
+        .shared-nav-content {
+            flex: 1;
+            overflow-y: auto;
+            background-color: #f3f4f6;
+        }
+    </style>
+</head>
+<body>
+    <div class="shared-nav-layout">
+        <!-- Shared Navigation Sidebar -->
+        <div class="shared-nav-sidebar">
+            <!-- Logo/Brand -->
+            <div class="shared-nav-header">
+                <h2 class="shared-nav-logo">AUNOOAI</h2>
+            </div>
+
+            <!-- Navigation -->
+            <nav class="shared-nav-menu">
+                <!-- General Section -->
+                <div class="nav-section-label">General</div>
+                <ul class="shared-nav-list">
+                    <li class="shared-nav-item">
+                        <a href="/" class="shared-nav-link {% if current_page == 'home' %}shared-nav-active{% endif %}">
+                            <i class="fas fa-home"></i>
+                            <span>Operations HQ</span>
+                        </a>
+                    </li>
+                    <li class="shared-nav-item">
+                        <a href="/trend-convergence" class="shared-nav-link {% if current_page == 'anticipate' %}shared-nav-active{% endif %}">
+                            <i class="fas fa-chart-line"></i>
+                            <span>Anticipate</span>
+                        </a>
+                    </li>
+                    <li class="shared-nav-item">
+                        <a href="/news-feed-v2" class="shared-nav-link {% if current_page == 'investigate' %}shared-nav-active{% endif %}">
+                            <i class="fas fa-search"></i>
+                            <span>Explore</span>
+                        </a>
+                    </li>
+                    <li class="shared-nav-item">
+                        <a href="/keyword-alerts" class="shared-nav-link {% if current_page == 'gather' %}shared-nav-active{% endif %}">
+                            <i class="fas fa-download"></i>
+                            <span>Gather</span>
+                        </a>
+                    </li>
+                </ul>
+
+                <!-- Support Section -->
+                <div class="nav-section-label">Support</div>
+                <ul class="shared-nav-list">
+                    <li class="shared-nav-item has-submenu">
+                        <a href="#" class="shared-nav-link nav-toggle" data-target="settings-menu">
+                            <i class="fas fa-cog"></i>
+                            <span>Settings</span>
+                            <i class="fas fa-chevron-down nav-chevron"></i>
+                        </a>
+                        <ul class="nav-submenu" id="settings-menu">
+                            <li><a href="/config" class="nav-submenu-link"><i class="fas fa-sliders-h"></i> App Configuration</a></li>
+                            <li><a href="/onboarding?redo=true" class="nav-submenu-link"><i class="fas fa-hat-wizard"></i> AI-guided Topic Setup</a></li>
+                            <li><a href="/create_topic" class="nav-submenu-link"><i class="fas fa-folder-plus"></i> Topic Editor</a></li>
+                            <li><a href="/promptmanager" class="nav-submenu-link"><i class="fas fa-brain"></i> Prompt Engineering</a></li>
+                            <li><a href="/model-bias-arena" class="nav-submenu-link"><i class="fas fa-balance-scale"></i> Model Bias Arena</a></li>
+                            <li><a href="/vector-analysis-improved" class="nav-submenu-link"><i class="fas fa-vector-square"></i> Exploratory Analysis</a></li>
+                            <li><a href="/database-editor" class="nav-submenu-link"><i class="fas fa-edit"></i> Database Editor</a></li>
+                            <li><a href="/analytics" class="nav-submenu-link"><i class="fas fa-chart-bar"></i> Analytics</a></li>
+                        </ul>
+                    </li>
+                    <li class="shared-nav-item has-submenu">
+                        <a href="#" class="shared-nav-link nav-toggle" data-target="appinfo-menu">
+                            <i class="fas fa-info-circle"></i>
+                            <span>App Info</span>
+                            <i class="fas fa-chevron-down nav-chevron"></i>
+                        </a>
+                        <ul class="nav-submenu" id="appinfo-menu">
+                            <li><a href="/health/dashboard" class="nav-submenu-link"><i class="fas fa-heartbeat"></i> System Health</a></li>
+                            <li><a href="https://aunoo-ai.gitbook.io/aunoo-ai-kb" target="_blank" class="nav-submenu-link"><i class="fas fa-book"></i> Knowledge Base</a></li>
+                            <li><a href="https://discord.gg/hEUNYDm5KH" target="_blank" class="nav-submenu-link"><i class="fab fa-discord"></i> Discord Community</a></li>
+                            <li><a href="https://chromewebstore.google.com/detail/aunoo-ai-chrome-browser-e/fjgiomiceklnoaefnhliablhgoodceji" target="_blank" class="nav-submenu-link"><i class="fab fa-chrome"></i> Chrome Extension</a></li>
+                        </ul>
+                    </li>
+                    <li class="shared-nav-item">
+                        <a href="#" class="shared-nav-link" id="dark-mode-toggle">
+                            <i class="fas fa-moon"></i>
+                            <span>Dark Mode</span>
+                            <div class="toggle-switch">
+                                <input type="checkbox" id="dark-mode-checkbox">
+                                <span class="toggle-slider"></span>
+                            </div>
+                        </a>
+                    </li>
+                </ul>
+            </nav>
+
+            <!-- User Profile Footer -->
+            <div class="shared-nav-footer">
+                <div class="user-profile">
+                    <div class="user-avatar">
+                        <i class="fas fa-user"></i>
+                    </div>
+                    <div class="user-info">
+                        <div class="user-name">{% if session and session.user %}{{ session.user.username }}{% else %}User{% endif %}</div>
+                        <div class="user-email">{% if session and session.user %}{{ session.user.email }}{% endif %}</div>
+                    </div>
+                </div>
+                <a href="/logout" class="logout-link">
+                    <i class="fas fa-sign-out-alt"></i>
+                </a>
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div class="shared-nav-content">
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script>
+        // Submenu toggle functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const toggleLinks = document.querySelectorAll('.nav-toggle');
+
+            toggleLinks.forEach(link => {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    const targetId = this.getAttribute('data-target');
+                    const submenu = document.getElementById(targetId);
+
+                    if (submenu) {
+                        // Toggle submenu
+                        submenu.classList.toggle('open');
+
+                        // Toggle chevron rotation
+                        this.classList.toggle('open');
+                    }
+                });
+            });
+
+            // Dark mode toggle
+            const darkModeToggle = document.getElementById('dark-mode-toggle');
+            const darkModeCheckbox = document.getElementById('dark-mode-checkbox');
+
+            if (darkModeToggle && darkModeCheckbox) {
+                darkModeToggle.addEventListener('click', function(e) {
+                    if (e.target.tagName !== 'INPUT') {
+                        e.preventDefault();
+                        darkModeCheckbox.checked = !darkModeCheckbox.checked;
+                    }
+                    // Add dark mode implementation here if needed
+                    console.log('Dark mode:', darkModeCheckbox.checked);
+                });
+            }
+
+            // Auto-expand submenu if current page is in it
+            const activeSubmenuLink = document.querySelector('.nav-submenu-link.active');
+            if (activeSubmenuLink) {
+                const parentSubmenu = activeSubmenuLink.closest('.nav-submenu');
+                if (parentSubmenu) {
+                    parentSubmenu.classList.add('open');
+                    const toggleLink = document.querySelector(`[data-target="${parentSubmenu.id}"]`);
+                    if (toggleLink) {
+                        toggleLink.classList.add('open');
+                    }
+                }
+            }
+        });
+    </script>
+
+    {% block extra_js %}{% endblock %}
+
+    <!-- Auspex Chat Modal -->
+    {% include 'auspex-chat.html' %}
+</body>
+</html>

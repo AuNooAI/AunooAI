@@ -353,6 +353,75 @@ async def health_check():
     }
 
 
+@router.get("/api/health")
+async def api_health():
+    """
+    API health endpoint for React frontend.
+
+    Returns detailed health metrics in a format suitable for the Operations HQ dashboard.
+    """
+    uptime = time.time() - START_TIME
+
+    try:
+        process = psutil.Process()
+
+        health_data = {
+            "status": "healthy",
+            "uptime": {
+                "days": int(uptime / 86400),
+                "hours": int(uptime / 3600),
+                "minutes": int(uptime / 60)
+            },
+            "warnings": [],
+            "cpu": {
+                "process_percent": round(process.cpu_percent(interval=0.1), 2),
+                "system_percent": round(psutil.cpu_percent(interval=0.1), 2),
+                "core_count": psutil.cpu_count(),
+                "load_average": list(os.getloadavg()) if hasattr(os, 'getloadavg') else None
+            },
+            "memory": get_memory_stats(),
+            "disk": get_disk_stats(),
+            "file_descriptors": get_file_descriptor_stats()
+        }
+
+        # Check for warnings
+        warnings = []
+        if health_data["memory"]["system"]["percent"] >= 90:
+            warnings.append("Memory usage is critically high (>90%)")
+        elif health_data["memory"]["system"]["percent"] >= 75:
+            warnings.append("Memory usage is elevated (>75%)")
+
+        if health_data["disk"]["root"]["percent"] >= 90:
+            warnings.append("Disk space is critically low (<10% free)")
+        elif health_data["disk"]["root"]["percent"] >= 75:
+            warnings.append("Disk space is running low (<25% free)")
+
+        if health_data["file_descriptors"]["usage_percent"] >= 90:
+            warnings.append("File descriptor usage is critically high (>90%)")
+
+        health_data["warnings"] = warnings
+
+        # Set status based on warnings
+        if any("critically" in w.lower() for w in warnings):
+            health_data["status"] = "critical"
+        elif warnings:
+            health_data["status"] = "degraded"
+
+        return health_data
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "uptime": {
+                "days": 0,
+                "hours": 0,
+                "minutes": 0
+            },
+            "warnings": [f"Error collecting health metrics: {str(e)}"]
+        }
+
+
 @router.get("/health/detailed", tags=["Health"])
 async def detailed_health():
     """

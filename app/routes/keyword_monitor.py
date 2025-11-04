@@ -794,7 +794,8 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                 "last_check_time": interval_settings.get('last_run_time'),
                 "next_check_time": interval_settings.get('next_run_time'),
                 "last_error": interval_settings.get('last_error'),
-                "session": session
+                "session": session,
+                "current_page": "gather"
             }
         )
 
@@ -808,7 +809,8 @@ async def keyword_alerts_page(request: Request, session=Depends(verify_session),
                 "groups": [],
                 "status_colors": {},
                 "error": str(e),
-                "session": session
+                "session": session,
+                "current_page": "gather"
             }
         )
 

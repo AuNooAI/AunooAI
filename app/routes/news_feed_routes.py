@@ -310,7 +310,8 @@ async def news_feed_v2_page(request: Request, session=Depends(verify_session)):
         "request": request,
         "page_title": "News Narrator v2 - Proof of Concept",
         "show_share_button": True,
-        "session": session
+        "session": session,
+        "current_page": "investigate"
     })
 
 

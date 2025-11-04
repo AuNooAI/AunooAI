@@ -1982,6 +1982,49 @@ async def get_map_activity_data(
         logger.error(f"Error generating map activity data: {e}")
         raise HTTPException(status_code=500, detail="Error generating map data")
 
+
+@router.get("/stats")
+async def get_dashboard_stats(
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Get dashboard statistics for Operations HQ."""
+    try:
+        from app.database_query_facade import DatabaseQueryFacade
+        facade = DatabaseQueryFacade(db, logger)
+
+        # Get total articles count
+        total_articles = facade.get_total_article_count()
+
+        # Get articles from last 24 hours
+        twenty_four_hours_ago = (datetime.now() - timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
+        articles_today = facade.get_articles_count_since(twenty_four_hours_ago)
+
+        # Get keyword groups count
+        keyword_groups = facade.get_keyword_groups_count()
+
+        # Get topics count from config
+        import json
+        import os
+        config_path = os.path.join(os.path.dirname(__file__), '..', 'config', 'config.json')
+        try:
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+                topics = len(config.get('topics', []))
+        except Exception as e:
+            logger.warning(f"Could not read config.json: {e}")
+            topics = 0
+
+        return {
+            "total_articles": total_articles,
+            "articles_today": articles_today,
+            "keyword_groups": keyword_groups,
+            "topics": topics
+        }
+    except Exception as e:
+        logger.error(f"Error getting dashboard stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 # Remember to include this router in your main app (e.g., in app/main.py)
 # from app.routes import dashboard_routes
 # app.include_router(dashboard_routes.router) 

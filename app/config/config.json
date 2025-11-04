@@ -232,6 +232,107 @@
         "misinformation",
         "fake news"
       ]
+    },
+    {
+      "name": "Russian Threat Actors",
+      "description": "Russian Threat Actors",
+      "categories": [
+        "State-Sponsored Cyber Operations",
+        "Cybercrime Groups",
+        "Disinformation Campaigns",
+        "Espionage and Intelligence Gathering",
+        "Geopolitical Influence Operations",
+        "Malware and Exploit Tools",
+        "Sanctions and Legal Actions",
+        "Counterintelligence Measures",
+        "Attribution and Investigation",
+        "International Cybersecurity Cooperation",
+        "Information Warfare",
+        "Hybrid Warfare Tactics",
+        "Russian Military Cyber Units",
+        "Private Security Contractors",
+        "Emerging Threats and Trends"
+      ],
+      "future_signals": [
+        "Increased state-sponsored cyberattacks",
+        "De-escalation of cyber operations",
+        "Expansion of disinformation campaigns",
+        "International sanctions reduce activities",
+        "Emergence of new threat actor groups"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "keywords": []
+    },
+    {
+      "name": "Climate Change",
+      "description": "Climate Change is a scientific and societal topic focused on the causes, effects, mitigation, adaptation, policy, and technological responses to global climate change and its impacts on the environment, economies, and societies worldwide.",
+      "categories": [
+        "Greenhouse Gas Emissions",
+        "Climate Science and Research",
+        "Renewable Energy",
+        "Carbon Capture and Storage",
+        "Climate Policy and Regulation",
+        "Climate Adaptation and Resilience",
+        "Environmental Impact and Biodiversity",
+        "Climate Finance and Investment",
+        "Sustainable Agriculture and Land Use",
+        "Climate Activism and Public Awareness",
+        "Technological Innovations",
+        "Climate-related Disasters",
+        "International Climate Agreements",
+        "Energy Transition",
+        "Climate Justice and Equity",
+        "Corporate Sustainability",
+        "Climate Modeling and Forecasting",
+        "Ocean and Ice Dynamics",
+        "Air Quality and Pollution",
+        "Climate Education"
+      ],
+      "future_signals": [],
+      "sentiment": [
+        "Optimistic",
+        "Cautious",
+        "Neutral",
+        "Concerned",
+        "Pessimistic"
+      ],
+      "time_to_impact": [
+        "Immediate",
+        "Short-term",
+        "Mid-term",
+        "Long-term"
+      ],
+      "driver_types": [
+        "Catalyst",
+        "Accelerator",
+        "Delayer",
+        "Blocker",
+        "Initiator",
+        "Terminator",
+        "Unknown"
+      ],
+      "keywords": [
+        "climate change",
+        "global warming",
+        "carbon emissions"
+      ]
     }
   ],
   "ai_models": [

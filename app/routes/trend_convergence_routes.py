@@ -349,6 +349,36 @@ def _preprocess_response(response: str) -> str:
             # If still invalid, return the original cleaned text
             return cleaned
 
+@router.get("/api/trend-convergence/models")
+async def get_trend_convergence_models():
+    """Get available AI models for trend convergence analysis"""
+    try:
+        # Import AI models
+        from app.ai_models import list_available_models
+
+        # Get available models
+        models = list_available_models()
+
+        # Format for frontend with context limits
+        formatted_models = []
+        for model_id, model_name in models.items():
+            context_limit = CONTEXT_LIMITS.get(model_id, CONTEXT_LIMITS['default'])
+            formatted_models.append({
+                'id': model_id,
+                'name': model_name,
+                'context_limit': context_limit
+            })
+
+        return formatted_models
+    except Exception as e:
+        logger.error(f"Error fetching models: {str(e)}")
+        # Return default models as fallback
+        return [
+            {'id': 'gpt-4o-mini', 'name': 'GPT-4o Mini', 'context_limit': 128000},
+            {'id': 'gpt-4.1-mini', 'name': 'GPT-4.1 Mini', 'context_limit': 1000000},
+            {'id': 'claude-3.5-sonnet', 'name': 'Claude 3.5 Sonnet', 'context_limit': 200000}
+        ]
+
 @router.get("/api/trend-convergence/{topic}")
 async def generate_trend_convergence(
     topic: str,
@@ -524,11 +554,33 @@ REQUIRED OUTPUT FORMAT - Use EXACTLY this JSON structure:
     {{
       "name": "Convergence Name",
       "description": "Description of how trends converge",
+      "consensus_percentage": 80,
       "probability": "High|Medium|Low",
       "impact": "Transformative|Significant|Moderate",
       "timeframe": "2025-2028",
+      "timeline_start_year": 2024,
+      "timeline_end_year": 2050,
       "converging_trends": ["Trend Name 1", "Trend Name 2"],
-      "key_indicators": ["indicator1", "indicator2"]
+      "key_indicators": ["indicator1", "indicator2"],
+      "optimistic_outlier": {{
+        "year": 2024,
+        "description": "Optimistic scenario description",
+        "source_percentage": 25
+      }},
+      "pessimistic_outlier": {{
+        "year": 2040,
+        "description": "Pessimistic scenario description",
+        "source_percentage": 35
+      }},
+      "strategic_implication": "Strategic implication or action recommendation",
+      "key_articles": [
+        {{
+          "title": "Article title from source data",
+          "url": "https://example.com/article",
+          "summary": "Brief summary of why this article supports this convergence",
+          "sentiment": "positive|neutral|critical"
+        }}
+      ]
     }}
   ],
   "executive_decision_framework": {{
@@ -549,6 +601,58 @@ REQUIRED OUTPUT FORMAT - Use EXACTLY this JSON structure:
       "stakeholders": ["stakeholder1", "stakeholder2"],
       "success_metrics": ["metric1", "metric2"]
     }}
+  ],
+  "future_signals": [
+    {{
+      "name": "Signal name describing the future indicator",
+      "description": "Brief description of the signal",
+      "frequency": "Badge|Emerging|Established|Dominant",
+      "time_to_impact": "Immediate/Short-term|Mid-term|Long-term"
+    }}
+  ],
+  "disruption_scenarios": [
+    {{
+      "title": "Scenario title",
+      "description": "Description of the potential disruption or risk",
+      "probability": "High|Medium|Low",
+      "severity": "Critical|Significant|Moderate"
+    }}
+  ],
+  "opportunities": [
+    {{
+      "title": "Opportunity title",
+      "description": "Description of the strategic opportunity",
+      "feasibility": "High|Medium|Low",
+      "potential_impact": "Transformative|Significant|Moderate"
+    }}
+  ],
+  "key_insights": [
+    {{
+      "quote": "Key insight or quote from analysis",
+      "source": "Source attribution (e.g., 'Industry Analysis', 'Market Research')",
+      "relevance": "How this insight relates to the topic"
+    }}
+  ],
+  "impact_timeline": [
+    {{
+      "title": "Impact area title",
+      "description": "Brief description of the impact",
+      "timeline_start": 2024,
+      "timeline_end": 2030,
+      "tooltip_positions": [
+        {{"year": 2025, "label": "Tooltip"}},
+        {{"year": 2028, "label": "Tooltip"}}
+      ]
+    }}
+  ],
+  "scenarios": [
+    {{
+      "title": "Scenario title",
+      "description": "Description of the scenario",
+      "probability": "Plausible|Probable|Possible|Preferable|Wildcard",
+      "timeframe": "2025-2027",
+      "icon": "📝"
+    }}
   ]
 }}
 
@@ -556,13 +660,20 @@ ARTICLE DATA:
 {analysis_summary}
 
 ANALYSIS INSTRUCTIONS:
-- Identify 2-3 major trends for each time horizon (near-term, mid-term, long-term)
-- Find 2-4 convergence points where trends intersect across timeframes
-- Create 4-5 executive decision principles for strategic planning
-- Provide 3-5 specific, actionable next steps with priorities and timelines
-- Focus on cross-cutting patterns and systemic changes
-- Include specific strategic actions for each trend
-- Provide clear success metrics for next steps
+- Identify 2 major trends for each time horizon (near-term, mid-term, long-term)
+- Find 3-4 convergence points where trends intersect across timeframes
+- For each convergence, calculate consensus percentage and identify outliers
+- For each convergence, include 2-3 key supporting articles from the article data with real URLs and summaries
+- Create 4 impact timeline items showing key impact areas
+- Create 4-6 scenarios across probability categories (Plausible: 2-3, Probable: 2-3)
+- Create 3-4 executive decision principles for strategic planning
+- Provide 3-4 specific, actionable next steps with priorities
+- Identify 3-4 future signals with their frequency and time to impact
+- Identify 2 disruption scenarios or strategic risks
+- Identify 2 strategic opportunities
+- Extract 2 key insights or quotes from the analysis
+- Focus on cross-cutting patterns and concise, actionable content
+- Keep all descriptions brief and to the point
 
 STRATEGIC FOCUS:
 - Near-term (2025-2027): Immediate strategic actions and market positioning
@@ -579,7 +690,12 @@ NEXT STEPS:
 - Include clear timelines and ownership
 - Define measurable success metrics
 
-RESPONSE FORMAT: Return ONLY the JSON object above, no additional text."""
+RESPONSE FORMAT:
+- Return ONLY the JSON object above, no additional text
+- Keep all descriptions concise (under 80 words each)
+- Ensure proper JSON formatting with all brackets and commas
+- Do not include any explanatory text outside the JSON
+"""
         
         # Use Auspex service for reliable AI response handling (like consensus analysis)
         auspex = get_auspex_service()
@@ -648,6 +764,18 @@ RESPONSE FORMAT: Return ONLY the JSON object above, no additional text."""
             trend_convergence_data['executive_decision_framework'] = {"principles": []}
         if 'next_steps' not in trend_convergence_data:
             trend_convergence_data['next_steps'] = []
+        if 'future_signals' not in trend_convergence_data:
+            trend_convergence_data['future_signals'] = []
+        if 'disruption_scenarios' not in trend_convergence_data:
+            trend_convergence_data['disruption_scenarios'] = []
+        if 'opportunities' not in trend_convergence_data:
+            trend_convergence_data['opportunities'] = []
+        if 'key_insights' not in trend_convergence_data:
+            trend_convergence_data['key_insights'] = []
+        if 'impact_timeline' not in trend_convergence_data:
+            trend_convergence_data['impact_timeline'] = []
+        if 'scenarios' not in trend_convergence_data:
+            trend_convergence_data['scenarios'] = []
         
         # Validate that the response is valid JSON
         try:
@@ -688,9 +816,19 @@ RESPONSE FORMAT: Return ONLY the JSON object above, no additional text."""
                     total_trends += len(trend_convergence_data['strategic_recommendations'][timeframe].get('trends', []))
         
         logger.info(f"Successfully generated strategic analysis with {total_trends} trends across timeframes")
-        
+
+        # Add cache metadata for freshly generated data
+        now = datetime.now()
+        trend_convergence_data['_cache_info'] = {
+            'cached': False,
+            'age_hours': 0,
+            'cache_key': cache_key,
+            'created_at': now.isoformat(),
+            'last_updated': now.strftime('%d.%m.%Y')
+        }
+
         # Data is now used directly by the frontend - no transformation needed
-        
+
         return trend_convergence_data
         
     except HTTPException:
@@ -1169,7 +1307,9 @@ async def get_cached_analysis(
                 analysis_data['_cache_info'] = {
                     'cached': True,
                     'age_hours': round(age_hours, 2),
-                    'cache_key': cache_key
+                    'cache_key': cache_key,
+                    'created_at': created_at.isoformat(),
+                    'last_updated': created_at.strftime('%d.%m.%Y')
                 }
 
                 logger.info(f"Cache hit: {cache_key} (age: {age_hours:.1f}h)")
@@ -1249,8 +1389,13 @@ async def load_previous_analysis(
 
 @router.get("/trend-convergence", response_class=HTMLResponse)
 async def trend_convergence_page(request: Request, session: dict = Depends(verify_session)):
-    """Render the trend convergence analysis page"""
-    return templates.TemplateResponse("trend_convergence.html", {"request": request, "session": session})
+    """Render the React-based trend convergence analysis page"""
+    from fastapi.responses import FileResponse
+    import os
+
+    # Serve the React app
+    index_path = os.path.join("static", "trend-convergence", "index.html")
+    return FileResponse(index_path)
 
 # Organizational Profile Management Endpoints
 
