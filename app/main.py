@@ -586,8 +586,11 @@ async def save_bulk_articles(
 @app.get("/analytics", response_class=HTMLResponse)
 async def analytics_route(request: Request, session=Depends(verify_session)):
     return templates.TemplateResponse(
-        "analytics.html", 
-        get_template_context(request)
+        "analytics.html",
+        get_template_context(request, {
+            "session": session,
+            "current_page": "settings"
+        })
     )
 
 @app.get("/api/analytics")
@@ -642,7 +645,8 @@ async def config_page(request: Request, session=Depends(verify_session)):
                 "models": models,
                 "providers": providers,
                 "session": session,
-                "bluesky_configured": bluesky_configured
+                "bluesky_configured": bluesky_configured,
+                "current_page": "settings"
             })
         )
     except Exception as e:
@@ -1545,7 +1549,8 @@ async def create_topic_page(request: Request, session=Depends(verify_session)):
     
     return templates.TemplateResponse("create_topic.html", {
         "request": request,
-        "session": request.session,
+        "session": session,
+        "current_page": "settings",
         "example_topics": example_topics,
         "example_categories": example_categories,
         "example_signals": example_signals,
@@ -1871,7 +1876,8 @@ async def database_editor_page(
             "request": request,
             "topics": topics,
             "selected_topic": topic,  # Pass the selected topic to the template
-            "session": session
+            "session": session,
+            "current_page": "settings"
         })
     except Exception as e:
         logger.error(f"Database editor error: {str(e)}")

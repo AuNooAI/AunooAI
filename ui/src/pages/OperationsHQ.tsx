@@ -196,6 +196,13 @@ export function OperationsHQ() {
             <button className="p-2 hover:bg-gray-100 rounded-md">
               <Bell className="w-5 h-5 text-gray-600" />
             </button>
+            <button
+              onClick={() => window.location.href = '/trend-convergence?onboarding=true'}
+              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-md text-sm font-medium flex items-center gap-2 text-gray-900"
+            >
+              Set up topic
+              <span className="text-gray-400">+</span>
+            </button>
           </div>
         </div>
 

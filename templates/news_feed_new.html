@@ -1989,7 +1989,7 @@
         </div>
         <div class="page-header-actions">
             <button type="button" class="btn btn-icon" title="Notifications">
-                <i class="fas fa-bell"></i>
+                <i class="far fa-bell"></i>
             </button>
             <button class="btn-topic-setup" onclick="window.location.href='/trend-convergence?onboarding=true'">
                 <span>Set up topic</span>
@@ -2205,11 +2205,11 @@
     <!-- Tab Navigation - matching React Trend Convergence -->
     <div class="page-tab-navigation">
         <div class="tab-nav-container">
-            <button class="tab-nav-btn active" id="insights-tab" data-target="insights-content" type="button" role="tab" aria-controls="insights-content" aria-selected="true">
-                Narrative Explorer
-            </button>
-            <button class="tab-nav-btn" id="articles-tab" data-target="articles-content" type="button" role="tab" aria-controls="articles-content" aria-selected="false">
+            <button class="tab-nav-btn active" id="articles-tab" data-target="articles-content" type="button" role="tab" aria-controls="articles-content" aria-selected="true">
                 Article Investigator
+            </button>
+            <button class="tab-nav-btn" id="insights-tab" data-target="insights-content" type="button" role="tab" aria-controls="insights-content" aria-selected="false">
+                Narrative Explorer
             </button>
             <button class="tab-nav-btn" id="six-articles-tab" data-target="six-articles-content" type="button" role="tab" aria-controls="six-articles-content" aria-selected="false">
                 Six Articles
@@ -2223,7 +2223,7 @@
             <!-- Content -->
             <div class="tab-content" id="news-content">
         <!-- Articles Tab -->
-        <div class="tab-pane fade" id="articles-content">
+        <div class="tab-pane fade show active" id="articles-content">
             <div id="articles-loading" class="loading" style="display: none;">
                 <div class="spinner-border" role="status">
                     <span class="visually-hidden">Loading...</span>
@@ -2450,7 +2450,7 @@
         </div>
 
         <!-- Insights Tab -->
-        <div class="tab-pane fade show active" id="insights-content">
+        <div class="tab-pane fade" id="insights-content">
             <!-- Insights Navigation -->
             <!-- Insights Sub-Navigation (Topic Analysis removed in v2) -->
             <ul class="nav nav-pills nav-fill mb-3 insights-nav" id="insights-nav">

@@ -1,10 +1,32 @@
-{% extends "base.html" %}
+{% extends "base_with_shared_nav.html" %}
+
+{% block title %}App Configuration - Aunoo{% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <h1 class="mb-4">Configuration</h1>
+<div class="config-container">
+    <!-- Breadcrumb Header -->
+    <div class="page-breadcrumb-header">
+        <div class="breadcrumb-text">
+            <span>Settings</span>
+            <span>/</span>
+            <span class="font-medium">App Configuration</span>
+            <span>•</span>
+            <span>Manage providers, models, database, and security</span>
+        </div>
+        <div class="page-header-actions">
+            <button type="button" class="btn btn-icon" title="Notifications">
+                <i class="far fa-bell"></i>
+            </button>
+            <button class="btn-topic-setup" onclick="window.location.href='/trend-convergence?onboarding=true'" title="Set up a new topic">
+                <span>Set up topic</span>
+                <i class="fas fa-plus"></i>
+            </button>
+        </div>
+    </div>
 
-    <!-- Add tab navigation -->
+    <!-- Scrollable Content Area -->
+    <div class="config-scrollable">
+        <!-- Add tab navigation -->
     <ul class="nav nav-tabs mb-4" id="configTabs" role="tablist">
         <li class="nav-item" role="presentation">
             <button class="nav-link" id="providers-tab" data-bs-toggle="tab" data-bs-target="#providers" type="button" role="tab">
@@ -3419,5 +3441,209 @@
     });
 
     // ==================== End User Management Functions ====================
-</script>{% endblock %}
+</script>
+    </div> <!-- End config-scrollable -->
+</div> <!-- End config-container -->
+
+<style>
+/* Config page container matching news_feed_new.html */
+.config-container {
+    max-width: 100%;
+    margin: 0 auto;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+/* Breadcrumb Header (matching other pages) */
+.page-breadcrumb-header {
+    background-color: white;
+    border-bottom: 1px solid #e5e7eb;
+    padding: 0.75rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+}
+
+.breadcrumb-text {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: #6b7280;
+}
+
+.breadcrumb-text span {
+    color: #6b7280;
+}
+
+.breadcrumb-text span.font-medium {
+    color: #111827;
+    font-weight: 500;
+}
+
+.page-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* Icon button */
+.page-header-actions .btn-icon {
+    padding: 0.5rem;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: #6b7280;
+    cursor: pointer;
+    border-radius: 0.375rem;
+    transition: all 0.2s ease;
+}
+
+.page-header-actions .btn-icon:hover {
+    background: #f3f4f6;
+    color: #111827;
+}
+
+/* Button matching news_feed_new.html */
+.btn-topic-setup {
+    background: #f3f4f6;
+    border: none;
+    color: #111827;
+    font-size: 0.875rem;
+    font-weight: 500;
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.btn-topic-setup:hover {
+    background: #e5e7eb;
+    color: #111827;
+}
+
+/* Scrollable content area */
+.config-scrollable {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 48px;
+    background-color: #f9fafb;
+}
+
+@media (max-width: 768px) {
+    .config-scrollable {
+        padding: 24px 16px;
+    }
+
+    .page-breadcrumb-header {
+        padding: 0.5rem 1rem;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+    }
+
+    .breadcrumb-text {
+        font-size: 0.75rem;
+    }
+
+    .page-header-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .btn-topic-setup {
+        font-size: 0.75rem;
+        padding: 0.375rem 0.75rem;
+    }
+}
+
+/* Subtle button styling - override Bootstrap bright colors */
+.btn-primary {
+    background: white !important;
+    border: 1px solid #e5e7eb !important;
+    color: #ec4899 !important;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.btn-primary:hover {
+    background: #fdf2f8 !important;
+    border-color: #fbcfe8 !important;
+    color: #ec4899 !important;
+}
+
+.btn-success {
+    background: white !important;
+    border: 1px solid #e5e7eb !important;
+    color: #10b981 !important;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.btn-success:hover {
+    background: #f0fdf4 !important;
+    border-color: #bbf7d0 !important;
+    color: #10b981 !important;
+}
+
+.btn-danger {
+    background: white !important;
+    border: 1px solid #e5e7eb !important;
+    color: #dc2626 !important;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.btn-danger:hover {
+    background: #fef2f2 !important;
+    border-color: #fecaca !important;
+    color: #dc2626 !important;
+}
+
+.btn-secondary {
+    background: #f3f4f6 !important;
+    border: 1px solid #e5e7eb !important;
+    color: #111827 !important;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+    background: #e5e7eb !important;
+    color: #111827 !important;
+}
+
+/* Nav tabs subtle styling */
+.nav-tabs .nav-link {
+    border: 1px solid transparent;
+    color: #6b7280;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.nav-tabs .nav-link:hover {
+    border-color: #e5e7eb #e5e7eb #dee2e6;
+    color: #ec4899;
+}
+
+.nav-tabs .nav-link.active {
+    color: #ec4899;
+    background-color: #fdf2f8;
+    border-color: #fbcfe8 #fbcfe8 #fff;
+}
+</style>
+{% endblock %}
 

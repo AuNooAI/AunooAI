@@ -89,9 +89,9 @@ function App() {
             </button>
             <button
               onClick={() => setIsOnboardingOpen(true)}
-              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-md text-sm font-medium flex items-center gap-2"
+              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-md text-sm font-medium flex items-center gap-2 text-gray-900"
             >
-              Set up the topic
+              Set up topic
               <span className="text-gray-400">+</span>
             </button>
           </div>

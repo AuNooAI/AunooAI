@@ -151,7 +151,7 @@ export function SharedNavigation({ currentPage }: SharedNavigationProps) {
                     </a>
                   </li>
                   <li>
-                    <a href="/onboarding?redo=true" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-600 hover:bg-gray-50 hover:text-pink-600 transition-all">
+                    <a href="/trend-convergence?onboarding=true" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-600 hover:bg-gray-50 hover:text-pink-600 transition-all">
                       <Sparkles className="w-3.5 h-3.5" />
                       <span className="text-xs">AI-guided Topic Setup</span>
                     </a>

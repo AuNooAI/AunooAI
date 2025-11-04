@@ -716,6 +716,7 @@ async def health_dashboard(request: Request, session=Depends(verify_session)):
         return templates.TemplateResponse("health.html", {
             "request": request,
             "session": session,
+            "current_page": "health",
             "health_data": health_data
         })
 
@@ -724,6 +725,7 @@ async def health_dashboard(request: Request, session=Depends(verify_session)):
         return templates.TemplateResponse("health.html", {
             "request": request,
             "session": session,
+            "current_page": "health",
             "health_data": {
                 "status": "error",
                 "error": str(e),
