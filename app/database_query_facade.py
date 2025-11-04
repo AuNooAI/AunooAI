@@ -1588,7 +1588,31 @@ class DatabaseQueryFacade:
         ).select_from(
             feed_keyword_groups
         )
-        return self._execute_with_rollback(statement).fetchone()[0] 
+        return self._execute_with_rollback(statement).fetchone()[0]
+
+    def get_total_article_count(self):
+        """Get total count of all articles in the database."""
+        statement = select(
+            func.count()
+        ).select_from(
+            articles
+        )
+        return self._execute_with_rollback(statement).scalar() or 0
+
+    def get_articles_count_since(self, since_datetime: str):
+        """Get count of articles published since a given datetime.
+
+        Args:
+            since_datetime: Datetime string in format 'YYYY-MM-DD HH:MM:SS'
+        """
+        statement = select(
+            func.count()
+        ).select_from(
+            articles
+        ).where(
+            articles.c.publication_date >= since_datetime
+        )
+        return self._execute_with_rollback(statement).scalar() or 0
 
     def get_feed_item_count(self):
         statement = select(

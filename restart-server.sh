@@ -25,6 +25,10 @@ fi
 echo "🚀 Starting server..."
 cd /home/orochford/tenants/multi.aunoo.ai
 source .venv/bin/activate
+# Load environment variables from .env
+set -a
+source .env
+set +a
 nohup python app/server_run.py > server.log 2>&1 &
 
 NEW_PID=$!

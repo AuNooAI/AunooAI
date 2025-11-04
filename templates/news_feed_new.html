@@ -115,6 +115,68 @@
     background-color: #f3f4f6;
 }
 
+/* Page header actions - matching keyword_alerts.html */
+.page-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.page-header-actions .btn {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    border-radius: 0.375rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s ease;
+    font-weight: 500;
+    border: 1px solid transparent;
+}
+
+.page-header-actions .btn i {
+    font-size: 0.875rem;
+}
+
+/* Icon-only button for bell */
+.page-header-actions .btn-icon {
+    padding: 0.5rem;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: #6b7280;
+}
+
+.page-header-actions .btn-icon:hover {
+    background: #f3f4f6;
+    color: #111827;
+}
+
+/* Topic setup button - matching React trend-convergence (bg-gray-100 hover:bg-gray-200) */
+.btn-topic-setup {
+    background: #f3f4f6; /* bg-gray-100 */
+    border: none;
+    color: #111827; /* text-gray-900 */
+    font-size: 0.875rem; /* text-sm */
+    font-weight: 500; /* font-medium */
+    padding: 0.5rem 1rem; /* px-4 py-2 */
+    border-radius: 0.375rem; /* rounded-md */
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem; /* gap-2 */
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.btn-topic-setup:hover {
+    background: #e5e7eb; /* hover:bg-gray-200 */
+    color: #111827;
+}
+
 /* Scrollable content area */
 .news-feed-scrollable {
     flex: 1;
@@ -600,9 +662,9 @@
 }
 
 .sidebar-nav .nav-link {
-    color: #495057;
+    color: #ec4899;
     padding: 10px 12px;
-    border: 1px solid #dee2e6;
+    border: none;
     border-radius: 6px;
     transition: all 0.2s ease;
     font-size: 0.9rem;
@@ -625,6 +687,7 @@
     text-align: center;
     font-size: 0.95rem;
     flex-shrink: 0;
+    color: #ec4899;
 }
 
 .sidebar-nav .nav-link span {
@@ -634,9 +697,11 @@
 }
 
 .sidebar-nav .nav-link:hover {
-    background: rgba(255, 105, 180, 0.1);
-    border-color: #FF69B4;
-    color: #FF69B4;
+    background: #fdf2f8;
+    border-color: transparent;
+    color: #ec4899;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(236, 72, 153, 0.1);
 }
 
 .sidebar-nav .nav-link.active {
@@ -652,9 +717,84 @@
     padding-left: 24px;
 }
 
+/* Page tab navigation - matching React Trend Convergence */
+.page-tab-navigation {
+    background-color: white;
+    padding: 0.75rem 1.5rem;
+    border-bottom: 1px solid #e5e7eb;
+    margin-bottom: 1.5rem;
+}
+
+.tab-nav-container {
+    background-color: #f3f4f6; /* bg-gray-100 */
+    border-radius: 0.5rem; /* rounded-lg */
+    padding: 0.25rem; /* p-1 */
+    display: flex;
+    gap: 0.25rem; /* gap-1 */
+}
+
+.tab-nav-btn {
+    padding: 0.5rem 1rem; /* px-4 py-2 */
+    font-size: 0.875rem; /* text-sm */
+    font-weight: 500; /* font-medium */
+    border-radius: 0.375rem; /* rounded-md */
+    transition: all 0.2s ease; /* transition-colors */
+    border: none;
+    background: transparent;
+    color: #4b5563; /* text-gray-600 */
+    cursor: pointer;
+}
+
+.tab-nav-btn.active {
+    background-color: white; /* bg-white */
+    color: #111827; /* text-gray-900 */
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); /* shadow-sm */
+}
+
+.tab-nav-btn:hover:not(.active) {
+    color: #111827; /* hover:text-gray-900 */
+}
+
+/* Hide old sidebar navigation */
+.sidebar-nav {
+    display: none !important;
+}
+
 /* Hide old horizontal tabs */
 .news-nav {
-    display: none;
+    display: none !important;
+}
+
+/* Make main content area full width */
+.main-content-area-full {
+    width: 100%;
+    padding: 24px 48px;
+}
+
+/* Subtle pink action buttons - matching React Trend Convergence */
+.btn-action-subtle {
+    background: white;
+    border: 1px solid #e5e7eb;
+    color: #ec4899; /* text-pink-500 */
+    font-size: 0.875rem; /* text-sm */
+    font-weight: 500; /* font-medium */
+    padding: 0.5rem 0.75rem; /* px-3 py-2 */
+    border-radius: 0.375rem; /* rounded-md */
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.btn-action-subtle:hover {
+    background: #fdf2f8; /* hover:bg-pink-50 */
+    color: #ec4899;
+    border-color: #fbcfe8;
+}
+
+.btn-action-subtle i {
+    color: #ec4899;
 }
 
 /* Mobile responsiveness - show horizontal tabs on small screens */
@@ -1296,60 +1436,63 @@
         border-color: #dddddd;
     }
 
-    /* Insights Tab Styling */
+    /* Insights Tab Styling - Pink text, white background */
+    /* Insights navigation - subtle styling matching React Trend Convergence */
     .insights-nav .nav-link {
-        border: 1px solid #28a745;
+        border: 1px solid #e5e7eb; /* light gray border */
         border-radius: 8px;
         margin: 0 2px;
-        background-color: #28a745;
-        color: white;
+        background-color: white;
+        color: #ec4899; /* text-pink-500 */
         font-weight: 500;
         padding: 8px 16px;
         transition: all 0.2s ease;
     }
 
     .insights-nav .nav-link i {
-        color: white;
+        color: #ec4899;
     }
 
+    /* Active state - subtle pink background instead of gradient */
     .insights-nav .nav-link.active,
     .insights-nav .nav-link.active:hover,
     .insights-nav .nav-link.active:focus,
     .nav-pills .insights-nav .nav-link.active {
-        background: linear-gradient(135deg, #FF69B4, #FF1493) !important;
-        border-color: #FF69B4 !important;
-        color: white !important;
+        background: #fce7f3 !important; /* bg-pink-100 - very light pink */
+        border-color: #fbcfe8 !important; /* pink-200 border */
+        color: #be185d !important; /* text-pink-700 - darker pink for contrast */
     }
 
     .insights-nav .nav-link.active i,
     .insights-nav .nav-link.active:hover i,
     .insights-nav .nav-link.active:focus i {
-        color: white !important;
+        color: #be185d !important; /* darker pink icon */
     }
 
-    /* Global override for nav-pills active state */
+    /* Global override for nav-pills active state - subtle styling */
     .nav-pills .nav-link.active,
     .nav-pills .show > .nav-link {
-        background: linear-gradient(135deg, #FF69B4, #FF1493) !important;
-        border-color: #FF69B4 !important;
-        color: white !important;
+        background: #fce7f3 !important; /* bg-pink-100 */
+        border-color: #fbcfe8 !important;
+        color: #be185d !important;
     }
 
     .nav-pills .nav-link.active i,
     .nav-pills .show > .nav-link i {
-        color: white !important;
+        color: #be185d !important;
     }
 
+    /* Hover state - very subtle */
     .insights-nav .nav-link:hover:not(.active) {
-        background-color: #218838;
-        border-color: #1e7e34;
-        color: white;
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+        background-color: #fdf2f8; /* hover:bg-pink-50 */
+        border-color: #fbcfe8;
+        color: #ec4899;
+        transform: none; /* remove upward movement for subtlety */
+        box-shadow: none; /* remove shadow for subtlety */
     }
 
     .insights-nav .nav-link:hover:not(.active) i {
-        color: white;
+        color: #ec4899;
     }
 
     /* Insight Card Styling - matching topic dashboard */
@@ -1844,9 +1987,13 @@
             <span>•</span>
             <span>Explore and narrate your news feed</span>
         </div>
-        <div class="page-header-icons">
-            <button type="button" title="Notifications">
+        <div class="page-header-actions">
+            <button type="button" class="btn btn-icon" title="Notifications">
                 <i class="fas fa-bell"></i>
+            </button>
+            <button class="btn-topic-setup" onclick="window.location.href='/trend-convergence?onboarding=true'">
+                <span>Set up topic</span>
+                <i class="fas fa-plus"></i>
             </button>
         </div>
     </div>
@@ -2055,48 +2202,23 @@
         <input type="hidden" id="selected-date" value="2025-09-15" />
     </div>
 
-    <!-- Two-Column Layout: Sidebar + Content -->
-    <div class="page-layout-container">
-        <!-- Left Sidebar Navigation -->
-        <div class="sidebar-nav">
-            <ul class="nav flex-column p-0" id="sidebar-tabs">
-                <li class="nav-item">
-                    <a class="nav-link active" id="sidebar-insights-tab" data-bs-toggle="tab" href="#insights-content">
-                        <i class="fas fa-chart-line"></i>
-                        <span>Narrative Explorer</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" id="sidebar-articles-tab" data-bs-toggle="tab" href="#articles-content">
-                        <i class="fas fa-newspaper"></i>
-                        <span>Article Investigator</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" id="sidebar-six-articles-tab" data-bs-toggle="tab" href="#six-articles-content">
-                        <i class="fas fa-layer-group"></i>
-                        <span>Six Articles</span>
-                    </a>
-                </li>
-            </ul>
+    <!-- Tab Navigation - matching React Trend Convergence -->
+    <div class="page-tab-navigation">
+        <div class="tab-nav-container">
+            <button class="tab-nav-btn active" id="insights-tab" data-target="insights-content" type="button" role="tab" aria-controls="insights-content" aria-selected="true">
+                Narrative Explorer
+            </button>
+            <button class="tab-nav-btn" id="articles-tab" data-target="articles-content" type="button" role="tab" aria-controls="articles-content" aria-selected="false">
+                Article Investigator
+            </button>
+            <button class="tab-nav-btn" id="six-articles-tab" data-target="six-articles-content" type="button" role="tab" aria-controls="six-articles-content" aria-selected="false">
+                Six Articles
+            </button>
         </div>
+    </div>
 
-        <!-- Main Content Area -->
-        <div class="main-content-area">
-            <!-- Navigation (for mobile only) -->
-            <div class="news-nav">
-                <ul class="nav nav-tabs" id="news-tabs">
-                    <li class="nav-item">
-                        <a class="nav-link active" id="insights-tab" data-bs-toggle="tab" href="#insights-content">Narrative Explorer</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" id="articles-tab" data-bs-toggle="tab" href="#articles-content">Article Investigator</a>
-                    </li>
-                    <li class="nav-item">
-                        <a class="nav-link" id="six-articles-tab" data-bs-toggle="tab" href="#six-articles-content">Six Articles</a>
-                    </li>
-                </ul>
-            </div>
+    <!-- Main Content Area -->
+    <div class="main-content-area-full">
 
             <!-- Content -->
             <div class="tab-content" id="news-content">
@@ -2298,8 +2420,8 @@
                         <i class="fas fa-pen me-2" id="six-articles-generate-icon"></i><span id="six-articles-generate-text">Write</span>
                     </button>
                     <div class="btn-group">
-                        <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="fas fa-download me-2"></i>Export
+                        <button type="button" class="btn-action-subtle dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="fas fa-download"></i>Export
                         </button>
                         <ul class="dropdown-menu dropdown-menu-end">
                             <li><a class="dropdown-item" href="#" onclick="exportDashboardMarkdown()"><i class="fab fa-markdown me-2"></i>Export Markdown</a></li>
@@ -2312,8 +2434,8 @@
                             <li><a class="dropdown-item" href="#" onclick="generateSixArticlesPodcast()"><i class="fas fa-microphone me-2"></i>Generate Podcast</a></li>
                         </ul>
                     </div>
-                    <button type="button" class="btn btn-outline-primary" onclick="showSixArticlesConfigModal()" title="Configure AI prompts and persona settings">
-                        <i class="fas fa-sliders-h me-1"></i>Config
+                    <button type="button" class="btn-action-subtle" onclick="showSixArticlesConfigModal()" title="Configure AI prompts and persona settings">
+                        <i class="fas fa-sliders-h"></i>Config
                     </button>
                 </div>
             </div>
@@ -2355,8 +2477,8 @@
                     <i class="fas fa-brain me-2"></i><span id="insights-generate-text">Generate Insights</span>
                 </button>
                 <div class="btn-group">
-                    <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-                        <i class="fas fa-download me-2"></i>Export
+                    <button type="button" class="btn-action-subtle dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="fas fa-download"></i>Export
                     </button>
                     <ul class="dropdown-menu dropdown-menu-end">
                         <li><a class="dropdown-item" href="#" onclick="exportDashboardMarkdown()"><i class="fab fa-markdown me-2"></i>Export Markdown</a></li>
@@ -3731,45 +3853,87 @@
 
 // Sidebar Navigation Handler
 document.addEventListener('DOMContentLoaded', function() {
-    // Initialize sidebar navigation
-    const sidebarLinks = document.querySelectorAll('.sidebar-nav .nav-link');
+    // Initialize horizontal tab navigation (manual tab switching)
+    const tabButtons = document.querySelectorAll('.tab-nav-btn');
+    const tabPanes = document.querySelectorAll('.tab-pane');
 
-    sidebarLinks.forEach(link => {
-        link.addEventListener('click', function(e) {
+    function switchTab(targetId) {
+        // Hide all tab panes
+        tabPanes.forEach(pane => {
+            pane.classList.remove('show', 'active');
+        });
+
+        // Remove active class from all buttons
+        tabButtons.forEach(btn => {
+            btn.classList.remove('active');
+            btn.setAttribute('aria-selected', 'false');
+        });
+
+        // Show target pane
+        const targetPane = document.getElementById(targetId);
+        if (targetPane) {
+            targetPane.classList.add('show', 'active');
+        }
+
+        // Activate clicked button
+        const activeButton = document.querySelector(`[data-target="${targetId}"]`);
+        if (activeButton) {
+            activeButton.classList.add('active');
+            activeButton.setAttribute('aria-selected', 'true');
+        }
+
+        // Trigger load functions based on which tab was shown
+        const tabId = activeButton?.id;
+        if (tabId === 'articles-tab') {
+            // Trigger articles loading
+            if (typeof autoLoadArticles === 'function') {
+                autoLoadArticles();
+            }
+        } else if (tabId === 'six-articles-tab') {
+            // Trigger six articles loading
+            if (typeof loadSixArticles === 'function') {
+                loadSixArticles();
+            }
+        } else if (tabId === 'insights-tab') {
+            // Trigger insights loading
+            if (typeof checkInsightsCache === 'function') {
+                checkInsightsCache().then(() => {
+                    const insightsContainer = document.getElementById('article-insights-container');
+                    if (insightsContainer && !insightsContainer.querySelector('.insight-item-card')) {
+                        if (typeof autoLoadCachedInsights === 'function' &&
+                            (window.insightsState?.hasArticleCache || window.insightsState?.hasCategoryCache || window.insightsState?.hasIncidentCache)) {
+                            autoLoadCachedInsights();
+                        } else if (typeof showInsightsWelcomeMessage === 'function') {
+                            showInsightsWelcomeMessage();
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    // Add click listeners to tab buttons
+    tabButtons.forEach(button => {
+        button.addEventListener('click', function(e) {
             e.preventDefault();
-
-            // Remove active class from all sidebar links
-            sidebarLinks.forEach(l => l.classList.remove('active'));
-
-            // Add active class to clicked link
-            this.classList.add('active');
-
-            // Also sync with mobile horizontal tabs if they exist
-            const href = this.getAttribute('href');
-            const mobileLink = document.querySelector(`.news-nav .nav-link[href="${href}"]`);
-            if (mobileLink) {
-                document.querySelectorAll('.news-nav .nav-link').forEach(l => l.classList.remove('active'));
-                mobileLink.classList.add('active');
-            }
-
-            // Trigger Bootstrap tab show
-            const tabTrigger = new bootstrap.Tab(this);
-            tabTrigger.show();
-        });
-    });
-
-    // Sync mobile tabs with sidebar when clicked
-    const mobileTabLinks = document.querySelectorAll('.news-nav .nav-link');
-    mobileTabLinks.forEach(link => {
-        link.addEventListener('click', function(e) {
-            const href = this.getAttribute('href');
-            const sidebarLink = document.querySelector(`.sidebar-nav .nav-link[href="${href}"]`);
-            if (sidebarLink) {
-                sidebarLinks.forEach(l => l.classList.remove('active'));
-                sidebarLink.classList.add('active');
+            const targetId = this.getAttribute('data-target');
+            if (targetId) {
+                switchTab(targetId);
             }
         });
     });
+
+    // Initialize first tab as active
+    const firstActiveButton = document.querySelector('.tab-nav-btn.active');
+    if (firstActiveButton) {
+        const initialTarget = firstActiveButton.getAttribute('data-target');
+        if (initialTarget) {
+            const initialPane = document.getElementById(initialTarget);
+            if (initialPane) {
+                initialPane.classList.add('show', 'active');
+            }
+        }
+    }
 });
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -3820,31 +3984,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Generate button is now in Six Articles tab - event listener added there
 
-    // Tab change handlers
-    document.getElementById('articles-tab').addEventListener('click', function() {
-        // Always auto-load fresh articles when Articles tab is clicked
-        autoLoadArticles();
-    });
-
-    document.getElementById('six-articles-tab').addEventListener('click', function() {
-        // Auto-load cached content when tab is clicked (will use cache if available)
-        loadSixArticles();
-    });
-
-    document.getElementById('insights-tab').addEventListener('click', async function() {
-        // Check for cached data and auto-load if available
-        await checkInsightsCache();
-        
-        const insightsContainer = document.getElementById('article-insights-container');
-        if (insightsContainer && !insightsContainer.querySelector('.insight-item-card')) {
-            // Auto-load cached insights if available, otherwise show welcome message
-            if (insightsState.hasArticleCache || insightsState.hasCategoryCache || insightsState.hasIncidentCache) {
-                await autoLoadCachedInsights();
-            } else {
-                showInsightsWelcomeMessage();
-            }
-        }
-    });
+    // Tab change handlers are now handled in the manual tab switching code above
+    // (see the switchTab function in the DOMContentLoaded handler)
 
     // Initialize insights sub-navigation
     document.querySelectorAll('#insights-nav .nav-link').forEach(navLink => {

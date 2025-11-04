@@ -1697,11 +1697,12 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 
 /* Status Ticker Bar - Matching news ticker height */
 .status-ticker-container {
-    background: var(--light-gray);
+    background: white;
     border: 1px solid #dee2e6;
-    border-left: 4px solid var(--accent-blue);
+    border-left: 4px solid #5dade2;
+    border-radius: 8px;
     padding: 0 16px;
-    margin: -24px 0 24px 0;
+    margin: 0 0 24px 0;
     position: relative;
     overflow: hidden;
     height: 44px;
@@ -1712,34 +1713,160 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     font-size: 0.9rem;
 }
 
-/* Page Header - Matching news_feed_new.html */
+/* Hide old page header */
 .news-header {
-    border-bottom: 3px solid #FF69B4;
-    margin-bottom: 24px;
-    padding-bottom: 16px;
+    display: none;
+}
+
+/* New breadcrumb header matching Anticipate/Operations HQ */
+.page-breadcrumb-header {
+    background-color: white;
+    border-bottom: 1px solid #e5e7eb;
+    padding: 0.75rem 1.5rem;
     display: flex;
+    align-items: center;
     justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 12px;
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    margin: 0;
 }
 
-.news-title {
-    font-size: 2rem;
-    font-weight: 700;
-    margin: 0;
-    background: linear-gradient(135deg, #FF69B4, #FF1493);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+.breadcrumb-text {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: #6b7280;
 }
 
-.news-title-icon {
-    color: #FF69B4;
-    -webkit-text-fill-color: #FF69B4;
+.breadcrumb-text span {
+    color: #6b7280;
+}
+
+.breadcrumb-text span.font-medium {
+    color: #111827;
+    font-weight: 500;
+}
+
+.page-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.page-header-actions .btn {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    border-radius: 0.375rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s ease;
+    font-weight: 500;
+    border: 1px solid transparent;
+}
+
+.page-header-actions .btn i {
+    font-size: 0.875rem;
+}
+
+/* Primary button - Pink gradient matching news feed */
+.page-header-actions .btn-primary {
+    background: linear-gradient(135deg, #FF69B4, #FF1493);
+    border-color: #FF69B4;
+    color: white;
+}
+
+.page-header-actions .btn-primary:hover {
+    background: linear-gradient(135deg, #FF1493, #FF69B4);
+    border-color: #FF1493;
+    color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(255, 105, 180, 0.3);
+}
+
+/* Success button - Green */
+.page-header-actions .btn-success {
+    background: #28a745;
+    border-color: #28a745;
+    color: white;
+}
+
+.page-header-actions .btn-success:hover {
+    background: #218838;
+    border-color: #1e7e34;
+    color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+}
+
+/* Topic setup button - matching React trend-convergence */
+.btn-topic-setup {
+    background: white;
+    border: 1px solid rgba(0, 6, 46, 0.2);
+    color: #60646c;
+    font-size: 14px;
+    font-weight: 500;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.25rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s ease;
+}
+
+.btn-topic-setup:hover {
+    background: #f8f9fa;
+    border-color: rgba(0, 6, 46, 0.3);
+    color: #495057;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* Action buttons - subtle pink styling matching React Trend Convergence */
+.btn-action-pink {
+    background: white;
+    border: 1px solid #e5e7eb;
+    color: #ec4899; /* text-pink-500 */
+    font-size: 0.875rem; /* text-sm */
+    font-weight: 500; /* font-medium */
+    padding: 0.5rem 0.75rem; /* px-3 py-2 */
+    border-radius: 0.375rem; /* rounded-md */
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.btn-action-pink:hover {
+    background: #fdf2f8; /* hover:bg-pink-50 */
+    color: #ec4899;
+    border-color: #fbcfe8; /* pink-200 border on hover */
+}
+
+.btn-action-pink i {
+    color: #ec4899;
+}
+
+/* Icon-only button for bell */
+.page-header-actions .btn-icon {
+    padding: 0.5rem;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: #6b7280;
+}
+
+.page-header-actions .btn-icon:hover {
+    background: #f3f4f6;
+    color: #111827;
 }
 
 .status-bar {
@@ -1750,21 +1877,13 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     font-size: 0.9rem;
 }
 
-/* Left Sidebar Navigation - Matching news_feed_new.html */
+/* Hide old sidebar navigation */
 .page-layout-container {
-    display: flex;
-    gap: 0;
-    align-items: flex-start;
+    display: block;
 }
 
 .sidebar-nav {
-    width: 220px;
-    background: #fff;
-    border-right: 1px solid #dee2e6;
-    padding: 12px;
-    flex-shrink: 0;
-    min-height: 500px;
-    box-sizing: border-box;
+    display: none;
 }
 
 .sidebar-nav .nav {
@@ -1828,9 +1947,8 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 }
 
 .main-content-area {
-    flex-grow: 1;
-    min-width: 0;
-    padding-left: 24px;
+    width: 100%;
+    padding-left: 0;
 }
 
 /* Baby Blue Button Classes */
@@ -1956,11 +2074,52 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     }
 
     .status-ticker-container {
-        height: 38px;
-        margin: -15px -15px 15px -15px;
+        height: auto;
+        min-height: 38px;
+        margin: 0 0 15px 0;
         font-size: 0.85rem;
         gap: 12px;
         flex-wrap: wrap;
+        padding: 12px 16px;
+    }
+
+    /* Breadcrumb header responsive */
+    .page-breadcrumb-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+        padding: 1rem;
+    }
+
+    .breadcrumb-text {
+        font-size: 0.75rem;
+        flex-wrap: wrap;
+    }
+
+    .page-header-actions {
+        width: 100%;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .page-header-actions .btn {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.75rem;
+        flex: 1 1 calc(50% - 0.25rem);
+        justify-content: center;
+        white-space: nowrap;
+    }
+
+    /* Show icons only on very small screens */
+    @media (max-width: 480px) {
+        .page-header-actions .btn span {
+            display: none;
+        }
+
+        .page-header-actions .btn {
+            flex: 1 1 auto;
+            min-width: 44px;
+        }
     }
 }
 </style>
@@ -1970,31 +2129,78 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 <!-- Import the media bias macros -->
 {% from "components/media_bias_display.html" import media_bias_badge, media_bias_icon %}
 
-<div class="container-fluid">
-    <div style="max-width: 1400px; margin: 0 auto; padding: 24px 48px;">
-        <!-- Status Ticker Bar -->
-        <div class="status-ticker-container">
-            <span class="text-muted">
-                <i class="fas fa-clock"></i> Last search: <span id="lastCheckTime">{{ last_check_time|default('Never', true) }}</span>
-            </span>
-            <!-- Auto-Processing Toggle -->
-            <div class="form-check form-switch mb-0">
-                <input class="form-check-input" type="checkbox" id="autoProcessToggle"
-                       {% if is_enabled %}checked{% endif %}
-                       onchange="toggleAutoProcessing(this.checked)">
-                <label class="form-check-label" for="autoProcessToggle">
-                    <strong>Auto-Processing {{ 'ON' if is_enabled else 'OFF' }}</strong>
-                </label>
+<!-- Breadcrumb Header matching React trend-convergence -->
+<div class="page-breadcrumb-header">
+            <div class="breadcrumb-text">
+                <span>Gather</span>
+                <span>/</span>
+                <span class="font-medium">Keyword Alerts</span>
+                <span>•</span>
+                <span>Monitor and gather keyword-based content</span>
             </div>
-            <!-- Processing Status Badge -->
-            <span id="processingStatusBadge" class="badge bg-success" style="display: none;">
-                <i class="fas fa-spinner fa-spin me-1"></i> Processing <span id="processingCount">0</span> jobs
-            </span>
-            {% if last_error %}
-                <span class="text-danger">
-                    <i class="fas fa-exclamation-circle"></i> {{ last_error }}
+            <div class="page-header-actions">
+                <button type="button" class="btn btn-icon" title="Notifications">
+                    <i class="fas fa-bell"></i>
+                </button>
+                <button class="btn-topic-setup" onclick="window.location.href='/trend-convergence?onboarding=true'">
+                    <span>Set up topic</span>
+                    <i class="fas fa-plus"></i>
+                </button>
+            </div>
+</div>
+
+<!-- Main Content Area -->
+<div class="container-fluid" style="background-color: #f3f4f6;">
+    <div style="max-width: 1400px; margin: 0 auto; padding: 24px 48px;">
+
+        <!-- Topic Section with Status Ticker -->
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div class="d-flex align-items-center gap-2">
+                <i class="fas fa-info-circle text-muted"></i>
+                <span class="text-muted">Topic:</span>
+                <span class="fw-bold">All Topics</span>
+            </div>
+            <div class="d-flex align-items-center gap-3">
+                <!-- Status Ticker (compact) -->
+                <span class="text-muted small">
+                    <i class="fas fa-clock"></i> Last search: <span id="lastCheckTime">{{ last_check_time|default('Never', true) }}</span>
                 </span>
-            {% endif %}
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" id="autoProcessToggle"
+                           {% if is_enabled %}checked{% endif %}
+                           onchange="toggleAutoProcessing(this.checked)">
+                    <label class="form-check-label small" for="autoProcessToggle">
+                        <strong>Auto-Processing {{ 'ON' if is_enabled else 'OFF' }}</strong>
+                    </label>
+                </div>
+                <span id="processingStatusBadge" class="badge bg-success" style="display: none;">
+                    <i class="fas fa-spinner fa-spin me-1"></i> Processing <span id="processingCount">0</span> jobs
+                </span>
+                {% if last_error %}
+                    <span class="text-danger small">
+                        <i class="fas fa-exclamation-circle"></i> {{ last_error }}
+                    </span>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- Action Buttons Row (below topic section, matching ideal.png) -->
+        <div class="d-flex gap-2 mb-4 flex-wrap">
+            <button class="btn-action-pink" onclick="window.location.href='/submit-article'">
+                <i class="fas fa-plus-circle"></i> Submit Articles
+            </button>
+            <button class="btn-action-pink" onclick="checkKeywords(event)">
+                <i class="fas fa-sync"></i> Update Now
+            </button>
+            <button class="btn-action-pink" onclick="showAutoIngestSettings()">
+                <i class="fas fa-cog"></i> Auto-Collect
+            </button>
+            <button class="btn-action-pink" id="cancelBackgroundTaskLink" onclick="cancelBackgroundTask()" style="display: none;">
+                <i class="fas fa-stop"></i> Cancel Task
+            </button>
+            <button class="btn-action-pink" onclick="window.location.href='/keyword-monitor'">
+                <i class="fas fa-tags"></i> Manage Keywords
+            </button>
         </div>
 
         <!-- Page Header -->
@@ -2007,39 +2213,9 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 
         <!-- Two-Column Layout: Sidebar + Content -->
         <div class="page-layout-container">
-        <!-- Left Sidebar Navigation -->
+        <!-- Left Sidebar Navigation (hidden) -->
         <div class="sidebar-nav">
             <ul class="nav" id="sidebar-menu">
-                <li class="nav-item">
-                    <a class="nav-link btn-baby-blue" href="/submit-article">
-                        <i class="fas fa-plus-circle"></i>
-                        <span>Submit Articles</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link btn-green" href="javascript:void(0)" onclick="checkKeywords(event)">
-                        <i class="fas fa-sync"></i>
-                        <span>Update Now</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="javascript:void(0)" id="cancelBackgroundTaskLink" onclick="cancelBackgroundTask()" style="display: none;">
-                        <i class="fas fa-stop"></i>
-                        <span>Cancel Task</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="javascript:void(0)" onclick="showAutoIngestSettings()">
-                        <i class="fas fa-cog"></i>
-                        <span>Auto-Processing</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="/keyword-monitor">
-                        <i class="fas fa-tags"></i>
-                        <span>Manage Keywords</span>
-                    </a>
-                </li>
             </ul>
         </div>
 
@@ -2050,12 +2226,12 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     <div class="card mb-4">
         <div class="card-header">
             <div class="d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">EMERGING TRENDS OVERVIEW</h5>
-                <div>
-                    <button class="btn btn-outline-danger btn-sm me-2" id="bulkDeleteBtn" style="display: none;">
+                <h5 class="mb-0" style="color: #FF69B4; font-weight: 600;">EMERGING TRENDS OVERVIEW</h5>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-danger btn-sm" id="bulkDeleteBtn" style="display: none;">
                         <i class="fas fa-trash"></i> Delete Selected (<span id="deleteCount">0</span>)
                     </button>
-                    <button class="btn btn-outline-primary btn-sm me-2" id="bulkAnalyzeBtn" style="display: none;">
+                    <button class="btn btn-outline-primary btn-sm" id="bulkAnalyzeBtn" style="display: none;">
                         <i class="fas fa-microscope"></i> Analyze Selected (<span id="selectedCount">0</span>)
                     </button>
                 </div>

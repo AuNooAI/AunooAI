@@ -40,6 +40,16 @@ function App() {
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [contextInfo, setContextInfo] = useState<ContextInfo | null>(null);
 
+  // Check URL parameters for auto-opening onboarding wizard
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('onboarding') === 'true') {
+      setIsOnboardingOpen(true);
+      // Remove the parameter from URL without reloading
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
   // Calculate context info when model or sample size changes
   useEffect(() => {
     if (config.model) {
@@ -84,17 +94,15 @@ function App() {
               Set up the topic
               <span className="text-gray-400">+</span>
             </button>
-            <Dialog open={isConfigOpen} onOpenChange={setIsConfigOpen}>
-              <DialogTrigger asChild>
-                <button className="px-4 py-2 bg-pink-500 hover:bg-pink-600 text-white rounded-md text-sm font-medium flex items-center gap-2">
-                  <Settings className="w-4 h-4" />
-                  Configure
-                </button>
-              </DialogTrigger>
-              <DialogContent className="max-w-4xl">
-                <DialogHeader>
-                  <DialogTitle className="text-2xl font-bold">Configure Trend Convergence Analysis</DialogTitle>
-                  <DialogDescription className="sr-only">
+          </div>
+        </div>
+
+        {/* Configuration Dialog - now only triggered from tab buttons */}
+        <Dialog open={isConfigOpen} onOpenChange={setIsConfigOpen}>
+          <DialogContent className="max-w-4xl">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-bold">Configure Trend Convergence Analysis</DialogTitle>
+              <DialogDescription className="sr-only">
                     Configure your analysis settings
                   </DialogDescription>
                 </DialogHeader>
@@ -268,8 +276,6 @@ function App() {
                 </div>
               </DialogContent>
             </Dialog>
-          </div>
-        </div>
 
         {/* Sub-header with tabs */}
         <div className="bg-white px-6 py-4">
