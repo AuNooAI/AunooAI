@@ -1,108 +1,97 @@
-{% extends "base.html" %}
+{% extends "base_with_shared_nav.html" %}
 
-{% block title %}AuNoo AI - Keyword Monitor{% endblock %}
+{% block title %}Keyword Monitor - Aunoo{% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <div class="page-header">
-        <div class="d-flex justify-content-between align-items-start">
-            <div class="d-flex align-items-center gap-3">
-                <h1 class="mb-0">
-                    <i class="fas fa-bullseye"></i>
-                    Keyword Monitor
-                </h1>
-                <p class="text-muted mb-0">Monitor news articles by configuring keyword groups and search terms</p>
-            </div>
-            <div class="d-flex align-items-center gap-2">
-                <div class="d-flex align-items-center">
-                    <div class="me-2">
-                        <div class="text-muted small">API Usage Today</div>
-                        <div class="progress" style="width: 150px; height: 5px;"
-                             data-tooltip="Shows current API usage against daily limit">
-                            <div id="mainRequestProgress" class="progress-bar" role="progressbar" style="width: 0%"></div>
-                        </div>
-                        <div class="text-end small">
-                            <span id="mainRequestsUsed" class="text-muted">0</span>/<span id="mainRequestLimit">100</span>
-                            <div id="resetTimer" class="text-muted" style="font-size: 0.8rem;"
-                                 data-tooltip="Time until API quota resets"></div>
-                        </div>
-                    </div>
-                    <button class="btn btn-sm btn-secondary btn-xs" onclick="resetApiCounter()" id="resetCounterBtn" title="Reset the API counter if it's not resetting properly" style="font-size: 0.75rem; padding: 0.25rem 0.5rem;">
-                        <i class="fas fa-redo"></i> Reset
-                    </button>
-                </div>
-            </div>
+<div class="keyword-monitor-container">
+    <!-- Breadcrumb Header matching News Feed -->
+    <div class="page-breadcrumb-header">
+        <div class="breadcrumb-text">
+            <span>Gather</span>
+            <span>/</span>
+            <span class="font-medium">Keyword Monitor</span>
+            <span>•</span>
+            <span>Monitor news articles by configuring keyword groups</span>
+        </div>
+        <div class="page-header-actions">
+            <button type="button" class="btn btn-icon" title="Notifications">
+                <i class="fas fa-bell"></i>
+            </button>
+            <button class="btn-topic-setup" onclick="window.location.href='/trend-convergence?onboarding=true'" title="Set up a new topic">
+                <span>Set up topic</span>
+                <i class="fas fa-plus"></i>
+            </button>
         </div>
     </div>
 
-    <div class="mb-4 d-flex gap-2">
-        <a href="/keyword-alerts" class="btn btn-outline-primary">
-            <i class="fas fa-arrow-left"></i> Back to News Funnel
-        </a>
-        <button class="btn btn-success" onclick="showNewGroupModal()"
-                data-tooltip="Create a new group of keywords to monitor">
-            <i class="fas fa-plus"></i> New Group
-        </button>
-    </div>
+    <!-- Scrollable Content Area -->
+    <div class="keyword-monitor-scrollable">
+        <!-- New Group Button -->
+        <div class="mb-4">
+            <button class="btn-action-subtle" onclick="showNewGroupModal()" title="Create a new group of keywords to monitor">
+                <i class="fas fa-plus"></i> New Group
+            </button>
+        </div>
 
-    {% if not keyword_groups %}
-    <div class="alert alert-info">
-        <i class="fas fa-info-circle"></i> 
-        Get started by creating a keyword group. Each group can monitor multiple related keywords.
-    </div>
-    {% endif %}
+        {% if not keyword_groups %}
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle"></i>
+            Get started by creating a keyword group. Each group can monitor multiple related keywords.
+        </div>
+        {% endif %}
 
-    <div class="row">
-        {% for group in keyword_groups %}
-        <div class="col-md-6 mb-4">
-            <div class="card" id="group-{{ group.id }}">
-                <div class="card-header">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <h5 class="mb-0">{{ group.name }}</h5>
-                        <span class="badge bg-secondary" 
-                              data-tooltip="Topic this group belongs to">
-                            Topic: {{ group.topic }}
-                        </span>
+        <div class="row">
+            {% for group in keyword_groups %}
+            <div class="col-md-6 mb-4">
+                <div class="card" id="group-{{ group.id }}">
+                    <div class="card-header">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0">{{ group.name }}</h5>
+                            <span class="badge bg-secondary"
+                                  data-tooltip="Topic this group belongs to">
+                                Topic: {{ group.topic }}
+                            </span>
+                        </div>
                     </div>
-                </div>
-                <div class="card-body">
-                    <div class="mb-3">
-                        {% if group.keywords %}
-                        <h6 class="mb-2">Monitored Keywords:</h6>
-                        <div class="d-flex gap-2 flex-wrap">
-                            {% for keyword in group.keywords %}
-                            <div class="badge bg-light text-dark border">
-                                {{ keyword.keyword }}
-                                <button class="btn-close ms-2" 
-                                        onclick="deleteKeyword({{ keyword.id }})"
-                                        data-tooltip="Remove this keyword"
-                                        aria-label="Delete keyword"></button>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            {% if group.keywords %}
+                            <h6 class="mb-2">Monitored Keywords:</h6>
+                            <div class="d-flex gap-2 flex-wrap">
+                                {% for keyword in group.keywords %}
+                                <div class="keyword-badge">
+                                    {{ keyword.keyword }}
+                                    <button class="btn-close"
+                                            onclick="deleteKeyword({{ keyword.id }})"
+                                            data-tooltip="Remove this keyword"
+                                            aria-label="Delete keyword"></button>
+                                </div>
+                                {% endfor %}
                             </div>
-                            {% endfor %}
+                            {% else %}
+                            <div class="alert alert-light">
+                                <i class="fas fa-lightbulb"></i>
+                                Add keywords to start monitoring news articles for this group.
+                            </div>
+                            {% endif %}
                         </div>
-                        {% else %}
-                        <div class="alert alert-light">
-                            <i class="fas fa-lightbulb"></i>
-                            Add keywords to start monitoring news articles for this group.
+                        <div class="d-flex justify-content-between">
+                            <button class="btn-action-subtle"
+                                    onclick="showAddKeywordModal({{ group.id }})"
+                                    data-tooltip="Add a new keyword to this group">
+                                <i class="fas fa-plus"></i> Add Keyword
+                            </button>
+                            <button class="btn-danger-subtle"
+                                    onclick="deleteGroup({{ group.id }})"
+                                    data-tooltip="Delete this entire group">
+                                <i class="fas fa-trash"></i> Delete Group
+                            </button>
                         </div>
-                        {% endif %}
-                    </div>
-                    <div class="d-flex justify-content-between">
-                        <button class="btn btn-sm btn-outline-primary" 
-                                onclick="showAddKeywordModal({{ group.id }})"
-                                data-tooltip="Add a new keyword to this group">
-                            <i class="fas fa-plus"></i> Add Keyword
-                        </button>
-                        <button class="btn btn-sm btn-outline-danger" 
-                                onclick="deleteGroup({{ group.id }})"
-                                data-tooltip="Delete this entire group">
-                            <i class="fas fa-trash"></i> Delete Group
-                        </button>
                     </div>
                 </div>
             </div>
+            {% endfor %}
         </div>
-        {% endfor %}
     </div>
 </div>
 
@@ -143,8 +132,8 @@
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="createGroup()">Create Group</button>
+                <button type="button" class="btn-gray-subtle" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn-action-subtle" onclick="createGroup()">Create Group</button>
             </div>
         </div>
     </div>
@@ -177,8 +166,8 @@
                 </form>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" onclick="addKeyword()">Add Keyword</button>
+                <button type="button" class="btn-gray-subtle" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn-action-subtle" onclick="addKeyword()">Add Keyword</button>
             </div>
         </div>
     </div>
@@ -205,14 +194,14 @@
                         <li>Auto-processing and quality control</li>
                     </ul>
                     <p class="mb-0">
-                        <a href="/keyword-alerts" class="btn btn-primary">
-                            <i class="fas fa-cog me-2"></i>Go to Auto-Processing Settings
+                        <a href="/keyword-alerts" class="btn-action-subtle">
+                            <i class="fas fa-cog"></i>Go to Auto-Processing Settings
                         </a>
                     </p>
                 </div>
             </div>
             <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn-gray-subtle" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
@@ -220,116 +209,101 @@
 
 <!-- Add this CSS -->
 <style>
-    :root {
-        --primary-color: #FF69B4;  /* Hot Pink - match global brand color */
-        --primary-dark: #FF1493;   /* Deep Pink */
-        --secondary-color: #32CD32;  /* Lime Green */
-        --secondary-dark: #228B22;   /* Forest Green */
-        --text-color: #333;
-        --light-gray: #f8f9fa;
-        --medium-gray: #e9ecef;
-        --dark-gray: #343a40;
+    /* Container matching news_feed_new.html */
+    .keyword-monitor-container {
+        max-width: 100%;
+        margin: 0 auto;
+        padding: 0;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        line-height: 1.6;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
     }
 
-    /* Header section with pink border */
-    .page-header {
-        border-bottom: 3px solid #FF69B4;
-        margin-bottom: 24px;
-        padding-bottom: 16px;
-    }
-
-    /* Pink gradient title text */
-    h1 {
-        font-size: 2rem;
-        font-weight: 700;
-        margin: 0 0 8px 0;
-        background: linear-gradient(135deg, #FF69B4, #FF1493);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
+    /* Breadcrumb Header (matching news_feed_new.html) */
+    .page-breadcrumb-header {
+        background-color: white;
+        border-bottom: 1px solid #e5e7eb;
+        padding: 0.75rem 1.5rem;
         display: flex;
         align-items: center;
-        gap: 8px;
+        justify-content: space-between;
+        flex-shrink: 0;
     }
 
-    /* Keep icon pink (not gradient) */
-    h1 i {
-        color: #FF69B4;
-        -webkit-text-fill-color: #FF69B4;
+    .breadcrumb-text {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.875rem;
+        color: #6b7280;
     }
 
-    h5, h6 {
-        color: var(--primary-color);
+    .breadcrumb-text span {
+        color: #6b7280;
     }
 
-    .btn-primary {
-        background-color: var(--primary-color);
-        border-color: var(--primary-color);
+    .breadcrumb-text span.font-medium {
+        color: #111827;
+        font-weight: 500;
     }
 
-    .btn-primary:hover {
-        background-color: var(--primary-dark);
-        border-color: var(--primary-dark);
+    .page-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
     }
 
-    .btn-outline-primary {
-        color: white;
-        background-color: var(--primary-color);
-        border-color: var(--primary-color);
+    /* Icon button */
+    .page-header-actions .btn-icon {
+        padding: 0.5rem;
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border: none;
+        color: #6b7280;
+        cursor: pointer;
+        border-radius: 0.375rem;
+        transition: all 0.2s ease;
     }
 
-    .btn-outline-primary:hover {
-        background-color: var(--primary-dark);
-        border-color: var(--primary-dark);
-        color: white;
+    .page-header-actions .btn-icon:hover {
+        background: #f3f4f6;
+        color: #111827;
     }
 
-    .btn-secondary {
-        color: white;
-        background-color: #6c757d;
-        border-color: #6c757d;
-    }
-    
-    .btn-secondary:hover {
-        background-color: #5a6268;
-        border-color: #545b62;
-        color: white;
-    }
-
-    .btn-success {
-        background-color: var(--secondary-color);
-        border-color: var(--secondary-color);
-    }
-
-    .btn-success:hover {
-        background-color: var(--secondary-dark);
-        border-color: var(--secondary-dark);
+    /* Button matching news_feed_new.html */
+    .btn-topic-setup {
+        background: #f3f4f6;
+        border: none;
+        color: #111827;
+        font-size: 0.875rem;
+        font-weight: 500;
+        padding: 0.5rem 1rem;
+        border-radius: 0.375rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        transition: all 0.2s ease;
+        cursor: pointer;
     }
 
-    .progress-bar {
-        background-color: var(--primary-color);
+    .btn-topic-setup:hover {
+        background: #e5e7eb;
+        color: #111827;
     }
 
-    .progress-bar.bg-warning {
-        background-color: #ffc107 !important;
-    }
-
-    .progress-bar.bg-danger {
-        background-color: #dc3545 !important;
-    }
-
-    .text-info {
-        color: var(--primary-color) !important;
-    }
-
-    .form-control:focus, .form-select:focus {
-        border-color: var(--primary-color);
-        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.25);
-    }
-
-    .form-check-input:checked {
-        background-color: var(--primary-color);
-        border-color: var(--primary-color);
+    /* Scrollable content area */
+    .keyword-monitor-scrollable {
+        flex: 1;
+        overflow-y: auto;
+        padding: 24px 48px;
+        background-color: #f3f4f6;
     }
 
     /* Tooltip styles */
@@ -403,6 +377,157 @@
         padding: 0.2rem 0.4rem;
         font-size: 0.75rem;
         line-height: 1.2;
+    }
+
+    /* Subtle pink action buttons - matching React Trend Convergence */
+    .btn-action-subtle {
+        background: white;
+        border: 1px solid #e5e7eb;
+        color: #ec4899; /* text-pink-500 */
+        font-size: 0.875rem; /* text-sm */
+        font-weight: 500; /* font-medium */
+        padding: 0.5rem 0.75rem; /* px-3 py-2 */
+        border-radius: 0.375rem; /* rounded-md */
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        transition: all 0.2s ease;
+        cursor: pointer;
+        text-decoration: none;
+    }
+
+    .btn-action-subtle:hover {
+        background: #fdf2f8; /* hover:bg-pink-50 */
+        color: #ec4899;
+        border-color: #fbcfe8;
+        text-decoration: none;
+    }
+
+    .btn-action-subtle i {
+        color: #ec4899;
+    }
+
+    /* Gray neutral button for secondary actions */
+    .btn-gray-subtle {
+        background: #f3f4f6; /* bg-gray-100 */
+        border: 1px solid #e5e7eb;
+        color: #111827; /* text-gray-900 */
+        font-size: 0.875rem;
+        font-weight: 500;
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.375rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        transition: all 0.2s ease;
+        cursor: pointer;
+        text-decoration: none;
+    }
+
+    .btn-gray-subtle:hover {
+        background: #e5e7eb; /* hover:bg-gray-200 */
+        color: #111827;
+        text-decoration: none;
+    }
+
+    /* Danger button - red theme */
+    .btn-danger-subtle {
+        background: white;
+        border: 1px solid #e5e7eb;
+        color: #dc2626; /* text-red-600 */
+        font-size: 0.875rem;
+        font-weight: 500;
+        padding: 0.5rem 0.75rem;
+        border-radius: 0.375rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        transition: all 0.2s ease;
+        cursor: pointer;
+        text-decoration: none;
+    }
+
+    .btn-danger-subtle:hover {
+        background: #fef2f2; /* hover:bg-red-50 */
+        color: #dc2626;
+        border-color: #fecaca;
+        text-decoration: none;
+    }
+
+    .btn-danger-subtle i {
+        color: #dc2626;
+    }
+
+    /* Keyword badges - subtle styling */
+    .keyword-badge {
+        background: #fdf2f8; /* bg-pink-50 */
+        border: 1px solid #fbcfe8; /* border-pink-200 */
+        color: #831843; /* text-pink-900 */
+        font-size: 0.875rem;
+        font-weight: 500;
+        padding: 0.375rem 0.75rem;
+        border-radius: 9999px; /* rounded-full */
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        transition: all 0.2s ease;
+    }
+
+    .keyword-badge .btn-close {
+        font-size: 0.75rem;
+        width: 1rem;
+        height: 1rem;
+        padding: 0;
+        opacity: 0.5;
+        transition: opacity 0.2s ease;
+    }
+
+    .keyword-badge .btn-close:hover {
+        opacity: 1;
+    }
+
+    /* Mobile responsive adjustments */
+    @media (max-width: 768px) {
+        .btn-action-subtle,
+        .btn-gray-subtle,
+        .btn-danger-subtle {
+            font-size: 0.75rem;
+            padding: 0.375rem 0.5rem;
+        }
+
+        .keyword-badge {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+        }
+
+        .card {
+            margin-bottom: 1rem;
+        }
+
+        .keyword-monitor-scrollable {
+            padding: 24px 16px;
+        }
+
+        .page-breadcrumb-header {
+            padding: 0.5rem 1rem;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0.75rem;
+        }
+
+        .breadcrumb-text {
+            font-size: 0.75rem;
+        }
+
+        .page-header-actions {
+            width: 100%;
+            justify-content: flex-end;
+        }
+
+        .btn-topic-setup {
+            font-size: 0.75rem;
+            padding: 0.375rem 0.75rem;
+        }
     }
 </style>
 

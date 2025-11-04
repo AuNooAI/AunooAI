@@ -1586,7 +1586,7 @@ class DatabaseQueryFacade:
         statement = select(
             func.count()
         ).select_from(
-            feed_keyword_groups
+            keyword_groups
         )
         return self._execute_with_rollback(statement).fetchone()[0]
 

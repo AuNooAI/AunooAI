@@ -206,19 +206,18 @@ def get_template_context(request: Request, additional_context: dict = None) -> d
     # Get fresh app info
     app_info = get_app_info()
     logger.debug(f"Creating template context with app_info: {app_info}")
-    
+
     context = {
         "request": request,
-        "app_info": app_info,
-        "session": request.session if hasattr(request, "session") else {}
+        "app_info": app_info
     }
-    
+
     if additional_context:
-        # Don't allow overwriting of core context
+        # Allow overwriting of all keys - routes should provide enhanced session
         for key, value in additional_context.items():
-            if key not in ["request", "app_info", "session"]:
+            if key not in ["request", "app_info"]:  # Only protect request and app_info
                 context[key] = value
-    
+
     logger.debug(f"Final template context: {context}")
     return context
 
@@ -2179,7 +2178,8 @@ async def keyword_monitor_page(request: Request, session=Depends(verify_session)
             get_template_context(request, {
                 "keyword_groups": list(groups.values()),
                 "topics": topics,
-                "session": session
+                "session": session,
+                "current_page": "gather"
             })
         )
     except Exception as e:

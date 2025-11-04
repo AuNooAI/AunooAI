@@ -13,10 +13,10 @@ interface TabNavigationProps {
 }
 
 const tabs: Tab[] = [
-  { id: 'impact-timeline', label: 'Impact Timeline' },
-  { id: 'consensus', label: 'Consensus Analysis' },
-  { id: 'market-signals', label: 'Market Signals & Strategic Risks' },
   { id: 'strategic-recommendations', label: 'Strategic Recommendations' },
+  { id: 'market-signals', label: 'Market Signals & Strategic Risks' },
+  { id: 'consensus', label: 'Consensus Analysis' },
+  { id: 'impact-timeline', label: 'Impact Timeline' },
   { id: 'future-horizons', label: 'Future Horizons' },
 ];
 

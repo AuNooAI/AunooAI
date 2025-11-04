@@ -34,7 +34,7 @@ function App() {
     clearError,
   } = useTrendConvergence();
 
-  const [activeTab, setActiveTab] = useState('impact-timeline');
+  const [activeTab, setActiveTab] = useState('strategic-recommendations');
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);

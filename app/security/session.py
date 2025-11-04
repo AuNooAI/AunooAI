@@ -56,7 +56,15 @@ def verify_session(request: Request):
                 headers={"Location": "/login?error=account_inactive"}
             )
 
-        return session_data
+        # Enhance session data with full user object for templates
+        enhanced_session = dict(session_data)
+        enhanced_session["user"] = {
+            "username": user.get('username'),
+            "email": user.get('email', ''),
+            "role": user.get('role', 'user'),
+            "is_active": user.get('is_active', True)
+        }
+        return enhanced_session
 
     # Check for OAuth user
     oauth_user = get_oauth_user_by_session(session_data)
@@ -76,7 +84,15 @@ def verify_session(request: Request):
                 headers={"Location": "/login?error=account_inactive"}
             )
 
-        return session_data
+        # Enhance session data with full user object for templates
+        enhanced_session = dict(session_data)
+        enhanced_session["user"] = {
+            "username": user.get('username') or oauth_user.get('email'),
+            "email": user.get('email', oauth_user.get('email', '')),
+            "role": user.get('role', 'user'),
+            "is_active": user.get('is_active', True)
+        }
+        return enhanced_session
 
     # No valid session found
     logger.debug("No valid session found, redirecting to login")
@@ -112,7 +128,15 @@ def verify_session_api(request: Request):
                 detail="Account inactive or not found"
             )
 
-        return session_data
+        # Enhance session data with full user object
+        enhanced_session = dict(session_data)
+        enhanced_session["user"] = {
+            "username": user.get('username'),
+            "email": user.get('email', ''),
+            "role": user.get('role', 'user'),
+            "is_active": user.get('is_active', True)
+        }
+        return enhanced_session
 
     # Check for OAuth user
     oauth_user = get_oauth_user_by_session(session_data)
@@ -128,7 +152,15 @@ def verify_session_api(request: Request):
                 detail="Account inactive"
             )
 
-        return session_data
+        # Enhance session data with full user object
+        enhanced_session = dict(session_data)
+        enhanced_session["user"] = {
+            "username": user.get('username') or oauth_user.get('email'),
+            "email": user.get('email', oauth_user.get('email', '')),
+            "role": user.get('role', 'user'),
+            "is_active": user.get('is_active', True)
+        }
+        return enhanced_session
 
     # No valid session found - return 401 for API endpoints
     logger.debug("No valid session found for API request")

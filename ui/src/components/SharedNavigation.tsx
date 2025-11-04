@@ -3,7 +3,7 @@
  * Comprehensive menu matching Figma design
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Home, Search, Settings, Info, Moon,
   ChevronDown, User, LogOut, TrendingUp, BarChart3, Scale,
@@ -16,8 +16,29 @@ interface SharedNavigationProps {
   currentPage: 'health' | 'anticipate' | 'investigate' | 'gather';
 }
 
+interface UserInfo {
+  username: string;
+  email: string;
+}
+
 export function SharedNavigation({ currentPage }: SharedNavigationProps) {
   const [expandedSections, setExpandedSections] = useState<{[key: string]: boolean}>({});
+  const [userInfo, setUserInfo] = useState<UserInfo>({ username: 'User', email: 'user@example.com' });
+
+  useEffect(() => {
+    // Fetch user info from API
+    fetch('/api/users/me')
+      .then(res => res.json())
+      .then(data => {
+        setUserInfo({
+          username: data.username || 'User',
+          email: data.email || 'user@example.com'
+        });
+      })
+      .catch(err => {
+        console.error('Failed to fetch user info:', err);
+      });
+  }, []);
 
   const toggleSection = (section: string) => {
     setExpandedSections(prev => ({
@@ -242,8 +263,8 @@ export function SharedNavigation({ currentPage }: SharedNavigationProps) {
           <User className="w-4 h-4" />
         </div>
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-medium text-gray-700 truncate">User</div>
-          <div className="text-xs text-gray-500 truncate">user@example.com</div>
+          <div className="text-sm font-medium text-gray-700 truncate">{userInfo.username}</div>
+          <div className="text-xs text-gray-500 truncate">{userInfo.email}</div>
         </div>
         <a href="/logout" className="w-8 h-8 rounded-md flex items-center justify-center text-gray-600 hover:bg-red-50 hover:text-red-600 transition-all">
           <LogOut className="w-4 h-4" />
