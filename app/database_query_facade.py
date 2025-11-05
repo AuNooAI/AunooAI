@@ -1156,6 +1156,14 @@ class DatabaseQueryFacade:
         from app.database_models import t_users
         from sqlalchemy import select
 
+        # Handle edge case where username might be a dict (OAuth user info)
+        if isinstance(username, dict):
+            username = username.get('username') or username.get('email')
+
+        # Handle None username
+        if not username:
+            return None
+
         stmt = select(t_users).where(t_users.c.username == username.lower())
         result = self._execute_with_rollback(stmt, operation_name="get_user_by_username")
         row = result.fetchone()
@@ -4648,7 +4656,7 @@ class DatabaseQueryFacade:
                     )
                 ]
 
-        # Add required filters
+        # Add required filters - only show enriched articles with metadata
         where_conditions.extend([
             articles.c.category.isnot(None),
             articles.c.sentiment.isnot(None)

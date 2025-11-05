@@ -27,7 +27,7 @@ export function StepIndicator({ currentStep, totalSteps, stepLabels = [] }: Step
                     ? 'bg-pink-500 text-white'
                     : isCompleted
                     ? 'bg-green-500 text-white'
-                    : 'bg-gray-200 text-gray-600'
+                    : 'bg-gray-200 text-gray-700'
                 }`}
               >
                 {isCompleted ? (
@@ -39,7 +39,7 @@ export function StepIndicator({ currentStep, totalSteps, stepLabels = [] }: Step
                 )}
               </div>
               {stepLabels[index] && (
-                <span className={`mt-2 text-xs ${isActive ? 'font-semibold text-gray-900' : 'text-gray-500'}`}>
+                <span className={`mt-2 text-xs ${isActive ? 'font-semibold text-gray-950' : 'text-gray-600'}`}>
                   {stepLabels[index]}
                 </span>
               )}

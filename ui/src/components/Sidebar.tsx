@@ -18,21 +18,21 @@ export function Sidebar({ darkMode = false }: SidebarProps) {
 
       {/* General Section */}
       <div className="px-4 mb-4">
-        <div className="text-xs text-gray-500 mb-2 px-2">General</div>
+        <div className="text-xs text-gray-600 mb-2 px-2">General</div>
         <nav className="space-y-1">
-          <button className="w-full flex items-center gap-3 px-2 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-md">
+          <button className="w-full flex items-center gap-3 px-2 py-2 text-sm text-gray-800 hover:bg-gray-100 rounded-md">
             <Home className="w-4 h-4" />
             <span>Operations HQ</span>
           </button>
-          <button className="w-full flex items-center gap-3 px-2 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-md">
+          <button className="w-full flex items-center gap-3 px-2 py-2 text-sm text-gray-800 hover:bg-gray-100 rounded-md">
             <Compass className="w-4 h-4" />
             <span>Discover</span>
           </button>
-          <button className="w-full flex items-center gap-3 px-2 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-md bg-gray-100">
+          <button className="w-full flex items-center gap-3 px-2 py-2 text-sm text-gray-800 hover:bg-gray-100 rounded-md bg-gray-100">
             <Map className="w-4 h-4" />
             <span>Explore</span>
           </button>
-          <button className="w-full flex items-center gap-3 px-2 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-md">
+          <button className="w-full flex items-center gap-3 px-2 py-2 text-sm text-gray-800 hover:bg-gray-100 rounded-md">
             <MessageSquare className="w-4 h-4" />
             <span>Communicate</span>
           </button>
@@ -44,13 +44,13 @@ export function Sidebar({ darkMode = false }: SidebarProps) {
 
       {/* Support Section */}
       <div className="px-4 mb-4">
-        <div className="text-xs text-gray-500 mb-2 px-2">Support</div>
+        <div className="text-xs text-gray-600 mb-2 px-2">Support</div>
         <nav className="space-y-1">
-          <button className="w-full flex items-center gap-3 px-2 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-md">
+          <button className="w-full flex items-center gap-3 px-2 py-2 text-sm text-gray-800 hover:bg-gray-100 rounded-md">
             <Settings className="w-4 h-4" />
             <span>Settings</span>
           </button>
-          <button className="w-full flex items-center gap-3 px-2 py-2 text-sm text-gray-700 hover:bg-gray-100 rounded-md">
+          <button className="w-full flex items-center gap-3 px-2 py-2 text-sm text-gray-800 hover:bg-gray-100 rounded-md">
             <Info className="w-4 h-4" />
             <span>App Info</span>
           </button>
@@ -59,7 +59,7 @@ export function Sidebar({ darkMode = false }: SidebarProps) {
 
       {/* Dark Mode Toggle */}
       <div className="px-4 mb-4">
-        <button className="w-full flex items-center justify-between px-2 py-2 text-sm text-gray-700">
+        <button className="w-full flex items-center justify-between px-2 py-2 text-sm text-gray-800">
           <div className="flex items-center gap-3">
             <Moon className="w-4 h-4" />
             <span>Dark Mode</span>
@@ -78,7 +78,7 @@ export function Sidebar({ darkMode = false }: SidebarProps) {
           </div>
           <div className="text-xs">
             <div className="font-medium">Oliver</div>
-            <div className="text-gray-500">oliver@email.com</div>
+            <div className="text-gray-600">oliver@email.com</div>
           </div>
         </div>
       </div>

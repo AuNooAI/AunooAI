@@ -820,12 +820,18 @@ class AuspexService:
             # This avoids foreign key constraint issues
             oauth_user_identifier = None
             if user_id:
-                # Check if user exists in users table
-                user_exists = self.db.get_user(user_id)
-                if not user_exists:
-                    logger.info(f"User {user_id} not found in users table, creating chat without user_id")
-                    oauth_user_identifier = user_id  # Store OAuth user identifier
+                # If user_id is a dict (OAuth user), extract username and set user_id to None
+                if isinstance(user_id, dict):
+                    oauth_user_identifier = user_id.get('username') or user_id.get('email')
+                    logger.info(f"OAuth user {oauth_user_identifier} detected, creating chat without user_id")
                     user_id = None
+                else:
+                    # Check if user exists in users table
+                    user_exists = self.db.get_user(user_id)
+                    if not user_exists:
+                        logger.info(f"User {user_id} not found in users table, creating chat without user_id")
+                        oauth_user_identifier = user_id  # Store OAuth user identifier
+                        user_id = None
 
             metadata = {
                 "created_at": datetime.now().isoformat(),

@@ -5,14 +5,14 @@
 {% block extra_css %}
 <style>
     :root {
-        --primary-color: #FF69B4;  /* Hot Pink */
-        --primary-dark: #FF1493;   /* Deep Pink */
+        --primary-color: var(--colors-accent-7);  /* Hot Pink */
+        --primary-dark: var(--colors-accent-10);   /* Deep Pink */
         --secondary-color: #32CD32;  /* Lime Green */
         --secondary-dark: #228B22;   /* Forest Green */
-        --text-color: #333;
-        --light-gray: #f8f9fa;
-        --medium-gray: #e9ecef;
-        --dark-gray: #343a40;
+        --text-color: var(--colors-neutral-11);
+        --light-gray: var(--colors-neutral-2);
+        --medium-gray: var(--colors-neutral-4);
+        --dark-gray: var(--colors-neutral-10);
     }
 
     body {
@@ -36,7 +36,7 @@
     }
 
     .card {
-        background-color: #fff;
+        background-color: var(--colors-white);
         border-radius: 8px;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         margin-bottom: 20px;
@@ -49,7 +49,7 @@
     }
 
     .card-header {
-        background-color: #fff;
+        background-color: var(--colors-white);
         border-bottom: 1px solid var(--medium-gray);
         padding: 1rem 1.25rem;
     }
@@ -80,7 +80,7 @@
     .btn-primary {
         background-color: var(--primary-color);
         border-color: var(--primary-color);
-        color: #fff;
+        color: var(--colors-white);
         transition: all 0.2s ease;
         display: flex;
         align-items: center;
@@ -114,7 +114,7 @@
     }
 
     #articleForm {
-        background-color: #fff;
+        background-color: var(--colors-white);
         padding: 20px;
         border-radius: 8px;
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
@@ -130,7 +130,7 @@
     .btn-success {
         background-color: var(--secondary-color);
         border-color: var(--secondary-color);
-        color: #fff;
+        color: var(--colors-white);
     }
 
     .btn-success:hover {
@@ -147,7 +147,7 @@
     .btn-secondary:hover {
         background-color: var(--dark-gray);
         border-color: var(--dark-gray);
-        color: #fff;
+        color: var(--colors-white);
     }
 
     .world-clock {
@@ -378,7 +378,7 @@
 
     /* Pink gradient header - matching news_feed_new.html */
     .news-header {
-        border-bottom: 3px solid #FF69B4;
+        border-bottom: 3px solid var(--colors-accent-7);
         margin-bottom: 24px;
         padding-bottom: 16px;
         display: flex;
@@ -392,7 +392,7 @@
         font-size: 2rem;
         font-weight: 700;
         margin: 0;
-        background: linear-gradient(135deg, #FF69B4, #FF1493);
+        background: linear-gradient(135deg, var(--colors-accent-7), var(--colors-accent-10));
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
@@ -402,8 +402,8 @@
     }
 
     .news-title-icon {
-        color: #FF69B4;
-        -webkit-text-fill-color: #FF69B4;
+        color: var(--colors-accent-7);
+        -webkit-text-fill-color: var(--colors-accent-7);
     }
 
     .panel {
@@ -535,19 +535,19 @@
 
     .badge.bg-info {
         background-color: rgba(23, 162, 184, 0.1) !important;
-        color: #17a2b8 !important;
+        color: var(--colors-info-9) !important;
         border: 1px solid rgba(23, 162, 184, 0.2) !important;
     }
 
     .badge.bg-secondary {
         background-color: rgba(108, 117, 125, 0.1) !important;
-        color: #6c757d !important;
+        color: var(--colors-neutral-8) !important;
         border: 1px solid rgba(108, 117, 125, 0.2) !important;
     }
 
     .badge.bg-success {
         background-color: rgba(40, 167, 69, 0.1) !important;
-        color: #28a745 !important;
+        color: var(--colors-success-9) !important;
         border: 1px solid rgba(40, 167, 69, 0.2) !important;
     }
 
@@ -559,14 +559,14 @@
 
     .badge.bg-danger {
         background-color: rgba(220, 53, 69, 0.1) !important;
-        color: #dc3545 !important;
+        color: var(--colors-error-9) !important;
         border: 1px solid rgba(220, 53, 69, 0.2) !important;
     }
 
     /* Update the success/warning/danger classes to match */
     .badge.success {
         background-color: rgba(40, 167, 69, 0.1) !important;
-        color: #28a745 !important;
+        color: var(--colors-success-9) !important;
         border: 1px solid rgba(40, 167, 69, 0.2) !important;
     }
 
@@ -578,7 +578,7 @@
 
     .badge.danger {
         background-color: rgba(220, 53, 69, 0.1) !important;
-        color: #dc3545 !important;
+        color: var(--colors-error-9) !important;
         border: 1px solid rgba(220, 53, 69, 0.2) !important;
     }
 

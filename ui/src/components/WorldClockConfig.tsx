@@ -87,14 +87,14 @@ export function WorldClockConfig({ open, onOpenChange, currentClocks, onSave }: 
                 className={`flex items-center justify-between px-4 py-3 rounded-lg border-2 transition-all ${
                   selected
                     ? 'border-pink-500 bg-pink-50 text-pink-700'
-                    : 'border-gray-200 bg-white text-gray-700 hover:border-pink-200'
+                    : 'border-gray-200 bg-white text-gray-800 hover:border-pink-200'
                 }`}
               >
                 <span className="font-medium">{clock.city}</span>
                 {selected ? (
                   <X className="w-4 h-4" />
                 ) : (
-                  <Plus className="w-4 h-4 text-gray-400" />
+                  <Plus className="w-4 h-4 text-gray-500" />
                 )}
               </button>
             );

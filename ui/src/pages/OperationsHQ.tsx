@@ -183,10 +183,10 @@ export function OperationsHQ() {
         {/* Top Header */}
         <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
           {/* Breadcrumb */}
-          <div className="flex items-center gap-2 text-sm text-gray-600">
+          <div className="flex items-center gap-2 text-sm text-gray-700">
             <span>Operations</span>
             <span>/</span>
-            <span className="font-medium text-gray-900">System Health</span>
+            <span className="font-medium text-gray-950">System Health</span>
             <span>•</span>
             <span>Monitor system status and world operations</span>
           </div>
@@ -194,14 +194,14 @@ export function OperationsHQ() {
           {/* Right Icons */}
           <div className="flex items-center gap-2">
             <button className="p-2 hover:bg-gray-100 rounded-md">
-              <Bell className="w-5 h-5 text-gray-600" />
+              <Bell className="w-5 h-5 text-gray-700" />
             </button>
             <button
               onClick={() => window.location.href = '/trend-convergence?onboarding=true'}
-              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-md text-sm font-medium flex items-center gap-2 text-gray-900"
+              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-md text-sm font-medium flex items-center gap-2 text-gray-950"
             >
               Set up topic
-              <span className="text-gray-400">+</span>
+              <span className="text-gray-500">+</span>
             </button>
           </div>
         </div>
@@ -218,7 +218,7 @@ export function OperationsHQ() {
                 <div className={`inline-block px-6 py-2 rounded-full text-white font-bold text-lg ${getStatusColor(healthData.status)}`}>
                   {healthData.status.toUpperCase()}
                 </div>
-                <p className="text-gray-600 mt-2">
+                <p className="text-gray-700 mt-2">
                   Uptime: {healthData.uptime.days}d {healthData.uptime.hours % 24}h {healthData.uptime.minutes % 60}m
                 </p>
 
@@ -259,9 +259,9 @@ export function OperationsHQ() {
                 key={clock.timezone}
                 className="bg-gray-50 rounded-lg p-3 hover:bg-white hover:shadow-md transition-all"
               >
-                <div className="text-xs font-semibold text-gray-700 mb-1">{clock.city}</div>
+                <div className="text-xs font-semibold text-gray-800 mb-1">{clock.city}</div>
                 <div className="text-lg font-mono text-pink-500">{clock.time}</div>
-                <div className="text-xs text-gray-500">{clock.date}</div>
+                <div className="text-xs text-gray-600">{clock.date}</div>
               </div>
             ))}
           </div>
@@ -273,7 +273,7 @@ export function OperationsHQ() {
                onClick={() => window.location.href = '/database-editor'}>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-600 text-sm">Total Articles</p>
+                <p className="text-gray-700 text-sm">Total Articles</p>
                 <p className="text-3xl font-bold text-pink-500">{stats?.total_articles || 0}</p>
               </div>
               <Newspaper className="w-12 h-12 text-pink-200" />
@@ -284,7 +284,7 @@ export function OperationsHQ() {
                onClick={() => window.location.href = '/keyword-alerts'}>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-600 text-sm">Articles Today</p>
+                <p className="text-gray-700 text-sm">Articles Today</p>
                 <p className="text-3xl font-bold text-pink-500">{stats?.articles_today || 0}</p>
               </div>
               <TrendingUp className="w-12 h-12 text-pink-200" />
@@ -295,7 +295,7 @@ export function OperationsHQ() {
                onClick={() => window.location.href = '/keyword-monitor'}>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-600 text-sm">Keyword Groups</p>
+                <p className="text-gray-700 text-sm">Keyword Groups</p>
                 <p className="text-3xl font-bold text-pink-500">{stats?.keyword_groups || 0}</p>
               </div>
               <Tags className="w-12 h-12 text-pink-200" />
@@ -306,7 +306,7 @@ export function OperationsHQ() {
                onClick={() => window.location.href = '/create_topic'}>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-600 text-sm">Topics</p>
+                <p className="text-gray-700 text-sm">Topics</p>
                 <p className="text-3xl font-bold text-pink-500">{stats?.topics || 0}</p>
               </div>
               <Folder className="w-12 h-12 text-pink-200" />
@@ -328,20 +328,20 @@ export function OperationsHQ() {
                 </div>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Process:</span>
+                    <span className="text-gray-700">Process:</span>
                     <span className="font-semibold">{healthData.cpu.process_percent}%</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">System:</span>
+                    <span className="text-gray-700">System:</span>
                     <span className="font-semibold">{healthData.cpu.system_percent}%</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Cores:</span>
+                    <span className="text-gray-700">Cores:</span>
                     <span className="font-semibold">{healthData.cpu.core_count}</span>
                   </div>
                   {healthData.cpu.load_average && (
                     <div className="flex justify-between">
-                      <span className="text-gray-600">Load (1/5/15m):</span>
+                      <span className="text-gray-700">Load (1/5/15m):</span>
                       <span className="font-semibold text-xs">
                         {healthData.cpu.load_average.map(l => l.toFixed(2)).join(' / ')}
                       </span>
@@ -358,19 +358,19 @@ export function OperationsHQ() {
                 </div>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Process RSS:</span>
+                    <span className="text-gray-700">Process RSS:</span>
                     <span className="font-semibold">{healthData.memory.process.rss_mb} MB</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Process %:</span>
+                    <span className="text-gray-700">Process %:</span>
                     <span className="font-semibold">{healthData.memory.process.percent}%</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Threads:</span>
+                    <span className="text-gray-700">Threads:</span>
                     <span className="font-semibold">{healthData.memory.process.num_threads}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">System:</span>
+                    <span className="text-gray-700">System:</span>
                     <span className="font-semibold">{healthData.memory.system.used_gb} / {healthData.memory.system.total_gb} GB</span>
                   </div>
                   <div className="mt-3">
@@ -394,11 +394,11 @@ export function OperationsHQ() {
                 </div>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Used:</span>
+                    <span className="text-gray-700">Used:</span>
                     <span className="font-semibold">{healthData.disk.root.used_gb} / {healthData.disk.root.total_gb} GB</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Free:</span>
+                    <span className="text-gray-700">Free:</span>
                     <span className="font-semibold">{healthData.disk.root.free_gb} GB</span>
                   </div>
                   <div className="mt-3">
@@ -422,19 +422,19 @@ export function OperationsHQ() {
                 </div>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Open:</span>
+                    <span className="text-gray-700">Open:</span>
                     <span className="font-semibold">{healthData.file_descriptors.open} / {healthData.file_descriptors.soft_limit}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Available:</span>
+                    <span className="text-gray-700">Available:</span>
                     <span className="font-semibold">{healthData.file_descriptors.available}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Connections:</span>
+                    <span className="text-gray-700">Connections:</span>
                     <span className="font-semibold">{healthData.file_descriptors.connections}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-gray-600">Files:</span>
+                    <span className="text-gray-700">Files:</span>
                     <span className="font-semibold">{healthData.file_descriptors.files}</span>
                   </div>
                   <div className="mt-3">
@@ -456,7 +456,7 @@ export function OperationsHQ() {
           {loading && !healthData && (
             <div className="text-center py-12">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-500 mx-auto"></div>
-              <p className="text-gray-600 mt-4">Loading system metrics...</p>
+              <p className="text-gray-700 mt-4">Loading system metrics...</p>
             </div>
           )}
           </div>

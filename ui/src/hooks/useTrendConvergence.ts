@@ -40,7 +40,7 @@ export interface UseTrendConvergenceReturn {
   error: string | null;
 
   // Actions
-  generateAnalysis: () => Promise<void>;
+  generateAnalysis: (forceRefresh?: boolean) => Promise<void>;
   updateConfig: (updates: Partial<AnalysisConfig>) => void;
   clearError: () => void;
 }
@@ -143,7 +143,7 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
   };
 
   // Generate analysis
-  const generateAnalysis = useCallback(async () => {
+  const generateAnalysis = useCallback(async (forceRefresh: boolean = false) => {
     if (!config.topic) {
       setError('Please select a topic');
       return;
@@ -158,7 +158,12 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
     setError(null);
 
     try {
-      const result = await generateTrendConvergence(config);
+      // If force refresh, disable caching temporarily
+      const analysisConfig = forceRefresh
+        ? { ...config, enable_caching: false }
+        : config;
+
+      const result = await generateTrendConvergence(analysisConfig);
       setData(result);
 
       // Save analysis data to localStorage

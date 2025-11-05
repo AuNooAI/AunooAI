@@ -6,9 +6,9 @@
     <style>
         /* Pink styling to match AuNoo AI theme */
         :root {
-            --primary-color: #FF69B4;
-            --primary-dark: #FF1493;
-            --text-color: #333;
+            --primary-color: var(--colors-accent-7);
+            --primary-dark: var(--colors-accent-10);
+            --text-color: var(--colors-neutral-11);
             --container-width: 1200px;
             --spacing-md: 1rem;
         }
@@ -41,7 +41,7 @@
         
         .header p {
             font-size: 1.1rem;
-            color: #6c757d;
+            color: var(--colors-neutral-8);
             max-width: 700px;
             margin: 0 auto;
         }
@@ -49,7 +49,7 @@
         /* Form styling matching base.html patterns */
         .form-control, .form-select {
             border-radius: 8px;
-            border: 1px solid #ddd;
+            border: 1px solid var(--colors-neutral-5);
             padding: 0.5rem 0.75rem;
             transition: all 0.2s ease;
         }
@@ -167,7 +167,7 @@
         .timeline-container {
             position: relative;
             height: 40px;
-            background: linear-gradient(90deg, #f8f9fa 0%, #e9ecef 50%, #dee2e6 100%);
+            background: linear-gradient(90deg, var(--colors-neutral-2) 0%, var(--colors-neutral-4) 50%, var(--colors-neutral-5) 100%);
             border-radius: 20px;
             margin: 15px 0;
             overflow: hidden;
@@ -201,7 +201,7 @@
             display: flex;
             justify-content: space-between;
             font-size: 0.75rem;
-            color: #666;
+            color: var(--colors-neutral-8);
             margin-bottom: 5px;
             font-weight: 500;
         }
@@ -229,11 +229,11 @@
         }
         
         .outlier-optimistic {
-            background: #28a745;
+            background: var(--colors-success-9);
         }
         
         .outlier-pessimistic {
-            background: #dc3545;
+            background: var(--colors-error-9);
         }
 
         /* Milestone markers - Enhanced for actionability */
@@ -481,7 +481,7 @@
         .btn-divider {
             width: 1px;
             height: 24px;
-            background: #dee2e6;
+            background: var(--colors-neutral-5);
             margin: 0 4px;
             align-self: center;
         }
@@ -668,11 +668,11 @@
                                 <label for="categories" class="form-label" id="categorySelectionLabel">Categories (Optional)</label>
                                 <div class="position-relative">
                                     <button type="button" class="form-control text-start d-flex justify-content-between align-items-center" 
-                                            id="categoriesDropdown" onclick="toggleCategoriesDropdown()" style="background: white; border: 1px solid #ced4da;">
+                                            id="categoriesDropdown" onclick="toggleCategoriesDropdown()" style="background: white; border: 1px solid var(--colors-neutral-6);">
                                         <span id="categoriesText">All Categories</span>
                                         <i class="fas fa-chevron-down"></i>
                                     </button>
-                                    <div class="dropdown-menu w-100 p-0" id="categoriesMenu" style="display: none; max-height: 200px; overflow-y: auto; position: absolute; top: 100%; z-index: 1000; border: 1px solid #ced4da; border-radius: 0.375rem; background: white; box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);">
+                                    <div class="dropdown-menu w-100 p-0" id="categoriesMenu" style="display: none; max-height: 200px; overflow-y: auto; position: absolute; top: 100%; z-index: 1000; border: 1px solid var(--colors-neutral-6); border-radius: 0.375rem; background: white; box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);">
                                         <div class="px-3 py-2">
                                             <div class="form-check" id="selectAllContainer">
                                                 <input class="form-check-input" type="checkbox" id="selectAllCategories" onchange="toggleAllCategories()">
@@ -711,14 +711,14 @@
         let selectedDomain = null;
         
         const consensusColors = {
-            'Positive Growth': 'linear-gradient(45deg, #28a745, #20c997)',
-            'Business Transformation': 'linear-gradient(45deg, #28a745, #17a2b8)', 
-            'Mixed Consensus': 'linear-gradient(45deg, #ffc107, #fd7e14)',
-            'Regulatory Response': 'linear-gradient(45deg, #dc3545, #e83e8c)',
+            'Positive Growth': 'linear-gradient(45deg, var(--colors-success-9), #20c997)',
+            'Business Transformation': 'linear-gradient(45deg, var(--colors-success-9), var(--colors-info-9))', 
+            'Mixed Consensus': 'linear-gradient(45deg, var(--colors-warning-9), #fd7e14)',
+            'Regulatory Response': 'linear-gradient(45deg, var(--colors-error-9), #e83e8c)',
             'Societal Impact': 'linear-gradient(45deg, #6f42c1, #e83e8c)',
-            'Safety/Security': 'linear-gradient(45deg, #dc3545, #fd7e14)',
-            'Geopolitical Strategy': 'linear-gradient(45deg, #17a2b8, #6f42c1)',
-            'Defense Applications': 'linear-gradient(45deg, #6c757d, #495057)'
+            'Safety/Security': 'linear-gradient(45deg, var(--colors-error-9), #fd7e14)',
+            'Geopolitical Strategy': 'linear-gradient(45deg, var(--colors-info-9), #6f42c1)',
+            'Defense Applications': 'linear-gradient(45deg, var(--colors-neutral-8), var(--colors-neutral-9))'
         };
         
         const domainIcons = {
@@ -985,7 +985,7 @@
                 domainCards.innerHTML = `
                     <div class="domain-card">
                         <h5>📊 Auspex Analysis Results</h5>
-                        <div style="white-space: pre-wrap; font-family: monospace; font-size: 14px; background: #f8f9fa; padding: 15px; border-radius: 8px;">
+                        <div style="white-space: pre-wrap; font-family: monospace; font-size: 14px; background: var(--colors-neutral-2); padding: 15px; border-radius: 8px;">
                             ${analysisText}
                         </div>
                     </div>
@@ -2135,21 +2135,21 @@
             
             // More flexible color mapping
             const colors = {
-                'positive': '#28a745',
-                'Positive': '#28a745',
-                'neutral': '#6c757d',
-                'Neutral': '#6c757d',
-                'critical': '#dc3545',
-                'Critical': '#dc3545',
-                'negative': '#dc3545',
-                'Negative': '#dc3545'
+                'positive': 'var(--colors-success-9)',
+                'Positive': 'var(--colors-success-9)',
+                'neutral': 'var(--colors-neutral-8)',
+                'Neutral': 'var(--colors-neutral-8)',
+                'critical': 'var(--colors-error-9)',
+                'Critical': 'var(--colors-error-9)',
+                'negative': 'var(--colors-error-9)',
+                'Negative': 'var(--colors-error-9)'
             };
             
-            let html = '<div class="sentiment-distribution d-flex rounded overflow-hidden" style="height: 20px; background: #f8f9fa;">';
+            let html = '<div class="sentiment-distribution d-flex rounded overflow-hidden" style="height: 20px; background: var(--colors-neutral-2);">';
             
             Object.entries(distribution).forEach(([sentiment, count]) => {
                 const percentage = (count / total) * 100;
-                const color = colors[sentiment] || colors[sentiment.toLowerCase()] || '#6c757d';
+                const color = colors[sentiment] || colors[sentiment.toLowerCase()] || 'var(--colors-neutral-8)';
                 html += `<div style="width: ${percentage}%; background: ${color}; position: relative;" title="${sentiment}: ${count} articles (${percentage.toFixed(1)}%)"></div>`;
             });
             
@@ -2157,7 +2157,7 @@
             html += '<div class="small text-muted mt-1">';
             Object.entries(distribution).forEach(([sentiment, count]) => {
                 const percentage = (count / total) * 100;
-                const color = colors[sentiment] || colors[sentiment.toLowerCase()] || '#6c757d';
+                const color = colors[sentiment] || colors[sentiment.toLowerCase()] || 'var(--colors-neutral-8)';
                 html += `<span class="me-3"><span style="display: inline-block; width: 10px; height: 10px; background: ${color}; margin-right: 4px; border-radius: 2px;"></span>${sentiment}: ${count} (${percentage.toFixed(1)}%)</span>`;
             });
             html += '</div>';
@@ -2182,11 +2182,11 @@
             // Find the dominant timeframe
             const dominantTimeframe = Object.entries(distribution).reduce((a, b) => a[1] > b[1] ? a : b)[0];
             
-            let html = '<div class="timeline-distribution d-flex rounded overflow-hidden" style="height: 24px; background: #f8f9fa; border: 1px solid #dee2e6;">';
+            let html = '<div class="timeline-distribution d-flex rounded overflow-hidden" style="height: 24px; background: var(--colors-neutral-2); border: 1px solid var(--colors-neutral-5);">';
             
             Object.entries(distribution).forEach(([timeframe, count]) => {
                 const percentage = (count / total) * 100;
-                const color = colors[timeframe] || '#6c757d';
+                const color = colors[timeframe] || 'var(--colors-neutral-8)';
                 const isDominant = timeframe === dominantTimeframe;
                 const borderStyle = isDominant ? 'border: 2px solid #007bff;' : '';
                 html += `<div style="width: ${percentage}%; background: ${color}; position: relative; ${borderStyle}" title="${timeframe}: ${count} articles (${percentage.toFixed(1)}%)${isDominant ? ' - Dominant Timeline' : ''}"></div>`;
@@ -2196,7 +2196,7 @@
             html += '<div class="small text-muted mt-1 d-flex flex-wrap gap-2">';
             Object.entries(distribution).forEach(([timeframe, count]) => {
                 const percentage = (count / total) * 100;
-                const color = colors[timeframe] || '#6c757d';
+                const color = colors[timeframe] || 'var(--colors-neutral-8)';
                 const isDominant = timeframe === dominantTimeframe;
                 const weightClass = isDominant ? 'fw-bold' : '';
                 const shortName = timeframe.replace(/\([^)]*\)/, '').trim(); // Remove year ranges for cleaner display
@@ -2875,13 +2875,13 @@ ${actionableData.description}`;
             
             // Color coding
             if (contextUsage > 90) {
-                contextStats.style.color = '#dc3545'; // Red
+                contextStats.style.color = 'var(--colors-error-9)'; // Red
                 contextStats.style.fontWeight = 'bold';
             } else if (contextUsage > 70) {
                 contextStats.style.color = '#fd7e14'; // Orange
                 contextStats.style.fontWeight = '600';
             } else if (contextUsage > 50) {
-                contextStats.style.color = '#28a745'; // Green
+                contextStats.style.color = 'var(--colors-success-9)'; // Green
                 contextStats.style.fontWeight = '500';
             } else {
                 contextStats.style.color = '#007bff'; // Blue
@@ -2974,7 +2974,7 @@ ${actionableData.description}`;
             // Add to a test container
             const testContainer = document.createElement('div');
             testContainer.className = 'timeline-container';
-            testContainer.style.cssText = 'position: relative; height: 40px; background: #f0f0f0; margin: 20px 0; border: 1px solid #ccc;';
+            testContainer.style.cssText = 'position: relative; height: 40px; background: #f0f0f0; margin: 20px 0; border: 1px solid var(--colors-neutral-6);';
             testContainer.innerHTML = html;
             
             document.body.appendChild(testContainer);
@@ -3019,7 +3019,7 @@ ${actionableData.description}`;
             // Add to a test container
             const testContainer = document.createElement('div');
             testContainer.className = 'timeline-container';
-            testContainer.style.cssText = 'position: relative; height: 40px; background: #f0f0f0; margin: 20px 0; border: 1px solid #ccc;';
+            testContainer.style.cssText = 'position: relative; height: 40px; background: #f0f0f0; margin: 20px 0; border: 1px solid var(--colors-neutral-6);';
             testContainer.innerHTML = html;
             
             document.body.appendChild(testContainer);
@@ -3201,7 +3201,7 @@ ${actionableData.description}`;
                 // Add title
                 const title = document.createElement('h1');
                 title.style.cssText = `
-                    color: #FF69B4;
+                    color: var(--colors-accent-7);
                     font-size: 28px;
                     font-weight: bold;
                     margin-bottom: 10px;
@@ -3213,7 +3213,7 @@ ${actionableData.description}`;
                 // Add subtitle if available
                 const subtitle = document.createElement('p');
                 subtitle.style.cssText = `
-                    color: #666;
+                    color: var(--colors-neutral-8);
                     font-size: 16px;
                     text-align: center;
                     margin-bottom: 30px;
@@ -3254,7 +3254,7 @@ ${actionableData.description}`;
                     scale: 1.2,
                     logging: false,
                     allowTaint: true,
-                    backgroundColor: '#ffffff',
+                    backgroundColor: 'var(--colors-white)',
                     removeContainer: true
                 });
 
@@ -3345,7 +3345,7 @@ ${actionableData.description}`;
                 // Add title
                 const title = document.createElement('h1');
                 title.style.cssText = `
-                    color: #FF69B4;
+                    color: var(--colors-accent-7);
                     font-size: 32px;
                     font-weight: bold;
                     margin-bottom: 10px;
@@ -3357,7 +3357,7 @@ ${actionableData.description}`;
                 // Add subtitle if available
                 const subtitle = document.createElement('p');
                 subtitle.style.cssText = `
-                    color: #666;
+                    color: var(--colors-neutral-8);
                     font-size: 18px;
                     text-align: center;
                     margin-bottom: 40px;
@@ -3398,7 +3398,7 @@ ${actionableData.description}`;
                     scale: 2, // Higher resolution for PNG
                     logging: false,
                     allowTaint: true,
-                    backgroundColor: '#ffffff',
+                    backgroundColor: 'var(--colors-white)',
                     removeContainer: true
                 });
 

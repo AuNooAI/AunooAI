@@ -1186,7 +1186,7 @@ Remember to cite your sources and provide actionable insights where possible."""
         from sqlalchemy.exc import IntegrityError
         from app.database_models import t_article_analysis_cache
 
-        expires_at = datetime.utcnow() + timedelta(days=7)  # Cache for 7 days
+        expires_at = datetime.utcnow() + timedelta(days=30)  # Cache for 30 days
         metadata_json = json.dumps(metadata) if metadata else None
 
         conn = self._temp_get_connection()

@@ -15,17 +15,17 @@ function NavBar({ onConfigureClick }: { onConfigureClick: () => void }) {
         <div className="flex items-center justify-between h-16">
           {/* Breadcrumb */}
           <div className="flex items-center space-x-2 text-sm">
-            <span className="text-gray-500">Explore</span>
-            <span className="text-gray-400">/</span>
-            <span className="text-gray-700">Strategic Recommendations</span>
-            <span className="text-gray-400">•</span>
-            <span className="text-gray-600">Current indicators and potential disruption scenarios</span>
+            <span className="text-gray-600">Explore</span>
+            <span className="text-gray-500">/</span>
+            <span className="text-gray-800">Strategic Recommendations</span>
+            <span className="text-gray-500">•</span>
+            <span className="text-gray-700">Current indicators and potential disruption scenarios</span>
           </div>
 
           {/* Actions */}
           <div className="flex items-center space-x-4">
             <button className="p-2 hover:bg-gray-100 rounded-md transition">
-              <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
               </svg>
             </button>
@@ -83,11 +83,11 @@ function ConfigModal({
           {/* Header */}
           <div className="border-b border-gray-200 px-6 py-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-gray-900">Configure Trend Convergence Analysis</h2>
+              <h2 className="text-xl font-semibold text-gray-950">Configure Trend Convergence Analysis</h2>
               <button
                 type="button"
                 onClick={onClose}
-                className="text-gray-400 hover:text-gray-600 transition"
+                className="text-gray-500 hover:text-gray-700 transition"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -101,7 +101,7 @@ function ConfigModal({
             <div className="grid grid-cols-2 gap-4">
               {/* Topic */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Topic</label>
+                <label className="block text-sm font-medium text-gray-800 mb-1">Topic</label>
                 <select
                   value={config.topic}
                   onChange={(e) => onUpdateConfig({ topic: e.target.value })}
@@ -119,7 +119,7 @@ function ConfigModal({
 
               {/* Model */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">AI Model</label>
+                <label className="block text-sm font-medium text-gray-800 mb-1">AI Model</label>
                 <select
                   value={config.model}
                   onChange={(e) => onUpdateConfig({ model: e.target.value })}
@@ -137,7 +137,7 @@ function ConfigModal({
 
               {/* Timeframe */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Timeframe</label>
+                <label className="block text-sm font-medium text-gray-800 mb-1">Timeframe</label>
                 <select
                   value={config.timeframe_days}
                   onChange={(e) => onUpdateConfig({ timeframe_days: parseInt(e.target.value) })}
@@ -152,7 +152,7 @@ function ConfigModal({
 
               {/* Analysis Depth */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Analysis Depth</label>
+                <label className="block text-sm font-medium text-gray-800 mb-1">Analysis Depth</label>
                 <select
                   value={config.analysis_depth}
                   onChange={(e) => onUpdateConfig({ analysis_depth: e.target.value })}
@@ -166,7 +166,7 @@ function ConfigModal({
 
               {/* Consistency Mode */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Consistency Mode</label>
+                <label className="block text-sm font-medium text-gray-800 mb-1">Consistency Mode</label>
                 <select
                   value={config.consistency_mode}
                   onChange={(e) => onUpdateConfig({ consistency_mode: e.target.value })}
@@ -181,7 +181,7 @@ function ConfigModal({
 
               {/* Organizational Profile */}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Organizational Profile</label>
+                <label className="block text-sm font-medium text-gray-800 mb-1">Organizational Profile</label>
                 <select
                   value={config.profile_id || ''}
                   onChange={(e) => onUpdateConfig({ profile_id: e.target.value ? parseInt(e.target.value) : undefined })}
@@ -248,7 +248,7 @@ function StrategicRecommendations({ data }: { data: TrendConvergenceData }) {
   return (
     <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
       <h2 className="text-2xl font-bold mb-2">Strategic Recommendations</h2>
-      <p className="text-gray-600 mb-6">Evidence-based action plan for executive leadership</p>
+      <p className="text-gray-700 mb-6">Evidence-based action plan for executive leadership</p>
 
       <div className="flex gap-4">
         <TimelineCard
@@ -292,8 +292,8 @@ function ExecutiveFramework({ data }: { data: TrendConvergenceData }) {
               key={idx}
               className="border-l-4 border-pink-500 bg-gray-50 p-4 rounded-r-lg hover:shadow-md transition"
             >
-              <h3 className="font-semibold text-gray-900 mb-2">{title}</h3>
-              <p className="text-sm text-gray-600">{description}</p>
+              <h3 className="font-semibold text-gray-950 mb-2">{title}</h3>
+              <p className="text-sm text-gray-700">{description}</p>
             </div>
           );
         })}
@@ -316,7 +316,7 @@ function NextSteps({ data }: { data: TrendConvergenceData }) {
             <div className="flex-shrink-0 w-6 h-6 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-full flex items-center justify-center text-sm font-bold">
               {idx + 1}
             </div>
-            <p className="text-gray-700">{step}</p>
+            <p className="text-gray-800">{step}</p>
           </div>
         ))}
       </div>
@@ -329,7 +329,7 @@ function LoadingState() {
   return (
     <div className="flex flex-col items-center justify-center min-h-[400px]">
       <div className="w-16 h-16 border-4 border-pink-200 border-t-pink-600 rounded-full animate-spin mb-4"></div>
-      <p className="text-gray-600">Generating trend convergence analysis...</p>
+      <p className="text-gray-700">Generating trend convergence analysis...</p>
     </div>
   );
 }
@@ -341,8 +341,8 @@ function EmptyState({ onConfigureClick }: { onConfigureClick: () => void }) {
       <svg className="w-24 h-24 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
       </svg>
-      <h3 className="text-xl font-semibold text-gray-700 mb-2">No Analysis Generated Yet</h3>
-      <p className="text-gray-500 mb-4">Configure your analysis parameters and generate insights</p>
+      <h3 className="text-xl font-semibold text-gray-800 mb-2">No Analysis Generated Yet</h3>
+      <p className="text-gray-600 mb-4">Configure your analysis parameters and generate insights</p>
       <button
         onClick={onConfigureClick}
         className="px-6 py-3 bg-gradient-to-r from-pink-500 to-pink-600 text-white rounded-lg hover:from-pink-600 hover:to-pink-700 transition"

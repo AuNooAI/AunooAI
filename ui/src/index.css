@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Apply Inter font globally */
+* {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+}
+
 :root {
   --font-size: 16px;
   --background: #ffffff;

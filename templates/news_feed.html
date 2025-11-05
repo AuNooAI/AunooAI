@@ -26,7 +26,7 @@
 }
 
 .news-header {
-    border-bottom: 3px solid #000;
+    border-bottom: 3px solid var(--colors-black);
     margin-bottom: 30px;
     padding-bottom: 15px;
 }
@@ -35,18 +35,18 @@
     font-size: 2.2rem;
     font-weight: 700;
     margin: 0;
-    color: #000;
+    color: var(--colors-black);
 }
 
 .news-date {
     font-size: 0.9rem;
-    color: #666;
+    color: var(--colors-neutral-8);
     margin-top: 5px;
 }
 
 .news-nav {
     margin: 20px 0;
-    border-bottom: 1px solid #ddd;
+    border-bottom: 1px solid var(--colors-neutral-5);
 }
 
 .nav-tabs {
@@ -56,27 +56,27 @@
 .nav-tabs .nav-link {
     border: none;
     border-bottom: 3px solid transparent;
-    color: #666;
+    color: var(--colors-neutral-8);
     font-weight: 500;
     padding: 10px 20px;
     background: none;
 }
 
 .nav-tabs .nav-link.active {
-    border-bottom-color: #000;
-    color: #000;
+    border-bottom-color: var(--colors-black);
+    color: var(--colors-black);
     background: none;
 }
 
 .nav-tabs .nav-link:hover {
-    border-bottom-color: #999;
-    color: #333;
+    border-bottom-color: var(--colors-neutral-7);
+    color: var(--colors-neutral-11);
 }
 
 .story-item {
     margin-bottom: 40px;
     padding-bottom: 30px;
-    border-bottom: 1px solid #eee;
+    border-bottom: 1px solid var(--colors-neutral-4);
 }
 
 .story-item:last-child {
@@ -88,7 +88,7 @@
     font-weight: 600;
     line-height: 1.3;
     margin-bottom: 10px;
-    color: #000;
+    color: var(--colors-black);
 }
 
 .story-headline a {
@@ -102,13 +102,13 @@
 
 .story-summary {
     font-size: 1rem;
-    color: #333;
+    color: var(--colors-neutral-11);
     margin-bottom: 15px;
 }
 
 .story-meta {
     font-size: 0.85rem;
-    color: #666;
+    color: var(--colors-neutral-8);
     margin-bottom: 10px;
 }
 
@@ -129,9 +129,9 @@
 .bias-left { background: #e3f2fd; color: #1976d2; }
 .bias-left-center { background: #e8f5e8; color: #388e3c; }
 .bias-center { background: #f3e5f5; color: #7b1fa2; }
-.bias-right-center { background: #fff3e0; color: #f57c00; }
+.bias-right-center { background: var(--colors-white)3e0; color: #f57c00; }
 .bias-right { background: #ffebee; color: #d32f2f; }
-.bias-mixed { background: #f5f5f5; color: #616161; }
+.bias-mixed { background: var(--colors-neutral-3); color: #616161; }
 
 .factuality-badge {
     display: inline-block;
@@ -145,19 +145,19 @@
 .factuality-very-high { background: #e8f5e8; color: #2e7d32; }
 .factuality-high { background: #e8f5e8; color: #388e3c; }
 .factuality-mostly-factual { background: #f3e5f5; color: #7b1fa2; }
-.factuality-mixed { background: #fff3e0; color: #f57c00; }
+.factuality-mixed { background: var(--colors-white)3e0; color: #f57c00; }
 .factuality-low { background: #ffebee; color: #d32f2f; }
 
 .related-articles {
     margin-top: 15px;
     padding-left: 20px;
-    border-left: 3px solid #eee;
+    border-left: 3px solid var(--colors-neutral-4);
 }
 
 .related-articles h6 {
     font-size: 0.85rem;
     font-weight: 600;
-    color: #666;
+    color: var(--colors-neutral-8);
     margin-bottom: 8px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -315,7 +315,7 @@
 .form-select, .form-control {
     font-size: 0.9rem;
     padding: 5px 10px;
-    border: 1px solid #ddd;
+    border: 1px solid var(--colors-neutral-5);
     border-radius: 3px;
 }
 
@@ -327,19 +327,19 @@
 }
 
 .btn-primary {
-    background: #000;
-    border-color: #000;
+    background: var(--colors-black);
+    border-color: var(--colors-black);
 }
 
 .btn-primary:hover {
-    background: #333;
-    border-color: #333;
+    background: var(--colors-neutral-11);
+    border-color: var(--colors-neutral-11);
 }
 
 .loading {
     text-align: center;
     padding: 40px;
-    color: #666;
+    color: var(--colors-neutral-8);
 }
 
 .error-message {
@@ -351,11 +351,11 @@
 }
 
 .executive-summary {
-    background: #f8f9fa;
+    background: var(--colors-neutral-2);
     padding: 20px;
     border-radius: 5px;
     margin-bottom: 30px;
-    border-left: 4px solid #000;
+    border-left: 4px solid var(--colors-black);
 }
 
 .key-themes {
@@ -366,7 +366,7 @@
     font-size: 1.1rem;
     font-weight: 600;
     margin-bottom: 10px;
-    color: #000;
+    color: var(--colors-black);
 }
 
 .theme-list {
@@ -376,8 +376,8 @@
 }
 
 .theme-tag {
-    background: #e9ecef;
-    color: #495057;
+    background: var(--colors-neutral-4);
+    color: var(--colors-neutral-9);
     padding: 4px 10px;
     border-radius: 15px;
     font-size: 0.85rem;
@@ -387,7 +387,7 @@
 .perspective-breakdown {
     margin-top: 15px;
     padding: 15px;
-    background: #f8f9fa;
+    background: var(--colors-neutral-2);
     border-radius: 5px;
 }
 
@@ -395,7 +395,7 @@
     font-size: 0.9rem;
     font-weight: 600;
     margin-bottom: 10px;
-    color: #000;
+    color: var(--colors-black);
 }
 
 .perspective-item {
@@ -464,7 +464,7 @@
     }
 
     .tag-driver {
-        background-color: #fff0e6;
+        background-color: var(--colors-white)0e6;
         color: #cc6600;
         border-color: #ffcc99;
     }
@@ -487,21 +487,21 @@
     }
 
     .sentiment-hyperbolic {
-        background-color: #fffae6;
+        background-color: var(--colors-white)ae6;
         color: #997a00;
         border-color: #ffe680;
     }
 
     .sentiment-mixed {
         background-color: #f9f9f9;
-        color: #666666;
-        border-color: #dddddd;
+        color: var(--colors-neutral-8)666;
+        border-color: var(--colors-neutral-5)ddd;
     }
 
     .sentiment-positive { background-color: #d1e7dd; color: #0a5132; border: 1px solid #a3cfbb; }
-    .sentiment-negative { background-color: #f8d7da; color: #842029; border: 1px solid #f1aeb5; }
+    .sentiment-negative { background-color: var(--colors-error-2); color: #842029; border: 1px solid #f1aeb5; }
     .sentiment-neutral { background-color: #e2e3e5; color: #41464b; border: 1px solid #c3c6ca; }
-    .sentiment-unknown { background-color: #f8f9fa; color: #6c757d; border: 1px solid #dee2e6; }
+    .sentiment-unknown { background-color: var(--colors-neutral-2); color: var(--colors-neutral-8); border: 1px solid var(--colors-neutral-5); }
 
     /* Bias tags */
     .tag-bias-left {
@@ -530,8 +530,8 @@
 
     .tag-bias-unknown {
         background-color: #f9f9f9;
-        color: #666666;
-        border-color: #dddddd;
+        color: var(--colors-neutral-8)666;
+        border-color: var(--colors-neutral-5)ddd;
     }
 
     /* Factual reporting tags */
@@ -548,7 +548,7 @@
     }
 
     .tag-factual-mixed {
-        background-color: #fffae6;
+        background-color: var(--colors-white)ae6;
         color: #997a00;
         border-color: #ffe680;
     }
@@ -561,31 +561,31 @@
 
     .tag-factual-unknown {
         background-color: #f9f9f9;
-        color: #666666;
-        border-color: #dddddd;
+        color: var(--colors-neutral-8)666;
+        border-color: var(--colors-neutral-5)ddd;
     }
 
     /* Insights Tab Styling */
     .insights-nav .nav-link {
-        border: 1px solid #ddd;
+        border: 1px solid var(--colors-neutral-5);
         border-radius: 8px;
         margin: 0 2px;
-        color: #666;
+        color: var(--colors-neutral-8);
         font-weight: 500;
         padding: 8px 16px;
         transition: all 0.2s ease;
     }
 
     .insights-nav .nav-link.active {
-        background-color: #000;
-        border-color: #000;
+        background-color: var(--colors-black);
+        border-color: var(--colors-black);
         color: white;
     }
 
     .insights-nav .nav-link:hover:not(.active) {
-        background-color: #f8f9fa;
-        border-color: #999;
-        color: #333;
+        background-color: var(--colors-neutral-2);
+        border-color: var(--colors-neutral-7);
+        color: var(--colors-neutral-11);
     }
 
     /* Insight Card Styling - matching topic dashboard */
@@ -598,7 +598,7 @@
         box-shadow: 0 2px 5px rgba(0,0,0,0.05);
         display: flex;
         flex-direction: column;
-        background-color: #fff;
+        background-color: var(--colors-white);
         min-width: 300px;
         max-width: 400px;
     }
@@ -646,13 +646,13 @@
     /* Thematic Clustering Styles */
     .thematic-cluster {
         background: linear-gradient(135deg, rgba(255, 105, 180, 0.1) 0%, rgba(255, 255, 255, 1) 100%);
-        border-left: 4px solid #FF69B4;
+        border-left: 4px solid var(--colors-accent-7);
     }
 
     .cluster-article-list {
         max-height: 200px;
         overflow-y: auto;
-        border-top: 1px solid #e9ecef;
+        border-top: 1px solid var(--colors-neutral-4);
         margin-top: 12px;
         padding-top: 12px;
     }
@@ -668,13 +668,13 @@
     }
 
     .cluster-article-item a {
-        color: #333;
+        color: var(--colors-neutral-11);
         text-decoration: none;
         font-weight: 500;
     }
 
     .cluster-article-item a:hover {
-        color: #FF69B4;
+        color: var(--colors-accent-7);
         text-decoration: underline;
     }
 
@@ -683,7 +683,7 @@
         gap: 16px;
         margin-top: 12px;
         font-size: 0.8rem;
-        color: #343a40;
+        color: var(--colors-neutral-10);
     }
 
     .cluster-stat {
@@ -697,8 +697,8 @@
    ============================================ */
 
 .news-ticker-container {
-    background: #f8f9fa;
-    border: 1px solid #dee2e6;
+    background: var(--colors-neutral-2);
+    border: 1px solid var(--colors-neutral-5);
     border-left: 3px solid #0066cc;
     padding: 0;
     margin: -20px -20px 20px -20px;
@@ -721,7 +721,7 @@
 /* Breaking News Label */
 .ticker-header {
     background: #0066cc;
-    color: #fff;
+    color: var(--colors-white);
     padding: 0 12px;
     font-weight: 600;
     font-size: 0.8rem;
@@ -735,7 +735,7 @@
     display: flex;
     align-items: center;
     min-width: 90px;
-    border-right: 1px solid #dee2e6;
+    border-right: 1px solid var(--colors-neutral-5);
 }
 
 .ticker-header i {
@@ -757,21 +757,21 @@
 .ticker-controls .btn {
     padding: 3px 8px;
     font-size: 0.7rem;
-    border: 1px solid #dee2e6;
-    background: #fff;
-    color: #666;
+    border: 1px solid var(--colors-neutral-5);
+    background: var(--colors-white);
+    color: var(--colors-neutral-8);
     transition: all 0.2s ease;
     border-radius: 3px;
 }
 
 .ticker-controls .btn:hover {
-    background: #e9ecef;
+    background: var(--colors-neutral-4);
     color: #0066cc;
     border-color: #0066cc;
 }
 
 .ticker-controls .btn:active {
-    background: #dee2e6;
+    background: var(--colors-neutral-5);
 }
 
 /* Scrolling Content Container */
@@ -822,7 +822,7 @@
     display: inline-flex;
     align-items: center;
     padding: 0 20px;
-    border-right: 1px solid #dee2e6;
+    border-right: 1px solid var(--colors-neutral-5);
     font-size: 0.85rem;
     line-height: 1.3;
     height: 100%;
@@ -833,7 +833,7 @@
 }
 
 .ticker-item a {
-    color: #333;
+    color: var(--colors-neutral-11);
     text-decoration: none;
     transition: color 0.2s ease;
     display: inline-flex;
@@ -849,7 +849,7 @@
 
 /* Ticker Metadata */
 .ticker-time {
-    color: #999;
+    color: var(--colors-neutral-7);
     font-size: 0.7rem;
     font-weight: 400;
     margin-right: 8px;
@@ -857,14 +857,14 @@
 }
 
 .ticker-source {
-    color: #666;
+    color: var(--colors-neutral-8);
     font-size: 0.65rem;
     font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.3px;
     margin-left: 8px;
     padding: 2px 5px;
-    background: #e9ecef;
+    background: var(--colors-neutral-4);
     border-radius: 2px;
 }
 
@@ -886,7 +886,7 @@
     left: 105px;
     top: 50%;
     transform: translateY(-50%);
-    color: #666;
+    color: var(--colors-neutral-8);
     font-size: 0.8rem;
 }
 
@@ -905,7 +905,7 @@
     left: 105px;
     top: 50%;
     transform: translateY(-50%);
-    color: #666;
+    color: var(--colors-neutral-8);
     font-size: 0.8rem;
     font-style: italic;
 }
@@ -1027,20 +1027,20 @@
 /* High contrast mode support */
 @media (prefers-contrast: high) {
     .news-ticker-container {
-        border: 2px solid #000;
+        border: 2px solid var(--colors-black);
         border-left-width: 4px;
     }
 
     .ticker-item {
-        border-right: 2px solid #000;
+        border-right: 2px solid var(--colors-black);
     }
 
     .ticker-header {
-        border-right: 2px solid #000;
+        border-right: 2px solid var(--colors-black);
     }
 
     .ticker-controls .btn {
-        border: 2px solid #000;
+        border: 2px solid var(--colors-black);
     }
 }
 
@@ -3995,7 +3995,7 @@ function renderSixArticles(articles) {
                     
                     <!-- Format status notice -->
                     ${!article.executive_takeaway ? `
-                    <div class="section mb-3" style="background: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #ffc107;">
+                    <div class="section mb-3" style="background: var(--colors-warning-2); padding: 15px; border-radius: 5px; border-left: 4px solid var(--colors-warning-9);">
                         <h6 class="text-warning"><i class="fas fa-sync-alt me-2"></i>New CEO Daily Format Available</h6>
                         <div class="text-dark small">
                             <p class="mb-2">This analysis uses the legacy format. Regenerate to get the new <strong>CEO Daily Top-6</strong> format with:</p>
@@ -4213,8 +4213,8 @@ function exportSixArticlesHTML() {
   <style>
     body{font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; line-height: 1.6;}
     h1{font-size: 1.8rem; margin: 0 0 20px;}
-    .sa-item{border-top: 1px solid #eee; padding-top: 20px; margin-top: 20px;}
-    blockquote{background:#f8f9fa; border-left:4px solid #ddd; margin:10px 0; padding:10px 15px;}
+    .sa-item{border-top: 1px solid var(--colors-neutral-4); padding-top: 20px; margin-top: 20px;}
+    blockquote{background:var(--colors-neutral-2); border-left:4px solid var(--colors-neutral-5); margin:10px 0; padding:10px 15px;}
     .sa-meta{color:#555}
   </style>
   <meta name="robots" content="noindex,follow">
@@ -4330,7 +4330,7 @@ function exportSixArticlesEnhanced() {
             border-radius: 20px 20px 0 0;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
             text-align: center;
-            border-bottom: 4px solid #FF69B4;
+            border-bottom: 4px solid var(--colors-accent-7);
         }
 
         .header h1 {
@@ -4368,7 +4368,7 @@ function exportSixArticlesEnhanced() {
         }
 
         .article-card {
-            background: linear-gradient(135deg, #f6f8fb 0%, #ffffff 100%);
+            background: linear-gradient(135deg, #f6f8fb 0%, var(--colors-white) 100%);
             border-radius: 16px;
             padding: 32px;
             margin-bottom: 32px;
@@ -4378,7 +4378,7 @@ function exportSixArticlesEnhanced() {
             transition: transform 0.3s ease, box-shadow 0.3s ease;
         }
 
-        .article-card:nth-child(6n+1) { border-left-color: #FF69B4; }
+        .article-card:nth-child(6n+1) { border-left-color: var(--colors-accent-7); }
         .article-card:nth-child(6n+2) { border-left-color: #667eea; }
         .article-card:nth-child(6n+3) { border-left-color: #f093fb; }
         .article-card:nth-child(6n+4) { border-left-color: #4facfe; }
@@ -4451,11 +4451,11 @@ function exportSixArticlesEnhanced() {
         }
 
         .executive-takeaway {
-            background: linear-gradient(135deg, #fff5f7 0%, #fffbf0 100%);
+            background: linear-gradient(135deg, var(--colors-white)5f7 0%, var(--colors-white)bf0 100%);
             border-radius: 12px;
             padding: 20px;
             margin: 20px 0;
-            border-left: 4px solid #FF69B4;
+            border-left: 4px solid var(--colors-accent-7);
         }
 
         .executive-takeaway p {
@@ -5563,15 +5563,15 @@ function renderArticles(articlesData) {
         articleItem.innerHTML = `
             <!-- Remove button (top-right) -->
             <button class="btn btn-sm position-absolute" 
-                    style="top: 8px; right: 8px; width: 24px; height: 24px; padding: 0; font-size: 14px; line-height: 1; border: none; background: rgba(220, 53, 69, 0.1); color: #dc3545; border-radius: 50%;"
+                    style="top: 8px; right: 8px; width: 24px; height: 24px; padding: 0; font-size: 14px; line-height: 1; border: none; background: rgba(220, 53, 69, 0.1); color: var(--colors-error-9); border-radius: 50%;"
                     onclick="excludeArticle('${article.uri}', this)"
-                    onmouseover="this.style.background='#dc3545'; this.style.color='white';"
-                    onmouseout="this.style.background='rgba(220, 53, 69, 0.1)'; this.style.color='#dc3545';"
+                    onmouseover="this.style.background='var(--colors-error-9)'; this.style.color='white';"
+                    onmouseout="this.style.background='rgba(220, 53, 69, 0.1)'; this.style.color='var(--colors-error-9)';"
                     title="Remove article">×</button>
             
             <!-- Star button (top-left) -->
             <button class="btn btn-sm position-absolute star-btn ${isStarred ? 'starred' : ''}" 
-                    style="top: 8px; left: 8px; width: 24px; height: 24px; padding: 0; font-size: 14px; line-height: 1; border: none; background: ${isStarred ? '#ffc107' : 'rgba(255, 193, 7, 0.1)'}; color: ${isStarred ? 'white' : '#ffc107'}; border-radius: 50%;"
+                    style="top: 8px; left: 8px; width: 24px; height: 24px; padding: 0; font-size: 14px; line-height: 1; border: none; background: ${isStarred ? 'var(--colors-warning-9)' : 'rgba(255, 193, 7, 0.1)'}; color: ${isStarred ? 'white' : 'var(--colors-warning-9)'}; border-radius: 50%;"
                     onclick="toggleStarArticle('${article.uri}', this)"
                     title="${isStarred ? 'Remove from Six Articles' : 'Add to Six Articles'}">★</button>
             
@@ -5642,7 +5642,7 @@ function renderArticles(articlesData) {
             </div>
             
             <!-- Detailed View (Initially Hidden) -->
-            <div class="article-details" id="details-${article.uri.replace(/[^a-zA-Z0-9]/g, '_')}" style="display: none; margin-left: 20px; margin-right: 10px; margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #007bff;">
+            <div class="article-details" id="details-${article.uri.replace(/[^a-zA-Z0-9]/g, '_')}" style="display: none; margin-left: 20px; margin-right: 10px; margin-top: 15px; padding: 15px; background: var(--colors-neutral-2); border-radius: 8px; border-left: 4px solid #007bff;">
                 <div class="row">
                     <!-- Left Column: Enhanced Summary & Analysis -->
                     <div class="col-md-8">
@@ -6132,7 +6132,7 @@ function toggleArticleDetails(articleUri, buttonElement) {
         detailsDiv.style.display = 'block';
         icon.className = 'fas fa-chevron-down';
         buttonElement.title = 'Hide detailed view';
-        buttonElement.style.background = '#28a745'; // Green when expanded
+        buttonElement.style.background = 'var(--colors-success-9)'; // Green when expanded
         
         // Animate expansion
         detailsDiv.style.opacity = '0';
@@ -8488,7 +8488,7 @@ function toggleStarArticle(articleUri, buttonElement) {
         starredArticles.delete(articleUri);
         buttonElement.classList.remove('starred');
         buttonElement.style.background = 'rgba(255, 193, 7, 0.1)';
-        buttonElement.style.color = '#ffc107';
+        buttonElement.style.color = 'var(--colors-warning-9)';
         buttonElement.title = 'Add to Six Articles';
         showNotification('Article removed from Six Articles selection', 'info');
     } else {
@@ -8500,7 +8500,7 @@ function toggleStarArticle(articleUri, buttonElement) {
         
         starredArticles.add(articleUri);
         buttonElement.classList.add('starred');
-        buttonElement.style.background = '#ffc107';
+        buttonElement.style.background = 'var(--colors-warning-9)';
         buttonElement.style.color = 'white';
         buttonElement.title = 'Remove from Six Articles';
         showNotification('Article added to Six Articles selection', 'success');
@@ -8573,7 +8573,7 @@ style.textContent = `
     
     .filter-badge.active {
         opacity: 1;
-        border: 2px solid #fff;
+        border: 2px solid var(--colors-white);
         box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         transform: scale(1.05);
     }
@@ -10842,7 +10842,7 @@ function renderIncidentTracking(incidents) {
             ${articlesHtml}
             ${leadsHtml}
             <!-- Detailed Analysis Section (Initially Hidden) -->
-            <div class="incident-analysis" id="incident-analysis-${escapeHTML(incident.name).replace(/[^a-zA-Z0-9]/g, '_')}" style="display: none; margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #007bff;">
+            <div class="incident-analysis" id="incident-analysis-${escapeHTML(incident.name).replace(/[^a-zA-Z0-9]/g, '_')}" style="display: none; margin-top: 15px; padding: 15px; background: var(--colors-neutral-2); border-radius: 8px; border-left: 4px solid #007bff;">
                 <h6 class="text-primary mb-3">
                     <i class="fas fa-search-plus me-2"></i>Article Analysis
                 </h6>
@@ -11124,7 +11124,7 @@ function renderRealTimeSignals(data) {
         card.className = 'insight-item-card';
         
         if (signal.signal_detected) {
-            card.style.borderLeft = '4px solid #dc3545'; // Red border for detected signals
+            card.style.borderLeft = '4px solid var(--colors-error-9)'; // Red border for detected signals
         }
         
         const threatBadgeColor = signal.threat_level === 'high' ? 'danger' : 
@@ -11293,7 +11293,7 @@ function renderRealTimeSignals(data) {
         card.className = 'insight-item-card';
         
         if (signal.signal_detected) {
-            card.style.borderLeft = '4px solid #dc3545'; // Red border for detected signals
+            card.style.borderLeft = '4px solid var(--colors-error-9)'; // Red border for detected signals
         }
         
         const threatBadgeColor = signal.threat_level === 'high' ? 'danger' : 
@@ -12288,8 +12288,8 @@ function createIndividualIncidentCard(incident, globalMin, globalMax) {
         
         // Add border styling for low quality incidents
         if (isLowQuality) {
-            card.style.borderLeft = '4px solid #dc3545';
-            card.style.backgroundColor = '#fff5f5';
+            card.style.borderLeft = '4px solid var(--colors-error-9)';
+            card.style.backgroundColor = 'var(--colors-white)5f5';
         }
         
         // Determine badge color based on type and significance (updated for 7-type system)
@@ -12342,7 +12342,7 @@ function createIndividualIncidentCard(incident, globalMin, globalMax) {
                     timelineHtml = `
                         <div class="mt-2 mb-2">
                             <small class="text-muted fw-bold">Timeline:</small>
-                            <div class="timeline-ruler" style="position: relative; height: 8px; background: #e9ecef; border-radius: 4px; margin-top: 4px;">
+                            <div class="timeline-ruler" style="position: relative; height: 8px; background: var(--colors-neutral-4); border-radius: 4px; margin-top: 4px;">
                                 ${positions.map(pos => `<div style="position: absolute; left: ${pos}%; width: 3px; height: 8px; background: #007bff; border-radius: 1px;"></div>`).join('')}
                             </div>
                             <div class="d-flex justify-content-between mt-1">
@@ -14255,7 +14255,7 @@ function renderTableGroupedByEntity(incidents, container) {
                                      group.maxSignificance === 'medium' ? 'warning' : 'info';
 
         html += `
-            <tr class="table-primary" style="background: linear-gradient(135deg, #e3f2fd 0%, #f8f9fa 100%);">
+            <tr class="table-primary" style="background: linear-gradient(135deg, #e3f2fd 0%, var(--colors-neutral-2) 100%);">
                 <td colspan="8">
                     <div class="d-flex justify-content-between align-items-center">
                         <div>

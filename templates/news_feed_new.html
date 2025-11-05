@@ -1,5 +1,5 @@
 {% extends 'base_with_shared_nav.html' %}
-{% block title %}News Narrator - Proof of Concept v2{% endblock %}
+{% block title %}News Narrator - AuNoo AI{% endblock %}
 
 {% block extra_js %}
 <!-- Marked.js for markdown rendering in insights -->
@@ -9,12 +9,7 @@
 {% block content %}
 <!--
 ==================================================
-  NEWS FEED - PROOF OF CONCEPT V2
-  Modernized UI/UX with improved layout and usability
-  - Removed Topic Analysis tab
-  - Card-based article grid
-  - Streamlined configuration panel
-  - Enhanced mobile responsiveness
+  NEWS FEED 
 ==================================================
 -->
 <style>
@@ -26,7 +21,7 @@
     --primary-gray: #4a4a4a;
     --light-gray: #f5f5f7;
     --border-light: #e5e5e5;
-    --accent-blue: #5dade2;
+    --accent-blue: var(--colors-info-5);
     --accent-blue-light: #e6f2ff;
     --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
     --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
@@ -70,7 +65,7 @@
 /* New breadcrumb header matching Anticipate/Operations HQ */
 .page-breadcrumb-header {
     background-color: white;
-    border-bottom: 1px solid #e5e7eb;
+    border-bottom: 1px solid var(--colors-neutral-4);
     padding: 0.75rem 1.5rem;
     display: flex;
     align-items: center;
@@ -83,15 +78,15 @@
     align-items: center;
     gap: 0.5rem;
     font-size: 0.875rem;
-    color: #6b7280;
+    color: var(--colors-neutral-8);
 }
 
 .breadcrumb-text span {
-    color: #6b7280;
+    color: var(--colors-neutral-8);
 }
 
 .breadcrumb-text span.font-medium {
-    color: #111827;
+    color: var(--colors-neutral-12);
     font-weight: 500;
 }
 
@@ -106,13 +101,13 @@
     border-radius: 0.375rem;
     background: transparent;
     border: none;
-    color: #6b7280;
+    color: var(--colors-neutral-8);
     cursor: pointer;
     transition: background-color 0.15s ease;
 }
 
 .page-header-icons button:hover {
-    background-color: #f3f4f6;
+    background-color: var(--colors-neutral-3);
 }
 
 /* Page header actions - matching keyword_alerts.html */
@@ -148,19 +143,19 @@
     justify-content: center;
     background: transparent;
     border: none;
-    color: #6b7280;
+    color: var(--colors-neutral-8);
 }
 
 .page-header-actions .btn-icon:hover {
-    background: #f3f4f6;
-    color: #111827;
+    background: var(--colors-neutral-3);
+    color: var(--colors-neutral-12);
 }
 
 /* Topic setup button - matching React trend-convergence (bg-gray-100 hover:bg-gray-200) */
 .btn-topic-setup {
-    background: #f3f4f6; /* bg-gray-100 */
+    background: var(--colors-neutral-3); /* bg-gray-100 */
     border: none;
-    color: #111827; /* text-gray-900 */
+    color: var(--colors-neutral-12); /* text-gray-900 */
     font-size: 0.875rem; /* text-sm */
     font-weight: 500; /* font-medium */
     padding: 0.5rem 1rem; /* px-4 py-2 */
@@ -173,8 +168,8 @@
 }
 
 .btn-topic-setup:hover {
-    background: #e5e7eb; /* hover:bg-gray-200 */
-    color: #111827;
+    background: var(--colors-neutral-4); /* hover:bg-gray-200 */
+    color: var(--colors-neutral-12);
 }
 
 /* Scrollable content area */
@@ -182,7 +177,7 @@
     flex: 1;
     overflow-y: auto;
     padding: 24px 48px;
-    background-color: #f3f4f6;
+    background-color: var(--colors-neutral-3);
 }
 
 @media (max-width: 768px) {
@@ -195,7 +190,7 @@
     font-size: 2rem;
     font-weight: 700;
     margin: 0;
-    background: linear-gradient(135deg, #FF69B4, #FF1493);
+    background: linear-gradient(135deg, var(--colors-accent-7), var(--colors-accent-10));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -205,13 +200,13 @@
 }
 
 .news-title-icon {
-    color: #FF69B4;
-    -webkit-text-fill-color: #FF69B4;
+    color: var(--colors-accent-7);
+    -webkit-text-fill-color: var(--colors-accent-7);
 }
 
 .news-date {
     font-size: 0.9rem;
-    color: #666;
+    color: var(--colors-neutral-8);
     margin-top: 5px;
 }
 
@@ -443,7 +438,7 @@
     padding: 0;
     font-size: 12px;
     border: none;
-    background: #5dade2;
+    background: var(--colors-info-5);
     color: white;
     border-radius: 0 8px 8px 0;
     cursor: pointer;
@@ -460,7 +455,7 @@
 }
 
 .expand-arrow-btn-table.expanded {
-    background: #28a745;
+    background: var(--colors-success-9);
 }
 
 /* Grouped article styling */
@@ -470,7 +465,7 @@
 }
 
 .grouped-sources-badge {
-    background: #5dade2;
+    background: var(--colors-info-5);
     color: white;
     padding: 4px 8px;
     border-radius: 12px;
@@ -518,7 +513,7 @@
 
 .story-meta {
     font-size: 0.8rem;
-    color: #999;
+    color: var(--colors-neutral-7);
     margin-bottom: 12px;
     padding-top: 12px;
     border-top: 1px solid var(--border-light);
@@ -545,9 +540,9 @@
 .bias-left { background: #e3f2fd; color: #1976d2; }
 .bias-left-center { background: #e8f5e8; color: #388e3c; }
 .bias-center { background: #f3e5f5; color: #7b1fa2; }
-.bias-right-center { background: #fff3e0; color: #f57c00; }
+.bias-right-center { background: var(--colors-white)3e0; color: #f57c00; }
 .bias-right { background: #ffebee; color: #d32f2f; }
-.bias-mixed { background: #f5f5f5; color: #616161; }
+.bias-mixed { background: var(--colors-neutral-3); color: #616161; }
 
 .factuality-badge {
     display: inline-block;
@@ -565,19 +560,19 @@
 .factuality-very-high { background: #e8f5e8; color: #2e7d32; }
 .factuality-high { background: #e8f5e8; color: #388e3c; }
 .factuality-mostly-factual { background: #f3e5f5; color: #7b1fa2; }
-.factuality-mixed { background: #fff3e0; color: #f57c00; }
+.factuality-mixed { background: var(--colors-white)3e0; color: #f57c00; }
 .factuality-low { background: #ffebee; color: #d32f2f; }
 
 .related-articles {
     margin-top: 15px;
     padding-left: 20px;
-    border-left: 3px solid #eee;
+    border-left: 3px solid var(--colors-neutral-4);
 }
 
 .related-articles h6 {
     font-size: 0.85rem;
     font-weight: 600;
-    color: #666;
+    color: var(--colors-neutral-8);
     margin-bottom: 8px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -589,7 +584,7 @@
 }
 
 .related-item a {
-    color: #5dade2;
+    color: var(--colors-info-5);
     text-decoration: none;
 }
 
@@ -612,7 +607,7 @@
 
 .controls-header {
     padding: 8px 12px;
-    background: #f8f9fa;
+    background: var(--colors-neutral-2);
     border-bottom: 1px solid var(--border-light);
     border-radius: 12px 12px 0 0;
 }
@@ -649,8 +644,8 @@
 
 .sidebar-nav {
     width: 220px;
-    background: #fff;
-    border-right: 1px solid #dee2e6;
+    background: var(--colors-white);
+    border-right: 1px solid var(--colors-neutral-5);
     padding: 12px;
     flex-shrink: 0;
     min-height: 500px;
@@ -662,7 +657,7 @@
 }
 
 .sidebar-nav .nav-link {
-    color: #ec4899;
+    color: var(--colors-accent-8);
     padding: 10px 12px;
     border: none;
     border-radius: 6px;
@@ -672,7 +667,7 @@
     align-items: center;
     justify-content: center;
     gap: 8px;
-    background: #fff;
+    background: var(--colors-white);
     text-decoration: none;
     white-space: nowrap;
     overflow: hidden;
@@ -687,7 +682,7 @@
     text-align: center;
     font-size: 0.95rem;
     flex-shrink: 0;
-    color: #ec4899;
+    color: var(--colors-accent-8);
 }
 
 .sidebar-nav .nav-link span {
@@ -697,17 +692,17 @@
 }
 
 .sidebar-nav .nav-link:hover {
-    background: #fdf2f8;
+    background: var(--colors-accent-1);
     border-color: transparent;
-    color: #ec4899;
+    color: var(--colors-accent-8);
     transform: translateY(-1px);
     box-shadow: 0 2px 4px rgba(236, 72, 153, 0.1);
 }
 
 .sidebar-nav .nav-link.active {
-    background: linear-gradient(135deg, #FF69B4, #FF1493);
-    border-color: #FF69B4;
-    color: #fff;
+    background: linear-gradient(135deg, var(--colors-accent-7), var(--colors-accent-10));
+    border-color: var(--colors-accent-7);
+    color: var(--colors-white);
     font-weight: 500;
 }
 
@@ -721,12 +716,12 @@
 .page-tab-navigation {
     background-color: white;
     padding: 0.75rem 1.5rem;
-    border-bottom: 1px solid #e5e7eb;
+    border-bottom: 1px solid var(--colors-neutral-4);
     margin-bottom: 1.5rem;
 }
 
 .tab-nav-container {
-    background-color: #f3f4f6; /* bg-gray-100 */
+    background-color: var(--colors-neutral-3); /* bg-gray-100 */
     border-radius: 0.5rem; /* rounded-lg */
     padding: 0.25rem; /* p-1 */
     display: flex;
@@ -747,12 +742,12 @@
 
 .tab-nav-btn.active {
     background-color: white; /* bg-white */
-    color: #111827; /* text-gray-900 */
+    color: var(--colors-neutral-12); /* text-gray-900 */
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); /* shadow-sm */
 }
 
 .tab-nav-btn:hover:not(.active) {
-    color: #111827; /* hover:text-gray-900 */
+    color: var(--colors-neutral-12); /* hover:text-gray-900 */
 }
 
 /* Hide old sidebar navigation */
@@ -774,8 +769,8 @@
 /* Subtle pink action buttons - matching React Trend Convergence */
 .btn-action-subtle {
     background: white;
-    border: 1px solid #e5e7eb;
-    color: #ec4899; /* text-pink-500 */
+    border: 1px solid var(--colors-neutral-4);
+    color: var(--colors-accent-8); /* text-pink-500 */
     font-size: 0.875rem; /* text-sm */
     font-weight: 500; /* font-medium */
     padding: 0.5rem 0.75rem; /* px-3 py-2 */
@@ -788,13 +783,13 @@
 }
 
 .btn-action-subtle:hover {
-    background: #fdf2f8; /* hover:bg-pink-50 */
-    color: #ec4899;
-    border-color: #fbcfe8;
+    background: var(--colors-accent-1); /* hover:bg-pink-50 */
+    color: var(--colors-accent-8);
+    border-color: var(--colors-accent-3);
 }
 
 .btn-action-subtle i {
-    color: #ec4899;
+    color: var(--colors-accent-8);
 }
 
 /* Mobile responsiveness - show horizontal tabs on small screens */
@@ -947,7 +942,7 @@
 .form-select, .form-control {
     font-size: 0.9rem;
     padding: 5px 10px;
-    border: 1px solid #ddd;
+    border: 1px solid var(--colors-neutral-5);
     border-radius: 3px;
 }
 
@@ -963,14 +958,14 @@
 }
 
 .btn-primary {
-    background: linear-gradient(135deg, #FF69B4, #FF1493);
-    border-color: #FF69B4;
+    background: linear-gradient(135deg, var(--colors-accent-7), var(--colors-accent-10));
+    border-color: var(--colors-accent-7);
     color: white;
 }
 
 .btn-primary:hover {
-    background: linear-gradient(135deg, #FF1493, #FF69B4);
-    border-color: #FF1493;
+    background: linear-gradient(135deg, var(--colors-accent-10), var(--colors-accent-7));
+    border-color: var(--colors-accent-10);
     color: white;
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(255, 105, 180, 0.3);
@@ -993,8 +988,8 @@
 .btn-outline-primary.show,
 .btn-outline-primary.dropdown-toggle.show,
 .btn-group .btn-outline-primary.active {
-    background: linear-gradient(135deg, #FF69B4, #FF1493) !important;
-    border-color: #FF69B4 !important;
+    background: linear-gradient(135deg, var(--colors-accent-7), var(--colors-accent-10)) !important;
+    border-color: var(--colors-accent-7) !important;
     color: white !important;
 }
 
@@ -1012,8 +1007,8 @@
 .d-flex.gap-1 > button.btn-outline-primary:hover,
 .d-flex.gap-1 > button.btn-outline-primary:focus,
 .d-flex.gap-1 > button.btn-outline-primary:active {
-    background: linear-gradient(135deg, #FF69B4, #FF1493) !important;
-    border-color: #FF69B4 !important;
+    background: linear-gradient(135deg, var(--colors-accent-7), var(--colors-accent-10)) !important;
+    border-color: var(--colors-accent-7) !important;
     color: white !important;
 }
 
@@ -1037,8 +1032,8 @@
 }
 
 .btn-baby-blue {
-    background: #5dade2;
-    border-color: #5dade2;
+    background: var(--colors-info-5);
+    border-color: var(--colors-info-5);
     color: white;
 }
 
@@ -1052,13 +1047,13 @@
 
 .btn-outline-baby-blue {
     background: white;
-    border: 1px solid #5dade2;
-    color: #5dade2;
+    border: 1px solid var(--colors-info-5);
+    color: var(--colors-info-5);
 }
 
 .btn-outline-baby-blue:hover {
-    background: #5dade2;
-    border-color: #5dade2;
+    background: var(--colors-info-5);
+    border-color: var(--colors-info-5);
     color: white;
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(93, 173, 226, 0.3);
@@ -1206,8 +1201,8 @@
 }
 
 .theme-tag {
-    background: #e9ecef;
-    color: #495057;
+    background: var(--colors-neutral-4);
+    color: var(--colors-neutral-9);
     padding: 4px 10px;
     border-radius: 15px;
     font-size: 0.85rem;
@@ -1217,7 +1212,7 @@
 .perspective-breakdown {
     margin-top: 15px;
     padding: 15px;
-    background: #f8f9fa;
+    background: var(--colors-neutral-2);
     border-radius: 5px;
 }
 
@@ -1225,7 +1220,7 @@
     font-size: 0.9rem;
     font-weight: 600;
     margin-bottom: 10px;
-    color: #000;
+    color: var(--colors-black);
 }
 
 .perspective-item {
@@ -1330,12 +1325,12 @@
 
     .tag-category {
         background-color: #e6f3ff;
-        color: #5dade2;
+        color: var(--colors-info-5);
         border-color: #99ccff;
     }
 
     .tag-driver {
-        background-color: #fff0e6;
+        background-color: var(--colors-white)0e6;
         color: #cc6600;
         border-color: #ffcc99;
     }
@@ -1358,26 +1353,26 @@
     }
 
     .sentiment-hyperbolic {
-        background-color: #fffae6;
+        background-color: var(--colors-white)ae6;
         color: #997a00;
         border-color: #ffe680;
     }
 
     .sentiment-mixed {
         background-color: #f9f9f9;
-        color: #666666;
-        border-color: #dddddd;
+        color: var(--colors-neutral-8)666;
+        border-color: var(--colors-neutral-5)ddd;
     }
 
     .sentiment-positive { background-color: #d1e7dd; color: #0a5132; border: 1px solid #a3cfbb; }
-    .sentiment-negative { background-color: #f8d7da; color: #842029; border: 1px solid #f1aeb5; }
+    .sentiment-negative { background-color: var(--colors-error-2); color: #842029; border: 1px solid #f1aeb5; }
     .sentiment-neutral { background-color: #e2e3e5; color: #41464b; border: 1px solid #c3c6ca; }
-    .sentiment-unknown { background-color: #f8f9fa; color: #6c757d; border: 1px solid #dee2e6; }
+    .sentiment-unknown { background-color: var(--colors-neutral-2); color: var(--colors-neutral-8); border: 1px solid var(--colors-neutral-5); }
 
     /* Bias tags */
     .tag-bias-left {
         background-color: #e6f2ff;
-        color: #5dade2;
+        color: var(--colors-info-5);
         border-color: #99ccff;
     }
 
@@ -1401,8 +1396,8 @@
 
     .tag-bias-unknown {
         background-color: #f9f9f9;
-        color: #666666;
-        border-color: #dddddd;
+        color: var(--colors-neutral-8)666;
+        border-color: var(--colors-neutral-5)ddd;
     }
 
     /* Factual reporting tags */
@@ -1419,7 +1414,7 @@
     }
 
     .tag-factual-mixed {
-        background-color: #fffae6;
+        background-color: var(--colors-white)ae6;
         color: #997a00;
         border-color: #ffe680;
     }
@@ -1432,25 +1427,25 @@
 
     .tag-factual-unknown {
         background-color: #f9f9f9;
-        color: #666666;
-        border-color: #dddddd;
+        color: var(--colors-neutral-8)666;
+        border-color: var(--colors-neutral-5)ddd;
     }
 
     /* Insights Tab Styling - Pink text, white background */
     /* Insights navigation - subtle styling matching React Trend Convergence */
     .insights-nav .nav-link {
-        border: 1px solid #e5e7eb; /* light gray border */
+        border: 1px solid var(--colors-neutral-4); /* light gray border */
         border-radius: 8px;
         margin: 0 2px;
         background-color: white;
-        color: #ec4899; /* text-pink-500 */
+        color: var(--colors-accent-8); /* text-pink-500 */
         font-weight: 500;
         padding: 8px 16px;
         transition: all 0.2s ease;
     }
 
     .insights-nav .nav-link i {
-        color: #ec4899;
+        color: var(--colors-accent-8);
     }
 
     /* Active state - subtle pink background instead of gradient */
@@ -1459,7 +1454,7 @@
     .insights-nav .nav-link.active:focus,
     .nav-pills .insights-nav .nav-link.active {
         background: #fce7f3 !important; /* bg-pink-100 - very light pink */
-        border-color: #fbcfe8 !important; /* pink-200 border */
+        border-color: var(--colors-accent-3) !important; /* pink-200 border */
         color: #be185d !important; /* text-pink-700 - darker pink for contrast */
     }
 
@@ -1473,7 +1468,7 @@
     .nav-pills .nav-link.active,
     .nav-pills .show > .nav-link {
         background: #fce7f3 !important; /* bg-pink-100 */
-        border-color: #fbcfe8 !important;
+        border-color: var(--colors-accent-3) !important;
         color: #be185d !important;
     }
 
@@ -1484,15 +1479,15 @@
 
     /* Hover state - very subtle */
     .insights-nav .nav-link:hover:not(.active) {
-        background-color: #fdf2f8; /* hover:bg-pink-50 */
-        border-color: #fbcfe8;
-        color: #ec4899;
+        background-color: var(--colors-accent-1); /* hover:bg-pink-50 */
+        border-color: var(--colors-accent-3);
+        color: var(--colors-accent-8);
         transform: none; /* remove upward movement for subtlety */
         box-shadow: none; /* remove shadow for subtlety */
     }
 
     .insights-nav .nav-link:hover:not(.active) i {
-        color: #ec4899;
+        color: var(--colors-accent-8);
     }
 
     /* Insight Card Styling - matching topic dashboard */
@@ -1505,7 +1500,7 @@
         box-shadow: 0 2px 5px rgba(0,0,0,0.05);
         display: flex;
         flex-direction: column;
-        background-color: #fff;
+        background-color: var(--colors-white);
         min-width: 300px;
         max-width: 400px;
     }
@@ -1553,13 +1548,13 @@
     /* Thematic Clustering Styles */
     .thematic-cluster {
         background: linear-gradient(135deg, rgba(255, 105, 180, 0.1) 0%, rgba(255, 255, 255, 1) 100%);
-        border-left: 4px solid #FF69B4;
+        border-left: 4px solid var(--colors-accent-7);
     }
 
     .cluster-article-list {
         max-height: 200px;
         overflow-y: auto;
-        border-top: 1px solid #e9ecef;
+        border-top: 1px solid var(--colors-neutral-4);
         margin-top: 12px;
         padding-top: 12px;
     }
@@ -1575,13 +1570,13 @@
     }
 
     .cluster-article-item a {
-        color: #333;
+        color: var(--colors-neutral-11);
         text-decoration: none;
         font-weight: 500;
     }
 
     .cluster-article-item a:hover {
-        color: #FF69B4;
+        color: var(--colors-accent-7);
         text-decoration: underline;
     }
 
@@ -1590,7 +1585,7 @@
         gap: 16px;
         margin-top: 12px;
         font-size: 0.8rem;
-        color: #343a40;
+        color: var(--colors-neutral-10);
     }
 
     .cluster-stat {
@@ -1667,21 +1662,21 @@
 .ticker-controls .btn {
     padding: 3px 8px;
     font-size: 0.7rem;
-    border: 1px solid #dee2e6;
-    background: #fff;
-    color: #666;
+    border: 1px solid var(--colors-neutral-5);
+    background: var(--colors-white);
+    color: var(--colors-neutral-8);
     transition: all 0.2s ease;
     border-radius: 3px;
 }
 
 .ticker-controls .btn:hover {
-    background: #e9ecef;
-    color: #5dade2;
-    border-color: #5dade2;
+    background: var(--colors-neutral-4);
+    color: var(--colors-info-5);
+    border-color: var(--colors-info-5);
 }
 
 .ticker-controls .btn:active {
-    background: #dee2e6;
+    background: var(--colors-neutral-5);
 }
 
 /* Scrolling Content Container */
@@ -1732,7 +1727,7 @@
     display: inline-flex;
     align-items: center;
     padding: 0 20px;
-    border-right: 1px solid #dee2e6;
+    border-right: 1px solid var(--colors-neutral-5);
     font-size: 0.85rem;
     line-height: 1.3;
     height: 100%;
@@ -1743,7 +1738,7 @@
 }
 
 .ticker-item a {
-    color: #333;
+    color: var(--colors-neutral-11);
     text-decoration: none;
     transition: color 0.2s ease;
     display: inline-flex;
@@ -1753,13 +1748,13 @@
 }
 
 .ticker-item a:hover {
-    color: #5dade2;
+    color: var(--colors-info-5);
     text-decoration: none;
 }
 
 /* Ticker Metadata */
 .ticker-time {
-    color: #999;
+    color: var(--colors-neutral-7);
     font-size: 0.7rem;
     font-weight: 400;
     margin-right: 8px;
@@ -1767,14 +1762,14 @@
 }
 
 .ticker-source {
-    color: #666;
+    color: var(--colors-neutral-8);
     font-size: 0.65rem;
     font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.3px;
     margin-left: 8px;
     padding: 2px 5px;
-    background: #e9ecef;
+    background: var(--colors-neutral-4);
     border-radius: 2px;
 }
 
@@ -1796,7 +1791,7 @@
     left: 105px;
     top: 50%;
     transform: translateY(-50%);
-    color: #666;
+    color: var(--colors-neutral-8);
     font-size: 0.8rem;
 }
 
@@ -1815,7 +1810,7 @@
     left: 105px;
     top: 50%;
     transform: translateY(-50%);
-    color: #666;
+    color: var(--colors-neutral-8);
     font-size: 0.8rem;
     font-style: italic;
 }
@@ -2074,7 +2069,7 @@
     <div class="news-header" style="position: relative;">
         <h1 class="news-title">
             <i class="fas fa-newspaper news-title-icon"></i>
-            News Narrator <span style="font-size: 0.5em; color: #28a745; margin-left: 10px;">REDESIGNED</span>
+            News Narrator <span style="font-size: 0.5em; color: var(--colors-success-9); margin-left: 10px;">REDESIGNED</span>
         </h1>
         <button id="show-ticker-btn"
                 class="btn btn-sm btn-outline-primary"
@@ -2596,7 +2591,7 @@
                         <div>Tracking incidents. This may take a few minutes.</div>
                     </div>
                     <div id="incident-tracking-error" class="error-message" style="display: none;"></div>
-                    <div class="row g-2" id="incident-tracking-container">
+                    <div class="d-flex flex-row flex-wrap justify-content-start align-items-stretch" id="incident-tracking-container" style="gap: 0.5rem;">
                         <div class="text-center p-5 w-100">
                             <i class="fas fa-crosshairs fa-3x text-muted mb-3"></i>
                             <h5>Incident Tracking</h5>
@@ -3858,6 +3853,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const tabPanes = document.querySelectorAll('.tab-pane');
 
     function switchTab(targetId) {
+        console.log('[SWITCH TAB] ===== FUNCTION CALLED ===== targetId:', targetId);
         // Hide all tab panes
         tabPanes.forEach(pane => {
             pane.classList.remove('show', 'active');
@@ -3884,6 +3880,37 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Trigger load functions based on which tab was shown
         const tabId = activeButton?.id;
+
+        // Clear insights containers when navigating away from insights tab
+        if (tabId !== 'insights-tab') {
+            const incidentContainer = document.getElementById('incident-tracking-container');
+            const narrativesContainer = document.getElementById('article-insights-container');
+            const categoryContainer = document.getElementById('category-insights-container');
+
+            // Only clear if they have actual content (not welcome messages)
+            if (incidentContainer?.querySelector('.insight-item-card')) {
+                console.log('[Tab Switch] Clearing incident container');
+                incidentContainer.innerHTML = `
+                    <div class="text-center p-5 w-100">
+                        <i class="fas fa-crosshairs fa-3x text-muted mb-3"></i>
+                        <h5>Incident Tracking</h5>
+                        <p class="text-muted mb-3">Track specific incidents, entities, and events for threat hunting.</p>
+                        <p class="text-muted mb-4">Select topics and date range above, then click the button below to generate insights.</p>
+                        <button class="btn btn-primary btn-lg" onclick="generateInsights()">
+                            <i class="fas fa-magic me-2"></i>Generate Insights
+                        </button>
+                    </div>`;
+            }
+            if (narrativesContainer?.querySelector('.insight-item-card')) {
+                console.log('[Tab Switch] Clearing narratives container');
+                narrativesContainer.innerHTML = '';
+            }
+            if (categoryContainer?.querySelector('.insight-item-card')) {
+                console.log('[Tab Switch] Clearing category container');
+                categoryContainer.innerHTML = '';
+            }
+        }
+
         if (tabId === 'articles-tab') {
             // Trigger articles loading
             if (typeof autoLoadArticles === 'function') {
@@ -3896,17 +3923,82 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         } else if (tabId === 'insights-tab') {
             // Trigger insights loading
+            console.log('[TAB SWITCH] ===== INSIGHTS TAB CLICKED =====');
             if (typeof checkInsightsCache === 'function') {
+                console.log('[TAB SWITCH] checkInsightsCache function exists, calling it...');
                 checkInsightsCache().then(() => {
-                    const insightsContainer = document.getElementById('article-insights-container');
-                    if (insightsContainer && !insightsContainer.querySelector('.insight-item-card')) {
-                        if (typeof autoLoadCachedInsights === 'function' &&
-                            (window.insightsState?.hasArticleCache || window.insightsState?.hasCategoryCache || window.insightsState?.hasIncidentCache)) {
+                    console.log('[Tab Switch] checkInsightsCache completed, now checking containers...');
+                    // Check which containers have cache and which are empty
+                    const incidentContainer = document.getElementById('incident-tracking-container');
+                    const narrativesContainer = document.getElementById('article-insights-container');
+                    const categoryContainer = document.getElementById('category-insights-container');
+
+                    const incidentEmpty = !incidentContainer || !incidentContainer.querySelector('.insight-item-card');
+                    const narrativesEmpty = !narrativesContainer || !narrativesContainer.querySelector('.insight-item-card');
+                    const categoryEmpty = !categoryContainer || !categoryContainer.querySelector('.insight-item-card');
+
+                    // Debug: Log what's actually in the containers
+                    console.log('[Tab Switch] Container contents:');
+                    console.log('  - incident cards:', incidentContainer?.querySelectorAll('.insight-item-card').length || 0);
+                    console.log('  - narrative cards:', narrativesContainer?.querySelectorAll('.insight-item-card').length || 0);
+                    console.log('  - category cards:', categoryContainer?.querySelectorAll('.insight-item-card').length || 0);
+
+                    const hasIncidentCache = window.insightsState?.hasIncidentCache;
+                    const hasArticleCache = window.insightsState?.hasArticleCache;
+                    const hasCategoryCache = window.insightsState?.hasCategoryCache;
+
+                    // Auto-load if any cached content exists but its container is empty
+                    const shouldAutoLoad = (hasIncidentCache && incidentEmpty) ||
+                                          (hasArticleCache && narrativesEmpty) ||
+                                          (hasCategoryCache && categoryEmpty);
+
+                    console.log('[Tab Switch] Container status - incident:', incidentEmpty ? 'empty' : 'loaded',
+                               'narratives:', narrativesEmpty ? 'empty' : 'loaded',
+                               'category:', categoryEmpty ? 'empty' : 'loaded');
+                    console.log('[Tab Switch] Cache status - incident:', hasIncidentCache,
+                               'narratives:', hasArticleCache,
+                               'category:', hasCategoryCache);
+                    console.log('[Tab Switch] shouldAutoLoad:', shouldAutoLoad);
+
+                    if (shouldAutoLoad) {
+                        console.log('[Tab Switch] Auto-loading cached insights');
+
+                        // Activate the appropriate sub-tab based on which cache is available
+                        if (hasIncidentCache && incidentEmpty) {
+                            console.log('[Tab Switch] Activating Highlights sub-tab for incident cache');
+                            const highlightsTab = document.getElementById('incident-tracking-nav');
+                            if (highlightsTab) {
+                                // Programmatically activate the Highlights sub-tab
+                                highlightsTab.click();
+
+                                // Wait for tab to become visible before auto-loading
+                                setTimeout(() => {
+                                    console.log('[Tab Switch] Highlights tab activated, now auto-loading...');
+                                    if (typeof autoLoadCachedInsights === 'function') {
+                                        autoLoadCachedInsights();
+                                    }
+                                }, 100);
+                                return; // Exit early since we'll auto-load after timeout
+                            }
+                        } else if (hasArticleCache && narrativesEmpty) {
+                            console.log('[Tab Switch] Narratives cache available, keeping current sub-tab');
+                        }
+
+                        if (typeof autoLoadCachedInsights === 'function') {
                             autoLoadCachedInsights();
-                        } else if (typeof showInsightsWelcomeMessage === 'function') {
+                        } else {
+                            console.error('[Tab Switch] autoLoadCachedInsights function not found!');
+                        }
+                    } else if (incidentEmpty && narrativesEmpty && categoryEmpty) {
+                        console.log('[Tab Switch] All containers empty, no cache available');
+                        if (typeof showInsightsWelcomeMessage === 'function') {
                             showInsightsWelcomeMessage();
                         }
+                    } else {
+                        console.log('[Tab Switch] Cached insights already loaded, skipping auto-load');
                     }
+                }).catch(error => {
+                    console.error('[Tab Switch] Error in checkInsightsCache:', error);
                 });
             }
         }
@@ -3917,8 +4009,12 @@ document.addEventListener('DOMContentLoaded', function() {
         button.addEventListener('click', function(e) {
             e.preventDefault();
             const targetId = this.getAttribute('data-target');
+            const buttonId = this.id;
+            console.log('[CLICK] Tab button clicked - id:', buttonId, 'target:', targetId);
             if (targetId) {
                 switchTab(targetId);
+            } else {
+                console.error('[CLICK] No target ID found for button:', buttonId);
             }
         });
     });
@@ -4030,16 +4126,49 @@ document.addEventListener('DOMContentLoaded', function() {
             console.log('[Page Load] Insights tab is active, checking for cached content...');
             await checkInsightsCache();
 
-            const insightsContainer = document.getElementById('article-insights-container');
-            if (insightsContainer && !insightsContainer.querySelector('.insight-item-card')) {
-                // Auto-load cached insights if available, otherwise show welcome message
-                if (insightsState.hasArticleCache || insightsState.hasCategoryCache || insightsState.hasIncidentCache) {
-                    console.log('[Page Load] Found cached insights, auto-loading...');
-                    await autoLoadCachedInsights();
-                } else {
-                    console.log('[Page Load] No cached insights found, showing welcome message');
-                    showInsightsWelcomeMessage();
+            // Check which containers have cache and which are empty
+            const incidentContainer = document.getElementById('incident-tracking-container');
+            const narrativesContainer = document.getElementById('article-insights-container');
+            const categoryContainer = document.getElementById('category-insights-container');
+
+            const incidentEmpty = !incidentContainer || !incidentContainer.querySelector('.insight-item-card');
+            const narrativesEmpty = !narrativesContainer || !narrativesContainer.querySelector('.insight-item-card');
+            const categoryEmpty = !categoryContainer || !categoryContainer.querySelector('.insight-item-card');
+
+            const hasIncidentCache = window.insightsState?.hasIncidentCache;
+            const hasArticleCache = window.insightsState?.hasArticleCache;
+            const hasCategoryCache = window.insightsState?.hasCategoryCache;
+
+            // Auto-load if any cached content exists but its container is empty
+            const shouldAutoLoad = (hasIncidentCache && incidentEmpty) ||
+                                  (hasArticleCache && narrativesEmpty) ||
+                                  (hasCategoryCache && categoryEmpty);
+
+            if (shouldAutoLoad) {
+                console.log('[Page Load] Found cached insights with empty containers, auto-loading...');
+
+                // Activate the appropriate sub-tab based on which cache is available
+                if (hasIncidentCache && incidentEmpty) {
+                    console.log('[Page Load] Activating Highlights sub-tab for incident cache');
+                    const highlightsTab = document.getElementById('incident-tracking-nav');
+                    if (highlightsTab) {
+                        highlightsTab.click();
+
+                        // Wait for tab to become visible before auto-loading
+                        setTimeout(async () => {
+                            console.log('[Page Load] Highlights tab activated, now auto-loading...');
+                            await autoLoadCachedInsights();
+                        }, 100);
+                        return; // Exit early since we'll auto-load after timeout
+                    }
                 }
+
+                await autoLoadCachedInsights();
+            } else if (incidentEmpty && narrativesEmpty && categoryEmpty) {
+                console.log('[Page Load] No cached insights found, showing welcome message');
+                showInsightsWelcomeMessage();
+            } else {
+                console.log('[Page Load] Cached insights already loaded, skipping auto-load');
             }
         }
     }, 500); // Small delay to ensure DOM is fully ready
@@ -4900,9 +5029,10 @@ async function loadArticles(page = 1) {
             params.append('date', customDate);
         }
 
-        const topic = (document.getElementById('topic-select')?.value || '').trim();
-        if (topic) {
-            params.append('topic', topic);
+        const selectedTopics = getSelectedTopics();
+        if (selectedTopics.length > 0) {
+            // Send comma-separated topics or first topic depending on API support
+            params.append('topic', selectedTopics.join(','));
         }
         
         const profileId = document.getElementById('profile-select').value;
@@ -5064,9 +5194,10 @@ async function loadSixArticles(forceRegenerate = false) {
             params.append('date', customDate);
         }
 
-        const topic = (document.getElementById('topic-select')?.value || '').trim();
-        if (topic) {
-            params.append('topic', topic);
+        const selectedTopics = getSelectedTopics();
+        if (selectedTopics.length > 0) {
+            // Send comma-separated topics or first topic depending on API support
+            params.append('topic', selectedTopics.join(','));
         }
 
         const profileId = document.getElementById('profile-select').value;
@@ -5512,7 +5643,7 @@ function renderSixArticles(articles) {
                     
                     <!-- Format status notice -->
                     ${!article.executive_takeaway ? `
-                    <div class="section mb-3" style="background: #fff3cd; padding: 15px; border-radius: 5px; border-left: 4px solid #ffc107;">
+                    <div class="section mb-3" style="background: var(--colors-warning-2); padding: 15px; border-radius: 5px; border-left: 4px solid var(--colors-warning-9);">
                         <h6 class="text-warning"><i class="fas fa-sync-alt me-2"></i>New CEO Daily Format Available</h6>
                         <div class="text-dark small">
                             <p class="mb-2">This analysis uses the legacy format. Regenerate to get the new <strong>CEO Daily Top-6</strong> format with:</p>
@@ -5750,10 +5881,10 @@ function exportSixArticlesHTML() {
   <style>
     body{font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; line-height: 1.6;}
     h1{font-size: 1.8rem; margin: 0 0 10px;}
-    .subtitle{color:#666; font-style:italic; margin-bottom:20px;}
-    .meta-info{background:#f8f9fa; border-left:4px solid #5dade2; padding:10px 15px; margin-bottom:20px;}
-    .sa-item{border-top: 1px solid #eee; padding-top: 20px; margin-top: 20px;}
-    blockquote{background:#f8f9fa; border-left:4px solid #ddd; margin:10px 0; padding:10px 15px;}
+    .subtitle{color:var(--colors-neutral-8); font-style:italic; margin-bottom:20px;}
+    .meta-info{background:var(--colors-neutral-2); border-left:4px solid var(--colors-info-5); padding:10px 15px; margin-bottom:20px;}
+    .sa-item{border-top: 1px solid var(--colors-neutral-4); padding-top: 20px; margin-top: 20px;}
+    blockquote{background:var(--colors-neutral-2); border-left:4px solid var(--colors-neutral-5); margin:10px 0; padding:10px 15px;}
     .sa-meta{color:#555}
   </style>
   <meta name="robots" content="noindex,follow">
@@ -5874,7 +6005,7 @@ function exportSixArticlesEnhanced() {
             border-radius: 20px 20px 0 0;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
             text-align: center;
-            border-bottom: 4px solid #FF69B4;
+            border-bottom: 4px solid var(--colors-accent-7);
         }
 
         .header h1 {
@@ -5912,7 +6043,7 @@ function exportSixArticlesEnhanced() {
         }
 
         .article-card {
-            background: linear-gradient(135deg, #f6f8fb 0%, #ffffff 100%);
+            background: linear-gradient(135deg, #f6f8fb 0%, var(--colors-white) 100%);
             border-radius: 16px;
             padding: 32px;
             margin-bottom: 32px;
@@ -5922,7 +6053,7 @@ function exportSixArticlesEnhanced() {
             transition: transform 0.3s ease, box-shadow 0.3s ease;
         }
 
-        .article-card:nth-child(6n+1) { border-left-color: #FF69B4; }
+        .article-card:nth-child(6n+1) { border-left-color: var(--colors-accent-7); }
         .article-card:nth-child(6n+2) { border-left-color: #667eea; }
         .article-card:nth-child(6n+3) { border-left-color: #f093fb; }
         .article-card:nth-child(6n+4) { border-left-color: #4facfe; }
@@ -5995,11 +6126,11 @@ function exportSixArticlesEnhanced() {
         }
 
         .executive-takeaway {
-            background: linear-gradient(135deg, #fff5f7 0%, #fffbf0 100%);
+            background: linear-gradient(135deg, var(--colors-white)5f7 0%, var(--colors-white)bf0 100%);
             border-radius: 12px;
             padding: 20px;
             margin: 20px 0;
-            border-left: 4px solid #FF69B4;
+            border-left: 4px solid var(--colors-accent-7);
         }
 
         .executive-takeaway p {
@@ -7191,22 +7322,22 @@ function renderArticles(articlesData) {
         articleItem.innerHTML = `
             <!-- Remove button (top-right) -->
             <button class="btn btn-sm position-absolute" 
-                    style="top: 8px; right: 8px; width: 24px; height: 24px; padding: 0; font-size: 14px; line-height: 1; border: none; background: rgba(220, 53, 69, 0.1); color: #dc3545; border-radius: 50%;"
+                    style="top: 8px; right: 8px; width: 24px; height: 24px; padding: 0; font-size: 14px; line-height: 1; border: none; background: rgba(220, 53, 69, 0.1); color: var(--colors-error-9); border-radius: 50%;"
                     onclick="excludeArticle('${article.uri}', this)"
-                    onmouseover="this.style.background='#dc3545'; this.style.color='white';"
-                    onmouseout="this.style.background='rgba(220, 53, 69, 0.1)'; this.style.color='#dc3545';"
+                    onmouseover="this.style.background='var(--colors-error-9)'; this.style.color='white';"
+                    onmouseout="this.style.background='rgba(220, 53, 69, 0.1)'; this.style.color='var(--colors-error-9)';"
                     title="Remove article">×</button>
             
             <!-- Star button (top-left) -->
             <button class="btn btn-sm position-absolute star-btn ${isStarred ? 'starred' : ''}" 
-                    style="top: 8px; left: 8px; width: 24px; height: 24px; padding: 0; font-size: 14px; line-height: 1; border: none; background: ${isStarred ? '#ffc107' : 'rgba(255, 193, 7, 0.1)'}; color: ${isStarred ? 'white' : '#ffc107'}; border-radius: 50%;"
+                    style="top: 8px; left: 8px; width: 24px; height: 24px; padding: 0; font-size: 14px; line-height: 1; border: none; background: ${isStarred ? 'var(--colors-warning-9)' : 'rgba(255, 193, 7, 0.1)'}; color: ${isStarred ? 'white' : 'var(--colors-warning-9)'}; border-radius: 50%;"
                     onclick="toggleStarArticle('${article.uri}', this)"
                     title="${isStarred ? 'Remove from Six Articles' : 'Add to Six Articles'}">★</button>
             
             
             <!-- Expand arrow (left side) -->
             <button class="btn btn-sm position-absolute expand-arrow-btn"
-                    style="top: 50%; left: -2px; transform: translateY(-50%); width: 20px; height: 40px; padding: 0; font-size: 12px; border: none; background: #5dade2; color: white; border-radius: 0 8px 8px 0; box-shadow: 2px 0 4px rgba(0,0,0,0.1);"
+                    style="top: 50%; left: -2px; transform: translateY(-50%); width: 20px; height: 40px; padding: 0; font-size: 12px; border: none; background: var(--colors-info-5); color: white; border-radius: 0 8px 8px 0; box-shadow: 2px 0 4px rgba(0,0,0,0.1);"
                     onclick="toggleArticleDetails('${article.uri}', this)"
                     title="Show detailed view">
                 <i class="fas fa-chevron-right"></i>
@@ -7247,14 +7378,14 @@ function renderArticles(articlesData) {
             </div>
             
             <!-- Detailed View (Initially Hidden) -->
-            <div class="article-details" id="details-${article.uri.replace(/[^a-zA-Z0-9]/g, '_')}" style="display: none; margin-left: 20px; margin-right: 10px; margin-top: 15px; padding: 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #5dade2; position: relative;">
+            <div class="article-details" id="details-${article.uri.replace(/[^a-zA-Z0-9]/g, '_')}" style="display: none; margin-left: 20px; margin-right: 10px; margin-top: 15px; padding: 20px; background: var(--colors-neutral-2); border-radius: 8px; border-left: 4px solid var(--colors-info-5); position: relative;">
 
                 <!-- Close button at top-right -->
                 <button class="btn btn-sm position-absolute"
-                        style="top: 8px; right: 8px; width: 28px; height: 28px; padding: 0; border-radius: 50%; background: white; border: 1px solid #dee2e6; color: #6c757d; font-size: 16px; line-height: 1; box-shadow: 0 2px 4px rgba(0,0,0,0.1); z-index: 10;"
+                        style="top: 8px; right: 8px; width: 28px; height: 28px; padding: 0; border-radius: 50%; background: white; border: 1px solid var(--colors-neutral-5); color: var(--colors-neutral-8); font-size: 16px; line-height: 1; box-shadow: 0 2px 4px rgba(0,0,0,0.1); z-index: 10;"
                         onclick="toggleArticleDetails('${article.uri}', this.closest('.list-group-item').querySelector('.expand-arrow-btn'))"
-                        onmouseover="this.style.background='#dc3545'; this.style.color='white'; this.style.borderColor='#dc3545';"
-                        onmouseout="this.style.background='white'; this.style.color='#6c757d'; this.style.borderColor='#dee2e6';"
+                        onmouseover="this.style.background='var(--colors-error-9)'; this.style.color='white'; this.style.borderColor='var(--colors-error-9)';"
+                        onmouseout="this.style.background='white'; this.style.color='var(--colors-neutral-8)'; this.style.borderColor='var(--colors-neutral-5)';"
                         title="Close detailed view">
                     <i class="fas fa-times"></i>
                 </button>
@@ -7534,7 +7665,7 @@ function renderArticleTable(articles) {
                     </button>
                     <!-- Star button -->
                     <button class="btn btn-sm star-btn"
-                            style="width: 24px; height: 24px; padding: 0; font-size: 12px; border: none; background: ${isStarred ? '#ffc107' : 'rgba(255, 193, 7, 0.1)'}; color: ${isStarred ? 'white' : '#ffc107'};"
+                            style="width: 24px; height: 24px; padding: 0; font-size: 12px; border: none; background: ${isStarred ? 'var(--colors-warning-9)' : 'rgba(255, 193, 7, 0.1)'}; color: ${isStarred ? 'white' : 'var(--colors-warning-9)'};"
                             onclick="toggleStarArticle('${article.uri}', this)"
                             title="${isStarred ? 'Remove from Six Articles' : 'Add to Six Articles'}">★</button>
                 </td>
@@ -7557,7 +7688,7 @@ function renderArticleTable(articles) {
             </tr>
             <tr id="details-row-${articleId}" style="display: none;">
                 <td colspan="8" class="p-0">
-                    <div class="article-details" style="margin-left: 20px; margin-right: 10px; margin-top: 15px; margin-bottom: 15px; padding: 20px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #5dade2;">
+                    <div class="article-details" style="margin-left: 20px; margin-right: 10px; margin-top: 15px; margin-bottom: 15px; padding: 20px; background: var(--colors-neutral-2); border-radius: 8px; border-left: 4px solid var(--colors-info-5);">
 
                         <!-- Metadata Badges (Horizontal Layout - Full Width) -->
                         <div class="metadata-badges mb-3">
@@ -8068,7 +8199,7 @@ function toggleArticleDetails(articleUri, buttonElement) {
         detailsDiv.style.display = 'block';
         icon.className = 'fas fa-chevron-down';
         buttonElement.title = 'Hide detailed view';
-        buttonElement.style.background = '#28a745'; // Green when expanded
+        buttonElement.style.background = 'var(--colors-success-9)'; // Green when expanded
 
         // Add expanded class to span full grid width
         if (articleCard) {
@@ -8131,7 +8262,7 @@ function toggleArticleDetails(articleUri, buttonElement) {
 
         icon.className = 'fas fa-chevron-right';
         buttonElement.title = 'Show detailed view';
-        buttonElement.style.background = '#5dade2'; // Baby blue when collapsed
+        buttonElement.style.background = 'var(--colors-info-5)'; // Baby blue when collapsed
     }
 }
 
@@ -9173,8 +9304,9 @@ async function autoLoadArticles() {
 
         // Get current settings
         const dateRange = document.getElementById('date-range-select')?.value || '3m';
-        const topic = (document.getElementById('topic-select')?.value || '').trim();
-        
+        const selectedTopics = getSelectedTopics();
+        const topic = selectedTopics.length > 0 ? selectedTopics.join(',') : '';
+
         // Convert date range to days for database query
         let days = 90; // Default
         if (dateRange.endsWith('d')) {
@@ -9913,7 +10045,7 @@ async function loadRelatedArticlesSidebar(articleUri) {
                     html += `<div class="mb-1 d-flex align-items-center gap-1">
                         <a href="${related.id}" target="_blank"
                            class="text-decoration-none small flex-grow-1"
-                           style="font-size: 10px; line-height: 1.2; color: #5dade2;"
+                           style="font-size: 10px; line-height: 1.2; color: var(--colors-info-5);"
                            title="${escapeHTML(related.metadata?.title || 'Related article')}">
                             <i class="fas fa-external-link-alt me-1 text-muted"></i>
                             ${escapeHTML((related.metadata?.title || 'Related article').substring(0, 50))}${(related.metadata?.title || '').length > 50 ? '...' : ''}
@@ -10474,7 +10606,7 @@ function toggleStarArticle(articleUri, buttonElement) {
         starredArticles.delete(articleUri);
         buttonElement.classList.remove('starred');
         buttonElement.style.background = 'rgba(255, 193, 7, 0.1)';
-        buttonElement.style.color = '#ffc107';
+        buttonElement.style.color = 'var(--colors-warning-9)';
         buttonElement.title = 'Add to Six Articles';
         showNotification('Article removed from Six Articles selection', 'info');
     } else {
@@ -10486,7 +10618,7 @@ function toggleStarArticle(articleUri, buttonElement) {
         
         starredArticles.add(articleUri);
         buttonElement.classList.add('starred');
-        buttonElement.style.background = '#ffc107';
+        buttonElement.style.background = 'var(--colors-warning-9)';
         buttonElement.style.color = 'white';
         buttonElement.title = 'Remove from Six Articles';
         showNotification('Article added to Six Articles selection', 'success');
@@ -10559,7 +10691,7 @@ style.textContent = `
     
     .filter-badge.active {
         opacity: 1;
-        border: 2px solid #fff;
+        border: 2px solid var(--colors-white);
         box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         transform: scale(1.05);
     }
@@ -10758,12 +10890,13 @@ I'm ready to discuss this article with you. You can use your tools to search for
 
 // ===== INSIGHTS TAB FUNCTIONALITY =====
 
-let insightsState = {
+window.insightsState = {
     hasArticleCache: false,
     hasCategoryCache: false,
     hasIncidentCache: false,
     isLoading: false
 };
+const insightsState = window.insightsState; // Alias for backward compatibility
 
 function updateInsightsButton() {
     const insightsBtn = document.getElementById('insights-generate-btn');
@@ -10798,7 +10931,7 @@ function updateInsightsButton() {
 async function checkInsightsCache() {
     const topics = getSelectedTopics();
     if (!topics || topics.length === 0) {
-        console.debug('[Cache Check] No topics selected');
+        console.log('[Cache Check] No topics selected');
         insightsState.hasArticleCache = false;
         insightsState.hasCategoryCache = false;
         insightsState.hasIncidentCache = false;
@@ -10806,11 +10939,28 @@ async function checkInsightsCache() {
         return;
     }
 
-    const currentArticles = window.lastArticlesData?.items || [];
+    let currentArticles = window.lastArticlesData?.items || [];
     if (currentArticles.length === 0) {
-        console.debug('[Cache Check] No articles loaded yet');
-        updateInsightsButton();
-        return;
+        console.log('[Cache Check] No articles loaded yet - triggering article load first');
+        // Load articles first, then retry cache check
+        if (typeof autoLoadArticles === 'function') {
+            await autoLoadArticles();
+            // Wait a bit for articles to populate
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            // Retry with newly loaded articles
+            currentArticles = window.lastArticlesData?.items || [];
+            if (currentArticles.length === 0) {
+                console.log('[Cache Check] Still no articles after load attempt');
+                updateInsightsButton();
+                return;
+            }
+            console.log('[Cache Check] Articles loaded, count:', currentArticles.length, 'first URI:', currentArticles[0]?.uri);
+        } else {
+            updateInsightsButton();
+            return;
+        }
+    } else {
+        console.log('[Cache Check] Articles already loaded, count:', currentArticles.length, 'first URI:', currentArticles[0]?.uri);
     }
 
     const cacheUri = currentArticles[0].uri;
@@ -10836,11 +10986,15 @@ async function checkInsightsCache() {
 
         // Check incident tracking cache (uses sorted comma-joined topics)
         const incidentTopicsKey = topics.slice().sort().join(',');
-        const incidentCacheResponse = await fetch(`/api/analysis-cache?article_uri=${encodeURIComponent(cacheUri)}&analysis_type=incident_tracking_${incidentTopicsKey}&model=incident_analysis`);
+        const incidentCheckUrl = `/api/analysis-cache?article_uri=${encodeURIComponent(cacheUri)}&analysis_type=incident_tracking_${incidentTopicsKey}&model=incident_analysis`;
+        console.log('[Cache Check] Checking incident tracking cache:', incidentCheckUrl);
+        const incidentCacheResponse = await fetch(incidentCheckUrl);
         if (incidentCacheResponse.ok) {
             const incidentCache = await incidentCacheResponse.json();
             insightsState.hasIncidentCache = incidentCache.cached;
-            console.debug('[Cache Check] Incident tracking cache:', incidentCache.cached, 'key:', incidentTopicsKey);
+            console.log('[Cache Check] Incident tracking cache:', incidentCache.cached, 'key:', incidentTopicsKey, 'response:', incidentCache);
+        } else {
+            console.log('[Cache Check] Incident tracking cache check failed:', incidentCacheResponse.status);
         }
 
     } catch (error) {
@@ -10852,34 +11006,51 @@ async function checkInsightsCache() {
 
 async function autoLoadCachedInsights() {
     const topics = getSelectedTopics();
+    console.log('[Auto-load] Starting auto-load check, topics:', topics);
+
     if (!topics || topics.length === 0) {
-        console.debug('[Auto-load] No topics selected, showing welcome message');
+        console.log('[Auto-load] No topics selected, showing welcome message');
         showInsightsWelcomeMessage();
         return;
     }
 
     await checkInsightsCache();
 
+    console.log('[Auto-load] Cache check complete. State:', {
+        hasArticleCache: insightsState.hasArticleCache,
+        hasCategoryCache: insightsState.hasCategoryCache,
+        hasIncidentCache: insightsState.hasIncidentCache
+    });
+
     // If we have any cached data, auto-load it
     if (insightsState.hasArticleCache || insightsState.hasCategoryCache || insightsState.hasIncidentCache) {
-        console.log('[Auto-load] Cached insights found, loading...');
-        await smartGenerateInsights(false, true); // false = don't force, true = auto-load
+        console.log('[Auto-load] Cached insights found, calling smartGenerateInsights...');
+        try {
+            await smartGenerateInsights(false, true); // false = don't force, true = auto-load
+            console.log('[Auto-load] smartGenerateInsights completed successfully');
+        } catch (error) {
+            console.error('[Auto-load] Error in smartGenerateInsights:', error);
+        }
     } else {
-        console.debug('[Auto-load] No cached insights found');
+        console.log('[Auto-load] No cached insights found');
         showInsightsWelcomeMessage();
     }
 }
 
 async function smartGenerateInsights(forceRegenerate = false, isAutoLoad = false) {
-    if (!isAutoLoad) {
+    if (isAutoLoad) {
+        console.log('[smartGenerateInsights] Auto-load mode, forceRegenerate:', forceRegenerate);
+    } else {
         console.log('Smart insights button clicked', forceRegenerate ? '(force regenerate)' : '');
     }
-    
+
     insightsState.isLoading = true;
     updateInsightsButton();
-    
+
     try {
+        console.log('[smartGenerateInsights] Calling generateInsights...');
         await generateInsights(forceRegenerate);
+        console.log('[smartGenerateInsights] generateInsights completed');
 
         // After generating insights, check cache status to update button correctly
         // (insights are now cached after generation)
@@ -12649,13 +12820,22 @@ function renderIncidentTracking(incidents) {
     container.innerHTML = '';
     // Persist last set
     window._lastIncidents = Array.isArray(incidents) ? incidents.slice() : [];
-    
+
     // Store all incidents for filtering
     allIncidents = Array.isArray(incidents) ? incidents.slice() : [];
-    
+
+    // Scroll to top of the panel to ensure content is visible after render
+    setTimeout(() => {
+        const insightsContent = document.getElementById('insights-content');
+        const incidentPanel = document.getElementById('incident-tracking-panel');
+        if (insightsContent) insightsContent.scrollTop = 0;
+        if (incidentPanel) incidentPanel.scrollTop = 0;
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 100);
+
     // Build filter badges
     buildIncidentFilterBadges(allIncidents);
-    
+
     // Apply current filters
     const filteredIncidents = applyIncidentFilters(allIncidents);
     
@@ -12895,7 +13075,7 @@ function renderIncidentTracking(incidents) {
             ${articlesHtml}
             ${leadsHtml}
             <!-- Detailed Analysis Section (Initially Hidden) -->
-            <div class="incident-analysis" id="incident-analysis-${escapeHTML(incident.name).replace(/[^a-zA-Z0-9]/g, '_')}" style="display: none; margin-top: 15px; padding: 15px; background: #f8f9fa; border-radius: 8px; border-left: 4px solid #5dade2;">
+            <div class="incident-analysis" id="incident-analysis-${escapeHTML(incident.name).replace(/[^a-zA-Z0-9]/g, '_')}" style="display: none; margin-top: 15px; padding: 15px; background: var(--colors-neutral-2); border-radius: 8px; border-left: 4px solid var(--colors-info-5);">
                 <h6 class="text-primary mb-3">
                     <i class="fas fa-search-plus me-2"></i>Article Analysis
                 </h6>
@@ -13180,7 +13360,7 @@ function renderRealTimeSignals(data) {
         card.className = 'insight-item-card';
         
         if (signal.signal_detected) {
-            card.style.borderLeft = '4px solid #dc3545'; // Red border for detected signals
+            card.style.borderLeft = '4px solid var(--colors-error-9)'; // Red border for detected signals
         }
         
         const threatBadgeColor = signal.threat_level === 'high' ? 'danger' : 
@@ -13349,7 +13529,7 @@ function renderRealTimeSignals(data) {
         card.className = 'insight-item-card';
         
         if (signal.signal_detected) {
-            card.style.borderLeft = '4px solid #dc3545'; // Red border for detected signals
+            card.style.borderLeft = '4px solid var(--colors-error-9)'; // Red border for detected signals
         }
         
         const threatBadgeColor = signal.threat_level === 'high' ? 'danger' : 
@@ -14242,7 +14422,7 @@ function applyIncidentFilters(incidents) {
 
 function renderIncidentTrackingFiltered(filteredIncidents) {
     const container = document.getElementById('incident-tracking-container');
-    
+
     // Clear container but preserve controls
     const existingControls = container.querySelector('.insight-item-card');
     container.innerHTML = '';
@@ -14312,10 +14492,9 @@ function renderIncidentTrackingFiltered(filteredIncidents) {
 }
 
 function createIndividualIncidentCard(incident, globalMin, globalMax) {
-    const col = document.createElement('div');
-    col.className = 'col-12 col-md-6 col-lg-4';
+    // Removed Bootstrap column wrapper - cards now use flexbox container
     const card = document.createElement('div');
-    card.className = 'insight-item-card h-100';
+    card.className = 'insight-item-card';
         
         // Check for low quality and add visual indicator
         let isLowQuality = false;
@@ -14344,8 +14523,8 @@ function createIndividualIncidentCard(incident, globalMin, globalMax) {
         
         // Add border styling for low quality incidents
         if (isLowQuality) {
-            card.style.borderLeft = '4px solid #dc3545';
-            card.style.backgroundColor = '#fff5f5';
+            card.style.borderLeft = '4px solid var(--colors-error-9)';
+            card.style.backgroundColor = 'var(--colors-white)5f5';
         }
         
         // Determine badge color based on type and significance (updated for 7-type system)
@@ -14398,8 +14577,8 @@ function createIndividualIncidentCard(incident, globalMin, globalMax) {
                     timelineHtml = `
                         <div class="mt-2 mb-2">
                             <small class="text-muted fw-bold">Timeline:</small>
-                            <div class="timeline-ruler" style="position: relative; height: 8px; background: #e9ecef; border-radius: 4px; margin-top: 4px;">
-                                ${positions.map(pos => `<div style="position: absolute; left: ${pos}%; width: 3px; height: 8px; background: #5dade2; border-radius: 1px;"></div>`).join('')}
+                            <div class="timeline-ruler" style="position: relative; height: 8px; background: var(--colors-neutral-4); border-radius: 4px; margin-top: 4px;">
+                                ${positions.map(pos => `<div style="position: absolute; left: ${pos}%; width: 3px; height: 8px; background: var(--colors-info-5); border-radius: 1px;"></div>`).join('')}
                             </div>
                             <div class="d-flex justify-content-between mt-1">
                                 <small class="text-muted">${new Date(events[0]).toLocaleDateString()}</small>
@@ -14570,8 +14749,7 @@ function createIndividualIncidentCard(incident, globalMin, globalMax) {
         card.classList.add('opacity-75');
     }
 
-    col.appendChild(card);
-    return col;
+    return card;  // Return card directly without column wrapper
 }
 
 
@@ -16637,7 +16815,7 @@ function renderTableGroupedByEntity(incidents, container) {
                                      group.maxSignificance === 'medium' ? 'warning' : 'info';
 
         html += `
-            <tr class="table-primary" style="background: linear-gradient(135deg, #e3f2fd 0%, #f8f9fa 100%);">
+            <tr class="table-primary" style="background: linear-gradient(135deg, #e3f2fd 0%, var(--colors-neutral-2) 100%);">
                 <td colspan="8">
                     <div class="d-flex justify-content-between align-items-center">
                         <div>

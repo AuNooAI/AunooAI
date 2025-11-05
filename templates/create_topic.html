@@ -29,10 +29,10 @@
 
 <style>
     :root {
-        --text-color: #333;
-        --light-gray: #f8f9fa;
-        --medium-gray: #e9ecef;
-        --dark-gray: #343a40;
+        --text-color: var(--colors-neutral-11);
+        --light-gray: var(--colors-neutral-2);
+        --medium-gray: var(--colors-neutral-4);
+        --dark-gray: var(--colors-neutral-10);
     }
 
     .form-control, .form-select {
@@ -74,7 +74,7 @@
     .btn-danger {
         background-color: rgba(220, 53, 69, 0.1);
         border: 1px solid rgba(220, 53, 69, 0.2);
-        color: #dc3545;
+        color: var(--colors-error-9);
         transition: all 0.2s ease;
         padding: 8px 16px;
         display: inline-flex;
@@ -83,8 +83,8 @@
     }
 
     .btn-danger:hover {
-        background-color: #dc3545;
-        border-color: #dc3545;
+        background-color: var(--colors-error-9);
+        border-color: var(--colors-error-9);
         color: white;
         transform: translateY(-1px);
     }
@@ -183,7 +183,7 @@
 
     .badge.bg-secondary {
         background-color: rgba(108, 117, 125, 0.1) !important;
-        color: #6c757d !important;
+        color: var(--colors-neutral-8) !important;
         border: 1px solid rgba(108, 117, 125, 0.2) !important;
     }
 </style>
@@ -642,7 +642,7 @@ document.addEventListener('DOMContentLoaded', function() {
 /* Breadcrumb Header */
 .page-breadcrumb-header {
     background-color: white;
-    border-bottom: 1px solid #e5e7eb;
+    border-bottom: 1px solid var(--colors-neutral-4);
     padding: 0.75rem 1.5rem;
     display: flex;
     align-items: center;
@@ -655,15 +655,15 @@ document.addEventListener('DOMContentLoaded', function() {
     align-items: center;
     gap: 0.5rem;
     font-size: 0.875rem;
-    color: #6b7280;
+    color: var(--colors-neutral-8);
 }
 
 .breadcrumb-text span {
-    color: #6b7280;
+    color: var(--colors-neutral-8);
 }
 
 .breadcrumb-text span.font-medium {
-    color: #111827;
+    color: var(--colors-neutral-12);
     font-weight: 500;
 }
 
@@ -682,21 +682,21 @@ document.addEventListener('DOMContentLoaded', function() {
     justify-content: center;
     background: transparent;
     border: none;
-    color: #6b7280;
+    color: var(--colors-neutral-8);
     cursor: pointer;
     border-radius: 0.375rem;
     transition: all 0.2s ease;
 }
 
 .page-header-actions .btn-icon:hover {
-    background: #f3f4f6;
-    color: #111827;
+    background: var(--colors-neutral-3);
+    color: var(--colors-neutral-12);
 }
 
 .btn-topic-setup {
-    background: #f3f4f6;
+    background: var(--colors-neutral-3);
     border: none;
-    color: #111827;
+    color: var(--colors-neutral-12);
     font-size: 0.875rem;
     font-weight: 500;
     padding: 0.5rem 1rem;
@@ -709,8 +709,8 @@ document.addEventListener('DOMContentLoaded', function() {
 }
 
 .btn-topic-setup:hover {
-    background: #e5e7eb;
-    color: #111827;
+    background: var(--colors-neutral-4);
+    color: var(--colors-neutral-12);
 }
 
 /* Scrollable content area */
@@ -718,28 +718,28 @@ document.addEventListener('DOMContentLoaded', function() {
     flex: 1;
     overflow-y: auto;
     padding: 24px 48px;
-    background-color: #f9fafb;
+    background-color: var(--colors-neutral-2);
 }
 
 /* Subtle button styling */
 .btn-primary {
     background: white !important;
-    border: 1px solid #e5e7eb !important;
-    color: #ec4899 !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-accent-8) !important;
     font-weight: 500;
     transition: all 0.2s ease;
 }
 
 .btn-primary:hover {
-    background: #fdf2f8 !important;
-    border-color: #fbcfe8 !important;
-    color: #ec4899 !important;
+    background: var(--colors-accent-1) !important;
+    border-color: var(--colors-accent-3) !important;
+    color: var(--colors-accent-8) !important;
 }
 
 .btn-success {
     background: white !important;
-    border: 1px solid #e5e7eb !important;
-    color: #10b981 !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-success-9) !important;
     font-weight: 500;
     transition: all 0.2s ease;
 }
@@ -747,33 +747,33 @@ document.addEventListener('DOMContentLoaded', function() {
 .btn-success:hover {
     background: #f0fdf4 !important;
     border-color: #bbf7d0 !important;
-    color: #10b981 !important;
+    color: var(--colors-success-9) !important;
 }
 
 .btn-secondary {
-    background: #f3f4f6 !important;
-    border: 1px solid #e5e7eb !important;
-    color: #111827 !important;
+    background: var(--colors-neutral-3) !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-neutral-12) !important;
     font-weight: 500;
     transition: all 0.2s ease;
 }
 
 .btn-secondary:hover {
-    background: #e5e7eb !important;
-    color: #111827 !important;
+    background: var(--colors-neutral-4) !important;
+    color: var(--colors-neutral-12) !important;
 }
 
 /* Subtle pink accents for tags and examples */
 .tag {
-    background-color: #fdf2f8 !important;
+    background-color: var(--colors-accent-1) !important;
     color: #831843 !important;
-    border: 1px solid #fbcfe8 !important;
+    border: 1px solid var(--colors-accent-3) !important;
 }
 
 .example-value {
-    background-color: #fdf2f8 !important;
+    background-color: var(--colors-accent-1) !important;
     color: #831843 !important;
-    border: 1px solid #fbcfe8 !important;
+    border: 1px solid var(--colors-accent-3) !important;
 }
 
 .example-value:hover {
@@ -785,7 +785,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
 /* Form controls with subtle borders */
 .form-control:focus, .form-select:focus {
-    border-color: #ec4899 !important;
+    border-color: var(--colors-accent-8) !important;
     box-shadow: 0 0 0 0.2rem rgba(236, 72, 153, 0.15) !important;
 }
 

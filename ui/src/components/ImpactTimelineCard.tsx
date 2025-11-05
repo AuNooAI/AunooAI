@@ -67,7 +67,7 @@ export function ImpactTimelineCard({
       <div className="bg-white border border-gray-200 rounded-xl p-5 flex items-center">
         <div className="flex-1">
           {/* Year labels */}
-          <div className="flex justify-between text-xs text-gray-600 mb-2 px-1">
+          <div className="flex justify-between text-xs text-gray-700 mb-2 px-1">
             <span>{timelineStart}</span>
             <span>{timelineEnd}</span>
           </div>

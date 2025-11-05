@@ -10,14 +10,14 @@
 {% block extra_css %}
 <style>
     :root {
-        --primary-color: #FF69B4;
-        --primary-dark: #FF1493;
+        --primary-color: var(--colors-accent-7);
+        --primary-dark: var(--colors-accent-10);
         --secondary-color: #32CD32;
         --secondary-dark: #228B22;
-        --text-color: #333;
-        --light-gray: #f8f9fa;
-        --medium-gray: #e9ecef;
-        --dark-gray: #343a40;
+        --text-color: var(--colors-neutral-11);
+        --light-gray: var(--colors-neutral-2);
+        --medium-gray: var(--colors-neutral-4);
+        --dark-gray: var(--colors-neutral-10);
         --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         --border-radius: 12px;
     }
@@ -272,7 +272,7 @@
 
     .feed-item.thenewsapi-item:hover {
         box-shadow: 0 4px 12px rgba(30, 126, 52, 0.15);
-        border-left-color: #28a745;
+        border-left-color: var(--colors-success-9);
     }
 
     .feed-item.thenewsapi-item.starred {
@@ -315,7 +315,7 @@
     }
 
     .source-badge.thenewsapi {
-        background: linear-gradient(135deg, #1e7e34, #28a745);
+        background: linear-gradient(135deg, #1e7e34, var(--colors-success-9));
         color: white;
         border: 1px solid #1c6c32;
     }
@@ -470,7 +470,7 @@
         border: 1px solid var(--medium-gray);
         border-radius: 6px;
         background: white;
-        color: #495057;
+        color: var(--colors-neutral-9);
         cursor: pointer;
         transition: all 0.2s ease;
         font-size: 0.9rem;
@@ -481,7 +481,7 @@
     }
 
     .btn-square:hover {
-        background: #f8f9fa;
+        background: var(--colors-neutral-2);
         border-color: var(--primary-color);
         color: var(--primary-color);
         transform: translateY(-1px);
@@ -503,15 +503,15 @@
     .btn-square:disabled:hover {
         background: white;
         border-color: var(--medium-gray);
-        color: #495057;
+        color: var(--colors-neutral-9);
         transform: none;
         box-shadow: none;
     }
 
     /* Square Button Color Variants */
     .btn-square.btn-danger {
-        background: #dc3545;
-        border-color: #dc3545;
+        background: var(--colors-error-9);
+        border-color: var(--colors-error-9);
         color: white;
     }
 
@@ -522,20 +522,20 @@
     }
 
     .btn-square.btn-warning {
-        background: #ffc107;
-        border-color: #ffc107;
-        color: #212529;
+        background: var(--colors-warning-9);
+        border-color: var(--colors-warning-9);
+        color: var(--colors-neutral-11);
     }
 
     .btn-square.btn-warning:hover:not(:disabled) {
         background: #e0a800;
         border-color: #d39e00;
-        color: #212529;
+        color: var(--colors-neutral-11);
     }
 
     .btn-square.btn-info {
-        background: #17a2b8;
-        border-color: #17a2b8;
+        background: var(--colors-info-9);
+        border-color: var(--colors-info-9);
         color: white;
     }
 
@@ -546,8 +546,8 @@
     }
 
     .btn-square.btn-secondary {
-        background: #6c757d;
-        border-color: #6c757d;
+        background: var(--colors-neutral-8);
+        border-color: var(--colors-neutral-8);
         color: white;
     }
 
@@ -570,8 +570,8 @@
     }
 
     .btn-square.btn-success {
-        background: #28a745;
-        border-color: #28a745;
+        background: var(--colors-success-9);
+        border-color: var(--colors-success-9);
         color: white;
     }
 
@@ -645,8 +645,8 @@
     }
 
     .layout-compact .compact-table th {
-        background: #f8f9fa !important;
-        border-bottom: 2px solid #dee2e6 !important;
+        background: var(--colors-neutral-2) !important;
+        border-bottom: 2px solid var(--colors-neutral-5) !important;
         position: sticky;
         top: 0;
         z-index: 10;
@@ -658,7 +658,7 @@
     }
 
     .layout-compact .compact-table tr:hover {
-        background: #f8f9fa !important;
+        background: var(--colors-neutral-2) !important;
     }
 
     .layout-compact .compact-table tr:nth-child(even) {
@@ -672,11 +672,11 @@
     .layout-compact .compact-table td {
         padding: 8px;
         vertical-align: middle;
-        border-bottom: 1px solid #eee;
+        border-bottom: 1px solid var(--colors-neutral-4);
     }
 
     .layout-compact .compact-table td a {
-        color: #333;
+        color: var(--colors-neutral-11);
         text-decoration: none;
         font-weight: 500;
     }
@@ -687,7 +687,7 @@
     }
 
     .layout-compact .compact-table .compact-row.starred {
-        background: #fff3cd !important;
+        background: var(--colors-warning-2) !important;
     }
 
     .layout-compact .compact-table .compact-row.starred:hover {
@@ -707,7 +707,7 @@
     .layout-timeline {
         position: relative;
         padding-left: 50px;
-        background: linear-gradient(135deg, #fafbfc, #ffffff);
+        background: linear-gradient(135deg, #fafbfc, var(--colors-white));
     }
 
     .layout-timeline::before {
@@ -1024,13 +1024,13 @@
     .bias-right-center { background-color: #FF9966; color: black; }
     .bias-right { background-color: #CC3333; color: white; }
     .bias-pro-science { background-color: #9966CC; color: white; }
-    .bias-conspiracy-pseudoscience { background-color: #666666; color: white; }
+    .bias-conspiracy-pseudoscience { background-color: var(--colors-neutral-8)666; color: white; }
     .bias-questionable { background-color: #222222; color: white; }
     .bias-satire { background-color: #CCBB33; color: black; }
 
     .factual-very-high { background-color: #006600; color: white; }
     .factual-high, .factual-mostly-factual { background-color: #339933; color: white; }
-    .factual-mixed { background-color: #CCCC00; color: black; }
+    .factual-mixed { background-color: var(--colors-neutral-6)C00; color: black; }
     .factual-low, .factual-very-low { background-color: #CC0000; color: white; }
 
     /* Tag styles */
@@ -1189,26 +1189,26 @@
         text-transform: uppercase;
         color: white;
         margin-right: 4px;
-        background: #6c757d;
+        background: var(--colors-neutral-8);
     }
 
     /* Bias-specific colors */
     .bias-left { background: #007bff; }
-    .bias-left-center { background: #17a2b8; }
-    .bias-least-biased { background: #28a745; }
+    .bias-left-center { background: var(--colors-info-9); }
+    .bias-least-biased { background: var(--colors-success-9); }
     .bias-right-center { background: #fd7e14; }
-    .bias-right { background: #dc3545; }
+    .bias-right { background: var(--colors-error-9); }
     .bias-mixed { background: #6f42c1; }
     .bias-satire { background: #e83e8c; }
-    .bias-questionable { background: #6c757d; }
+    .bias-questionable { background: var(--colors-neutral-8); }
 
     /* Factual reporting colors */
-    .factual-very-high { background: #28a745; }
+    .factual-very-high { background: var(--colors-success-9); }
     .factual-high { background: #20c997; }
-    .factual-mostly-factual { background: #17a2b8; }
+    .factual-mostly-factual { background: var(--colors-info-9); }
     .factual-mixed { background: #fd7e14; }
-    .factual-low { background: #dc3545; }
-    .factual-very-low { background: #6c757d; }
+    .factual-low { background: var(--colors-error-9); }
+    .factual-very-low { background: var(--colors-neutral-8); }
 
     /* Article Tags */
     .article-tags {
@@ -1259,7 +1259,7 @@
 
     .column-item.starred {
         border-color: var(--accent-color);
-        background: linear-gradient(135deg, #fff 0%, #fff9c4 100%);
+        background: linear-gradient(135deg, var(--colors-white) 0%, var(--colors-white)9c4 100%);
     }
 
     .column-item-actions {
@@ -1278,7 +1278,7 @@
         right: -2px;
         width: 12px;
         height: 12px;
-        background: #28a745;
+        background: var(--colors-success-9);
         border-radius: 50%;
         border: 2px solid white;
         z-index: 10;
@@ -1471,14 +1471,14 @@
     
     /* Enhanced Cluster Article Display */
     .cluster-filter-controls {
-        border-bottom: 1px solid #e9ecef;
+        border-bottom: 1px solid var(--colors-neutral-4);
         padding-bottom: 10px;
         margin-bottom: 10px;
     }
     
     .cluster-article-item {
         padding: 12px;
-        border: 1px solid #e9ecef;
+        border: 1px solid var(--colors-neutral-4);
         border-radius: 8px;
         margin-bottom: 10px;
         background: #fafafa;
@@ -1493,7 +1493,7 @@
     }
     
     .cluster-actions {
-        border-top: 1px solid #e9ecef;
+        border-top: 1px solid var(--colors-neutral-4);
         padding-top: 10px;
         margin-top: 10px;
     }
@@ -1509,7 +1509,7 @@
     }
     
     .cluster-article-list {
-        border-top: 2px solid #e9ecef;
+        border-top: 2px solid var(--colors-neutral-4);
         padding-top: 15px;
         max-height: none; /* Override previous restriction */
     }
@@ -1745,8 +1745,8 @@
     }
 
     .clear-all-btn:hover {
-        border-color: #dc3545;
-        color: #dc3545;
+        border-color: var(--colors-error-9);
+        color: var(--colors-error-9);
     }
 
     .combination-list {
@@ -1789,7 +1789,7 @@
     }
 
     .remove-combination {
-        background: #dc3545;
+        background: var(--colors-error-9);
         border: none;
         color: white;
         border-radius: 50%;
@@ -3053,13 +3053,13 @@ function renderFeedItems() {
         const tableHeader = `
             <table class="compact-table" style="width: 100%; border-collapse: collapse; background: white;">
                 <thead>
-                    <tr style="background: #f8f9fa; border-bottom: 2px solid #dee2e6;">
-                        <th style="width: 30px; padding: 8px; text-align: center; font-size: 0.75rem; color: #666; font-weight: 600;">☑</th>
-                        <th style="width: 30px; padding: 8px; text-align: center; font-size: 0.75rem; color: #666; font-weight: 600;">SRC</th>
-                        <th style="width: 80px; padding: 8px; text-align: left; font-size: 0.75rem; color: #666; font-weight: 600;">DATE</th>
-                        <th style="padding: 8px; text-align: left; font-size: 0.75rem; color: #666; font-weight: 600;">TITLE</th>
-                        <th style="width: 50px; padding: 8px; text-align: center; font-size: 0.75rem; color: #666; font-weight: 600;">ENG</th>
-                        <th style="width: 80px; padding: 8px; text-align: center; font-size: 0.75rem; color: #666; font-weight: 600;">ACTIONS</th>
+                    <tr style="background: var(--colors-neutral-2); border-bottom: 2px solid var(--colors-neutral-5);">
+                        <th style="width: 30px; padding: 8px; text-align: center; font-size: 0.75rem; color: var(--colors-neutral-8); font-weight: 600;">☑</th>
+                        <th style="width: 30px; padding: 8px; text-align: center; font-size: 0.75rem; color: var(--colors-neutral-8); font-weight: 600;">SRC</th>
+                        <th style="width: 80px; padding: 8px; text-align: left; font-size: 0.75rem; color: var(--colors-neutral-8); font-weight: 600;">DATE</th>
+                        <th style="padding: 8px; text-align: left; font-size: 0.75rem; color: var(--colors-neutral-8); font-weight: 600;">TITLE</th>
+                        <th style="width: 50px; padding: 8px; text-align: center; font-size: 0.75rem; color: var(--colors-neutral-8); font-weight: 600;">ENG</th>
+                        <th style="width: 80px; padding: 8px; text-align: center; font-size: 0.75rem; color: var(--colors-neutral-8); font-weight: 600;">ACTIONS</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -3352,7 +3352,7 @@ function renderCardItem(item, sourceClass, sourceBadge, publishDate, engagement,
                             title="Enrich this article">
                         <i class="fas fa-brain"></i>
                     </button>
-                    <button id="results-btn-${item.id}" style="padding: 6px 10px; border: none; border-radius: 6px; background: #28a745; color: white; cursor: pointer; font-size: 0.85rem; transition: all 0.2s; display: none;" 
+                    <button id="results-btn-${item.id}" style="padding: 6px 10px; border: none; border-radius: 6px; background: var(--colors-success-9); color: white; cursor: pointer; font-size: 0.85rem; transition: all 0.2s; display: none;" 
                             onclick="viewEnrichmentResults(${item.id})"
                             title="View enrichment results">
                         <i class="fas fa-chart-line"></i>
@@ -3467,7 +3467,7 @@ function renderCompactItem(item, sourceClass, sourceBadge, sourceIcon, publishDa
     const totalEngagement = (engagement.likes || 0) + (engagement.reposts || 0) + (engagement.replies || 0);
     
     // Get source color for the row border
-    let borderColor = '#999';
+    let borderColor = 'var(--colors-neutral-7)';
     if (sourceClass.includes('bluesky')) borderColor = '#0085ff';
     else if (sourceClass.includes('arxiv')) borderColor = '#b31b1b';
     else if (sourceClass.includes('thenewsapi')) borderColor = '#1e7e34';
@@ -3480,19 +3480,19 @@ function renderCompactItem(item, sourceClass, sourceBadge, sourceIcon, publishDa
             <td style="width: 30px; text-align: center; font-size: 0.9rem;">
                 ${sourceIcon}
             </td>
-            <td style="width: 80px; font-size: 0.75rem; color: #666; white-space: nowrap;">
+            <td style="width: 80px; font-size: 0.75rem; color: var(--colors-neutral-8); white-space: nowrap;">
                 ${publishDate}
             </td>
             <td style="font-size: 0.9rem;">
-                <a href="${item.url}" target="_blank" style="color: #333; text-decoration: none;">${item.title}</a>
-                ${item.content ? `<div style="font-size: 0.7rem; color: #666; margin-top: 2px;">${item.source_type === 'bluesky' ? item.content : truncateText(item.content, 100)}</div>` : ''}
+                <a href="${item.url}" target="_blank" style="color: var(--colors-neutral-11); text-decoration: none;">${item.title}</a>
+                ${item.content ? `<div style="font-size: 0.7rem; color: var(--colors-neutral-8); margin-top: 2px;">${item.source_type === 'bluesky' ? item.content : truncateText(item.content, 100)}</div>` : ''}
             </td>
             <td style="width: 50px; text-align: center; font-size: 0.75rem;">
                 ${totalEngagement > 0 ? totalEngagement : ''}
             </td>
             <td style="width: 80px; text-align: center;">
-                <button onclick="toggleStar(${item.id}, ${!item.is_starred})" style="padding: 2px 6px; margin-right: 4px; border: none; border-radius: 3px; background: ${item.is_starred ? '#007bff' : '#f8f9fa'}; color: ${item.is_starred ? 'white' : '#333'}; cursor: pointer; font-size: 0.75rem;">★</button>
-                <button onclick="hideItem(${item.id})" style="padding: 2px 6px; border: none; border-radius: 3px; background: #f8f9fa; color: #333; cursor: pointer; font-size: 0.75rem;">×</button>
+                <button onclick="toggleStar(${item.id}, ${!item.is_starred})" style="padding: 2px 6px; margin-right: 4px; border: none; border-radius: 3px; background: ${item.is_starred ? '#007bff' : 'var(--colors-neutral-2)'}; color: ${item.is_starred ? 'white' : 'var(--colors-neutral-11)'}; cursor: pointer; font-size: 0.75rem;">★</button>
+                <button onclick="hideItem(${item.id})" style="padding: 2px 6px; border: none; border-radius: 3px; background: var(--colors-neutral-2); color: var(--colors-neutral-11); cursor: pointer; font-size: 0.75rem;">×</button>
             </td>
         </tr>
     `;
@@ -5480,7 +5480,7 @@ async function loadColumnItems(sourceType, append = false) {
         console.error(`Error loading ${sourceType} items:`, error);
         const contentDiv = document.getElementById(`${getColumnId(sourceType)}Content`);
         if (!append) {
-            contentDiv.innerHTML = `<div class="text-center p-4" style="color: #dc3545; font-weight: 500;">Failed to load ${sourceType} items</div>`;
+            contentDiv.innerHTML = `<div class="text-center p-4" style="color: var(--colors-error-9); font-weight: 500;">Failed to load ${sourceType} items</div>`;
         } else {
             showError(`Failed to load more ${sourceType} items`);
         }
@@ -5588,7 +5588,7 @@ function renderColumnItem(item, sourceType) {
             </div>
             <div class="column-item-actions">
                 ${(item.category || item.sentiment || item.future_signal || item.time_to_impact || item.driver_type) ? `
-                <div class="enrichment-indicator" title="Article has been AI-enriched" style="position: absolute; top: -2px; right: -2px; width: 12px; height: 12px; background: #28a745; border-radius: 50%; border: 2px solid white;">
+                <div class="enrichment-indicator" title="Article has been AI-enriched" style="position: absolute; top: -2px; right: -2px; width: 12px; height: 12px; background: var(--colors-success-9); border-radius: 50%; border: 2px solid white;">
                     <i class="fas fa-brain" style="font-size: 6px; color: white; position: absolute; top: 1px; left: 1px;"></i>
                 </div>` : ''}
                 <button class="column-action-btn ${item.is_starred ? 'starred' : ''}" 

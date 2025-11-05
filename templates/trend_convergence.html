@@ -6,15 +6,15 @@
 <style>
     /* Enhanced theme with glass morphism effects */
     :root {
-        --primary-color: #FF69B4;
-        --primary-dark: #FF1493;
-        --primary-gradient: linear-gradient(135deg, #FF69B4 0%, #FF1493 100%);
-        --text-color: #333;
+        --primary-color: var(--colors-accent-7);
+        --primary-dark: var(--colors-accent-10);
+        --primary-gradient: linear-gradient(135deg, var(--colors-accent-7) 0%, var(--colors-accent-10) 100%);
+        --text-color: var(--colors-neutral-11);
         --container-width: 1200px;
         --spacing-md: 1rem;
-        --bg-light: #f8f9fa;
-        --bg-white: #ffffff;
-        --border-color: #dee2e6;
+        --bg-light: var(--colors-neutral-2);
+        --bg-white: var(--colors-white);
+        --border-color: var(--colors-neutral-5);
     }
 
     body {
@@ -60,7 +60,7 @@
     
     .header .subtitle {
         font-size: 1.2rem;
-        color: #666;
+        color: var(--colors-neutral-8);
         font-weight: 600;
         margin-bottom: 6px;
         position: relative;
@@ -148,34 +148,34 @@
     }
 
     .btn-primary:hover {
-        background: linear-gradient(135deg, #FF1493 0%, #C71585 100%);
+        background: linear-gradient(135deg, var(--colors-accent-10) 0%, #C71585 100%);
         border-color: rgba(255, 105, 180, 0.5);
         transform: translateY(-3px) scale(1.05);
         box-shadow: 0 15px 35px rgba(255, 105, 180, 0.3);
     }
 
     .btn-success {
-        background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+        background: linear-gradient(135deg, var(--colors-success-9) 0%, #20c997 100%);
         border: 1px solid rgba(40, 167, 69, 0.3);
         color: white;
     }
 
     .btn-secondary {
-        background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);
+        background: linear-gradient(135deg, var(--colors-neutral-8) 0%, #5a6268 100%);
         border: 1px solid rgba(108, 117, 125, 0.3);
         color: white;
 
     }
 
     .btn-secondary:hover {
-        background: linear-gradient(135deg, #5a6268 0%, #495057 100%);
+        background: linear-gradient(135deg, #5a6268 0%, var(--colors-neutral-9) 100%);
         border-color: rgba(108, 117, 125, 0.5);
         transform: translateY(-2px) scale(1.02);
         color: white;
     }
 
     .btn-success:hover {
-        background: linear-gradient(135deg, #20c997 0%, #17a2b8 100%);
+        background: linear-gradient(135deg, #20c997 0%, var(--colors-info-9) 100%);
         transform: translateY(-3px) scale(1.05);
         box-shadow: 0 15px 35px rgba(40, 167, 69, 0.3);
     }
@@ -183,7 +183,7 @@
     .btn-outline-primary {
         background: rgba(255, 105, 180, 0.1);
         border: 1px solid rgba(255, 105, 180, 0.5);
-        color: #FF1493;
+        color: var(--colors-accent-10);
 
     }
 
@@ -197,26 +197,26 @@
     .btn-outline-secondary {
         background: rgba(108, 117, 125, 0.1);
         border: 1px solid rgba(108, 117, 125, 0.5);
-        color: #6c757d;
+        color: var(--colors-neutral-8);
 
     }
 
     .btn-outline-danger {
         background: rgba(220, 53, 69, 0.1);
         border: 1px solid rgba(220, 53, 69, 0.5);
-        color: #dc3545;
+        color: var(--colors-error-9);
 
     }
 
     .btn-outline-info {
         background: rgba(23, 162, 184, 0.1);
         border: 1px solid rgba(23, 162, 184, 0.5);
-        color: #17a2b8;
+        color: var(--colors-info-9);
 
     }
 
     .btn-outline-secondary:hover {
-        background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);
+        background: linear-gradient(135deg, var(--colors-neutral-8) 0%, #5a6268 100%);
         border-color: rgba(108, 117, 125, 1);
         color: white;
         transform: translateY(-2px) scale(1.02);
@@ -224,7 +224,7 @@
     }
 
     .btn-outline-danger:hover {
-        background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+        background: linear-gradient(135deg, var(--colors-error-9) 0%, #c82333 100%);
         border-color: rgba(220, 53, 69, 1);
         color: white;
         transform: translateY(-2px) scale(1.02);
@@ -232,7 +232,7 @@
     }
 
     .btn-outline-info:hover {
-        background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
+        background: linear-gradient(135deg, var(--colors-info-9) 0%, #138496 100%);
         border-color: rgba(23, 162, 184, 1);
         color: white;
         transform: translateY(-2px) scale(1.02);
@@ -272,7 +272,7 @@
     }
     
     .spinner-border {
-        color: #FF69B4;
+        color: var(--colors-accent-7);
         width: 3rem;
         height: 3rem;
         border-width: 0.25em;
@@ -467,7 +467,7 @@
         left: 0.15em;
         width: 0.95em;
         height: 0.95em;
-        background: #fff;
+        background: var(--colors-white);
         border-radius: 50%;
         box-shadow: 0 1px 2px rgba(0,0,0,0.2);
         border: 1px solid #9aa0a6; /* knob outline */
@@ -475,18 +475,18 @@
     }
     .form-switch .form-check-input:checked::after {
         left: 1.15em;
-        border-color: #fff;
+        border-color: var(--colors-white);
     }
 
     /* High-contrast modal switch fix (white-on-white issue) */
     .modal .form-switch .form-check-input {
-        background-color: #adb5bd !important;
-        border: 1px solid #6c757d !important;
+        background-color: var(--colors-neutral-7) !important;
+        border: 1px solid var(--colors-neutral-8) !important;
         background-image: none !important;
     }
     .modal .form-switch .form-check-input::after {
-        background: #ffffff !important;
-        border: 1px solid #495057 !important;
+        background: var(--colors-white) !important;
+        border: 1px solid var(--colors-neutral-9) !important;
     }
     .modal .form-switch .form-check-input:checked {
         background-color: var(--primary-color) !important;
@@ -562,7 +562,7 @@
     }
 
     .section-subtitle {
-        color: #666;
+        color: var(--colors-neutral-8);
         margin-bottom: 20px;
         text-align: center;
         font-size: 1rem;
@@ -611,9 +611,9 @@
         border-radius: 12px;
         padding: 2px;
         background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.05));
-        mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+        mask: linear-gradient(var(--colors-white) 0 0) content-box, linear-gradient(var(--colors-white) 0 0);
         mask-composite: exclude;
-        -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+        -webkit-mask: linear-gradient(var(--colors-white) 0 0) content-box, linear-gradient(var(--colors-white) 0 0);
         -webkit-mask-composite: xor;
         z-index: -1;
     }
@@ -852,7 +852,7 @@
     }
 
     .next-step-text {
-        color: #495057;
+        color: var(--colors-neutral-9);
         font-size: 0.9rem;
         line-height: 1.25;
         display: inline;
@@ -1273,7 +1273,7 @@
     /* Dark mode support */
     @media (prefers-color-scheme: dark) {
         :root {
-            --text-color: #e9ecef;
+            --text-color: var(--colors-neutral-4);
             --glass-bg: rgba(255, 255, 255, 0.15);
             --glass-border: rgba(255, 255, 255, 0.25);
         }
@@ -2867,13 +2867,13 @@ function updateContextInfo() {
     contextStats.textContent = contextText;
     
     if (contextUsage > 90) {
-        contextStats.style.color = '#dc3545';
+        contextStats.style.color = 'var(--colors-error-9)';
         contextStats.style.fontWeight = 'bold';
     } else if (contextUsage > 70) {
         contextStats.style.color = '#fd7e14';
         contextStats.style.fontWeight = '600';
     } else if (contextUsage > 50) {
-        contextStats.style.color = '#28a745';
+        contextStats.style.color = 'var(--colors-success-9)';
         contextStats.style.fontWeight = '500';
     } else {
         contextStats.style.color = '#007bff';
@@ -2939,7 +2939,7 @@ async function downloadAsPDF() {
         // Add title
         const title = document.createElement('h1');
         title.style.cssText = `
-            color: #FF69B4;
+            color: var(--colors-accent-7);
             font-size: 28px;
             font-weight: bold;
             margin-bottom: 10px;
@@ -2951,7 +2951,7 @@ async function downloadAsPDF() {
         // Add subtitle if available
         const subtitle = document.createElement('p');
         subtitle.style.cssText = `
-            color: #666;
+            color: var(--colors-neutral-8);
             font-size: 16px;
             text-align: center;
             margin-bottom: 30px;
@@ -2984,7 +2984,7 @@ async function downloadAsPDF() {
             scale: 1.2,
             logging: false,
             allowTaint: true,
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--colors-white)',
             removeContainer: true
         });
 
@@ -3071,7 +3071,7 @@ async function downloadAsImage() {
         // Add title
         const title = document.createElement('h1');
         title.style.cssText = `
-            color: #FF69B4;
+            color: var(--colors-accent-7);
             font-size: 32px;
             font-weight: bold;
             margin-bottom: 10px;
@@ -3083,7 +3083,7 @@ async function downloadAsImage() {
         // Add subtitle
         const subtitle = document.createElement('p');
         subtitle.style.cssText = `
-            color: #666;
+            color: var(--colors-neutral-8);
             font-size: 18px;
             text-align: center;
             margin-bottom: 40px;
@@ -3116,7 +3116,7 @@ async function downloadAsImage() {
             scale: 2,
             logging: false,
             allowTaint: true,
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--colors-white)',
             removeContainer: true
         });
 

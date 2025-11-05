@@ -3,14 +3,14 @@
 {% block content %}
 <style>
     :root {
-        --primary-color: #FF69B4;  /* Hot Pink */
-        --primary-dark: #FF1493;   /* Deep Pink */
+        --primary-color: var(--colors-accent-7);  /* Hot Pink */
+        --primary-dark: var(--colors-accent-10);   /* Deep Pink */
         --secondary-color: #32CD32;  /* Lime Green */
         --secondary-dark: #228B22;   /* Forest Green */
-        --text-color: #333;
-        --light-gray: #f8f9fa;
-        --medium-gray: #e9ecef;
-        --dark-gray: #343a40;
+        --text-color: var(--colors-neutral-11);
+        --light-gray: var(--colors-neutral-2);
+        --medium-gray: var(--colors-neutral-4);
+        --dark-gray: var(--colors-neutral-10);
     }
 
     body {
@@ -24,7 +24,7 @@
     }
 
     .card {
-        background-color: #fff;
+        background-color: var(--colors-white);
         border-radius: 8px;
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         margin-bottom: 20px;
@@ -33,7 +33,7 @@
     }
 
     .card-header {
-        background-color: #fff;
+        background-color: var(--colors-white);
         border-bottom: 1px solid var(--medium-gray);
         padding: 1rem 1.25rem;
     }
@@ -60,7 +60,7 @@
     }
 
     .article-card {
-        background-color: #fff;
+        background-color: var(--colors-white);
         border-radius: 8px;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
         margin-bottom: 15px;
@@ -77,7 +77,7 @@
     .btn-primary {
         background-color: var(--primary-color);
         border-color: var(--primary-color);
-        color: #fff;
+        color: var(--colors-white);
         transition: all 0.2s ease;
         display: flex;
         align-items: center;
@@ -102,8 +102,8 @@
     }
 
     .btn-danger {
-        background-color: #dc3545;
-        border-color: #dc3545;
+        background-color: var(--colors-error-9);
+        border-color: var(--colors-error-9);
         color: white;
     }
 
@@ -172,8 +172,8 @@
         display: flex;
         gap: 10px;
         padding-top: 10px;
-        background-color: #fff;  /* Ensure buttons are on white background */
-        border-top: 1px solid #eee;
+        background-color: var(--colors-white);  /* Ensure buttons are on white background */
+        border-top: 1px solid var(--colors-neutral-4);
     }
 
     .btn-group-sm > .btn {
@@ -260,7 +260,7 @@
     }
     
     .factual-mixed {
-        background-color: #CCCC00;
+        background-color: var(--colors-neutral-6)C00;
         color: black;
     }
     
@@ -331,12 +331,12 @@
     .btn-outline-success {
         background-color: rgba(40, 167, 69, 0.1);
         border: 1px solid rgba(40, 167, 69, 0.2);
-        color: #28a745;
+        color: var(--colors-success-9);
     }
 
     .btn-outline-success:hover {
-        background-color: #28a745;
-        border-color: #28a745;
+        background-color: var(--colors-success-9);
+        border-color: var(--colors-success-9);
         color: white;
         transform: translateY(-1px);
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
@@ -346,12 +346,12 @@
     .btn-outline-secondary {
         background-color: rgba(108, 117, 125, 0.1);
         border: 1px solid rgba(108, 117, 125, 0.2);
-        color: #6c757d;
+        color: var(--colors-neutral-8);
     }
 
     .btn-outline-secondary:hover {
-        background-color: #6c757d;
-        border-color: #6c757d;
+        background-color: var(--colors-neutral-8);
+        border-color: var(--colors-neutral-8);
         color: white;
         transform: translateY(-1px);
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
@@ -1318,7 +1318,7 @@ function displayArticle(article) {
                     <span class="source-tooltip">
                         <i class="fas fa-info-circle"></i>
                         <div class="tooltip-content">
-                            <div style="text-align: center; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid #eee; padding-bottom: 5px;">Media Bias Info</div>
+                            <div style="text-align: center; font-weight: bold; margin-bottom: 8px; border-bottom: 1px solid var(--colors-neutral-4); padding-bottom: 5px;">Media Bias Info</div>
                             <table class="mb-0" style="font-size: 0.85rem; width: 100%;">
                                 ${article.bias ? `<tr><td><strong>Bias:</strong></td><td>${article.bias}</td></tr>` : ''}
                                 ${article.factual_reporting ? `<tr><td><strong>Factual:</strong></td><td>${article.factual_reporting}</td></tr>` : ''}

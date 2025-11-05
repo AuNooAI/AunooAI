@@ -124,9 +124,9 @@ export function Step2TopicSetup({ onNext, onBack }: Step2TopicSetupProps) {
   return (
     <div>
       <h4 className="text-xl font-bold mb-2">Step 2: Set Up Your First Topic</h4>
-      <p className="text-gray-600 mb-6">Create a topic to start monitoring</p>
+      <p className="text-gray-700 mb-6">Create a topic to start monitoring</p>
 
-      <div className="bg-gray-100 rounded-lg p-4 mb-6 text-sm text-gray-700">
+      <div className="bg-gray-100 rounded-lg p-4 mb-6 text-sm text-gray-800">
         <p>At the core of <strong>AuNoo AI</strong> are <strong>topics</strong>—flexible constructs that can represent markets, knowledge fields, organizations, or even specific strategic questions. For instance:</p>
         <ul className="mt-2 ml-4 list-disc space-y-1">
           <li><strong>Markets</strong>: Cloud Service Providers, EV Battery Suppliers, or Threat Intelligence Providers.</li>
@@ -146,7 +146,7 @@ export function Step2TopicSetup({ onNext, onBack }: Step2TopicSetupProps) {
           placeholder="Enter a descriptive name for your topic"
           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500"
         />
-        <small className="text-gray-500 text-xs">Enter a descriptive name for your topic</small>
+        <small className="text-gray-600 text-xs">Enter a descriptive name for your topic</small>
       </div>
 
       {/* Topic Description */}
@@ -159,7 +159,7 @@ export function Step2TopicSetup({ onNext, onBack }: Step2TopicSetupProps) {
           placeholder="Provide additional details about this topic to improve attribute suggestions"
           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-pink-500"
         />
-        <small className="text-gray-500 text-xs">A brief description helps the AI provide better suggestions</small>
+        <small className="text-gray-600 text-xs">A brief description helps the AI provide better suggestions</small>
       </div>
 
       {/* Suggest Button */}
@@ -187,7 +187,7 @@ export function Step2TopicSetup({ onNext, onBack }: Step2TopicSetupProps) {
       {/* Future Signals */}
       <div className="mb-6">
         <label className="block text-sm font-semibold mb-2">Future Signals</label>
-        <p className="text-gray-600 text-sm mb-2">
+        <p className="text-gray-700 text-sm mb-2">
           Future Signals are scenarios that suggest potential directions for a topic. For instance, signals for an AI hype model could range from
           <span className="text-blue-600"> "AI is hype"</span> and
           <span className="text-blue-600"> "AI is evolving gradually"</span>, to
@@ -199,13 +199,13 @@ export function Step2TopicSetup({ onNext, onBack }: Step2TopicSetupProps) {
           suggestions={suggestions?.futureSignals || EXAMPLE_DATA.signals}
           id="futureSignalsInput"
         />
-        <small className="text-gray-500 text-xs">Add signals that indicate future developments</small>
+        <small className="text-gray-600 text-xs">Add signals that indicate future developments</small>
       </div>
 
       {/* Categories */}
       <div className="mb-6">
         <label className="block text-sm font-semibold mb-2">Categories</label>
-        <p className="text-gray-600 text-sm mb-2">
+        <p className="text-gray-700 text-sm mb-2">
           Each topic is broken down into categories, making it easier to organize and analyze data. For example, a topic on AI might include subcategories like
           <span className="text-blue-600"> AI in Finance</span> or
           <span className="text-blue-600"> Cloud Quarterly Earnings</span>.
@@ -216,7 +216,7 @@ export function Step2TopicSetup({ onNext, onBack }: Step2TopicSetupProps) {
           suggestions={suggestions?.categories || EXAMPLE_DATA.categories}
           id="categoriesInput"
         />
-        <small className="text-gray-500 text-xs">Add categories that describe your topic</small>
+        <small className="text-gray-600 text-xs">Add categories that describe your topic</small>
       </div>
 
       {/* Sentiment Options - Hidden (auto-populated with defaults) */}

@@ -3,14 +3,14 @@
 {% block content %}
 <style>
     :root {
-        --primary-color: #FF69B4;  /* Hot Pink */
-        --primary-dark: #FF1493;   /* Deep Pink */
+        --primary-color: var(--colors-accent-7);  /* Hot Pink */
+        --primary-dark: var(--colors-accent-10);   /* Deep Pink */
         --secondary-color: #32CD32;  /* Lime Green */
         --secondary-dark: #228B22;   /* Forest Green */
-        --text-color: #333;
-        --light-gray: #f8f9fa;
-        --medium-gray: #e9ecef;
-        --dark-gray: #343a40;
+        --text-color: var(--colors-neutral-11);
+        --light-gray: var(--colors-neutral-2);
+        --medium-gray: var(--colors-neutral-4);
+        --dark-gray: var(--colors-neutral-10);
     }
 
     body {
@@ -26,7 +26,7 @@
 
     /* Header section with pink border */
     .page-header {
-        border-bottom: 3px solid #FF69B4;
+        border-bottom: 3px solid var(--colors-accent-7);
         margin-bottom: 24px;
         padding-bottom: 16px;
     }
@@ -36,7 +36,7 @@
         font-size: 2rem;
         font-weight: 700;
         margin: 0 0 8px 0;
-        background: linear-gradient(135deg, #FF69B4, #FF1493);
+        background: linear-gradient(135deg, var(--colors-accent-7), var(--colors-accent-10));
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
@@ -47,8 +47,8 @@
 
     /* Keep icon pink (not gradient) */
     h2 i {
-        color: #FF69B4;
-        -webkit-text-fill-color: #FF69B4;
+        color: var(--colors-accent-7);
+        -webkit-text-fill-color: var(--colors-accent-7);
     }
 
     h1, h5, h6 {
@@ -58,7 +58,7 @@
 
     .submit-form {
         margin-bottom: 20px;
-        background-color: #fff;
+        background-color: var(--colors-white);
         padding: 20px;
         border-radius: 8px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
@@ -94,7 +94,7 @@
 
     .btn-primary {
         background-color: var(--primary-color);
-        color: #fff;
+        color: var(--colors-white);
     }
 
     .btn-primary:hover {
@@ -103,7 +103,7 @@
 
     .btn-secondary {
         background-color: var(--secondary-color);
-        color: #fff;
+        color: var(--colors-white);
     }
 
     .btn-secondary:hover {
@@ -136,7 +136,7 @@
         padding: 30px;
         margin: 20px 0;
         text-align: center;
-        background-color: #f8f9fa;
+        background-color: var(--colors-neutral-2);
         border-radius: 8px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     }
@@ -147,7 +147,7 @@
     }
 
     .text-muted {
-        color: #6c757d;
+        color: var(--colors-neutral-8);
     }
 
     .alert {
@@ -159,25 +159,25 @@
 
     .alert-success {
         color: #155724;
-        background-color: #d4edda;
-        border-color: #c3e6cb;
+        background-color: var(--colors-success-2);
+        border-color: var(--colors-success-3);
     }
 
     .alert-danger {
         color: #721c24;
-        background-color: #f8d7da;
-        border-color: #f5c6cb;
+        background-color: var(--colors-error-2);
+        border-color: var(--colors-error-3);
     }
 
     .form-text {
         margin-top: 5px;
         font-size: 0.875em;
-        color: #6c757d;
+        color: var(--colors-neutral-8);
     }
 
     .card {
         margin-bottom: 20px;
-        background-color: #fff;
+        background-color: var(--colors-white);
         border-radius: 8px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
         border: none;
@@ -205,17 +205,17 @@
     /* Bias color coding */
     .bias-left {
         background-color: #3373CC;
-        color: #fff;
+        color: var(--colors-white);
     }
 
     .bias-left-center {
         background-color: #6699EE;
-        color: #fff;
+        color: var(--colors-white);
     }
 
     .bias-least-biased {
         background-color: #88CC88;
-        color: #000;
+        color: var(--colors-black);
     }
 
     .bias-center {
@@ -226,63 +226,63 @@
 
     .bias-right-center {
         background-color: #FF9966;
-        color: #000;
+        color: var(--colors-black);
     }
 
     .bias-right {
         background-color: #CC3333;
-        color: #fff;
+        color: var(--colors-white);
     }
 
     .bias-pro-science {
         background-color: #9966CC;
-        color: #fff;
+        color: var(--colors-white);
     }
 
     .bias-conspiracy-pseudoscience {
-        background-color: #666666;
-        color: #fff;
+        background-color: var(--colors-neutral-8)666;
+        color: var(--colors-white);
     }
 
     .bias-questionable {
         background-color: #222222;
-        color: #fff;
+        color: var(--colors-white);
     }
 
     .bias-satire {
         background-color: #CCBB33;
-        color: #000;
+        color: var(--colors-black);
     }
 
     /* Factual reporting color coding */
     .factual-very-high {
         background-color: #006600;
-        color: #fff;
+        color: var(--colors-white);
     }
 
     .factual-high {
         background-color: #339933;
-        color: #fff;
+        color: var(--colors-white);
     }
 
     .factual-mostly-factual {
         background-color: #66CC66;
-        color: #000;
+        color: var(--colors-black);
     }
 
     .factual-mixed {
-        background-color: #CCCC00;
-        color: #000;
+        background-color: var(--colors-neutral-6)C00;
+        color: var(--colors-black);
     }
 
     .factual-low {
         background-color: #CC6600;
-        color: #fff;
+        color: var(--colors-white);
     }
 
     .factual-very-low {
         background-color: #CC0000;
-        color: #fff;
+        color: var(--colors-white);
     }
 </style>
 
@@ -1716,7 +1716,7 @@ async function loadRecentEnrichedArticles(limit = 10) {
                     <button class="btn btn-outline-danger btn-sm" onclick="deleteRecentArticle('${article.uri}', this)"><i class="fas fa-trash"></i> Delete</button>
                 </div>`;
 
-            card.style.border='1px solid #e9ecef';
+            card.style.border='1px solid var(--colors-neutral-4)';
             card.style.padding='15px';
             card.style.borderRadius='6px';
 

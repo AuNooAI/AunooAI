@@ -30,8 +30,8 @@ export function TabNavigation({ activeTab, onTabChange }: TabNavigationProps) {
           className={`
             px-4 py-2 text-sm font-medium rounded-md transition-colors
             ${activeTab === tab.id
-              ? 'bg-white text-gray-900 shadow-sm'
-              : 'text-gray-600 hover:text-gray-900'
+              ? 'bg-white text-gray-950 shadow-sm'
+              : 'text-gray-700 hover:text-gray-950'
             }
           `}
         >

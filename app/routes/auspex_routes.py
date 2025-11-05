@@ -255,8 +255,14 @@ async def get_chat_sessions(
 ):
     """Get user's chat sessions."""
     auspex = get_auspex_service()
-    user_id = session.get('user')
-    
+    user_from_session = session.get('user')
+
+    # Handle OAuth users (stored as dicts) vs regular users (strings)
+    if isinstance(user_from_session, dict):
+        user_id = None  # OAuth users don't have user_id in database
+    else:
+        user_id = user_from_session
+
     sessions = auspex.get_chat_sessions(topic=topic, user_id=user_id, limit=limit)
     return {
         "sessions": sessions,
@@ -267,14 +273,21 @@ async def get_chat_sessions(
 async def get_chat_history(chat_id: int, session=Depends(verify_session)):
     """Get chat history for a session."""
     auspex = get_auspex_service()
-    
+
     # Verify user owns this chat
     chat_info = auspex.db.get_auspex_chat(chat_id)
     if not chat_info:
         raise HTTPException(status_code=404, detail="Chat session not found")
-    
-    user_id = session.get('user')
-    if chat_info['user_id'] != user_id:
+
+    user_from_session = session.get('user')
+    # Handle OAuth users (stored as dicts) vs regular users (strings)
+    if isinstance(user_from_session, dict):
+        user_id = None  # OAuth users don't have user_id in database
+    else:
+        user_id = user_from_session
+
+    # Allow access if chat has no user_id (public/OAuth) or if user_id matches
+    if chat_info['user_id'] is not None and chat_info['user_id'] != user_id:
         raise HTTPException(status_code=403, detail="Access denied")
     
     messages = auspex.get_chat_history(chat_id)
@@ -291,14 +304,21 @@ async def get_chat_history(chat_id: int, session=Depends(verify_session)):
 async def delete_chat_session(chat_id: int, session=Depends(verify_session)):
     """Delete a chat session."""
     auspex = get_auspex_service()
-    
+
     # Verify user owns this chat
     chat_info = auspex.db.get_auspex_chat(chat_id)
     if not chat_info:
         raise HTTPException(status_code=404, detail="Chat session not found")
-    
-    user_id = session.get('user')
-    if chat_info['user_id'] != user_id:
+
+    user_from_session = session.get('user')
+    # Handle OAuth users (stored as dicts) vs regular users (strings)
+    if isinstance(user_from_session, dict):
+        user_id = None  # OAuth users don't have user_id in database
+    else:
+        user_id = user_from_session
+
+    # Allow access if chat has no user_id (public/OAuth) or if user_id matches
+    if chat_info['user_id'] is not None and chat_info['user_id'] != user_id:
         raise HTTPException(status_code=403, detail="Access denied")
     
     success = auspex.delete_chat_session(chat_id)
@@ -323,9 +343,16 @@ async def send_chat_message(req: ChatMessageRequest, session=Depends(verify_sess
     if not chat_info:
         logger.error(f"Chat session not found for chat_id: {req.chat_id}")
         raise HTTPException(status_code=404, detail="Chat session not found")
-    
-    user_id = session.get('user')
-    if chat_info['user_id'] != user_id:
+
+    user_from_session = session.get('user')
+    # Handle OAuth users (stored as dicts) vs regular users (strings)
+    if isinstance(user_from_session, dict):
+        user_id = None  # OAuth users don't have user_id in database
+    else:
+        user_id = user_from_session
+
+    # Allow access if chat has no user_id (public/OAuth) or if user_id matches
+    if chat_info['user_id'] is not None and chat_info['user_id'] != user_id:
         logger.error(f"Access denied - user {user_id} trying to access chat owned by {chat_info['user_id']}")
         raise HTTPException(status_code=403, detail="Access denied")
     

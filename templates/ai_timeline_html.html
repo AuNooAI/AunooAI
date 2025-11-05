@@ -6,14 +6,14 @@
 <style>
     /* Light theme styling to match base.html */
     :root {
-        --primary-color: #FF69B4;
-        --primary-dark: #FF1493;
-        --text-color: #333;
+        --primary-color: var(--colors-accent-7);
+        --primary-dark: var(--colors-accent-10);
+        --text-color: var(--colors-neutral-11);
         --container-width: 1200px;
         --spacing-md: 1rem;
-        --bg-light: #f8f9fa;
-        --bg-white: #ffffff;
-        --border-color: #dee2e6;
+        --bg-light: var(--colors-neutral-2);
+        --bg-white: var(--colors-white);
+        --border-color: var(--colors-neutral-5);
     }
 
     body {
@@ -51,7 +51,7 @@
     
     .header p {
         font-size: 1.1rem;
-        color: #6c757d;
+        color: var(--colors-neutral-8);
         max-width: 700px;
         margin: 0 auto;
     }
@@ -81,7 +81,7 @@
 
     .timeline-bar {
         height: 4px;
-        background: linear-gradient(to right, #d1d5db, #6b7280);
+        background: linear-gradient(to right, #d1d5db, var(--colors-neutral-8));
         border-radius: 9999px;
     }
 
@@ -130,7 +130,7 @@
     .timeline-track {
         flex: 1;
         padding: 6rem 1.5rem 1.5rem 1.5rem;
-        background: #f9fafb;
+        background: var(--colors-neutral-2);
         position: relative;
         overflow: visible;
     }
@@ -147,7 +147,7 @@
         left: 0;
         right: 0;
         height: 8px;
-        background: #e5e7eb;
+        background: var(--colors-neutral-4);
         border-radius: 9999px;
         transform: translateY(-50%);
     }
@@ -194,7 +194,7 @@
         text-align: center;
         line-height: 1.3;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        border: 1px solid #e5e7eb;
+        border: 1px solid var(--colors-neutral-4);
         z-index: 100;
         max-width: 140px;
         overflow: visible;
@@ -210,7 +210,7 @@
 
     .milestone-event {
         font-weight: 500;
-        color: #6b7280;
+        color: var(--colors-neutral-8);
         font-size: 0.6rem;
         display: block;
         white-space: normal;
@@ -254,13 +254,13 @@
     }
 
     /* Color classes */
-    .bg-red-500 { background-color: #ef4444; }
+    .bg-red-500 { background-color: var(--colors-error-6); }
     .bg-orange-500 { background-color: #f97316; }
     .bg-blue-500 { background-color: #3b82f6; }
-    .bg-green-500 { background-color: #22c55e; }
+    .bg-green-500 { background-color: var(--colors-success-6); }
     .bg-purple-500 { background-color: #a855f7; }
     .bg-indigo-500 { background-color: #6366f1; }
-    .bg-pink-500 { background-color: #ec4899; }
+    .bg-pink-500 { background-color: var(--colors-accent-8); }
     .bg-teal-500 { background-color: #14b8a6; }
 
     .analysis-summary {
@@ -303,7 +303,7 @@
     }
 
     .insights-card {
-        background: linear-gradient(135deg, #fff7ed, #fef3c7);
+        background: linear-gradient(135deg, var(--colors-white)7ed, #fef3c7);
         border-radius: 1rem;
         padding: 2rem;
         border-left: 4px solid var(--primary-color);
@@ -345,7 +345,7 @@
     .legend {
         margin-top: 2rem;
         padding: 1rem;
-        background: #f8f9fa;
+        background: var(--colors-neutral-2);
         border-radius: 0.5rem;
         text-align: center;
     }
@@ -412,7 +412,7 @@
     }
     
     .spinner-border {
-        color: #FF69B4;
+        color: var(--colors-accent-7);
     }
 
     .modal-content {
@@ -493,7 +493,7 @@
     }
 
     #milestoneTable tbody tr:hover {
-        background: #f8f9fa;
+        background: var(--colors-neutral-2);
     }
 
     .badge {
@@ -523,8 +523,8 @@
     }
 
     .table-controls .btn-outline-secondary:hover {
-        background-color: #6c757d;
-        border-color: #6c757d;
+        background-color: var(--colors-neutral-8);
+        border-color: var(--colors-neutral-8);
     }
 
     .table-controls .btn-outline-success:hover {
@@ -570,7 +570,7 @@
     .btn-divider {
         width: 1px;
         height: 24px;
-        background: #dee2e6;
+        background: var(--colors-neutral-5);
         margin: 0 4px;
         align-self: center;
     }
@@ -1529,13 +1529,13 @@ function updateContextInfo() {
     
     // Color coding
     if (contextUsage > 90) {
-        contextStats.style.color = '#dc3545';
+        contextStats.style.color = 'var(--colors-error-9)';
         contextStats.style.fontWeight = 'bold';
     } else if (contextUsage > 70) {
         contextStats.style.color = '#fd7e14';
         contextStats.style.fontWeight = '600';
     } else if (contextUsage > 50) {
-        contextStats.style.color = '#28a745';
+        contextStats.style.color = 'var(--colors-success-9)';
         contextStats.style.fontWeight = '500';
     } else {
         contextStats.style.color = '#007bff';
@@ -2011,7 +2011,7 @@ async function downloadAsPDF() {
         // Add title
         const title = document.createElement('h1');
         title.style.cssText = `
-            color: #FF69B4;
+            color: var(--colors-accent-7);
             font-size: 28px;
             font-weight: bold;
             margin-bottom: 10px;
@@ -2023,7 +2023,7 @@ async function downloadAsPDF() {
         // Add subtitle if available
         const subtitle = document.createElement('p');
         subtitle.style.cssText = `
-            color: #666;
+            color: var(--colors-neutral-8);
             font-size: 16px;
             text-align: center;
             margin-bottom: 30px;
@@ -2074,7 +2074,7 @@ async function downloadAsPDF() {
             scale: 1.2,
             logging: false,
             allowTaint: true,
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--colors-white)',
             removeContainer: true
         });
 
@@ -2160,7 +2160,7 @@ async function downloadAsImage() {
         // Add title
         const title = document.createElement('h1');
         title.style.cssText = `
-            color: #FF69B4;
+            color: var(--colors-accent-7);
             font-size: 32px;
             font-weight: bold;
             margin-bottom: 10px;
@@ -2172,7 +2172,7 @@ async function downloadAsImage() {
         // Add subtitle
         const subtitle = document.createElement('p');
         subtitle.style.cssText = `
-            color: #666;
+            color: var(--colors-neutral-8);
             font-size: 18px;
             text-align: center;
             margin-bottom: 40px;
@@ -2222,7 +2222,7 @@ async function downloadAsImage() {
             scale: 2,
             logging: false,
             allowTaint: true,
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--colors-white)',
             removeContainer: true
         });
 

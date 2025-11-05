@@ -134,14 +134,14 @@ window.createMediaBiasBadges = createMediaBiasBadges;
 {% block extra_css %}
 <style>
     :root {
-        --primary-color: #FF69B4;
-        --primary-dark: #FF1493;
+        --primary-color: var(--colors-accent-7);
+        --primary-dark: var(--colors-accent-10);
         --secondary-color: #32CD32;
         --secondary-dark: #228B22;
-        --text-color: #333;
-        --light-gray: #f8f9fa;
-        --medium-gray: #e9ecef;
-        --dark-gray: #343a40;
+        --text-color: var(--colors-neutral-11);
+        --light-gray: var(--colors-neutral-2);
+        --medium-gray: var(--colors-neutral-4);
+        --dark-gray: var(--colors-neutral-10);
         --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         --border-radius: 12px;
     }
@@ -246,7 +246,7 @@ window.createMediaBiasBadges = createMediaBiasBadges;
     }
 
     .btn-danger {
-        background: #dc3545;
+        background: var(--colors-error-9);
         border: none;
         color: white;
         padding: 8px 16px;
@@ -383,7 +383,7 @@ window.createMediaBiasBadges = createMediaBiasBadges;
     }
 
     .status-failed {
-        background-color: #fee2e2;
+        background-color: var(--colors-error-2);
         color: #991b1b;
     }
 
@@ -521,22 +521,22 @@ window.createMediaBiasBadges = createMediaBiasBadges;
     }
 
     .matrix-cell.consensus {
-        background: #d4edda !important;
-        border-left: 4px solid #28a745 !important;
-        border-color: #c3e6cb !important;
+        background: var(--colors-success-2) !important;
+        border-left: 4px solid var(--colors-success-9) !important;
+        border-color: var(--colors-success-3) !important;
     }
 
     .matrix-cell.outlier {
-        background: #f8d7da !important;
-        border-left: 4px solid #dc3545 !important;
+        background: var(--colors-error-2) !important;
+        border-left: 4px solid var(--colors-error-9) !important;
         border-color: #f1b0b7 !important;
     }
 
     .matrix-cell.error {
-        background: #f5f5f5 !important;
-        color: #999 !important;
+        background: var(--colors-neutral-3) !important;
+        color: var(--colors-neutral-7) !important;
         font-style: italic;
-        border-left: 4px solid #ccc !important;
+        border-left: 4px solid var(--colors-neutral-6) !important;
     }
 
     /* Add hover effects for better interactivity */
@@ -546,12 +546,12 @@ window.createMediaBiasBadges = createMediaBiasBadges;
     }
 
     .matrix-cell.outlier:hover {
-        background: #f5c6cb !important;
+        background: var(--colors-error-3) !important;
         box-shadow: 0 2px 4px rgba(220, 53, 69, 0.2);
     }
 
     .matrix-cell.error:hover {
-        background: #e9ecef !important;
+        background: var(--colors-neutral-4) !important;
     }
 
     .cell-value {
@@ -561,7 +561,7 @@ window.createMediaBiasBadges = createMediaBiasBadges;
 
     .cell-confidence {
         font-size: 0.75rem;
-        color: #666;
+        color: var(--colors-neutral-8);
         margin-bottom: 2px;
     }
 
@@ -647,7 +647,7 @@ window.createMediaBiasBadges = createMediaBiasBadges;
 
     .metric-label {
         font-size: 0.8rem;
-        color: #666;
+        color: var(--colors-neutral-8);
         margin-top: 2px;
     }
 
@@ -669,8 +669,8 @@ window.createMediaBiasBadges = createMediaBiasBadges;
     }
 
     .rank-1 td, .rank-2 td, .rank-3 td {
-        border-top: 2px solid #333;
-        border-bottom: 2px solid #333;
+        border-top: 2px solid var(--colors-neutral-11);
+        border-bottom: 2px solid var(--colors-neutral-11);
     }
 
     /* Media bias styling */
@@ -717,7 +717,7 @@ window.createMediaBiasBadges = createMediaBiasBadges;
     }
 
     .bias-conspiracy-pseudoscience {
-        background-color: #666666;
+        background-color: var(--colors-neutral-8)666;
         color: white;
     }
 
@@ -744,7 +744,7 @@ window.createMediaBiasBadges = createMediaBiasBadges;
     }
 
     .factual-mixed {
-        background-color: #CCCC00;
+        background-color: var(--colors-neutral-6)C00;
         color: black;
     }
 
@@ -804,7 +804,7 @@ window.createMediaBiasBadges = createMediaBiasBadges;
 
     /* Utility classes */
     .text-center { text-align: center; }
-    .text-muted { color: #6c757d; }
+    .text-muted { color: var(--colors-neutral-8); }
     .d-none { display: none; }
     .d-flex { display: flex; }
     .justify-content-between { justify-content: space-between; }
@@ -821,9 +821,9 @@ window.createMediaBiasBadges = createMediaBiasBadges;
         align-items: center;
         margin-bottom: 20px;
         padding: 16px;
-        background: #f8f9fa;
+        background: var(--colors-neutral-2);
         border-radius: 8px;
-        border: 1px solid #dee2e6;
+        border: 1px solid var(--colors-neutral-5);
     }
 
     .export-controls h6 {
@@ -1586,7 +1586,7 @@ function createCharts(statistics, matrixData) {
     window.chartsInstances = chartsInstances;
     
     const modelNames = Object.keys(statistics);
-    const colors = ['#FF69B4', '#32CD32', '#FFD700', '#FF6347', '#4169E1', '#9370DB'];
+    const colors = ['var(--colors-accent-7)', '#32CD32', '#FFD700', '#FF6347', '#4169E1', '#9370DB'];
     
     // Model Ranking Table (full width)
     const rankingDiv = document.createElement('div');
@@ -1793,17 +1793,17 @@ function displayFieldMatrix(fieldName) {
             <h5>Field: ${fieldName.replace('_', ' ').toUpperCase()}</h5>
             
             <!-- Color Legend -->
-            <div style="display: flex; gap: 20px; margin: 10px 0; padding: 10px; background: #f8f9fa; border-radius: 6px; font-size: 0.85rem;">
+            <div style="display: flex; gap: 20px; margin: 10px 0; padding: 10px; background: var(--colors-neutral-2); border-radius: 6px; font-size: 0.85rem;">
                 <div style="display: flex; align-items: center; gap: 5px;">
-                    <div style="width: 20px; height: 15px; background: #d4edda; border-left: 4px solid #28a745; border-radius: 3px;"></div>
+                    <div style="width: 20px; height: 15px; background: var(--colors-success-2); border-left: 4px solid var(--colors-success-9); border-radius: 3px;"></div>
                     <span><strong>Green:</strong> Matches Benchmark</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 5px;">
-                    <div style="width: 20px; height: 15px; background: #f8d7da; border-left: 4px solid #dc3545; border-radius: 3px;"></div>
+                    <div style="width: 20px; height: 15px; background: var(--colors-error-2); border-left: 4px solid var(--colors-error-9); border-radius: 3px;"></div>
                     <span><strong>Red:</strong> Differs from Benchmark</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 5px;">
-                    <div style="width: 20px; height: 15px; background: #f5f5f5; border-left: 4px solid #ccc; border-radius: 3px;"></div>
+                    <div style="width: 20px; height: 15px; background: var(--colors-neutral-3); border-left: 4px solid var(--colors-neutral-6); border-radius: 3px;"></div>
                     <span><strong>Gray:</strong> Error/No Response</span>
                 </div>
             </div>
@@ -2171,14 +2171,14 @@ function generateAllFieldMatricesForExport() {
                 <div class="table-responsive">
                     <table class="matrix-table" style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
                         <thead>
-                            <tr style="background-color: #f8f9fa;">
-                                <th class="article-header" style="border: 1px solid #dee2e6; padding: 12px; font-weight: bold;">Article</th>
-                                <th class="benchmark-column" style="border: 1px solid #dee2e6; padding: 12px; font-weight: bold; background-color: #e3f2fd;">Benchmark</th>
+                            <tr style="background-color: var(--colors-neutral-2);">
+                                <th class="article-header" style="border: 1px solid var(--colors-neutral-5); padding: 12px; font-weight: bold;">Article</th>
+                                <th class="benchmark-column" style="border: 1px solid var(--colors-neutral-5); padding: 12px; font-weight: bold; background-color: #e3f2fd;">Benchmark</th>
         `;
         
         // Add model columns
         models.forEach(model => {
-            html += `<th style="border: 1px solid #dee2e6; padding: 12px; font-weight: bold;">${model}</th>`;
+            html += `<th style="border: 1px solid var(--colors-neutral-5); padding: 12px; font-weight: bold;">${model}</th>`;
         });
         
         html += `
@@ -2191,7 +2191,7 @@ function generateAllFieldMatricesForExport() {
         matrix.forEach((row, rowIndex) => {
             html += `
                 <tr>
-                    <td class="article-header" style="border: 1px solid #dee2e6; padding: 8px; vertical-align: top;">
+                    <td class="article-header" style="border: 1px solid var(--colors-neutral-5); padding: 8px; vertical-align: top;">
                         <div class="cell-value" style="font-weight: 500; color: var(--primary-color);">
                             Article ${rowIndex + 1}
                             <i class="fas fa-external-link-alt" style="font-size: 0.8em; margin-left: 4px;"></i>
@@ -2201,7 +2201,7 @@ function generateAllFieldMatricesForExport() {
                             ${createMediaBiasBadges(row)}
                         </div>
                     </td>
-                    <td class="benchmark-column" style="border: 1px solid #dee2e6; padding: 8px; background-color: #f0f8ff; vertical-align: top;">
+                    <td class="benchmark-column" style="border: 1px solid var(--colors-neutral-5); padding: 8px; background-color: #f0f8ff; vertical-align: top;">
                         <div class="cell-value" style="font-weight: 500;">${row.benchmark_value || 'Not set'}</div>
                     </td>
             `;
@@ -2213,13 +2213,13 @@ function generateAllFieldMatricesForExport() {
                     item => item.article_uri === row.article_uri
                 );
                 
-                let cellStyle = 'border: 1px solid #dee2e6; padding: 8px; vertical-align: top;';
+                let cellStyle = 'border: 1px solid var(--colors-neutral-5); padding: 8px; vertical-align: top;';
                 if (modelData.has_error) {
-                    cellStyle += ' background-color: #f8d7da; color: #721c24;'; // Red for errors
+                    cellStyle += ' background-color: var(--colors-error-2); color: #721c24;'; // Red for errors
                 } else if (outlierInfo) {
-                    cellStyle += ' background-color: #f8d7da; border-left: 4px solid #dc3545;'; // Red for disagreements
+                    cellStyle += ' background-color: var(--colors-error-2); border-left: 4px solid var(--colors-error-9);'; // Red for disagreements
                 } else if (modelData.value === row.benchmark_value) {
-                    cellStyle += ' background-color: #d4edda; border-left: 4px solid #28a745;'; // Green for agreements
+                    cellStyle += ' background-color: var(--colors-success-2); border-left: 4px solid var(--colors-success-9);'; // Green for agreements
                 }
                 
                 html += `<td style="${cellStyle}">`;
@@ -2232,7 +2232,7 @@ function generateAllFieldMatricesForExport() {
                     `;
                     
                     if (modelData.explanation) {
-                        html += `<div class="cell-explanation" style="font-size: 0.85em; color: #6c757d; margin-top: 4px;">${modelData.explanation}</div>`;
+                        html += `<div class="cell-explanation" style="font-size: 0.85em; color: var(--colors-neutral-8); margin-top: 4px;">${modelData.explanation}</div>`;
                     }
                 }
                 
@@ -2248,7 +2248,7 @@ function generateAllFieldMatricesForExport() {
                 </div>
                 
                 <!-- Agreement Summary for this field -->
-                <div style="margin-top: 15px; padding: 12px; background-color: #f8f9fa; border-radius: 6px;">
+                <div style="margin-top: 15px; padding: 12px; background-color: var(--colors-neutral-2); border-radius: 6px;">
                     <h6 style="margin: 0 0 8px 0; color: var(--primary-color);">📈 Field Summary</h6>
                     <div style="display: flex; gap: 20px; font-size: 0.9em;">
         `;
@@ -2406,7 +2406,7 @@ async function downloadAsPDF() {
         // Add title
         const title = document.createElement('h1');
         title.style.cssText = `
-            color: #FF69B4;
+            color: var(--colors-accent-7);
             font-size: 28px;
             font-weight: bold;
             margin-bottom: 10px;
@@ -2418,7 +2418,7 @@ async function downloadAsPDF() {
         // Add subtitle
         const subtitle = document.createElement('p');
         subtitle.style.cssText = `
-            color: #666;
+            color: var(--colors-neutral-8);
             font-size: 16px;
             text-align: center;
             margin-bottom: 30px;
@@ -2473,7 +2473,7 @@ async function downloadAsPDF() {
             scale: 1.2,
             logging: false,
             allowTaint: true,
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--colors-white)',
             removeContainer: true
         });
 
@@ -2564,7 +2564,7 @@ async function downloadAsImage() {
         // Add title
         const title = document.createElement('h1');
         title.style.cssText = `
-            color: #FF69B4;
+            color: var(--colors-accent-7);
             font-size: 32px;
             font-weight: bold;
             margin-bottom: 10px;
@@ -2576,7 +2576,7 @@ async function downloadAsImage() {
         // Add subtitle
         const subtitle = document.createElement('p');
         subtitle.style.cssText = `
-            color: #666;
+            color: var(--colors-neutral-8);
             font-size: 18px;
             text-align: center;
             margin-bottom: 40px;
@@ -2631,7 +2631,7 @@ async function downloadAsImage() {
             scale: 2, // Higher resolution for PNG
             logging: false,
             allowTaint: true,
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--colors-white)',
             removeContainer: true
         });
 
@@ -2729,7 +2729,7 @@ function showError(message) {
     align-items: center;
     padding: 1rem 1.5rem;
     background: white;
-    border-bottom: 1px solid #e5e7eb;
+    border-bottom: 1px solid var(--colors-neutral-4);
     flex-shrink: 0;
 }
 
@@ -2738,12 +2738,12 @@ function showError(message) {
     align-items: center;
     gap: 0.5rem;
     font-size: 0.875rem;
-    color: #6b7280;
+    color: var(--colors-neutral-8);
 }
 
 .breadcrumb-text .font-medium {
     font-weight: 500;
-    color: #111827;
+    color: var(--colors-neutral-12);
 }
 
 .page-header-actions {
@@ -2755,8 +2755,8 @@ function showError(message) {
 /* Subtle button styling */
 .btn-icon {
     background: white;
-    border: 1px solid #e5e7eb;
-    color: #6b7280;
+    border: 1px solid var(--colors-neutral-4);
+    color: var(--colors-neutral-8);
     padding: 0.5rem;
     border-radius: 0.375rem;
     cursor: pointer;
@@ -2769,15 +2769,15 @@ function showError(message) {
 }
 
 .btn-icon:hover {
-    background: #f3f4f6;
+    background: var(--colors-neutral-3);
     border-color: #d1d5db;
-    color: #111827;
+    color: var(--colors-neutral-12);
 }
 
 .btn-topic-setup {
-    background: #f3f4f6;
+    background: var(--colors-neutral-3);
     border: none;
-    color: #111827;
+    color: var(--colors-neutral-12);
     padding: 0.5rem 1rem;
     border-radius: 0.375rem;
     font-weight: 500;
@@ -2790,29 +2790,29 @@ function showError(message) {
 }
 
 .btn-topic-setup:hover {
-    background: #e5e7eb;
-    color: #111827;
+    background: var(--colors-neutral-4);
+    color: var(--colors-neutral-12);
 }
 
 /* Override bright pink buttons to subtle style */
 .btn-primary {
     background: white !important;
-    border: 1px solid #e5e7eb !important;
-    color: #ec4899 !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-accent-8) !important;
     font-weight: 500;
     transition: all 0.2s ease;
 }
 
 .btn-primary:hover {
-    background: #fdf2f8 !important;
-    border-color: #fbcfe8 !important;
-    color: #ec4899 !important;
+    background: var(--colors-accent-1) !important;
+    border-color: var(--colors-accent-3) !important;
+    color: var(--colors-accent-8) !important;
 }
 
 .btn-success {
     background: white !important;
-    border: 1px solid #e5e7eb !important;
-    color: #10b981 !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-success-9) !important;
     font-weight: 500;
     transition: all 0.2s ease;
 }
@@ -2820,27 +2820,27 @@ function showError(message) {
 .btn-success:hover {
     background: #f0fdf4 !important;
     border-color: #d1fae5 !important;
-    color: #10b981 !important;
+    color: var(--colors-success-9) !important;
 }
 
 .btn-secondary {
     background: white !important;
-    border: 1px solid #e5e7eb !important;
-    color: #111827 !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-neutral-12) !important;
     font-weight: 500;
     transition: all 0.2s ease;
 }
 
 .btn-secondary:hover {
-    background: #f3f4f6 !important;
+    background: var(--colors-neutral-3) !important;
     border-color: #d1d5db !important;
-    color: #111827 !important;
+    color: var(--colors-neutral-12) !important;
 }
 
 .btn-danger {
     background: white !important;
-    border: 1px solid #e5e7eb !important;
-    color: #dc2626 !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-error-7) !important;
     font-weight: 500;
     transition: all 0.2s ease;
 }
@@ -2848,26 +2848,26 @@ function showError(message) {
 .btn-danger:hover {
     background: #fef2f2 !important;
     border-color: #fecaca !important;
-    color: #dc2626 !important;
+    color: var(--colors-error-7) !important;
 }
 
 .btn-warning {
     background: white !important;
-    border: 1px solid #e5e7eb !important;
-    color: #f59e0b !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-warning-6) !important;
     font-weight: 500;
     transition: all 0.2s ease;
 }
 
 .btn-warning:hover {
-    background: #fffbeb !important;
+    background: var(--colors-white)beb !important;
     border-color: #fde68a !important;
-    color: #f59e0b !important;
+    color: var(--colors-warning-6) !important;
 }
 
 .btn-info {
     background: white !important;
-    border: 1px solid #e5e7eb !important;
+    border: 1px solid var(--colors-neutral-4) !important;
     color: #3b82f6 !important;
     font-weight: 500;
     transition: all 0.2s ease;

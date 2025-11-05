@@ -53,11 +53,11 @@ function App() {
   // Calculate context info when model or sample size changes
   useEffect(() => {
     if (config.model) {
-      const sampleSizeMode = config.sample_size ? 'custom' : 'auto';
-      const info = calculateContextInfo(config.model, sampleSizeMode, config.sample_size);
+      const sampleSizeMode = config.custom_limit ? 'custom' : 'auto';
+      const info = calculateContextInfo(config.model, sampleSizeMode, config.custom_limit);
       setContextInfo(info);
     }
-  }, [config.model, config.sample_size]);
+  }, [config.model, config.custom_limit]);
 
   const handleGenerate = async () => {
     await generateAnalysis();
@@ -74,10 +74,10 @@ function App() {
         {/* Top Header */}
         <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
           {/* Breadcrumb */}
-          <div className="flex items-center gap-2 text-sm text-gray-600">
+          <div className="flex items-center gap-2 text-sm text-gray-700">
             <span>Explore</span>
             <span>/</span>
-            <span className="font-medium text-gray-900">Strategic Recommendations</span>
+            <span className="font-medium text-gray-950">Strategic Recommendations</span>
             <span>•</span>
             <span>Current indicators and potential disruption scenarios</span>
           </div>
@@ -85,14 +85,14 @@ function App() {
           {/* Right Icons */}
           <div className="flex items-center gap-2">
             <button className="p-2 hover:bg-gray-100 rounded-md">
-              <Bell className="w-5 h-5 text-gray-600" />
+              <Bell className="w-5 h-5 text-gray-700" />
             </button>
             <button
               onClick={() => setIsOnboardingOpen(true)}
-              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-md text-sm font-medium flex items-center gap-2 text-gray-900"
+              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-md text-sm font-medium flex items-center gap-2 text-gray-950"
             >
               Set up topic
-              <span className="text-gray-400">+</span>
+              <span className="text-gray-500">+</span>
             </button>
           </div>
         </div>
@@ -186,13 +186,16 @@ function App() {
                     <div>
                       <label className="text-sm font-semibold mb-2 block">Organizational Profile</label>
                       <div className="flex gap-2">
-                        <Select value={config.profile || ''} onValueChange={(value) => updateConfig({ profile: value })}>
+                        <Select
+                          value={config.profile_id?.toString() || ''}
+                          onValueChange={(value) => updateConfig({ profile_id: value ? parseInt(value) : undefined })}
+                        >
                           <SelectTrigger className="flex-1">
-                            <SelectValue placeholder="Placeholder" />
+                            <SelectValue placeholder="Select Profile" />
                           </SelectTrigger>
                           <SelectContent>
                             {profiles.map((profile) => (
-                              <SelectItem key={profile.id} value={profile.id}>
+                              <SelectItem key={profile.id} value={profile.id!.toString()}>
                                 {profile.name}
                               </SelectItem>
                             ))}
@@ -212,7 +215,16 @@ function App() {
                     {/* Article Sample Size */}
                     <div>
                       <label className="text-sm font-semibold mb-2 block">Article Sample Size</label>
-                      <Select value={config.sample_size?.toString() || 'auto'} onValueChange={(value) => updateConfig({ sample_size: value === 'auto' ? undefined : parseInt(value) })}>
+                      <Select
+                        value={config.custom_limit?.toString() || 'auto'}
+                        onValueChange={(value) => {
+                          if (value === 'auto') {
+                            updateConfig({ custom_limit: undefined, sample_size_mode: 'auto' });
+                          } else {
+                            updateConfig({ custom_limit: parseInt(value), sample_size_mode: 'custom' });
+                          }
+                        }}
+                      >
                         <SelectTrigger className="w-full">
                           <SelectValue placeholder="Auto Size" />
                         </SelectTrigger>
@@ -286,19 +298,24 @@ function App() {
         <div className="bg-white px-6 py-4 border-b border-gray-200">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <Clock className="w-5 h-5 text-gray-400" />
+              <Clock className="w-5 h-5 text-gray-500" />
               <div>
-                <span className="text-sm text-gray-500">Topic:</span>
-                <span className="ml-2 font-medium text-gray-900">{config.topic || 'Cloud Repatriation'}</span>
+                <span className="text-sm text-gray-600">Topic:</span>
+                <span className="ml-2 font-medium text-gray-950">{config.topic || 'Cloud Repatriation'}</span>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-500">Last Updated:</span>
+              <span className="text-sm text-gray-600">Last Updated:</span>
               <span className="text-sm font-medium">
                 {data?._cache_info?.last_updated || new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '.')}
               </span>
-              <button className="p-2 hover:bg-gray-100 rounded-md">
-                <RefreshCw className="w-4 h-4 text-gray-600" />
+              <button
+                onClick={() => generateAnalysis(true)}
+                disabled={loading}
+                className="p-2 hover:bg-gray-100 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Refresh analysis (bypass cache)"
+              >
+                <RefreshCw className={`w-4 h-4 text-gray-700 ${loading ? 'animate-spin' : ''}`} />
               </button>
             </div>
           </div>
@@ -335,15 +352,15 @@ function App() {
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
                 <Loader2 className="w-12 h-12 animate-spin text-pink-500 mx-auto mb-4" />
-                <p className="text-gray-600">Analyzing trends and generating recommendations...</p>
+                <p className="text-gray-700">Analyzing trends and generating recommendations...</p>
               </div>
             </div>
           ) : !data ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
                 <Target className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-900 mb-2">Ready to Analyze Trends</h3>
-                <p className="text-gray-500 mb-4">Configure your analysis settings to get started</p>
+                <h3 className="text-lg font-medium text-gray-950 mb-2">Ready to Analyze Trends</h3>
+                <p className="text-gray-600 mb-4">Configure your analysis settings to get started</p>
                 <Button onClick={() => setIsConfigOpen(true)}>
                   <Settings className="w-4 h-4 mr-2" />
                   Configure Analysis
@@ -391,10 +408,10 @@ function App() {
                             <div key={idx} className="flex gap-3">
                               <div className={`w-3 h-3 ${dotColor} rounded-full mt-1 shrink-0`}></div>
                               <div>
-                                <div className="text-sm font-semibold text-gray-900 mb-1">
+                                <div className="text-sm font-semibold text-gray-950 mb-1">
                                   {typeof insight === 'string' ? insight : insight.quote || insight.insight}
                                 </div>
-                                <div className="text-xs text-gray-600">
+                                <div className="text-xs text-gray-700">
                                   {typeof insight === 'string' ? '' : insight.relevance || insight.source || ''}
                                 </div>
                               </div>
@@ -415,15 +432,15 @@ function App() {
                     <table className="w-full">
                       <thead className="bg-gray-50">
                         <tr>
-                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-700">Future Signal</th>
-                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-700">Frequency</th>
-                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-700">Time to Impact</th>
+                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800">Future Signal</th>
+                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800">Frequency</th>
+                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800">Time to Impact</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
                         {(data.future_signals || []).map((signal, idx) => (
                           <tr key={idx} className="hover:bg-gray-50">
-                            <td className="px-6 py-4 text-sm text-gray-900">
+                            <td className="px-6 py-4 text-sm text-gray-950">
                               {typeof signal === 'string' ? signal : signal.name || signal.description}
                             </td>
                             <td className="px-6 py-4">
@@ -431,7 +448,7 @@ function App() {
                                 {typeof signal === 'string' ? 'Badge' : signal.frequency || 'Badge'}
                               </span>
                             </td>
-                            <td className="px-6 py-4 text-sm text-gray-600">
+                            <td className="px-6 py-4 text-sm text-gray-700">
                               {typeof signal === 'string' ? 'Immediate/Mid/Long-term' : signal.time_to_impact || 'Immediate/Mid/Long-term'}
                             </td>
                           </tr>
@@ -450,10 +467,10 @@ function App() {
                             <AlertCircle className="w-5 h-5 text-red-600" />
                           </div>
                           <div className="flex-1">
-                            <h3 className="font-semibold text-gray-900 mb-2">
+                            <h3 className="font-semibold text-gray-950 mb-2">
                               {data.disruption_scenarios?.[0]?.title || 'Current indicators and potential disruption scenarios'}
                             </h3>
-                            <p className="text-sm text-gray-600">
+                            <p className="text-sm text-gray-700">
                               {data.disruption_scenarios?.[0]?.description || 'High investment levels create bubble risk. 98% of investors worried about power reliability for datacenters, yet 70% anticipate increased funding driven by AI demand.'}
                             </p>
                           </div>
@@ -466,10 +483,10 @@ function App() {
                             <AlertCircle className="w-5 h-5 text-red-600" />
                           </div>
                           <div className="flex-1">
-                            <h3 className="font-semibold text-gray-900 mb-2">
+                            <h3 className="font-semibold text-gray-950 mb-2">
                               {data.disruption_scenarios?.[1]?.title || 'Timeline Risk: AGI Overexpectation'}
                             </h3>
-                            <p className="text-sm text-gray-600">
+                            <p className="text-sm text-gray-700">
                               {data.disruption_scenarios?.[1]?.description || 'Ambitious timelines for achieving AGI may be overly optimistic due to diminishing returns and operational challenges.'}
                             </p>
                           </div>
@@ -485,10 +502,10 @@ function App() {
                             <Target className="w-5 h-5 text-green-600" />
                           </div>
                           <div className="flex-1">
-                            <h3 className="font-semibold text-gray-900 mb-2">
+                            <h3 className="font-semibold text-gray-950 mb-2">
                               {data.opportunities?.[0]?.title || 'Opportunity: Infrastructure Build-out'}
                             </h3>
-                            <p className="text-sm text-gray-600">
+                            <p className="text-sm text-gray-700">
                               {data.opportunities?.[0]?.description || 'Data center expansion creates competitive advantages for early movers who secure energy and infrastructure partnerships.'}
                             </p>
                           </div>
@@ -501,10 +518,10 @@ function App() {
                             <Target className="w-5 h-5 text-green-600" />
                           </div>
                           <div className="flex-1">
-                            <h3 className="font-semibold text-gray-900 mb-2">
+                            <h3 className="font-semibold text-gray-950 mb-2">
                               {data.opportunities?.[1]?.title || 'Opportunity: Gradual Adoption Advantage'}
                             </h3>
-                            <p className="text-sm text-gray-600">
+                            <p className="text-sm text-gray-700">
                               {data.opportunities?.[1]?.description || 'Companies focusing on sustainable, gradual AI integration may outperform those chasing unrealistic AGI timelines.'}
                             </p>
                           </div>
@@ -523,7 +540,7 @@ function App() {
                             <p className="text-gray-800 mb-2 italic">
                               {typeof insight === 'string' ? insight : insight.quote || insight.insight || insight.description}
                             </p>
-                            <p className="text-sm text-gray-600 text-right">
+                            <p className="text-sm text-gray-700 text-right">
                               — {typeof insight === 'string' ? 'Industry Analysis' : insight.source || insight.attribution || 'Industry Analysis'}
                             </p>
                           </div>
@@ -585,10 +602,10 @@ function App() {
                             <div key={idx} className="flex gap-3">
                               <div className={`w-3 h-3 ${dotColor} rounded-full mt-1 shrink-0`}></div>
                               <div>
-                                <div className="text-sm font-semibold text-gray-900 mb-1">
+                                <div className="text-sm font-semibold text-gray-950 mb-1">
                                   {typeof insight === 'string' ? insight : insight.quote || insight.insight}
                                 </div>
-                                <div className="text-xs text-gray-600">
+                                <div className="text-xs text-gray-700">
                                   {typeof insight === 'string' ? '' : insight.relevance || insight.source || ''}
                                 </div>
                               </div>
@@ -614,7 +631,7 @@ function App() {
                       <Clock className="w-5 h-5" />
                       <h3 className="font-bold uppercase text-sm">NEAR-TERM</h3>
                     </div>
-                    <div className="text-sm text-gray-700 mb-2">
+                    <div className="text-sm text-gray-800 mb-2">
                       {data.strategic_recommendations?.near_term?.timeframe || '2025-2027'}
                     </div>
                     <ul className="space-y-2">
@@ -633,7 +650,7 @@ function App() {
                       <TrendingUp className="w-5 h-5" />
                       <h3 className="font-bold uppercase text-sm">MID-TERM</h3>
                     </div>
-                    <div className="text-sm text-gray-700 mb-2">
+                    <div className="text-sm text-gray-800 mb-2">
                       {data.strategic_recommendations?.mid_term?.timeframe || '2027-2032'}
                     </div>
                     <ul className="space-y-2">
@@ -652,7 +669,7 @@ function App() {
                       <Target className="w-5 h-5" />
                       <h3 className="font-bold uppercase text-sm">LONG-TERM</h3>
                     </div>
-                    <div className="text-sm text-gray-700 mb-2">
+                    <div className="text-sm text-gray-800 mb-2">
                       {data.strategic_recommendations?.long_term?.timeframe || '2032+'}
                     </div>
                     <ul className="space-y-2">
@@ -679,7 +696,7 @@ function App() {
                       <h3 className="font-semibold text-sm mb-2">
                         {principle.title || principle.name}
                       </h3>
-                      <p className="text-sm text-gray-700">
+                      <p className="text-sm text-gray-800">
                         {principle.description || principle.content || principle.rationale}
                       </p>
                     </div>
@@ -690,13 +707,13 @@ function App() {
               {/* Next Steps */}
               <div className="bg-white border border-gray-200 rounded-xl p-6">
                 <div className="flex items-center gap-2 mb-4">
-                  <FileText className="w-5 h-5 text-gray-600" />
+                  <FileText className="w-5 h-5 text-gray-700" />
                   <h2 className="text-xl font-bold">Next Steps:</h2>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   {(data.next_steps || []).map((step, idx) => (
                     <div key={idx} className="flex gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                      <div className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-sm font-medium text-gray-700">
+                      <div className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-sm font-medium text-gray-800">
                         {idx + 1}
                       </div>
                       <div className="flex-1">

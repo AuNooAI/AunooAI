@@ -153,31 +153,17 @@ async def index(
             logger.error(f"Error getting last check time: {str(e)}")
             last_check_time = None
 
-        # Serve the React Operations HQ app
-        from fastapi.responses import FileResponse
-        import os
-
-        # Path to the built React app
-        operations_html_path = os.path.join(
-            os.path.dirname(__file__),
-            '..', '..',
-            'static', 'trend-convergence',
-            'index-operations.html'
-        )
-
-        if os.path.exists(operations_html_path):
-            return FileResponse(operations_html_path)
-        else:
-            # Fallback to old template if React app not found
-            return templates.TemplateResponse("index.html", {
-                "request": request,
-                "stats": stats,
-                "session": session,
-                "last_check_time": last_check_time,
-                "db_status": db_status,
-                "api_status": api_status,
-                "active_topics": active_topics
-            })
+        # Serve the React Operations HQ app using Jinja template
+        # This allows Auspex chat modal to be included
+        return templates.TemplateResponse("operations_react.html", {
+            "request": request,
+            "stats": stats,
+            "session": session,
+            "last_check_time": last_check_time,
+            "db_status": db_status,
+            "api_status": api_status,
+            "active_topics": active_topics
+        })
     except Exception as e:
         logger.error(f"Index page error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e)) 

@@ -4,14 +4,14 @@
 {% block extra_css %}
 <style>
     :root {
-        --primary-color: #FF69B4;  /* Hot Pink */
-        --primary-dark: #FF1493;   /* Deep Pink */
+        --primary-color: var(--colors-accent-7);  /* Hot Pink */
+        --primary-dark: var(--colors-accent-10);   /* Deep Pink */
         --secondary-color: #32CD32;  /* Lime Green */
         --secondary-dark: #228B22;   /* Forest Green */
-        --text-color: #333;
-        --light-gray: #f8f9fa;
-        --medium-gray: #e9ecef;
-        --dark-gray: #343a40;
+        --text-color: var(--colors-neutral-11);
+        --light-gray: var(--colors-neutral-2);
+        --medium-gray: var(--colors-neutral-4);
+        --dark-gray: var(--colors-neutral-10);
     }
 
     h2, h5, h6 {
@@ -19,7 +19,7 @@
     }
 
     .editor-panel {
-        background-color: #fff;
+        background-color: var(--colors-white);
         border-radius: 8px;
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         margin-bottom: 20px;
@@ -79,7 +79,7 @@
     .btn-primary {
         background-color: var(--primary-color);
         border-color: var(--primary-color);
-        color: #fff;
+        color: var(--colors-white);
         transition: background-color 0.3s ease-in-out;
         height: 36px; /* Adjust the height */
         padding: 5px 10px; /* Adjust the padding */
@@ -99,7 +99,7 @@
     .btn-secondary:hover {
         background-color: var(--dark-gray);
         border-color: var(--dark-gray);
-        color: #fff;
+        color: var(--colors-white);
     }
 
     .table-responsive {
@@ -125,7 +125,7 @@
     }
 
     .pagination-container {
-        background-color: #f8f9fa;
+        background-color: var(--colors-neutral-2);
         padding: 10px 15px;
         border-radius: 4px;
         margin-bottom: 1rem;
@@ -138,7 +138,7 @@
         display: flex;
         align-items: center;
         gap: 8px;
-        color: #666;
+        color: var(--colors-neutral-8);
         font-size: 0.9rem;
     }
 
@@ -161,11 +161,11 @@
         align-items: center;
         gap: 4px;
         margin: 0 10px;
-        color: #666;
+        color: var(--colors-neutral-8);
     }
 
     .panel-header {
-        border-bottom: 1px solid #e9ecef;
+        border-bottom: 1px solid var(--colors-neutral-4);
         margin-bottom: 1rem;
         padding-bottom: 1rem;
     }
@@ -177,8 +177,8 @@
     }
 
     .table th {
-        background-color: #f8f9fa;
-        border-bottom: 2px solid #dee2e6;
+        background-color: var(--colors-neutral-2);
+        border-bottom: 2px solid var(--colors-neutral-5);
     }
 
     .table td {
@@ -240,11 +240,11 @@
     }
 
     .alert-danger {
-        border-left-color: #dc3545;
+        border-left-color: var(--colors-error-9);
     }
 
     .alert-warning {
-        border-left-color: #ffc107;
+        border-left-color: var(--colors-warning-9);
     }
 
     .select2-container--default .select2-results__option--highlighted[aria-selected] {
@@ -1991,7 +1991,7 @@ function showAlert(message, type = 'info') {
     align-items: center;
     padding: 1rem 1.5rem;
     background: white;
-    border-bottom: 1px solid #e5e7eb;
+    border-bottom: 1px solid var(--colors-neutral-4);
     flex-shrink: 0;
 }
 
@@ -2000,12 +2000,12 @@ function showAlert(message, type = 'info') {
     align-items: center;
     gap: 0.5rem;
     font-size: 0.875rem;
-    color: #6b7280;
+    color: var(--colors-neutral-8);
 }
 
 .breadcrumb-text .font-medium {
     font-weight: 500;
-    color: #111827;
+    color: var(--colors-neutral-12);
 }
 
 .page-header-actions {
@@ -2017,8 +2017,8 @@ function showAlert(message, type = 'info') {
 /* Subtle button styling */
 .btn-icon {
     background: white;
-    border: 1px solid #e5e7eb;
-    color: #6b7280;
+    border: 1px solid var(--colors-neutral-4);
+    color: var(--colors-neutral-8);
     padding: 0.5rem;
     border-radius: 0.375rem;
     cursor: pointer;
@@ -2031,15 +2031,15 @@ function showAlert(message, type = 'info') {
 }
 
 .btn-icon:hover {
-    background: #f3f4f6;
+    background: var(--colors-neutral-3);
     border-color: #d1d5db;
-    color: #111827;
+    color: var(--colors-neutral-12);
 }
 
 .btn-topic-setup {
-    background: #f3f4f6;
+    background: var(--colors-neutral-3);
     border: none;
-    color: #111827;
+    color: var(--colors-neutral-12);
     padding: 0.5rem 1rem;
     border-radius: 0.375rem;
     font-weight: 500;
@@ -2052,29 +2052,29 @@ function showAlert(message, type = 'info') {
 }
 
 .btn-topic-setup:hover {
-    background: #e5e7eb;
-    color: #111827;
+    background: var(--colors-neutral-4);
+    color: var(--colors-neutral-12);
 }
 
 /* Override bright pink buttons to subtle style */
 .btn-primary {
     background: white !important;
-    border: 1px solid #e5e7eb !important;
-    color: #ec4899 !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-accent-8) !important;
     font-weight: 500;
     transition: all 0.2s ease;
 }
 
 .btn-primary:hover {
-    background: #fdf2f8 !important;
-    border-color: #fbcfe8 !important;
-    color: #ec4899 !important;
+    background: var(--colors-accent-1) !important;
+    border-color: var(--colors-accent-3) !important;
+    color: var(--colors-accent-8) !important;
 }
 
 .btn-success {
     background: white !important;
-    border: 1px solid #e5e7eb !important;
-    color: #10b981 !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-success-9) !important;
     font-weight: 500;
     transition: all 0.2s ease;
 }
@@ -2082,27 +2082,27 @@ function showAlert(message, type = 'info') {
 .btn-success:hover {
     background: #f0fdf4 !important;
     border-color: #d1fae5 !important;
-    color: #10b981 !important;
+    color: var(--colors-success-9) !important;
 }
 
 .btn-secondary {
     background: white !important;
-    border: 1px solid #e5e7eb !important;
-    color: #111827 !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-neutral-12) !important;
     font-weight: 500;
     transition: all 0.2s ease;
 }
 
 .btn-secondary:hover {
-    background: #f3f4f6 !important;
+    background: var(--colors-neutral-3) !important;
     border-color: #d1d5db !important;
-    color: #111827 !important;
+    color: var(--colors-neutral-12) !important;
 }
 
 .btn-danger {
     background: white !important;
-    border: 1px solid #e5e7eb !important;
-    color: #dc2626 !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-error-7) !important;
     font-weight: 500;
     transition: all 0.2s ease;
 }
@@ -2110,26 +2110,26 @@ function showAlert(message, type = 'info') {
 .btn-danger:hover {
     background: #fef2f2 !important;
     border-color: #fecaca !important;
-    color: #dc2626 !important;
+    color: var(--colors-error-7) !important;
 }
 
 .btn-warning {
     background: white !important;
-    border: 1px solid #e5e7eb !important;
-    color: #f59e0b !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-warning-6) !important;
     font-weight: 500;
     transition: all 0.2s ease;
 }
 
 .btn-warning:hover {
-    background: #fffbeb !important;
+    background: var(--colors-white)beb !important;
     border-color: #fde68a !important;
-    color: #f59e0b !important;
+    color: var(--colors-warning-6) !important;
 }
 
 .btn-info {
     background: white !important;
-    border: 1px solid #e5e7eb !important;
+    border: 1px solid var(--colors-neutral-4) !important;
     color: #3b82f6 !important;
     font-weight: 500;
     transition: all 0.2s ease;

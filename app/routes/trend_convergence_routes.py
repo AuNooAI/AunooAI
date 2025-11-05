@@ -702,7 +702,15 @@ RESPONSE FORMAT:
         
         try:
             # Create a temporary chat session for the analysis
-            user_id = session.get('user', 'system')  # Use actual user or fallback to system
+            # Note: user_id must be None if user doesn't exist in users table due to foreign key constraint
+            user_from_session = session.get('user')
+            user_id = None  # Default to None for foreign key safety
+
+            if user_from_session and not isinstance(user_from_session, dict):
+                # Only use user_id if it's a string (username) from the users table
+                # OAuth users are stored as dicts and should use user_id=None
+                user_id = user_from_session
+
             chat_id = await auspex.create_chat_session(
                 topic=topic,
                 user_id=user_id,
@@ -1389,13 +1397,14 @@ async def load_previous_analysis(
 
 @router.get("/trend-convergence", response_class=HTMLResponse)
 async def trend_convergence_page(request: Request, session: dict = Depends(verify_session)):
-    """Render the React-based trend convergence analysis page"""
-    from fastapi.responses import FileResponse
-    import os
+    """Render the React-based trend convergence analysis page with Auspex modal"""
+    from fastapi.templating import Jinja2Templates
 
-    # Serve the React app
-    index_path = os.path.join("static", "trend-convergence", "index.html")
-    return FileResponse(index_path)
+    templates = Jinja2Templates(directory="templates")
+    return templates.TemplateResponse(
+        "trend_convergence_react.html",
+        {"request": request, "session": session}
+    )
 
 # Organizational Profile Management Endpoints
 

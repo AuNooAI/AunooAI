@@ -133,9 +133,9 @@ export function Step3Keywords({ topicData, suggestedKeywords, onBack, onComplete
   return (
     <div>
       <h4 className="text-xl font-bold mb-2">Step 3: Set Up Keywords</h4>
-      <p className="text-gray-600 mb-6">Add keywords to monitor for your topic</p>
+      <p className="text-gray-700 mb-6">Add keywords to monitor for your topic</p>
 
-      <div className="bg-gray-100 rounded-lg p-4 mb-6 text-sm text-gray-700">
+      <div className="bg-gray-100 rounded-lg p-4 mb-6 text-sm text-gray-800">
         <p className="mb-2">
           <strong>Keywords</strong> help AuNoo find relevant articles. You can organize keywords by category:
         </p>
@@ -209,7 +209,7 @@ export function Step3Keywords({ topicData, suggestedKeywords, onBack, onComplete
             placeholder="Add general keywords"
             id="generalKeywordsInput"
           />
-          <small className="text-gray-500 text-xs">Keywords that don't fit into specific categories above</small>
+          <small className="text-gray-600 text-xs">Keywords that don't fit into specific categories above</small>
         </div>
 
         {/* People */}
@@ -233,7 +233,7 @@ export function Step3Keywords({ topicData, suggestedKeywords, onBack, onComplete
           placeholder="Add exclusions (prefix with - or NOT)"
           id="exclusionKeywordsInput"
         />
-        <small className="text-gray-500 text-xs">Prefix with minus (-) or "NOT" to exclude terms from search results</small>
+        <small className="text-gray-600 text-xs">Prefix with minus (-) or "NOT" to exclude terms from search results</small>
       </div>
 
       {/* Summary */}

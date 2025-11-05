@@ -24,11 +24,11 @@ function NavBar({ loading, onConfigureClick }: { loading: boolean; onConfigureCl
         <div className="flex items-center justify-between h-16">
           {/* Breadcrumb */}
           <div className="flex items-center space-x-2 text-sm">
-            <span className="text-gray-500">Explore</span>
-            <span className="text-gray-400">/</span>
-            <span className="text-gray-700 font-medium">Strategic Recommendations</span>
-            <span className="text-gray-400">•</span>
-            <span className="text-gray-600">Current indicators and potential disruption scenarios</span>
+            <span className="text-gray-600">Explore</span>
+            <span className="text-gray-500">/</span>
+            <span className="text-gray-800 font-medium">Strategic Recommendations</span>
+            <span className="text-gray-500">•</span>
+            <span className="text-gray-700">Current indicators and potential disruption scenarios</span>
           </div>
 
           {/* Actions */}
@@ -252,7 +252,7 @@ function StrategicRecommendations({ data }: { data: TrendConvergenceData }) {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-900">Strategic Recommendations</h2>
+      <h2 className="text-2xl font-bold text-gray-950">Strategic Recommendations</h2>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {timeframes.map((timeframe) => {
@@ -271,8 +271,8 @@ function StrategicRecommendations({ data }: { data: TrendConvergenceData }) {
               <CardContent className="space-y-3">
                 {trends.slice(0, 5).map((trend: any, idx: number) => (
                   <div key={idx} className="flex gap-2">
-                    <span className="text-gray-500">•</span>
-                    <p className="text-sm text-gray-700">
+                    <span className="text-gray-600">•</span>
+                    <p className="text-sm text-gray-800">
                       {typeof trend === 'string' ? trend : (trend.name || trend.description || 'Trend')}
                     </p>
                   </div>
@@ -292,7 +292,7 @@ function ExecutiveFramework({ data }: { data: TrendConvergenceData }) {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-900">Executive Decision Framework</h2>
+      <h2 className="text-2xl font-bold text-gray-950">Executive Decision Framework</h2>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {data.executive_decision_framework.principles.map((principle: any, idx: number) => (
@@ -301,7 +301,7 @@ function ExecutiveFramework({ data }: { data: TrendConvergenceData }) {
               <CardTitle className="text-base">{principle.title || principle.name || `Principle ${idx + 1}`}</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-gray-700">
                 {principle.description || principle.content || principle.rationale || 'No description available'}
               </p>
             </CardContent>
@@ -318,7 +318,7 @@ function NextSteps({ data }: { data: TrendConvergenceData }) {
 
   return (
     <div className="space-y-6">
-      <h2 className="text-2xl font-bold text-gray-900">Next Steps</h2>
+      <h2 className="text-2xl font-bold text-gray-950">Next Steps</h2>
 
       <Card>
         <CardContent className="pt-6">
@@ -329,11 +329,11 @@ function NextSteps({ data }: { data: TrendConvergenceData }) {
                   {idx + 1}
                 </Badge>
                 <div className="flex-1">
-                  <p className="text-sm text-gray-700">
+                  <p className="text-sm text-gray-800">
                     {typeof step === 'string' ? step : (step.action || step.description || 'Step')}
                   </p>
                   {typeof step === 'object' && step.timeline && (
-                    <p className="text-xs text-gray-500 mt-1">Timeline: {step.timeline}</p>
+                    <p className="text-xs text-gray-600 mt-1">Timeline: {step.timeline}</p>
                   )}
                 </div>
               </li>
@@ -390,16 +390,16 @@ export default function App() {
         {loading && (
           <div className="flex flex-col items-center justify-center py-20">
             <Loader2 className="h-12 w-12 animate-spin text-pink-500 mb-4" />
-            <p className="text-lg text-gray-600">Generating strategic analysis...</p>
-            <p className="text-sm text-gray-500 mt-2">This may take a minute</p>
+            <p className="text-lg text-gray-700">Generating strategic analysis...</p>
+            <p className="text-sm text-gray-600 mt-2">This may take a minute</p>
           </div>
         )}
 
         {!loading && !data && (
           <div className="flex flex-col items-center justify-center py-20">
             <TrendingUp className="h-16 w-16 text-gray-300 mb-4" />
-            <h2 className="text-2xl font-semibold text-gray-700 mb-2">Ready to Analyze Trends</h2>
-            <p className="text-gray-500 mb-6">Configure your analysis settings to get started</p>
+            <h2 className="text-2xl font-semibold text-gray-800 mb-2">Ready to Analyze Trends</h2>
+            <p className="text-gray-600 mb-6">Configure your analysis settings to get started</p>
             <Button onClick={() => setIsConfigOpen(true)} size="lg">
               <Settings className="h-5 w-5 mr-2" />
               Configure Analysis

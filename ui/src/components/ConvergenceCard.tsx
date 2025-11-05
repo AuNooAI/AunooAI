@@ -101,8 +101,8 @@ export function ConvergenceCard({
       {/* Header */}
       <div className="flex items-start justify-between mb-4">
         <div className="flex-1">
-          <h3 className="text-lg font-bold text-gray-900 mb-1">{name}</h3>
-          <p className="text-sm text-gray-600">{description}</p>
+          <h3 className="text-lg font-bold text-gray-950 mb-1">{name}</h3>
+          <p className="text-sm text-gray-700">{description}</p>
         </div>
         <span className={`${colors.badge} px-3 py-1 rounded-full text-xs font-medium ml-4 shrink-0`}>
           {consensusPercentage}% Consensus
@@ -112,7 +112,7 @@ export function ConvergenceCard({
       {/* Timeline Visualization */}
       <div className="mb-6 relative">
         {/* Year labels */}
-        <div className="flex justify-between text-xs text-gray-600 mb-2">
+        <div className="flex justify-between text-xs text-gray-700 mb-2">
           <span>{timelineStartYear}</span>
           <span>{Math.floor((timelineStartYear + timelineEndYear) / 2)}</span>
           <span>{timelineEndYear}</span>
@@ -133,7 +133,7 @@ export function ConvergenceCard({
             }}
           >
             <div className="absolute -top-2 left-0 right-0 text-center">
-              <span className="text-xs font-medium text-gray-700 bg-white px-2 py-0.5 rounded">
+              <span className="text-xs font-medium text-gray-800 bg-white px-2 py-0.5 rounded">
                 Consensus
               </span>
             </div>
@@ -164,11 +164,11 @@ export function ConvergenceCard({
             <div className="flex gap-2">
               <div className="w-3 h-3 bg-green-500 rounded-full mt-1 shrink-0"></div>
               <div>
-                <div className="text-xs font-semibold text-gray-900 mb-0.5">
+                <div className="text-xs font-semibold text-gray-950 mb-0.5">
                   Optimistic Outlier ({optimisticOutlier.year})
                 </div>
-                <div className="text-xs text-gray-600 mb-0.5">{optimisticOutlier.description}</div>
-                <div className="text-xs text-gray-500">{optimisticOutlier.source_percentage}% of sources</div>
+                <div className="text-xs text-gray-700 mb-0.5">{optimisticOutlier.description}</div>
+                <div className="text-xs text-gray-600">{optimisticOutlier.source_percentage}% of sources</div>
               </div>
             </div>
 
@@ -176,22 +176,22 @@ export function ConvergenceCard({
             <div className="flex gap-2">
               <div className="w-3 h-3 bg-red-500 rounded-full mt-1 shrink-0"></div>
               <div>
-                <div className="text-xs font-semibold text-gray-900 mb-0.5">
+                <div className="text-xs font-semibold text-gray-950 mb-0.5">
                   Pessimistic Outlier ({pessimisticOutlier.year})
                 </div>
-                <div className="text-xs text-gray-600 mb-0.5">{pessimisticOutlier.description}</div>
-                <div className="text-xs text-gray-500">{pessimisticOutlier.source_percentage}% of sources</div>
+                <div className="text-xs text-gray-700 mb-0.5">{pessimisticOutlier.description}</div>
+                <div className="text-xs text-gray-600">{pessimisticOutlier.source_percentage}% of sources</div>
               </div>
             </div>
 
             {/* Strategic Implication */}
             <div className="flex gap-2">
               <div className="w-5 h-5 rounded-full bg-white border-2 border-gray-300 flex items-center justify-center shrink-0">
-                <Info className="w-3 h-3 text-gray-600" />
+                <Info className="w-3 h-3 text-gray-700" />
               </div>
               <div>
-                <div className="text-xs font-semibold text-gray-900 mb-0.5">Strategic Implication</div>
-                <div className="text-xs text-gray-600">{strategicImplication}</div>
+                <div className="text-xs font-semibold text-gray-950 mb-0.5">Strategic Implication</div>
+                <div className="text-xs text-gray-700">{strategicImplication}</div>
               </div>
             </div>
           </div>
@@ -199,12 +199,12 @@ export function ConvergenceCard({
           {/* Key Supporting Articles */}
           {keyArticles.length > 0 && (
             <div>
-              <h6 className="text-sm font-bold text-gray-900 mb-3">Key Supporting Articles</h6>
+              <h6 className="text-sm font-bold text-gray-950 mb-3">Key Supporting Articles</h6>
               <div className="space-y-2">
                 {keyArticles.map((article, index) => {
                   const sentimentColor = article.sentiment === 'positive' ? 'bg-green-100 text-green-700' :
                                         article.sentiment === 'critical' ? 'bg-red-100 text-red-700' :
-                                        'bg-gray-100 text-gray-700';
+                                        'bg-gray-100 text-gray-800';
 
                   return (
                     <div key={index} className="p-3 bg-white rounded-lg border border-gray-200" onClick={(e) => e.stopPropagation()}>
@@ -213,7 +213,7 @@ export function ConvergenceCard({
                           href={article.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-sm font-semibold text-gray-900 hover:text-blue-600 flex-1"
+                          className="text-sm font-semibold text-gray-950 hover:text-blue-600 flex-1"
                         >
                           {article.title}
                         </a>
@@ -223,7 +223,7 @@ export function ConvergenceCard({
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-gray-600 mb-1">{article.summary}</p>
+                      <p className="text-xs text-gray-700 mb-1">{article.summary}</p>
                       <a
                         href={article.url}
                         target="_blank"
@@ -247,9 +247,9 @@ export function ConvergenceCard({
       {/* Expand/Collapse Indicator */}
       <div className="flex justify-center mt-4">
         {isExpanded ? (
-          <ChevronUp className="w-5 h-5 text-gray-400" />
+          <ChevronUp className="w-5 h-5 text-gray-500" />
         ) : (
-          <ChevronDown className="w-5 h-5 text-gray-400" />
+          <ChevronDown className="w-5 h-5 text-gray-500" />
         )}
       </div>
     </div>

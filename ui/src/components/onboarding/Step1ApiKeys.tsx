@@ -117,7 +117,7 @@ export function Step1ApiKeys({ onNext }: Step1ApiKeysProps) {
   return (
     <div>
       <h4 className="text-xl font-bold mb-2">Step 1: Configure API Keys</h4>
-      <p className="text-gray-600 mb-6">Set up your API keys for AI and news services</p>
+      <p className="text-gray-700 mb-6">Set up your API keys for AI and news services</p>
 
       {/* LLM Provider */}
       <div className="mb-6">
@@ -135,7 +135,7 @@ export function Step1ApiKeys({ onNext }: Step1ApiKeysProps) {
             <SelectItem value="gemini">Google Gemini</SelectItem>
           </SelectContent>
         </Select>
-        <small className="text-gray-500 text-xs">Choose your AI provider - one key works for all models from that provider.</small>
+        <small className="text-gray-600 text-xs">Choose your AI provider - one key works for all models from that provider.</small>
       </div>
 
       {llm.provider && (
@@ -155,7 +155,7 @@ export function Step1ApiKeys({ onNext }: Step1ApiKeysProps) {
               <button
                 type="button"
                 onClick={() => setShowLlmKey(!showLlmKey)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-800"
               >
                 {showLlmKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
@@ -180,7 +180,7 @@ export function Step1ApiKeys({ onNext }: Step1ApiKeysProps) {
               <span>{llm.error}</span>
             </div>
           )}
-          <small className="text-gray-500 text-xs">
+          <small className="text-gray-600 text-xs">
             {PROVIDER_INFO[llm.provider as keyof typeof PROVIDER_INFO]?.help}.{' '}
             <a
               href={PROVIDER_INFO[llm.provider as keyof typeof PROVIDER_INFO]?.link}
@@ -210,7 +210,7 @@ export function Step1ApiKeys({ onNext }: Step1ApiKeysProps) {
             <SelectItem value="newsdata">NewsData.io</SelectItem>
           </SelectContent>
         </Select>
-        <small className="text-gray-500 text-xs">Choose your news data provider.</small>
+        <small className="text-gray-600 text-xs">Choose your news data provider.</small>
       </div>
 
       {news.provider && (
@@ -230,7 +230,7 @@ export function Step1ApiKeys({ onNext }: Step1ApiKeysProps) {
               <button
                 type="button"
                 onClick={() => setShowNewsKey(!showNewsKey)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-800"
               >
                 {showNewsKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
@@ -255,7 +255,7 @@ export function Step1ApiKeys({ onNext }: Step1ApiKeysProps) {
               <span>{news.error}</span>
             </div>
           )}
-          <small className="text-gray-500 text-xs">
+          <small className="text-gray-600 text-xs">
             Required for fetching news articles.{' '}
             <a
               href={PROVIDER_INFO[news.provider as keyof typeof PROVIDER_INFO]?.link}
@@ -284,7 +284,7 @@ export function Step1ApiKeys({ onNext }: Step1ApiKeysProps) {
             <button
               type="button"
               onClick={() => setShowFirecrawlKey(!showFirecrawlKey)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-700"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-800"
             >
               {showFirecrawlKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
@@ -309,7 +309,7 @@ export function Step1ApiKeys({ onNext }: Step1ApiKeysProps) {
             <span>{firecrawl.error}</span>
           </div>
         )}
-        <small className="text-gray-500 text-xs">
+        <small className="text-gray-600 text-xs">
           Required for web scraping and data collection.{' '}
           <a
             href="https://www.firecrawl.dev/pricing"

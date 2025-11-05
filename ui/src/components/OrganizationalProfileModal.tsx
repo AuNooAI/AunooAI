@@ -136,13 +136,13 @@ export function OrganizationalProfileModal({
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      <div className="font-semibold text-sm text-gray-900 mb-0.5">
+                      <div className="font-semibold text-sm text-gray-950 mb-0.5">
                         {profile.name}
                       </div>
-                      <div className="text-xs text-gray-500 mb-1">
+                      <div className="text-xs text-gray-600 mb-1">
                         {profile.industry} • {profile.organization_type}
                       </div>
-                      <div className="text-xs text-gray-600 mb-1">
+                      <div className="text-xs text-gray-700 mb-1">
                         {profile.tags?.join(' • ')}
                       </div>
                       <span className="inline-block text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
@@ -190,7 +190,7 @@ export function OrganizationalProfileModal({
                       placeholder="Advanced persistent threats, Zero-day vulnerabilities..."
                       className="min-h-[60px] text-sm resize-none"
                     />
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="text-xs text-gray-600 mt-0.5">
                       ⓘ Separate multiple priorities with commas
                     </p>
                   </div>
@@ -227,7 +227,7 @@ export function OrganizationalProfileModal({
                       placeholder="security_team"
                       className="h-9"
                     />
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="text-xs text-gray-600 mt-0.5">
                       ⓘ Separate multiple priorities with commas
                     </p>
                   </div>
@@ -261,7 +261,7 @@ export function OrganizationalProfileModal({
                       placeholder="Threat prevention, Incident response..."
                       className="min-h-[60px] text-sm resize-none"
                     />
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="text-xs text-gray-600 mt-0.5">
                       ⓘ Separate multiple priorities with commas
                     </p>
                   </div>
@@ -297,7 +297,7 @@ export function OrganizationalProfileModal({
                       placeholder="C-suite executives, IT teams..."
                       className="min-h-[60px] text-sm resize-none"
                     />
-                    <p className="text-xs text-gray-500 mt-0.5">
+                    <p className="text-xs text-gray-600 mt-0.5">
                       ⓘ Separate multiple priorities with commas
                     </p>
                   </div>

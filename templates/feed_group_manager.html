@@ -5,20 +5,20 @@
 {% block extra_css %}
 <style>
     :root {
-        --primary-color: #FF69B4;
-        --primary-dark: #FF1493;
+        --primary-color: var(--colors-accent-7);
+        --primary-dark: var(--colors-accent-10);
         --secondary-color: #32CD32;
         --secondary-dark: #228B22;
-        --text-color: #333;
-        --light-gray: #f8f9fa;
-        --medium-gray: #e9ecef;
-        --dark-gray: #343a40;
+        --text-color: var(--colors-neutral-11);
+        --light-gray: var(--colors-neutral-2);
+        --medium-gray: var(--colors-neutral-4);
+        --dark-gray: var(--colors-neutral-10);
         --card-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         --border-radius: 12px;
-        --success-color: #28a745;
-        --warning-color: #ffc107;
-        --danger-color: #dc3545;
-        --info-color: #17a2b8;
+        --success-color: var(--colors-success-9);
+        --warning-color: var(--colors-warning-9);
+        --danger-color: var(--colors-error-9);
+        --info-color: var(--colors-info-9);
     }
 
     body {
@@ -1099,7 +1099,7 @@ async function createNewGroup() {
         const newGroup = {
             name: 'New Feed Group',
             description: 'A new feed group for content aggregation',
-            color: '#FF69B4',
+            color: 'var(--colors-accent-7)',
             is_active: true
         };
         

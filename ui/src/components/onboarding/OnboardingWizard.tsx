@@ -99,7 +99,7 @@ export function OnboardingWizard({ open, onOpenChange, onComplete }: OnboardingW
           <div className="flex items-center justify-center py-12">
             <div className="text-center">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-500 mx-auto mb-4"></div>
-              <p className="text-gray-600">Checking configuration...</p>
+              <p className="text-gray-700">Checking configuration...</p>
             </div>
           </div>
         </DialogContent>

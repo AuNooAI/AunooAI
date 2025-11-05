@@ -7,7 +7,11 @@
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <!-- Aunoo Design System -->
+    <link rel="stylesheet" href="/static/css/aunoo-theme.css">
     <link rel="stylesheet" href="/static/css/styles.css">
+    <!-- Auspex Chat CSS -->
+    <link rel="stylesheet" href="/static/css/auspex-chat.css">
     {% block extra_css %}{% endblock %}
 
     <style>
@@ -15,36 +19,36 @@
         body {
             margin: 0;
             overflow: hidden;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            font-family: var(--font-family);
         }
 
         /* Shared Navigation Sidebar Layout */
         .shared-nav-layout {
             display: flex;
             height: 100vh;
-            background-color: #f3f4f6;
+            background-color: var(--colors-neutral-3);
         }
 
         .shared-nav-sidebar {
             width: 16rem; /* 256px */
-            background-color: white;
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+            background-color: var(--colors-white);
+            box-shadow: var(--box-shadow-lg);
             display: flex;
             flex-direction: column;
-            border-right: 1px solid #e5e7eb;
+            border-right: 1px solid var(--colors-neutral-4);
             flex-shrink: 0;
             overflow-y: auto;
         }
 
         .shared-nav-header {
-            padding: 1.5rem;
-            border-bottom: 1px solid #e5e7eb;
+            padding: var(--spacing-6);
+            border-bottom: 1px solid var(--colors-neutral-4);
         }
 
         .shared-nav-logo {
-            font-size: 1.125rem;
-            font-weight: 600;
-            color: #ec4899;
+            font-size: var(--font-size-4);
+            font-weight: var(--font-weight-bold);
+            color: var(--colors-accent-8);
             margin: 0;
             letter-spacing: 0.05em;
         }
@@ -101,13 +105,13 @@
         }
 
         .shared-nav-link:hover {
-            background-color: #f9fafb;
-            color: #ec4899;
+            background-color: var(--colors-neutral-2);
+            color: var(--colors-accent-8);
         }
 
         .shared-nav-link.shared-nav-active {
-            background-color: #fdf2f8;
-            color: #ec4899;
+            background-color: var(--colors-accent-1);
+            color: var(--colors-accent-8);
         }
 
         .shared-nav-link i:first-child {
@@ -147,20 +151,20 @@
             gap: 0.75rem;
             padding: 0.5rem 0.75rem 0.5rem 2.5rem;
             font-size: 0.8125rem;
-            color: #6b7280;
+            color: var(--colors-neutral-8);
             text-decoration: none;
             transition: all 0.15s ease;
             border-radius: 0.375rem;
         }
 
         .nav-submenu-link:hover {
-            background-color: #f9fafb;
-            color: #ec4899;
+            background-color: var(--colors-neutral-2);
+            color: var(--colors-accent-8);
         }
 
         .nav-submenu-link.active {
-            color: #ec4899;
-            font-weight: 500;
+            color: var(--colors-accent-8);
+            font-weight: var(--font-weight-medium);
         }
 
         .nav-submenu-link i {
@@ -172,8 +176,8 @@
         .toggle-switch {
             width: 2.5rem;
             height: 1.25rem;
-            background-color: #e5e7eb;
-            border-radius: 0.625rem;
+            background-color: var(--colors-neutral-4);
+            border-radius: var(--radius-5);
             position: relative;
             cursor: pointer;
             transition: background-color 0.2s;
@@ -192,7 +196,7 @@
             left: 0.125rem;
             width: 1rem;
             height: 1rem;
-            background-color: white;
+            background-color: var(--colors-white);
             border-radius: 50%;
             transition: transform 0.2s;
         }
@@ -202,27 +206,27 @@
         }
 
         .toggle-switch input:checked ~ {
-            background-color: #ec4899;
+            background-color: var(--colors-accent-8);
         }
 
         #dark-mode-toggle:has(input:checked) .toggle-switch {
-            background-color: #ec4899;
+            background-color: var(--colors-accent-8);
         }
 
         /* User Profile Footer */
         .shared-nav-footer {
-            padding: 1rem;
-            border-top: 1px solid #e5e7eb;
+            padding: var(--spacing-4);
+            border-top: 1px solid var(--colors-neutral-4);
             display: flex;
             align-items: center;
-            gap: 0.75rem;
-            background-color: #f9fafb;
+            gap: var(--spacing-3);
+            background-color: var(--colors-neutral-2);
         }
 
         .user-profile {
             display: flex;
             align-items: center;
-            gap: 0.75rem;
+            gap: var(--spacing-3);
             flex: 1;
         }
 
@@ -230,12 +234,12 @@
             width: 2rem;
             height: 2rem;
             border-radius: 50%;
-            background-color: #ec4899;
-            color: white;
+            background-color: var(--colors-accent-8);
+            color: var(--colors-white);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 0.875rem;
+            font-size: var(--font-size-2);
         }
 
         .user-info {
@@ -267,19 +271,19 @@
             align-items: center;
             justify-content: center;
             border-radius: 0.375rem;
-            color: #6b7280;
+            color: var(--colors-neutral-8);
             transition: all 0.15s ease;
         }
 
         .logout-link:hover {
-            background-color: #fee2e2;
-            color: #dc2626;
+            background-color: var(--colors-error-2);
+            color: var(--colors-error-7);
         }
 
         .shared-nav-content {
             flex: 1;
             overflow-y: auto;
-            background-color: #f3f4f6;
+            background-color: var(--colors-neutral-3);
         }
     </style>
 </head>
@@ -447,7 +451,14 @@
 
     {% block extra_js %}{% endblock %}
 
+    {% if session.get('user') %}
     <!-- Auspex Chat Modal -->
     {% include 'auspex-chat.html' %}
+
+    <!-- Marked.js for markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Auspex Chat JavaScript -->
+    <script src="/static/js/auspex-chat.js?v={{ range(1000, 9999) | random }}"></script>
+    {% endif %}
 </body>
 </html>
