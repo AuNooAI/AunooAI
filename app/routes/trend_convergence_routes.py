@@ -695,7 +695,25 @@ RESPONSE FORMAT:
 - Keep all descriptions concise (under 80 words each)
 - Ensure proper JSON formatting with all brackets and commas
 - Do not include any explanatory text outside the JSON
+
+ARTICLES FOR ANALYSIS:
+Below are the {len(articles)} articles to analyze. When citing articles in key_articles, use the actual title and uri from these articles:
+
 """
+
+        # Add article details to the prompt
+        for i, article in enumerate(articles[:100], 1):  # Limit to first 100 to avoid token limits
+            formatted_prompt += f"""
+Article {i}:
+- Title: {article.get('title', 'Untitled')}
+- URI: {article.get('uri', 'No URI')}
+- Summary: {article.get('summary', 'No summary')[:200]}
+- Publication Date: {article.get('publication_date', 'Unknown')}
+- Sentiment: {article.get('sentiment', 'Unknown')}
+- Category: {article.get('category', 'Unknown')}
+"""
+
+        formatted_prompt += "\nNow analyze these articles and provide the JSON response."
         
         # Use Auspex service for reliable AI response handling (like consensus analysis)
         auspex = get_auspex_service()

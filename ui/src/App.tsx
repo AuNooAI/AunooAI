@@ -624,62 +624,89 @@ function App() {
                 {/* Strategic Recommendations */}
                 <div>
                 <h2 className="text-2xl font-bold mb-6">Strategic Recommendations</h2>
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-3 gap-6">
                   {/* Near-term */}
-                  <div className="bg-green-50 border border-green-200 rounded-xl p-6">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Clock className="w-5 h-5" />
-                      <h3 className="font-bold uppercase text-sm">NEAR-TERM</h3>
+                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                    <div className="bg-green-50 p-6 border-b border-green-100">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+                          <Clock className="w-4 h-4 text-green-700" />
+                        </div>
+                        <h3 className="font-bold text-sm text-gray-900">NEAR-TERM</h3>
+                      </div>
+                      <div className="text-sm font-medium text-gray-700">
+                        {data.strategic_recommendations?.near_term?.timeframe || '2025-2027'}
+                      </div>
                     </div>
-                    <div className="text-sm text-gray-800 mb-2">
-                      {data.strategic_recommendations?.near_term?.timeframe || '2025-2027'}
+                    <div className="p-6">
+                      <ul className="space-y-3">
+                        {(data.strategic_recommendations?.near_term?.trends || []).slice(0, 4).map((trend, idx) => (
+                          <li key={idx} className="text-sm text-gray-700 leading-relaxed flex gap-2">
+                            <span className="text-green-600 font-bold">•</span>
+                            <span>{typeof trend === 'string' ? trend : trend.name || trend.description}</span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
-                    <ul className="space-y-2">
-                      {(data.strategic_recommendations?.near_term?.trends || []).slice(0, 4).map((trend, idx) => (
-                        <li key={idx} className="text-sm text-gray-800">
-                          • {typeof trend === 'string' ? trend : trend.name || trend.description}
-                        </li>
-                      ))}
-                    </ul>
-                    <TimelineBar startYear={2024} endYear={2030} color="green" />
+                    <div className="px-6 pb-6">
+                      <TimelineBar startYear={2024} endYear={2030} color="green" />
+                    </div>
                   </div>
 
                   {/* Mid-term */}
-                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-6">
-                    <div className="flex items-center gap-2 mb-3">
-                      <TrendingUp className="w-5 h-5" />
-                      <h3 className="font-bold uppercase text-sm">MID-TERM</h3>
+                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                    <div className="bg-amber-50 p-6 border-b border-amber-100">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center">
+                          <TrendingUp className="w-4 h-4 text-amber-700" />
+                        </div>
+                        <h3 className="font-bold text-sm text-gray-900">MID-TERM</h3>
+                      </div>
+                      <div className="text-sm font-medium text-gray-700">
+                        {data.strategic_recommendations?.mid_term?.timeframe || '2027-2032'}
+                      </div>
                     </div>
-                    <div className="text-sm text-gray-800 mb-2">
-                      {data.strategic_recommendations?.mid_term?.timeframe || '2027-2032'}
+                    <div className="p-6">
+                      <ul className="space-y-3">
+                        {(data.strategic_recommendations?.mid_term?.trends || []).slice(0, 4).map((trend, idx) => (
+                          <li key={idx} className="text-sm text-gray-700 leading-relaxed flex gap-2">
+                            <span className="text-amber-600 font-bold">•</span>
+                            <span>{typeof trend === 'string' ? trend : trend.name || trend.description}</span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
-                    <ul className="space-y-2">
-                      {(data.strategic_recommendations?.mid_term?.trends || []).slice(0, 4).map((trend, idx) => (
-                        <li key={idx} className="text-sm text-gray-800">
-                          • {typeof trend === 'string' ? trend : trend.name || trend.description}
-                        </li>
-                      ))}
-                    </ul>
-                    <TimelineBar startYear={2027} endYear={2033} color="yellow" />
+                    <div className="px-6 pb-6">
+                      <TimelineBar startYear={2027} endYear={2033} color="yellow" />
+                    </div>
                   </div>
 
                   {/* Long-term */}
-                  <div className="bg-purple-50 border border-purple-200 rounded-xl p-6">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Target className="w-5 h-5" />
-                      <h3 className="font-bold uppercase text-sm">LONG-TERM</h3>
+                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                    <div className="bg-rose-50 p-6 border-b border-rose-100">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center">
+                          <Target className="w-4 h-4 text-rose-700" />
+                        </div>
+                        <h3 className="font-bold text-sm text-gray-900">LONG-TERM (2032+)</h3>
+                      </div>
+                      <div className="text-sm font-medium text-gray-700">
+                        {data.strategic_recommendations?.long_term?.timeframe || '2032+'}
+                      </div>
                     </div>
-                    <div className="text-sm text-gray-800 mb-2">
-                      {data.strategic_recommendations?.long_term?.timeframe || '2032+'}
+                    <div className="p-6">
+                      <ul className="space-y-3">
+                        {(data.strategic_recommendations?.long_term?.trends || []).slice(0, 4).map((trend, idx) => (
+                          <li key={idx} className="text-sm text-gray-700 leading-relaxed flex gap-2">
+                            <span className="text-rose-600 font-bold">•</span>
+                            <span>{typeof trend === 'string' ? trend : trend.name || trend.description}</span>
+                          </li>
+                        ))}
+                      </ul>
                     </div>
-                    <ul className="space-y-2">
-                      {(data.strategic_recommendations?.long_term?.trends || []).slice(0, 4).map((trend, idx) => (
-                        <li key={idx} className="text-sm text-gray-800">
-                          • {typeof trend === 'string' ? trend : trend.name || trend.description}
-                        </li>
-                      ))}
-                    </ul>
-                    <TimelineBar startYear={2032} endYear={2040} color="red" />
+                    <div className="px-6 pb-6">
+                      <TimelineBar startYear={2032} endYear={2040} color="red" />
+                    </div>
                   </div>
                 </div>
               </div>
