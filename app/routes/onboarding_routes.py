@@ -466,69 +466,32 @@ async def get_api_key_status():
         logger.error(f"Error checking API keys: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/onboarding", response_class=HTMLResponse)
+@router.get("/onboarding")
 async def onboarding_page(
     request: Request,
     session=Depends(verify_session),
     redo: bool = Query(False)
 ):
-    """Show the onboarding wizard page."""
-    from app.main import templates  # Import here to avoid circular import
-    
+    """Redirect to React onboarding wizard."""
     # Check if user has completed onboarding
     db = Database()
     user = request.session.get("user")
     if not user:
         return RedirectResponse(url="/login")
-        
+
     user_data = db.get_user(user)
-    
+
     # Handle case where user_data is None (database schema issue)
     if user_data is None:
         # Redirect to login to recreate the user
         return RedirectResponse(url="/login?error=db_schema_updated")
-    
+
     # Allow access if redo=true or if onboarding not completed
     if user_data.get("completed_onboarding") and not redo:
         return RedirectResponse(url="/")
 
-    # Load example values from config.json
-    with open('app/config/config.json', 'r') as f:
-        config = json.load(f)
-    
-    # Extract unique values from all topics
-    example_categories = list(set(
-        cat for topic in config['topics'] 
-        for cat in topic.get('categories', [])
-    ))
-    example_signals = list(set(
-        signal for topic in config['topics'] 
-        for signal in topic.get('future_signals', [])
-    ))
-    example_sentiments = list(set(
-        sent for topic in config['topics'] 
-        for sent in topic.get('sentiment', [])
-    ))
-    example_time_to_impact = list(set(
-        time for topic in config['topics'] 
-        for time in topic.get('time_to_impact', [])
-    ))
-    example_driver_types = list(set(
-        driver for topic in config['topics'] 
-        for driver in topic.get('driver_types', [])
-    ))
-        
-    return templates.TemplateResponse(
-        "onboarding/wizard.html",
-        {
-            "request": request,
-            "example_categories": example_categories,
-            "example_signals": example_signals,
-            "example_sentiments": example_sentiments,
-            "example_time_to_impact": example_time_to_impact,
-            "example_driver_types": example_driver_types
-        }
-    )
+    # Redirect to React Trend Convergence page with onboarding=true parameter
+    return RedirectResponse(url="/trend-convergence?onboarding=true")
 
 def ensure_structured_keywords(raw_keywords, topic_name):
     # If already structured, ensure all keys exist
