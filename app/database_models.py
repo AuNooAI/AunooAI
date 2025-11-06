@@ -683,3 +683,15 @@ t_keyword_alerts = Table(
     Column('is_read', Integer, default=text('0')),
     UniqueConstraint('keyword_id', 'article_uri')
 )
+
+t_user_preferences = Table(
+    'user_preferences', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('username', ForeignKey('users.username', ondelete='CASCADE'), nullable=False),
+    Column('preference_key', String(255), nullable=False),
+    Column('config_value', JSON),
+    Column('created_at', DateTime, server_default=text('NOW()'), nullable=False),
+    Column('updated_at', DateTime, server_default=text('NOW()'), nullable=False),
+    UniqueConstraint('username', 'preference_key', name='uq_user_preference_key'),
+    Index('ix_user_preferences_username', 'username')
+)

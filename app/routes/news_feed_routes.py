@@ -457,10 +457,10 @@ async def get_six_articles_config(
     Returns user-specific config or defaults if none exists
     """
     try:
-        user_id = session.get("user_id")
+        username = session.get("user")
 
         # Try to load user-specific config from database
-        config = db.facade.get_six_articles_config(user_id)
+        config = db.facade.get_six_articles_config(username)
 
         if config:
             return config
@@ -511,7 +511,7 @@ async def save_six_articles_config(
     Stored per-user in database
     """
     try:
-        user_id = session.get("user_id")
+        username = session.get("user")
 
         # Validate config structure
         if "personas" in config:
@@ -524,12 +524,12 @@ async def save_six_articles_config(
                     )
 
         # Save to database
-        success = db.facade.save_six_articles_config(user_id, config)
+        success = db.facade.save_six_articles_config(username, config)
 
         if not success:
             raise HTTPException(status_code=500, detail="Failed to save configuration")
 
-        logger.info(f"Six Articles config saved for user {user_id}")
+        logger.info(f"Six Articles config saved for user {username}")
         return {"status": "success", "message": "Configuration saved successfully"}
 
     except HTTPException:

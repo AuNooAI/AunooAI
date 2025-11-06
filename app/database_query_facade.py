@@ -5757,24 +5757,27 @@ class DatabaseQueryFacade:
     # Six Articles Configuration Methods
     # ========================================
 
-    def get_six_articles_config(self, user_id: int) -> Optional[Dict]:
+    def get_six_articles_config(self, username: str) -> Optional[Dict]:
         """
         Get Six Articles configuration for a user.
         Stores system prompt, persona definitions, and format spec.
         """
+        if not username:
+            return None
+
         try:
             # Try to get from dedicated settings table if it exists
             # Otherwise fall back to user_preferences or create inline
             query = text("""
                 SELECT config_value
                 FROM user_preferences
-                WHERE user_id = :user_id
+                WHERE username = :username
                 AND preference_key = 'six_articles_config'
             """)
 
             result = self.connection.execute(
                 query,
-                {"user_id": user_id}
+                {"username": username}
             ).fetchone()
 
             if result and result[0]:
@@ -5784,14 +5787,17 @@ class DatabaseQueryFacade:
             return None
 
         except Exception as e:
-            self.logger.error(f"Error getting Six Articles config for user {user_id}: {e}")
+            self.logger.error(f"Error getting Six Articles config for user {username}: {e}")
             return None
 
-    def save_six_articles_config(self, user_id: int, config: Dict) -> bool:
+    def save_six_articles_config(self, username: str, config: Dict) -> bool:
         """
         Save Six Articles configuration for a user.
         Upserts into user_preferences table.
         """
+        if not username:
+            return False
+
         try:
             import json
 
@@ -5801,33 +5807,33 @@ class DatabaseQueryFacade:
             # Upsert into user_preferences
             if self.db_type == 'postgresql':
                 query = text("""
-                    INSERT INTO user_preferences (user_id, preference_key, config_value, updated_at)
-                    VALUES (:user_id, 'six_articles_config', :config_json, NOW())
-                    ON CONFLICT (user_id, preference_key)
+                    INSERT INTO user_preferences (username, preference_key, config_value, updated_at)
+                    VALUES (:username, 'six_articles_config', :config_json, NOW())
+                    ON CONFLICT (username, preference_key)
                     DO UPDATE SET
                         config_value = EXCLUDED.config_value,
                         updated_at = NOW()
                 """)
             else:  # SQLite
                 query = text("""
-                    INSERT OR REPLACE INTO user_preferences (user_id, preference_key, config_value, updated_at)
-                    VALUES (:user_id, 'six_articles_config', :config_json, datetime('now'))
+                    INSERT OR REPLACE INTO user_preferences (username, preference_key, config_value, updated_at)
+                    VALUES (:username, 'six_articles_config', :config_json, datetime('now'))
                 """)
 
             self.connection.execute(
                 query,
                 {
-                    "user_id": user_id,
+                    "username": username,
                     "config_json": config_json
                 }
             )
             self.connection.commit()
 
-            self.logger.info(f"Saved Six Articles config for user {user_id}")
+            self.logger.info(f"Saved Six Articles config for user {username}")
             return True
 
         except Exception as e:
-            self.logger.error(f"Error saving Six Articles config for user {user_id}: {e}")
+            self.logger.error(f"Error saving Six Articles config for user {username}: {e}")
             self.connection.rollback()
             return False
 

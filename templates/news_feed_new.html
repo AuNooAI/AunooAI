@@ -21,8 +21,8 @@
     --primary-gray: #4a4a4a;
     --light-gray: #f5f5f7;
     --border-light: #e5e5e5;
-    --accent-blue: var(--colors-info-5);
-    --accent-blue-light: #e6f2ff;
+    --accent-pink: var(--colors-accent-8);
+    --accent-pink-light: var(--colors-accent-1);
     --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.08);
     --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.12);
     --transition-fast: 0.2s ease;
@@ -45,10 +45,10 @@
     padding: 0;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     line-height: 1.6;
-    height: 100vh;
+    min-height: 100vh;
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow-y: auto;
 }
 
 @media (max-width: 768px) {
@@ -175,7 +175,7 @@
 /* Scrollable content area */
 .news-feed-scrollable {
     flex: 1;
-    overflow-y: auto;
+    overflow-y: visible;
     padding: 24px 48px;
     background-color: var(--colors-neutral-3);
 }
@@ -712,42 +712,43 @@
     padding-left: 24px;
 }
 
-/* Page tab navigation - matching React Trend Convergence */
+/* Page tab navigation - matching React Trend Convergence with pink underline */
 .page-tab-navigation {
     background-color: white;
-    padding: 0.75rem 1.5rem;
+    padding: 0.75rem 1.5rem 0;
     border-bottom: 1px solid var(--colors-neutral-4);
     margin-bottom: 1.5rem;
 }
 
 .tab-nav-container {
-    background-color: var(--colors-neutral-3); /* bg-gray-100 */
-    border-radius: 0.5rem; /* rounded-lg */
-    padding: 0.25rem; /* p-1 */
     display: flex;
-    gap: 0.25rem; /* gap-1 */
+    gap: 0;
+    border-bottom: 2px solid var(--colors-neutral-3);
 }
 
 .tab-nav-btn {
-    padding: 0.5rem 1rem; /* px-4 py-2 */
-    font-size: 0.875rem; /* text-sm */
-    font-weight: 500; /* font-medium */
-    border-radius: 0.375rem; /* rounded-md */
-    transition: all 0.2s ease; /* transition-colors */
+    padding: 0.75rem 1.5rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all 0.2s ease;
     border: none;
     background: transparent;
-    color: #4b5563; /* text-gray-600 */
+    color: var(--colors-neutral-8);
     cursor: pointer;
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    position: relative;
 }
 
 .tab-nav-btn.active {
-    background-color: white; /* bg-white */
-    color: var(--colors-neutral-12); /* text-gray-900 */
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05); /* shadow-sm */
+    color: var(--colors-accent-8);
+    border-bottom-color: var(--colors-accent-8);
+    font-weight: 600;
 }
 
 .tab-nav-btn:hover:not(.active) {
-    color: var(--colors-neutral-12); /* hover:text-gray-900 */
+    color: var(--colors-neutral-12);
+    background-color: var(--colors-neutral-2);
 }
 
 /* Hide old sidebar navigation */
@@ -763,7 +764,12 @@
 /* Make main content area full width */
 .main-content-area-full {
     width: 100%;
-    padding: 24px 48px;
+    padding: 0;
+}
+
+/* Tab content - let body scroll naturally */
+.main-content-area-full .tab-content {
+    padding: 0 48px 24px 48px;
 }
 
 /* Subtle pink action buttons - matching React Trend Convergence */
@@ -972,14 +978,18 @@
 }
 
 .btn-outline-primary {
-    color: var(--accent-blue);
-    border-color: var(--accent-blue);
+    color: var(--colors-accent-8);
+    border-color: var(--colors-accent-7);
 }
 
 .btn-outline-primary:hover {
-    background: var(--accent-blue);
-    border-color: var(--accent-blue);
-    color: white;
+    background: linear-gradient(135deg, var(--colors-accent-7), var(--colors-accent-10));
+    border-color: var(--colors-accent-7);
+    color: white !important;
+}
+
+.btn-outline-primary:hover i {
+    color: white !important;
 }
 
 .btn-outline-primary.active,
@@ -991,6 +1001,9 @@
     background: linear-gradient(135deg, var(--colors-accent-7), var(--colors-accent-10)) !important;
     border-color: var(--colors-accent-7) !important;
     color: white !important;
+    -webkit-text-fill-color: white !important;
+    background-clip: border-box !important;
+    -webkit-background-clip: border-box !important;
 }
 
 .btn-outline-primary.active i,
@@ -1000,6 +1013,80 @@
 .btn-outline-primary.dropdown-toggle.show i,
 .btn-group .btn-outline-primary.active i {
     color: white !important;
+    -webkit-text-fill-color: white !important;
+}
+
+/* Specific button IDs for MAXIMUM specificity - target ALL states */
+#filter-dropdown-btn-articles,
+#filter-dropdown-btn-articles.active,
+#filter-dropdown-btn-articles:active,
+#filter-dropdown-btn-articles:focus,
+#filter-dropdown-btn-articles:hover,
+#filter-dropdown-btn-insights,
+#filter-dropdown-btn-insights.active,
+#filter-dropdown-btn-insights:active,
+#filter-dropdown-btn-insights:focus,
+#filter-dropdown-btn-insights:hover,
+#article-card-view-btn,
+#article-card-view-btn.active,
+#article-card-view-btn:active,
+#article-card-view-btn:focus,
+#article-card-view-btn:hover,
+#article-table-view-btn,
+#article-table-view-btn.active,
+#article-table-view-btn:active,
+#article-table-view-btn:focus,
+#article-table-view-btn:hover,
+#incident-card-view-btn,
+#incident-card-view-btn.active,
+#incident-card-view-btn:active,
+#incident-card-view-btn:focus,
+#incident-card-view-btn:hover,
+#incident-table-view-btn,
+#incident-table-view-btn.active,
+#incident-table-view-btn:active,
+#incident-table-view-btn:focus,
+#incident-table-view-btn:hover {
+    background: linear-gradient(135deg, var(--colors-accent-7), var(--colors-accent-10)) !important;
+    border-color: var(--colors-accent-7) !important;
+    color: white !important;
+    -webkit-text-fill-color: white !important;
+    background-clip: border-box !important;
+    -webkit-background-clip: border-box !important;
+}
+
+#filter-dropdown-btn-articles i,
+#filter-dropdown-btn-articles.active i,
+#filter-dropdown-btn-articles:active i,
+#filter-dropdown-btn-articles:focus i,
+#filter-dropdown-btn-articles:hover i,
+#filter-dropdown-btn-insights i,
+#filter-dropdown-btn-insights.active i,
+#filter-dropdown-btn-insights:active i,
+#filter-dropdown-btn-insights:focus i,
+#filter-dropdown-btn-insights:hover i,
+#article-card-view-btn i,
+#article-card-view-btn.active i,
+#article-card-view-btn:active i,
+#article-card-view-btn:focus i,
+#article-card-view-btn:hover i,
+#article-table-view-btn i,
+#article-table-view-btn.active i,
+#article-table-view-btn:active i,
+#article-table-view-btn:focus i,
+#article-table-view-btn:hover i,
+#incident-card-view-btn i,
+#incident-card-view-btn.active i,
+#incident-card-view-btn:active i,
+#incident-card-view-btn:focus i,
+#incident-card-view-btn:hover i,
+#incident-table-view-btn i,
+#incident-table-view-btn.active i,
+#incident-table-view-btn:active i,
+#incident-table-view-btn:focus i,
+#incident-table-view-btn:hover i {
+    color: white !important;
+    -webkit-text-fill-color: white !important;
 }
 
 /* Profile management buttons - FORCE WHITE */
@@ -1118,22 +1205,78 @@
 }
 
 /* ==============================================
-   FILTER UI WITH CHIPS
+   FILTER DROPDOWN PANEL
    ============================================== */
-#articles-filters,
-#incident-filters,
-#signal-alert-filters {
+.filter-dropdown-panel {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
     background: white;
     border: 1px solid var(--border-light);
     border-radius: 12px;
-    padding: 0;
-    margin-bottom: 20px;
-    box-shadow: var(--shadow-sm);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+    width: 400px;
+    max-width: 95vw;
+    z-index: 2000;
+    animation: slideDown 0.2s ease;
 }
 
-#filter-panel-content {
-    transition: all 0.3s ease;
-    overflow: hidden;
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.filter-dropdown-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    border-bottom: 1px solid var(--border-light);
+}
+
+.filter-dropdown-header h6 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--primary-dark);
+}
+
+.filter-dropdown-body {
+    padding: 16px;
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.filter-section {
+    margin-bottom: 20px;
+}
+
+.filter-section:last-child {
+    margin-bottom: 0;
+}
+
+/* Fix dropdown z-index to appear above sticky table headers */
+.dropdown-menu {
+    z-index: 1060 !important;
+}
+
+.filter-label {
+    display: block;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--primary-gray);
+    margin-bottom: 8px;
+}
+
+.filter-chips-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
 }
 
 .filter-chip {
@@ -1141,29 +1284,29 @@
     align-items: center;
     gap: 6px;
     padding: 6px 12px;
-    background: var(--accent-blue-light);
-    border: 1px solid var(--accent-blue);
+    background: var(--accent-pink-light);
+    border: 1px solid var(--accent-pink);
     border-radius: 20px;
     font-size: 0.8rem;
     font-weight: 600;
-    color: var(--accent-blue);
+    color: var(--accent-pink);
     cursor: pointer;
     transition: var(--transition-fast);
 }
 
 .filter-chip:hover {
-    background: var(--accent-blue);
+    background: var(--accent-pink);
     color: white;
 }
 
 .filter-chip.active {
-    background: var(--accent-blue);
+    background: var(--accent-pink);
     color: white;
 }
 
 .filter-chip .count-badge {
     background: white;
-    color: var(--accent-blue);
+    color: var(--accent-pink);
     padding: 2px 6px;
     border-radius: 10px;
     font-size: 0.7rem;
@@ -1173,6 +1316,15 @@
 .filter-chip.active .count-badge {
     background: rgba(255,255,255,0.3);
     color: white;
+}
+
+.filter-dropdown-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px;
+    border-top: 1px solid var(--border-light);
+    gap: 8px;
 }
 
 .executive-summary {
@@ -2084,10 +2236,10 @@
     <div class="controls">
         <div class="controls-header d-flex justify-content-between align-items-center">
             <h6>
-                <i class="fas fa-cogs me-2"></i>Configuration
+                Configuration
             </h6>
-            <button class="btn btn-sm btn-link text-decoration-none p-0" onclick="toggleControlsPanel()" title="Collapse/Expand configuration">
-                <i class="fas fa-chevron-up" id="controlsToggleIcon"></i>
+            <button class="btn btn-sm btn-link text-decoration-none p-0" onclick="toggleControlsPanel()" title="Collapse/Expand configuration" style="color: var(--colors-neutral-8);">
+                <i class="fas fa-caret-down" id="controlsToggleIcon"></i>
             </button>
         </div>
         <div id="controlsContent">
@@ -2212,90 +2364,177 @@
         </div>
     </div>
 
+    <!-- ========================================
+         ARTICLE INVESTIGATOR TOOLBAR
+         ======================================== -->
+    <div id="toolbar-article-investigator" class="align-items-center justify-content-between px-3 pt-2 pb-2 bg-white border-bottom" style="gap: 8px; display: flex;">
+        <div class="d-flex align-items-center gap-2">
+            <strong class="small text-muted">View Options</strong>
+            <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-primary active" id="article-card-view-btn" onclick="toggleArticleView('cards')" title="Card view">
+                    <i class="fas fa-th-large"></i>
+                </button>
+                <button class="btn btn-outline-primary" id="article-table-view-btn" onclick="toggleArticleView('table')" title="Table view">
+                    <i class="fas fa-table"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="d-flex align-items-center gap-2">
+            <div class="btn-group">
+                <button type="button" class="btn btn-sm btn-action-subtle dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="fas fa-download"></i> Export
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="#" onclick="exportArticlesCSV()"><i class="fas fa-file-csv me-2"></i>Export CSV</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="exportArticlesPDF()"><i class="fas fa-file-pdf me-2"></i>Export PDF</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="exportArticlesMarkdown()"><i class="fab fa-markdown me-2"></i>Export Markdown</a></li>
+                </ul>
+            </div>
+            <button class="btn btn-sm btn-outline-primary" id="filter-dropdown-btn-articles" onclick="toggleFilterDropdown()">
+                <i class="fas fa-filter"></i> Filter
+            </button>
+        </div>
+    </div>
+
+    <!-- ========================================
+         NARRATIVE EXPLORER TOOLBAR
+         ======================================== -->
+    <div id="toolbar-narrative-explorer" class="align-items-center justify-content-between px-3 pt-2 pb-2 bg-white border-bottom" style="gap: 8px; display: none;">
+        <div class="d-flex align-items-center gap-2">
+            <strong class="small text-muted">View Options</strong>
+            <div class="btn-group btn-group-sm">
+                <button class="btn btn-outline-primary active" id="incident-card-view-btn" onclick="toggleIncidentView('cards')" title="Card view">
+                    <i class="fas fa-th-large"></i>
+                </button>
+                <button class="btn btn-outline-primary" id="incident-table-view-btn" onclick="toggleIncidentView('table')" title="Table view">
+                    <i class="fas fa-table"></i>
+                </button>
+            </div>
+        </div>
+
+        <div class="d-flex align-items-center gap-2">
+            <button id="insights-generate-btn-toolbar" class="btn btn-sm btn-baby-blue" onclick="smartGenerateInsights(true)">
+                <i class="fas fa-brain me-2"></i> Generate Insights
+            </button>
+            <div class="btn-group">
+                <button type="button" class="btn btn-sm btn-action-subtle dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="fas fa-download"></i> Export
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="#" onclick="exportDashboardMarkdown()"><i class="fab fa-markdown me-2"></i>Export Markdown</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="exportDashboardPDF()"><i class="fas fa-file-pdf me-2"></i>Export PDF</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="exportDashboardCSV()"><i class="fas fa-file-csv me-2"></i>Export CSV</a></li>
+                </ul>
+            </div>
+            <button type="button" class="btn btn-sm btn-action-subtle" onclick="showIncidentConfigModal()" title="Configure prompt settings">
+                <i class="fas fa-sliders-h"></i> Config
+            </button>
+            <button class="btn btn-sm btn-outline-primary" id="filter-dropdown-btn-insights" onclick="toggleFilterDropdown()">
+                <i class="fas fa-filter"></i> Filter
+            </button>
+        </div>
+    </div>
+
+    <!-- Narrative Explorer Filter Container (matches Article Investigator pattern) -->
+    <div class="position-relative" id="insights-filter-container">
+        <!-- Panel created dynamically by createIncidentFilterPanel() -->
+    </div>
+
+    <!-- ========================================
+         SIX ARTICLES TOOLBAR
+         ======================================== -->
+    <div id="toolbar-six-articles" class="align-items-center justify-content-end px-3 pt-2 pb-2 bg-white border-bottom" style="gap: 8px; display: none;">
+        <div class="d-flex align-items-center gap-2">
+            <button id="six-articles-generate-btn-toolbar" class="btn btn-sm btn-baby-blue" onclick="handleSixArticlesGenerate()">
+                <i class="fas fa-pen me-2" id="six-articles-generate-icon-toolbar"></i>
+                <span id="six-articles-generate-text-toolbar">Write</span>
+            </button>
+            <!-- Article Generation Settings Dropdown -->
+            <div class="btn-group">
+                <button type="button" class="btn btn-sm btn-action-subtle dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="fas fa-cog"></i> Settings
+                </button>
+                <ul class="dropdown-menu">
+                    <li class="dropdown-header">Target Persona</li>
+                    <li><a class="dropdown-item persona-option" href="#" data-persona="CEO" onclick="setPersona('CEO'); return false;"><i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i><i class="fas fa-user-tie me-1"></i>CEO</a></li>
+                    <li><a class="dropdown-item persona-option" href="#" data-persona="CMO" onclick="setPersona('CMO'); return false;"><i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i><i class="fas fa-bullhorn me-1"></i>CMO</a></li>
+                    <li><a class="dropdown-item persona-option" href="#" data-persona="CTO" onclick="setPersona('CTO'); return false;"><i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i><i class="fas fa-laptop-code me-1"></i>CTO</a></li>
+                    <li><a class="dropdown-item persona-option" href="#" data-persona="CISO" onclick="setPersona('CISO'); return false;"><i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i><i class="fas fa-shield-alt me-1"></i>CISO</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li class="dropdown-header">Article Count</li>
+                    <li><a class="dropdown-item count-option" href="#" data-count="3" onclick="setArticleCount(3); return false;"><i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i>3 Articles</a></li>
+                    <li><a class="dropdown-item count-option" href="#" data-count="4" onclick="setArticleCount(4); return false;"><i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i>4 Articles</a></li>
+                    <li><a class="dropdown-item count-option" href="#" data-count="5" onclick="setArticleCount(5); return false;"><i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i>5 Articles</a></li>
+                    <li><a class="dropdown-item count-option" href="#" data-count="6" onclick="setArticleCount(6); return false;"><i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i>6 Articles (Recommended)</a></li>
+                    <li><a class="dropdown-item count-option" href="#" data-count="7" onclick="setArticleCount(7); return false;"><i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i>7 Articles</a></li>
+                    <li><a class="dropdown-item count-option" href="#" data-count="8" onclick="setArticleCount(8); return false;"><i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i>8 Articles</a></li>
+                </ul>
+            </div>
+            <button type="button" class="btn btn-sm btn-action-subtle" onclick="showSixArticlesConfigModal()" title="Configure AI prompts and persona settings">
+                <i class="fas fa-sliders-h"></i> Config
+            </button>
+            <div class="btn-group">
+                <button type="button" class="btn btn-sm btn-action-subtle dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                    <i class="fas fa-download"></i> Export
+                </button>
+                <ul class="dropdown-menu dropdown-menu-end">
+                    <li><a class="dropdown-item" href="#" onclick="exportDashboardMarkdown()"><i class="fab fa-markdown me-2"></i>Export Markdown</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="exportSixArticlesMarkdown()"><i class="fab fa-markdown me-2"></i>Six Articles Markdown</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="exportSixArticlesHTML()"><i class="fas fa-code me-2"></i>Download HTML (Classic)</a></li>
+                    <li><a class="dropdown-item" href="#" onclick="exportSixArticlesEnhanced()"><i class="fas fa-paint-brush me-2"></i>Download HTML (Enhanced)</a></li>
+                    <li><hr class="dropdown-divider"></li>
+                    <li><a class="dropdown-item" href="#" onclick="exportDashboardPDF()"><i class="fas fa-file-pdf me-2"></i>Export to PDF</a></li>
+                </ul>
+            </div>
+            <button type="button" class="btn btn-sm btn-action-subtle" onclick="generateSixArticlesPodcast()">
+                <i class="fas fa-microphone"></i> Podcast
+            </button>
+        </div>
+    </div>
+
+    <!-- ========================================
+         FILTER DROPDOWN PANEL (Shared)
+         ======================================== -->
+    <div class="position-relative">
+        <div id="filter-dropdown-panel" class="filter-dropdown-panel" style="display: none; position: absolute; right: 48px; top: 0; z-index: 2000;">
+            <div class="filter-dropdown-header">
+                <h6 class="mb-0">Filters</h6>
+                <button class="btn btn-sm btn-link text-decoration-none p-0" onclick="toggleFilterDropdown()">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <div class="filter-dropdown-body" id="filter-dropdown-content">
+                <!-- Content will be dynamically populated based on active tab -->
+            </div>
+
+            <div class="filter-dropdown-footer">
+                <button class="btn btn-sm btn-outline-secondary" onclick="clearAllFilters()">
+                    <i class="fas fa-times"></i> Clear All
+                </button>
+                <button class="btn btn-sm btn-primary" onclick="toggleFilterDropdown()">
+                    Done
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Main Content Area -->
     <div class="main-content-area-full">
+        <!-- Content -->
+        <div class="tab-content" id="news-content">
+            <!-- Articles Tab -->
+            <div class="tab-pane fade show active" id="articles-content">
+                <div id="articles-loading" class="loading" style="display: none;">
+                    <div class="spinner-border" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <div>Loading articles...</div>
+                </div>
+                <div id="articles-error" class="error-message" style="display: none;"></div>
 
-            <!-- Content -->
-            <div class="tab-content" id="news-content">
-        <!-- Articles Tab -->
-        <div class="tab-pane fade show active" id="articles-content">
-            <div id="articles-loading" class="loading" style="display: none;">
-                <div class="spinner-border" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-                <div>Loading articles...</div>
-            </div>
-            <div id="articles-error" class="error-message" style="display: none;"></div>
-            
-            <!-- Filter Section -->
-            <div id="articles-filters" class="mb-3" style="display: none;">
-                <div class="d-flex justify-content-between align-items-center p-2 bg-light rounded-top border-bottom">
-                    <span class="text-muted small fw-bold">Filters:</span>
-                    <button class="btn btn-sm btn-link text-decoration-none p-0" onclick="toggleFilterPanel()" title="Collapse/Expand filters">
-                        <i class="fas fa-chevron-down" id="filter-collapse-icon"></i>
-                    </button>
-                </div>
-                <div id="filter-panel-content" class="p-2 bg-light rounded-bottom" style="display: none;">
-                    <div class="d-flex flex-wrap gap-2 align-items-center">
-                    <div class="d-flex align-items-center gap-1">
-                        <span class="text-muted small">Bias:</span>
-                        <div id="bias-filters" class="d-flex flex-wrap gap-1"></div>
-                    </div>
-                    <div class="d-flex align-items-center gap-1">
-                        <span class="text-muted small">Factuality:</span>
-                        <div id="factuality-filters" class="d-flex flex-wrap gap-1"></div>
-                    </div>
-                    <div class="d-flex align-items-center gap-1">
-                        <span class="text-muted small">Category:</span>
-                        <div id="category-filters" class="d-flex flex-wrap gap-1"></div>
-                    </div>
-                    <div class="d-flex align-items-center gap-1">
-                        <span class="text-muted small">Signals:</span>
-                        <div id="signal-filters" class="d-flex flex-wrap gap-1"></div>
-                    </div>
-                    <div class="d-flex align-items-center gap-2 ms-auto">
-                        <label class="form-label small mb-0">Sort:</label>
-                        <select id="sort-select" class="form-select form-select-sm" onchange="handleSortChange()">
-                            <option value="date_asc">Date (Oldest First)</option>
-                            <option value="date_desc" selected>Date (Newest First)</option>
-                            <option value="category_date_asc">Category (Oldest First)</option>
-                            <option value="category_date_desc">Category (Newest First)</option>
-                            <option value="bias_date_asc">Political Bias (Oldest First)</option>
-                            <option value="bias_date_desc">Political Bias (Newest First)</option>
-                        </select>
-                    </div>
-                    <div class="d-flex align-items-center" style="min-width: 240px;">
-                        <input type="text" id="search-input" class="form-control form-control-sm" placeholder="Search titles, summaries, keywords..." onkeyup="handleSearchInput()">
-                    </div>
-                    <button class="btn btn-sm btn-outline-secondary" onclick="clearAllFilters()" title="Clear all filters">
-                        <i class="fas fa-times"></i> Clear
-                    </button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Article View Toolbar -->
-            <div id="article-toolbar" class="d-flex align-items-center justify-content-between mb-2 mt-2" style="gap: 8px;">
-                <div class="d-flex align-items-center gap-2">
-                    <strong class="small text-muted">View Options</strong>
-                    <div class="btn-group btn-group-sm">
-                        <button class="btn btn-outline-primary active" id="article-card-view-btn" onclick="toggleArticleView('cards')" title="Card view">
-                            <i class="fas fa-th-large"></i>
-                        </button>
-                        <button class="btn btn-outline-primary" id="article-table-view-btn" onclick="toggleArticleView('table')" title="Table view">
-                            <i class="fas fa-table"></i>
-                        </button>
-                    </div>
-                    <div class="form-check form-switch ms-2">
-                        <input class="form-check-input" type="checkbox" id="article-group-duplicates-toggle" checked onchange="handleArticleGroupingChange()">
-                        <label class="form-check-label small text-muted" for="article-group-duplicates-toggle">
-                            Group by title
-                        </label>
-                    </div>
-                </div>
-            </div>
-
-            <div id="articles-list"></div>
+                <div id="articles-list"></div>
 
             <!-- Pagination Controls -->
             <div id="pagination-container" class="d-flex justify-content-between align-items-center mt-3" style="display: none;">
@@ -2320,120 +2559,28 @@
 
         <!-- Six Articles Tab -->
         <div class="tab-pane fade" id="six-articles-content">
-            <div class="mb-3">
-                <!-- Article Generation Settings (Collapsible) -->
-                <div id="six-articles-settings" class="controls mb-3">
-                    <div class="controls-header d-flex justify-content-between align-items-center">
-                        <h6>
-                            <i class="fas fa-cog me-2"></i>Article Generation Settings
-                        </h6>
-                        <button class="btn btn-sm btn-link text-decoration-none p-0" onclick="toggleSixArticlesSettings()" title="Collapse/Expand settings">
-                            <i class="fas fa-chevron-down" id="six-articles-settings-collapse-icon"></i>
-                        </button>
-                    </div>
-                    <div id="six-articles-settings-content" class="p-3" style="display: none;">
-                        <!-- Persona and Article Count Selectors -->
-                        <div class="row mb-3">
-                            <div class="col-md-6">
-                                <label for="six-articles-persona" class="form-label">
-                                    <i class="fas fa-user-tie me-2"></i>Target Persona
-                                    <i class="fas fa-info-circle ms-1 text-muted"
-                                       data-bs-toggle="tooltip"
-                                       data-bs-placement="top"
-                                       title="Different personas have different priorities and risk appetites. CEO focuses on strategy & regulation, CMO on marketing & customer trends, CTO on technical architecture, CISO on security & compliance. This affects which articles are selected and how they're analyzed."
-                                       style="cursor: help;"></i>
-                                </label>
-                                <select id="six-articles-persona" class="form-select" onchange="handlePersonaChange()">
-                                    <option value="CEO" selected>CEO (Chief Executive Officer)</option>
-                                    <option value="CMO">CMO (Chief Marketing Officer)</option>
-                                    <option value="CTO">CTO (Chief Technology Officer)</option>
-                                    <option value="CISO">CISO (Chief Information Security Officer)</option>
-                                    <option value="Custom">Custom</option>
-                                </select>
-                                <small class="text-muted d-block mt-1">
-                                    <strong>Note:</strong> Changing persona will generate a fresh analysis with different article selections and priorities.
-                                </small>
-                            </div>
-                            <div class="col-md-6">
-                                <label for="six-articles-count" class="form-label">
-                                    <i class="fas fa-list-ol me-2"></i>Article Count
-                                    <i class="fas fa-info-circle ms-1 text-muted"
-                                       data-bs-toggle="tooltip"
-                                       data-bs-placement="top"
-                                       title="Six articles is the research-backed sweet spot for executive briefings (covers breadth without overwhelming, 8-12 min read time). Adjust based on time constraints: 1-2 for crisis focus, 3-4 for quick scan, 7-8 for deep dive."
-                                       style="cursor: help;"></i>
-                                </label>
-                                <select id="six-articles-count" class="form-select" onchange="handleArticleCountChange()">
-                                    <option value="1">1 Article</option>
-                                    <option value="2">2 Articles</option>
-                                    <option value="3">3 Articles</option>
-                                    <option value="4">4 Articles</option>
-                                    <option value="5">5 Articles</option>
-                                    <option value="6" selected>6 Articles (Recommended)</option>
-                                    <option value="7">7 Articles</option>
-                                    <option value="8">8 Articles</option>
-                                </select>
-                                <small class="text-muted d-block mt-1">
-                                    <strong>Note:</strong> Changing article count will trigger a fresh generation.
-                                </small>
-                            </div>
-                        </div>
+            <!-- Hidden form elements for toolbar dropdown to reference -->
+            <select id="six-articles-persona" style="display: none;" onchange="handlePersonaChange()">
+                <option value="CEO" selected>CEO</option>
+                <option value="CMO">CMO</option>
+                <option value="CTO">CTO</option>
+                <option value="CISO">CISO</option>
+            </select>
+            <select id="six-articles-count" style="display: none;" onchange="handleArticleCountChange()">
+                <option value="3">3</option>
+                <option value="4">4</option>
+                <option value="5">5</option>
+                <option value="6" selected>6</option>
+                <option value="7">7</option>
+                <option value="8">8</option>
+            </select>
+            <select id="six-articles-voice" style="display: none;">
+                <option value="21m00Tcm4TlvDq8ikWAM" selected>Rachel</option>
+            </select>
+            <select id="six-articles-length" style="display: none;">
+                <option value="90" selected>90</option>
+            </select>
 
-                        <!-- Podcast Settings -->
-                        <div class="row mb-3">
-                            <div class="col-md-6">
-                                <label for="six-articles-voice" class="form-label">
-                                    <i class="fas fa-volume-up me-2"></i>Podcast Voice
-                                </label>
-                                <select id="six-articles-voice" class="form-select">
-                                    <option value="21m00Tcm4TlvDq8ikWAM" selected>Rachel (Default)</option>
-                                    <!-- Will be populated from API -->
-                                </select>
-                            </div>
-                            <div class="col-md-6">
-                                <label for="six-articles-length" class="form-label">
-                                    <i class="fas fa-clock me-2"></i>Length per Article (seconds)
-                                </label>
-                                <select id="six-articles-length" class="form-select">
-                                    <option value="45">45 seconds</option>
-                                    <option value="60">60 seconds</option>
-                                    <option value="75">75 seconds</option>
-                                    <option value="90" selected>90 seconds</option>
-                                    <option value="105">105 seconds</option>
-                                    <option value="120">120 seconds</option>
-                                    <option value="135">135 seconds</option>
-                                    <option value="150">150 seconds</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Action Buttons -->
-                <div class="d-flex gap-2">
-                    <button id="six-articles-generate-btn" class="btn btn-baby-blue" onclick="handleSixArticlesGenerate()">
-                        <i class="fas fa-pen me-2" id="six-articles-generate-icon"></i><span id="six-articles-generate-text">Write</span>
-                    </button>
-                    <div class="btn-group">
-                        <button type="button" class="btn-action-subtle dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="fas fa-download"></i>Export
-                        </button>
-                        <ul class="dropdown-menu dropdown-menu-end">
-                            <li><a class="dropdown-item" href="#" onclick="exportDashboardMarkdown()"><i class="fab fa-markdown me-2"></i>Export Markdown</a></li>
-                            <li><a class="dropdown-item" href="#" onclick="exportSixArticlesMarkdown()"><i class="fab fa-markdown me-2"></i>Six Articles Markdown</a></li>
-                            <li><a class="dropdown-item" href="#" onclick="exportSixArticlesHTML()"><i class="fas fa-code me-2"></i>Download HTML (Classic)</a></li>
-                            <li><a class="dropdown-item" href="#" onclick="exportSixArticlesEnhanced()"><i class="fas fa-paint-brush me-2"></i>Download HTML (Enhanced)</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="#" onclick="exportDashboardPDF()"><i class="fas fa-file-pdf me-2"></i>Export to PDF</a></li>
-                            <li><hr class="dropdown-divider"></li>
-                            <li><a class="dropdown-item" href="#" onclick="generateSixArticlesPodcast()"><i class="fas fa-microphone me-2"></i>Generate Podcast</a></li>
-                        </ul>
-                    </div>
-                    <button type="button" class="btn-action-subtle" onclick="showSixArticlesConfigModal()" title="Configure AI prompts and persona settings">
-                        <i class="fas fa-sliders-h"></i>Config
-                    </button>
-                </div>
-            </div>
             <div id="six-articles-loading" class="loading" style="display: none;">
                 <div class="spinner-border" role="status">
                     <span class="visually-hidden">Loading...</span>
@@ -2466,23 +2613,6 @@
                 </li>
             </ul>
 
-            <!-- Generate and Export Buttons for Narrative Explorer -->
-            <div class="d-flex gap-2 mb-3" id="insights-action-buttons">
-                <button id="insights-generate-btn" class="btn btn-baby-blue" onclick="smartGenerateInsights()">
-                    <i class="fas fa-brain me-2"></i><span id="insights-generate-text">Generate Insights</span>
-                </button>
-                <div class="btn-group">
-                    <button type="button" class="btn-action-subtle dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
-                        <i class="fas fa-download"></i>Export
-                    </button>
-                    <ul class="dropdown-menu dropdown-menu-end">
-                        <li><a class="dropdown-item" href="#" onclick="exportDashboardMarkdown()"><i class="fab fa-markdown me-2"></i>Export Markdown</a></li>
-                        <li><a class="dropdown-item" href="#" onclick="exportDashboardPDF()"><i class="fas fa-file-pdf me-2"></i>Export to PDF</a></li>
-                        <li><a class="dropdown-item" href="#" onclick="exportDashboardCSV()"><i class="fas fa-file-csv me-2"></i>Export to CSV</a></li>
-                    </ul>
-                </div>
-            </div>
-
             <!-- Insights Content -->
             <div class="tab-content" id="insights-tab-content">
                 <!-- Article Insights Panel -->
@@ -2513,77 +2643,6 @@
 
                 <!-- Incident Tracking Panel -->
                 <div class="tab-pane fade show active" id="incident-tracking-panel">
-                    <!-- Incident Filters -->
-                    <div id="incident-filters" class="controls mb-3" style="display: none;">
-                        <div class="controls-header d-flex justify-content-between align-items-center">
-                            <h6>
-                                <i class="fas fa-filter me-2"></i>Filters & Sorting
-                            </h6>
-                            <button class="btn btn-sm btn-link text-decoration-none p-0" onclick="toggleIncidentFilters()" title="Collapse/Expand filters">
-                                <i class="fas fa-chevron-down" id="incident-filter-collapse-icon"></i>
-                            </button>
-                        </div>
-                        <div id="incident-filter-content" class="p-3" style="display: none;">
-                            <div class="d-flex flex-wrap gap-2 align-items-center">
-                                <div class="d-flex align-items-center gap-1">
-                                    <span class="text-muted small">Type:</span>
-                                    <div id="incident-type-filters" class="d-flex flex-wrap gap-1"></div>
-                                </div>
-                                <div class="d-flex align-items-center gap-1">
-                                    <span class="text-muted small">Significance:</span>
-                                    <div id="incident-significance-filters" class="d-flex flex-wrap gap-1"></div>
-                                </div>
-                                <div class="d-flex align-items-center gap-1">
-                                    <span class="text-muted small">Status:</span>
-                                    <div id="incident-status-filters" class="d-flex flex-wrap gap-1"></div>
-                                </div>
-                                <div class="d-flex align-items-center gap-2 ms-auto">
-                                    <label class="form-label small mb-0">Sort:</label>
-                                    <select id="incident-sort-select" class="form-select form-select-sm" onchange="handleIncidentSortChange()" style="width: auto;">
-                                        <option value="significance_desc">Significance (High → Low)</option>
-                                        <option value="significance_asc">Significance (Low → High)</option>
-                                        <option value="entity_asc">Entity (A → Z)</option>
-                                        <option value="entity_desc">Entity (Z → A)</option>
-                                        <option value="type_asc">Type (A → Z)</option>
-                                        <option value="type_desc">Type (Z → A)</option>
-                                        <option value="name_asc">Name (A → Z)</option>
-                                        <option value="name_desc">Name (Z → A)</option>
-                                        <option value="timeline_desc">Timeline (Recent → Old)</option>
-                                        <option value="timeline_asc">Timeline (Old → Recent)</option>
-                                    </select>
-                                </div>
-                                <button class="btn btn-outline-secondary btn-sm" onclick="clearIncidentFilters()" title="Clear all filters">
-                                    <i class="fas fa-times me-1"></i>Clear
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- View Options Toolbar -->
-                    <div id="incident-toolbar" class="d-flex align-items-center justify-content-between mb-2 mt-2" style="gap: 8px;">
-                        <div class="d-flex align-items-center gap-2">
-                            <strong class="small text-muted">View Options</strong>
-                            <div class="btn-group btn-group-sm">
-                                <button class="btn btn-outline-primary active" id="incident-card-view-btn" onclick="toggleIncidentView('cards')" title="Card view">
-                                    <i class="fas fa-th-large"></i>
-                                </button>
-                                <button class="btn btn-outline-primary" id="incident-table-view-btn" onclick="toggleIncidentView('table')" title="Table view">
-                                    <i class="fas fa-table"></i>
-                                </button>
-                            </div>
-                        </div>
-                        <div id="incident-toolbar-right" class="d-flex align-items-center gap-2">
-                            <button class="btn btn-outline-secondary btn-sm"
-                                    onclick="showIncidentConfigModal()"
-                                    title="Configure Incident Tracking"
-                                    data-bs-toggle="tooltip"
-                                    data-bs-placement="left"
-                                    style="width: 32px; height: 32px; padding: 0; display: flex; align-items: center; justify-content: center;">
-                                <i class="fas fa-cogs"></i>
-                            </button>
-                        </div>
-                    </div>
-
                     <div id="incident-tracking-loading" class="loading" style="display: none;">
                         <div class="spinner-border" role="status">
                             <span class="visually-hidden">Loading...</span>
@@ -2877,6 +2936,11 @@
                 <!-- Navigation tabs for different configuration sections -->
                 <ul class="nav nav-tabs" id="incidentConfigTabs" role="tablist">
                     <li class="nav-item" role="presentation">
+                        <button class="nav-link" id="info-tab" data-bs-toggle="tab" data-bs-target="#info-panel" type="button" role="tab">
+                            <i class="fas fa-info-circle me-1"></i>Info
+                        </button>
+                    </li>
+                    <li class="nav-item" role="presentation">
                         <button class="nav-link active" id="prompt-tab" data-bs-toggle="tab" data-bs-target="#prompt-panel" type="button" role="tab">
                             <i class="fas fa-comment-dots me-1"></i>System Prompt
                         </button>
@@ -2894,6 +2958,63 @@
                 </ul>
 
                 <div class="tab-content mt-3" id="incidentConfigTabContent">
+                    <!-- Info Panel -->
+                    <div class="tab-pane fade" id="info-panel" role="tabpanel">
+                        <div class="alert alert-info">
+                            <h5><i class="fas fa-info-circle me-2"></i>About Incident Tracking Configuration</h5>
+                            <p class="mb-2">This configuration panel controls how the AI analyzes your articles to identify incidents, trends, entities, and emerging narratives.</p>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="card mb-3">
+                                    <div class="card-body">
+                                        <h6 class="card-title"><i class="fas fa-comment-dots me-2 text-primary"></i>System Prompt</h6>
+                                        <p class="card-text small">The core instructions that guide the AI's analysis approach. Defines what the AI should look for, how it should structure findings, and what patterns to identify in your content.</p>
+                                        <p class="card-text small mb-0"><strong>Use this when:</strong> You want to change what types of incidents are detected or how they're categorized.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card mb-3">
+                                    <div class="card-body">
+                                        <h6 class="card-title"><i class="fas fa-sitemap me-2 text-success"></i>Ontology</h6>
+                                        <p class="card-text small">Defines the vocabulary, entity types, and relationships the AI should recognize. Think of it as teaching the AI your domain's language and important concepts.</p>
+                                        <p class="card-text small mb-0"><strong>Use this when:</strong> You need domain-specific terminology or want the AI to recognize specialized entities.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card mb-3">
+                                    <div class="card-body">
+                                        <h6 class="card-title"><i class="fas fa-lightbulb me-2 text-warning"></i>AI Guidance</h6>
+                                        <p class="card-text small">Additional instructions and examples that refine the AI's behavior. Helps improve accuracy and consistency of analysis across different types of content.</p>
+                                        <p class="card-text small mb-0"><strong>Use this when:</strong> Fine-tuning analysis quality or providing domain-specific examples.</p>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="card mb-3">
+                                    <div class="card-body">
+                                        <h6 class="card-title"><i class="fas fa-building me-2 text-info"></i>Organizational Profile</h6>
+                                        <p class="card-text small">Context about your organization, industry, and strategic priorities. Helps the AI provide analysis relevant to your specific situation and goals.</p>
+                                        <p class="card-text small mb-0"><strong>Use this when:</strong> You want analysis tailored to your organization's context and priorities.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="alert alert-warning mt-3">
+                            <h6><i class="fas fa-exclamation-triangle me-2"></i>Important Notes</h6>
+                            <ul class="mb-0 small">
+                                <li>Changes to prompts and ontology affect all future analyses, not existing results</li>
+                                <li>Use the template variables (like {topic}, {ontology_text}) to make prompts dynamic</li>
+                                <li>Test changes with a small dataset before running on all your content</li>
+                                <li>You can reset to defaults using the action buttons in each configuration section</li>
+                            </ul>
+                        </div>
+                    </div>
+
                     <!-- System Prompt Panel -->
                     <div class="tab-pane fade show active" id="prompt-panel" role="tabpanel">
                         <div class="row">
@@ -3881,6 +4002,27 @@ document.addEventListener('DOMContentLoaded', function() {
         // Trigger load functions based on which tab was shown
         const tabId = activeButton?.id;
 
+        // Show/hide appropriate toolbar based on active tab
+        const toolbarArticles = document.getElementById('toolbar-article-investigator');
+        const toolbarInsights = document.getElementById('toolbar-narrative-explorer');
+        const toolbarSixArticles = document.getElementById('toolbar-six-articles');
+
+        // Hide all toolbars first
+        if (toolbarArticles) toolbarArticles.style.display = 'none';
+        if (toolbarInsights) toolbarInsights.style.display = 'none';
+        if (toolbarSixArticles) toolbarSixArticles.style.display = 'none';
+
+        // Show the appropriate toolbar
+        if (tabId === 'articles-tab' && toolbarArticles) {
+            toolbarArticles.style.display = 'flex';
+            updateFilterDropdownContent('articles');
+        } else if (tabId === 'insights-tab' && toolbarInsights) {
+            toolbarInsights.style.display = 'flex';
+            updateFilterDropdownContent('insights');
+        } else if (tabId === 'six-articles-tab' && toolbarSixArticles) {
+            toolbarSixArticles.style.display = 'flex';
+        }
+
         // Clear insights containers when navigating away from insights tab
         if (tabId !== 'insights-tab') {
             const incidentContainer = document.getElementById('incident-tracking-container');
@@ -4031,6 +4173,121 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 });
+
+// Update filter dropdown content based on active tab
+function updateFilterDropdownContent(tabType) {
+    const filterContent = document.getElementById('filter-dropdown-content');
+    if (!filterContent) return;
+
+    if (tabType === 'articles') {
+        // Article Investigator filters
+        filterContent.innerHTML = `
+            <!-- Search -->
+            <div class="mb-3">
+                <input type="text" id="search-input" class="form-control form-control-sm" placeholder="Search Title, Summaries, Keywords..." onkeyup="handleSearchInput()">
+            </div>
+
+            <!-- Bias Filter -->
+            <div class="filter-section">
+                <label class="filter-label">Bias</label>
+                <div id="bias-filters" class="filter-chips-container"></div>
+            </div>
+
+            <!-- Factuality Filter -->
+            <div class="filter-section">
+                <label class="filter-label">Factuality</label>
+                <div id="factuality-filters" class="filter-chips-container"></div>
+            </div>
+
+            <!-- Category Filter -->
+            <div class="filter-section">
+                <label class="filter-label">Category</label>
+                <div id="category-filters" class="filter-chips-container"></div>
+            </div>
+
+            <!-- Signals Filter -->
+            <div class="filter-section">
+                <label class="filter-label">Signals</label>
+                <div id="signal-filters" class="filter-chips-container"></div>
+            </div>
+
+            <!-- Sort -->
+            <div class="filter-section">
+                <label class="filter-label">Sort By</label>
+                <select id="sort-select" class="form-select form-select-sm" onchange="handleSortChange()">
+                    <option value="date_asc">Date (Oldest First)</option>
+                    <option value="date_desc" selected>Date (Newest First)</option>
+                    <option value="category_date_asc">Category (Oldest First)</option>
+                    <option value="category_date_desc">Category (Newest First)</option>
+                    <option value="bias_date_asc">Political Bias (Oldest First)</option>
+                    <option value="bias_date_desc">Political Bias (Newest First)</option>
+                </select>
+            </div>
+        `;
+        // Re-initialize article filters
+        if (typeof initializeFilterChips === 'function') {
+            initializeFilterChips();
+        }
+    } else if (tabType === 'insights') {
+        // Narrative Explorer (Incident) filters
+        filterContent.innerHTML = `
+            <!-- Type Filter -->
+            <div class="filter-section">
+                <label class="filter-label">Type</label>
+                <div id="incident-type-filters-dropdown" class="filter-chips-container"></div>
+            </div>
+
+            <!-- Significance Filter -->
+            <div class="filter-section">
+                <label class="filter-label">Significance</label>
+                <div id="incident-significance-filters-dropdown" class="filter-chips-container"></div>
+            </div>
+
+            <!-- Status Filter -->
+            <div class="filter-section">
+                <label class="filter-label">Status</label>
+                <div id="incident-status-filters-dropdown" class="filter-chips-container"></div>
+            </div>
+
+            <!-- Sort -->
+            <div class="filter-section">
+                <label class="filter-label">Sort By</label>
+                <select id="incident-sort-select-dropdown" class="form-select form-select-sm" onchange="handleIncidentSortChange()">
+                    <option value="significance_desc">Significance (High → Low)</option>
+                    <option value="significance_asc">Significance (Low → High)</option>
+                    <option value="entity_asc">Entity (A → Z)</option>
+                    <option value="entity_desc">Entity (Z → A)</option>
+                    <option value="type_asc">Type (A → Z)</option>
+                    <option value="type_desc">Type (Z → A)</option>
+                    <option value="name_asc">Name (A → Z)</option>
+                    <option value="name_desc">Name (Z → A)</option>
+                    <option value="timeline_desc">Timeline (Recent → Old)</option>
+                    <option value="timeline_asc">Timeline (Old → Recent)</option>
+                </select>
+            </div>
+        `;
+        // Re-initialize incident filters
+        if (typeof populateIncidentFilters === 'function') {
+            populateIncidentFilters();
+        }
+    }
+}
+
+// Article Investigator export functions
+function exportArticlesCSV() {
+    showToast('Info', 'CSV export functionality will be implemented soon.', 'info');
+    // TODO: Implement CSV export
+}
+
+function exportArticlesPDF() {
+    showToast('Info', 'PDF export functionality will be implemented soon.', 'info');
+    // TODO: Implement PDF export
+}
+
+function exportArticlesMarkdown() {
+    showToast('Info', 'Markdown export functionality will be implemented soon.', 'info');
+    // TODO: Implement Markdown export
+}
 
 document.addEventListener('DOMContentLoaded', function() {
     console.log('=== FIRST DOMContentLoaded handler executing ===');
@@ -5135,9 +5392,8 @@ async function loadArticles(page = 1) {
 
 // Wrapper function to handle Write/Rewrite button
 function handleSixArticlesGenerate() {
-    const generateText = document.getElementById('six-articles-generate-text');
-    const isRegenerate = generateText && generateText.textContent === 'Rewrite';
-    loadSixArticles(isRegenerate);
+    // Always force regeneration when user clicks Write/Rewrite button
+    loadSixArticles(true);
 }
 
 // Handle persona change - reset button to "Write" to indicate new generation needed
@@ -5169,6 +5425,47 @@ function handleArticleCountChange() {
     // Show notification that settings changed
     const count = document.getElementById('six-articles-count')?.value || '6';
     showNotification(`Article count changed to ${count}. Click "Write" to generate.`, 'info');
+}
+
+// Helper functions for toolbar dropdown settings
+function setPersona(persona) {
+    const select = document.getElementById('six-articles-persona');
+    if (select) {
+        select.value = persona;
+        handlePersonaChange();
+    }
+
+    // Update visual state in dropdown - show checkmark on selected item
+    document.querySelectorAll('.persona-option').forEach(item => {
+        const check = item.querySelector('.fa-check');
+        if (check) {
+            if (item.dataset.persona === persona) {
+                check.style.visibility = 'visible';
+            } else {
+                check.style.visibility = 'hidden';
+            }
+        }
+    });
+}
+
+function setArticleCount(count) {
+    const select = document.getElementById('six-articles-count');
+    if (select) {
+        select.value = count;
+        handleArticleCountChange();
+    }
+
+    // Update visual state in dropdown - show checkmark on selected item
+    document.querySelectorAll('.count-option').forEach(item => {
+        const check = item.querySelector('.fa-check');
+        if (check) {
+            if (item.dataset.count === String(count)) {
+                check.style.visibility = 'visible';
+            } else {
+                check.style.visibility = 'hidden';
+            }
+        }
+    });
 }
 
 async function loadSixArticles(forceRegenerate = false) {
@@ -7223,23 +7520,6 @@ function toggleArticleView(viewType) {
     }
 }
 
-function handleArticleGroupingChange() {
-    const toggle = document.getElementById('article-group-duplicates-toggle');
-    groupDuplicateArticles = toggle.checked;
-
-    // Save preference
-    try {
-        localStorage.setItem('newsNarratorGroupDuplicates', groupDuplicateArticles ? 'true' : 'false');
-    } catch (e) {
-        console.warn('Failed to save grouping preference:', e);
-    }
-
-    // Re-render with grouping
-    if (window.lastArticlesData) {
-        renderArticles(window.lastArticlesData);
-    }
-}
-
 // Load saved view preferences
 document.addEventListener('DOMContentLoaded', function() {
     try {
@@ -7250,18 +7530,8 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('article-table-view-btn').classList.toggle('active', savedView === 'table');
         }
 
-        const savedGrouping = localStorage.getItem('newsNarratorGroupDuplicates');
-        const toggle = document.getElementById('article-group-duplicates-toggle');
-
-        if (savedGrouping === 'false') {
-            // Only disable if explicitly set to false
-            groupDuplicateArticles = false;
-            if (toggle) toggle.checked = false;
-        } else {
-            // Default to enabled
-            groupDuplicateArticles = true;
-            if (toggle) toggle.checked = true;
-        }
+        // Grouping by title is always enabled
+        groupDuplicateArticles = true;
     } catch (e) {
         console.warn('Failed to load view preferences:', e);
     }
@@ -7282,9 +7552,6 @@ function renderArticles(articlesData) {
     if (!articlesData.items || articlesData.items.length === 0) {
         console.log('[DEBUG] No articles in articlesData.items - showing alert');
         listContainer.innerHTML = '<div class="alert alert-info">No articles available for the current filters. Try adjusting your search or date range.</div>';
-        // Keep filters visible so user can adjust search/filters
-        const filtersEl = document.getElementById('articles-filters');
-        if (filtersEl) filtersEl.style.display = 'block';
         return;
     }
 
@@ -7631,7 +7898,7 @@ function renderArticleTable(articles) {
     }
 
     let html = `
-        <div class="table-responsive" style="max-height: 80vh; overflow-y: auto; width: 100%;">
+        <div class="table-responsive" style="width: 100%;">
             <table class="table table-hover table-sm" style="min-width: 1400px; width: 100%;">
                 <thead class="table-light sticky-top">
                     <tr>
@@ -7915,11 +8182,8 @@ function buildFilterBadges(articles) {
             signalContainer.appendChild(badge);
         });
     }
-    
-    // Show filter section if we have any filters
-    if (biasValues.size > 0 || factualityValues.size > 0 || categoryValues.size > 0 || signalValues.size > 0) {
-        document.getElementById('articles-filters').style.display = 'block';
-    }
+
+    // Filter badges are now always available in the dropdown
 }
 
 function toggleFilter(filterType, value) {
@@ -8120,20 +8384,145 @@ function clearAllFilters() {
     }
 }
 
-function toggleFilterPanel() {
-    const content = document.getElementById('filter-panel-content');
-    const icon = document.getElementById('filter-collapse-icon');
+function toggleFilterDropdown() {
+    // Determine which tab is active to show the correct filter panel
+    const articlesTab = document.getElementById('article-investigator-content');
+    const insightsTab = document.getElementById('insights-content');
 
-    if (!content || !icon) return;
+    const isArticlesActive = articlesTab && (articlesTab.classList.contains('show') || articlesTab.classList.contains('active'));
+    const isInsightsActive = insightsTab && (insightsTab.classList.contains('show') || insightsTab.classList.contains('active'));
 
-    if (content.style.display === 'none') {
-        content.style.display = 'block';
-        icon.className = 'fas fa-chevron-up';
+    let panel, btn;
+
+    if (isArticlesActive) {
+        panel = document.getElementById('filter-dropdown-panel');
+        btn = document.getElementById('filter-dropdown-btn-articles');
+    } else if (isInsightsActive) {
+        // For insights tab, we need to show incident filters
+        panel = document.getElementById('filter-dropdown-panel-insights');
+        btn = document.getElementById('filter-dropdown-btn-insights');
+
+        // If panel doesn't exist yet, create it
+        if (!panel) {
+            panel = createIncidentFilterPanel();
+        }
     } else {
-        content.style.display = 'none';
-        icon.className = 'fas fa-chevron-down';
+        // Default to article filters
+        panel = document.getElementById('filter-dropdown-panel');
+        btn = document.getElementById('filter-dropdown-btn-articles');
+    }
+
+    if (!panel) return;
+
+    if (panel.style.display === 'none' || !panel.style.display) {
+        panel.style.display = 'block';
+        if (btn) btn.classList.add('active');
+    } else {
+        panel.style.display = 'none';
+        if (btn) btn.classList.remove('active');
     }
 }
+
+// Create incident filter panel for Narrative Explorer (matches Article Investigator pattern)
+function createIncidentFilterPanel() {
+    // Find the static container (same pattern as Article Investigator)
+    const container = document.getElementById('insights-filter-container');
+    if (!container) return null;
+
+    // Create panel with SAME inline styles as Article Investigator
+    const panel = document.createElement('div');
+    panel.id = 'filter-dropdown-panel-insights';
+    panel.className = 'filter-dropdown-panel';
+    panel.style.display = 'none';
+    panel.style.position = 'absolute';
+    panel.style.right = '48px';
+    panel.style.top = '0';
+    panel.style.zIndex = '2000';
+
+    panel.innerHTML = `
+        <div class="filter-dropdown-header">
+            <h6 class="mb-0">Filters</h6>
+            <button class="btn btn-sm btn-link text-decoration-none p-0" onclick="toggleIncidentFilterPanel()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <div class="filter-dropdown-body">
+            <div class="mb-3">
+                <label class="small text-muted mb-1">Priority</label>
+                <div class="d-flex flex-wrap gap-1">
+                    <button class="btn btn-sm btn-danger filter-badge" data-filter-type="priority" data-filter-value="critical">Critical</button>
+                    <button class="btn btn-sm btn-warning filter-badge" data-filter-type="priority" data-filter-value="high">High</button>
+                    <button class="btn btn-sm btn-info filter-badge" data-filter-type="priority" data-filter-value="medium">Medium</button>
+                    <button class="btn btn-sm btn-secondary filter-badge" data-filter-type="priority" data-filter-value="low">Low</button>
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="small text-muted mb-1">Entity Type</label>
+                <div class="d-flex flex-wrap gap-1">
+                    <button class="btn btn-sm btn-primary filter-badge" data-filter-type="entity-type" data-filter-value="person">Person</button>
+                    <button class="btn btn-sm btn-primary filter-badge" data-filter-type="entity-type" data-filter-value="organization">Organization</button>
+                    <button class="btn btn-sm btn-primary filter-badge" data-filter-type="entity-type" data-filter-value="location">Location</button>
+                    <button class="btn btn-sm btn-primary filter-badge" data-filter-type="entity-type" data-filter-value="event">Event</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="filter-dropdown-footer">
+            <button class="btn btn-sm btn-outline-secondary" onclick="clearIncidentFilters()">
+                <i class="fas fa-times"></i> Clear All
+            </button>
+            <button class="btn btn-sm btn-primary" onclick="toggleIncidentFilterPanel()">
+                Done
+            </button>
+        </div>
+    `;
+
+    // Insert panel directly into static container
+    container.appendChild(panel);
+
+    return panel;
+}
+
+function clearIncidentFilters() {
+    // Clear any active incident filters
+    const filterChips = document.querySelectorAll('#filter-dropdown-panel-insights .filter-chip.active');
+    filterChips.forEach(chip => chip.classList.remove('active'));
+
+    // Re-render without filters
+    const incidents = window.lastIncidentsData;
+    if (incidents) {
+        renderIncidentTracking(incidents);
+        showNotification('Filters cleared', 'info');
+    }
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', function(event) {
+    // Handle article investigator filter panel
+    const panel = document.getElementById('filter-dropdown-panel');
+    const btn = document.getElementById('filter-dropdown-btn-articles');
+
+    if (panel && btn && panel.style.display === 'block') {
+        // Check if click is outside both the panel and button
+        if (!panel.contains(event.target) && !btn.contains(event.target)) {
+            panel.style.display = 'none';
+            btn.classList.remove('active');
+        }
+    }
+
+    // Handle narrative explorer filter panel
+    const panelInsights = document.getElementById('filter-dropdown-panel-insights');
+    const btnInsights = document.getElementById('filter-dropdown-btn-insights');
+
+    if (panelInsights && btnInsights && panelInsights.style.display === 'block') {
+        // Check if click is outside both the panel and button
+        if (!panelInsights.contains(event.target) && !btnInsights.contains(event.target)) {
+            panelInsights.style.display = 'none';
+            btnInsights.classList.remove('active');
+        }
+    }
+});
 
 // Toggle incident filters panel visibility
 function toggleIncidentFilters() {
@@ -9451,16 +9840,16 @@ function toggleControlsPanel() {
     const controlsContent = document.getElementById('controlsContent');
     const toggleIcon = document.getElementById('controlsToggleIcon');
     const isCollapsed = controlsContent.style.display === 'none';
-    
+
     if (isCollapsed) {
         // Show controls
         controlsContent.style.display = 'block';
-        toggleIcon.className = 'fas fa-chevron-up';
+        toggleIcon.className = 'fas fa-caret-up';
         localStorage.setItem('newsFeedControlsCollapsed', 'false');
     } else {
         // Hide controls
         controlsContent.style.display = 'none';
-        toggleIcon.className = 'fas fa-chevron-down';
+        toggleIcon.className = 'fas fa-caret-down';
         localStorage.setItem('newsFeedControlsCollapsed', 'true');
     }
 }
@@ -9471,10 +9860,10 @@ function restoreControlsState() {
     if (isCollapsed) {
         const controlsContent = document.getElementById('controlsContent');
         const toggleIcon = document.getElementById('controlsToggleIcon');
-        
+
         if (controlsContent && toggleIcon) {
             controlsContent.style.display = 'none';
-            toggleIcon.className = 'fas fa-chevron-down';
+            toggleIcon.className = 'fas fa-caret-down';
         }
     }
 }
@@ -10709,10 +11098,10 @@ document.head.appendChild(style);
 // Initialize calendar when page loads
 document.addEventListener('DOMContentLoaded', function() {
     console.log('DOM loaded, initializing news feed...');
-    
+
     // Restore controls state first
-    restoreControlsState();
-    
+    // restoreControlsState(); // Commented out - controls should always start expanded
+
     // Load saved defaults
     loadSavedDefaults();
     
@@ -10721,10 +11110,21 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Load organizational profiles (this will restore profile selection)
     loadOrganizationalProfiles();
-    
+
     // Initialize article count for default date range
     updateArticleCountForDateRange();
-    
+
+    // Initialize filter dropdown content for Article Investigator (default tab)
+    updateFilterDropdownContent('articles');
+
+    // Initialize toolbar visibility - show only Article Investigator toolbar by default
+    const toolbarArticles = document.getElementById('toolbar-article-investigator');
+    const toolbarInsights = document.getElementById('toolbar-narrative-explorer');
+    const toolbarSixArticles = document.getElementById('toolbar-six-articles');
+    if (toolbarArticles) toolbarArticles.style.display = 'flex';
+    if (toolbarInsights) toolbarInsights.style.display = 'none';
+    if (toolbarSixArticles) toolbarSixArticles.style.display = 'none';
+
     // Auto-load articles with 90-day default
     setTimeout(() => {
         autoLoadArticles();
@@ -14293,63 +14693,9 @@ function clearAlertFilters() {
 
 // Incident filter functions
 function buildIncidentFilterBadges(incidents) {
-    // Collect unique values
-    const types = new Set();
-    const significanceLevels = new Set();
-    const statusLevels = new Set();
-    
-    incidents.forEach(incident => {
-        if (incident.type) types.add(incident.type);
-        if (incident.significance) significanceLevels.add(incident.significance);
-        const status = incident.status || 'active';
-        statusLevels.add(status);
-    });
-    
-    // Build type filter badges
-    const typeContainer = document.getElementById('incident-type-filters');
-    typeContainer.innerHTML = '';
-    types.forEach(type => {
-        const badge = document.createElement('button');
-        const typeColor = type === 'incident' ? 'btn-outline-danger' : 
-                         type === 'entity' ? 'btn-outline-primary' : 'btn-outline-success';
-        badge.className = `btn btn-sm ${typeColor} filter-badge ${incidentFilters.types.has(type) ? 'active' : ''}`;
-        badge.textContent = type.charAt(0).toUpperCase() + type.slice(1);
-        badge.onclick = () => toggleIncidentFilter('types', type);
-        typeContainer.appendChild(badge);
-    });
-    
-    // Build significance filter badges in correct order: low, medium, high
-    const significanceContainer = document.getElementById('incident-significance-filters');
-    significanceContainer.innerHTML = '';
-    const orderedSignificance = ['low', 'medium', 'high'].filter(sig => significanceLevels.has(sig));
-    orderedSignificance.forEach(significance => {
-        const badge = document.createElement('button');
-        const sigColor = significance === 'high' ? 'btn-outline-danger' : 
-                        significance === 'medium' ? 'btn-outline-warning' : 'btn-outline-info';
-        badge.className = `btn btn-sm ${sigColor} filter-badge ${incidentFilters.significance.has(significance) ? 'active' : ''}`;
-        badge.textContent = significance.charAt(0).toUpperCase() + significance.slice(1);
-        badge.onclick = () => toggleIncidentFilter('significance', significance);
-        significanceContainer.appendChild(badge);
-    });
-    
-    // Build status filter badges
-    const statusContainer = document.getElementById('incident-status-filters');
-    statusContainer.innerHTML = '';
-    const orderedStatus = ['active', 'seen'].filter(status => statusLevels.has(status));
-    orderedStatus.forEach(status => {
-        const badge = document.createElement('button');
-        const statusColor = status === 'seen' ? 'btn-outline-secondary' : 'btn-outline-success';
-        const statusIcon = status === 'seen' ? 'fas fa-eye' : 'fas fa-circle';
-        badge.className = `btn btn-sm ${statusColor} filter-badge ${incidentFilters.status.has(status) ? 'active' : ''}`;
-        badge.innerHTML = `<i class="${statusIcon} me-1"></i>${status.charAt(0).toUpperCase() + status.slice(1)}`;
-        badge.onclick = () => toggleIncidentFilter('status', status);
-        statusContainer.appendChild(badge);
-    });
-    
-    // Show filter section if we have filters
-    if (types.size > 0 || significanceLevels.size > 0 || statusLevels.size > 0) {
-        document.getElementById('incident-filters').style.display = 'block';
-    }
+    // No-op stub: Filter containers were removed in toolbar redesign.
+    // Filters now handled via toolbar dropdown in toggleFilterDropdown().
+    // Kept as stub for backward compatibility with existing code that calls this.
 }
 
 function toggleIncidentFilter(filterType, value) {
@@ -15187,6 +15533,17 @@ let sixArticlesConfig = {
 function showSixArticlesConfigModal() {
     loadSixArticlesConfiguration();
     const modal = new bootstrap.Modal(document.getElementById('sixArticlesConfigModal'));
+
+    // Auto-load "Why Six Articles?" tab when modal opens
+    const modalElement = document.getElementById('sixArticlesConfigModal');
+    modalElement.addEventListener('shown.bs.modal', function() {
+        const rationaleTab = document.getElementById('six-rationale-tab');
+        if (rationaleTab) {
+            const tab = new bootstrap.Tab(rationaleTab);
+            tab.show();
+        }
+    }, { once: true });
+
     modal.show();
 }
 
@@ -15579,6 +15936,17 @@ ANALYSIS INSTRUCTIONS:
 function showIncidentConfigModal() {
     loadIncidentConfiguration();
     const modal = new bootstrap.Modal(document.getElementById('incidentConfigModal'));
+
+    // Auto-load Info tab when modal opens (same pattern as Six Articles)
+    const modalElement = document.getElementById('incidentConfigModal');
+    modalElement.addEventListener('shown.bs.modal', function() {
+        const infoTab = document.getElementById('info-tab');
+        if (infoTab) {
+            const tab = new bootstrap.Tab(infoTab);
+            tab.show();
+        }
+    }, { once: true });
+
     modal.show();
 }
 
@@ -16793,7 +17161,7 @@ function renderTableGroupedByEntity(incidents, container) {
     console.log('Created entity groups:', entityGroups.length, entityGroups);
 
     let html = `
-        <div class="table-responsive" style="max-height: 80vh; overflow-y: auto;">
+        <div class="table-responsive">
             <table class="table table-hover table-sm" style="min-width: 1400px;">
                 <thead class="table-light sticky-top">
                     <tr>
@@ -16864,7 +17232,7 @@ function renderTableGroupedByEntity(incidents, container) {
 
 function renderTableUngrouped(incidents, container) {
     let html = `
-        <div class="table-responsive" style="max-height: 80vh; overflow-y: auto;">
+        <div class="table-responsive">
             <table class="table table-hover table-sm" style="min-width: 1400px;">
                 <thead class="table-light sticky-top">
                     <tr>
@@ -18460,6 +18828,17 @@ function showToast(title, message, type = 'info') {
 // Initialize ticker on DOMContentLoaded
 document.addEventListener('DOMContentLoaded', function() {
     NewsTicker.init();
+
+    // Initialize Six Articles settings dropdown visual states
+    // Set default selections to match the hidden select element defaults
+    setTimeout(function() {
+        if (typeof setPersona === 'function') {
+            setPersona('CEO');
+        }
+        if (typeof setArticleCount === 'function') {
+            setArticleCount(6);
+        }
+    }, 100); // Small delay to ensure DOM is fully ready
 });
 
 </script>
