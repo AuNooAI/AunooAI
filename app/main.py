@@ -72,6 +72,8 @@ from app.routes.keyword_monitor_api import router as keyword_monitor_api_router
 from app.routes.oauth_routes import router as oauth_router
 from app.routes.websocket_routes import router as websocket_router
 from app.routes.user_management_routes import router as user_management_router  # Multi-user support (Added 2025-10-21)
+from app.routes.prompt_management_routes import router as prompt_management_router  # Prompt management API
+from app.routes.market_signals_routes import router as market_signals_router  # Market Signals & Strategic Risks
 
 # ElevenLabs SDK imports used in podcast endpoints
 from elevenlabs import ElevenLabs, PodcastConversationModeData, PodcastTextSource
@@ -121,6 +123,8 @@ app.include_router(keyword_monitor_api_router, prefix="/api")
 app.include_router(keyword_alerts_router, prefix="/api")  # Bulk delete articles endpoint
 app.include_router(onboarding_router)
 app.include_router(user_management_router)  # User management API (Added 2025-10-21)
+app.include_router(prompt_management_router)  # Prompt management API (Added 2025-01-06)
+app.include_router(market_signals_router)  # Market Signals & Strategic Risks (Added 2025-01-06)
 
 class ArticleData(BaseModel):
     title: str

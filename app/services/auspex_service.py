@@ -2284,6 +2284,90 @@ Article Details (First {detail_limit}):
             logger.error(f"Error generating streaming response: {e}")
             yield f"Error generating response: {str(e)}"
 
+    async def generate_structured_analysis(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        model: str = "gpt-4",
+        temperature: float = 0.7,
+        max_tokens: int = 3000
+    ) -> str:
+        """Generate structured JSON analysis.
+
+        This method is designed for features that need structured output
+        like Market Signals, Trend Convergence, etc.
+
+        Args:
+            system_prompt: System prompt defining the AI's role
+            user_prompt: User prompt with analysis instructions
+            model: LLM model to use
+            temperature: Sampling temperature (0.0-1.0)
+            max_tokens: Maximum tokens in response
+
+        Returns:
+            JSON string with analysis results
+
+        Raises:
+            HTTPException: If generation fails
+        """
+        try:
+            logger.info(f"Generating structured analysis with model: {model}")
+
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ]
+
+            # Use litellm completion with JSON mode if supported
+            try:
+                response = await litellm.acompletion(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    response_format={"type": "json_object"}  # Force JSON output
+                )
+            except Exception as e:
+                # Fallback without JSON mode if not supported
+                logger.warning(f"JSON mode not supported for {model}, falling back to regular completion: {e}")
+                response = await litellm.acompletion(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens
+                )
+
+            # Extract content from response
+            if hasattr(response, 'choices') and len(response.choices) > 0:
+                content = response.choices[0].message.content
+
+                # Validate it's actually JSON
+                try:
+                    json.loads(content)  # Test parse
+                    logger.info("Successfully generated and validated structured JSON response")
+                    return content
+                except json.JSONDecodeError as je:
+                    logger.error(f"Response is not valid JSON: {je}")
+                    logger.error(f"Response content: {content[:500]}...")
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail=f"AI returned invalid JSON: {str(je)}"
+                    )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="No response from AI model"
+                )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Error generating structured analysis: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to generate analysis: {str(e)}"
+            )
+
     def get_system_prompt(self, prompt_name: str = None) -> Dict:
         """Get system prompt for Auspex."""
         try:

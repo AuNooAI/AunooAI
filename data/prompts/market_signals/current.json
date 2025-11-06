@@ -1,0 +1,87 @@
+{
+  "prompt_name": "Market Signals Analysis",
+  "feature": "market_signals",
+  "version": "1.0.0",
+  "created_at": "2025-01-06T12:00:00Z",
+  "updated_at": "2025-01-06T12:00:00Z",
+  "author": "System",
+  "description": "Analyzes future signals, disruption scenarios, opportunities, and timeline risks for a given topic",
+
+  "system_prompt": "You are an expert strategic analyst specializing in identifying market signals, strategic risks, and opportunities. Your analysis focuses on:\n\n1. Future Signals: Identify emerging patterns and their frequency\n2. Disruption Scenarios: Recognize potential bubble conditions and overexpectations\n3. Strategic Opportunities: Highlight competitive advantages and timing windows\n4. Timeline Risks: Assess timing-related risks and overoptimistic projections\n\nYour output must be in valid JSON format following the specified schema.",
+
+  "user_prompt": "Analyze {article_count} articles about {topic} from {date_range}.\n\nArticles:\n{articles}\n\n---\n\nReturn ONLY valid JSON with this structure:\n\n```json\n{\n  \"future_signals\": [\n    {\n      \"signal\": \"AI will evolve gradually\",\n      \"description\": \"Brief explanation of this signal\",\n      \"impact\": \"High\",\n      \"timeline\": \"2-5 years\",\n      \"confidence\": \"High\"\n    }\n  ],\n  \"risk_cards\": [\n    {\n      \"title\": \"Current indicators and potential disruption scenarios\",\n      \"description\": \"High investment levels create bubble risk. 98% of investors worried about power reliability for datacenters, yet 70% anticipate increased funding driven by AI demand.\",\n      \"severity\": \"high\",\n      \"icon\": \"warning\"\n    },\n    {\n      \"title\": \"Timeline Risk: AGI Overexpectation\",\n      \"description\": \"Ambitious timelines for achieving AGI may be overly optimistic due to diminishing returns and operational challenges.\",\n      \"severity\": \"medium\",\n      \"icon\": \"clock\"\n    }\n  ],\n  \"opportunity_cards\": [\n    {\n      \"title\": \"Opportunity: Infrastructure Build-out\",\n      \"description\": \"Data center expansion creates competitive advantages for early movers who secure energy and infrastructure partnerships.\",\n      \"impact\": \"high\",\n      \"icon\": \"lightbulb\"\n    },\n    {\n      \"title\": \"Opportunity: Gradual Adoption Advantage\",\n      \"description\": \"Companies focusing on sustainable, gradual AI integration may outperform those chasing unrealistic AGI timelines.\",\n      \"impact\": \"medium\",\n      \"icon\": \"checkmark\"\n    }\n  ],\n  \"quotes\": [\n    {\n      \"text\": \"The AI bubble may burst soon, followed by a period of reckoning, and then the emergence of productive AI-based business practices.\",\n      \"source\": \"TechCrunch (2025-01-03)\",\n      \"url\": \"https://techcrunch.com/article-url\",\n      \"context\": \"Analysis of market trends\",\n      \"relevance\": \"Indicates timing and sequence of market correction\"\n    },\n    {\n      \"text\": \"Investments in [AI superintelligence] are expected to require patience, as transformative outcomes are projected to emerge over a protracted period.\",\n      \"source\": \"Financial Times (2025-01-02)\",\n      \"url\": \"https://ft.com/article-url\",\n      \"context\": \"Investment outlook report\",\n      \"relevance\": \"Warns against short-term AGI expectations\"\n    }\n  ]\n}\n```\n\n**CRITICAL INSTRUCTIONS:**\n\n1. **Future Signals:**\n   - Identify 3-5 distinct signals from the articles\n   - **Impact**: High/Medium/Low (market or business impact if this signal materializes)\n   - **Timeline**: Specific timeframe like \"1-2 years\", \"3-5 years\", \"5-10 years\", \"10+ years\"\n   - **Confidence**: High/Medium/Low (based on evidence strength and article consensus)\n\n2. **Risk Cards:**\n   - Focus on disruption scenarios, bubble indicators, overinvestment\n   - Include specific statistics when available (percentages, amounts)\n   - Severity: critical/high/medium/low\n   - Icon: \"warning\" for general risks, \"clock\" for timeline risks\n   - Generate 2 risk cards (1 warning, 1 clock)\n\n3. **Opportunity Cards:**\n   - Highlight strategic advantages and competitive positioning\n   - Focus on actionable opportunities\n   - Impact: high/medium/low\n   - Icon: \"lightbulb\" for strategic opportunities, \"checkmark\" for proven advantages\n   - Generate 2 opportunity cards (1 lightbulb, 1 checkmark)\n\n4. **Quotes:**\n   - Extract 2-3 impactful quotes from articles or create synthetic quotes based on consensus\n   - **Source**: Format as \"Publication Name (YYYY-MM-DD)\" using the Publication and Publication Date from the articles\n   - **URL**: Include the URL field from the article so users can click through to the source\n   - **Context**: Brief context about where this quote appears (e.g., \"Analysis of market trends\", \"CEO interview\")\n   - **Relevance**: Why this quote matters for the analysis\n\n5. **Data Quality:**\n   - Use specific numbers, percentages, names, dates from articles\n   - Cite evidence-based claims\n   - Balance optimistic and pessimistic views\n   - Focus on actionable insights\n\nReturn ONLY the JSON structure above, no additional text.",
+
+  "expected_output_schema": {
+    "type": "object",
+    "properties": {
+      "future_signals": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "signal": { "type": "string" },
+            "description": { "type": "string" },
+            "impact": { "type": "string", "enum": ["High", "Medium", "Low"] },
+            "timeline": { "type": "string" },
+            "confidence": { "type": "string", "enum": ["High", "Medium", "Low"] }
+          },
+          "required": ["signal", "description", "impact", "timeline", "confidence"]
+        }
+      },
+      "risk_cards": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "title": { "type": "string" },
+            "description": { "type": "string" },
+            "severity": { "type": "string", "enum": ["critical", "high", "medium", "low"] },
+            "icon": { "type": "string", "enum": ["warning", "clock"] }
+          },
+          "required": ["title", "description", "severity", "icon"]
+        }
+      },
+      "opportunity_cards": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "title": { "type": "string" },
+            "description": { "type": "string" },
+            "impact": { "type": "string", "enum": ["high", "medium", "low"] },
+            "icon": { "type": "string", "enum": ["lightbulb", "checkmark"] }
+          },
+          "required": ["title", "description", "impact", "icon"]
+        }
+      },
+      "quotes": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "text": { "type": "string" },
+            "source": { "type": "string" },
+            "url": { "type": "string" },
+            "context": { "type": "string" },
+            "relevance": { "type": "string" }
+          },
+          "required": ["text", "source", "url", "context", "relevance"]
+        }
+      }
+    },
+    "required": ["future_signals", "risk_cards", "opportunity_cards", "quotes"]
+  },
+
+  "variables": {
+    "article_count": "Number of articles analyzed",
+    "topic": "Research topic name",
+    "date_range": "Analysis date range (e.g., 'Last 30 days')",
+    "articles": "Formatted article content"
+  },
+
+  "metadata": {
+    "model": "gpt-4",
+    "temperature": 0.7,
+    "max_tokens": 3000
+  }
+}

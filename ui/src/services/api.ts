@@ -229,6 +229,57 @@ export interface AIModel {
   description?: string;
 }
 
+// ============================================================================
+// Market Signals & Strategic Risks Types
+// ============================================================================
+
+export interface FutureSignal {
+  signal: string;
+  description: string;
+  timeline: string;
+  impact: string;
+  confidence: string;
+  key_indicators: string[];
+}
+
+export interface RiskCard {
+  title: string;
+  description: string;
+  severity: string;
+  timeframe: string;
+  mitigation_strategies: string[];
+}
+
+export interface OpportunityCard {
+  title: string;
+  description: string;
+  potential_value: string;
+  timeframe: string;
+  action_steps: string[];
+}
+
+export interface Quote {
+  text: string;
+  source: string;
+  context: string;
+  relevance: string;
+}
+
+export interface MarketSignalsData {
+  future_signals: FutureSignal[];
+  risk_cards: RiskCard[];
+  opportunity_cards: OpportunityCard[];
+  quotes: Quote[];
+  meta: {
+    topic: string;
+    article_count: number;
+    analyzed_count: number;
+    prompt_version: string;
+    generated_at: string;
+    model: string;
+  };
+}
+
 // API Configuration
 const API_BASE_URL = ''; // Empty string means same origin (FastAPI server)
 
@@ -547,4 +598,41 @@ export async function resetOnboarding(): Promise<{ success: boolean; message: st
   return fetchWithAuth(`${API_BASE_URL}/api/onboarding/reset`, {
     method: 'POST',
   });
+}
+
+// ============================================================================
+// Market Signals API Functions
+// ============================================================================
+
+/**
+ * Get available topics for market signals analysis
+ */
+export async function getMarketSignalsTopics(): Promise<{ success: boolean; topics: string[]; count: number }> {
+  return fetchWithAuth(`${API_BASE_URL}/api/market-signals/topics`);
+}
+
+/**
+ * Generate market signals and strategic risks analysis
+ */
+export async function getMarketSignals(
+  topic: string,
+  model: string,
+  limit: number = 100,
+  temperature?: number,
+  max_tokens?: number
+): Promise<MarketSignalsData> {
+  const queryParams = new URLSearchParams();
+  queryParams.append('topic', topic);  // URLSearchParams handles encoding automatically
+  queryParams.append('model', model);
+  queryParams.append('limit', String(limit));
+
+  if (temperature !== undefined) {
+    queryParams.append('temperature', String(temperature));
+  }
+  if (max_tokens !== undefined) {
+    queryParams.append('max_tokens', String(max_tokens));
+  }
+
+  const url = `${API_BASE_URL}/api/market-signals/analysis?${queryParams}`;
+  return fetchWithAuth<MarketSignalsData>(url);
 }

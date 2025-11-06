@@ -461,23 +461,32 @@ function App() {
                       <thead className="bg-gray-50">
                         <tr>
                           <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800">Future Signal</th>
-                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800">Frequency</th>
-                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800">Time to Impact</th>
+                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800">Impact</th>
+                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800">Timeline</th>
+                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800">Confidence</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
-                        {(data.future_signals || []).map((signal, idx) => (
+                        {('future_signals' in data ? data.future_signals : []).map((signal: any, idx: number) => (
                           <tr key={idx} className="hover:bg-gray-50">
-                            <td className="px-6 py-4 text-sm text-gray-950">
-                              {typeof signal === 'string' ? signal : signal.name || signal.description}
+                            <td className="px-6 py-4">
+                              <div className="text-sm font-medium text-gray-950">{signal.signal}</div>
+                              <div className="text-xs text-gray-600 mt-1">{signal.description}</div>
                             </td>
                             <td className="px-6 py-4">
-                              <span className="inline-block px-3 py-1 text-xs font-medium bg-pink-100 text-pink-700 rounded">
-                                {typeof signal === 'string' ? 'Badge' : signal.frequency || 'Badge'}
+                              <span className={`inline-block px-3 py-1 text-xs font-medium rounded ${
+                                signal.impact === 'High' ? 'bg-red-100 text-red-700' :
+                                signal.impact === 'Medium' ? 'bg-yellow-100 text-yellow-700' :
+                                'bg-blue-100 text-blue-700'
+                              }`}>
+                                {signal.impact}
                               </span>
                             </td>
                             <td className="px-6 py-4 text-sm text-gray-700">
-                              {typeof signal === 'string' ? 'Immediate/Mid/Long-term' : signal.time_to_impact || 'Immediate/Mid/Long-term'}
+                              {signal.timeline}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-700">
+                              {signal.confidence}
                             </td>
                           </tr>
                         ))}
@@ -485,92 +494,105 @@ function App() {
                     </table>
                   </div>
 
-                  {/* Current Indicators and Opportunities */}
+                  {/* Risk Cards and Opportunity Cards */}
                   <div className="grid grid-cols-2 gap-6">
-                    {/* Disruption Scenarios - Left Column */}
+                    {/* Risk Cards - Left Column */}
                     <div className="space-y-4">
-                      <div className="bg-white border border-gray-200 rounded-xl p-5">
-                        <div className="flex items-start gap-3">
-                          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-red-100 flex items-center justify-center">
-                            <AlertCircle className="w-5 h-5 text-red-600" />
-                          </div>
-                          <div className="flex-1">
-                            <h3 className="font-semibold text-gray-950 mb-2">
-                              {data.disruption_scenarios?.[0]?.title || 'Current indicators and potential disruption scenarios'}
-                            </h3>
-                            <p className="text-sm text-gray-700">
-                              {data.disruption_scenarios?.[0]?.description || 'High investment levels create bubble risk. 98% of investors worried about power reliability for datacenters, yet 70% anticipate increased funding driven by AI demand.'}
-                            </p>
+                      {('risk_cards' in data ? data.risk_cards : []).map((risk: any, idx: number) => (
+                        <div key={idx} className="bg-white border border-gray-200 rounded-xl p-5">
+                          <div className="flex items-start gap-3">
+                            <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                              risk.severity === 'High' || risk.severity === 'Critical' ? 'bg-red-100' :
+                              risk.severity === 'Medium' ? 'bg-yellow-100' : 'bg-orange-100'
+                            }`}>
+                              <AlertCircle className={`w-5 h-5 ${
+                                risk.severity === 'High' || risk.severity === 'Critical' ? 'text-red-600' :
+                                risk.severity === 'Medium' ? 'text-yellow-600' : 'text-orange-600'
+                              }`} />
+                            </div>
+                            <div className="flex-1">
+                              <div className="flex items-center justify-between mb-2">
+                                <h3 className="font-semibold text-gray-950">{risk.title}</h3>
+                                <span className="text-xs text-gray-500">{risk.timeframe}</span>
+                              </div>
+                              <p className="text-sm text-gray-700 mb-3">{risk.description}</p>
+                              {risk.mitigation_strategies && risk.mitigation_strategies.length > 0 && (
+                                <div className="text-xs">
+                                  <p className="font-medium text-gray-600 mb-1">Mitigation:</p>
+                                  <ul className="list-disc list-inside space-y-1 text-gray-600">
+                                    {risk.mitigation_strategies.slice(0, 2).map((strategy: string, sidx: number) => (
+                                      <li key={sidx}>{strategy}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-
-                      <div className="bg-white border border-gray-200 rounded-xl p-5">
-                        <div className="flex items-start gap-3">
-                          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-red-100 flex items-center justify-center">
-                            <AlertCircle className="w-5 h-5 text-red-600" />
-                          </div>
-                          <div className="flex-1">
-                            <h3 className="font-semibold text-gray-950 mb-2">
-                              {data.disruption_scenarios?.[1]?.title || 'Timeline Risk: AGI Overexpectation'}
-                            </h3>
-                            <p className="text-sm text-gray-700">
-                              {data.disruption_scenarios?.[1]?.description || 'Ambitious timelines for achieving AGI may be overly optimistic due to diminishing returns and operational challenges.'}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
+                      ))}
                     </div>
 
-                    {/* Opportunities - Right Column */}
+                    {/* Opportunity Cards - Right Column */}
                     <div className="space-y-4">
-                      <div className="bg-white border border-gray-200 rounded-xl p-5">
-                        <div className="flex items-start gap-3">
-                          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                            <Target className="w-5 h-5 text-green-600" />
-                          </div>
-                          <div className="flex-1">
-                            <h3 className="font-semibold text-gray-950 mb-2">
-                              {data.opportunities?.[0]?.title || 'Opportunity: Infrastructure Build-out'}
-                            </h3>
-                            <p className="text-sm text-gray-700">
-                              {data.opportunities?.[0]?.description || 'Data center expansion creates competitive advantages for early movers who secure energy and infrastructure partnerships.'}
-                            </p>
+                      {('opportunity_cards' in data ? data.opportunity_cards : []).map((opportunity: any, idx: number) => (
+                        <div key={idx} className="bg-white border border-gray-200 rounded-xl p-5">
+                          <div className="flex items-start gap-3">
+                            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+                              <Target className="w-5 h-5 text-green-600" />
+                            </div>
+                            <div className="flex-1">
+                              <div className="flex items-center justify-between mb-2">
+                                <h3 className="font-semibold text-gray-950">{opportunity.title}</h3>
+                                <span className="text-xs text-gray-500">{opportunity.timeframe}</span>
+                              </div>
+                              <p className="text-sm text-gray-700 mb-3">{opportunity.description}</p>
+                              {opportunity.potential_value && (
+                                <p className="text-xs font-medium text-green-600 mb-2">
+                                  Value: {opportunity.potential_value}
+                                </p>
+                              )}
+                              {opportunity.action_steps && opportunity.action_steps.length > 0 && (
+                                <div className="text-xs">
+                                  <p className="font-medium text-gray-600 mb-1">Actions:</p>
+                                  <ul className="list-disc list-inside space-y-1 text-gray-600">
+                                    {opportunity.action_steps.slice(0, 2).map((step: string, sidx: number) => (
+                                      <li key={sidx}>{step}</li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-
-                      <div className="bg-white border border-gray-200 rounded-xl p-5">
-                        <div className="flex items-start gap-3">
-                          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                            <Target className="w-5 h-5 text-green-600" />
-                          </div>
-                          <div className="flex-1">
-                            <h3 className="font-semibold text-gray-950 mb-2">
-                              {data.opportunities?.[1]?.title || 'Opportunity: Gradual Adoption Advantage'}
-                            </h3>
-                            <p className="text-sm text-gray-700">
-                              {data.opportunities?.[1]?.description || 'Companies focusing on sustainable, gradual AI integration may outperform those chasing unrealistic AGI timelines.'}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
+                      ))}
                     </div>
                   </div>
 
-                  {/* Quoted Insights */}
+                  {/* Quotes Section */}
                   <div className="space-y-4">
-                    {(data.key_insights || []).slice(0, 2).map((insight, idx) => (
+                    {('quotes' in data ? data.quotes : []).slice(0, 3).map((quote: any, idx: number) => (
                       <div key={idx} className="bg-cyan-50 border border-cyan-200 rounded-xl p-6">
                         <div className="flex gap-4">
                           <div className="text-4xl text-cyan-400 font-serif leading-none">"</div>
                           <div className="flex-1">
                             <p className="text-gray-800 mb-2 italic">
-                              {typeof insight === 'string' ? insight : insight.quote || insight.insight || insight.description}
+                              {quote.text}
                             </p>
-                            <p className="text-sm text-gray-700 text-right">
-                              — {typeof insight === 'string' ? 'Industry Analysis' : insight.source || insight.attribution || 'Industry Analysis'}
-                            </p>
+                            <div className="flex justify-between items-end">
+                              <div className="text-xs text-gray-600">
+                                {quote.context}
+                              </div>
+                              <p className="text-sm text-gray-700">
+                                — <a href={quote.url} target="_blank" rel="noopener noreferrer" className="text-cyan-600 hover:text-cyan-700 hover:underline">
+                                  {quote.source}
+                                </a>
+                              </p>
+                            </div>
+                            {quote.relevance && (
+                              <div className="mt-2 text-xs text-gray-600 border-t border-cyan-200 pt-2">
+                                <span className="font-medium">Relevance:</span> {quote.relevance}
+                              </div>
+                            )}
                           </div>
                         </div>
                       </div>

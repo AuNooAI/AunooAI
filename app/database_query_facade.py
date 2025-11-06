@@ -920,6 +920,38 @@ class DatabaseQueryFacade:
         ).limit(optimal_sample_size)
         return self._execute_with_rollback(statement).mappings().fetchall()
 
+    def get_articles_by_topic(self, topic: str, limit: int = 100):
+        """Get recent articles for a topic.
+
+        Args:
+            topic: Topic name
+            limit: Maximum number of articles to return
+
+        Returns:
+            List of article dictionaries
+        """
+        statement = select(
+            articles.c.uri,
+            articles.c.title,
+            articles.c.summary,
+            articles.c.future_signal,
+            articles.c.sentiment,
+            articles.c.time_to_impact,
+            articles.c.driver_type,
+            articles.c.category,
+            articles.c.publication_date,
+            articles.c.news_source
+        ).where(
+            and_(
+                articles.c.topic == topic,
+                articles.c.analyzed == True  # Only analyzed articles
+            )
+        ).order_by(
+            desc(articles.c.publication_date)
+        ).limit(limit)
+
+        return self._execute_with_rollback(statement).mappings().fetchall()
+
     def get_topic_filtered_future_signals_with_counts_for_market_signal_analysis(self, topic_name):
         # We need actual counts, not just the config list
         # Use ALL articles (including historical) as inputs for foresight analysis
@@ -954,7 +986,16 @@ class DatabaseQueryFacade:
         )
         rows = self._execute_with_rollback(statement).mappings().fetchall()
 
-        return [row[0] for row in rows] 
+        return [row[0] for row in rows]
+
+    def get_all_topics(self):
+        """Get all topics as list of dictionaries.
+
+        Returns:
+            List of topic dictionaries with 'name' field
+        """
+        topic_names = self.get_unique_topics()
+        return [{"name": name} for name in topic_names] 
 
 
     def get_unique_categories(self):

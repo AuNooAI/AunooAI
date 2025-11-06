@@ -48,12 +48,45 @@ cp -r build/* "$STATIC_DIR/"
 echo "🔧 Updating page title..."
 sed -i 's|<title>.*</title>|<title>Trend Convergence Analysis - AuNoo AI</title>|' "$STATIC_DIR/index.html"
 
+# Extract asset hashes from built index.html
+echo "🔍 Extracting asset hashes from built files..."
+TEMPLATE_FILE="$PROJECT_ROOT/templates/trend_convergence_react.html"
+
+# Extract the hash from each asset file
+INDEX_CSS=$(grep -oP 'index-[^.]+\.css' "$STATIC_DIR/index.html" | head -1)
+MAIN_CSS=$(grep -oP 'main-[^.]+\.css' "$STATIC_DIR/index.html" | head -1)
+MAIN_JS=$(grep -oP 'main-[^.]+\.js' "$STATIC_DIR/index.html" | head -1)
+INDEX_JS=$(grep -oP 'index-[^.]+\.js' "$STATIC_DIR/index.html" | head -1)
+
+echo "  📄 Index CSS: $INDEX_CSS"
+echo "  📄 Main CSS: $MAIN_CSS"
+echo "  📄 Main JS: $MAIN_JS"
+echo "  📄 Index JS: $INDEX_JS"
+
+# Update the Jinja2 template with new asset hashes
+echo "🔧 Updating Jinja2 template with new asset hashes..."
+
+# Backup the template
+cp "$TEMPLATE_FILE" "$TEMPLATE_FILE.backup"
+
+# Update CSS files (lines 15-16)
+sed -i "s|/static/trend-convergence/assets/index-[^.]*\.css|/static/trend-convergence/assets/$INDEX_CSS|" "$TEMPLATE_FILE"
+sed -i "s|/static/trend-convergence/assets/main-[^.]*\.css|/static/trend-convergence/assets/$MAIN_CSS|" "$TEMPLATE_FILE"
+
+# Update JS files (lines 28-29)
+sed -i "s|/static/trend-convergence/assets/main-[^.]*\.js|/static/trend-convergence/assets/$MAIN_JS|" "$TEMPLATE_FILE"
+sed -i "s|/static/trend-convergence/assets/index-[^.]*\.js|/static/trend-convergence/assets/$INDEX_JS|" "$TEMPLATE_FILE"
+
+echo "✅ Template updated successfully!"
+echo ""
+
 echo ""
 echo "✅ Deployment complete!"
 echo ""
 echo "📊 Build artifacts:"
-ls -lh "$STATIC_DIR"
+ls -lh "$STATIC_DIR/assets" | head -20
 echo ""
 echo "🌐 React UI is now available at: /trend-convergence"
+echo "📝 Template updated: $TEMPLATE_FILE"
 echo ""
 echo "================================"

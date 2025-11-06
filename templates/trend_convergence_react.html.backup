@@ -12,7 +12,7 @@
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <!-- React App CSS -->
-    <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/index-Qy4ir2BI.css">
+    <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/index-dCFEI8Nq.css">
     <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/main-CRZ-X5Jl.css">
     <!-- Auspex Chat CSS (loaded after React CSS to ensure proper z-index) -->
     <link rel="stylesheet" href="/static/css/auspex-chat.css">
@@ -25,8 +25,8 @@
         z-index: 9998 !important;
       }
     </style>
-    <script type="module" crossorigin src="/static/trend-convergence/assets/main-DdYA5wK9.js"></script>
-    <link rel="modulepreload" crossorigin href="/static/trend-convergence/assets/index-D931yIEg.js">
+    <script type="module" crossorigin src="/static/trend-convergence/assets/main-BBEJRhwS.js"></script>
+    <link rel="modulepreload" crossorigin href="/static/trend-convergence/assets/index-60eau-kJ.js">
   </head>
 
   <body>

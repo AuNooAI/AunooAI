@@ -8,7 +8,9 @@ import {
   getTopics,
   getOrganizationalProfiles,
   getAvailableModels,
+  getMarketSignals,
   type TrendConvergenceData,
+  type MarketSignalsData,
   type Topic,
   type OrganizationalProfile,
   type AIModel,
@@ -29,8 +31,8 @@ export interface AnalysisConfig {
 }
 
 export interface UseTrendConvergenceReturn {
-  // Data
-  data: TrendConvergenceData | null;
+  // Data (can be either TrendConvergenceData or MarketSignalsData depending on tab)
+  data: TrendConvergenceData | MarketSignalsData | null;
   topics: Topic[];
   profiles: OrganizationalProfile[];
   models: AIModel[];
@@ -79,7 +81,7 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
   };
 
   // Load cached analysis data for current tab
-  const loadStoredData = (tab?: string): TrendConvergenceData | null => {
+  const loadStoredData = (tab?: string): TrendConvergenceData | MarketSignalsData | null => {
     try {
       // Try per-tab cache first
       if (tab) {
@@ -101,7 +103,7 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
   };
 
   // State
-  const [data, setData] = useState<TrendConvergenceData | null>(null);
+  const [data, setData] = useState<TrendConvergenceData | MarketSignalsData | null>(null);
   const [topics, setTopics] = useState<Topic[]>([]);
   const [profiles, setProfiles] = useState<OrganizationalProfile[]>([]);
   const [models, setModels] = useState<AIModel[]>([]);
@@ -170,7 +172,8 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
       return;
     }
 
-    if (!config.model) {
+    if (!config.model && config.tab !== 'signals') {
+      // Market Signals doesn't use the model config (it uses the prompt's model)
       setError('Please select a model');
       return;
     }
@@ -179,12 +182,25 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
     setError(null);
 
     try {
-      // If force refresh, disable caching temporarily
-      const analysisConfig = forceRefresh
-        ? { ...config, enable_caching: false }
-        : config;
+      let result: TrendConvergenceData | MarketSignalsData;
 
-      const result = await generateTrendConvergence(analysisConfig);
+      // Market Signals uses a different API endpoint
+      if (config.tab === 'signals') {
+        result = await getMarketSignals(
+          config.topic,
+          config.model,
+          config.custom_limit || 100
+          // temperature and max_tokens are handled by prompt defaults
+        );
+      } else {
+        // If force refresh, disable caching temporarily
+        const analysisConfig = forceRefresh
+          ? { ...config, enable_caching: false }
+          : config;
+
+        result = await generateTrendConvergence(analysisConfig);
+      }
+
       setData(result);
 
       // Save analysis data to localStorage (per-tab)
