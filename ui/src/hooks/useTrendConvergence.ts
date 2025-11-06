@@ -25,6 +25,7 @@ export interface AnalysisConfig {
   enable_caching: boolean;
   cache_duration_hours: number;
   profile_id?: number;
+  tab?: string;  // Active tab: consensus, strategic, signals, timeline, horizons
 }
 
 export interface UseTrendConvergenceReturn {
@@ -58,7 +59,8 @@ const DEFAULT_CONFIG: AnalysisConfig = {
 
 const STORAGE_KEYS = {
   CONFIG: 'trendConvergence_config',
-  DATA: 'trendConvergence_data',
+  DATA: 'trendConvergence_data', // Legacy key
+  DATA_PREFIX: 'trendConvergence_data_', // Per-tab keys: trendConvergence_data_consensus, etc.
   TOPIC: 'trendConvergence_topic'
 };
 
@@ -76,9 +78,18 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
     return DEFAULT_CONFIG;
   };
 
-  // Load cached analysis data
-  const loadStoredData = (): TrendConvergenceData | null => {
+  // Load cached analysis data for current tab
+  const loadStoredData = (tab?: string): TrendConvergenceData | null => {
     try {
+      // Try per-tab cache first
+      if (tab) {
+        const tabKey = `${STORAGE_KEYS.DATA_PREFIX}${tab}`;
+        const stored = localStorage.getItem(tabKey);
+        if (stored) {
+          return JSON.parse(stored);
+        }
+      }
+      // Fall back to legacy key
       const stored = localStorage.getItem(STORAGE_KEYS.DATA);
       if (stored) {
         return JSON.parse(stored);
@@ -90,7 +101,7 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
   };
 
   // State
-  const [data, setData] = useState<TrendConvergenceData | null>(loadStoredData);
+  const [data, setData] = useState<TrendConvergenceData | null>(null);
   const [topics, setTopics] = useState<Topic[]>([]);
   const [profiles, setProfiles] = useState<OrganizationalProfile[]>([]);
   const [models, setModels] = useState<AIModel[]>([]);
@@ -114,6 +125,16 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
   useEffect(() => {
     loadInitialData();
   }, []);
+
+  // Load tab-specific data when config.tab changes
+  useEffect(() => {
+    if (config.tab) {
+      const cachedData = loadStoredData(config.tab);
+      if (cachedData) {
+        setData(cachedData);
+      }
+    }
+  }, [config.tab]);
 
   const loadInitialData = async () => {
     try {
@@ -166,8 +187,13 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
       const result = await generateTrendConvergence(analysisConfig);
       setData(result);
 
-      // Save analysis data to localStorage
+      // Save analysis data to localStorage (per-tab)
       try {
+        if (config.tab) {
+          const tabKey = `${STORAGE_KEYS.DATA_PREFIX}${config.tab}`;
+          localStorage.setItem(tabKey, JSON.stringify(result));
+        }
+        // Also save to legacy key for backwards compatibility
         localStorage.setItem(STORAGE_KEYS.DATA, JSON.stringify(result));
       } catch (err) {
         console.error('Error saving analysis data:', err);

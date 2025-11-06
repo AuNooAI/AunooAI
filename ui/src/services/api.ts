@@ -41,7 +41,153 @@ export interface ExecutiveDecisionFramework {
   }>;
 }
 
+// Auspex Consensus Analysis Data Structure (matches skunkworkx)
+export interface AuspexConsensusType {
+  summary: string;
+  distribution: {
+    positive: number;
+    neutral: number;
+    critical: number;
+  };
+  confidence_level: number;
+}
+
+export interface AuspexTimelineConsensus {
+  distribution: { [key: string]: number };
+  consensus_window: {
+    start_year: number;
+    end_year: number;
+    label: string;
+  };
+}
+
+export interface AuspexConfidenceLevel {
+  majority_agreement: number;
+  consensus_strength: 'Strong' | 'Moderate' | 'Emerging';
+  evidence_quality: 'High' | 'Medium' | 'Low';
+}
+
+export interface AuspexOutlier {
+  scenario: string;
+  details: string;
+  year: number;
+  source_percentage: number;
+  reference: string;
+}
+
+export interface AuspexKeyArticle {
+  title: string;
+  url: string;
+  summary: string;
+  sentiment: string;
+  relevance_score: number;
+}
+
+export interface AuspexDecisionWindow {
+  urgency: 'Critical' | 'High' | 'Medium' | 'Low';
+  window: string;
+  action: string;
+  rationale: string;
+  owner: string;
+  dependencies: string[];
+  success_metrics: string[];
+}
+
+export interface AuspexTimeframeAnalysis {
+  immediate: string;
+  short_term: string;
+  mid_term: string;
+  key_milestones: {
+    year: number;
+    milestone: string;
+    significance: string;
+  }[];
+}
+
+export interface AuspexConsensusCategory {
+  category_name: string;
+  category_description: string;
+  articles_analyzed: number;
+  '1_consensus_type': AuspexConsensusType;
+  '2_timeline_consensus': AuspexTimelineConsensus;
+  '3_confidence_level': AuspexConfidenceLevel;
+  '4_optimistic_outliers': AuspexOutlier[];
+  '5_pessimistic_outliers': AuspexOutlier[];
+  '6_key_articles': AuspexKeyArticle[];
+  '7_strategic_implications': string;
+  '8_key_decision_windows': AuspexDecisionWindow[];
+  '9_timeframe_analysis': AuspexTimeframeAnalysis;
+}
+
+// Legacy Convergence interface (kept for backward compatibility with other tabs)
+export interface ActionItem {
+  priority: 'High' | 'Medium' | 'Low';
+  action: string;
+  timeframe: string;
+  owner: string;
+  dependencies: string[];
+  success_metrics: string[];
+}
+
+export interface TimeframeAnalysis {
+  immediate: string;
+  short_term: string;
+  mid_term: string;
+  key_milestones: {
+    year: number;
+    milestone: string;
+    significance: string;
+  }[];
+}
+
+export interface Convergence {
+  name: string;
+  description: string;
+  consensus_percentage: number;
+  consensus_type: string;
+  timeline_start_year: number;
+  timeline_end_year: number;
+  timeline_consensus: string;
+  sentiment_distribution: {
+    positive: number;
+    neutral: number;
+    critical: number;
+  };
+  articles_analyzed: number;
+  optimistic_outlier: {
+    year: number;
+    description: string;
+    source_percentage: number;
+  };
+  pessimistic_outlier: {
+    year: number;
+    description: string;
+    source_percentage: number;
+  };
+  strategic_implication: string;
+  action_items?: ActionItem[];
+  timeframe_analysis?: TimeframeAnalysis;
+  key_articles: {
+    title: string;
+    url: string;
+    summary: string;
+    sentiment?: string;
+  }[];
+}
+
+export interface KeyInsight {
+  quote: string;
+  source: string;
+  relevance: string;
+}
+
 export interface TrendConvergenceData {
+  topic?: string;
+  // New Auspex structure (Consensus Analysis tab)
+  categories?: AuspexConsensusCategory[];
+  // Legacy structure (for other tabs)
+  convergences?: Convergence[];
+  key_insights?: KeyInsight[];
   strategic_recommendations?: StrategicRecommendations;
   executive_decision_framework?: ExecutiveDecisionFramework;
   next_steps?: string[];
@@ -135,6 +281,7 @@ export async function generateTrendConvergence(params: {
   enable_caching?: boolean;
   cache_duration_hours?: number;
   profile_id?: number;
+  tab?: string;  // Specific tab to generate: consensus, strategic, signals, timeline, horizons
 }): Promise<TrendConvergenceData> {
   const queryParams = new URLSearchParams();
 
@@ -155,6 +302,10 @@ export async function generateTrendConvergence(params: {
 
   if (params.profile_id) {
     queryParams.append('profile_id', String(params.profile_id));
+  }
+
+  if (params.tab) {
+    queryParams.append('tab', params.tab);
   }
 
   const url = `${API_BASE_URL}/api/trend-convergence/${encodeURIComponent(params.topic)}?${queryParams}`;

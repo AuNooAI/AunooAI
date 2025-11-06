@@ -8,6 +8,7 @@ import { SharedNavigation } from './components/SharedNavigation';
 import { TabNavigation } from './components/TabNavigation';
 import { TimelineBar } from './components/TimelineBar';
 import { ConvergenceCard } from './components/ConvergenceCard';
+import ConsensusCategoryCard from './components/ConsensusCategoryCard';
 import { ImpactTimelineCard } from './components/ImpactTimelineCard';
 import { FutureHorizons } from './components/FutureHorizons';
 import { OrganizationalProfileModal } from './components/OrganizationalProfileModal';
@@ -49,6 +50,33 @@ function App() {
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
+
+  // Sync active tab to config and auto-load data if not cached
+  useEffect(() => {
+    // Map UI tab names to backend tab parameter values
+    const tabMap: { [key: string]: string } = {
+      'consensus': 'consensus',
+      'strategic-recommendations': 'strategic',
+      'impact-timeline': 'timeline',
+      'market-signals': 'signals',
+      'future-horizons': 'horizons'
+    };
+
+    const backendTab = tabMap[activeTab];
+    if (backendTab) {
+      updateConfig({ tab: backendTab });
+
+      // Check if we have cached data for this tab
+      const tabKey = `trendConvergence_data_${backendTab}`;
+      const cachedData = localStorage.getItem(tabKey);
+
+      // If no cached data and we have a topic, auto-generate
+      if (!cachedData && config.topic && !loading) {
+        console.log(`No cached data for ${backendTab} tab, auto-generating...`);
+        generateAnalysis();
+      }
+    }
+  }, [activeTab, updateConfig, config.topic, loading, generateAnalysis]);
 
   // Calculate context info when model or sample size changes
   useEffect(() => {
@@ -554,9 +582,18 @@ function App() {
               {/* Consensus Analysis Tab */}
               {activeTab === 'consensus' && (
                 <>
-                  {/* Convergence Cards */}
+                  {/* Consensus Category Cards (New Auspex Structure) */}
                   <div className="space-y-4">
-                    {(data.convergences || []).map((convergence, idx) => {
+                    {(data.categories || []).map((category, idx) => (
+                      <ConsensusCategoryCard
+                        key={idx}
+                        category={category}
+                        index={idx}
+                      />
+                    ))}
+
+                    {/* Fallback to legacy convergence structure if categories not present */}
+                    {(!data.categories || data.categories.length === 0) && (data.convergences || []).map((convergence, idx) => {
                       const colors = ['purple', 'orange', 'blue', 'green', 'pink', 'indigo'];
                       const color = colors[idx % colors.length];
 
@@ -581,6 +618,12 @@ function App() {
                           strategicImplication={convergence.strategic_implication || 'Strategic planning required'}
                           keyArticles={convergence.key_articles || []}
                           color={color}
+                          consensusType={convergence.consensus_type}
+                          sentimentDistribution={convergence.sentiment_distribution}
+                          timelineConsensus={convergence.timeline_consensus}
+                          articlesAnalyzed={convergence.articles_analyzed}
+                          actionItems={convergence.action_items}
+                          timeframeAnalysis={convergence.timeframe_analysis}
                         />
                       );
                     })}

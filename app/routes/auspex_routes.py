@@ -484,7 +484,10 @@ async def get_consensus_analysis(req: ConsensusAnalysisRequest, session=Depends(
     
     auspex = get_auspex_service()
     user_id = session.get('user')
-    
+
+    import time
+    analysis_start_time = time.time()
+
     try:
         # Create a temporary chat session for the analysis
         chat_id = await auspex.create_chat_session(
@@ -639,7 +642,20 @@ async def get_consensus_analysis(req: ConsensusAnalysisRequest, session=Depends(
                     ],
                     "7_strategic_implications": {{
                         "summary": "[key strategic insights about emerging trends]",
-                        "recommendations": ["[recommendation for trend monitoring]", "[recommendation for trend preparation]"]
+                        "decision_principles": [
+                            {{
+                                "principle": "[key decision principle]",
+                                "rationale": "[why this matters strategically]"
+                            }}
+                        ],
+                        "recommendations": [
+                            {{
+                                "action": "[specific actionable recommendation]",
+                                "priority": "[High/Medium/Low]",
+                                "timeline": "[immediate/short-term/mid-term]"
+                            }}
+                        ],
+                        "success_metrics": ["[measurable success indicator]"]
                     }}
                 }}
 
@@ -702,7 +718,20 @@ async def get_consensus_analysis(req: ConsensusAnalysisRequest, session=Depends(
                     ],
                     "7_strategic_implications": {{
                         "summary": "[key strategic insights for planning]",
-                        "recommendations": ["[actionable recommendation 1]", "[actionable recommendation 2]"]
+                        "decision_principles": [
+                            {{
+                                "principle": "[key decision principle]",
+                                "rationale": "[why this matters strategically]"
+                            }}
+                        ],
+                        "recommendations": [
+                            {{
+                                "action": "[specific actionable recommendation]",
+                                "priority": "[High/Medium/Low]",
+                                "timeline": "[immediate/short-term/mid-term]"
+                            }}
+                        ],
+                        "success_metrics": ["[measurable success indicator]"]
                     }}
                 }}
 
@@ -747,14 +776,18 @@ async def get_consensus_analysis(req: ConsensusAnalysisRequest, session=Depends(
                     {{
                         "scenario": "[optimistic scenario description]",
                         "timeline": "[when this might happen]",
-                        "source": "[article title or source if available]"
+                        "source": "[article title or source if available]",
+                        "source_percentage": [percentage of sources supporting this view],
+                        "year": [estimated year]
                     }}
                 ],
                 "5_pessimistic_outliers": [
                     {{
                         "scenario": "[pessimistic scenario description]",
                         "timeline": "[when this might happen]",
-                        "source": "[article title or source if available]"
+                        "source": "[article title or source if available]",
+                        "source_percentage": [percentage of sources supporting this view],
+                        "year": [estimated year]
                     }}
                 ],
                 "6_key_articles": [
@@ -766,11 +799,32 @@ async def get_consensus_analysis(req: ConsensusAnalysisRequest, session=Depends(
                 ],
                 "7_strategic_implications": {{
                     "summary": "[key strategic insights for planning]",
-                    "recommendations": ["[actionable recommendation 1]", "[actionable recommendation 2]"]
+                    "decision_principles": [
+                        {{
+                            "principle": "[key decision principle]",
+                            "rationale": "[why this matters strategically]"
+                        }}
+                    ],
+                    "recommendations": [
+                        {{
+                            "action": "[specific actionable recommendation]",
+                            "priority": "[High/Medium/Low]",
+                            "timeline": "[immediate/short-term/mid-term]"
+                        }}
+                    ],
+                    "success_metrics": ["[measurable success indicator]"]
                 }}
             }}
 
-            Base your analysis on actual sentiment patterns, time-to-impact data, and article content from the database for this specific category only. Return ONLY the JSON object, no additional text.
+            Base your analysis on actual sentiment patterns, time-to-impact data, and article content from the database for this specific category only.
+
+            IMPORTANT:
+            - Provide up to 3 optimistic outliers and up to 3 pessimistic outliers if the data supports multiple distinct scenarios
+            - Include source_percentage and year for each outlier for timeline positioning
+            - Provide 2-3 decision principles, 3-4 prioritized recommendations, and 2-3 success metrics
+            - Ensure key_articles includes actual article titles from the analyzed data with URLs if available
+
+            Return ONLY the JSON object, no additional text.
             """
             
             # Get category-specific analysis
@@ -854,28 +908,113 @@ async def get_consensus_analysis(req: ConsensusAnalysisRequest, session=Depends(
             
             category_analyses[category] = category_response
             logger.info(f"Completed analysis for {category}: {len(category_response)} characters")
-        
+
+        # Generate cross-category evidence synthesis
+        logger.info("Generating cross-category evidence synthesis...")
+        synthesis_prompt = f"""Based on the consensus analyses across {len(target_categories)} categories for the topic "{req.topic}", provide a high-level evidence synthesis.
+
+CATEGORY ANALYSES SUMMARY:
+{json.dumps({cat: analysis[:500] + '...' for cat, analysis in category_analyses.items()}, indent=2)}
+
+Please provide a JSON response with the following structure:
+{{
+    "8_evidence_synthesis": {{
+        "key_patterns": [
+            {{
+                "pattern": "[Cross-cutting theme or pattern identified across categories]",
+                "supporting_categories": ["[category name]", "[category name]"],
+                "significance": "[Why this pattern matters strategically]"
+            }}
+        ],
+        "consensus_strength": {{
+            "overall_agreement_level": "[High/Medium/Low]",
+            "areas_of_strong_consensus": ["[specific area]"],
+            "areas_of_divergence": ["[specific area where views differ]"]
+        }},
+        "timeline_clusters": {{
+            "immediate_actions": "[What needs attention now based on all evidence]",
+            "short_term_outlook": "[2025-2027 synthesis]",
+            "mid_term_outlook": "[2027-2030 synthesis]",
+            "long_term_outlook": "[2030+ synthesis]"
+        }},
+        "strategic_priorities": [
+            {{
+                "priority": "[Strategic action or decision needed]",
+                "rationale": "[Why this is a top priority across all evidence]",
+                "urgency": "[High/Medium/Low]",
+                "supporting_evidence": "[Which categories/data points support this]"
+            }}
+        ]
+    }}
+}}
+
+IMPORTANT: Provide 2-3 key patterns, assess consensus strength honestly, describe timeline clusters based on actual data, and identify 3-5 strategic priorities."""
+
+        synthesis_response = ""
+        async for chunk in auspex.chat(
+            chat_id=chat_id,
+            message=synthesis_prompt,
+            stream=True
+        ):
+            synthesis_response += chunk
+
+        logger.info(f"Generated evidence synthesis: {len(synthesis_response)} characters")
+
         # Combine all category analyses into final response
         combined_analysis = {
             "topic": req.topic,
             "timeframe": req.timeframe,
             "total_categories_analyzed": len(target_categories),
             "category_analyses": category_analyses,
+            "evidence_synthesis": synthesis_response,
             "summary": f"Conducted separate consensus analysis for {len(target_categories)} categories within {req.topic}"
         }
-        
+
         full_response = json.dumps(combined_analysis, indent=2)
-        
+
+        # Save analysis to database
+        import uuid
+        import time
+        analysis_id = str(uuid.uuid4())
+        analysis_end_time = time.time()
+        analysis_duration = analysis_end_time - analysis_start_time if 'analysis_start_time' in locals() else 0
+
+        # Get total articles analyzed across all categories
+        total_articles = 0
+        for cat_analysis in category_analyses.values():
+            # Try to extract article count from each analysis
+            try:
+                if '"articles_analyzed":' in cat_analysis:
+                    import re
+                    match = re.search(r'"articles_analyzed":\s*(\d+)', cat_analysis)
+                    if match:
+                        total_articles += int(match.group(1))
+            except:
+                pass
+
+        db = get_database_instance()
+        db.facade.save_consensus_analysis(
+            analysis_id=analysis_id,
+            user_id=user_id,
+            topic=req.topic,
+            timeframe=req.timeframe,
+            selected_categories=req.categories if req.categories else [],
+            raw_output=combined_analysis,
+            total_articles_analyzed=total_articles,
+            analysis_duration_seconds=analysis_duration
+        )
+
         # Clean up the temporary chat session
         auspex.delete_chat_session(chat_id)
-        
-        logger.info(f"Generated consensus analysis of length: {len(full_response)}")
-        
+
+        logger.info(f"Generated consensus analysis of length: {len(full_response)}, saved as {analysis_id}")
+
         return {
             "success": True,
             "topic": req.topic,
             "timeframe": req.timeframe,
             "analysis": full_response,
+            "analysis_id": analysis_id,
             "categories": req.categories,
             "timestamp": datetime.now().isoformat()
         }
@@ -890,6 +1029,36 @@ async def get_consensus_analysis(req: ConsensusAnalysisRequest, session=Depends(
             pass
         
         raise HTTPException(status_code=500, detail=f"Failed to generate consensus analysis: {str(e)}")
+
+# Get raw consensus analysis by ID
+@router.get("/consensus-analysis/{analysis_id}/raw", status_code=status.HTTP_200_OK)
+async def get_consensus_analysis_raw(analysis_id: str, session=Depends(verify_session)):
+    """Retrieve raw consensus analysis output by ID."""
+    logger.info(f"Retrieving raw consensus analysis: {analysis_id}")
+
+    try:
+        db = get_database_instance()
+        analysis_data = db.facade.get_consensus_analysis(analysis_id)
+
+        if not analysis_data:
+            raise HTTPException(status_code=404, detail="Analysis not found")
+
+        return {
+            "success": True,
+            "analysis_id": analysis_id,
+            "topic": analysis_data.get('topic'),
+            "timeframe": analysis_data.get('timeframe'),
+            "created_at": analysis_data.get('created_at').isoformat() if analysis_data.get('created_at') else None,
+            "total_articles_analyzed": analysis_data.get('total_articles_analyzed'),
+            "analysis_duration_seconds": analysis_data.get('analysis_duration_seconds'),
+            "raw_output": analysis_data.get('raw_output')
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving consensus analysis {analysis_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve analysis: {str(e)}")
 
 # System Information
 @router.get("/system/info", status_code=status.HTTP_200_OK)

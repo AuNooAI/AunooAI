@@ -1,7 +1,21 @@
-from sqlalchemy import Boolean, CheckConstraint, Column, Enum, Float, ForeignKey, Index, Integer, MetaData, REAL, TIMESTAMP, Table, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, Enum, Float, ForeignKey, Index, Integer, JSON, MetaData, REAL, String, TIMESTAMP, Table, Text, UniqueConstraint, text
 
 metadata = MetaData()
 
+
+t_consensus_analysis_runs = Table(
+    'consensus_analysis_runs', metadata,
+    Column('id', String(36), primary_key=True),
+    Column('user_id', Integer),
+    Column('topic', Text, nullable=False),
+    Column('timeframe', String(100)),
+    Column('selected_categories', JSON),
+    Column('raw_output', JSON, nullable=False),
+    Column('total_articles_analyzed', Integer),
+    Column('created_at', DateTime, server_default=text('CURRENT_TIMESTAMP'), nullable=False),
+    Column('analysis_duration_seconds', Float),
+    Index('idx_consensus_analysis_user_created', 'user_id', 'created_at')
+)
 
 t_analysis_versions = Table(
     'analysis_versions', metadata,
@@ -25,6 +39,51 @@ t_analysis_versions_v2 = Table(
     Index('idx_accessed_at', 'accessed_at'),
     Index('idx_cache_key_created', 'cache_key', 'created_at'),
     Index('idx_topic_created', 'topic', 'created_at')
+)
+
+t_analysis_run_logs = Table(
+    'analysis_run_logs', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('run_id', Text, nullable=False, unique=True),
+    Column('analysis_type', Text, nullable=False),
+    Column('topic', Text, nullable=False),
+    Column('model_used', Text),
+    Column('sample_size', Integer),
+    Column('articles_analyzed', Integer),
+    Column('timeframe_days', Integer),
+    Column('consistency_mode', Text),
+    Column('profile_id', Integer),
+    Column('persona', Text),
+    Column('customer_type', Text),
+    Column('cache_key', Text),
+    Column('cache_hit', Boolean, default=False),
+    Column('started_at', TIMESTAMP, default=text('CURRENT_TIMESTAMP')),
+    Column('completed_at', TIMESTAMP),
+    Column('status', Text, default=text("'running'")),
+    Column('error_message', Text),
+    Column('metadata', Text),
+    Index('idx_analysis_run_logs_type', 'analysis_type'),
+    Index('idx_analysis_run_logs_topic', 'topic'),
+    Index('idx_analysis_run_logs_started', 'started_at'),
+    Index('idx_analysis_run_logs_run_id', 'run_id')
+)
+
+t_analysis_run_articles = Table(
+    'analysis_run_articles', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('run_id', Text, nullable=False),
+    Column('article_uri', Text, nullable=False),
+    Column('article_title', Text),
+    Column('article_source', Text),
+    Column('published_date', TIMESTAMP),
+    Column('sentiment', Text),
+    Column('relevance_score', REAL),
+    Column('included_in_prompt', Boolean, default=True),
+    Column('article_position', Integer),
+    Column('created_at', TIMESTAMP, default=text('CURRENT_TIMESTAMP')),
+    Index('idx_analysis_run_articles_run_id', 'run_id'),
+    Index('idx_analysis_run_articles_uri', 'article_uri'),
+    Index('idx_analysis_run_articles_created', 'created_at')
 )
 
 t_article_analysis_cache = Table(

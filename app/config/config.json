@@ -182,6 +182,52 @@
         "Terminator",
         "Unknown"
       ]
+    },
+    {
+      "name": "Cloud repatriation",
+      "description": "Cloud repatriation refers to the trend or scenario where organizations move workloads and data back from public cloud environments to on-premises or private cloud infrastructure. This topic explores whether cloud repatriation is occurring, its extent, motivations, and implications for IT strategy and cloud market dynamics.",
+      "categories": [
+        "Public Cloud Providers",
+        "Private Cloud Infrastructure",
+        "Hybrid Cloud Models",
+        "Workload Migration",
+        "Cost Management",
+        "Security and Compliance",
+        "Performance and Latency",
+        "Cloud Vendor Lock-in",
+        "IT Strategy and Governance",
+        "Cloud Exit Strategies",
+        "Data Sovereignty",
+        "Cloud Cost Optimization"
+      ],
+      "future_signals": [],
+      "sentiment": [
+        "Optimistic",
+        "Cautious",
+        "Neutral",
+        "Concerned",
+        "Pessimistic"
+      ],
+      "time_to_impact": [
+        "Immediate",
+        "Short-term",
+        "Mid-term",
+        "Long-term"
+      ],
+      "driver_types": [
+        "Catalyst",
+        "Accelerator",
+        "Delayer",
+        "Blocker",
+        "Initiator",
+        "Terminator",
+        "Unknown"
+      ],
+      "keywords": [
+        "cloud repatriation",
+        "cloud migration",
+        "hybrid cloud"
+      ]
     }
   ],
   "ai_models": [

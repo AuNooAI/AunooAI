@@ -44,11 +44,8 @@ rm -rf "$STATIC_DIR"/*
 echo "📦 Copying build files..."
 cp -r build/* "$STATIC_DIR/"
 
-# Fix asset paths in index.html
-echo "🔧 Fixing asset paths..."
-sed -i 's|/assets/|/static/trend-convergence/assets/|g' "$STATIC_DIR/index.html"
-
-# Update title
+# Update title only (paths are already correct from vite config)
+echo "🔧 Updating page title..."
 sed -i 's|<title>.*</title>|<title>Trend Convergence Analysis - AuNoo AI</title>|' "$STATIC_DIR/index.html"
 
 echo ""

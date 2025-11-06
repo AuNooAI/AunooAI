@@ -393,25 +393,50 @@ async def generate_trend_convergence(
     enable_caching: bool = Query(True, description="Enable result caching"),
     cache_duration_hours: int = Query(24, description="Cache validity period"),
     profile_id: int = Query(None, description="Organizational profile ID for context"),
+    tab: str = Query(None, description="Specific tab to generate: consensus, strategic, signals, timeline, horizons, or None for all"),
     db: Database = Depends(get_database_instance),
     session: dict = Depends(verify_session)
 ):
-    """Generate trend convergence analysis with improved consistency"""
+    """Generate trend convergence analysis with improved consistency and tab-specific generation"""
     
     try:
         logger.info(f"Generating trend convergence analysis for topic: {topic}, model: {model}, consistency: {consistency_mode.value}")
-        
-        # Generate comprehensive cache key for all parameters
+
+        # Generate unique run ID for this analysis
+        import uuid
+        run_id = str(uuid.uuid4())
+
+        # Generate comprehensive cache key for all parameters including tab
         cache_key = generate_comprehensive_cache_key(
             topic, timeframe_days, model, analysis_depth, sample_size_mode,
-            custom_limit, profile_id, consistency_mode, persona, customer_type
+            custom_limit, profile_id, consistency_mode, persona, customer_type, tab
         )
-        
+
         # Try to get cached result first if caching is enabled
         if enable_caching:
             cached_result = await get_cached_analysis(cache_key, db, cache_duration_hours)
             if cached_result:
                 logger.info(f"Returning cached analysis for {topic} (consistency: {consistency_mode.value})")
+
+                # Log cache hit
+                facade = DatabaseQueryFacade(db, logger)
+                facade.create_analysis_run_log(
+                    run_id=run_id,
+                    analysis_type='trend_convergence',
+                    topic=topic,
+                    model_used=model,
+                    sample_size=optimal_sample_size if 'optimal_sample_size' in locals() else None,
+                    timeframe_days=timeframe_days,
+                    consistency_mode=consistency_mode.value,
+                    profile_id=profile_id,
+                    persona=persona,
+                    customer_type=customer_type,
+                    cache_key=cache_key,
+                    cache_hit=True,
+                    metadata={'analysis_depth': analysis_depth}
+                )
+                facade.complete_analysis_run_log(run_id, status='completed')
+
                 return cached_result
         
         # Calculate optimal sample size based on model and mode
@@ -443,7 +468,32 @@ async def generate_trend_convergence(
         # Use deterministic article selection for consistency
         diverse_articles = select_articles_deterministic(articles, min(len(articles), optimal_sample_size), consistency_mode)
         logger.info(f"Selected {len(diverse_articles)} diverse articles using {consistency_mode.value} mode")
-        
+
+        # Create analysis run log
+        facade = DatabaseQueryFacade(db, logger)
+        facade.create_analysis_run_log(
+            run_id=run_id,
+            analysis_type='trend_convergence',
+            topic=topic,
+            model_used=model,
+            sample_size=optimal_sample_size,
+            timeframe_days=timeframe_days,
+            consistency_mode=consistency_mode.value,
+            profile_id=profile_id,
+            persona=persona,
+            customer_type=customer_type,
+            cache_key=cache_key,
+            cache_hit=False,
+            metadata={
+                'analysis_depth': analysis_depth,
+                'sample_size_mode': sample_size_mode,
+                'custom_limit': custom_limit
+            }
+        )
+
+        # Log all articles being reviewed
+        facade.log_articles_for_analysis_run(run_id, diverse_articles)
+
         # Prepare analysis summary using diverse articles
         analysis_summary = prepare_analysis_summary(diverse_articles, topic)
         
@@ -498,8 +548,43 @@ ORGANIZATIONAL CONTEXT:
 - Regulatory Environment: {', '.join(organizational_profile['regulatory_environment'])}
 - Additional Context: {organizational_profile['custom_context']}
 """
-            
-        formatted_prompt = f"""Analyze {len(articles)} articles about "{topic}" and create a comprehensive strategic planning document.{org_context}
+
+
+        # Determine which prompt to use based on tab parameter
+        if tab == "consensus":
+            # Use specialized consensus analysis prompt
+            logger.info("Generating Consensus Analysis tab only")
+            formatted_prompt = generate_consensus_analysis_prompt(
+                topic, diverse_articles, org_context, prompt_template
+            )
+        elif tab == "strategic":
+            # Use specialized strategic recommendations prompt
+            logger.info("Generating Strategic Recommendations tab only")
+            formatted_prompt = generate_strategic_recommendations_prompt(
+                topic, diverse_articles, org_context, prompt_template
+            )
+        elif tab == "signals":
+            # Use specialized market signals prompt
+            logger.info("Generating Market Signals tab only")
+            formatted_prompt = generate_market_signals_prompt(
+                topic, diverse_articles, org_context
+            )
+        elif tab == "timeline":
+            # Use specialized impact timeline prompt
+            logger.info("Generating Impact Timeline tab only")
+            formatted_prompt = generate_impact_timeline_prompt(
+                topic, diverse_articles, org_context
+            )
+        elif tab == "horizons":
+            # Use specialized future horizons prompt
+            logger.info("Generating Future Horizons tab only")
+            formatted_prompt = generate_future_horizons_prompt(
+                topic, diverse_articles, org_context
+            )
+        else:
+            # Generate all tabs with unified prompt (legacy mode)
+            logger.info("Generating all tabs with unified prompt")
+            formatted_prompt = f"""Analyze {len(articles)} articles about "{topic}" and create a comprehensive strategic planning document.{org_context}
 
 STRATEGIC FOCUS: {prompt_template['focus']}
 EXECUTIVE FRAMEWORK: {prompt_template['framework_emphasis']}
@@ -555,11 +640,19 @@ REQUIRED OUTPUT FORMAT - Use EXACTLY this JSON structure:
       "name": "Convergence Name",
       "description": "Description of how trends converge",
       "consensus_percentage": 80,
+      "consensus_type": "Positive Growth|Mixed Consensus|Regulatory Response|Safety/Security|Societal Impact",
       "probability": "High|Medium|Low",
       "impact": "Transformative|Significant|Moderate",
       "timeframe": "2025-2028",
       "timeline_start_year": 2024,
       "timeline_end_year": 2050,
+      "timeline_consensus": "Short-term (2025-2027)|Mid-term (2027-2030)|Long-term (2030-2035+)",
+      "sentiment_distribution": {{
+        "positive": 60,
+        "neutral": 25,
+        "critical": 15
+      }},
+      "articles_analyzed": 45,
       "converging_trends": ["Trend Name 1", "Trend Name 2"],
       "key_indicators": ["indicator1", "indicator2"],
       "optimistic_outlier": {{
@@ -662,8 +755,14 @@ ARTICLE DATA:
 ANALYSIS INSTRUCTIONS:
 - Identify 2 major trends for each time horizon (near-term, mid-term, long-term)
 - Find 3-4 convergence points where trends intersect across timeframes
-- For each convergence, calculate consensus percentage and identify outliers
+- For each convergence, calculate consensus percentage (typically 70-90% for strong consensus)
+- For each convergence, identify BOTH optimistic and pessimistic outliers with specific years, descriptions, and source percentages
+- For each convergence, determine the consensus_type (Positive Growth, Mixed Consensus, Regulatory Response, Safety/Security, or Societal Impact)
+- For each convergence, analyze sentiment distribution across articles (positive, neutral, critical percentages that sum to 100)
+- For each convergence, specify timeline_consensus (Short-term 2025-2027, Mid-term 2027-2030, or Long-term 2030-2035+)
+- For each convergence, set articles_analyzed to the number of relevant articles supporting this convergence
 - For each convergence, include 2-3 key supporting articles from the article data with real URLs and summaries
+- For each convergence, provide a strategic_implication that explains the business/organizational impact
 - Create 4 impact timeline items showing key impact areas
 - Create 4-6 scenarios across probability categories (Plausible: 2-3, Probable: 2-3)
 - Create 3-4 executive decision principles for strategic planning
@@ -671,7 +770,7 @@ ANALYSIS INSTRUCTIONS:
 - Identify 3-4 future signals with their frequency and time to impact
 - Identify 2 disruption scenarios or strategic risks
 - Identify 2 strategic opportunities
-- Extract 2 key insights or quotes from the analysis
+- Extract 4-6 key insights from evidence synthesis - these should be compelling quotes or observations from the analysis with clear source attribution and relevance explanation
 - Focus on cross-cutting patterns and concise, actionable content
 - Keep all descriptions brief and to the point
 
@@ -780,28 +879,53 @@ Article {i}:
         # Validate and enhance the response
         if not isinstance(trend_convergence_data, dict):
             raise HTTPException(status_code=500, detail="AI response is not a valid dictionary")
-        
-        # Ensure required fields exist
-        if 'strategic_recommendations' not in trend_convergence_data:
-            trend_convergence_data['strategic_recommendations'] = {}
-        if 'convergences' not in trend_convergence_data:
-            trend_convergence_data['convergences'] = []
-        if 'executive_decision_framework' not in trend_convergence_data:
-            trend_convergence_data['executive_decision_framework'] = {"principles": []}
-        if 'next_steps' not in trend_convergence_data:
-            trend_convergence_data['next_steps'] = []
-        if 'future_signals' not in trend_convergence_data:
-            trend_convergence_data['future_signals'] = []
-        if 'disruption_scenarios' not in trend_convergence_data:
-            trend_convergence_data['disruption_scenarios'] = []
-        if 'opportunities' not in trend_convergence_data:
-            trend_convergence_data['opportunities'] = []
-        if 'key_insights' not in trend_convergence_data:
-            trend_convergence_data['key_insights'] = []
-        if 'impact_timeline' not in trend_convergence_data:
-            trend_convergence_data['impact_timeline'] = []
-        if 'scenarios' not in trend_convergence_data:
-            trend_convergence_data['scenarios'] = []
+
+        # Handle tab-specific responses differently than unified responses
+        if tab:
+            # For tab-specific requests, the response contains only that tab's data
+            # We need to ensure the proper structure is returned
+            logger.info(f"Processing tab-specific response for tab: {tab}")
+
+            # Create a base structure
+            full_response = {
+                'topic': topic,
+                'strategic_recommendations': {},
+                'convergences': [],
+                'executive_decision_framework': {"principles": []},
+                'next_steps': [],
+                'future_signals': [],
+                'disruption_scenarios': [],
+                'opportunities': [],
+                'key_insights': [],
+                'impact_timeline': [],
+                'scenarios': []
+            }
+
+            # Merge the tab-specific data into the full structure
+            full_response.update(trend_convergence_data)
+            trend_convergence_data = full_response
+        else:
+            # For unified responses, ensure all required fields exist
+            if 'strategic_recommendations' not in trend_convergence_data:
+                trend_convergence_data['strategic_recommendations'] = {}
+            if 'convergences' not in trend_convergence_data:
+                trend_convergence_data['convergences'] = []
+            if 'executive_decision_framework' not in trend_convergence_data:
+                trend_convergence_data['executive_decision_framework'] = {"principles": []}
+            if 'next_steps' not in trend_convergence_data:
+                trend_convergence_data['next_steps'] = []
+            if 'future_signals' not in trend_convergence_data:
+                trend_convergence_data['future_signals'] = []
+            if 'disruption_scenarios' not in trend_convergence_data:
+                trend_convergence_data['disruption_scenarios'] = []
+            if 'opportunities' not in trend_convergence_data:
+                trend_convergence_data['opportunities'] = []
+            if 'key_insights' not in trend_convergence_data:
+                trend_convergence_data['key_insights'] = []
+            if 'impact_timeline' not in trend_convergence_data:
+                trend_convergence_data['impact_timeline'] = []
+            if 'scenarios' not in trend_convergence_data:
+                trend_convergence_data['scenarios'] = []
         
         # Validate that the response is valid JSON
         try:
@@ -810,7 +934,27 @@ Article {i}:
         except (TypeError, ValueError) as e:
             logger.error(f"Invalid JSON structure in response: {e}")
             raise HTTPException(status_code=500, detail="AI response contains invalid JSON structure")
-        
+
+        # Normalize sentiment distributions in categories (fix data quality issues)
+        if 'categories' in trend_convergence_data:
+            for category in trend_convergence_data['categories']:
+                if '1_consensus_type' in category and 'distribution' in category['1_consensus_type']:
+                    dist = category['1_consensus_type']['distribution']
+                    if all(key in dist for key in ['positive', 'neutral', 'critical']):
+                        total = dist['positive'] + dist['neutral'] + dist['critical']
+
+                        # If sum is around 1.0, they're fractions - convert to percentages
+                        if 0.9 < total <= 1.1:
+                            dist['positive'] *= 100
+                            dist['neutral'] *= 100
+                            dist['critical'] *= 100
+                        # If sum is < 10, they're raw counts - scale to percentages
+                        elif total < 10 and total > 0:
+                            factor = 100.0 / total
+                            dist['positive'] *= factor
+                            dist['neutral'] *= factor
+                            dist['critical'] *= factor
+
         # Add metadata
         trend_convergence_data.update({
             'generated_at': datetime.now().isoformat(),
@@ -843,6 +987,13 @@ Article {i}:
         
         logger.info(f"Successfully generated strategic analysis with {total_trends} trends across timeframes")
 
+        # Complete the analysis run log
+        facade.complete_analysis_run_log(
+            run_id=run_id,
+            articles_analyzed=len(diverse_articles),
+            status='completed'
+        )
+
         # Add cache metadata for freshly generated data
         now = datetime.now()
         trend_convergence_data['_cache_info'] = {
@@ -850,7 +1001,8 @@ Article {i}:
             'age_hours': 0,
             'cache_key': cache_key,
             'created_at': now.isoformat(),
-            'last_updated': now.strftime('%d.%m.%Y')
+            'last_updated': now.strftime('%d.%m.%Y'),
+            'run_id': run_id  # Include run_id for reference
         }
 
         # Data is now used directly by the frontend - no transformation needed
@@ -858,9 +1010,31 @@ Article {i}:
         return trend_convergence_data
         
     except HTTPException:
+        # Log failed analysis if run_id exists
+        if 'run_id' in locals() and 'facade' in locals():
+            try:
+                facade.complete_analysis_run_log(
+                    run_id=run_id,
+                    status='failed',
+                    error_message='HTTP exception occurred'
+                )
+            except:
+                pass
         raise
     except Exception as e:
         logger.error(f"Error generating trend convergence analysis: {str(e)}")
+
+        # Log failed analysis if run_id exists
+        if 'run_id' in locals() and 'facade' in locals():
+            try:
+                facade.complete_analysis_run_log(
+                    run_id=run_id,
+                    status='failed',
+                    error_message=str(e)
+                )
+            except:
+                pass
+
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 def select_diverse_articles(articles: List, limit: int) -> List:
@@ -1171,6 +1345,434 @@ def get_enhanced_prompt_template(persona: str = "executive", customer_type: str 
     
     return base_template
 
+# ============================================================================
+# TAB-SPECIFIC PROMPT GENERATION FUNCTIONS
+# ============================================================================
+
+def generate_consensus_analysis_prompt(
+    topic: str,
+    articles: List,
+    org_context: str,
+    prompt_template: Dict[str, str]
+) -> str:
+    """
+    Generate specialized prompt for Consensus Analysis tab using Auspex numbered field structure.
+    Focus on evidence synthesis, convergence identification, and key insights.
+    Matches skunkworkx consensus_analysis.html data structure.
+    """
+
+    analysis_summary = prepare_analysis_summary(articles, topic)
+
+    prompt = f"""Conduct a DEEP EVIDENCE SYNTHESIS analysis of {len(articles)} articles about "{topic}".{org_context}
+
+MISSION: Identify 3-4 major CONSENSUS CATEGORIES where trends, forecasts, and expert opinions align across multiple sources. This is NOT a summary - it's a cross-source analysis revealing patterns of agreement and disagreement.
+
+REQUIRED OUTPUT FORMAT - Use EXACTLY this Auspex numbered field JSON structure:
+{{
+  "categories": [
+    {{
+      "category_name": "Category Name (e.g., 'AI Safety Consensus', 'Climate Action Timeline', 'Market Transformation')",
+      "category_description": "EVIDENCE-BASED description synthesizing insights from multiple sources. Cite specific sources: 'According to Source A and Source B..., while Source C adds...'",
+      "articles_analyzed": {len(articles)},
+      "1_consensus_type": {{
+        "summary": "Positive Growth|Mixed Consensus|Regulatory Response|Safety/Security|Societal Impact|Technical Advancement|Market Shift",
+        "distribution": {{
+          "positive": 55,
+          "neutral": 30,
+          "critical": 15
+        }},
+        "confidence_level": 85
+      }},
+      "2_timeline_consensus": {{
+        "distribution": {{
+          "Immediate (2025)": 10,
+          "Short-term (2025-2027)": 45,
+          "Mid-term (2027-2030)": 30,
+          "Long-term (2030-2035+)": 15
+        }},
+        "consensus_window": {{
+          "start_year": 2027,
+          "end_year": 2035,
+          "label": "Mid-term (2027-2035)"
+        }}
+      }},
+      "3_confidence_level": {{
+        "majority_agreement": 80,
+        "consensus_strength": "Strong|Moderate|Emerging",
+        "evidence_quality": "High|Medium|Low"
+      }},
+      "4_optimistic_outliers": [
+        {{
+          "scenario": "Specific optimistic scenario title",
+          "details": "Detailed description of this optimistic view. Include which sources predict this.",
+          "year": 2025,
+          "source_percentage": 20,
+          "reference": "Source names or article titles supporting this view"
+        }}
+      ],
+      "5_pessimistic_outliers": [
+        {{
+          "scenario": "Specific pessimistic scenario title",
+          "details": "Detailed description of this pessimistic view. Include which sources predict this.",
+          "year": 2035,
+          "source_percentage": 15,
+          "reference": "Source names or article titles supporting this view"
+        }}
+      ],
+      "6_key_articles": [
+        {{
+          "title": "Actual article title from data",
+          "url": "Actual URL from data",
+          "summary": "How this article supports this consensus category",
+          "sentiment": "positive|neutral|critical",
+          "relevance_score": 0.95
+        }}
+      ],
+      "7_strategic_implications": "Clear business/organizational impact. What should decision-makers do? What risks or opportunities does this reveal?",
+      "8_key_decision_windows": [
+        {{
+          "urgency": "Critical|High|Medium|Low",
+          "window": "Immediate (0-6 months)|Short-term (6-18 months)|Mid-term (18-36 months)",
+          "action": "Specific actionable milestone or decision point",
+          "rationale": "Why this action is important and time-sensitive",
+          "owner": "Recommended team/role (e.g., 'Executive Team', 'Product Team', 'Strategy Team')",
+          "dependencies": ["dependency1", "dependency2"],
+          "success_metrics": ["metric1", "metric2"]
+        }}
+      ],
+      "9_timeframe_analysis": {{
+        "immediate": "Actions to take immediately (0-6 months)",
+        "short_term": "Strategic positioning for 6-18 months",
+        "mid_term": "Long-term implications and preparation (18-36 months)",
+        "key_milestones": [
+          {{
+            "year": 2025,
+            "milestone": "Expected milestone or checkpoint",
+            "significance": "Why this milestone matters"
+          }}
+        ]
+      }}
+    }}
+  ],
+  "key_insights": [
+    {{
+      "quote": "Compelling insight or data point synthesized from evidence. Example: '75% of sources agree that X will happen by Y, with only Z expressing skepticism'",
+      "source": "Multi-source synthesis|Industry Analysis|Expert Consensus|Market Research",
+      "relevance": "Why this insight matters for strategic decision-making"
+    }}
+  ]
+}}
+
+EVIDENCE SYNTHESIS INSTRUCTIONS:
+
+1. IDENTIFY 3-4 CONSENSUS CATEGORIES:
+   - Look for themes where multiple sources agree (even if phrased differently)
+   - Calculate consensus percentage based on actual source agreement
+   - Don't just list what sources say - identify PATTERNS across sources
+   - Each category should represent a distinct area of agreement/disagreement
+
+2. QUANTIFY EVERYTHING ACCURATELY:
+   - Consensus confidence = (# sources supporting view) / (total sources) * 100
+   - Source percentages for outliers must be realistic (typically 5-25%)
+   - Sentiment distribution must sum to 100%
+   - Timeline distribution must sum to 100%
+   - Count articles_analyzed for each category
+
+3. CROSS-REFERENCE SOURCES:
+   - Each category must cite at least 3-5 supporting articles in 6_key_articles
+   - Descriptions should reference specific sources: "According to Article A..., corroborated by Article B..."
+   - Identify both majority and minority positions
+   - Include actual article titles and URLs from provided data
+
+4. EXTRACT 4-6 KEY INSIGHTS (top-level):
+   - These should reveal cross-cutting patterns across ALL categories
+   - Include compelling statistics or data points
+   - Show unexpected agreements or surprising disagreements
+   - Each insight should synthesize multiple sources
+
+5. IDENTIFY OUTLIERS PER CATEGORY (ONLY IF GENUINELY PRESENT):
+   - Optimistic outliers (4_optimistic_outliers) = minority views predicting faster/better outcomes
+   - Pessimistic outliers (5_pessimistic_outliers) = minority views predicting slower/worse outcomes
+   - ONLY include outliers if sources genuinely present dissenting views (>5% of sources)
+   - May have 0-3 optimistic outliers and 0-3 pessimistic outliers per category
+   - DO NOT fabricate outliers if sources show strong consensus
+   - Calculate what % of sources hold each outlier view (must be realistic: 5-25%)
+   - Be specific about years and scenarios
+   - Each outlier must cite actual sources from the data
+
+6. STRATEGIC IMPLICATIONS (7_strategic_implications):
+   - For each category, explain business/organizational impact
+   - What decisions should be made based on this consensus?
+   - What risks or opportunities does this reveal?
+   - Be specific and actionable, not generic
+
+7. KEY DECISION WINDOWS (8_key_decision_windows) - 3-5 per category:
+   - Identify specific time-sensitive action points
+   - Urgency levels: Critical (red), High (orange), Medium (blue), Low (gray)
+   - Assign realistic timeframes: Immediate (0-6 months), Short-term (6-18 months), Mid-term (18-36 months)
+   - Specify who should own each action
+   - Define measurable success metrics
+   - Note any dependencies or prerequisites
+   - Make actions concrete and executable, not generic advice
+
+8. TIMEFRAME ANALYSIS (9_timeframe_analysis) per category:
+   - Break down implications across three timeframes:
+   - **Immediate (0-6 months)**: What needs to happen right now? Urgent decisions, immediate actions
+   - **Short-term (6-18 months)**: Strategic positioning, capability building, resource allocation
+   - **Mid-term (18-36 months)**: Long-term preparation, transformation initiatives, competitive positioning
+   - Identify 2-3 key milestones within the consensus timeline with specific years
+   - For each milestone, explain its significance and what it means for the organization
+
+9. TIMELINE CONSENSUS (2_timeline_consensus):
+   - Calculate realistic distribution across time periods based on article data
+   - consensus_window should capture the PRIMARY timeframe where most impact is expected
+   - IMPORTANT: start_year should reflect when impact BEGINS to manifest (can be > 2025, NOT always 2025)
+   - start_year and end_year define the thick colored bar on the timeline visualization (2025-2050 range)
+   - Example: If impact mainly occurs 2030-2040, use start_year: 2030, end_year: 2040
+   - Make sure this aligns with the distribution percentages
+
+10. CONSENSUS TYPE (1_consensus_type):
+   - Choose the type that best represents the nature of this consensus category
+   - Calculate accurate sentiment distribution from articles (positive, neutral, critical)
+   - CRITICAL: Distribution values MUST sum to 100 (they are percentages, not decimals or counts)
+   - Example: {{"positive": 60, "neutral": 30, "critical": 10}} (sums to 100)
+   - Confidence level should reflect strength of agreement (typically 60-95%)
+
+QUALITY REQUIREMENTS:
+- Every claim must reference specific sources
+- Percentages must be calculated from actual article counts and be realistic
+- Descriptions must synthesize across sources, not just summarize one
+- Timeline predictions must be grounded in source data
+- No generic statements - be specific and evidence-based
+- All article references in 6_key_articles must use real titles and URLs from data
+- Outliers should be genuinely different perspectives, not just variations
+
+ARTICLE DATA FOR ANALYSIS:
+{analysis_summary}
+
+STRATEGIC FOCUS: {prompt_template['focus']}
+
+Now analyze these articles and return ONLY the JSON object with the Auspex numbered field structure. Focus on SYNTHESIS across sources, not individual summaries."""
+
+    return prompt
+
+
+def generate_strategic_recommendations_prompt(
+    topic: str,
+    articles: List,
+    org_context: str,
+    prompt_template: Dict[str, str]
+) -> str:
+    """
+    Generate specialized prompt for Strategic Recommendations tab.
+    Focus on near/mid/long-term trends and actionable recommendations.
+    """
+
+    analysis_summary = prepare_analysis_summary(articles, topic)
+
+    prompt = f"""Analyze {len(articles)} articles about "{topic}" and generate strategic recommendations across three time horizons.{org_context}
+
+REQUIRED OUTPUT FORMAT:
+{{
+  "strategic_recommendations": {{
+    "near_term": {{
+      "timeframe": "2025-2027",
+      "trends": [
+        {{
+          "name": "Trend name",
+          "description": "Detailed trend description",
+          "confidence": "High|Medium|Low",
+          "key_drivers": ["driver1", "driver2"],
+          "potential_impact": "Impact description"
+        }}
+      ]
+    }},
+    "mid_term": {{
+      "timeframe": "2027-2030",
+      "trends": [...]
+    }},
+    "long_term": {{
+      "timeframe": "2030-2035+",
+      "trends": [...]
+    }}
+  }},
+  "executive_decision_framework": {{
+    "principles": [
+      {{
+        "name": "Principle name",
+        "description": "Principle description",
+        "rationale": "Why important",
+        "implementation": "How to apply"
+      }}
+    ]
+  }},
+  "next_steps": [
+    {{
+      "priority": "High|Medium|Low",
+      "action": "Specific actionable step",
+      "timeline": "When to complete",
+      "stakeholders": ["stakeholder1"],
+      "success_metrics": ["metric1"]
+    }}
+  ]
+}}
+
+INSTRUCTIONS:
+- Identify 2 major trends for each time horizon
+- Create 3-4 executive decision principles
+- Provide 3-4 specific, actionable next steps with priorities
+- Focus on actionable insights for {prompt_template['focus']}
+- Use decision-making style: {prompt_template['next_steps_style']}
+
+ARTICLE DATA:
+{analysis_summary}
+
+Return ONLY the JSON object."""
+
+    return prompt
+
+
+def generate_market_signals_prompt(
+    topic: str,
+    articles: List,
+    org_context: str
+) -> str:
+    """
+    Generate specialized prompt for Market Signals tab.
+    Focus on future signals, disruptions, and opportunities.
+    """
+
+    analysis_summary = prepare_analysis_summary(articles, topic)
+
+    prompt = f"""Analyze {len(articles)} articles about "{topic}" and identify market signals, disruptions, and opportunities.{org_context}
+
+REQUIRED OUTPUT FORMAT:
+{{
+  "future_signals": [
+    {{
+      "name": "Signal name",
+      "description": "Signal description",
+      "frequency": "Badge|Emerging|Established|Dominant",
+      "time_to_impact": "Immediate/Short-term|Mid-term|Long-term"
+    }}
+  ],
+  "disruption_scenarios": [
+    {{
+      "title": "Disruption title",
+      "description": "Description of disruption or risk",
+      "probability": "High|Medium|Low",
+      "severity": "Critical|Significant|Moderate"
+    }}
+  ],
+  "opportunities": [
+    {{
+      "title": "Opportunity title",
+      "description": "Description of opportunity",
+      "feasibility": "High|Medium|Low",
+      "potential_impact": "Transformative|Significant|Moderate"
+    }}
+  ]
+}}
+
+INSTRUCTIONS:
+- Identify 3-4 future signals with frequency and time to impact
+- Identify 2 disruption scenarios or strategic risks
+- Identify 2 strategic opportunities
+
+ARTICLE DATA:
+{analysis_summary}
+
+Return ONLY the JSON object."""
+
+    return prompt
+
+
+def generate_impact_timeline_prompt(
+    topic: str,
+    articles: List,
+    org_context: str
+) -> str:
+    """
+    Generate specialized prompt for Impact Timeline tab.
+    Focus on timeline visualization of key impact areas.
+    """
+
+    analysis_summary = prepare_analysis_summary(articles, topic)
+
+    prompt = f"""Analyze {len(articles)} articles about "{topic}" and create an impact timeline.{org_context}
+
+REQUIRED OUTPUT FORMAT:
+{{
+  "impact_timeline": [
+    {{
+      "title": "Impact area title",
+      "description": "Description of impact",
+      "timeline_start": 2024,
+      "timeline_end": 2030,
+      "tooltip_positions": [
+        {{"year": 2025, "label": "Milestone"}},
+        {{"year": 2028, "label": "Milestone"}}
+      ]
+    }}
+  ]
+}}
+
+INSTRUCTIONS:
+- Create 4 impact timeline items showing key impact areas
+- Include specific years and milestone markers
+- Focus on temporal progression of impacts
+
+ARTICLE DATA:
+{analysis_summary}
+
+Return ONLY the JSON object."""
+
+    return prompt
+
+
+def generate_future_horizons_prompt(
+    topic: str,
+    articles: List,
+    org_context: str
+) -> str:
+    """
+    Generate specialized prompt for Future Horizons tab.
+    Focus on scenario planning across probability categories.
+    """
+
+    analysis_summary = prepare_analysis_summary(articles, topic)
+
+    prompt = f"""Analyze {len(articles)} articles about "{topic}" and create future scenario horizons.{org_context}
+
+REQUIRED OUTPUT FORMAT:
+{{
+  "scenarios": [
+    {{
+      "title": "Scenario title",
+      "description": "Scenario description",
+      "probability": "Plausible|Probable|Possible|Preferable|Wildcard",
+      "timeframe": "2025-2027",
+      "icon": "📝"
+    }}
+  ]
+}}
+
+INSTRUCTIONS:
+- Create 4-6 scenarios across probability categories
+- Distribute as: Plausible (2-3), Probable (2-3)
+- Include timeframes and visual icons
+
+ARTICLE DATA:
+{analysis_summary}
+
+Return ONLY the JSON object."""
+
+    return prompt
+
+# ============================================================================
+# END TAB-SPECIFIC PROMPT FUNCTIONS
+# ============================================================================
+
 # Consistency-aware AI interface functions
 async def generate_analysis_with_consistency(
     auspex_service, chat_id: int, prompt: str, model: str, 
@@ -1281,14 +1883,15 @@ def generate_comprehensive_cache_key(
     profile_id: Optional[int],
     consistency_mode: ConsistencyMode,
     persona: str,
-    customer_type: str
+    customer_type: str,
+    tab: Optional[str] = None
 ) -> str:
     """
     Generate comprehensive cache key including ALL parameters that affect results.
-    
+
     This ensures cache hits only occur when analysis parameters are truly identical.
     """
-    
+
     # Include all parameters that could affect the result
     cache_params = {
         'topic': topic,
@@ -1301,7 +1904,8 @@ def generate_comprehensive_cache_key(
         'consistency_mode': consistency_mode.value,
         'persona': persona,
         'customer_type': customer_type,
-        'algorithm_version': '3.0',  # Increment when algorithm changes
+        'tab': tab,  # Add tab parameter for separate caching per tab
+        'algorithm_version': '4.0',  # Increment for tab-specific prompts
         'article_selection_method': 'deterministic_v2'
     }
     

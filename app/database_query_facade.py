@@ -5789,3 +5789,302 @@ class DatabaseQueryFacade:
             self.logger.error(f"Error saving Six Articles config for user {user_id}: {e}")
             self.connection.rollback()
             return False
+
+    # ==========================================
+    # Analysis Run Logging Methods
+    # ==========================================
+
+    def create_analysis_run_log(self, run_id: str, analysis_type: str, topic: str,
+                                model_used: str = None, sample_size: int = None,
+                                timeframe_days: int = None, consistency_mode: str = None,
+                                profile_id: int = None, persona: str = None,
+                                customer_type: str = None, cache_key: str = None,
+                                cache_hit: bool = False, metadata: dict = None):
+        """Create a new analysis run log entry"""
+        try:
+            from app.database_models import t_analysis_run_logs as analysis_run_logs
+
+            statement = analysis_run_logs.insert().values(
+                run_id=run_id,
+                analysis_type=analysis_type,
+                topic=topic,
+                model_used=model_used,
+                sample_size=sample_size,
+                timeframe_days=timeframe_days,
+                consistency_mode=consistency_mode,
+                profile_id=profile_id,
+                persona=persona,
+                customer_type=customer_type,
+                cache_key=cache_key,
+                cache_hit=cache_hit,
+                status='running',
+                metadata=json.dumps(metadata) if metadata else None
+            )
+            self._execute_with_rollback(statement)
+            self.connection.commit()
+
+            self.logger.info(f"Created analysis run log: {run_id} for topic '{topic}'")
+            return run_id
+
+        except Exception as e:
+            self.logger.error(f"Error creating analysis run log: {e}")
+            self.connection.rollback()
+            return None
+
+    def log_articles_for_analysis_run(self, run_id: str, articles: list):
+        """Log all articles reviewed in an analysis run"""
+        try:
+            from app.database_models import t_analysis_run_articles as analysis_run_articles
+
+            article_records = []
+            for idx, article in enumerate(articles):
+                article_records.append({
+                    'run_id': run_id,
+                    'article_uri': article.get('uri') or article.get('url'),
+                    'article_title': article.get('title'),
+                    'article_source': article.get('news_source') or article.get('source'),
+                    'published_date': article.get('publication_date') or article.get('published_date'),
+                    'sentiment': article.get('sentiment'),
+                    'relevance_score': article.get('relevance_score'),
+                    'included_in_prompt': True,
+                    'article_position': idx + 1
+                })
+
+            if article_records:
+                statement = analysis_run_articles.insert().values(article_records)
+                self._execute_with_rollback(statement)
+                self.connection.commit()
+
+                self.logger.info(f"Logged {len(article_records)} articles for run {run_id}")
+                return len(article_records)
+
+            return 0
+
+        except Exception as e:
+            self.logger.error(f"Error logging articles for analysis run {run_id}: {e}")
+            self.connection.rollback()
+            return 0
+
+    def complete_analysis_run_log(self, run_id: str, articles_analyzed: int = None,
+                                  status: str = 'completed', error_message: str = None):
+        """Mark an analysis run as completed or failed"""
+        try:
+            from app.database_models import t_analysis_run_logs as analysis_run_logs
+            from sqlalchemy import func
+
+            update_values = {
+                'status': status,
+                'completed_at': func.current_timestamp()
+            }
+
+            if articles_analyzed is not None:
+                update_values['articles_analyzed'] = articles_analyzed
+
+            if error_message:
+                update_values['error_message'] = error_message
+
+            statement = analysis_run_logs.update().where(
+                analysis_run_logs.c.run_id == run_id
+            ).values(**update_values)
+
+            self._execute_with_rollback(statement)
+            self.connection.commit()
+
+            self.logger.info(f"Completed analysis run log: {run_id} with status '{status}'")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error completing analysis run log {run_id}: {e}")
+            self.connection.rollback()
+            return False
+
+    def get_analysis_run_details(self, run_id: str):
+        """Get details of a specific analysis run including all articles"""
+        try:
+            from app.database_models import (
+                t_analysis_run_logs as analysis_run_logs,
+                t_analysis_run_articles as analysis_run_articles
+            )
+
+            # Get run details
+            run_stmt = select(analysis_run_logs).where(
+                analysis_run_logs.c.run_id == run_id
+            )
+            run_row = self._execute_with_rollback(run_stmt).fetchone()
+
+            if not run_row:
+                return None
+
+            # Get articles
+            articles_stmt = select(analysis_run_articles).where(
+                analysis_run_articles.c.run_id == run_id
+            ).order_by(analysis_run_articles.c.article_position)
+
+            articles_rows = self._execute_with_rollback(articles_stmt).fetchall()
+
+            return {
+                'run': dict(run_row._mapping) if hasattr(run_row, '_mapping') else dict(run_row),
+                'articles': [dict(row._mapping) if hasattr(row, '_mapping') else dict(row)
+                           for row in articles_rows]
+            }
+
+        except Exception as e:
+            self.logger.error(f"Error getting analysis run details for {run_id}: {e}")
+            return None
+
+    def get_recent_analysis_runs(self, analysis_type: str = None, topic: str = None,
+                                limit: int = 50):
+        """Get recent analysis runs with optional filtering"""
+        try:
+            from app.database_models import t_analysis_run_logs as analysis_run_logs
+
+            stmt = select(analysis_run_logs).order_by(
+                analysis_run_logs.c.started_at.desc()
+            )
+
+            if analysis_type:
+                stmt = stmt.where(analysis_run_logs.c.analysis_type == analysis_type)
+
+            if topic:
+                stmt = stmt.where(analysis_run_logs.c.topic == topic)
+
+            stmt = stmt.limit(limit)
+
+            rows = self._execute_with_rollback(stmt).fetchall()
+
+            return [dict(row._mapping) if hasattr(row, '_mapping') else dict(row)
+                   for row in rows]
+
+        except Exception as e:
+            self.logger.error(f"Error getting recent analysis runs: {e}")
+            return []
+
+    # =========================
+    # Consensus Analysis Methods
+    # =========================
+
+    def save_consensus_analysis(
+        self,
+        analysis_id: str,
+        user_id: int,
+        topic: str,
+        timeframe: str,
+        selected_categories: list,
+        raw_output: dict,
+        total_articles_analyzed: int,
+        analysis_duration_seconds: float
+    ) -> bool:
+        """
+        Save a consensus analysis run to the database.
+
+        Args:
+            analysis_id: UUID for the analysis run
+            user_id: ID of the user who requested the analysis
+            topic: Topic analyzed
+            timeframe: Timeframe for analysis
+            selected_categories: List of categories analyzed
+            raw_output: Full JSON output from the AI
+            total_articles_analyzed: Total number of articles processed
+            analysis_duration_seconds: Time taken to complete analysis
+
+        Returns:
+            bool: True if saved successfully, False otherwise
+        """
+        try:
+            from app.database_models import t_consensus_analysis_runs
+            from sqlalchemy import insert
+            import json
+
+            stmt = insert(t_consensus_analysis_runs).values(
+                id=analysis_id,
+                user_id=user_id,
+                topic=topic,
+                timeframe=timeframe,
+                selected_categories=json.dumps(selected_categories) if selected_categories else None,
+                raw_output=json.dumps(raw_output),
+                total_articles_analyzed=total_articles_analyzed,
+                analysis_duration_seconds=analysis_duration_seconds
+            )
+
+            self._execute_with_rollback(stmt)
+            self.logger.info(f"Saved consensus analysis {analysis_id} for topic '{topic}'")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error saving consensus analysis: {e}")
+            return False
+
+    def get_consensus_analysis(self, analysis_id: str) -> dict:
+        """
+        Retrieve a consensus analysis by ID.
+
+        Args:
+            analysis_id: UUID of the analysis run
+
+        Returns:
+            dict: Analysis data including raw output, or empty dict if not found
+        """
+        try:
+            from app.database_models import t_consensus_analysis_runs
+            from sqlalchemy import select
+            import json
+
+            stmt = select(t_consensus_analysis_runs).where(
+                t_consensus_analysis_runs.c.id == analysis_id
+            )
+
+            result = self._execute_with_rollback(stmt).fetchone()
+
+            if result:
+                data = dict(result._mapping) if hasattr(result, '_mapping') else dict(result)
+                # Parse JSON fields
+                if data.get('raw_output'):
+                    data['raw_output'] = json.loads(data['raw_output']) if isinstance(data['raw_output'], str) else data['raw_output']
+                if data.get('selected_categories'):
+                    data['selected_categories'] = json.loads(data['selected_categories']) if isinstance(data['selected_categories'], str) else data['selected_categories']
+                return data
+
+            return {}
+
+        except Exception as e:
+            self.logger.error(f"Error retrieving consensus analysis {analysis_id}: {e}")
+            return {}
+
+    def get_recent_consensus_analyses(self, user_id: int = None, limit: int = 10) -> list:
+        """
+        Get recent consensus analyses, optionally filtered by user.
+
+        Args:
+            user_id: Optional user ID to filter by
+            limit: Maximum number of results to return
+
+        Returns:
+            list: List of analysis records (without full raw_output for performance)
+        """
+        try:
+            from app.database_models import t_consensus_analysis_runs
+            from sqlalchemy import select
+
+            stmt = select(
+                t_consensus_analysis_runs.c.id,
+                t_consensus_analysis_runs.c.user_id,
+                t_consensus_analysis_runs.c.topic,
+                t_consensus_analysis_runs.c.timeframe,
+                t_consensus_analysis_runs.c.total_articles_analyzed,
+                t_consensus_analysis_runs.c.created_at,
+                t_consensus_analysis_runs.c.analysis_duration_seconds
+            ).order_by(t_consensus_analysis_runs.c.created_at.desc())
+
+            if user_id is not None:
+                stmt = stmt.where(t_consensus_analysis_runs.c.user_id == user_id)
+
+            stmt = stmt.limit(limit)
+
+            rows = self._execute_with_rollback(stmt).fetchall()
+
+            return [dict(row._mapping) if hasattr(row, '_mapping') else dict(row)
+                   for row in rows]
+
+        except Exception as e:
+            self.logger.error(f"Error getting recent consensus analyses: {e}")
+            return []

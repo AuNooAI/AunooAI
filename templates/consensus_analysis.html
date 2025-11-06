@@ -569,6 +569,9 @@
                 <button type="button" class="btn btn-sm btn-square btn-outline-info" onclick="downloadAsImage()" title="Download PNG">
                     <i class="fas fa-image"></i>
                 </button>
+                <button type="button" class="btn btn-sm btn-square btn-outline-dark" id="viewRawBtn" onclick="viewRawOutput()" disabled title="View Raw Analysis Output">
+                    <i class="fas fa-code"></i>
+                </button>
             </div>
         </div>
     </div>
@@ -703,6 +706,53 @@
         </div>
     </div>
 
+    <!-- Raw Output Viewer Modal -->
+    <div class="modal fade" id="rawOutputModal" tabindex="-1" aria-labelledby="rawOutputModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title" id="rawOutputModalLabel">
+                        <i class="fas fa-code me-2"></i>Raw Analysis Output
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body p-0">
+                    <ul class="nav nav-tabs px-3 pt-3" id="rawOutputTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="formatted-tab" data-bs-toggle="tab" data-bs-target="#formatted" type="button" role="tab">
+                                <i class="fas fa-eye me-1"></i>Formatted
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="raw-tab" data-bs-toggle="tab" data-bs-target="#raw" type="button" role="tab">
+                                <i class="fas fa-code me-1"></i>Raw JSON
+                            </button>
+                        </li>
+                    </ul>
+                    <div class="tab-content p-3" id="rawOutputTabContent">
+                        <div class="tab-pane fade show active" id="formatted" role="tabpanel">
+                            <div id="formattedOutput" style="font-family: monospace; font-size: 12px; white-space: pre-wrap; max-height: 600px; overflow-y: auto;"></div>
+                        </div>
+                        <div class="tab-pane fade" id="raw" role="tabpanel">
+                            <div class="position-relative">
+                                <button class="btn btn-sm btn-outline-secondary position-absolute" style="top: 10px; right: 10px; z-index: 10;" onclick="copyRawOutput()">
+                                    <i class="fas fa-copy me-1"></i>Copy
+                                </button>
+                                <pre id="rawOutput" style="background: #f8f9fa; padding: 15px; border-radius: 4px; max-height: 600px; overflow-y: auto; margin: 0;"></pre>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-success" onclick="downloadRawOutput()">
+                        <i class="fas fa-download me-1"></i>Download JSON
+                    </button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Libraries for download functionality -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -818,14 +868,20 @@
                 }
                 
                 const data = await response.json();
-                
+
                 if (data.error) {
                     throw new Error(data.error);
                 }
-                
-                // Cache the results with full configuration  
+
+                // Store analysis_id for raw output viewing
+                if (data.analysis_id) {
+                    window.currentAnalysisId = data.analysis_id;
+                    document.getElementById('viewRawBtn').disabled = false;
+                }
+
+                // Cache the results with full configuration
                 saveAnalysisResults(data.analysis, currentConfig);
-                
+
                 await displayAuspexAnalysis(topic, actualTimeframe, data.analysis);
                 
             } catch (error) {
@@ -991,9 +1047,14 @@
                     </div>
                 `;
             }
-            
+
+            // Add Evidence Synthesis section if available
+            if (parsedAnalysis && parsedAnalysis.evidence_synthesis) {
+                renderEvidenceSynthesis(parsedAnalysis.evidence_synthesis);
+            }
+
             document.getElementById('consensusContainer').style.display = 'block';
-            
+
             // Initialize tooltips for any newly created outlier markers
             initializeTooltips();
         }
@@ -1087,7 +1148,145 @@
             
             return uniqueCategories;
         }
-        
+
+        function renderEvidenceSynthesis(synthesisData) {
+            // Parse the synthesis data if it's a string
+            let parsed = synthesisData;
+            if (typeof synthesisData === 'string') {
+                try {
+                    // Try to extract JSON from the string
+                    const jsonMatch = synthesisData.match(/\{[\s\S]*"8_evidence_synthesis"[\s\S]*\}/);
+                    if (jsonMatch) {
+                        parsed = JSON.parse(jsonMatch[0]);
+                        parsed = parsed['8_evidence_synthesis'];
+                    } else {
+                        console.warn('Could not parse evidence synthesis');
+                        return;
+                    }
+                } catch (e) {
+                    console.error('Error parsing evidence synthesis:', e);
+                    return;
+                }
+            }
+
+            const synthesis = parsed['8_evidence_synthesis'] || parsed;
+            if (!synthesis) return;
+
+            // Create the Key Insights section
+            const insightsSection = document.createElement('div');
+            insightsSection.className = 'evidence-synthesis-section mt-5 mb-4';
+            insightsSection.innerHTML = `
+                <div class="card border-0 shadow-sm">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0"><i class="fas fa-lightbulb me-2"></i>Key Insights from Evidence Synthesis</h5>
+                    </div>
+                    <div class="card-body">
+                        ${synthesis.key_patterns && synthesis.key_patterns.length > 0 ? `
+                            <div class="mb-4">
+                                <h6 class="fw-bold text-primary">
+                                    <span class="badge bg-primary rounded-circle me-2">●</span>
+                                    Consensus bands
+                                </h6>
+                                <p class="small text-muted mb-3">Show agreed timing and sentiment from 300+ research sources</p>
+                                <div class="row g-3">
+                                    ${synthesis.key_patterns.map(pattern => `
+                                        <div class="col-12">
+                                            <div class="card bg-light border-start border-primary border-3">
+                                                <div class="card-body">
+                                                    <strong class="d-block mb-2">${pattern.pattern}</strong>
+                                                    ${pattern.supporting_categories ? `
+                                                        <small class="text-muted d-block mb-2">
+                                                            <i class="fas fa-layer-group me-1"></i>
+                                                            Evidence from: ${Array.isArray(pattern.supporting_categories) ? pattern.supporting_categories.join(', ') : pattern.supporting_categories}
+                                                        </small>
+                                                    ` : ''}
+                                                    ${pattern.significance ? `
+                                                        <small class="text-muted d-block">
+                                                            <i class="fas fa-star me-1"></i>${pattern.significance}
+                                                        </small>
+                                                    ` : ''}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+
+                        ${synthesis.strategic_priorities && synthesis.strategic_priorities.length > 0 ? `
+                            <div class="mb-4">
+                                <h6 class="fw-bold text-success">
+                                    <span class="badge bg-success rounded-circle me-2">●</span>
+                                    Strategic planning
+                                </h6>
+                                <p class="small text-muted mb-3">Show agreed timing for both consensus scenarios and outlier possibilities</p>
+                                <div class="row g-3">
+                                    ${synthesis.strategic_priorities.map(priority => `
+                                        <div class="col-12">
+                                            <div class="card border-success border-start border-3">
+                                                <div class="card-body">
+                                                    <div class="d-flex justify-content-between align-items-start mb-2">
+                                                        <strong class="flex-grow-1">${priority.priority}</strong>
+                                                        ${priority.urgency ? `
+                                                            <span class="badge bg-${priority.urgency === 'High' ? 'danger' : priority.urgency === 'Medium' ? 'warning' : 'secondary'}">
+                                                                ${priority.urgency}
+                                                            </span>
+                                                        ` : ''}
+                                                    </div>
+                                                    ${priority.rationale ? `<p class="small mb-2">${priority.rationale}</p>` : ''}
+                                                    ${priority.supporting_evidence ? `
+                                                        <small class="text-muted">
+                                                            <i class="fas fa-check-circle me-1 text-success"></i>${priority.supporting_evidence}
+                                                        </small>
+                                                    ` : ''}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+
+                        <div class="row g-3 mt-3">
+                            <div class="col-md-4">
+                                <div class="p-3 bg-light rounded">
+                                    <h6 class="fw-bold">
+                                        <span class="badge bg-success rounded-circle me-2">●</span>
+                                        Optimistic outliers
+                                    </h6>
+                                    <small class="text-muted">Represent credible dissenting views and potential black swan events</small>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="p-3 bg-light rounded">
+                                    <h6 class="fw-bold">
+                                        <span class="badge bg-danger rounded-circle me-2">●</span>
+                                        Pessimistic outliers
+                                    </h6>
+                                    <small class="text-muted">Highlight potential barriers and delayed timelines</small>
+                                </div>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="p-3 bg-light rounded">
+                                    <h6 class="fw-bold">
+                                        <span class="badge bg-warning rounded-circle me-2">●</span>
+                                        Most credible forecasts
+                                    </h6>
+                                    <small class="text-muted">Reject 2025-2050 AGI claims, focus on gradual evolution</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Append to the domain cards container
+            const domainCards = document.getElementById('domainCards');
+            if (domainCards) {
+                domainCards.appendChild(insightsSection);
+            }
+        }
+
         function createCategoryAnalysisCard(categoryName, categoryAnalysis, index) {
             const card = document.createElement('div');
             card.className = 'domain-card';
@@ -1193,7 +1392,8 @@
                 if (typeof stratImpl === 'string') {
                     strategicImplications = stratImpl;
                 } else if (typeof stratImpl === 'object' && stratImpl !== null) {
-                    strategicImplications = stratImpl.summary || Object.values(stratImpl).join(' ') || '';
+                    // Store the full object for rich display
+                    strategicImplications = stratImpl;
                 }
                 
                 articlesAnalyzed = parsedData.articles_analyzed || 0;
@@ -1529,7 +1729,9 @@
             const milestonesHtml = createMilestonesVisualization(milestones, categoryName);
 
             // Pre-compute timeline display text to avoid nested template literals
-            const timelineDisplayText = getTimelineDisplayText(timeline, consensusType) || 'MID-TERM';
+            const baseTimelineText = getTimelineDisplayText(timeline, consensusType) || 'MID-TERM';
+            const confidenceText = confidence ? ` • ${confidence}% Consensus` : '';
+            const timelineDisplayText = baseTimelineText + confidenceText;
             const consensusTooltip = (getConsensusTooltip(consensusType, confidence, sentimentDistribution, timeline) || '').replace(/"/g, '&quot;');
 
             console.log(`Final visualization data for ${categoryName}:`, {
@@ -1596,40 +1798,96 @@
                         <!-- Outliers Section -->
                         ${optimisticOutliers.length > 0 || pessimisticOutliers.length > 0 ? `
                             <div class="mb-4">
-                                <h6 class="fw-bold mb-3">Scenario Outliers</h6>
+                                <h6 class="fw-bold mb-3">
+                                    <i class="fas fa-project-diagram me-2 text-info"></i>Scenario Outliers
+                                </h6>
                                 <div class="row">
                                     ${optimisticOutliers.length > 0 ? `
                                         <div class="col-md-6">
                                             <div class="outlier-section outlier-optimistic-section">
-                                                <div class="d-flex align-items-center mb-2">
+                                                <div class="d-flex align-items-center mb-3">
                                                     <div class="outlier-marker outlier-optimistic me-2" style="position: static; margin: 0;"></div>
-                                                    <strong class="small">Optimistic Scenarios</strong>
+                                                    <strong>Optimistic Scenarios</strong>
                                                 </div>
-                                                ${optimisticOutliers.map(outlier => `
-                                                    <div class="mb-2 p-2 border-start border-success border-3 bg-light">
-                                                        <strong class="small d-block">${outlier.scenario}</strong>
-                                                        ${outlier.details ? `<small class="text-muted">${outlier.details}</small>` : ''}
-                                                        ${outlier.reference ? `<br><a href="${extractUrlFromReference(outlier.reference)}" target="_blank" class="small text-primary">Source</a>` : ''}
-                                                    </div>
-                                                `).join('')}
+                                                ${optimisticOutliers.map((outlier, idx) => {
+                                                    // Extract citations from outlier data
+                                                    const citations = outlier.citations || outlier.articles || [];
+                                                    const citationHtml = Array.isArray(citations) && citations.length > 0 ?
+                                                        `<div class="mt-2 pt-2 border-top">
+                                                            <small class="text-muted d-block mb-1"><i class="fas fa-quote-left me-1"></i>Supporting Evidence:</small>
+                                                            ${citations.map(cite => {
+                                                                const title = cite.title || cite;
+                                                                const url = cite.url || cite.link || '#';
+                                                                return `<small class="d-block ms-3 mb-1">
+                                                                    ${url !== '#' ? `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-decoration-none">` : ''}
+                                                                    <i class="fas fa-arrow-right me-1"></i>${title}
+                                                                    ${url !== '#' ? '</a>' : ''}
+                                                                </small>`;
+                                                            }).join('')}
+                                                        </div>` : '';
+
+                                                    return `
+                                                        <div class="mb-3 p-3 border-start border-success border-3 bg-white shadow-sm rounded">
+                                                            <div class="d-flex align-items-start justify-content-between mb-2">
+                                                                <strong class="d-block flex-grow-1">${outlier.scenario}</strong>
+                                                                ${outlier.year ? `<span class="badge bg-success ms-2">${outlier.year}</span>` : ''}
+                                                            </div>
+                                                            ${outlier.details ? `<p class="small text-muted mb-2">${outlier.details}</p>` : ''}
+                                                            <div class="d-flex flex-wrap gap-2 align-items-center">
+                                                                ${outlier.timeline ? `<span class="badge bg-light text-dark"><i class="far fa-clock me-1"></i>${outlier.timeline}</span>` : ''}
+                                                                ${outlier.source ? `<span class="badge bg-light text-dark"><i class="fas fa-building me-1"></i>${outlier.source}</span>` : ''}
+                                                                ${outlier.source_percentage ? `<span class="badge bg-success">${outlier.source_percentage}% of sources</span>` : ''}
+                                                            </div>
+                                                            ${outlier.reference ? `<div class="mt-2"><a href="${extractUrlFromReference(outlier.reference)}" target="_blank" class="small text-primary"><i class="fas fa-external-link-alt me-1"></i>Source Article</a></div>` : ''}
+                                                            ${citationHtml}
+                                                        </div>
+                                                    `;
+                                                }).join('')}
                                             </div>
                                         </div>
                                     ` : ''}
-                                    
+
                                     ${pessimisticOutliers.length > 0 ? `
                                         <div class="col-md-6">
                                             <div class="outlier-section outlier-pessimistic-section">
-                                                <div class="d-flex align-items-center mb-2">
+                                                <div class="d-flex align-items-center mb-3">
                                                     <div class="outlier-marker outlier-pessimistic me-2" style="position: static; margin: 0;"></div>
-                                                    <strong class="small">Pessimistic Scenarios</strong>
+                                                    <strong>Pessimistic Scenarios</strong>
                                                 </div>
-                                                ${pessimisticOutliers.map(outlier => `
-                                                    <div class="mb-2 p-2 border-start border-danger border-3 bg-light">
-                                                        <strong class="small d-block">${outlier.scenario}</strong>
-                                                        ${outlier.details ? `<small class="text-muted">${outlier.details}</small>` : ''}
-                                                        ${outlier.reference ? `<br><a href="${extractUrlFromReference(outlier.reference)}" target="_blank" class="small text-primary">Source</a>` : ''}
-                                                    </div>
-                                                `).join('')}
+                                                ${pessimisticOutliers.map((outlier, idx) => {
+                                                    // Extract citations from outlier data
+                                                    const citations = outlier.citations || outlier.articles || [];
+                                                    const citationHtml = Array.isArray(citations) && citations.length > 0 ?
+                                                        `<div class="mt-2 pt-2 border-top">
+                                                            <small class="text-muted d-block mb-1"><i class="fas fa-quote-left me-1"></i>Supporting Evidence:</small>
+                                                            ${citations.map(cite => {
+                                                                const title = cite.title || cite;
+                                                                const url = cite.url || cite.link || '#';
+                                                                return `<small class="d-block ms-3 mb-1">
+                                                                    ${url !== '#' ? `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-decoration-none">` : ''}
+                                                                    <i class="fas fa-arrow-right me-1"></i>${title}
+                                                                    ${url !== '#' ? '</a>' : ''}
+                                                                </small>`;
+                                                            }).join('')}
+                                                        </div>` : '';
+
+                                                    return `
+                                                        <div class="mb-3 p-3 border-start border-danger border-3 bg-white shadow-sm rounded">
+                                                            <div class="d-flex align-items-start justify-content-between mb-2">
+                                                                <strong class="d-block flex-grow-1">${outlier.scenario}</strong>
+                                                                ${outlier.year ? `<span class="badge bg-danger ms-2">${outlier.year}</span>` : ''}
+                                                            </div>
+                                                            ${outlier.details ? `<p class="small text-muted mb-2">${outlier.details}</p>` : ''}
+                                                            <div class="d-flex flex-wrap gap-2 align-items-center">
+                                                                ${outlier.timeline ? `<span class="badge bg-light text-dark"><i class="far fa-clock me-1"></i>${outlier.timeline}</span>` : ''}
+                                                                ${outlier.source ? `<span class="badge bg-light text-dark"><i class="fas fa-building me-1"></i>${outlier.source}</span>` : ''}
+                                                                ${outlier.source_percentage ? `<span class="badge bg-danger">${outlier.source_percentage}% of sources</span>` : ''}
+                                                            </div>
+                                                            ${outlier.reference ? `<div class="mt-2"><a href="${extractUrlFromReference(outlier.reference)}" target="_blank" class="small text-primary"><i class="fas fa-external-link-alt me-1"></i>Source Article</a></div>` : ''}
+                                                            ${citationHtml}
+                                                        </div>
+                                                    `;
+                                                }).join('')}
                                             </div>
                                         </div>
                                     ` : ''}
@@ -1640,54 +1898,206 @@
                         <!-- Key Articles -->
                         ${keyArticles.length > 0 ? `
                             <div class="mb-4">
-                                <h6 class="fw-bold mb-3">Key Supporting Articles</h6>
-                                ${keyArticles.map(article => {
-                                    // Handle different article data formats
-                                    const title = article.title || article.headline || 'Article';
-                                    let url = article.url || article.uri || article.link || '#';
-                                    const summary = article.summary || article.relevance || article.description || 'No summary available';
-                                    const sentiment = article.sentiment || 'neutral';
-                                    
-                                    // Ensure URL is properly formatted for external links
-                                    if (url && url !== '#') {
-                                        // If it's already a full URL, use it as is
-                                        if (url.startsWith('http://') || url.startsWith('https://')) {
-                                            // URL is already properly formatted
-                                        } else if (url.startsWith('//')) {
-                                            // Protocol-relative URL, add https
-                                            url = 'https:' + url;
-                                        } else if (url.startsWith('/')) {
-                                            // Relative URL, this shouldn't happen for external articles
-                                            url = '#';
-                                        } else {
-                                            // Assume it's a domain without protocol
-                                            url = 'https://' + url;
+                                <h6 class="fw-bold mb-3">
+                                    <i class="fas fa-newspaper me-2 text-primary"></i>Key Supporting Articles
+                                </h6>
+                                <div class="row g-3">
+                                    ${keyArticles.map((article, idx) => {
+                                        // Handle different article data formats
+                                        const title = article.title || article.headline || 'Article';
+                                        let url = article.url || article.uri || article.link || '#';
+                                        const summary = article.summary || article.relevance || article.description || 'No summary available';
+                                        const sentiment = article.sentiment || 'neutral';
+                                        const source = article.source || article.publisher || '';
+
+                                        // Ensure URL is properly formatted for external links
+                                        if (url && url !== '#') {
+                                            // If it's already a full URL, use it as is
+                                            if (url.startsWith('http://') || url.startsWith('https://')) {
+                                                // URL is already properly formatted
+                                            } else if (url.startsWith('//')) {
+                                                // Protocol-relative URL, add https
+                                                url = 'https:' + url;
+                                            } else if (url.startsWith('/')) {
+                                                // Relative URL, this shouldn't happen for external articles
+                                                url = '#';
+                                            } else {
+                                                // Assume it's a domain without protocol
+                                                url = 'https://' + url;
+                                            }
                                         }
-                                    }
-                                    
-                                    return `
-                                        <div class="mb-2 p-2 bg-light rounded">
-                                            <strong class="small d-block">
-                                                ${url !== '#' ? `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-decoration-none">` : ''}
-                                                    ${title}
-                                                ${url !== '#' ? '</a>' : ''}
-                                                <span class="badge badge-sm ms-2 ${sentiment === 'positive' ? 'bg-success' : sentiment === 'critical' ? 'bg-danger' : 'bg-secondary'}">${sentiment}</span>
-                                            </strong>
-                                            <small class="text-muted d-block mt-1">${summary}</small>
-                                            ${url !== '#' ? `<small class="text-muted"><i class="fas fa-external-link-alt me-1"></i>External Link</small>` : ''}
-                                        </div>
-                                    `;
-                                }).join('')}
+
+                                        // Sentiment badge colors and icons
+                                        const sentimentInfo = {
+                                            'positive': { color: 'success', icon: 'fa-smile', label: 'Positive' },
+                                            'critical': { color: 'danger', icon: 'fa-exclamation-triangle', label: 'Critical' },
+                                            'neutral': { color: 'secondary', icon: 'fa-minus-circle', label: 'Neutral' },
+                                            'negative': { color: 'warning', icon: 'fa-frown', label: 'Negative' }
+                                        };
+                                        const sentimentBadge = sentimentInfo[sentiment.toLowerCase()] || sentimentInfo['neutral'];
+
+                                        return `
+                                            <div class="col-12">
+                                                <div class="card h-100 border-start border-${sentimentBadge.color} border-3 shadow-sm">
+                                                    <div class="card-body">
+                                                        <div class="d-flex justify-content-between align-items-start mb-2">
+                                                            <h6 class="card-title mb-0 flex-grow-1">
+                                                                ${url !== '#' ? `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-decoration-none text-dark">` : ''}
+                                                                    <i class="fas fa-file-alt me-2 text-muted"></i>${title}
+                                                                    ${url !== '#' ? `<i class="fas fa-external-link-alt ms-1 small text-muted"></i>` : ''}
+                                                                ${url !== '#' ? '</a>' : ''}
+                                                            </h6>
+                                                            <span class="badge bg-${sentimentBadge.color} ms-2">
+                                                                <i class="fas ${sentimentBadge.icon} me-1"></i>${sentimentBadge.label}
+                                                            </span>
+                                                        </div>
+                                                        ${source ? `<div class="text-muted small mb-2"><i class="fas fa-building me-1"></i>${source}</div>` : ''}
+                                                        <p class="card-text small text-muted mb-0">${summary}</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        `;
+                                    }).join('')}
+                                </div>
                             </div>
                         ` : ''}
                         
-                        <!-- Strategic Implications -->
+                        <!-- Strategic Framework -->
                         ${strategicImplications ? `
                             <div class="mb-4">
-                                <h6 class="fw-bold text-primary mb-2">Strategic Implications</h6>
-                                <div class="p-3 rounded" style="background: #e3f2fd;">
-                                    <p class="small mb-0 text-dark">${strategicImplications}</p>
-                                </div>
+                                <h6 class="fw-bold mb-3">
+                                    <i class="fas fa-chess-knight me-2 text-primary"></i>Strategic Framework
+                                </h6>
+
+                                ${(() => {
+                                    // Handle both old string format and new object format
+                                    if (typeof strategicImplications === 'string') {
+                                        return `
+                                            <div class="p-3 rounded bg-light">
+                                                <p class="small mb-0">${strategicImplications}</p>
+                                            </div>
+                                        `;
+                                    }
+
+                                    // Rich object format with decision principles, recommendations, success metrics
+                                    const summary = strategicImplications.summary || '';
+                                    const principles = strategicImplications.decision_principles || [];
+                                    const recommendations = strategicImplications.recommendations || [];
+                                    const metrics = strategicImplications.success_metrics || [];
+
+                                    let html = '';
+
+                                    // Summary section
+                                    if (summary) {
+                                        html += `
+                                            <div class="alert alert-primary mb-3" role="alert">
+                                                <strong><i class="fas fa-lightbulb me-2"></i>Strategic Overview</strong>
+                                                <p class="mb-0 mt-2">${summary}</p>
+                                            </div>
+                                        `;
+                                    }
+
+                                    // Decision Principles
+                                    if (Array.isArray(principles) && principles.length > 0) {
+                                        html += `
+                                            <div class="mb-3">
+                                                <h6 class="fw-bold mb-2">
+                                                    <i class="fas fa-balance-scale me-2 text-info"></i>Decision Principles
+                                                </h6>
+                                                <div class="row g-2">
+                                                    ${principles.map((principle, idx) => {
+                                                        const princ = typeof principle === 'string' ?
+                                                            { principle: principle, rationale: '' } :
+                                                            principle;
+                                                        return `
+                                                            <div class="col-12">
+                                                                <div class="card border-info border-start border-3 bg-white">
+                                                                    <div class="card-body p-3">
+                                                                        <strong class="d-block mb-1">${idx + 1}. ${princ.principle}</strong>
+                                                                        ${princ.rationale ? `<p class="small text-muted mb-0">${princ.rationale}</p>` : ''}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        `;
+                                                    }).join('')}
+                                                </div>
+                                            </div>
+                                        `;
+                                    }
+
+                                    // Actionable Recommendations
+                                    if (Array.isArray(recommendations) && recommendations.length > 0) {
+                                        html += `
+                                            <div class="mb-3">
+                                                <h6 class="fw-bold mb-2">
+                                                    <i class="fas fa-tasks me-2 text-success"></i>Actionable Recommendations
+                                                </h6>
+                                                <div class="row g-2">
+                                                    ${recommendations.map((rec, idx) => {
+                                                        const recommendation = typeof rec === 'string' ?
+                                                            { action: rec, priority: 'Medium', timeline: 'short-term' } :
+                                                            rec;
+
+                                                        const priorityColors = {
+                                                            'High': 'danger',
+                                                            'Medium': 'warning',
+                                                            'Low': 'secondary'
+                                                        };
+                                                        const priorityColor = priorityColors[recommendation.priority] || 'secondary';
+
+                                                        return `
+                                                            <div class="col-12">
+                                                                <div class="card bg-white shadow-sm">
+                                                                    <div class="card-body p-3">
+                                                                        <div class="d-flex justify-content-between align-items-start mb-2">
+                                                                            <strong class="flex-grow-1">${idx + 1}. ${recommendation.action}</strong>
+                                                                            <div class="ms-2">
+                                                                                <span class="badge bg-${priorityColor}">${recommendation.priority || 'Medium'}</span>
+                                                                            </div>
+                                                                        </div>
+                                                                        ${recommendation.timeline ? `
+                                                                            <span class="badge bg-light text-dark">
+                                                                                <i class="far fa-clock me-1"></i>${recommendation.timeline}
+                                                                            </span>
+                                                                        ` : ''}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        `;
+                                                    }).join('')}
+                                                </div>
+                                            </div>
+                                        `;
+                                    }
+
+                                    // Success Metrics
+                                    if (Array.isArray(metrics) && metrics.length > 0) {
+                                        html += `
+                                            <div class="mb-3">
+                                                <h6 class="fw-bold mb-2">
+                                                    <i class="fas fa-chart-line me-2 text-warning"></i>Success Metrics
+                                                </h6>
+                                                <div class="card bg-white border-warning border-start border-3">
+                                                    <div class="card-body p-3">
+                                                        <ul class="mb-0">
+                                                            ${metrics.map(metric => `
+                                                                <li class="mb-2">
+                                                                    <i class="fas fa-check-circle text-success me-2"></i>${metric}
+                                                                </li>
+                                                            `).join('')}
+                                                        </ul>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        `;
+                                    }
+
+                                    return html || `
+                                        <div class="p-3 rounded bg-light">
+                                            <p class="small mb-0 text-muted">Strategic framework data not available.</p>
+                                        </div>
+                                    `;
+                                })()}
                             </div>
                         ` : ''}
                         
@@ -1813,48 +2223,160 @@
                         ${consensusType.toUpperCase()}
                     </div>
                     
-                    ${data.optimisticOutlier || data.optimistic_outliers ? `
-                        <div class="outlier-marker outlier-optimistic" 
-                             style="left: 15%;"
-                             title="${data.optimisticOutlier || data.optimistic_outliers}">
-                        </div>
-                    ` : ''}
-                    
-                    ${data.pessimisticOutlier || data.pessimistic_outliers ? `
-                        <div class="outlier-marker outlier-pessimistic" 
-                             style="left: 75%;"
-                             title="${data.pessimisticOutlier || data.pessimistic_outliers}">
-                        </div>
-                    ` : ''}
+                    ${(() => {
+                        // Handle optimistic outliers - show up to 3
+                        const optimisticOutliers = Array.isArray(data.optimistic_outliers) ?
+                            data.optimistic_outliers.slice(0, 3) :
+                            (data.optimisticOutlier ? [typeof data.optimisticOutlier === 'string' ?
+                                {scenario: data.optimisticOutlier, year: 2025} : data.optimisticOutlier] : []);
+
+                        const pessimisticOutliers = Array.isArray(data.pessimistic_outliers) ?
+                            data.pessimistic_outliers.slice(0, 3) :
+                            (data.pessimisticOutlier ? [typeof data.pessimisticOutlier === 'string' ?
+                                {scenario: data.pessimisticOutlier, year: 2035} : data.pessimisticOutlier] : []);
+
+                        // Calculate timeline positions based on year (2024-2035 range)
+                        const getPosition = (year) => {
+                            const start = 2024;
+                            const end = 2035;
+                            const yearNum = parseInt(year) || start;
+                            return Math.max(5, Math.min(95, ((yearNum - start) / (end - start)) * 100));
+                        };
+
+                        let markersHtml = '';
+
+                        // Add optimistic markers
+                        optimisticOutliers.forEach((outlier, idx) => {
+                            const position = outlier.year ? getPosition(outlier.year) : (15 + idx * 10);
+                            const scenario = outlier.scenario || outlier;
+                            markersHtml += `
+                                <div class="outlier-marker outlier-optimistic"
+                                     style="left: ${position}%;"
+                                     data-bs-toggle="tooltip"
+                                     data-bs-placement="top"
+                                     title="${typeof scenario === 'string' ? scenario : (scenario?.scenario || 'Optimistic scenario')}">
+                                </div>
+                            `;
+                        });
+
+                        // Add pessimistic markers
+                        pessimisticOutliers.forEach((outlier, idx) => {
+                            const position = outlier.year ? getPosition(outlier.year) : (65 + idx * 10);
+                            const scenario = outlier.scenario || outlier;
+                            markersHtml += `
+                                <div class="outlier-marker outlier-pessimistic"
+                                     style="left: ${position}%;"
+                                     data-bs-toggle="tooltip"
+                                     data-bs-placement="top"
+                                     title="${typeof scenario === 'string' ? scenario : (scenario?.scenario || 'Pessimistic scenario')}">
+                                </div>
+                            `;
+                        });
+
+                        return markersHtml;
+                    })()}
+
+                    ${(() => {
+                        // Add milestone markers based on timeline distribution
+                        if (!data.timelineDistribution && !data.timeline_distribution) return '';
+
+                        const timelineDist = data.timelineDistribution || data.timeline_distribution || {};
+                        const milestones = [
+                            { name: 'Immediate (2024-2025)', position: 10, color: '#ff6b6b' },
+                            { name: 'Short-term (2025-2027)', position: 30, color: '#ffa726' },
+                            { name: 'Mid-term (2027-2030)', position: 55, color: '#42a5f5' },
+                            { name: 'Long-term (2030-2035+)', position: 80, color: '#ab47bc' }
+                        ];
+
+                        let milestoneHtml = '';
+                        milestones.forEach(milestone => {
+                            const count = timelineDist[milestone.name] || 0;
+                            if (count > 0) {
+                                milestoneHtml += `
+                                    <div class="milestone-marker"
+                                         style="left: ${milestone.position}%; background: ${milestone.color};"
+                                         data-bs-toggle="tooltip"
+                                         data-bs-placement="top"
+                                         title="${milestone.name}: ${count} articles">
+                                    </div>
+                                `;
+                            }
+                        });
+
+                        return milestoneHtml;
+                    })()}
                 </div>
-                
+
                 <div class="expanded-details" style="display: none;" id="details-${index}">
                     <div class="row">
-                        ${data.optimisticOutlier || data.optimistic_outliers ? `
-                            <div class="col-md-6">
-                                <div class="outlier-section outlier-optimistic-section">
-                                    <div class="d-flex align-items-center mb-2">
-                                        <div class="outlier-marker outlier-optimistic me-2" style="position: static; margin: 0;"></div>
-                                        <strong class="small">Optimistic Scenario</strong>
-                                    </div>
-                                    <p class="small mb-2">${data.optimisticOutlier || data.optimistic_outliers}</p>
-                                    <span class="badge bg-success">25% of sources</span>
-                                </div>
-                            </div>
-                        ` : ''}
-                        
-                        ${data.pessimisticOutlier || data.pessimistic_outliers ? `
-                            <div class="col-md-6">
-                                <div class="outlier-section outlier-pessimistic-section">
-                                    <div class="d-flex align-items-center mb-2">
-                                        <div class="outlier-marker outlier-pessimistic me-2" style="position: static; margin: 0;"></div>
-                                        <strong class="small">Pessimistic Scenario</strong>
-                                    </div>
-                                    <p class="small mb-2">${data.pessimisticOutlier || data.pessimistic_outliers}</p>
-                                    <span class="badge bg-danger">30% of sources</span>
-                                </div>
-                            </div>
-                        ` : ''}
+                        ${(() => {
+                            // Get all outliers
+                            const optimisticOutliers = Array.isArray(data.optimistic_outliers) ?
+                                data.optimistic_outliers.slice(0, 3) :
+                                (data.optimisticOutlier ? [typeof data.optimisticOutlier === 'string' ?
+                                    {scenario: data.optimisticOutlier, source_percentage: 25} : data.optimisticOutlier] : []);
+
+                            const pessimisticOutliers = Array.isArray(data.pessimistic_outliers) ?
+                                data.pessimistic_outliers.slice(0, 3) :
+                                (data.pessimisticOutlier ? [typeof data.pessimisticOutlier === 'string' ?
+                                    {scenario: data.pessimisticOutlier, source_percentage: 30} : data.pessimisticOutlier] : []);
+
+                            let html = '';
+
+                            // Optimistic scenarios
+                            if (optimisticOutliers.length > 0) {
+                                html += '<div class="col-md-6"><h6 class="text-success fw-bold mb-3">Optimistic Scenarios</h6>';
+                                optimisticOutliers.forEach((outlier, idx) => {
+                                    const scenario = outlier.scenario || outlier;
+                                    const percentage = outlier.source_percentage || 25;
+                                    const timeline = outlier.timeline || outlier.year || '';
+                                    const source = outlier.source || '';
+
+                                    html += `
+                                        <div class="outlier-section outlier-optimistic-section mb-3">
+                                            <div class="d-flex align-items-start mb-2">
+                                                <div class="outlier-marker outlier-optimistic me-2" style="position: static; margin: 0; margin-top: 2px;"></div>
+                                                <div class="flex-grow-1">
+                                                    <strong class="small d-block">${typeof scenario === 'string' ? scenario : scenario?.scenario || 'Optimistic scenario'}</strong>
+                                                    ${timeline ? `<small class="text-muted d-block">Timeline: ${timeline}</small>` : ''}
+                                                    ${source ? `<small class="text-muted d-block">Source: ${source}</small>` : ''}
+                                                </div>
+                                            </div>
+                                            <span class="badge bg-success">${percentage}% of sources</span>
+                                        </div>
+                                    `;
+                                });
+                                html += '</div>';
+                            }
+
+                            // Pessimistic scenarios
+                            if (pessimisticOutliers.length > 0) {
+                                html += '<div class="col-md-6"><h6 class="text-danger fw-bold mb-3">Pessimistic Scenarios</h6>';
+                                pessimisticOutliers.forEach((outlier, idx) => {
+                                    const scenario = outlier.scenario || outlier;
+                                    const percentage = outlier.source_percentage || 30;
+                                    const timeline = outlier.timeline || outlier.year || '';
+                                    const source = outlier.source || '';
+
+                                    html += `
+                                        <div class="outlier-section outlier-pessimistic-section mb-3">
+                                            <div class="d-flex align-items-start mb-2">
+                                                <div class="outlier-marker outlier-pessimistic me-2" style="position: static; margin: 0; margin-top: 2px;"></div>
+                                                <div class="flex-grow-1">
+                                                    <strong class="small d-block">${typeof scenario === 'string' ? scenario : scenario?.scenario || 'Pessimistic scenario'}</strong>
+                                                    ${timeline ? `<small class="text-muted d-block">Timeline: ${timeline}</small>` : ''}
+                                                    ${source ? `<small class="text-muted d-block">Source: ${source}</small>` : ''}
+                                                </div>
+                                            </div>
+                                            <span class="badge bg-danger">${percentage}% of sources</span>
+                                        </div>
+                                    `;
+                                });
+                                html += '</div>';
+                            }
+
+                            return html;
+                        })()}
                     </div>
                     
                     <div class="mt-3 p-3 rounded" style="background: #e3f2fd;">
@@ -3610,21 +4132,31 @@ Sentiment Breakdown:
         
         // Custom tooltip handling for outlier markers and consensus bands
         function initializeTooltips() {
-            // Convert title attributes to data-tooltip to prevent default tooltips
+            // Initialize Bootstrap tooltips
             // Use setTimeout to ensure DOM is fully rendered
             setTimeout(() => {
-                // Handle outlier markers
-                document.querySelectorAll('.outlier-marker[title]').forEach(marker => {
+                // Initialize Bootstrap tooltips for elements with data-bs-toggle="tooltip"
+                const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+                const tooltipList = [...tooltipTriggerList].map(tooltipTriggerEl => {
+                    return new bootstrap.Tooltip(tooltipTriggerEl, {
+                        html: false,
+                        trigger: 'hover focus',
+                        container: 'body'
+                    });
+                });
+
+                // Handle outlier markers with old title attribute (convert to custom data-tooltip for CSS handling)
+                document.querySelectorAll('.outlier-marker[title]:not([data-bs-toggle])').forEach(marker => {
                     const title = marker.getAttribute('title');
                     marker.setAttribute('data-tooltip', title);
                     marker.removeAttribute('title');
                 });
-                
+
                 // Handle consensus bands (they should already have data-tooltip, but remove any title attributes)
                 document.querySelectorAll('.consensus-band[title]').forEach(band => {
                     band.removeAttribute('title');
                 });
-                
+
                 // Handle milestone markers
                 document.querySelectorAll('.milestone-marker[title]').forEach(marker => {
                     const title = marker.getAttribute('title');
@@ -4218,6 +4750,67 @@ Sentiment Breakdown:
             
             // Don't handle any other clicks - let Bootstrap handle everything else
         });
+
+        // Raw Output Modal Functions
+        let rawOutputData = null;
+
+        async function viewRawOutput() {
+            if (!window.currentAnalysisId) {
+                showError('No analysis ID available. Please run a new analysis.');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/auspex/consensus-analysis/${window.currentAnalysisId}/raw`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const data = await response.json();
+                rawOutputData = data.raw_output;
+
+                // Display formatted output
+                document.getElementById('formattedOutput').textContent = JSON.stringify(rawOutputData, null, 2);
+
+                // Display raw JSON
+                document.getElementById('rawOutput').textContent = JSON.stringify(rawOutputData, null, 2);
+
+                // Show the modal
+                const modal = new bootstrap.Modal(document.getElementById('rawOutputModal'));
+                modal.show();
+            } catch (error) {
+                showError(`Error loading raw output: ${error.message}`);
+            }
+        }
+
+        function copyRawOutput() {
+            const rawText = document.getElementById('rawOutput').textContent;
+            navigator.clipboard.writeText(rawText).then(() => {
+                showSuccess('Raw output copied to clipboard!');
+            }).catch(err => {
+                showError('Failed to copy: ' + err.message);
+            });
+        }
+
+        function downloadRawOutput() {
+            if (!rawOutputData) {
+                showError('No raw output data available');
+                return;
+            }
+
+            const dataStr = JSON.stringify(rawOutputData, null, 2);
+            const dataBlob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(dataBlob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `consensus-analysis-${window.currentAnalysisId || 'output'}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+            showSuccess('Raw output downloaded successfully!');
+        }
     </script>
 {% endblock %}
 
