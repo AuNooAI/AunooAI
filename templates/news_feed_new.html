@@ -13818,6 +13818,7 @@ async function generateInsights(forceRegenerate = false) {
 
         switch (dateRangeValue) {
             case '24h': daysLimit = 1; break;
+            case '72h': daysLimit = 3; break;
             case '7d': daysLimit = 7; break;
             case '30d': daysLimit = 30; break;
             case '3m': daysLimit = 90; break;
