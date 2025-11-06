@@ -8303,36 +8303,42 @@ function buildFilterBadges(articles) {
     
     // Build bias filter badges
     const biasContainer = document.getElementById('bias-filters');
-    biasContainer.innerHTML = '';
-    biasValues.forEach(bias => {
-        const badge = document.createElement('button');
-        badge.className = `btn btn-sm ${getBiasClass(bias)} filter-badge ${activeFilters.bias.has(bias) ? 'active' : ''}`;
-        badge.textContent = bias;
-        badge.onclick = () => toggleFilter('bias', bias);
-        biasContainer.appendChild(badge);
-    });
-    
+    if (biasContainer) {
+        biasContainer.innerHTML = '';
+        biasValues.forEach(bias => {
+            const badge = document.createElement('button');
+            badge.className = `btn btn-sm ${getBiasClass(bias)} filter-badge ${activeFilters.bias.has(bias) ? 'active' : ''}`;
+            badge.textContent = bias;
+            badge.onclick = () => toggleFilter('bias', bias);
+            biasContainer.appendChild(badge);
+        });
+    }
+
     // Build factuality filter badges
     const factualityContainer = document.getElementById('factuality-filters');
-    factualityContainer.innerHTML = '';
-    factualityValues.forEach(factuality => {
-        const badge = document.createElement('button');
-        badge.className = `btn btn-sm ${getFactualityClass(factuality)} filter-badge ${activeFilters.factuality.has(factuality) ? 'active' : ''}`;
-        badge.textContent = factuality;
-        badge.onclick = () => toggleFilter('factuality', factuality);
-        factualityContainer.appendChild(badge);
-    });
-    
+    if (factualityContainer) {
+        factualityContainer.innerHTML = '';
+        factualityValues.forEach(factuality => {
+            const badge = document.createElement('button');
+            badge.className = `btn btn-sm ${getFactualityClass(factuality)} filter-badge ${activeFilters.factuality.has(factuality) ? 'active' : ''}`;
+            badge.textContent = factuality;
+            badge.onclick = () => toggleFilter('factuality', factuality);
+            factualityContainer.appendChild(badge);
+        });
+    }
+
     // Build category filter badges
     const categoryContainer = document.getElementById('category-filters');
-    categoryContainer.innerHTML = '';
-    categoryValues.forEach(category => {
-        const badge = document.createElement('button');
-        badge.className = `btn btn-sm bg-light text-dark filter-badge ${activeFilters.category.has(category) ? 'active' : ''}`;
-        badge.textContent = category;
-        badge.onclick = () => toggleFilter('category', category);
-        categoryContainer.appendChild(badge);
-    });
+    if (categoryContainer) {
+        categoryContainer.innerHTML = '';
+        categoryValues.forEach(category => {
+            const badge = document.createElement('button');
+            badge.className = `btn btn-sm bg-light text-dark filter-badge ${activeFilters.category.has(category) ? 'active' : ''}`;
+            badge.textContent = category;
+            badge.onclick = () => toggleFilter('category', category);
+            categoryContainer.appendChild(badge);
+        });
+    }
     
     // Build signal filter badges
     const signalContainer = document.getElementById('signal-filters');
