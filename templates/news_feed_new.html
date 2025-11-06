@@ -1106,11 +1106,11 @@
     color: white !important;
 }
 
-/* Topic dropdown button styling - WHITE TEXT */
+/* Topic dropdown button styling - DARK TEXT for visibility */
 #topic-select-btn,
 #topic-select-btn .text-truncate,
 #topic-select-label {
-    color: white !important;
+    color: var(--colors-accent-8) !important;
 }
 
 #topic-select-count {
@@ -1219,6 +1219,27 @@
     max-width: 95vw;
     z-index: 2000;
     animation: slideDown 0.2s ease;
+}
+
+/* Fix Topics button arrow - grey triangle, no background */
+button#topic-select-btn.dropdown-toggle::after {
+    display: inline-block !important;
+    width: 0 !important;
+    height: 0 !important;
+    margin-left: 0.5em !important;
+    vertical-align: 0.15em !important;
+    content: "" !important;
+    border-top: 5px solid #6c757d !important;
+    border-right: 5px solid transparent !important;
+    border-bottom: 0 !important;
+    border-left: 5px solid transparent !important;
+    background-color: transparent !important;
+}
+
+/* Ensure Topics button has white background */
+button#topic-select-btn {
+    background-color: white !important;
+    border-color: #dee2e6 !important;
 }
 
 @keyframes slideDown {
@@ -2238,8 +2259,8 @@
             <h6>
                 Configuration
             </h6>
-            <button class="btn btn-sm btn-link text-decoration-none p-0" onclick="toggleControlsPanel()" title="Collapse/Expand configuration" style="color: var(--colors-neutral-8);">
-                <i class="fas fa-caret-down" id="controlsToggleIcon"></i>
+            <button class="btn btn-sm text-decoration-none p-0" onclick="toggleControlsPanel()" title="Collapse/Expand configuration" style="background: none; border: none;">
+                <i class="fas fa-caret-down" id="controlsToggleIcon" style="color: #6c757d !important;"></i>
             </button>
         </div>
         <div id="controlsContent">
@@ -2248,20 +2269,33 @@
                     <div class="row g-2">
                         <div class="col-6">
                             <label class="form-label small">Date Range:</label>
-                            <select id="date-range-select" class="form-select form-select-sm" onchange="handleDateRangeChange()">
-                    <option value="24h">Last 24 Hours</option>
-                    <option value="72h">Last 72 Hours</option>
-                    <option value="7d" selected>Last 7 Days</option>
-                    <option value="30d">Last 30 Days</option>
-                    <option value="custom">Custom Date</option>
-                </select>
-            </div>
+                            <select id="date-range-select" class="form-select form-select-sm" onchange="handleDateRangeChange()" style="display: none;">
+                                <option value="24h">Last 24 Hours</option>
+                                <option value="72h">Last 72 Hours</option>
+                                <option value="7d" selected>Last 7 Days</option>
+                                <option value="30d">Last 30 Days</option>
+                                <option value="custom">Custom Date</option>
+                            </select>
+                            <div class="dropdown">
+                                <button class="btn btn-sm dropdown-toggle w-100 text-start" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="background-color: white; color: #333; border: 1px solid #dee2e6;">
+                                    <span id="date-range-display-btn">Last 7 Days</span>
+                                </button>
+                                <ul class="dropdown-menu w-100">
+                                    <li><a class="dropdown-item date-range-option" href="#" data-value="24h" onclick="setDateRange('24h'); return false;"><i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i>Last 24 Hours</a></li>
+                                    <li><a class="dropdown-item date-range-option" href="#" data-value="72h" onclick="setDateRange('72h'); return false;"><i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i>Last 72 Hours</a></li>
+                                    <li><a class="dropdown-item date-range-option" href="#" data-value="7d" onclick="setDateRange('7d'); return false;"><i class="fas fa-check me-2 text-success" style="visibility: visible;"></i>Last 7 Days</a></li>
+                                    <li><a class="dropdown-item date-range-option" href="#" data-value="30d" onclick="setDateRange('30d'); return false;"><i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i>Last 30 Days</a></li>
+                                    <li><a class="dropdown-item date-range-option" href="#" data-value="custom" onclick="setDateRange('custom'); return false;"><i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i>Custom Date</a></li>
+                                </ul>
+                            </div>
+                        </div>
                         <div class="col-6">
                             <label class="form-label small">Topics:</label>
+                            <!-- v2.1 - Cache bust -->
                             <div class="dropdown">
-                                <button class="btn btn-outline-primary btn-sm dropdown-toggle w-100 text-start d-flex justify-content-between align-items-center" type="button" id="topic-select-btn" data-bs-toggle="dropdown" aria-expanded="false" style="overflow: hidden;">
+                                <button class="btn btn-sm dropdown-toggle w-100 text-start d-flex justify-content-between align-items-center" type="button" id="topic-select-btn" data-bs-toggle="dropdown" aria-expanded="false" style="overflow: hidden; background-color: white; color: #333; border: 1px solid #dee2e6;" title="Select topics to monitor">
                                     <span id="topic-select-label" class="text-truncate" style="flex: 1;">Select Topics</span>
-                                    <span id="topic-select-count" class="badge bg-primary ms-2" style="display: none;">0</span>
+                                    <span id="topic-select-count" class="badge bg-dark text-white ms-2" style="display: none;">0</span>
                                 </button>
                                 <ul class="dropdown-menu w-100" id="topic-select-dropdown">
                                     <li><a class="dropdown-item" href="#" onclick="selectAllTopics(); return false;">
@@ -2293,41 +2327,61 @@
                     <div class="row g-2">
                         <div class="col-6">
                             <label class="form-label small">Model:</label>
-                            <select id="model-select" class="form-select form-select-sm">
-                    <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
-                    <option value="gpt-4o">GPT-4o</option>
-                    <option value="gpt-4o-mini">GPT-4o Mini</option>
-                    <option value="gpt-4.1">GPT-4.1</option>
-                    <option value="gpt-4.1-nano">GPT-4.1 Nano</option>
-                    <option value="claude-4-sonnet-latest">Claude 4 Sonnet</option>
-                    <option value="claude-3-5-sonnet-latest">Claude 3.5 Sonnet</option>
-                    <option value="gemini-pro">Gemini Pro</option>
-                </select>
-            </div>
+                            <select id="model-select" class="form-select form-select-sm" style="display: none;">
+                                <option value="gpt-4o-mini" selected>GPT-4o Mini</option>
+                                <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
+                                <option value="gpt-4o">GPT-4o</option>
+                                <option value="gpt-4.1">GPT-4.1</option>
+                                <option value="gpt-4.1-nano">GPT-4.1 Nano</option>
+                                <option value="claude-4-sonnet-latest">Claude 4 Sonnet</option>
+                                <option value="claude-3-5-sonnet-latest">Claude 3.5 Sonnet</option>
+                                <option value="gemini-pro">Gemini Pro</option>
+                            </select>
+                            <div class="dropdown">
+                                <button class="btn btn-sm dropdown-toggle w-100 text-start" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="background-color: white; color: #333; border: 1px solid #dee2e6;">
+                                    <span id="model-display-btn">GPT-4o Mini</span>
+                                </button>
+                                <ul class="dropdown-menu w-100">
+                                    <li><a class="dropdown-item model-option" href="#" data-value="gpt-4o-mini" onclick="setModel('gpt-4o-mini'); return false;"><i class="fas fa-check me-2 text-success" style="visibility: visible;"></i>GPT-4o Mini</a></li>
+                                    <li><a class="dropdown-item model-option" href="#" data-value="gpt-4.1-mini" onclick="setModel('gpt-4.1-mini'); return false;"><i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i>GPT-4.1 Mini</a></li>
+                                    <li><a class="dropdown-item model-option" href="#" data-value="gpt-4o" onclick="setModel('gpt-4o'); return false;"><i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i>GPT-4o</a></li>
+                                    <li><a class="dropdown-item model-option" href="#" data-value="gpt-4.1" onclick="setModel('gpt-4.1'); return false;"><i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i>GPT-4.1</a></li>
+                                    <li><a class="dropdown-item model-option" href="#" data-value="gpt-4.1-nano" onclick="setModel('gpt-4.1-nano'); return false;"><i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i>GPT-4.1 Nano</a></li>
+                                    <li><a class="dropdown-item model-option" href="#" data-value="claude-4-sonnet-latest" onclick="setModel('claude-4-sonnet-latest'); return false;"><i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i>Claude 4 Sonnet</a></li>
+                                    <li><a class="dropdown-item model-option" href="#" data-value="claude-3-5-sonnet-latest" onclick="setModel('claude-3-5-sonnet-latest'); return false;"><i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i>Claude 3.5 Sonnet</a></li>
+                                    <li><a class="dropdown-item model-option" href="#" data-value="gemini-pro" onclick="setModel('gemini-pro'); return false;"><i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i>Gemini Pro</a></li>
+                                </ul>
+                            </div>
+                        </div>
                         <div class="col-6">
                             <label class="form-label small">Profile:</label>
                             <div class="d-flex gap-1">
-                                <select id="profile-select" class="form-select form-select-sm">
+                                <select id="profile-select" class="form-select form-select-sm" style="display: none;">
                                     <option value="">General Analysis</option>
-                    </select>
+                                </select>
+                                <div class="dropdown flex-grow-1">
+                                    <button class="btn btn-sm dropdown-toggle w-100 text-start" type="button" data-bs-toggle="dropdown" aria-expanded="false" style="background-color: white; color: #333; border: 1px solid #dee2e6;">
+                                        <span id="profile-display-btn">General Analysis</span>
+                                    </button>
+                                    <ul class="dropdown-menu w-100" id="profile-dropdown-menu">
+                                        <li><a class="dropdown-item profile-option" href="#" data-value="" onclick="setProfile(''); return false;"><i class="fas fa-check me-2 text-success" style="visibility: visible;"></i>General Analysis</a></li>
+                                    </ul>
+                                </div>
                                 <button type="button" class="btn btn-outline-primary btn-sm" onclick="showProfileManager()" title="Manage Profiles">
-                        <i class="fas fa-cog"></i>
-                    </button>
-                                <button type="button" class="btn btn-outline-primary btn-sm" onclick="loadOrganizationalProfiles()" title="Refresh">
-                        <i class="fas fa-sync"></i>
-                    </button>
-                </div>
-                </div>
+                                    <i class="fas fa-cog"></i>
+                                </button>
+                                <button type="button" class="btn btn-outline-info btn-sm" onclick="saveCurrentAsDefaults()" title="Save current settings as defaults">
+                                    <i class="fas fa-star"></i>
+                                </button>
+                            </div>
+                        </div>
             </div>
                     <div class="mt-2">
                         
                     <div class="mt-2 d-flex gap-2">
-                        <button type="button" class="btn btn-outline-info btn-sm" onclick="saveCurrentAsDefaults()" title="Save current settings as defaults">
-                            <i class="fas fa-star"></i> Save Defaults
-                </button>
                         <button id="restore-articles-btn" class="btn btn-outline-warning btn-sm" onclick="clearExcludedArticles()" style="display: none;" title="Restore hidden articles">
-                    <i class="fas fa-undo"></i> Restore Hidden
-                </button>
+                            <i class="fas fa-undo"></i> Restore Hidden
+                        </button>
                     </div>
                     </div>
                 </div>
@@ -4514,13 +4568,24 @@ document.addEventListener('DOMContentLoaded', function() {
 
                     // Build checkbox list (keep Select All/Clear All, add topics after divider)
                     const topicCheckboxes = topics.map(t => {
-                        const topicName = t.name.trim();
+                        let topicName = t.name.trim();
+
+                        // Flatten topic hierarchy - remove parent indicators and show only leaf name
+                        const lastSeparator = Math.max(
+                            topicName.lastIndexOf(' > '),
+                            topicName.lastIndexOf(' - '),
+                            topicName.lastIndexOf(' / ')
+                        );
+                        const displayName = lastSeparator > -1
+                            ? topicName.substring(lastSeparator + 3).trim()
+                            : topicName;
+
                         return `
                             <li>
-                                <label class="dropdown-item" style="cursor: pointer;">
-                                    <input type="checkbox" value="${escapeHtml(topicName)}" onchange="updateTopicSelectorDisplay()" class="me-2">
-                                    ${escapeHtml(topicName)}
-                                </label>
+                                <a class="dropdown-item topic-option" href="#" data-topic="${escapeHtml(topicName)}" onclick="toggleTopic(this); return false;">
+                                    <i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i>
+                                    ${escapeHtml(displayName)}
+                                </a>
                             </li>
                         `;
                     }).join('');
@@ -4550,8 +4615,13 @@ document.addEventListener('DOMContentLoaded', function() {
                             console.log('Restoring saved topics:', savedTopics);
                             if (Array.isArray(savedTopics)) {
                                 savedTopics.forEach(topic => {
-                                    const checkbox = dropdown.querySelector(`input[value="${topic}"]`);
-                                    if (checkbox) checkbox.checked = true;
+                                    const item = dropdown.querySelector(`.topic-option[data-topic="${topic}"]`);
+                                    if (item) {
+                                        const checkmark = item.querySelector('.fa-check');
+                                        if (checkmark) {
+                                            checkmark.style.visibility = 'visible';
+                                        }
+                                    }
                                 });
                                 updateTopicSelectorDisplay();
                             }
@@ -5444,6 +5514,85 @@ function setPersona(persona) {
             } else {
                 check.style.visibility = 'hidden';
             }
+        }
+    });
+}
+
+// Helper functions for configuration panel dropdowns
+function setDateRange(value) {
+    const select = document.getElementById('date-range-select');
+    if (select) {
+        select.value = value;
+        handleDateRangeChange();
+    }
+
+    // Update button text
+    const btn = document.getElementById('date-range-display-btn');
+    const textMap = {
+        '24h': 'Last 24 Hours',
+        '72h': 'Last 72 Hours',
+        '7d': 'Last 7 Days',
+        '30d': 'Last 30 Days',
+        'custom': 'Custom Date'
+    };
+    if (btn) btn.textContent = textMap[value] || value;
+
+    // Update checkmarks
+    document.querySelectorAll('.date-range-option').forEach(item => {
+        const check = item.querySelector('.fa-check');
+        if (check) {
+            check.style.visibility = (item.dataset.value === value) ? 'visible' : 'hidden';
+        }
+    });
+}
+
+function setModel(value) {
+    const select = document.getElementById('model-select');
+    if (select) {
+        select.value = value;
+    }
+
+    // Update button text
+    const btn = document.getElementById('model-display-btn');
+    const textMap = {
+        'gpt-4o-mini': 'GPT-4o Mini',
+        'gpt-4.1-mini': 'GPT-4.1 Mini',
+        'gpt-4o': 'GPT-4o',
+        'gpt-4.1': 'GPT-4.1',
+        'gpt-4.1-nano': 'GPT-4.1 Nano',
+        'claude-4-sonnet-latest': 'Claude 4 Sonnet',
+        'claude-3-5-sonnet-latest': 'Claude 3.5 Sonnet',
+        'gemini-pro': 'Gemini Pro'
+    };
+    if (btn) btn.textContent = textMap[value] || value;
+
+    // Update checkmarks
+    document.querySelectorAll('.model-option').forEach(item => {
+        const check = item.querySelector('.fa-check');
+        if (check) {
+            check.style.visibility = (item.dataset.value === value) ? 'visible' : 'hidden';
+        }
+    });
+}
+
+function setProfile(value) {
+    const select = document.getElementById('profile-select');
+    if (select) {
+        select.value = value;
+    }
+
+    // Update button text
+    const btn = document.getElementById('profile-display-btn');
+    const selectedOption = select ? select.options[select.selectedIndex] : null;
+    if (btn && selectedOption) {
+        btn.textContent = selectedOption.textContent;
+    }
+
+    // Update checkmarks
+    document.querySelectorAll('.profile-option').forEach(item => {
+        const check = item.querySelector('.fa-check');
+        if (check) {
+            check.style.visibility = (item.dataset.value === value) ? 'visible' : 'hidden';
         }
     });
 }
@@ -7102,13 +7251,19 @@ async function loadOrganizationalProfiles() {
     try {
         const response = await fetch('/api/organizational-profiles');
         const data = await response.json();
-        
+
         if (data.success && data.profiles) {
             const profileSelect = document.getElementById('profile-select');
-            
+            const profileDropdownMenu = document.getElementById('profile-dropdown-menu');
+
             // Clear existing options except the first
             profileSelect.innerHTML = '<option value="">General Analysis (No Profile)</option>';
-            
+
+            // Clear and rebuild dropdown menu
+            if (profileDropdownMenu) {
+                profileDropdownMenu.innerHTML = '<li><a class="dropdown-item profile-option" href="#" data-value="" onclick="setProfile(\'\'); return false;"><i class="fas fa-check me-2 text-success" style="visibility: visible;"></i>General Analysis</a></li>';
+            }
+
             // Add profiles
             data.profiles.forEach(profile => {
                 const option = document.createElement('option');
@@ -7116,20 +7271,29 @@ async function loadOrganizationalProfiles() {
                 option.textContent = `${profile.name}${profile.is_default ? ' (Default)' : ''}`;
                 option.title = `${profile.industry || 'General'} • ${profile.organization_type || 'Organization'}`;
                 profileSelect.appendChild(option);
+
+                // Also add to dropdown menu
+                if (profileDropdownMenu) {
+                    const li = document.createElement('li');
+                    const profileText = `${profile.name}${profile.is_default ? ' (Default)' : ''}`;
+                    li.innerHTML = `<a class="dropdown-item profile-option" href="#" data-value="${profile.id}" onclick="setProfile('${profile.id}'); return false;"><i class="fas fa-check me-2 text-success" style="visibility: hidden;"></i>${profileText}</a>`;
+                    profileDropdownMenu.appendChild(li);
+                }
             });
-            
+
             // Restore saved profile selection after loading profiles
             const savedProfile = localStorage.getItem('newsFeedProfileId');
             if (savedProfile) {
                 const opt = Array.from(profileSelect.options).find(o => o.value === savedProfile);
                 if (opt) {
                     profileSelect.value = savedProfile;
+                    setProfile(savedProfile); // Update visual state
                     console.log(`Restored saved profile: ${savedProfile}`);
                 } else {
                     console.warn(`Saved profile ${savedProfile} not found in loaded profiles`);
                 }
             }
-            
+
             // Add change listener to save future selections (if not already added)
             if (!profileSelect.dataset.listenerAdded) {
                 profileSelect.addEventListener('change', () => {
@@ -7139,7 +7303,7 @@ async function loadOrganizationalProfiles() {
                 });
                 profileSelect.dataset.listenerAdded = 'true';
             }
-            
+
             console.log(`Loaded ${data.profiles.length} organizational profiles`);
         }
     } catch (error) {
@@ -9925,9 +10089,30 @@ function getCurrentTopic() {
 }
 
 // Get all selected topics as an array
+// Toggle topic selection (using checkmark visibility like Date Range dropdown)
+function toggleTopic(element) {
+    const checkmark = element.querySelector('.fa-check');
+    if (checkmark) {
+        // Toggle visibility
+        if (checkmark.style.visibility === 'visible') {
+            checkmark.style.visibility = 'hidden';
+        } else {
+            checkmark.style.visibility = 'visible';
+        }
+        updateTopicSelectorDisplay();
+    }
+}
+
 function getSelectedTopics() {
-    const checkboxes = document.querySelectorAll('#topic-select-dropdown input[type="checkbox"]:checked');
-    return Array.from(checkboxes).map(cb => cb.value);
+    const items = document.querySelectorAll('#topic-select-dropdown .topic-option');
+    const selected = [];
+    items.forEach(item => {
+        const checkmark = item.querySelector('.fa-check');
+        if (checkmark && checkmark.style.visibility === 'visible') {
+            selected.push(item.dataset.topic);
+        }
+    });
+    return selected;
 }
 
 // Update topic selector display with count badge inside button
@@ -9952,7 +10137,9 @@ function updateTopicSelectorDisplay() {
         countBadge.textContent = '0';
         countBadge.style.display = 'none';
     } else if (selected.length === 1) {
-        label.textContent = selected[0];
+        // Show just the topic name if only one selected
+        const firstItem = document.querySelector(`#topic-select-dropdown .topic-option[data-topic="${selected[0]}"]`);
+        label.textContent = firstItem ? firstItem.textContent.trim() : selected[0];
         countBadge.textContent = '1';
         countBadge.style.display = 'none';
     } else {
@@ -9978,22 +10165,29 @@ function updateTopicSelectorDisplay() {
 
 // Select all topics
 function selectAllTopics() {
-    document.querySelectorAll('#topic-select-dropdown input[type="checkbox"]').forEach(cb => cb.checked = true);
+    document.querySelectorAll('#topic-select-dropdown .topic-option .fa-check').forEach(check => {
+        check.style.visibility = 'visible';
+    });
     updateTopicSelectorDisplay();
 }
 
 // Clear all topics
 function clearAllTopics() {
-    document.querySelectorAll('#topic-select-dropdown input[type="checkbox"]').forEach(cb => cb.checked = false);
+    document.querySelectorAll('#topic-select-dropdown .topic-option .fa-check').forEach(check => {
+        check.style.visibility = 'hidden';
+    });
     updateTopicSelectorDisplay();
 }
 
 // Remove specific topic from selection
 function removeTopicFromSelection(topic) {
-    const checkbox = document.querySelector(`#topic-select-dropdown input[value="${topic}"]`);
-    if (checkbox) {
-        checkbox.checked = false;
-        updateTopicSelectorDisplay();
+    const item = document.querySelector(`#topic-select-dropdown .topic-option[data-topic="${topic}"]`);
+    if (item) {
+        const checkmark = item.querySelector('.fa-check');
+        if (checkmark) {
+            checkmark.style.visibility = 'hidden';
+            updateTopicSelectorDisplay();
+        }
     }
 }
 
