@@ -6012,6 +6012,7 @@ class DatabaseQueryFacade:
         timeframe: str,
         selected_categories: list,
         raw_output: dict,
+        article_list: list,
         total_articles_analyzed: int,
         analysis_duration_seconds: float
     ) -> bool:
@@ -6025,6 +6026,7 @@ class DatabaseQueryFacade:
             timeframe: Timeframe for analysis
             selected_categories: List of categories analyzed
             raw_output: Full JSON output from the AI
+            article_list: List of articles with id, title, source, url
             total_articles_analyzed: Total number of articles processed
             analysis_duration_seconds: Time taken to complete analysis
 
@@ -6043,6 +6045,7 @@ class DatabaseQueryFacade:
                 timeframe=timeframe,
                 selected_categories=json.dumps(selected_categories) if selected_categories else None,
                 raw_output=json.dumps(raw_output),
+                article_list=json.dumps(article_list) if article_list else None,
                 total_articles_analyzed=total_articles_analyzed,
                 analysis_duration_seconds=analysis_duration_seconds
             )
@@ -6128,4 +6131,364 @@ class DatabaseQueryFacade:
 
         except Exception as e:
             self.logger.error(f"Error getting recent consensus analyses: {e}")
+            return []
+
+    # Market Signals Analysis Storage Methods
+    def save_market_signals_analysis(
+        self,
+        analysis_id: str,
+        user_id: int,
+        topic: str,
+        model_used: str,
+        raw_output: dict,
+        total_articles_analyzed: int,
+        analysis_duration_seconds: float
+    ) -> bool:
+        """Save a market signals analysis run to the database."""
+        try:
+            from app.database_models import t_market_signals_runs
+            from sqlalchemy import insert
+            import json
+
+            stmt = insert(t_market_signals_runs).values(
+                id=analysis_id,
+                user_id=user_id,
+                topic=topic,
+                model_used=model_used,
+                raw_output=json.dumps(raw_output),
+                total_articles_analyzed=total_articles_analyzed,
+                analysis_duration_seconds=analysis_duration_seconds
+            )
+
+            self._execute_with_rollback(stmt)
+            self.logger.info(f"Saved market signals analysis {analysis_id} for topic '{topic}'")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error saving market signals analysis: {e}")
+            return False
+
+    def get_market_signals_analysis(self, analysis_id: str) -> dict:
+        """Retrieve a market signals analysis by ID."""
+        try:
+            from app.database_models import t_market_signals_runs
+            from sqlalchemy import select
+            import json
+
+            stmt = select(t_market_signals_runs).where(
+                t_market_signals_runs.c.id == analysis_id
+            )
+
+            result = self._execute_with_rollback(stmt).fetchone()
+
+            if result:
+                data = dict(result._mapping) if hasattr(result, '_mapping') else dict(result)
+                if data.get('raw_output'):
+                    data['raw_output'] = json.loads(data['raw_output']) if isinstance(data['raw_output'], str) else data['raw_output']
+                return data
+
+            return {}
+
+        except Exception as e:
+            self.logger.error(f"Error retrieving market signals analysis {analysis_id}: {e}")
+            return {}
+
+    def get_recent_market_signals_analyses(self, user_id: int = None, limit: int = 10) -> list:
+        """Get recent market signals analyses."""
+        try:
+            from app.database_models import t_market_signals_runs
+            from sqlalchemy import select
+
+            stmt = select(
+                t_market_signals_runs.c.id,
+                t_market_signals_runs.c.user_id,
+                t_market_signals_runs.c.topic,
+                t_market_signals_runs.c.model_used,
+                t_market_signals_runs.c.total_articles_analyzed,
+                t_market_signals_runs.c.created_at,
+                t_market_signals_runs.c.analysis_duration_seconds
+            ).order_by(t_market_signals_runs.c.created_at.desc())
+
+            if user_id is not None:
+                stmt = stmt.where(t_market_signals_runs.c.user_id == user_id)
+
+            stmt = stmt.limit(limit)
+
+            rows = self._execute_with_rollback(stmt).fetchall()
+
+            return [dict(row._mapping) if hasattr(row, '_mapping') else dict(row)
+                   for row in rows]
+
+        except Exception as e:
+            self.logger.error(f"Error getting recent market signals analyses: {e}")
+            return []
+
+    # Impact Timeline Analysis Storage Methods
+    def save_impact_timeline_analysis(
+        self,
+        analysis_id: str,
+        user_id: int,
+        topic: str,
+        model_used: str,
+        raw_output: dict,
+        total_articles_analyzed: int,
+        analysis_duration_seconds: float
+    ) -> bool:
+        """Save an impact timeline analysis run to the database."""
+        try:
+            from app.database_models import t_impact_timeline_runs
+            from sqlalchemy import insert
+            import json
+
+            stmt = insert(t_impact_timeline_runs).values(
+                id=analysis_id,
+                user_id=user_id,
+                topic=topic,
+                model_used=model_used,
+                raw_output=json.dumps(raw_output),
+                total_articles_analyzed=total_articles_analyzed,
+                analysis_duration_seconds=analysis_duration_seconds
+            )
+
+            self._execute_with_rollback(stmt)
+            self.logger.info(f"Saved impact timeline analysis {analysis_id} for topic '{topic}'")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error saving impact timeline analysis: {e}")
+            return False
+
+    def get_impact_timeline_analysis(self, analysis_id: str) -> dict:
+        """Retrieve an impact timeline analysis by ID."""
+        try:
+            from app.database_models import t_impact_timeline_runs
+            from sqlalchemy import select
+            import json
+
+            stmt = select(t_impact_timeline_runs).where(
+                t_impact_timeline_runs.c.id == analysis_id
+            )
+
+            result = self._execute_with_rollback(stmt).fetchone()
+
+            if result:
+                data = dict(result._mapping) if hasattr(result, '_mapping') else dict(result)
+                if data.get('raw_output'):
+                    data['raw_output'] = json.loads(data['raw_output']) if isinstance(data['raw_output'], str) else data['raw_output']
+                return data
+
+            return {}
+
+        except Exception as e:
+            self.logger.error(f"Error retrieving impact timeline analysis {analysis_id}: {e}")
+            return {}
+
+    def get_recent_impact_timeline_analyses(self, user_id: int = None, limit: int = 10) -> list:
+        """Get recent impact timeline analyses."""
+        try:
+            from app.database_models import t_impact_timeline_runs
+            from sqlalchemy import select
+
+            stmt = select(
+                t_impact_timeline_runs.c.id,
+                t_impact_timeline_runs.c.user_id,
+                t_impact_timeline_runs.c.topic,
+                t_impact_timeline_runs.c.model_used,
+                t_impact_timeline_runs.c.total_articles_analyzed,
+                t_impact_timeline_runs.c.created_at,
+                t_impact_timeline_runs.c.analysis_duration_seconds
+            ).order_by(t_impact_timeline_runs.c.created_at.desc())
+
+            if user_id is not None:
+                stmt = stmt.where(t_impact_timeline_runs.c.user_id == user_id)
+
+            stmt = stmt.limit(limit)
+
+            rows = self._execute_with_rollback(stmt).fetchall()
+
+            return [dict(row._mapping) if hasattr(row, '_mapping') else dict(row)
+                   for row in rows]
+
+        except Exception as e:
+            self.logger.error(f"Error getting recent impact timeline analyses: {e}")
+            return []
+
+    # Strategic Recommendations Analysis Storage Methods
+    def save_strategic_recommendations_analysis(
+        self,
+        analysis_id: str,
+        user_id: int,
+        topic: str,
+        model_used: str,
+        raw_output: dict,
+        total_articles_analyzed: int,
+        analysis_duration_seconds: float
+    ) -> bool:
+        """Save a strategic recommendations analysis run to the database."""
+        try:
+            from app.database_models import t_strategic_recommendations_runs
+            from sqlalchemy import insert
+            import json
+
+            stmt = insert(t_strategic_recommendations_runs).values(
+                id=analysis_id,
+                user_id=user_id,
+                topic=topic,
+                model_used=model_used,
+                raw_output=json.dumps(raw_output),
+                total_articles_analyzed=total_articles_analyzed,
+                analysis_duration_seconds=analysis_duration_seconds
+            )
+
+            self._execute_with_rollback(stmt)
+            self.logger.info(f"Saved strategic recommendations analysis {analysis_id} for topic '{topic}'")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error saving strategic recommendations analysis: {e}")
+            return False
+
+    def get_strategic_recommendations_analysis(self, analysis_id: str) -> dict:
+        """Retrieve a strategic recommendations analysis by ID."""
+        try:
+            from app.database_models import t_strategic_recommendations_runs
+            from sqlalchemy import select
+            import json
+
+            stmt = select(t_strategic_recommendations_runs).where(
+                t_strategic_recommendations_runs.c.id == analysis_id
+            )
+
+            result = self._execute_with_rollback(stmt).fetchone()
+
+            if result:
+                data = dict(result._mapping) if hasattr(result, '_mapping') else dict(result)
+                if data.get('raw_output'):
+                    data['raw_output'] = json.loads(data['raw_output']) if isinstance(data['raw_output'], str) else data['raw_output']
+                return data
+
+            return {}
+
+        except Exception as e:
+            self.logger.error(f"Error retrieving strategic recommendations analysis {analysis_id}: {e}")
+            return {}
+
+    def get_recent_strategic_recommendations_analyses(self, user_id: int = None, limit: int = 10) -> list:
+        """Get recent strategic recommendations analyses."""
+        try:
+            from app.database_models import t_strategic_recommendations_runs
+            from sqlalchemy import select
+
+            stmt = select(
+                t_strategic_recommendations_runs.c.id,
+                t_strategic_recommendations_runs.c.user_id,
+                t_strategic_recommendations_runs.c.topic,
+                t_strategic_recommendations_runs.c.model_used,
+                t_strategic_recommendations_runs.c.total_articles_analyzed,
+                t_strategic_recommendations_runs.c.created_at,
+                t_strategic_recommendations_runs.c.analysis_duration_seconds
+            ).order_by(t_strategic_recommendations_runs.c.created_at.desc())
+
+            if user_id is not None:
+                stmt = stmt.where(t_strategic_recommendations_runs.c.user_id == user_id)
+
+            stmt = stmt.limit(limit)
+
+            rows = self._execute_with_rollback(stmt).fetchall()
+
+            return [dict(row._mapping) if hasattr(row, '_mapping') else dict(row)
+                   for row in rows]
+
+        except Exception as e:
+            self.logger.error(f"Error getting recent strategic recommendations analyses: {e}")
+            return []
+
+    # Future Horizons Analysis Storage Methods
+    def save_future_horizons_analysis(
+        self,
+        analysis_id: str,
+        user_id: int,
+        topic: str,
+        model_used: str,
+        raw_output: dict,
+        total_articles_analyzed: int,
+        analysis_duration_seconds: float
+    ) -> bool:
+        """Save a future horizons analysis run to the database."""
+        try:
+            from app.database_models import t_future_horizons_runs
+            from sqlalchemy import insert
+            import json
+
+            stmt = insert(t_future_horizons_runs).values(
+                id=analysis_id,
+                user_id=user_id,
+                topic=topic,
+                model_used=model_used,
+                raw_output=json.dumps(raw_output),
+                total_articles_analyzed=total_articles_analyzed,
+                analysis_duration_seconds=analysis_duration_seconds
+            )
+
+            self._execute_with_rollback(stmt)
+            self.logger.info(f"Saved future horizons analysis {analysis_id} for topic '{topic}'")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error saving future horizons analysis: {e}")
+            return False
+
+    def get_future_horizons_analysis(self, analysis_id: str) -> dict:
+        """Retrieve a future horizons analysis by ID."""
+        try:
+            from app.database_models import t_future_horizons_runs
+            from sqlalchemy import select
+            import json
+
+            stmt = select(t_future_horizons_runs).where(
+                t_future_horizons_runs.c.id == analysis_id
+            )
+
+            result = self._execute_with_rollback(stmt).fetchone()
+
+            if result:
+                data = dict(result._mapping) if hasattr(result, '_mapping') else dict(result)
+                if data.get('raw_output'):
+                    data['raw_output'] = json.loads(data['raw_output']) if isinstance(data['raw_output'], str) else data['raw_output']
+                return data
+
+            return {}
+
+        except Exception as e:
+            self.logger.error(f"Error retrieving future horizons analysis {analysis_id}: {e}")
+            return {}
+
+    def get_recent_future_horizons_analyses(self, user_id: int = None, limit: int = 10) -> list:
+        """Get recent future horizons analyses."""
+        try:
+            from app.database_models import t_future_horizons_runs
+            from sqlalchemy import select
+
+            stmt = select(
+                t_future_horizons_runs.c.id,
+                t_future_horizons_runs.c.user_id,
+                t_future_horizons_runs.c.topic,
+                t_future_horizons_runs.c.model_used,
+                t_future_horizons_runs.c.total_articles_analyzed,
+                t_future_horizons_runs.c.created_at,
+                t_future_horizons_runs.c.analysis_duration_seconds
+            ).order_by(t_future_horizons_runs.c.created_at.desc())
+
+            if user_id is not None:
+                stmt = stmt.where(t_future_horizons_runs.c.user_id == user_id)
+
+            stmt = stmt.limit(limit)
+
+            rows = self._execute_with_rollback(stmt).fetchall()
+
+            return [dict(row._mapping) if hasattr(row, '_mapping') else dict(row)
+                   for row in rows]
+
+        except Exception as e:
+            self.logger.error(f"Error getting recent future horizons analyses: {e}")
             return []

@@ -7,6 +7,8 @@ import logging
 import json
 import hashlib
 import re
+import uuid
+import time
 from datetime import datetime, timedelta
 from collections import Counter, defaultdict
 from pydantic import BaseModel
@@ -15,6 +17,7 @@ from enum import Enum
 from app.database import Database, get_database_instance
 from app.database_query_facade import DatabaseQueryFacade
 from app.services.auspex_service import get_auspex_service
+from app.services.prompt_loader import PromptLoader
 
 # Context limits for different AI models (copied from futures cone)
 CONTEXT_LIMITS = {
@@ -970,7 +973,81 @@ Article {i}:
             'organizational_profile': organizational_profile,
             'version': 3  # Increment version for consistency features
         })
-        
+
+        # Save tab-specific analyses to dedicated tables
+        if tab and tab in ['consensus', 'timeline', 'strategic', 'horizons']:
+            analysis_id = str(uuid.uuid4())
+            trend_convergence_data['analysis_id'] = analysis_id
+
+            # Calculate analysis duration (approximate - from run creation)
+            analysis_duration = (datetime.now() - datetime.fromisoformat(trend_convergence_data['generated_at'])).total_seconds()
+
+            user_id = session.get('user_id')
+
+            if tab == 'consensus':
+                # Prepare article list for storage
+                article_list = []
+                for idx, article in enumerate(diverse_articles[:50], 1):
+                    article_list.append({
+                        'id': idx,
+                        'title': article.get('title', 'Untitled'),
+                        'source': article.get('source', 'Unknown Source'),
+                        'url': article.get('uri', article.get('url', '')),
+                        'publication_date': str(article.get('publication_date', ''))[:10] if article.get('publication_date') else 'Unknown'
+                    })
+
+                # Add article_list to response data for frontend
+                trend_convergence_data['article_list'] = article_list
+
+                facade.save_consensus_analysis(
+                    analysis_id=analysis_id,
+                    user_id=user_id,
+                    topic=topic,
+                    timeframe=f"{timeframe_days} days",
+                    selected_categories=[],
+                    raw_output=trend_convergence_data,
+                    article_list=article_list,
+                    total_articles_analyzed=len(diverse_articles),
+                    analysis_duration_seconds=analysis_duration
+                )
+                logger.info(f"Saved consensus analysis {analysis_id} to database")
+
+            elif tab == 'timeline':
+                facade.save_impact_timeline_analysis(
+                    analysis_id=analysis_id,
+                    user_id=user_id,
+                    topic=topic,
+                    model_used=model,
+                    raw_output=trend_convergence_data,
+                    total_articles_analyzed=len(diverse_articles),
+                    analysis_duration_seconds=analysis_duration
+                )
+                logger.info(f"Saved impact timeline analysis {analysis_id} to database")
+
+            elif tab == 'strategic':
+                facade.save_strategic_recommendations_analysis(
+                    analysis_id=analysis_id,
+                    user_id=user_id,
+                    topic=topic,
+                    model_used=model,
+                    raw_output=trend_convergence_data,
+                    total_articles_analyzed=len(diverse_articles),
+                    analysis_duration_seconds=analysis_duration
+                )
+                logger.info(f"Saved strategic recommendations analysis {analysis_id} to database")
+
+            elif tab == 'horizons':
+                facade.save_future_horizons_analysis(
+                    analysis_id=analysis_id,
+                    user_id=user_id,
+                    topic=topic,
+                    model_used=model,
+                    raw_output=trend_convergence_data,
+                    total_articles_analyzed=len(diverse_articles),
+                    analysis_duration_seconds=analysis_duration
+                )
+                logger.info(f"Saved future horizons analysis {analysis_id} to database")
+
         # Save this version for potential reload (legacy system)
         await _save_analysis_version(topic, trend_convergence_data, db)
         
@@ -1367,12 +1444,19 @@ def generate_consensus_analysis_prompt(
 
 MISSION: Identify 3-4 major CONSENSUS CATEGORIES where trends, forecasts, and expert opinions align across multiple sources. This is NOT a summary - it's a cross-source analysis revealing patterns of agreement and disagreement.
 
+CRITICAL CITATION INSTRUCTIONS:
+- Use numbered citations [1], [2], [3] to reference articles
+- The numbered article list is provided below with titles, sources, and URLs
+- Example: "Multiple sources including [1] and [3] agree that..." or "According to [1], [2], and [5]..."
+- Use 3-5 citations per category_description to support key claims
+- Do NOT use plain text source names like "(The Hindu, Times of India)"
+
 REQUIRED OUTPUT FORMAT - Use EXACTLY this Auspex numbered field JSON structure:
 {{
   "categories": [
     {{
       "category_name": "Category Name (e.g., 'AI Safety Consensus', 'Climate Action Timeline', 'Market Transformation')",
-      "category_description": "EVIDENCE-BASED description synthesizing insights from multiple sources. Cite specific sources: 'According to Source A and Source B..., while Source C adds...'",
+      "category_description": "EVIDENCE-BASED description synthesizing insights from multiple sources. Use numbered citations: 'Multiple sources including [1], [3], and [7] agree that... while [2] and [5] emphasize...'",
       "articles_analyzed": {len(articles)},
       "1_consensus_type": {{
         "summary": "Positive Growth|Mixed Consensus|Regulatory Response|Safety/Security|Societal Impact|Technical Advancement|Market Shift",
@@ -1550,6 +1634,23 @@ QUALITY REQUIREMENTS:
 ARTICLE DATA FOR ANALYSIS:
 {analysis_summary}
 
+NUMBERED ARTICLE LIST (Use these numbers for citations):
+"""
+
+    # Add numbered article list
+    for idx, article in enumerate(articles[:50], 1):  # Limit to 50 to avoid token limits
+        title = article.get('title', 'Untitled')
+        source = article.get('source', 'Unknown Source')
+        url = article.get('uri', article.get('url', ''))
+        pub_date = str(article.get('publication_date', ''))[:10] if article.get('publication_date') else 'Unknown'
+
+        prompt += f"\n[{idx}] {title}"
+        prompt += f"\n    Source: {source} | Date: {pub_date}"
+        if url:
+            prompt += f"\n    URL: {url}"
+        prompt += "\n"
+
+    prompt += f"""
 STRATEGIC FOCUS: {prompt_template['focus']}
 
 Now analyze these articles and return ONLY the JSON object with the Auspex numbered field structure. Focus on SYNTHESIS across sources, not individual summaries."""
@@ -1695,39 +1796,34 @@ def generate_impact_timeline_prompt(
     """
     Generate specialized prompt for Impact Timeline tab.
     Focus on timeline visualization of key impact areas.
+    Uses PromptLoader to load prompt from data/prompts/impact_timeline/current.json
     """
 
+    # Load prompt from JSON file
+    prompt_data = PromptLoader.load_prompt("impact_timeline", "current")
+    logger.info(f"Loaded Impact Timeline prompt version: {prompt_data.get('version')}")
+
+    # Prepare analysis summary from articles
     analysis_summary = prepare_analysis_summary(articles, topic)
 
-    prompt = f"""Analyze {len(articles)} articles about "{topic}" and create an impact timeline.{org_context}
+    # Prepare variables for prompt template
+    variables = {
+        "topic": topic,
+        "article_count": len(articles),
+        "articles": analysis_summary,
+        "org_context": org_context if org_context else ""
+    }
 
-REQUIRED OUTPUT FORMAT:
-{{
-  "impact_timeline": [
-    {{
-      "title": "Impact area title",
-      "description": "Description of impact",
-      "timeline_start": 2024,
-      "timeline_end": 2030,
-      "tooltip_positions": [
-        {{"year": 2025, "label": "Milestone"}},
-        {{"year": 2028, "label": "Milestone"}}
-      ]
-    }}
-  ]
-}}
+    # Fill prompt template
+    system_prompt, user_prompt = PromptLoader.get_prompt_template(
+        prompt_data,
+        variables
+    )
 
-INSTRUCTIONS:
-- Create 4 impact timeline items showing key impact areas
-- Include specific years and milestone markers
-- Focus on temporal progression of impacts
+    # Combine system and user prompts for the existing chat_with_tools interface
+    full_prompt = f"{system_prompt}\n\n{user_prompt}"
 
-ARTICLE DATA:
-{analysis_summary}
-
-Return ONLY the JSON object."""
-
-    return prompt
+    return full_prompt
 
 
 def generate_future_horizons_prompt(
@@ -2218,4 +2314,156 @@ async def get_organizational_profile(
         raise
     except Exception as e:
         logger.error(f"Error fetching organizational profile: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch profile: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Failed to fetch profile: {str(e)}")
+
+
+@router.get("/api/trend-convergence/consensus/{analysis_id}/raw")
+async def get_consensus_analysis_raw(
+    analysis_id: str,
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Retrieve a stored consensus analysis by ID with article list."""
+    try:
+        facade = DatabaseQueryFacade(db, logger)
+        analysis_data = facade.get_consensus_analysis(analysis_id)
+
+        if not analysis_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Analysis not found: {analysis_id}"
+            )
+
+        return {
+            "success": True,
+            "analysis_id": analysis_id,
+            "topic": analysis_data.get('topic'),
+            "created_at": analysis_data.get('created_at').isoformat() if analysis_data.get('created_at') else None,
+            "total_articles_analyzed": analysis_data.get('total_articles_analyzed'),
+            "analysis_duration_seconds": analysis_data.get('analysis_duration_seconds'),
+            "raw_output": analysis_data.get('raw_output'),
+            "article_list": analysis_data.get('article_list')
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving consensus analysis {analysis_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve analysis: {str(e)}"
+        )
+
+
+@router.get("/api/trend-convergence/timeline/{analysis_id}/raw")
+async def get_impact_timeline_raw(
+    analysis_id: str,
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Retrieve a stored impact timeline analysis by ID."""
+    try:
+        facade = DatabaseQueryFacade(db, logger)
+        analysis_data = facade.get_impact_timeline_analysis(analysis_id)
+
+        if not analysis_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Analysis not found: {analysis_id}"
+            )
+
+        return {
+            "success": True,
+            "analysis_id": analysis_id,
+            "topic": analysis_data.get('topic'),
+            "model_used": analysis_data.get('model_used'),
+            "created_at": analysis_data.get('created_at').isoformat() if analysis_data.get('created_at') else None,
+            "total_articles_analyzed": analysis_data.get('total_articles_analyzed'),
+            "analysis_duration_seconds": analysis_data.get('analysis_duration_seconds'),
+            "raw_output": analysis_data.get('raw_output')
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving impact timeline analysis {analysis_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve analysis: {str(e)}"
+        )
+
+
+@router.get("/api/trend-convergence/strategic/{analysis_id}/raw")
+async def get_strategic_recommendations_raw(
+    analysis_id: str,
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Retrieve a stored strategic recommendations analysis by ID."""
+    try:
+        facade = DatabaseQueryFacade(db, logger)
+        analysis_data = facade.get_strategic_recommendations_analysis(analysis_id)
+
+        if not analysis_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Analysis not found: {analysis_id}"
+            )
+
+        return {
+            "success": True,
+            "analysis_id": analysis_id,
+            "topic": analysis_data.get('topic'),
+            "model_used": analysis_data.get('model_used'),
+            "created_at": analysis_data.get('created_at').isoformat() if analysis_data.get('created_at') else None,
+            "total_articles_analyzed": analysis_data.get('total_articles_analyzed'),
+            "analysis_duration_seconds": analysis_data.get('analysis_duration_seconds'),
+            "raw_output": analysis_data.get('raw_output')
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving strategic recommendations analysis {analysis_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve analysis: {str(e)}"
+        )
+
+
+@router.get("/api/trend-convergence/horizons/{analysis_id}/raw")
+async def get_future_horizons_raw(
+    analysis_id: str,
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Retrieve a stored future horizons analysis by ID."""
+    try:
+        facade = DatabaseQueryFacade(db, logger)
+        analysis_data = facade.get_future_horizons_analysis(analysis_id)
+
+        if not analysis_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Analysis not found: {analysis_id}"
+            )
+
+        return {
+            "success": True,
+            "analysis_id": analysis_id,
+            "topic": analysis_data.get('topic'),
+            "model_used": analysis_data.get('model_used'),
+            "created_at": analysis_data.get('created_at').isoformat() if analysis_data.get('created_at') else None,
+            "total_articles_analyzed": analysis_data.get('total_articles_analyzed'),
+            "analysis_duration_seconds": analysis_data.get('analysis_duration_seconds'),
+            "raw_output": analysis_data.get('raw_output')
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving future horizons analysis {analysis_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve analysis: {str(e)}"
+        )

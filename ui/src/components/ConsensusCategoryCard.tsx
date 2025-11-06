@@ -81,8 +81,17 @@ interface ConsensusCategoryData {
   '9_timeframe_analysis': TimeframeAnalysis;
 }
 
+interface Article {
+  id: number;
+  title: string;
+  source: string;
+  url: string;
+  publication_date: string;
+}
+
 interface ConsensusCategoryCardProps {
   category: ConsensusCategoryData;
+  articleList: Article[];
   color?: string;
   index?: number;
 }
@@ -91,6 +100,7 @@ const CATEGORY_COLORS = ['#a855f7', '#f97316', '#3b82f6', '#10b981', '#ec4899', 
 
 const ConsensusCategoryCard: React.FC<ConsensusCategoryCardProps> = ({
   category,
+  articleList,
   color,
   index = 0
 }) => {
@@ -140,6 +150,26 @@ const ConsensusCategoryCard: React.FC<ConsensusCategoryCardProps> = ({
     setIsExpanded(!isExpanded);
   };
 
+  // Replace numbered citations [1], [2], [3] with clickable article links
+  const replaceCitations = (text: string): string => {
+    if (!text || !articleList || articleList.length === 0) return text;
+
+    // Replace [1], [2], [3], etc. with article links
+    const htmlText = text.replace(/\[(\d+)\]/g, (match, num) => {
+      const articleNum = parseInt(num, 10);
+      const article = articleList.find(a => a.id === articleNum);
+
+      if (article && article.url) {
+        return `<a href="${article.url}" target="_blank" rel="noopener noreferrer" class="citation-link" title="${article.title} - ${article.source}">[${num}]</a>`;
+      }
+
+      // If article not found or no URL, return original
+      return match;
+    });
+
+    return htmlText;
+  };
+
   // Truncate description to first sentence or 80 chars for unexpanded view
   const truncateDescription = (text: string, maxLength: number = 80): string => {
     if (!text) return '';
@@ -177,9 +207,14 @@ const ConsensusCategoryCard: React.FC<ConsensusCategoryCardProps> = ({
           </div>
           <div>
             <h3 className="consensus-card-title">{category.category_name}</h3>
-            <p className="consensus-card-subtitle">
-              {isExpanded ? category.category_description : truncateDescription(category.category_description, 100)}
-            </p>
+            {!isExpanded && (
+              <p
+                className="consensus-card-subtitle"
+                dangerouslySetInnerHTML={{
+                  __html: replaceCitations(truncateDescription(category.category_description, 100))
+                }}
+              />
+            )}
           </div>
         </div>
 
@@ -214,6 +249,11 @@ const ConsensusCategoryCard: React.FC<ConsensusCategoryCardProps> = ({
       {/* Expanded Content - Only visible when expanded */}
       {isExpanded && (
         <div className="consensus-card-expanded-content" onClick={(e) => e.stopPropagation()}>
+          {/* Full Description */}
+          <div style={{ marginBottom: '24px', fontSize: '15px', lineHeight: '1.6', color: '#374151' }}>
+            <p dangerouslySetInnerHTML={{ __html: replaceCitations(category.category_description) }} />
+          </div>
+
           {/* Consensus Metrics */}
           <div className="consensus-metrics">
             <div className="metric-item">
@@ -250,9 +290,10 @@ const ConsensusCategoryCard: React.FC<ConsensusCategoryCardProps> = ({
             <div className="section-title-small">
               💡 Strategic Implications
             </div>
-            <div className="section-content-small">
-              {strategicImplications}
-            </div>
+            <div
+              className="section-content-small"
+              dangerouslySetInnerHTML={{ __html: replaceCitations(strategicImplications) }}
+            />
           </div>
 
           {/* Key Decision Windows */}

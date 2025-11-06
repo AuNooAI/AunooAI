@@ -636,3 +636,43 @@ export async function getMarketSignals(
   const url = `${API_BASE_URL}/api/market-signals/analysis?${queryParams}`;
   return fetchWithAuth<MarketSignalsData>(url);
 }
+
+/**
+ * Retrieve stored market signals analysis by ID
+ */
+export async function getMarketSignalsRaw(analysisId: string): Promise<any> {
+  const url = `${API_BASE_URL}/api/market-signals/${analysisId}/raw`;
+  return fetchWithAuth(url);
+}
+
+/**
+ * Retrieve stored impact timeline analysis by ID
+ */
+export async function getImpactTimelineRaw(analysisId: string): Promise<any> {
+  const url = `${API_BASE_URL}/api/trend-convergence/timeline/${analysisId}/raw`;
+  return fetchWithAuth(url);
+}
+
+/**
+ * Retrieve stored strategic recommendations analysis by ID
+ */
+export async function getStrategicRecommendationsRaw(analysisId: string): Promise<any> {
+  const url = `${API_BASE_URL}/api/trend-convergence/strategic/${analysisId}/raw`;
+  return fetchWithAuth(url);
+}
+
+/**
+ * Retrieve stored future horizons analysis by ID
+ */
+export async function getFutureHorizonsRaw(analysisId: string): Promise<any> {
+  const url = `${API_BASE_URL}/api/trend-convergence/horizons/${analysisId}/raw`;
+  return fetchWithAuth(url);
+}
+
+/**
+ * Retrieve stored consensus analysis by ID with article list
+ */
+export async function getConsensusAnalysisRaw(analysisId: string): Promise<any> {
+  const url = `${API_BASE_URL}/api/trend-convergence/consensus/${analysisId}/raw`;
+  return fetchWithAuth(url);
+}

@@ -13,13 +13,14 @@ import { ImpactTimelineCard } from './components/ImpactTimelineCard';
 import { FutureHorizons } from './components/FutureHorizons';
 import { OrganizationalProfileModal } from './components/OrganizationalProfileModal';
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
-import { Bell, Settings, Download, Image as ImageIcon, FileText, RefreshCw, Clock, TrendingUp, Target } from 'lucide-react';
+import { Bell, Settings, Download, Image as ImageIcon, FileText, RefreshCw, Clock, TrendingUp, Target, Code } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './components/ui/dialog';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from './components/ui/alert';
 import { calculateContextInfo, type ContextInfo } from './utils/contextCalculation';
+import { getMarketSignalsRaw, getImpactTimelineRaw, getStrategicRecommendationsRaw, getFutureHorizonsRaw, getConsensusAnalysisRaw } from './services/api';
 
 function App() {
   const {
@@ -40,6 +41,9 @@ function App() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [contextInfo, setContextInfo] = useState<ContextInfo | null>(null);
+  const [showRawModal, setShowRawModal] = useState(false);
+  const [rawAnalysisData, setRawAnalysisData] = useState<any>(null);
+  const [loadingRaw, setLoadingRaw] = useState(false);
 
   // Check URL parameters for auto-opening onboarding wizard
   useEffect(() => {
@@ -92,6 +96,56 @@ function App() {
     setIsConfigOpen(false);
   };
 
+  const handleViewRaw = async () => {
+    // Get analysis_id from data
+    const analysisId = data?.analysis_id;
+    if (!analysisId) {
+      alert('No analysis ID found. Please generate an analysis first.');
+      return;
+    }
+
+    setLoadingRaw(true);
+    try {
+      let result;
+      // Determine which API to call based on active tab
+      switch (activeTab) {
+        case 'consensus':
+          result = await getConsensusAnalysisRaw(analysisId);
+          break;
+        case 'market-signals':
+          result = await getMarketSignalsRaw(analysisId);
+          break;
+        case 'impact-timeline':
+          result = await getImpactTimelineRaw(analysisId);
+          break;
+        case 'strategic-recommendations':
+          result = await getStrategicRecommendationsRaw(analysisId);
+          break;
+        case 'future-horizons':
+          result = await getFutureHorizonsRaw(analysisId);
+          break;
+        default:
+          alert('View Raw is not supported for this tab');
+          return;
+      }
+
+      setRawAnalysisData(result);
+      setShowRawModal(true);
+    } catch (err) {
+      console.error('Failed to load raw analysis:', err);
+      alert('Failed to load stored analysis');
+    } finally {
+      setLoadingRaw(false);
+    }
+  };
+
+  const copyToClipboard = () => {
+    if (rawAnalysisData) {
+      navigator.clipboard.writeText(JSON.stringify(rawAnalysisData, null, 2));
+      alert('Copied to clipboard!');
+    }
+  };
+
   return (
     <div className="flex h-screen bg-gray-50">
       {/* Shared Navigation */}
@@ -129,7 +183,7 @@ function App() {
         <Dialog open={isConfigOpen} onOpenChange={setIsConfigOpen}>
           <DialogContent className="max-w-4xl">
             <DialogHeader>
-              <DialogTitle className="text-2xl font-bold">Configure Trend Convergence Analysis</DialogTitle>
+              <DialogTitle className="text-2xl font-bold">Configure Future Narratives</DialogTitle>
               <DialogDescription className="sr-only">
                     Configure your analysis settings
                   </DialogDescription>
@@ -211,9 +265,9 @@ function App() {
                     </div>
 
                     {/* Organizational Profile */}
-                    <div>
+                    <div className="overflow-hidden">
                       <label className="text-sm font-semibold mb-2 block">Organizational Profile</label>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 mr-1">
                         <Select
                           value={config.profile_id?.toString() || ''}
                           onValueChange={(value) => updateConfig({ profile_id: value ? parseInt(value) : undefined })}
@@ -290,13 +344,6 @@ function App() {
                 {/* Action Buttons */}
                 <div className="flex justify-end gap-3 mt-8">
                   <Button
-                    variant="outline"
-                    onClick={() => setIsConfigOpen(false)}
-                    className="px-6"
-                  >
-                    Clear
-                  </Button>
-                  <Button
                     onClick={handleGenerate}
                     disabled={loading || !config.topic}
                     className="px-6 bg-pink-500 hover:bg-pink-600"
@@ -370,6 +417,14 @@ function App() {
             <button className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500">
               <Download className="w-4 h-4" />
               PDF
+            </button>
+            <button
+              onClick={handleViewRaw}
+              disabled={!data?.analysis_id || loadingRaw}
+              className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Code className="w-4 h-4" />
+              {loadingRaw ? 'Loading...' : 'Raw'}
             </button>
           </div>
         </div>
@@ -610,6 +665,7 @@ function App() {
                       <ConsensusCategoryCard
                         key={idx}
                         category={category}
+                        articleList={data.article_list || []}
                         index={idx}
                       />
                     ))}
@@ -822,7 +878,9 @@ function App() {
 
               {/* Future Horizons Tab */}
               {activeTab === 'future-horizons' && (
-                <FutureHorizons scenarios={data.scenarios || []} />
+                <>
+                  <FutureHorizons scenarios={data.scenarios || []} />
+                </>
               )}
             </div>
           )}
@@ -849,6 +907,46 @@ function App() {
           window.location.reload();
         }}
       />
+
+      {/* Raw Analysis Modal */}
+      {showRawModal && (
+        <Dialog open={showRawModal} onOpenChange={setShowRawModal}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-auto">
+            <DialogHeader>
+              <DialogTitle>Raw Analysis Output</DialogTitle>
+              <DialogDescription>
+                Stored analysis data from database
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4">
+              {rawAnalysisData && (
+                <>
+                  <div className="mb-4 text-sm text-gray-600">
+                    <p><strong>Analysis ID:</strong> {rawAnalysisData.analysis_id}</p>
+                    <p><strong>Topic:</strong> {rawAnalysisData.topic}</p>
+                    <p><strong>Model:</strong> {rawAnalysisData.model_used}</p>
+                    <p><strong>Created:</strong> {rawAnalysisData.created_at}</p>
+                    <p><strong>Articles Analyzed:</strong> {rawAnalysisData.total_articles_analyzed}</p>
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <pre className="text-xs overflow-auto whitespace-pre-wrap">
+                      {JSON.stringify(rawAnalysisData.raw_output, null, 2)}
+                    </pre>
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                    <Button onClick={copyToClipboard} variant="outline" size="sm">
+                      Copy to Clipboard
+                    </Button>
+                    <Button onClick={() => setShowRawModal(false)} variant="outline" size="sm">
+                      Close
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

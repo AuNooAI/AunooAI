@@ -865,30 +865,44 @@ async def get_consensus_analysis(req: ConsensusAnalysisRequest, session=Depends(
             {{
                 "articles_analyzed": [count from search results],
                 "1_consensus_type": {{
-                    "summary": "[consensus type]",
+                    "summary": "[consensus type - describe using clear narrative WITHOUT numbered citations. Use markdown links [Article Title](URL) to cite specific articles.]",
                     "distribution": {{"positive": 30, "neutral": 40, "critical": 30}}
                 }},
                 "2_timeline_consensus": {{
-                    "summary": "[timeline]",
+                    "summary": "[timeline - describe using clear narrative WITHOUT numbered citations. Use markdown links [Article Title](URL) to cite specific articles.]",
                     "distribution": {{"Immediate (2025)": 5, "Short-term (2025-2027)": 10, "Mid-term (2027-2030)": 8, "Long-term (2030-2035+)": 2}}
                 }},
                 "3_confidence_level": {{
                     "majority_agreement": 65
                 }},
                 "4_optimistic_outliers": [
-                    {{"scenario": "[scenario]", "timeline": "[when]", "source": "[source]"}}
+                    {{"scenario": "[scenario]", "timeline": "[when]", "source": "[source with markdown link format if URL available]"}}
                 ],
                 "5_pessimistic_outliers": [
-                    {{"scenario": "[scenario]", "timeline": "[when]", "source": "[source]"}}
+                    {{"scenario": "[scenario]", "timeline": "[when]", "source": "[source with markdown link format if URL available]"}}
                 ],
                 "6_key_articles": [
                     {{"title": "[title]", "relevance": "[why relevant]", "sentiment": "[positive/neutral/critical]"}}
                 ],
                 "7_strategic_implications": {{
-                    "summary": "[insights]",
+                    "summary": "[insights - write as clear narrative WITHOUT numbered citations. Use markdown links [Article Title](URL) to cite specific articles from the search results.]",
                     "recommendations": ["[rec1]", "[rec2]"]
                 }}
             }}
+
+            CRITICAL INSTRUCTIONS FOR CITATIONS:
+            1. Do NOT use numbered citations like ([1], [2], [3]) or plain publication names like (The Hindu, Times of India)
+            2. Instead, use markdown links with the ACTUAL article URLs from the search results above
+            3. Format: [Article Title](https://example.com/article-url)
+
+            EXAMPLE OF CORRECT CITATION FORMAT:
+            Bad: "Multiple sources ([1], [3], [4]) agree that..."
+            Bad: "Multiple sources (The Hindu, Times of India) agree that..."
+            Good: "Multiple sources including [EU strikes deal on climate](https://thehindu.com/article123) and [UN warns of warming](https://timesofindia.com/article456) agree that..."
+
+            4. You MUST extract article titles and URLs from the search results provided above
+            5. Every time you mention evidence or a source, link to the actual article
+            6. Write as a flowing narrative with embedded links, not as a list of sources
 
             Return ONLY this JSON object, no other text.
             """

@@ -756,8 +756,38 @@
     <!-- Libraries for download functionality -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
     <script>
+        // Helper function to convert markdown text to HTML
+        function markdownToHtml(text) {
+            if (!text) return '';
+
+            // Clean up numbered citations that can't be resolved
+            // Remove patterns like ([1], [2], [3]) or [1, 2, 3] that don't have URLs
+            text = text.replace(/\(\[[0-9, ]+\]\)/g, '');
+            text = text.replace(/\s+\[[0-9, ]+\]/g, '');
+
+            // Use marked.js if available, otherwise fallback to simple regex
+            if (typeof marked !== 'undefined') {
+                // Configure marked to open links in new tab
+                marked.setOptions({
+                    breaks: true,
+                    gfm: true
+                });
+
+                let html = marked.parse(text);
+
+                // Make all links open in new tab with security attributes
+                html = html.replace(/<a href=/g, '<a target="_blank" rel="noopener noreferrer" href=');
+
+                return html;
+            } else {
+                // Fallback: Simple regex for markdown links
+                return text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+            }
+        }
+
         let selectedDomain = null;
         
         const consensusColors = {
@@ -879,8 +909,8 @@
                     document.getElementById('viewRawBtn').disabled = false;
                 }
 
-                // Cache the results with full configuration
-                saveAnalysisResults(data.analysis, currentConfig);
+                // Cache the results with full configuration including analysis_id
+                saveAnalysisResults(data.analysis, currentConfig, data.analysis_id);
 
                 await displayAuspexAnalysis(topic, actualTimeframe, data.analysis);
                 
@@ -1711,7 +1741,16 @@
                 // Take first sentence for tagline
                 const sentences = strategicImplications.split(/[.!?]+/);
                 if (sentences.length > 0 && sentences[0].length > 10) {
-                    taglineDescription = sentences[0].trim() + (sentences[0].endsWith('.') ? '' : '.');
+                    let tagline = sentences[0].trim();
+
+                    // Strip markdown links for clean tagline display
+                    tagline = tagline.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1');
+
+                    // Strip numbered citations like ([1], [2], [3]) or [1, 2, 3]
+                    tagline = tagline.replace(/\(\[[0-9, ]+\]\)/g, '');
+                    tagline = tagline.replace(/\[[0-9, ]+\]/g, '');
+
+                    taglineDescription = tagline + (tagline.endsWith('.') ? '' : '.');
                 }
                 // Limit length for display
                 if (taglineDescription.length > 120) {
@@ -1974,7 +2013,7 @@
                                     if (typeof strategicImplications === 'string') {
                                         return `
                                             <div class="p-3 rounded bg-light">
-                                                <p class="small mb-0">${strategicImplications}</p>
+                                                <div class="small mb-0">${markdownToHtml(strategicImplications)}</div>
                                             </div>
                                         `;
                                     }
@@ -1992,7 +2031,7 @@
                                         html += `
                                             <div class="alert alert-primary mb-3" role="alert">
                                                 <strong><i class="fas fa-lightbulb me-2"></i>Strategic Overview</strong>
-                                                <p class="mb-0 mt-2">${summary}</p>
+                                                <div class="mb-0 mt-2">${markdownToHtml(summary)}</div>
                                             </div>
                                         `;
                                     }
@@ -3665,7 +3704,16 @@ ${actionableData.description}`;
                 if (latestCache) {
                     console.log('Auto-loading cached result from:', latestCache.timestamp);
                     const config = latestCache.config;
-                    
+
+                    // Restore analysis_id and enable Raw button
+                    if (latestCache.analysisId) {
+                        window.currentAnalysisId = latestCache.analysisId;
+                        const rawBtn = document.getElementById('viewRawBtn');
+                        if (rawBtn) {
+                            rawBtn.disabled = false;
+                        }
+                    }
+
                     // Display the cached analysis
                     await displayAuspexAnalysis(
                         config.topic || 'Unknown Topic',
@@ -4487,15 +4535,16 @@ Sentiment Breakdown:
             };
         }
         
-        function saveAnalysisResults(results, config) {
+        function saveAnalysisResults(results, config, analysisId) {
             try {
                 const cacheKey = generateCacheKey(config);
                 const cacheData = {
                     results,
                     config,
+                    analysisId,
                     timestamp: new Date().toISOString()
                 };
-                
+
                 localStorage.setItem(cacheKey, JSON.stringify(cacheData));
                 console.log('Analysis results cached successfully with key:', cacheKey);
                 
@@ -4539,6 +4588,16 @@ Sentiment Breakdown:
                         const configMatches = JSON.stringify(cache.config) === JSON.stringify(config);
                         if (configMatches) {
                             console.log('Loading cached results from:', cache.timestamp);
+
+                            // Restore analysis_id and enable Raw button
+                            if (cache.analysisId) {
+                                window.currentAnalysisId = cache.analysisId;
+                                const rawBtn = document.getElementById('viewRawBtn');
+                                if (rawBtn) {
+                                    rawBtn.disabled = false;
+                                }
+                            }
+
                             return cache.results;
                         } else {
                             console.log('Configuration mismatch, cache invalid');

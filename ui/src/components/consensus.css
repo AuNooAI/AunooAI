@@ -571,3 +571,21 @@
   color: #6b7280;
   line-height: 1.5;
 }
+
+/* ===== Citation Links ===== */
+.citation-link {
+  color: #3b82f6;
+  text-decoration: none;
+  font-weight: 600;
+  padding: 0 2px;
+  border-radius: 3px;
+  transition: all 0.2s ease;
+  pointer-events: auto; /* Allow clicks even though parent has pointer-events: none */
+  cursor: pointer;
+}
+
+.citation-link:hover {
+  color: #1d4ed8;
+  background-color: #eff6ff;
+  text-decoration: underline;
+}

@@ -10,6 +10,8 @@ from typing import Dict, Any, List, Optional
 import json
 from datetime import datetime
 import logging
+import uuid
+import time
 
 from app.database import get_database_instance, Database
 from app.security.session import verify_session
@@ -44,6 +46,7 @@ async def get_market_signals_analysis(
     """
 
     try:
+        start_time = time.time()
         logger.info(f"Generating market signals analysis for topic: {topic}")
 
         # 1. Load prompt from data/prompts/market_signals/current.json
@@ -137,6 +140,28 @@ async def get_market_signals_analysis(
 
         logger.info(f"Successfully generated market signals analysis with {len(market_signals_data.get('future_signals', []))} signals")
 
+        # 9. Save analysis to database
+        analysis_id = str(uuid.uuid4())
+        market_signals_data["analysis_id"] = analysis_id
+
+        analysis_duration = time.time() - start_time
+
+        db.facade.save_market_signals_analysis(
+            analysis_id=analysis_id,
+            user_id=session.get('user_id'),
+            topic=topic,
+            model_used=model,
+            raw_output=market_signals_data,
+            total_articles_analyzed=len(articles),
+            analysis_duration_seconds=analysis_duration
+        )
+
+        logger.info(f"Saved market signals analysis {analysis_id} to database")
+
+        # Log articles used in analysis
+        db.facade.log_articles_for_analysis_run(analysis_id, articles)
+        logger.info(f"Logged {len(articles)} articles for analysis {analysis_id}")
+
         return market_signals_data
 
     except HTTPException:
@@ -146,6 +171,52 @@ async def get_market_signals_analysis(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Analysis failed: {str(e)}"
+        )
+
+
+@router.get("/{analysis_id}/raw")
+async def get_market_signals_raw(
+    analysis_id: str,
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Retrieve a stored market signals analysis by ID.
+
+    Args:
+        analysis_id: UUID of the analysis run
+        session: User session (authenticated)
+        db: Database instance
+
+    Returns:
+        JSON with stored analysis data including raw output
+    """
+    try:
+        analysis_data = db.facade.get_market_signals_analysis(analysis_id)
+
+        if not analysis_data:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Analysis not found: {analysis_id}"
+            )
+
+        return {
+            "success": True,
+            "analysis_id": analysis_id,
+            "topic": analysis_data.get('topic'),
+            "model_used": analysis_data.get('model_used'),
+            "created_at": analysis_data.get('created_at').isoformat() if analysis_data.get('created_at') else None,
+            "total_articles_analyzed": analysis_data.get('total_articles_analyzed'),
+            "analysis_duration_seconds": analysis_data.get('analysis_duration_seconds'),
+            "raw_output": analysis_data.get('raw_output')
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving analysis {analysis_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve analysis: {str(e)}"
         )
 
 

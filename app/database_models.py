@@ -11,10 +11,63 @@ t_consensus_analysis_runs = Table(
     Column('timeframe', String(100)),
     Column('selected_categories', JSON),
     Column('raw_output', JSON, nullable=False),
+    Column('article_list', JSON),
     Column('total_articles_analyzed', Integer),
     Column('created_at', DateTime, server_default=text('CURRENT_TIMESTAMP'), nullable=False),
     Column('analysis_duration_seconds', Float),
     Index('idx_consensus_analysis_user_created', 'user_id', 'created_at')
+)
+
+t_market_signals_runs = Table(
+    'market_signals_runs', metadata,
+    Column('id', String(36), primary_key=True),
+    Column('user_id', Integer),
+    Column('topic', Text, nullable=False),
+    Column('model_used', String(100)),
+    Column('raw_output', JSON, nullable=False),
+    Column('total_articles_analyzed', Integer),
+    Column('created_at', DateTime, server_default=text('CURRENT_TIMESTAMP'), nullable=False),
+    Column('analysis_duration_seconds', Float),
+    Index('idx_market_signals_user_created', 'user_id', 'created_at')
+)
+
+t_impact_timeline_runs = Table(
+    'impact_timeline_runs', metadata,
+    Column('id', String(36), primary_key=True),
+    Column('user_id', Integer),
+    Column('topic', Text, nullable=False),
+    Column('model_used', String(100)),
+    Column('raw_output', JSON, nullable=False),
+    Column('total_articles_analyzed', Integer),
+    Column('created_at', DateTime, server_default=text('CURRENT_TIMESTAMP'), nullable=False),
+    Column('analysis_duration_seconds', Float),
+    Index('idx_impact_timeline_user_created', 'user_id', 'created_at')
+)
+
+t_strategic_recommendations_runs = Table(
+    'strategic_recommendations_runs', metadata,
+    Column('id', String(36), primary_key=True),
+    Column('user_id', Integer),
+    Column('topic', Text, nullable=False),
+    Column('model_used', String(100)),
+    Column('raw_output', JSON, nullable=False),
+    Column('total_articles_analyzed', Integer),
+    Column('created_at', DateTime, server_default=text('CURRENT_TIMESTAMP'), nullable=False),
+    Column('analysis_duration_seconds', Float),
+    Index('idx_strategic_recs_user_created', 'user_id', 'created_at')
+)
+
+t_future_horizons_runs = Table(
+    'future_horizons_runs', metadata,
+    Column('id', String(36), primary_key=True),
+    Column('user_id', Integer),
+    Column('topic', Text, nullable=False),
+    Column('model_used', String(100)),
+    Column('raw_output', JSON, nullable=False),
+    Column('total_articles_analyzed', Integer),
+    Column('created_at', DateTime, server_default=text('CURRENT_TIMESTAMP'), nullable=False),
+    Column('analysis_duration_seconds', Float),
+    Index('idx_future_horizons_user_created', 'user_id', 'created_at')
 )
 
 t_analysis_versions = Table(
