@@ -1146,7 +1146,6 @@ Remember to cite your sources and provide actionable insights where possible."""
         Uses SQLAlchemy facade for PostgreSQL compatibility.
         """
         try:
-            conn.commit()  # CRITICAL: Commit to close transaction
             return self.facade.upsert_article(article_data)
         except Exception as e:
             logging.error(f"Error in save_article: {str(e)}")
