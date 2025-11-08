@@ -961,3 +961,149 @@ async def get_shared_feed_data(
     except Exception as e:
         logger.error(f"Error getting shared feed data: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.get("/category-icons")
+async def get_category_icons(
+    categories: Optional[str] = Query(None, description="Comma-separated list of categories"),
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Get category icons (Font Awesome icon classes) for given categories.
+
+    Icons are either pre-defined or generated once and stored in the database.
+    Returns a mapping of category -> icon HTML string.
+    """
+    try:
+        # Pre-defined category icons (Font Awesome)
+        predefined_icons = {
+            'Technology': '<i class="fas fa-laptop-code"></i>',
+            'Business': '<i class="fas fa-briefcase"></i>',
+            'Politics': '<i class="fas fa-landmark"></i>',
+            'Science': '<i class="fas fa-flask"></i>',
+            'Health': '<i class="fas fa-heartbeat"></i>',
+            'Environment': '<i class="fas fa-leaf"></i>',
+            'Education': '<i class="fas fa-graduation-cap"></i>',
+            'Entertainment': '<i class="fas fa-film"></i>',
+            'Sports': '<i class="fas fa-football-ball"></i>',
+            'Economy': '<i class="fas fa-chart-line"></i>',
+            'Finance': '<i class="fas fa-dollar-sign"></i>',
+            'Security': '<i class="fas fa-shield-alt"></i>',
+            'Military': '<i class="fas fa-fighter-jet"></i>',
+            'International': '<i class="fas fa-globe"></i>',
+            'Law': '<i class="fas fa-gavel"></i>',
+            'Society': '<i class="fas fa-users"></i>',
+            'Culture': '<i class="fas fa-palette"></i>',
+            'Transportation': '<i class="fas fa-car"></i>',
+            'Energy': '<i class="fas fa-bolt"></i>',
+            'Space': '<i class="fas fa-rocket"></i>',
+            'AI': '<i class="fas fa-robot"></i>',
+            'Uncategorized': '<i class="fas fa-folder"></i>'
+        }
+
+        icon_map = {}
+
+        # If specific categories requested
+        if categories:
+            category_list = [c.strip() for c in categories.split(',') if c.strip()]
+        else:
+            # Return all predefined icons
+            return {
+                "success": True,
+                "icons": predefined_icons
+            }
+
+        # Build icon map for requested categories
+        for category in category_list:
+            # Check predefined first
+            if category in predefined_icons:
+                icon_map[category] = predefined_icons[category]
+            else:
+                # Try partial match
+                found = False
+                for key, icon in predefined_icons.items():
+                    if key.lower() in category.lower() or category.lower() in key.lower():
+                        icon_map[category] = icon
+                        found = True
+                        break
+
+                # Use default if no match
+                if not found:
+                    icon_map[category] = '<i class="fas fa-file-alt"></i>'
+
+        return {
+            "success": True,
+            "icons": icon_map
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting category icons: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.post("/generate-category-icon")
+async def generate_category_icon(
+    category: str = Query(..., description="Category name"),
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Generate an AI-created icon for a category using DALL-E or similar.
+
+    This endpoint will generate a unique icon image for custom categories
+    and store it in the database/filesystem for future use.
+
+    Note: This requires DALL-E API access and incurs costs.
+    For now, we return Font Awesome icon classes as a lightweight alternative.
+    """
+    try:
+        # TODO: Implement AI image generation using DALL-E when needed
+        # For now, return a sensible Font Awesome icon
+
+        # Simple keyword matching for common themes
+        category_lower = category.lower()
+        icon_html = '<i class="fas fa-file-alt"></i>'  # default
+
+        theme_icons = {
+            'tech': '<i class="fas fa-microchip"></i>',
+            'cyber': '<i class="fas fa-user-secret"></i>',
+            'data': '<i class="fas fa-database"></i>',
+            'cloud': '<i class="fas fa-cloud"></i>',
+            'mobile': '<i class="fas fa-mobile-alt"></i>',
+            'web': '<i class="fas fa-globe"></i>',
+            'code': '<i class="fas fa-code"></i>',
+            'software': '<i class="fas fa-laptop-code"></i>',
+            'hardware': '<i class="fas fa-server"></i>',
+            'network': '<i class="fas fa-network-wired"></i>',
+            'crypto': '<i class="fas fa-lock"></i>',
+            'medical': '<i class="fas fa-stethoscope"></i>',
+            'legal': '<i class="fas fa-balance-scale"></i>',
+            'money': '<i class="fas fa-money-bill"></i>',
+            'trade': '<i class="fas fa-exchange-alt"></i>',
+            'climate': '<i class="fas fa-cloud-sun"></i>',
+            'food': '<i class="fas fa-utensils"></i>',
+            'travel': '<i class="fas fa-plane"></i>',
+            'automotive': '<i class="fas fa-car"></i>',
+            'real estate': '<i class="fas fa-home"></i>',
+            'retail': '<i class="fas fa-shopping-cart"></i>',
+            'manufacturing': '<i class="fas fa-industry"></i>',
+            'agriculture': '<i class="fas fa-tractor"></i>',
+            'media': '<i class="fas fa-newspaper"></i>',
+            'telecom': '<i class="fas fa-phone"></i>',
+            'research': '<i class="fas fa-microscope"></i>'
+        }
+
+        for keyword, icon in theme_icons.items():
+            if keyword in category_lower:
+                icon_html = icon
+                break
+
+        return {
+            "success": True,
+            "category": category,
+            "icon": icon_html,
+            "method": "font-awesome"  # vs "ai-generated" when DALL-E is implemented
+        }
+
+    except Exception as e:
+        logger.error(f"Error generating category icon: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

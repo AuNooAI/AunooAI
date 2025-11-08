@@ -811,15 +811,15 @@
     }
 
     .btn-soft-primary {
-        background-color: rgba(13, 110, 253, 0.1);
-        border: 1px solid rgba(13, 110, 253, 0.2);
-        color: var(--primary-color);
+        background-color: white;
+        border: 1px solid var(--accent-pink);
+        color: var(--accent-pink);
         transition: all 0.2s ease;
     }
 
     .btn-soft-primary:hover {
-        background-color: var(--primary-color);
-        border-color: var(--primary-color);
+        background-color: var(--accent-pink);
+        border-color: var(--accent-pink);
         color: white;
         transform: translateY(-1px);
     }
@@ -912,6 +912,7 @@
         align-items: center;
         justify-content: space-between;
         flex-shrink: 0;
+        position: relative;
     }
 
     .breadcrumb-text {
@@ -1248,7 +1249,7 @@
     }
 
     .ticker-header {
-        background: var(--colors-info-6);
+        background: linear-gradient(135deg, #4A90E2, #357ABD);
         color: white;
         padding: 0 16px;
         font-weight: 700;
@@ -1372,6 +1373,13 @@
         <span>Monitor system status and world operations</span>
     </div>
     <div class="page-header-actions">
+        <button id="show-ticker-btn"
+                class="btn btn-sm btn-outline-primary"
+                onclick="showTicker()"
+                style="display: none;"
+                title="Show news ticker">
+            <i class="fas fa-newspaper me-1"></i>Show Ticker
+        </button>
         <button type="button" class="btn-icon" data-notification-trigger title="Notifications" style="position: relative;">
             <i class="far fa-bell"></i>
             <span class="notification-badge"></span>
@@ -1383,55 +1391,80 @@
     </div>
 </div>
 
-<!-- News Ticker -->
-<div class="news-ticker-container" id="news-ticker">
-    <div class="ticker-header">
+<!-- ============================================
+     NEWS TICKER COMPONENT
+     ============================================ -->
+<div class="news-ticker-container" id="news-ticker"
+     role="marquee"
+     aria-live="polite"
+     aria-atomic="false"
+     aria-label="Latest news ticker">
+
+    <!-- Breaking News Label -->
+    <div class="ticker-header" aria-hidden="true">
         <i class="fas fa-bolt"></i>
         <span>LATEST</span>
     </div>
 
+    <!-- Control Buttons -->
     <div class="ticker-controls">
-        <button type="button" class="btn btn-sm" id="ticker-pause-btn" onclick="pauseResumeTicker()" title="Pause/Resume">
+        <button type="button"
+                class="btn btn-sm"
+                id="ticker-pause-btn"
+                onclick="pauseResumeTicker()"
+                aria-label="Pause ticker"
+                title="Pause/Resume">
             <i class="fas fa-pause" id="ticker-pause-icon"></i>
         </button>
-        <button type="button" class="btn btn-sm" onclick="refreshTicker()" title="Refresh">
+        <button type="button"
+                class="btn btn-sm"
+                onclick="showTickerSettings()"
+                aria-label="Ticker settings"
+                title="Settings">
+            <i class="fas fa-cog"></i>
+        </button>
+        <button type="button"
+                class="btn btn-sm"
+                onclick="refreshTicker()"
+                aria-label="Refresh ticker"
+                title="Refresh">
             <i class="fas fa-sync-alt"></i>
         </button>
-        <button type="button" class="btn btn-sm" onclick="toggleTicker()" title="Hide">
+        <button type="button"
+                class="btn btn-sm"
+                onclick="toggleTicker()"
+                aria-label="Hide ticker"
+                title="Hide">
             <i class="fas fa-times"></i>
         </button>
     </div>
 
+    <!-- Scrolling Content Wrapper -->
     <div class="ticker-content-wrapper">
+        <!-- Loading State -->
         <div class="ticker-loading" id="ticker-loading" style="display: none;">
-            <i class="fas fa-spinner fa-spin"></i> Loading...
+            <i class="fas fa-spinner fa-spin"></i> Loading articles...
         </div>
+
+        <!-- Empty State -->
         <div class="ticker-empty" id="ticker-empty" style="display: none;">
-            No recent articles
+            No recent articles available
         </div>
-        <div class="ticker-content" id="ticker-content"></div>
+
+        <!-- Scrolling Content -->
+        <div class="ticker-content"
+             id="ticker-content"
+             role="region"
+             aria-label="Scrolling news headlines">
+            <!-- Ticker items dynamically loaded -->
+        </div>
     </div>
 </div>
 
 <!-- Main Content Container -->
 <div class="operations-content">
-    <!-- System Health Status Banner -->
-    <div class="health-status-banner" id="healthStatusBanner">
-        <div class="health-status-indicator" id="healthStatusIndicator">
-            <i class="fas fa-spinner fa-spin"></i> Loading...
-        </div>
-        <p class="health-uptime">
-            {% if last_check_time %}
-                Last article collection: {{ last_check_time|timeago }}
-            {% else %}
-                No recent article collection
-            {% endif %}
-        </p>
-        <div class="health-warnings" id="healthWarnings" style="display: none;"></div>
-    </div>
-
     <!-- World Clock Section -->
-    <div class="card mb-4">
+    <div class="card mb-4" data-tooltip="Current time in major cities around the world">
         <div class="card-header">
             <div class="d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">
@@ -1487,6 +1520,21 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- System Health Status Banner -->
+    <div class="health-status-banner" id="healthStatusBanner" data-tooltip="System health overview and last article collection time">
+        <div class="health-status-indicator" id="healthStatusIndicator">
+            <i class="fas fa-spinner fa-spin"></i> Loading...
+        </div>
+        <p class="health-uptime">
+            {% if last_check_time %}
+                Last article collection: {{ last_check_time|timeago }}
+            {% else %}
+                No recent article collection
+            {% endif %}
+        </p>
+        <div class="health-warnings" id="healthWarnings" style="display: none;"></div>
     </div>
 
     <!-- Stats Cards - Clickable with modern styling -->
@@ -1715,6 +1763,171 @@
         </div>
     </div>
 </div> <!-- End operations-content -->
+
+<!-- ============================================
+     TICKER SETTINGS MODAL
+     ============================================ -->
+<div class="modal fade"
+     id="tickerSettingsModal"
+     tabindex="-1"
+     aria-labelledby="tickerSettingsModalLabel"
+     aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="tickerSettingsModalLabel">
+                    <i class="fas fa-cog me-2"></i>News Ticker Settings
+                </h5>
+                <button type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal"
+                        aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="ticker-settings-form">
+                    <!-- Article Count -->
+                    <div class="mb-3">
+                        <label for="ticker-article-count" class="form-label">
+                            <i class="fas fa-list-ol me-1"></i>Number of Articles:
+                        </label>
+                        <select id="ticker-article-count" class="form-select" required>
+                            <option value="5">5 articles</option>
+                            <option value="10" selected>10 articles</option>
+                            <option value="15">15 articles</option>
+                            <option value="20">20 articles</option>
+                            <option value="25">25 articles</option>
+                        </select>
+                        <div class="form-text">
+                            More articles = longer scroll cycle
+                        </div>
+                    </div>
+
+                    <!-- Time Range -->
+                    <div class="mb-3">
+                        <label for="ticker-time-range" class="form-label">
+                            <i class="fas fa-clock me-1"></i>Time Range:
+                        </label>
+                        <select id="ticker-time-range" class="form-select" required>
+                            <option value="1h">Last Hour</option>
+                            <option value="6h">Last 6 Hours</option>
+                            <option value="24h" selected>Last 24 Hours</option>
+                            <option value="72h">Last 3 Days</option>
+                            <option value="7d">Last 7 Days</option>
+                        </select>
+                    </div>
+
+                    <!-- Topic Filter -->
+                    <div class="mb-3">
+                        <label for="ticker-topic-filter" class="form-label">
+                            <i class="fas fa-filter me-1"></i>Topic Filter:
+                        </label>
+                        <select id="ticker-topic-filter" class="form-select">
+                            <option value="">All Topics</option>
+                            <!-- Topics loaded dynamically -->
+                        </select>
+                        <div class="form-text">
+                            Leave blank to show all topics
+                        </div>
+                    </div>
+
+                    <!-- Scroll Speed -->
+                    <div class="mb-3">
+                        <label for="ticker-speed" class="form-label">
+                            <i class="fas fa-tachometer-alt me-1"></i>Scroll Speed:
+                        </label>
+                        <select id="ticker-speed" class="form-select" required>
+                            <option value="lazy" selected>Lazy (120 seconds)</option>
+                            <option value="slow">Slow (90 seconds)</option>
+                            <option value="medium">Medium (60 seconds)</option>
+                            <option value="fast">Fast (30 seconds)</option>
+                        </select>
+                        <div class="form-text">
+                            Slower speeds are easier to read
+                        </div>
+                    </div>
+
+                    <!-- Auto-Refresh -->
+                    <div class="mb-3">
+                        <label for="ticker-refresh-interval" class="form-label">
+                            <i class="fas fa-sync-alt me-1"></i>Auto-Refresh:
+                        </label>
+                        <select id="ticker-refresh-interval" class="form-select" required>
+                            <option value="0">Disabled</option>
+                            <option value="60">Every 1 minute</option>
+                            <option value="300" selected>Every 5 minutes</option>
+                            <option value="600">Every 10 minutes</option>
+                            <option value="1800">Every 30 minutes</option>
+                        </select>
+                        <div class="form-text">
+                            Automatically load new articles
+                        </div>
+                    </div>
+
+                    <!-- Display Options -->
+                    <div class="mb-3">
+                        <label class="form-label">Display Options:</label>
+                        <div class="form-check">
+                            <input class="form-check-input"
+                                   type="checkbox"
+                                   id="ticker-show-source"
+                                   checked>
+                            <label class="form-check-label" for="ticker-show-source">
+                                Show article source
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input"
+                                   type="checkbox"
+                                   id="ticker-show-time"
+                                   checked>
+                            <label class="form-check-label" for="ticker-show-time">
+                                Show publish time
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input"
+                                   type="checkbox"
+                                   id="ticker-show-topic">
+                            <label class="form-check-label" for="ticker-show-topic">
+                                Show topic tags
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Enable on Load -->
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input"
+                                   type="checkbox"
+                                   id="ticker-enabled"
+                                   checked>
+                            <label class="form-check-label" for="ticker-enabled">
+                                <strong>Enable ticker on page load</strong>
+                            </label>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button"
+                        class="btn btn-secondary"
+                        data-bs-dismiss="modal">
+                    Cancel
+                </button>
+                <button type="button"
+                        class="btn btn-outline-danger"
+                        onclick="resetTickerSettings()">
+                    <i class="fas fa-undo me-1"></i>Reset to Defaults
+                </button>
+                <button type="button"
+                        class="btn btn-primary"
+                        onclick="saveTickerSettings()">
+                    <i class="fas fa-save me-1"></i>Save Settings
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
 
 <!-- Clock Config Modal -->
 <div class="modal" id="clockConfigModal" tabindex="-1" role="dialog" aria-hidden="true">
@@ -2368,137 +2581,717 @@
         setInterval(fetchHealthData, 30000);
 
         // Initialize news ticker
-        initNewsTicker();
+        NewsTicker.init();
     });
 
     // ============================================
-    // NEWS TICKER
+    // NEWS TICKER MODULE
     // ============================================
-    let tickerState = {
-        isPaused: false,
-        isVisible: false,
-        articles: []
-    };
 
-    function initNewsTicker() {
-        const enabled = localStorage.getItem('tickerEnabled') !== 'false';
-        if (enabled) {
-            showTicker();
-            loadTickerArticles();
-        }
-    }
+    /**
+     * News Ticker Module
+     * Provides horizontally scrolling news ticker with full configurability
+     */
+    const NewsTicker = (function() {
+        'use strict';
 
-    async function loadTickerArticles() {
-        const loading = document.getElementById('ticker-loading');
-        const content = document.getElementById('ticker-content');
-        const empty = document.getElementById('ticker-empty');
+        // ============================================
+        // CONSTANTS
+        // ============================================
 
-        if (loading) loading.style.display = 'block';
-        if (content) content.style.display = 'none';
+        const DEFAULTS = {
+            count: 10,
+            timeRange: '24h',
+            topic: '',
+            speed: 'lazy',
+            refreshInterval: 300, // seconds
+            showSource: true,
+            showTime: true,
+            showTopic: false,
+            enabled: true
+        };
 
-        try {
-            const response = await fetch('/api/news-feed/articles?per_page=20&page=1&date_range=24h');
-            if (!response.ok) throw new Error('Failed to load articles');
+        const SPEED_MAP = {
+            'lazy': 120,   // 120 seconds per cycle
+            'slow': 90,    // 90 seconds per cycle
+            'medium': 60,  // 60 seconds per cycle
+            'fast': 30     // 30 seconds per cycle
+        };
 
-            const data = await response.json();
-            tickerState.articles = data.articles?.items || data.articles || [];
+        const API_ENDPOINT = '/api/news-feed/articles';
+        const STORAGE_KEY = 'newsFeedTickerSettings';
+        const CACHE_KEY = 'tickerArticlesCache';
+        const CACHE_DURATION = 60000; // 1 minute in milliseconds
 
-            if (tickerState.articles.length === 0) {
-                if (empty) empty.style.display = 'block';
-                if (content) content.style.display = 'none';
+        // ============================================
+        // STATE
+        // ============================================
+
+        const state = {
+            articles: [],
+            isPaused: false,
+            isVisible: false,
+            refreshTimer: null,
+            settings: { ...DEFAULTS },
+            cache: {
+                data: null,
+                timestamp: 0
+            }
+        };
+
+        // DOM references (cached for performance)
+        const dom = {
+            container: null,
+            content: null,
+            loading: null,
+            empty: null,
+            pauseBtn: null,
+            pauseIcon: null
+        };
+
+        // ============================================
+        // INITIALIZATION
+        // ============================================
+
+        function init() {
+            console.log('[Ticker] Initializing...');
+
+            // Cache DOM references
+            if (!cacheDOMReferences()) {
+                console.error('[Ticker] Failed to cache DOM references');
+                return;
+            }
+
+            // Load saved settings
+            loadSettings();
+
+            // Load topics for filter dropdown
+            loadTopics();
+
+            // Set up event listeners
+            setupEventListeners();
+
+            // Initialize ticker if enabled
+            if (state.settings.enabled) {
+                show();
+                loadArticles();
+                setupAutoRefresh();
             } else {
-                renderTickerArticles();
-                if (empty) empty.style.display = 'none';
-                if (content) content.style.display = 'inline-flex';
+                // Ticker is disabled, show the "Show Ticker" button
+                const showBtn = document.getElementById('show-ticker-btn');
+                if (showBtn) showBtn.style.display = 'block';
             }
-        } catch (error) {
-            console.error('Ticker error:', error);
-            if (content) {
-                content.innerHTML = '<div class="ticker-item"><span style="color: #ef4444;">Failed to load articles</span></div>';
-                content.style.display = 'inline-flex';
-            }
-        } finally {
-            if (loading) loading.style.display = 'none';
+
+            console.log('[Ticker] Initialization complete');
         }
-    }
 
-    function renderTickerArticles() {
-        const content = document.getElementById('ticker-content');
-        if (!content) return;
+        function cacheDOMReferences() {
+            dom.container = document.getElementById('news-ticker');
+            dom.content = document.getElementById('ticker-content');
+            dom.loading = document.getElementById('ticker-loading');
+            dom.empty = document.getElementById('ticker-empty');
+            dom.pauseBtn = document.getElementById('ticker-pause-btn');
+            dom.pauseIcon = document.getElementById('ticker-pause-icon');
 
-        const items = tickerState.articles.map(article => {
+            return !!(dom.container && dom.content);
+        }
+
+        function setupEventListeners() {
+            // Keyboard shortcuts
+            document.addEventListener('keydown', handleKeyboard);
+
+            // Visibility change (pause when tab hidden)
+            document.addEventListener('visibilitychange', handleVisibilityChange);
+
+            // Cleanup on page unload
+            window.addEventListener('beforeunload', cleanup);
+
+            // Hover pause/resume
+            if (dom.content) {
+                dom.content.addEventListener('mouseenter', () => {
+                    if (!state.isPaused) {
+                        dom.content.style.animationPlayState = 'paused';
+                    }
+                });
+
+                dom.content.addEventListener('mouseleave', () => {
+                    if (!state.isPaused) {
+                        dom.content.style.animationPlayState = 'running';
+                    }
+                });
+            }
+        }
+
+        // ============================================
+        // ARTICLE LOADING
+        // ============================================
+
+        async function loadArticles() {
+            console.log('[Ticker] Loading articles...', state.settings);
+
+            // Check cache first
+            if (isCacheValid()) {
+                console.log('[Ticker] Using cached articles');
+                state.articles = state.cache.data;
+                render();
+                return;
+            }
+
+            showLoading();
+
+            try {
+                const params = new URLSearchParams({
+                    per_page: state.settings.count,
+                    page: '1'
+                });
+
+                // Add time range filter using the date_range parameter
+                if (state.settings.timeRange) {
+                    params.append('date_range', state.settings.timeRange);
+                } else {
+                    params.append('date_range', '7d');  // Default to 7 days
+                }
+
+                // Add topic filter
+                if (state.settings.topic) {
+                    params.append('topic', state.settings.topic);
+                }
+
+                const url = `${API_ENDPOINT}?${params}`;
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                // Handle news-feed API response structure
+                state.articles = data.articles?.items || data.articles || [];
+
+                // Update cache
+                state.cache.data = state.articles;
+                state.cache.timestamp = Date.now();
+
+                // Persist cache to sessionStorage for page reloads
+                try {
+                    sessionStorage.setItem(CACHE_KEY, JSON.stringify({
+                        data: state.articles,
+                        timestamp: state.cache.timestamp
+                    }));
+                } catch (e) {
+                    console.warn('[Ticker] Failed to cache articles:', e);
+                }
+
+                console.log(`[Ticker] Loaded ${state.articles.length} articles`);
+                render();
+
+            } catch (error) {
+                console.error('[Ticker] Failed to load articles:', error);
+                handleError(error);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        function isCacheValid() {
+            if (!state.cache.data || !state.cache.timestamp) {
+                return false;
+            }
+
+            const age = Date.now() - state.cache.timestamp;
+            return age < CACHE_DURATION;
+        }
+
+        // ============================================
+        // RENDERING
+        // ============================================
+
+        function render() {
+            if (!dom.content) return;
+
+            if (!state.articles || state.articles.length === 0) {
+                showEmpty();
+                return;
+            }
+
+            hideEmpty();
+
+            // Build HTML for ticker items
+            const items = state.articles.map(article => renderArticle(article)).join('');
+
+            // Duplicate for seamless loop
+            dom.content.innerHTML = items + items;
+
+            // Update animation speed
+            updateSpeed();
+
+            // Announce to screen readers (first article only, to avoid spam)
+            if (state.articles[0]) {
+                announceNewArticles(state.articles[0]);
+            }
+        }
+
+        function renderArticle(article) {
+            const time = state.settings.showTime ?
+                `<span class="ticker-time">${formatTime(article.publication_date)}</span>` : '';
+
+            const source = state.settings.showSource && article.news_source ?
+                `<span class="ticker-source">${escapeHtml(article.news_source)}</span>` : '';
+
+            const topic = state.settings.showTopic && article.topic ?
+                `<span class="ticker-topic">${escapeHtml(article.topic)}</span>` : '';
+
             const url = article.uri || article.url || '#';
-            const title = (article.title || 'Untitled').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            const time = formatTickerTime(article.publication_date);
+            const title = escapeHtml(article.title || 'Untitled');
 
             return `
                 <div class="ticker-item">
-                    <a href="${url}" target="_blank" rel="noopener">
-                        <span class="ticker-time">${time}</span>
+                    <a href="${escapeHtml(url)}"
+                       target="_blank"
+                       rel="noopener noreferrer"
+                       aria-label="Read article: ${title}">
+                        ${time}
                         <span>${title}</span>
+                        ${source}
+                        ${topic}
                     </a>
                 </div>
             `;
-        }).join('');
-
-        // Duplicate for seamless loop
-        content.innerHTML = items + items;
-    }
-
-    function formatTickerTime(timestamp) {
-        if (!timestamp) return '';
-        const date = new Date(timestamp);
-        const diffMs = Date.now() - date.getTime();
-        const diffMins = Math.floor(diffMs / 60000);
-
-        if (diffMins < 1) return 'now';
-        if (diffMins < 60) return diffMins + 'm';
-        const diffHours = Math.floor(diffMins / 60);
-        if (diffHours < 24) return diffHours + 'h';
-        return Math.floor(diffHours / 24) + 'd';
-    }
-
-    function showTicker() {
-        const ticker = document.getElementById('news-ticker');
-        if (ticker) {
-            ticker.classList.add('visible');
-            tickerState.isVisible = true;
-            localStorage.setItem('tickerEnabled', 'true');
         }
-    }
+
+        function updateSpeed() {
+            if (!dom.content) return;
+
+            const duration = SPEED_MAP[state.settings.speed] || 60;
+            dom.content.style.animationDuration = `${duration}s`;
+        }
+
+        // ============================================
+        // UI STATE MANAGEMENT
+        // ============================================
+
+        function show() {
+            if (dom.container) {
+                dom.container.classList.add('visible');
+                state.isVisible = true;
+                state.settings.enabled = true;
+                saveSettings();
+                // Hide the show button
+                const showBtn = document.getElementById('show-ticker-btn');
+                if (showBtn) showBtn.style.display = 'none';
+            }
+        }
+
+        function hide() {
+            if (dom.container) {
+                dom.container.classList.remove('visible');
+                state.isVisible = false;
+                // Show the show button
+                const showBtn = document.getElementById('show-ticker-btn');
+                if (showBtn) showBtn.style.display = 'block';
+            }
+        }
+
+        function showLoading() {
+            if (dom.loading) dom.loading.style.display = 'block';
+            if (dom.empty) dom.empty.style.display = 'none';
+            if (dom.content) dom.content.style.display = 'none';
+        }
+
+        function hideLoading() {
+            if (dom.loading) dom.loading.style.display = 'none';
+            if (dom.content) dom.content.style.display = 'inline-flex';
+        }
+
+        function showEmpty() {
+            if (dom.empty) dom.empty.style.display = 'block';
+            if (dom.content) dom.content.style.display = 'none';
+        }
+
+        function hideEmpty() {
+            if (dom.empty) dom.empty.style.display = 'none';
+        }
+
+        // ============================================
+        // CONTROLS
+        // ============================================
+
+        function pauseResume() {
+            if (!dom.content || !dom.pauseIcon) return;
+
+            state.isPaused = !state.isPaused;
+
+            if (state.isPaused) {
+                dom.content.classList.add('paused');
+                dom.pauseIcon.classList.remove('fa-pause');
+                dom.pauseIcon.classList.add('fa-play');
+                if (dom.pauseBtn) dom.pauseBtn.setAttribute('aria-label', 'Resume ticker');
+            } else {
+                dom.content.classList.remove('paused');
+                dom.pauseIcon.classList.remove('fa-play');
+                dom.pauseIcon.classList.add('fa-pause');
+                if (dom.pauseBtn) dom.pauseBtn.setAttribute('aria-label', 'Pause ticker');
+            }
+        }
+
+        function toggle() {
+            if (state.isVisible) {
+                hide();
+                state.settings.enabled = false;
+            } else {
+                show();
+                state.settings.enabled = true;
+            }
+            saveSettings();
+        }
+
+        function refresh() {
+            // Invalidate cache
+            state.cache.data = null;
+            state.cache.timestamp = 0;
+
+            // Reload
+            loadArticles();
+        }
+
+        // ============================================
+        // SETTINGS
+        // ============================================
+
+        function loadSettings() {
+            try {
+                const saved = localStorage.getItem(STORAGE_KEY);
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    state.settings = { ...DEFAULTS, ...parsed };
+                    console.log('[Ticker] Settings loaded:', state.settings);
+                }
+            } catch (error) {
+                console.error('[Ticker] Failed to load settings:', error);
+            }
+        }
+
+        function saveSettings() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(state.settings));
+                console.log('[Ticker] Settings saved');
+            } catch (error) {
+                console.error('[Ticker] Failed to save settings:', error);
+            }
+        }
+
+        function showSettings() {
+            // Populate form with current settings
+            const form = {
+                count: document.getElementById('ticker-article-count'),
+                timeRange: document.getElementById('ticker-time-range'),
+                topic: document.getElementById('ticker-topic-filter'),
+                speed: document.getElementById('ticker-speed'),
+                refresh: document.getElementById('ticker-refresh-interval'),
+                showSource: document.getElementById('ticker-show-source'),
+                showTime: document.getElementById('ticker-show-time'),
+                showTopic: document.getElementById('ticker-show-topic'),
+                enabled: document.getElementById('ticker-enabled')
+            };
+
+            if (form.count) form.count.value = state.settings.count;
+            if (form.timeRange) form.timeRange.value = state.settings.timeRange;
+            if (form.topic) form.topic.value = state.settings.topic;
+            if (form.speed) form.speed.value = state.settings.speed;
+            if (form.refresh) form.refresh.value = state.settings.refreshInterval;
+            if (form.showSource) form.showSource.checked = state.settings.showSource;
+            if (form.showTime) form.showTime.checked = state.settings.showTime;
+            if (form.showTopic) form.showTopic.checked = state.settings.showTopic;
+            if (form.enabled) form.enabled.checked = state.settings.enabled;
+
+            // Show modal
+            const modalEl = document.getElementById('tickerSettingsModal');
+            if (modalEl && typeof bootstrap !== 'undefined') {
+                const modal = new bootstrap.Modal(modalEl);
+                modal.show();
+            }
+        }
+
+        function saveSettingsFromModal() {
+            // Get values from form
+            const form = {
+                count: document.getElementById('ticker-article-count'),
+                timeRange: document.getElementById('ticker-time-range'),
+                topic: document.getElementById('ticker-topic-filter'),
+                speed: document.getElementById('ticker-speed'),
+                refresh: document.getElementById('ticker-refresh-interval'),
+                showSource: document.getElementById('ticker-show-source'),
+                showTime: document.getElementById('ticker-show-time'),
+                showTopic: document.getElementById('ticker-show-topic'),
+                enabled: document.getElementById('ticker-enabled')
+            };
+
+            state.settings.count = parseInt(form.count?.value || DEFAULTS.count);
+            state.settings.timeRange = form.timeRange?.value || DEFAULTS.timeRange;
+            state.settings.topic = form.topic?.value || '';
+            state.settings.speed = form.speed?.value || DEFAULTS.speed;
+            state.settings.refreshInterval = parseInt(form.refresh?.value || DEFAULTS.refreshInterval);
+            state.settings.showSource = form.showSource?.checked ?? DEFAULTS.showSource;
+            state.settings.showTime = form.showTime?.checked ?? DEFAULTS.showTime;
+            state.settings.showTopic = form.showTopic?.checked ?? DEFAULTS.showTopic;
+            state.settings.enabled = form.enabled?.checked ?? DEFAULTS.enabled;
+
+            // Save to storage
+            saveSettings();
+
+            // Apply changes
+            if (state.settings.enabled && !state.isVisible) {
+                show();
+            } else if (!state.settings.enabled && state.isVisible) {
+                hide();
+            }
+
+            // Reload articles with new settings
+            refresh();
+
+            // Update auto-refresh
+            setupAutoRefresh();
+
+            // Close modal
+            const modalEl = document.getElementById('tickerSettingsModal');
+            if (modalEl && typeof bootstrap !== 'undefined') {
+                const modal = bootstrap.Modal.getInstance(modalEl);
+                if (modal) modal.hide();
+            }
+
+            // Show notification
+            if (typeof showNotification === 'function') {
+                showNotification('Ticker settings saved', 'success');
+            }
+        }
+
+        function resetSettings() {
+            if (!confirm('Reset all ticker settings to defaults?')) {
+                return;
+            }
+
+            state.settings = { ...DEFAULTS };
+            saveSettings();
+
+            // Reload modal if open
+            showSettings();
+
+            // Reload ticker
+            refresh();
+            setupAutoRefresh();
+        }
+
+        // ============================================
+        // AUTO-REFRESH
+        // ============================================
+
+        function setupAutoRefresh() {
+            // Clear existing timer
+            if (state.refreshTimer) {
+                clearInterval(state.refreshTimer);
+                state.refreshTimer = null;
+            }
+
+            // Set up new timer if enabled
+            if (state.settings.refreshInterval > 0) {
+                state.refreshTimer = setInterval(
+                    loadArticles,
+                    state.settings.refreshInterval * 1000
+                );
+                console.log(`[Ticker] Auto-refresh enabled: ${state.settings.refreshInterval}s`);
+            }
+        }
+
+        // ============================================
+        // TOPICS
+        // ============================================
+
+        async function loadTopics() {
+            try {
+                const response = await fetch('/api/topics');
+                if (!response.ok) return;
+
+                const topics = await response.json();
+                const select = document.getElementById('ticker-topic-filter');
+
+                if (!select) return;
+
+                // Clear existing options (except "All Topics")
+                while (select.options.length > 1) {
+                    select.remove(1);
+                }
+
+                // Add topic options
+                topics.forEach(topic => {
+                    const option = document.createElement('option');
+                    option.value = topic.name;
+                    option.textContent = topic.name;
+                    select.appendChild(option);
+                });
+
+                console.log(`[Ticker] Loaded ${topics.length} topics`);
+
+            } catch (error) {
+                console.error('[Ticker] Failed to load topics:', error);
+            }
+        }
+
+        // ============================================
+        // EVENT HANDLERS
+        // ============================================
+
+        function handleKeyboard(event) {
+            // Only handle when ticker is visible
+            if (!state.isVisible) return;
+
+            // Ignore if user is typing in input
+            if (event.target.matches('input, textarea, select')) {
+                return;
+            }
+
+            switch (event.key) {
+                case ' ':  // Space = pause/resume
+                    event.preventDefault();
+                    pauseResume();
+                    break;
+                case 'Escape':  // Esc = hide
+                    event.preventDefault();
+                    hide();
+                    break;
+            }
+        }
+
+        function handleVisibilityChange() {
+            if (document.hidden) {
+                if (dom.content && !state.isPaused) {
+                    dom.content.style.animationPlayState = 'paused';
+                }
+            } else {
+                if (dom.content && !state.isPaused) {
+                    dom.content.style.animationPlayState = 'running';
+                }
+            }
+        }
+
+        function handleError(error) {
+            console.error('[Ticker] Error:', error);
+
+            // Show error in ticker
+            if (dom.content) {
+                dom.content.innerHTML = `
+                    <div class="ticker-item">
+                        <span style="color: #ff6b6b;">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            Failed to load articles. Click Refresh to try again.
+                        </span>
+                    </div>
+                `;
+            }
+        }
+
+        // ============================================
+        // UTILITIES
+        // ============================================
+
+        function formatTime(timestamp) {
+            if (!timestamp) return '';
+
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+
+            if (diffMins < 1) return 'just now';
+            if (diffMins === 1) return '1m ago';
+            if (diffMins < 60) return `${diffMins}m ago`;
+
+            const diffHours = Math.floor(diffMins / 60);
+            if (diffHours === 1) return '1h ago';
+            if (diffHours < 24) return `${diffHours}h ago`;
+
+            const diffDays = Math.floor(diffHours / 24);
+            if (diffDays === 1) return '1d ago';
+            if (diffDays < 7) return `${diffDays}d ago`;
+
+            return date.toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric'
+            });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function announceNewArticles(firstArticle) {
+            if (!firstArticle || !dom.container) return;
+
+            const liveRegion = dom.container.querySelector('[aria-live]');
+            if (liveRegion) {
+                // Update aria-label to announce new content
+                const announcement = `Latest article: ${firstArticle.title}`;
+                liveRegion.setAttribute('aria-label', announcement);
+            }
+        }
+
+        function cleanup() {
+            if (state.refreshTimer) {
+                clearInterval(state.refreshTimer);
+            }
+        }
+
+        // ============================================
+        // PUBLIC API
+        // ============================================
+
+        return {
+            init,
+            show,
+            hide,
+            toggle,
+            pauseResume,
+            refresh,
+            showSettings,
+            saveSettings: saveSettingsFromModal,
+            resetSettings,
+            loadArticles
+        };
+
+    })();
+
+    // ============================================
+    // GLOBAL FUNCTIONS (for onclick handlers)
+    // ============================================
 
     function pauseResumeTicker() {
-        const content = document.getElementById('ticker-content');
-        const icon = document.getElementById('ticker-pause-icon');
-
-        tickerState.isPaused = !tickerState.isPaused;
-
-        if (tickerState.isPaused) {
-            content.classList.add('paused');
-            icon.classList.remove('fa-pause');
-            icon.classList.add('fa-play');
-        } else {
-            content.classList.remove('paused');
-            icon.classList.remove('fa-play');
-            icon.classList.add('fa-pause');
-        }
+        NewsTicker.pauseResume();
     }
 
     function toggleTicker() {
-        const ticker = document.getElementById('news-ticker');
-        tickerState.isVisible = !tickerState.isVisible;
-
-        if (tickerState.isVisible) {
-            ticker.classList.add('visible');
-            localStorage.setItem('tickerEnabled', 'true');
-        } else {
-            ticker.classList.remove('visible');
-            localStorage.setItem('tickerEnabled', 'false');
-        }
+        NewsTicker.toggle();
     }
 
     function refreshTicker() {
-        loadTickerArticles();
+        NewsTicker.refresh();
+    }
+
+    function showTickerSettings() {
+        NewsTicker.showSettings();
+    }
+
+    function saveTickerSettings() {
+        NewsTicker.saveSettings();
+    }
+
+    function resetTickerSettings() {
+        NewsTicker.resetSettings();
     }
 </script>
 

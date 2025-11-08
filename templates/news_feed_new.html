@@ -262,14 +262,6 @@
     margin-top: 24px;
 }
 
-/* Single column layout for Article Investigator - wide cards stacked vertically */
-@media (min-width: 992px) {
-    #articles-list {
-        grid-template-columns: 1fr;
-        max-width: 100%;
-    }
-}
-
 .story-item,
 .article-card {
     background: white;
@@ -430,6 +422,322 @@
     width: 100%;
     max-width: 100%;
 }
+
+/* HUD View - Two column layout */
+#articles-list.hud-view {
+    display: flex !important;
+    gap: 20px;
+    height: calc(100vh - 280px);
+    overflow: hidden;
+}
+
+.hud-left-panel {
+    flex: 0 0 500px;
+    overflow-y: auto;
+    border-right: 2px solid var(--colors-neutral-4);
+    padding-right: 15px;
+}
+
+.hud-right-panel {
+    flex: 1;
+    overflow-y: auto;
+    padding-left: 15px;
+    background: var(--colors-neutral-2);
+    border-radius: 12px;
+    padding: 20px;
+}
+
+/* Custom scrollbar styling for HUD view panels */
+.hud-left-panel::-webkit-scrollbar,
+.hud-right-panel::-webkit-scrollbar {
+    width: 8px;
+}
+
+.hud-left-panel::-webkit-scrollbar-track,
+.hud-right-panel::-webkit-scrollbar-track {
+    background: var(--colors-neutral-2);
+    border-radius: 4px;
+}
+
+.hud-left-panel::-webkit-scrollbar-thumb,
+.hud-right-panel::-webkit-scrollbar-thumb {
+    background: var(--colors-neutral-6);
+    border-radius: 4px;
+}
+
+.hud-left-panel::-webkit-scrollbar-thumb:hover,
+.hud-right-panel::-webkit-scrollbar-thumb:hover {
+    background: var(--colors-neutral-8);
+}
+
+.hud-category-group {
+    margin-bottom: 12px;
+    border: 1px solid var(--colors-neutral-4);
+    border-radius: 8px;
+    background: white;
+    overflow: hidden;
+}
+
+.hud-category-header {
+    padding: 12px 15px;
+    background: linear-gradient(135deg, var(--colors-accent-7), var(--colors-accent-10));
+    color: white;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 600;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+}
+
+.hud-category-header:hover {
+    background: linear-gradient(135deg, var(--colors-accent-8), var(--colors-accent-11));
+}
+
+.hud-category-icon {
+    width: 24px;
+    height: 24px;
+    margin-right: 10px;
+    font-size: 18px;
+}
+
+.hud-category-count {
+    background: rgba(255, 255, 255, 0.2);
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    margin-left: 8px;
+}
+
+.hud-articles-list {
+    padding: 0;
+    margin: 0;
+    list-style: none;
+}
+
+.hud-article-item {
+    padding: 10px 15px;
+    border-bottom: 1px solid var(--colors-neutral-3);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.hud-article-item:hover {
+    background: var(--colors-accent-1);
+}
+
+.hud-article-item.selected {
+    background: var(--colors-accent-2);
+    border-left: 4px solid var(--colors-accent-7);
+}
+
+.hud-article-item:last-child {
+    border-bottom: none;
+}
+
+.hud-article-title {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--colors-neutral-12);
+    line-height: 1.3;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.hud-article-meta {
+    font-size: 0.7rem;
+    color: var(--colors-neutral-8);
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.hud-detail-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--colors-neutral-8);
+    font-size: 0.95rem;
+    text-align: center;
+}
+
+/* Reader View - Bento Grid Layout using CSS Grid */
+#articles-list.reader-view {
+    display: block !important;
+}
+
+#articles-list.reader-view .bento-grid-container {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 20px;
+    margin-top: 20px;
+    grid-auto-flow: dense; /* Allows items to fill gaps */
+}
+
+/* Bento grid item sizing - large categories span 2 columns */
+.reader-category-card.category-large {
+    grid-column: span 2;
+}
+
+.reader-category-card.category-medium {
+    grid-column: span 1;
+}
+
+.reader-category-card.category-small {
+    grid-column: span 1;
+}
+
+/* Ensure responsiveness - on smaller screens don't span multiple columns */
+@media (max-width: 992px) {
+    #articles-list.reader-view .bento-grid-container {
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    }
+}
+
+@media (max-width: 768px) {
+    #articles-list.reader-view .bento-grid-container {
+        grid-template-columns: 1fr;
+    }
+
+    .reader-category-card.category-large {
+        grid-column: span 1;
+    }
+}
+
+.reader-category-card {
+    background: white;
+    border-radius: 12px;
+    border: 1px solid var(--colors-neutral-4);
+    overflow: visible;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+}
+
+.reader-category-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+
+.reader-category-header {
+    background: linear-gradient(135deg, var(--colors-accent-7), var(--colors-accent-10));
+    color: white;
+    padding: 15px 20px;
+    font-weight: 600;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.reader-category-icon {
+    width: 28px;
+    height: 28px;
+    font-size: 20px;
+}
+
+.reader-category-count {
+    background: rgba(255, 255, 255, 0.25);
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    margin-left: auto;
+}
+
+/* Category size visual indicators */
+.reader-category-card.category-large .reader-category-header {
+    background: linear-gradient(135deg, var(--colors-accent-8), var(--colors-accent-11));
+    padding: 18px 20px;
+    font-size: 1.1rem;
+}
+
+.reader-category-card.category-large .reader-category-count {
+    background: rgba(255, 255, 255, 0.35);
+    padding: 4px 12px;
+    font-weight: 600;
+}
+
+.reader-category-card.category-medium .reader-category-header {
+    background: linear-gradient(135deg, var(--colors-accent-7), var(--colors-accent-10));
+}
+
+.reader-category-card.category-small .reader-category-header {
+    background: linear-gradient(135deg, var(--colors-accent-6), var(--colors-accent-9));
+    padding: 12px 20px;
+    font-size: 0.9rem;
+}
+
+.reader-articles-container {
+    flex: 1;
+    padding: 15px;
+    overflow-y: visible;
+}
+
+.reader-article-entry {
+    padding: 15px;
+    border-bottom: 1px solid var(--colors-neutral-3);
+    transition: all 0.15s ease;
+}
+
+.reader-article-entry:hover {
+    background: var(--colors-neutral-2);
+}
+
+.reader-article-entry:last-child {
+    border-bottom: none;
+}
+
+.reader-article-headline {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: var(--colors-neutral-12);
+    margin-bottom: 8px;
+    line-height: 1.4;
+}
+
+.reader-article-headline a {
+    color: var(--colors-neutral-12);
+    text-decoration: none;
+    transition: color 0.15s ease;
+}
+
+.reader-article-headline a:hover {
+    color: var(--colors-accent-9);
+}
+
+.reader-article-summary {
+    font-size: 0.85rem;
+    color: var(--colors-neutral-10);
+    line-height: 1.5;
+    margin-bottom: 8px;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.reader-article-footer {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    font-size: 0.75rem;
+    color: var(--colors-neutral-8);
+    flex-wrap: wrap;
+}
+
+.reader-article-footer .badge {
+    font-size: 0.65rem;
+    padding: 3px 8px;
+}
+
+/* Both HUD and Reader views show pagination since they can have 300+ articles */
 
 /* Table expand arrow - matches card view */
 .expand-arrow-btn-table {
@@ -1037,6 +1345,20 @@
 #article-table-view-btn:active,
 #article-table-view-btn:focus,
 #article-table-view-btn:hover,
+#article-hud-view-btn,
+#article-hud-view-btn.active,
+#article-hud-view-btn:active,
+#article-hud-view-btn:focus,
+#article-hud-view-btn:hover,
+#article-reader-view-btn,
+#article-reader-view-btn.active,
+#article-reader-view-btn:active,
+#article-reader-view-btn:focus,
+#article-reader-view-btn:hover,
+#pagination-toggle-btn,
+#pagination-toggle-btn:active,
+#pagination-toggle-btn:focus,
+#pagination-toggle-btn:hover,
 #incident-card-view-btn,
 #incident-card-view-btn.active,
 #incident-card-view-btn:active,
@@ -1075,6 +1397,16 @@
 #article-table-view-btn:active i,
 #article-table-view-btn:focus i,
 #article-table-view-btn:hover i,
+#article-hud-view-btn i,
+#article-hud-view-btn.active i,
+#article-hud-view-btn:active i,
+#article-hud-view-btn:focus i,
+#article-hud-view-btn:hover i,
+#article-reader-view-btn i,
+#article-reader-view-btn.active i,
+#article-reader-view-btn:active i,
+#article-reader-view-btn:focus i,
+#article-reader-view-btn:hover i,
 #incident-card-view-btn i,
 #incident-card-view-btn.active i,
 #incident-card-view-btn:active i,
@@ -1796,7 +2128,7 @@ button#topic-select-btn {
 
 /* Breaking News Label */
 .ticker-header {
-    background: var(--accent-blue);
+    background: linear-gradient(135deg, #4A90E2, #357ABD);
     color: white;
     padding: 0 16px;
     font-weight: 700;
@@ -2429,8 +2761,14 @@ button#topic-select-btn {
                 <button class="btn btn-outline-primary active" id="article-card-view-btn" onclick="toggleArticleView('cards')" title="Card view">
                     <i class="fas fa-th-large"></i>
                 </button>
-                <button class="btn btn-outline-primary" id="article-table-view-btn" onclick="toggleArticleView('table')" title="Table view">
+                <button class="btn btn-outline-primary" id="article-table-view-btn" onclick="toggleArticleView('table')" title="Techmeme view">
                     <i class="fas fa-table"></i>
+                </button>
+                <button class="btn btn-outline-primary" id="article-hud-view-btn" onclick="toggleArticleView('hud')" title="HUD View">
+                    <i class="fas fa-columns"></i>
+                </button>
+                <button class="btn btn-outline-primary" id="article-reader-view-btn" onclick="toggleArticleView('reader')" title="Reader View">
+                    <i class="fas fa-book-open"></i>
                 </button>
             </div>
         </div>
@@ -2598,16 +2936,21 @@ button#topic-select-btn {
                         Showing <span id="articles-start">1</span>-<span id="articles-end">25</span> of <span id="articles-total">0</span> articles
                     </small>
                 </div>
-                <div class="pagination-controls">
-                    <button id="prev-page-btn" class="btn btn-outline-secondary btn-sm me-2" onclick="previousPage()" disabled>
-                        <i class="fas fa-chevron-left"></i> Previous
+                <div class="d-flex align-items-center gap-2">
+                    <button id="pagination-toggle-btn" class="btn btn-outline-primary btn-sm" onclick="togglePaginationMode()" title="Toggle between paginated and show all">
+                        <i class="fas fa-list"></i> <span id="pagination-toggle-text">Show All</span>
                     </button>
-                    <span class="mx-2">
-                        Page <span id="current-page">1</span> of <span id="total-pages">1</span>
-                    </span>
-                    <button id="next-page-btn" class="btn btn-outline-secondary btn-sm ms-2" onclick="nextPage()" disabled>
-                        Next <i class="fas fa-chevron-right"></i>
-                    </button>
+                    <div class="pagination-controls">
+                        <button id="prev-page-btn" class="btn btn-outline-secondary btn-sm me-2" onclick="previousPage()" disabled>
+                            <i class="fas fa-chevron-left"></i> Previous
+                        </button>
+                        <span class="mx-2">
+                            Page <span id="current-page">1</span> of <span id="total-pages">1</span>
+                        </span>
+                        <button id="next-page-btn" class="btn btn-outline-secondary btn-sm ms-2" onclick="nextPage()" disabled>
+                            Next <i class="fas fa-chevron-right"></i>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -7681,6 +8024,8 @@ function toggleArticleView(viewType) {
     // Update button states
     document.getElementById('article-card-view-btn').classList.toggle('active', viewType === 'cards');
     document.getElementById('article-table-view-btn').classList.toggle('active', viewType === 'table');
+    document.getElementById('article-hud-view-btn').classList.toggle('active', viewType === 'hud');
+    document.getElementById('article-reader-view-btn').classList.toggle('active', viewType === 'reader');
 
     // Save preference
     try {
@@ -7703,6 +8048,8 @@ document.addEventListener('DOMContentLoaded', function() {
             currentArticleView = savedView;
             document.getElementById('article-card-view-btn').classList.toggle('active', savedView === 'cards');
             document.getElementById('article-table-view-btn').classList.toggle('active', savedView === 'table');
+            document.getElementById('article-hud-view-btn').classList.toggle('active', savedView === 'hud');
+            document.getElementById('article-reader-view-btn').classList.toggle('active', savedView === 'reader');
         }
 
         // Grouping by title is always enabled
@@ -7712,6 +8059,11 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+// Centralized function to clear all view-specific CSS classes
+function clearAllViewClasses(listContainer) {
+    listContainer.classList.remove('table-view', 'hud-view', 'reader-view');
+}
+
 function renderArticles(articlesData) {
     console.log('[DEBUG] renderArticles called with articlesData:', articlesData);
     console.log('[DEBUG] articlesData.items?', articlesData.items ? articlesData.items.length : 'undefined');
@@ -7719,8 +8071,8 @@ function renderArticles(articlesData) {
     const listContainer = document.getElementById('articles-list');
     if (!listContainer) return;
 
-    // Remove table-view class for card view
-    listContainer.classList.remove('table-view');
+    // Clear all view-specific classes
+    clearAllViewClasses(listContainer);
 
     listContainer.innerHTML = '';
 
@@ -7747,6 +8099,12 @@ function renderArticles(articlesData) {
     // Render based on current view
     if (currentArticleView === 'table') {
         renderArticleTable(filteredArticles);
+        return;
+    } else if (currentArticleView === 'hud') {
+        renderArticleReaderView(filteredArticles);  // HUD button -> category grid
+        return;
+    } else if (currentArticleView === 'reader') {
+        renderArticleHUDView(filteredArticles);  // Reader button -> two column layout
         return;
     }
 
@@ -8064,7 +8422,8 @@ function renderArticleTable(articles) {
     const listContainer = document.getElementById('articles-list');
     if (!listContainer) return;
 
-    // Add table-view class for full-width styling
+    // Clear all view classes, then add table-view
+    clearAllViewClasses(listContainer);
     listContainer.classList.add('table-view');
 
     if (!articles || articles.length === 0) {
@@ -8077,14 +8436,12 @@ function renderArticleTable(articles) {
             <table class="table table-hover table-sm" style="min-width: 1400px; width: 100%;">
                 <thead class="table-light sticky-top">
                     <tr>
-                        <th style="width: 50px;"></th>
-                        <th style="width: 400px;">Title</th>
-                        <th style="width: 180px;">Source</th>
+                        <th style="width: 500px;">Title</th>
                         <th style="width: 120px;">Date</th>
                         <th style="width: 130px;">Bias</th>
                         <th style="width: 150px;">Factuality</th>
                         <th style="width: 120px;">Credibility</th>
-                        <th style="width: 100px;">Actions</th>
+                        <th style="width: 50px;"></th>
                     </tr>
                 </thead>
                 <tbody>
@@ -8097,39 +8454,34 @@ function renderArticleTable(articles) {
 
         html += `
             <tr style="${isGrouped ? 'background: white;' : ''}">
-                <td class="text-center" style="position: relative; padding-left: 30px;">
-                    <!-- Expand arrow - matches card view -->
+                <td>
+                    <div class="small text-muted mb-1">${formatSource(article.news_source, article.uri)}</div>
+                    <a href="${article.uri}" target="_blank" rel="noopener" class="text-decoration-none">
+                        ${escapeHTML(article.title)}
+                    </a>
+                    ${isGrouped ? `<span class="grouped-sources-badge ms-2"><i class="fas fa-layer-group me-1"></i>${article.groupedArticles.length} sources</span>` : ''}
+                </td>
+                <td class="small">${formatPubDate(article.publication_date, false)}</td>
+                <td>${article.bias ? `<span class="badge ${getBiasClass(article.bias)}">${article.bias}</span>` : '<span class="text-muted">N/A</span>'}</td>
+                <td>${article.factual_reporting ? `<span class="badge ${getFactualityClass(article.factual_reporting)}">${article.factual_reporting}</span>` : '<span class="text-muted">N/A</span>'}</td>
+                <td>${article.mbfc_credibility_rating ? `<span class="badge bg-info text-white">${article.mbfc_credibility_rating}</span>` : '<span class="text-muted">N/A</span>'}</td>
+                <td class="text-center" style="position: relative;">
+                    <!-- Star button -->
+                    <button class="btn btn-sm star-btn"
+                            style="width: 24px; height: 24px; padding: 0; font-size: 12px; border: none; background: ${isStarred ? 'var(--colors-warning-9)' : 'rgba(255, 193, 7, 0.1)'}; color: ${isStarred ? 'white' : 'var(--colors-warning-9)'}; margin-right: 5px;"
+                            onclick="toggleStarArticle('${article.uri}', this)"
+                            title="${isStarred ? 'Remove from Six Articles' : 'Add to Six Articles'}">★</button>
+                    <!-- Expand arrow - on the right -->
                     <button class="expand-arrow-btn-table"
                             id="expand-btn-${articleId}"
                             onclick="toggleArticleDetailsInTableRow('${article.uri}', this)"
                             title="Show detailed view">
                         <i class="fas fa-chevron-right"></i>
                     </button>
-                    <!-- Star button -->
-                    <button class="btn btn-sm star-btn"
-                            style="width: 24px; height: 24px; padding: 0; font-size: 12px; border: none; background: ${isStarred ? 'var(--colors-warning-9)' : 'rgba(255, 193, 7, 0.1)'}; color: ${isStarred ? 'white' : 'var(--colors-warning-9)'};"
-                            onclick="toggleStarArticle('${article.uri}', this)"
-                            title="${isStarred ? 'Remove from Six Articles' : 'Add to Six Articles'}">★</button>
-                </td>
-                <td>
-                    <a href="${article.uri}" target="_blank" rel="noopener" class="text-decoration-none">
-                        ${escapeHTML(article.title)}
-                    </a>
-                    ${isGrouped ? `<span class="grouped-sources-badge ms-2"><i class="fas fa-layer-group me-1"></i>${article.groupedArticles.length} sources</span>` : ''}
-                </td>
-                <td class="small">${formatSource(article.news_source, article.uri)}</td>
-                <td class="small">${formatPubDate(article.publication_date, false)}</td>
-                <td>${article.bias ? `<span class="badge ${getBiasClass(article.bias)}">${article.bias}</span>` : '<span class="text-muted">N/A</span>'}</td>
-                <td>${article.factual_reporting ? `<span class="badge ${getFactualityClass(article.factual_reporting)}">${article.factual_reporting}</span>` : '<span class="text-muted">N/A</span>'}</td>
-                <td>${article.mbfc_credibility_rating ? `<span class="badge bg-info text-white">${article.mbfc_credibility_rating}</span>` : '<span class="text-muted">N/A</span>'}</td>
-                <td>
-                    <button class="btn btn-sm btn-outline-danger" onclick="excludeArticle('${article.uri}', this)" title="Remove">
-                        <i class="fas fa-times"></i>
-                    </button>
                 </td>
             </tr>
             <tr id="details-row-${articleId}" style="display: none;">
-                <td colspan="8" class="p-0">
+                <td colspan="6" class="p-0">
                     <div class="article-details" style="margin-left: 20px; margin-right: 10px; margin-top: 15px; margin-bottom: 15px; padding: 20px; background: var(--colors-neutral-2); border-radius: 8px; border-left: 4px solid var(--colors-info-5);">
 
                         <!-- Metadata Badges (Horizontal Layout - Full Width) -->
@@ -8242,6 +8594,544 @@ function toggleArticleDetailsInTableRow(uri, buttonElement) {
         icon.className = 'fas fa-chevron-right';
         buttonElement.title = 'Show detailed view';
     }
+}
+
+// NOTE: Despite the function name, this renders the TWO-COLUMN layout
+// It's called by the "Reader" button (see routing at line ~8078)
+function renderArticleHUDView(articles) {
+    const listContainer = document.getElementById('articles-list');
+    if (!listContainer) return;
+
+    // Clear all view classes, then add hud-view
+    clearAllViewClasses(listContainer);
+    listContainer.classList.add('hud-view');
+
+    if (!articles || articles.length === 0) {
+        listContainer.innerHTML = '<div class="alert alert-info">No articles match the current filters.</div>';
+        return;
+    }
+
+    // Group articles by category
+    const categoryGroups = {};
+    articles.forEach(article => {
+        const category = article.category || 'Uncategorized';
+        if (!categoryGroups[category]) {
+            categoryGroups[category] = [];
+        }
+        categoryGroups[category].push(article);
+    });
+
+    // Create the two-column layout
+    const leftPanel = document.createElement('div');
+    leftPanel.className = 'hud-left-panel';
+
+    const rightPanel = document.createElement('div');
+    rightPanel.className = 'hud-right-panel';
+    rightPanel.id = 'hud-detail-pane';
+    rightPanel.innerHTML = `
+        <div class="hud-detail-empty">
+            <div>
+                <i class="fas fa-hand-pointer" style="font-size: 3rem; margin-bottom: 15px; opacity: 0.5;"></i>
+                <p>Select an article from the left to view details</p>
+            </div>
+        </div>
+    `;
+
+    // Build category groups
+    Object.keys(categoryGroups).sort().forEach(category => {
+        const articles = categoryGroups[category];
+        const categoryGroup = document.createElement('div');
+        categoryGroup.className = 'hud-category-group';
+        categoryGroup.dataset.category = category;
+
+        // Category header with icon
+        const icon = getCategoryIcon(category);
+        const header = document.createElement('div');
+        header.className = 'hud-category-header';
+        header.innerHTML = `
+            <div style="display: flex; align-items: center;">
+                <span class="hud-category-icon">${icon}</span>
+                <span>${escapeHTML(category)}</span>
+                <span class="hud-category-count">${articles.length}</span>
+            </div>
+            <i class="fas fa-chevron-down"></i>
+        `;
+
+        // Toggle collapse/expand
+        header.onclick = function() {
+            const articlesList = this.nextElementSibling;
+            const icon = this.querySelector('.fa-chevron-down, .fa-chevron-right');
+            if (articlesList.style.display === 'none') {
+                articlesList.style.display = 'block';
+                icon.className = 'fas fa-chevron-down';
+            } else {
+                articlesList.style.display = 'none';
+                icon.className = 'fas fa-chevron-right';
+            }
+        };
+
+        // Articles list
+        const articlesList = document.createElement('ul');
+        articlesList.className = 'hud-articles-list';
+
+        articles.forEach((article, index) => {
+            const articleItem = document.createElement('li');
+            articleItem.className = 'hud-article-item';
+            articleItem.dataset.uri = article.uri;
+
+            articleItem.innerHTML = `
+                <div class="hud-article-title">${escapeHTML(article.title)}</div>
+                <div class="hud-article-meta">
+                    <span><i class="fas fa-building"></i> ${formatSource(article.news_source, article.uri)}</span>
+                    <span><i class="fas fa-calendar"></i> ${formatPubDate(article.publication_date, false)}</span>
+                    ${article.bias ? `<span class="badge ${getBiasClass(article.bias)}" style="font-size: 0.6rem; padding: 2px 6px;">${article.bias}</span>` : ''}
+                </div>
+            `;
+
+            articleItem.onclick = function(e) {
+                e.stopPropagation();
+                // Remove selection from all items
+                document.querySelectorAll('.hud-article-item').forEach(item => item.classList.remove('selected'));
+                // Add selection to clicked item
+                this.classList.add('selected');
+                // Load article details in right panel
+                loadArticleDetailsHUD(article);
+            };
+
+            articlesList.appendChild(articleItem);
+        });
+
+        categoryGroup.appendChild(header);
+        categoryGroup.appendChild(articlesList);
+        leftPanel.appendChild(categoryGroup);
+    });
+
+    listContainer.innerHTML = '';
+    listContainer.appendChild(leftPanel);
+    listContainer.appendChild(rightPanel);
+}
+
+// Load article details into HUD right panel
+function loadArticleDetailsHUD(article) {
+    const detailPane = document.getElementById('hud-detail-pane');
+    if (!detailPane) return;
+
+    const isGrouped = article.grouped && article.groupedArticles;
+    const articleId = article.uri.replace(/[^a-zA-Z0-9]/g, '_');
+
+    detailPane.innerHTML = `
+        <div style="height: 100%; overflow-y: auto;">
+            <!-- Article Header -->
+            <div class="mb-4">
+                <h5 class="mb-3">
+                    <a href="${article.uri}" target="_blank" rel="noopener" class="text-decoration-none">
+                        ${escapeHTML(article.title)}
+                    </a>
+                    ${isGrouped ? `<span class="grouped-sources-badge ms-2"><i class="fas fa-layer-group me-1"></i>${article.groupedArticles.length} sources</span>` : ''}
+                </h5>
+
+                <!-- Metadata Badges -->
+                <div class="d-flex flex-wrap gap-2 mb-3">
+                    ${article.bias ? `<span class="badge ${getBiasClass(article.bias)}"><i class="fas fa-balance-scale me-1"></i>${article.bias}</span>` : ''}
+                    ${article.factual_reporting ? `<span class="badge ${getFactualityClass(article.factual_reporting)}"><i class="fas fa-check-circle me-1"></i>${article.factual_reporting}</span>` : ''}
+                    ${article.mbfc_credibility_rating ? `<span class="badge bg-info text-white"><i class="fas fa-certificate me-1"></i>${article.mbfc_credibility_rating}</span>` : ''}
+                    ${article.category ? `<span class="badge bg-light text-dark"><i class="fas fa-folder me-1"></i>${article.category}</span>` : ''}
+                    ${article.sentiment ? `<span class="badge ${getSentimentClass(article.sentiment)}"><i class="fas fa-heart me-1"></i>${article.sentiment}</span>` : ''}
+                </div>
+
+                <p class="mb-1 small text-muted">
+                    <i class="fas fa-building me-1"></i>${formatSource(article.news_source, article.uri)}
+                    <span class="ms-3">
+                        <i class="fas fa-calendar me-1"></i>${formatPubDate(article.publication_date, false)}
+                    </span>
+                </p>
+            </div>
+
+            <!-- Summary -->
+            <div class="mb-4">
+                <h6 class="text-primary mb-2">
+                    <i class="fas fa-align-left me-2"></i>Summary
+                </h6>
+                <p class="small mb-0">${escapeHTML(article.summary)}</p>
+            </div>
+
+            <!-- Auspex Analysis -->
+            <div class="mb-4">
+                <h6 class="text-primary mb-2">
+                    <i class="fas fa-search-plus me-2"></i>Auspex Analysis
+                </h6>
+                <div class="analysis-content bg-white p-3 rounded border" id="analysis-hud-${articleId}">
+                    <div class="analysis-text bg-light p-2 rounded small text-muted">
+                        <i class="fas fa-spinner fa-spin me-2"></i>Generating analysis...
+                    </div>
+                </div>
+            </div>
+
+            ${isGrouped ? `
+            <!-- Grouped Sources -->
+            <div class="mb-4">
+                <h6 class="text-primary mb-2">
+                    <i class="fas fa-newspaper me-2"></i>All Sources (${article.groupedArticles.length})
+                </h6>
+                <div class="d-flex flex-column gap-2">
+                    ${article.groupedArticles.map(ga => `
+                        <div class="border rounded p-2 small bg-white">
+                            <div class="mb-1">
+                                <a href="${ga.uri}" target="_blank" class="text-decoration-none">${formatSource(ga.news_source, ga.uri)}</a>
+                            </div>
+                            <div>
+                                ${ga.bias ? `<span class="badge ${getBiasClass(ga.bias)} me-1" style="font-size: 10px;">${ga.bias}</span>` : ''}
+                                ${ga.factual_reporting ? `<span class="badge ${getFactualityClass(ga.factual_reporting)}" style="font-size: 10px;">${ga.factual_reporting}</span>` : ''}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+            ` : ''}
+
+            <!-- Metadata -->
+            <div class="mb-4">
+                <h6 class="text-primary mb-2">
+                    <i class="fas fa-info-circle me-2"></i>Additional Metadata
+                </h6>
+                <div class="small">
+                    ${(article.sentiment || article.sentiment_explanation) ? `
+                        <div class="mb-2">
+                            <strong>Sentiment:</strong> ${article.sentiment ? `<span class="badge ${getSentimentClass(article.sentiment)}">${article.sentiment}</span>` : ''}
+                            ${article.sentiment_explanation ? `<br><small class="text-muted">${escapeHTML(article.sentiment_explanation)}</small>` : ''}
+                        </div>
+                    ` : ''}
+                    ${(article.driver_type || article.driver_type_explanation) ? `
+                        <div class="mb-2">
+                            <strong>Driver Type:</strong> ${article.driver_type ? `<span class="badge bg-secondary">${article.driver_type}</span>` : ''}
+                            ${article.driver_type_explanation ? `<br><small class="text-muted">${escapeHTML(article.driver_type_explanation)}</small>` : ''}
+                        </div>
+                    ` : ''}
+                    ${(article.time_to_impact || article.time_to_impact_explanation) ? `
+                        <div class="mb-2">
+                            <strong>Time to Impact:</strong> ${article.time_to_impact ? `<span class="badge bg-warning text-dark">${article.time_to_impact}</span>` : ''}
+                            ${article.time_to_impact_explanation ? `<br><small class="text-muted">${escapeHTML(article.time_to_impact_explanation)}</small>` : ''}
+                        </div>
+                    ` : ''}
+                    ${(article.future_signal || article.future_signal_explanation) ? `
+                        <div class="mb-2">
+                            <strong>Future Signal:</strong> ${article.future_signal ? `<span class="badge bg-dark text-white">${article.future_signal}</span>` : ''}
+                            ${article.future_signal_explanation ? `<br><small class="text-muted">${escapeHTML(article.future_signal_explanation)}</small>` : ''}
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="d-flex gap-2 flex-wrap">
+                <button class="btn btn-outline-info btn-sm" onclick="launchAuspexDeepDive('${article.uri}')">
+                    <i class="fas fa-microscope me-1"></i>Deep Dive
+                </button>
+                <button class="btn btn-outline-info btn-sm" onclick="launchAuspexChat('${article.uri}')">
+                    <i class="fas fa-comments me-1"></i>Ask Auspex
+                </button>
+                <button class="btn btn-outline-success btn-sm" onclick="openAnnotationModal('${article.uri}')">
+                    <i class="fas fa-sticky-note me-1"></i>Add Note
+                </button>
+                <button class="btn btn-outline-warning btn-sm" onclick="toggleStarArticle('${article.uri}', this)">
+                    <i class="fas fa-star me-1"></i>Star Article
+                </button>
+            </div>
+        </div>
+    `;
+
+    // Trigger analysis generation
+    generateArticleAnalysis(article.uri, 'hud');
+}
+
+// NOTE: Despite the function name, this renders the BENTO GRID (category cards)
+// It's called by the "HUD" button (see routing at line ~8075)
+function renderArticleReaderView(articles) {
+    const listContainer = document.getElementById('articles-list');
+    if (!listContainer) return;
+
+    // Clear all view classes, then add reader-view
+    clearAllViewClasses(listContainer);
+    listContainer.classList.add('reader-view');
+
+    if (!articles || articles.length === 0) {
+        listContainer.innerHTML = '<div class="alert alert-info">No articles match the current filters.</div>';
+        return;
+    }
+
+    // Group articles by category
+    const categoryGroups = {};
+    articles.forEach(article => {
+        const category = article.category || 'Uncategorized';
+        if (!categoryGroups[category]) {
+            categoryGroups[category] = [];
+        }
+        categoryGroups[category].push(article);
+    });
+
+    listContainer.innerHTML = '';
+
+    // Create bento grid container
+    const bentoContainer = document.createElement('div');
+    bentoContainer.className = 'bento-grid-container';
+
+    // Create category cards sorted by article count (descending)
+    Object.keys(categoryGroups).sort((a, b) => {
+        return categoryGroups[b].length - categoryGroups[a].length;
+    }).forEach(category => {
+        const articles = categoryGroups[category];
+        const categoryCard = document.createElement('div');
+
+        // Add size class based on article count
+        const articleCount = articles.length;
+        let sizeClass = 'category-small';
+        if (articleCount >= 10) {
+            sizeClass = 'category-large';
+        } else if (articleCount >= 5) {
+            sizeClass = 'category-medium';
+        }
+
+        categoryCard.className = 'reader-category-card ' + sizeClass;
+
+        // Category header with icon
+        const icon = getCategoryIcon(category);
+        const header = document.createElement('div');
+        header.className = 'reader-category-header';
+        header.innerHTML = `
+            <span class="reader-category-icon">${icon}</span>
+            <span>${escapeHTML(category)}</span>
+            <span class="reader-category-count">${articles.length}</span>
+        `;
+
+        // Articles container
+        const articlesContainer = document.createElement('div');
+        articlesContainer.className = 'reader-articles-container';
+
+        articles.forEach(article => {
+            const articleEntry = document.createElement('div');
+            articleEntry.className = 'reader-article-entry';
+            articleEntry.style.cursor = 'pointer';
+
+            const isGrouped = article.grouped && article.groupedArticles;
+
+            articleEntry.innerHTML = `
+                <div class="reader-article-headline" title="${escapeHTML(article.summary)}">
+                    <a href="${article.uri}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
+                        ${escapeHTML(article.title)}
+                    </a>
+                    ${isGrouped ? `<span class="grouped-sources-badge ms-2" style="font-size: 0.7rem;"><i class="fas fa-layer-group me-1"></i>${article.groupedArticles.length} sources</span>` : ''}
+                    <i class="fas fa-chevron-down ms-2 expand-icon" style="font-size: 0.8rem; color: var(--colors-neutral-8);"></i>
+                </div>
+                <div class="reader-article-footer">
+                    <span><i class="fas fa-building me-1"></i>${formatSource(article.news_source, article.uri)}</span>
+                    <span><i class="fas fa-calendar me-1"></i>${formatPubDate(article.publication_date, false)}</span>
+                    ${article.bias ? `<span class="badge ${getBiasClass(article.bias)}">${article.bias}</span>` : ''}
+                    ${article.factual_reporting ? `<span class="badge ${getFactualityClass(article.factual_reporting)}">${article.factual_reporting}</span>` : ''}
+                    ${article.sentiment ? `<span class="badge ${getSentimentClass(article.sentiment)}">${article.sentiment}</span>` : ''}
+                    ${article.time_to_impact ? `<span class="badge bg-warning text-dark">${article.time_to_impact}</span>` : ''}
+                    ${article.driver_type ? `<span class="badge bg-secondary">${article.driver_type}</span>` : ''}
+                    ${article.future_signal ? `<span class="badge bg-dark text-white">${article.future_signal}</span>` : ''}
+                </div>
+                <div class="reader-article-details" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--colors-neutral-3);">
+                    <div class="mb-3">
+                        <h6 class="text-primary mb-2"><i class="fas fa-align-left me-2"></i>Full Summary</h6>
+                        <p class="small mb-0">${escapeHTML(article.summary)}</p>
+                    </div>
+                    <h6 class="text-primary mb-2"><i class="fas fa-info-circle me-2"></i>Enriched Metadata</h6>
+                    <div class="small">
+                        ${(article.sentiment || article.sentiment_explanation) ? `
+                            <div class="mb-2">
+                                <strong>Sentiment:</strong> ${article.sentiment ? `<span class="badge ${getSentimentClass(article.sentiment)}">${article.sentiment}</span>` : ''}
+                                ${article.sentiment_explanation ? `<br><small class="text-muted">${escapeHTML(article.sentiment_explanation)}</small>` : ''}
+                            </div>
+                        ` : ''}
+                        ${(article.driver_type || article.driver_type_explanation) ? `
+                            <div class="mb-2">
+                                <strong>Driver Type:</strong> ${article.driver_type ? `<span class="badge bg-secondary">${article.driver_type}</span>` : ''}
+                                ${article.driver_type_explanation ? `<br><small class="text-muted">${escapeHTML(article.driver_type_explanation)}</small>` : ''}
+                            </div>
+                        ` : ''}
+                        ${(article.time_to_impact || article.time_to_impact_explanation) ? `
+                            <div class="mb-2">
+                                <strong>Time to Impact:</strong> ${article.time_to_impact ? `<span class="badge bg-warning text-dark">${article.time_to_impact}</span>` : ''}
+                                ${article.time_to_impact_explanation ? `<br><small class="text-muted">${escapeHTML(article.time_to_impact_explanation)}</small>` : ''}
+                            </div>
+                        ` : ''}
+                        ${(article.future_signal || article.future_signal_explanation) ? `
+                            <div class="mb-2">
+                                <strong>Future Signal:</strong> ${article.future_signal ? `<span class="badge bg-dark text-white">${article.future_signal}</span>` : ''}
+                                ${article.future_signal_explanation ? `<br><small class="text-muted">${escapeHTML(article.future_signal_explanation)}</small>` : ''}
+                            </div>
+                        ` : ''}
+                    </div>
+                    <div class="d-flex gap-2 flex-wrap mt-3">
+                        <button class="btn btn-outline-info btn-sm" onclick="event.stopPropagation(); launchAuspexDeepDive('${article.uri}')">
+                            <i class="fas fa-microscope me-1"></i>Deep Dive
+                        </button>
+                        <button class="btn btn-outline-info btn-sm" onclick="event.stopPropagation(); launchAuspexChat('${article.uri}')">
+                            <i class="fas fa-comments me-1"></i>Ask Auspex
+                        </button>
+                        <button class="btn btn-outline-success btn-sm" onclick="event.stopPropagation(); openAnnotationModal('${article.uri}')">
+                            <i class="fas fa-sticky-note me-1"></i>Add Note
+                        </button>
+                        <button class="btn btn-outline-warning btn-sm" onclick="event.stopPropagation(); toggleStarArticle('${article.uri}', this)">
+                            <i class="fas fa-star me-1"></i>Star Article
+                        </button>
+                    </div>
+                </div>
+                ${article.tags ? `
+                <div class="reader-article-tags mt-2">
+                    ${(() => {
+                        let tags = [];
+                        if (Array.isArray(article.tags)) {
+                            tags = article.tags;
+                        } else if (typeof article.tags === 'string') {
+                            tags = article.tags.split(',').map(tag => tag.trim()).filter(tag => tag);
+                        }
+                        return tags.map(tag => {
+                            if (tag.startsWith('signal:')) {
+                                const signalName = tag.replace('signal:SIGNAL_', '').replace(/_/g, ' ');
+                                return '<span class="badge bg-danger text-white" style="font-size: 8px;" title="Flagged by signal: ' + escapeHTML(signalName) + '"><i class="fas fa-flag me-1"></i>' + escapeHTML(signalName) + '</span>';
+                            } else {
+                                return '<span class="badge bg-light text-dark" style="font-size: 8px;">' + escapeHTML(tag) + '</span>';
+                            }
+                        }).join(' ');
+                    })()}
+                </div>` : ''}
+            `;
+
+            // Add click handler to toggle details
+            articleEntry.onclick = function() {
+                const detailsDiv = this.querySelector('.reader-article-details');
+                const icon = this.querySelector('.expand-icon');
+
+                if (detailsDiv.style.display === 'none') {
+                    detailsDiv.style.display = 'block';
+                    icon.className = 'fas fa-chevron-up ms-2 expand-icon';
+                } else {
+                    detailsDiv.style.display = 'none';
+                    icon.className = 'fas fa-chevron-down ms-2 expand-icon';
+                }
+            };
+
+            articlesContainer.appendChild(articleEntry);
+        });
+
+        categoryCard.appendChild(header);
+        categoryCard.appendChild(articlesContainer);
+        bentoContainer.appendChild(categoryCard);
+    });
+
+    // Append bento container to list container
+    listContainer.appendChild(bentoContainer);
+}
+
+// Category icon cache (in memory)
+const categoryIconCache = {};
+
+// Helper: Get category icon (with optional backend lookup)
+function getCategoryIcon(category) {
+    // Check cache first
+    if (categoryIconCache[category]) {
+        return categoryIconCache[category];
+    }
+
+    // Local predefined icons
+    const icons = {
+        'Technology': '<i class="fas fa-laptop-code"></i>',
+        'Business': '<i class="fas fa-briefcase"></i>',
+        'Politics': '<i class="fas fa-landmark"></i>',
+        'Science': '<i class="fas fa-flask"></i>',
+        'Health': '<i class="fas fa-heartbeat"></i>',
+        'Environment': '<i class="fas fa-leaf"></i>',
+        'Education': '<i class="fas fa-graduation-cap"></i>',
+        'Entertainment': '<i class="fas fa-film"></i>',
+        'Sports': '<i class="fas fa-football-ball"></i>',
+        'Economy': '<i class="fas fa-chart-line"></i>',
+        'Finance': '<i class="fas fa-dollar-sign"></i>',
+        'Security': '<i class="fas fa-shield-alt"></i>',
+        'Military': '<i class="fas fa-fighter-jet"></i>',
+        'International': '<i class="fas fa-globe"></i>',
+        'Law': '<i class="fas fa-gavel"></i>',
+        'Society': '<i class="fas fa-users"></i>',
+        'Culture': '<i class="fas fa-palette"></i>',
+        'Transportation': '<i class="fas fa-car"></i>',
+        'Energy': '<i class="fas fa-bolt"></i>',
+        'Space': '<i class="fas fa-rocket"></i>',
+        'AI': '<i class="fas fa-robot"></i>',
+        'Uncategorized': '<i class="fas fa-folder"></i>'
+    };
+
+    // Try exact match first
+    if (icons[category]) {
+        categoryIconCache[category] = icons[category];
+        return icons[category];
+    }
+
+    // Try partial match
+    for (const [key, icon] of Object.entries(icons)) {
+        if (category.toLowerCase().includes(key.toLowerCase())) {
+            categoryIconCache[category] = icon;
+            return icon;
+        }
+    }
+
+    // Default icon
+    const defaultIcon = '<i class="fas fa-file-alt"></i>';
+    categoryIconCache[category] = defaultIcon;
+    return defaultIcon;
+}
+
+// Async function to fetch category icons from backend (optional enhancement)
+async function fetchCategoryIconsFromBackend(categories) {
+    try {
+        const categoriesParam = categories.join(',');
+        const response = await fetch(`/api/news-feed/category-icons?categories=${encodeURIComponent(categoriesParam)}`);
+
+        if (!response.ok) {
+            console.warn('Failed to fetch category icons from backend, using local icons');
+            return null;
+        }
+
+        const data = await response.json();
+        if (data.success && data.icons) {
+            // Update cache with backend icons
+            Object.assign(categoryIconCache, data.icons);
+            return data.icons;
+        }
+    } catch (error) {
+        console.warn('Error fetching category icons:', error);
+    }
+    return null;
+}
+
+// Pre-load category icons on page load (optional)
+document.addEventListener('DOMContentLoaded', function() {
+    // This could be called when articles are loaded to pre-fetch icons
+    // for better performance in HUD and Reader views
+});
+
+// Update generateArticleAnalysis to handle HUD view
+const originalGenerateArticleAnalysis = window.generateArticleAnalysis;
+if (originalGenerateArticleAnalysis) {
+    window.generateArticleAnalysis = function(uri, viewType = 'default') {
+        if (viewType === 'hud') {
+            const articleId = uri.replace(/[^a-zA-Z0-9]/g, '_');
+            const analysisContainer = document.getElementById(`analysis-hud-${articleId}`);
+            if (analysisContainer) {
+                originalGenerateArticleAnalysis.call(this, uri);
+                // Copy analysis to HUD container when available
+                setTimeout(() => {
+                    const defaultAnalysis = document.getElementById(`analysis-${articleId}`);
+                    if (defaultAnalysis) {
+                        analysisContainer.innerHTML = defaultAnalysis.innerHTML;
+                    }
+                }, 1000);
+            }
+        } else {
+            originalGenerateArticleAnalysis.call(this, uri);
+        }
+    };
 }
 
 function groupArticlesByTitle(articles) {
@@ -9718,6 +10608,7 @@ let currentPage = 1;
 const articlesPerPage = 25;
 let currentSort = 'date_desc';
 let currentSearchTerm = '';
+let showAllArticles = localStorage.getItem('showAllArticles') === 'true' || false;
 
 // Handle sort change
 function handleSortChange() {
@@ -9808,33 +10699,55 @@ function applyFiltersAndDisplay() {
 function updatePaginationInfo() {
     const totalArticles = filteredArticlesData.length;
     const totalPages = Math.ceil(totalArticles / articlesPerPage);
-    const start = (currentPage - 1) * articlesPerPage + 1;
-    const end = Math.min(currentPage * articlesPerPage, totalArticles);
-    
+    const start = showAllArticles ? 1 : (currentPage - 1) * articlesPerPage + 1;
+    const end = showAllArticles ? totalArticles : Math.min(currentPage * articlesPerPage, totalArticles);
+
     document.getElementById('articles-start').textContent = totalArticles > 0 ? start : 0;
     document.getElementById('articles-end').textContent = end;
     document.getElementById('articles-total').textContent = totalArticles;
     document.getElementById('current-page').textContent = currentPage;
     document.getElementById('total-pages').textContent = totalPages;
-    
+
     // Update button states
     document.getElementById('prev-page-btn').disabled = currentPage <= 1;
     document.getElementById('next-page-btn').disabled = currentPage >= totalPages;
-    
+
+    // Update toggle button text and controls visibility
+    const toggleText = document.getElementById('pagination-toggle-text');
+    const paginationControls = document.querySelector('.pagination-controls');
+    if (toggleText && paginationControls) {
+        if (showAllArticles) {
+            toggleText.textContent = 'Paginate';
+            paginationControls.style.display = 'none';
+        } else {
+            toggleText.textContent = 'Show All';
+            paginationControls.style.display = 'flex';
+        }
+    }
+
     // Show/hide pagination container
     const paginationContainer = document.getElementById('pagination-container');
     if (paginationContainer) {
-        paginationContainer.style.display = totalArticles > articlesPerPage ? 'flex' : 'none';
+        paginationContainer.style.display = totalArticles > articlesPerPage || showAllArticles ? 'flex' : 'none';
     }
 }
 
 // Display current page of articles
 function displayCurrentPage() {
     console.log('[DEBUG] displayCurrentPage called - filteredArticlesData.length:', filteredArticlesData.length);
-    const start = (currentPage - 1) * articlesPerPage;
-    const end = start + articlesPerPage;
-    const pageArticles = filteredArticlesData.slice(start, end);
-    console.log('[DEBUG] Slicing articles from', start, 'to', end, '- got', pageArticles.length, 'articles');
+
+    let pageArticles;
+    if (showAllArticles) {
+        // Show all articles
+        pageArticles = filteredArticlesData;
+        console.log('[DEBUG] Show All mode - displaying all', pageArticles.length, 'articles');
+    } else {
+        // Paginated mode
+        const start = (currentPage - 1) * articlesPerPage;
+        const end = start + articlesPerPage;
+        pageArticles = filteredArticlesData.slice(start, end);
+        console.log('[DEBUG] Paginated mode - slicing articles from', start, 'to', end, '- got', pageArticles.length, 'articles');
+    }
 
     // Pass total_items from window.lastArticlesData to preserve the correct count
     const totalItems = (window.lastArticlesData && window.lastArticlesData.total_items)
@@ -9865,6 +10778,27 @@ function nextPage() {
         displayCurrentPage();
         updatePaginationInfo();
     }
+}
+
+// Toggle between paginated and show all modes
+function togglePaginationMode() {
+    showAllArticles = !showAllArticles;
+    localStorage.setItem('showAllArticles', showAllArticles);
+
+    const toggleText = document.getElementById('pagination-toggle-text');
+    const paginationControls = document.querySelector('.pagination-controls');
+
+    if (showAllArticles) {
+        toggleText.textContent = 'Paginate';
+        paginationControls.style.display = 'none';
+    } else {
+        toggleText.textContent = 'Show All';
+        paginationControls.style.display = 'flex';
+    }
+
+    currentPage = 1;
+    displayCurrentPage();
+    updatePaginationInfo();
 }
 
 // Auto-load database articles on page load (no LLM generation)
@@ -9901,70 +10835,96 @@ async function autoLoadArticles() {
         console.log(`Calculated date range: ${dateParam} to ${now.toISOString().split('T')[0]} (${days} days)`);
         
         // Build database query parameters to match news_feed_routes.py endpoint
+        // Note: Backend limits per_page to max 100, so we fetch in batches if needed
         const params = new URLSearchParams({
             date_range: dateRange, // Use the original date_range parameter
-            per_page: '100', // Match endpoint max limit
+            per_page: '100', // Backend maximum
             page: '1',
-            max_articles: '100'
+            max_articles: '10000' // Allow fetching all articles in date range
         });
         
         if (topic) params.append('topic', topic);
         
         console.log(`API call: /api/news-feed/articles?${params.toString()}`);
         console.log(`Date range: ${dateRange} -> should get ${days} days of articles`);
-        
-        // Load articles directly from database (not LLM-generated)
-        const response = await fetch(`/api/news-feed/articles?${params}`);
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        
-        const data = await response.json();
-        console.log('Database articles loaded:', data);
-        
-        // Handle response structure and extract total count
-        let articles = [];
+
+        // Load ALL articles from database by fetching multiple pages if needed
+        let allFetchedArticles = [];
         let totalCount = 0;
+        let currentFetchPage = 1;
+        const perPage = 100;
 
-        if (Array.isArray(data)) {
-            articles = data;
-            totalCount = data.length;
-        } else if (data.articles) {
-            // Check if data.articles is an array or has nested structure
-            if (Array.isArray(data.articles)) {
-                articles = data.articles;
-                totalCount = data.total_items || data.articles.length;
-            } else if (data.articles.items && Array.isArray(data.articles.items)) {
-                articles = data.articles.items;
-                totalCount = data.articles.total_items || data.articles.items.length;
-            } else if (data.articles.articles && Array.isArray(data.articles.articles)) {
-                articles = data.articles.articles;
-                totalCount = data.articles.total_items || data.articles.articles.length;
-            } else {
-                console.warn('data.articles is not an array:', data.articles);
-                console.log('data.articles keys:', Object.keys(data.articles));
-                articles = [];
-                totalCount = 0;
+        while (true) {
+            params.set('page', currentFetchPage.toString());
+            const response = await fetch(`/api/news-feed/articles?${params}`);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
-        } else if (data.items && Array.isArray(data.items)) {
-            articles = data.items;
-            totalCount = data.total_items || data.items.length;
-        } else if (data.results && Array.isArray(data.results)) {
-            articles = data.results;
-            totalCount = data.total_items || data.results.length;
-        } else {
-            console.warn('Unexpected database response structure:', data);
-            console.log('Available keys:', Object.keys(data));
-            articles = [];
-            totalCount = 0;
+
+            const data = await response.json();
+            console.log(`Database articles loaded (page ${currentFetchPage}):`, data);
+
+            // Handle response structure and extract articles from this page
+            let pageArticles = [];
+            let pageTotalCount = 0;
+
+            if (Array.isArray(data)) {
+                pageArticles = data;
+                pageTotalCount = data.length;
+            } else if (data.articles) {
+                // Check if data.articles is an array or has nested structure
+                if (Array.isArray(data.articles)) {
+                    pageArticles = data.articles;
+                    pageTotalCount = data.total_items || data.articles.length;
+                } else if (data.articles.items && Array.isArray(data.articles.items)) {
+                    pageArticles = data.articles.items;
+                    pageTotalCount = data.articles.total_items || data.articles.items.length;
+                } else if (data.articles.articles && Array.isArray(data.articles.articles)) {
+                    pageArticles = data.articles.articles;
+                    pageTotalCount = data.articles.total_items || data.articles.articles.length;
+                } else {
+                    console.warn('data.articles is not an array:', data.articles);
+                    console.log('data.articles keys:', Object.keys(data.articles));
+                    pageArticles = [];
+                    pageTotalCount = 0;
+                }
+            } else if (data.items && Array.isArray(data.items)) {
+                pageArticles = data.items;
+                pageTotalCount = data.total_items || data.items.length;
+            } else if (data.results && Array.isArray(data.results)) {
+                pageArticles = data.results;
+                pageTotalCount = data.total_items || data.results.length;
+            } else {
+                console.warn('Unexpected database response structure:', data);
+                console.log('Available keys:', Object.keys(data));
+                pageArticles = [];
+                pageTotalCount = 0;
+            }
+
+            // Store total count from first page
+            if (currentFetchPage === 1) {
+                totalCount = pageTotalCount;
+            }
+
+            // Add articles from this page
+            allFetchedArticles.push(...pageArticles);
+
+            console.log(`Fetched ${pageArticles.length} articles from page ${currentFetchPage}, total so far: ${allFetchedArticles.length}/${totalCount}`);
+
+            // Break if we've fetched all articles or no more articles on this page
+            if (pageArticles.length === 0 || allFetchedArticles.length >= totalCount) {
+                break;
+            }
+
+            currentFetchPage++;
         }
 
-        // Store all articles and initialize filtering
-        allArticlesData = articles;
+        // Store all fetched articles
+        allArticlesData = allFetchedArticles;
         currentPage = 1;
 
         // Also store in window.lastArticlesData for analysis functions
-        window.lastArticlesData = { items: articles, total_items: totalCount };
+        window.lastArticlesData = { items: allFetchedArticles, total_items: totalCount };
 
         console.log(`Loaded ${allArticlesData.length} database articles, total available: ${totalCount}`);
 
