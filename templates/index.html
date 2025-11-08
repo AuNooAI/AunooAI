@@ -985,7 +985,11 @@
     /* Main Content Container */
     .operations-content {
         padding: 24px 48px;
-        background-color: var(--colors-neutral-2);
+        background: linear-gradient(135deg,
+            var(--colors-neutral-1) 0%,
+            var(--colors-neutral-2) 50%,
+            var(--colors-accent-alpha-5) 100%);
+        min-height: 100vh;
         max-width: 1400px;
         margin: 0 auto;
     }
@@ -1221,6 +1225,139 @@
     .metric-progress-bar.bg-red {
         background-color: #ef4444;
     }
+
+    /* ============================================
+       NEWS TICKER
+       ============================================ */
+    .news-ticker-container {
+        background: var(--light-gray, #f5f5f7);
+        border: 1px solid var(--border-light, #e5e5e5);
+        border-left: 4px solid var(--colors-info-6);
+        padding: 0;
+        margin: 0;
+        position: relative;
+        overflow: hidden;
+        height: 44px;
+        display: none;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        will-change: transform;
+    }
+
+    .news-ticker-container.visible {
+        display: block;
+    }
+
+    .ticker-header {
+        background: var(--colors-info-6);
+        color: white;
+        padding: 0 16px;
+        font-weight: 700;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        z-index: 12;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 100px;
+        border-right: 1px solid var(--border-light, #e5e5e5);
+    }
+
+    .ticker-controls {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 11;
+        display: flex;
+        gap: 4px;
+    }
+
+    .ticker-controls .btn {
+        padding: 3px 8px;
+        font-size: 0.7rem;
+        border: 1px solid var(--colors-neutral-5);
+        background: var(--colors-white);
+        color: var(--colors-neutral-8);
+        transition: all 0.2s ease;
+        border-radius: 3px;
+    }
+
+    .ticker-controls .btn:hover {
+        background: var(--colors-neutral-4);
+        color: var(--colors-info-5);
+        border-color: var(--colors-info-5);
+    }
+
+    .ticker-content-wrapper {
+        position: absolute;
+        left: 100px;
+        right: 140px;
+        top: 0;
+        bottom: 0;
+        overflow: hidden;
+    }
+
+    .ticker-content {
+        display: inline-flex;
+        white-space: nowrap;
+        align-items: center;
+        height: 100%;
+        animation: scroll-left 120s linear infinite;
+        transform: translateZ(0);
+    }
+
+    .ticker-content.paused {
+        animation-play-state: paused !important;
+    }
+
+    @keyframes scroll-left {
+        0% { transform: translateX(0) translateZ(0); }
+        100% { transform: translateX(-50%) translateZ(0); }
+    }
+
+    .ticker-item {
+        display: inline-flex;
+        align-items: center;
+        padding: 0 20px;
+        border-right: 1px solid var(--colors-neutral-5);
+        font-size: 0.85rem;
+        line-height: 1.3;
+        height: 100%;
+    }
+
+    .ticker-item a {
+        color: var(--colors-neutral-11);
+        text-decoration: none;
+        transition: color 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 500;
+    }
+
+    .ticker-item a:hover {
+        color: var(--colors-info-5);
+    }
+
+    .ticker-time {
+        color: var(--colors-neutral-7);
+        font-size: 0.7rem;
+        margin-right: 8px;
+    }
+
+    .ticker-loading, .ticker-empty {
+        position: absolute;
+        left: 105px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--colors-neutral-8);
+        font-size: 0.8rem;
+    }
 </style>
 {% endblock %}
 
@@ -1242,6 +1379,36 @@
             <span>Set up topic</span>
             <span class="text-gray-500">+</span>
         </button>
+    </div>
+</div>
+
+<!-- News Ticker -->
+<div class="news-ticker-container" id="news-ticker">
+    <div class="ticker-header">
+        <i class="fas fa-bolt"></i>
+        <span>LATEST</span>
+    </div>
+
+    <div class="ticker-controls">
+        <button type="button" class="btn btn-sm" id="ticker-pause-btn" onclick="pauseResumeTicker()" title="Pause/Resume">
+            <i class="fas fa-pause" id="ticker-pause-icon"></i>
+        </button>
+        <button type="button" class="btn btn-sm" onclick="refreshTicker()" title="Refresh">
+            <i class="fas fa-sync-alt"></i>
+        </button>
+        <button type="button" class="btn btn-sm" onclick="toggleTicker()" title="Hide">
+            <i class="fas fa-times"></i>
+        </button>
+    </div>
+
+    <div class="ticker-content-wrapper">
+        <div class="ticker-loading" id="ticker-loading" style="display: none;">
+            <i class="fas fa-spinner fa-spin"></i> Loading...
+        </div>
+        <div class="ticker-empty" id="ticker-empty" style="display: none;">
+            No recent articles
+        </div>
+        <div class="ticker-content" id="ticker-content"></div>
     </div>
 </div>
 
@@ -2198,7 +2365,140 @@
 
         // Refresh every 30 seconds (matching React version)
         setInterval(fetchHealthData, 30000);
+
+        // Initialize news ticker
+        initNewsTicker();
     });
+
+    // ============================================
+    // NEWS TICKER
+    // ============================================
+    let tickerState = {
+        isPaused: false,
+        isVisible: false,
+        articles: []
+    };
+
+    function initNewsTicker() {
+        const enabled = localStorage.getItem('tickerEnabled') !== 'false';
+        if (enabled) {
+            showTicker();
+            loadTickerArticles();
+        }
+    }
+
+    async function loadTickerArticles() {
+        const loading = document.getElementById('ticker-loading');
+        const content = document.getElementById('ticker-content');
+        const empty = document.getElementById('ticker-empty');
+
+        if (loading) loading.style.display = 'block';
+        if (content) content.style.display = 'none';
+
+        try {
+            const response = await fetch('/api/news-feed/articles?per_page=20&page=1&date_range=24h');
+            if (!response.ok) throw new Error('Failed to load articles');
+
+            const data = await response.json();
+            tickerState.articles = data.articles?.items || data.articles || [];
+
+            if (tickerState.articles.length === 0) {
+                if (empty) empty.style.display = 'block';
+                if (content) content.style.display = 'none';
+            } else {
+                renderTickerArticles();
+                if (empty) empty.style.display = 'none';
+                if (content) content.style.display = 'inline-flex';
+            }
+        } catch (error) {
+            console.error('Ticker error:', error);
+            if (content) {
+                content.innerHTML = '<div class="ticker-item"><span style="color: #ef4444;">Failed to load articles</span></div>';
+                content.style.display = 'inline-flex';
+            }
+        } finally {
+            if (loading) loading.style.display = 'none';
+        }
+    }
+
+    function renderTickerArticles() {
+        const content = document.getElementById('ticker-content');
+        if (!content) return;
+
+        const items = tickerState.articles.map(article => {
+            const url = article.uri || article.url || '#';
+            const title = (article.title || 'Untitled').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const time = formatTickerTime(article.publication_date);
+
+            return `
+                <div class="ticker-item">
+                    <a href="${url}" target="_blank" rel="noopener">
+                        <span class="ticker-time">${time}</span>
+                        <span>${title}</span>
+                    </a>
+                </div>
+            `;
+        }).join('');
+
+        // Duplicate for seamless loop
+        content.innerHTML = items + items;
+    }
+
+    function formatTickerTime(timestamp) {
+        if (!timestamp) return '';
+        const date = new Date(timestamp);
+        const diffMs = Date.now() - date.getTime();
+        const diffMins = Math.floor(diffMs / 60000);
+
+        if (diffMins < 1) return 'now';
+        if (diffMins < 60) return diffMins + 'm';
+        const diffHours = Math.floor(diffMins / 60);
+        if (diffHours < 24) return diffHours + 'h';
+        return Math.floor(diffHours / 24) + 'd';
+    }
+
+    function showTicker() {
+        const ticker = document.getElementById('news-ticker');
+        if (ticker) {
+            ticker.classList.add('visible');
+            tickerState.isVisible = true;
+            localStorage.setItem('tickerEnabled', 'true');
+        }
+    }
+
+    function pauseResumeTicker() {
+        const content = document.getElementById('ticker-content');
+        const icon = document.getElementById('ticker-pause-icon');
+
+        tickerState.isPaused = !tickerState.isPaused;
+
+        if (tickerState.isPaused) {
+            content.classList.add('paused');
+            icon.classList.remove('fa-pause');
+            icon.classList.add('fa-play');
+        } else {
+            content.classList.remove('paused');
+            icon.classList.remove('fa-play');
+            icon.classList.add('fa-pause');
+        }
+    }
+
+    function toggleTicker() {
+        const ticker = document.getElementById('news-ticker');
+        tickerState.isVisible = !tickerState.isVisible;
+
+        if (tickerState.isVisible) {
+            ticker.classList.add('visible');
+            localStorage.setItem('tickerEnabled', 'true');
+        } else {
+            ticker.classList.remove('visible');
+            localStorage.setItem('tickerEnabled', 'false');
+        }
+    }
+
+    function refreshTicker() {
+        loadTickerArticles();
+    }
 </script>
 
 <!-- Add Font Awesome for the clock icon -->
