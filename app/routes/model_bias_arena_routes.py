@@ -83,20 +83,6 @@ async def get_available_models(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/topics")
-async def get_topics(
-    session=Depends(verify_session),
-    db: Database = Depends(get_database_instance)
-):
-    """Get list of available topics."""
-    try:
-        topics = db.get_topics()
-        return JSONResponse(content={"topics": topics})
-    except Exception as e:
-        logger.error(f"Error getting topics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.post("/runs")
 async def create_run(
     request: CreateRunRequest,
@@ -134,9 +120,12 @@ async def create_run(
             rounds=request.rounds
         )
         
+        # Get username for notification
+        username = session.get("user", {}).get("username")
+
         # Start ontological evaluation in background
-        background_tasks.add_task(service.evaluate_model_ontology, run_id)
-        
+        background_tasks.add_task(service.evaluate_model_ontology, run_id, username)
+
         return JSONResponse(content={"run_id": run_id, "status": "started"})
         
     except HTTPException:

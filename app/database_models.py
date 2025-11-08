@@ -695,3 +695,19 @@ t_user_preferences = Table(
     UniqueConstraint('username', 'preference_key', name='uq_user_preference_key'),
     Index('ix_user_preferences_username', 'username')
 )
+
+t_notifications = Table(
+    'notifications', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('username', Text, ForeignKey('users.username', ondelete='CASCADE'), nullable=True),
+    Column('type', String(50), nullable=False),
+    Column('title', String(255), nullable=False),
+    Column('message', Text, nullable=False),
+    Column('link', String(500), nullable=True),
+    Column('read', Boolean, nullable=False, server_default='false'),
+    Column('created_at', DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP')),
+    Index('ix_notifications_username', 'username'),
+    Index('ix_notifications_read', 'read'),
+    Index('ix_notifications_created_at', 'created_at'),
+    Index('ix_notifications_username_read', 'username', 'read')
+)

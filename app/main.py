@@ -74,6 +74,7 @@ from app.routes.websocket_routes import router as websocket_router
 from app.routes.user_management_routes import router as user_management_router  # Multi-user support (Added 2025-10-21)
 from app.routes.prompt_management_routes import router as prompt_management_router  # Prompt management API
 from app.routes.market_signals_routes import router as market_signals_router  # Market Signals & Strategic Risks
+from app.routes.notification_routes import router as notification_router  # Notification system (Added 2025-11-08)
 
 # ElevenLabs SDK imports used in podcast endpoints
 from elevenlabs import ElevenLabs, PodcastConversationModeData, PodcastTextSource
@@ -125,6 +126,7 @@ app.include_router(onboarding_router)
 app.include_router(user_management_router)  # User management API (Added 2025-10-21)
 app.include_router(prompt_management_router)  # Prompt management API (Added 2025-01-06)
 app.include_router(market_signals_router)  # Market Signals & Strategic Risks (Added 2025-01-06)
+app.include_router(notification_router)  # Notification system (Added 2025-11-08)
 
 class ArticleData(BaseModel):
     title: str

@@ -121,7 +121,7 @@ class ModelBiasArenaService:
             logger.error(f"Error creating bias evaluation run: {e}")
             raise
     
-    async def evaluate_model_ontology(self, run_id: int) -> Dict[str, Any]:
+    async def evaluate_model_ontology(self, run_id: int, username: str = None) -> Dict[str, Any]:
         """Run ontological field evaluation for all models in a run using ArticleAnalyzer."""
         try:
             # Get run details
@@ -289,15 +289,15 @@ class ModelBiasArenaService:
                 all_results[f"round_{round_num}"] = round_results
                 logger.info(f"Completed Round {round_num} of {total_rounds}")
             
-            # Mark run as completed
-            self._update_run_status(run_id, "completed")
-            
+            # Mark run as completed and notify user
+            self._update_run_status(run_id, "completed", username)
+
             logger.info(f"All {total_rounds} rounds completed for run {run_id}")
             return all_results
-            
+
         except Exception as e:
             logger.error(f"Error running ontological evaluation: {e}")
-            self._update_run_status(run_id, "failed")
+            self._update_run_status(run_id, "failed", username)
             raise
     
     def _store_evaluation_result(self, 
@@ -347,10 +347,25 @@ class ModelBiasArenaService:
         except Exception as e:
             logger.error(f"Error storing ontological result: {e}")
     
-    def _update_run_status(self, run_id: int, status: str):
-        """Update run status."""
+    def _update_run_status(self, run_id: int, status: str, username: str = None):
+        """Update run status and create notification on completion."""
         try:
             (DatabaseQueryFacade(self.db, logger)).update_run_status((status, run_id))
+
+            # Create notification when evaluation completes
+            if status == "completed" and username:
+                try:
+                    facade = DatabaseQueryFacade(self.db, logger)
+                    facade.create_notification(
+                        username=username,
+                        type="evaluation_complete",
+                        title="Model Bias Evaluation Complete",
+                        message=f"Your bias evaluation (Run #{run_id}) has finished processing and results are ready to view.",
+                        link=f"/model-bias-arena?run_id={run_id}"
+                    )
+                    logger.info(f"Created completion notification for run {run_id}, user {username}")
+                except Exception as notif_error:
+                    logger.error(f"Error creating completion notification: {notif_error}")
         except Exception as e:
             logger.error(f"Error updating run status: {e}")
     

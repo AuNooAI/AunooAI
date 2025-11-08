@@ -133,6 +133,11 @@ window.createMediaBiasBadges = createMediaBiasBadges;
 
 {% block extra_css %}
 <style>
+    /* Force light color scheme on selects to override browser/OS dark mode */
+    select, select.form-select {
+        color-scheme: light !important;
+    }
+
     :root {
         --primary-color: var(--colors-accent-7);
         --primary-dark: var(--colors-accent-10);
@@ -281,6 +286,8 @@ window.createMediaBiasBadges = createMediaBiasBadges;
         border-radius: 8px;
         font-size: 1rem;
         transition: border-color 0.2s;
+        color: #1f2937 !important;
+        background-color: white !important;
     }
 
     .form-control:focus {
@@ -289,14 +296,6 @@ window.createMediaBiasBadges = createMediaBiasBadges;
         box-shadow: 0 0 0 3px rgba(255, 105, 180, 0.1);
     }
 
-    .form-select {
-        appearance: none;
-        background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e");
-        background-position: right 12px center;
-        background-repeat: no-repeat;
-        background-size: 16px;
-        padding-right: 40px;
-    }
 
     /* Multi-select styling */
     .model-selector {
@@ -446,6 +445,51 @@ window.createMediaBiasBadges = createMediaBiasBadges;
     @keyframes spin {
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }
+    }
+
+    /* Skeleton Loaders */
+    .skeleton {
+        background: linear-gradient(90deg, var(--colors-neutral-3) 25%, var(--colors-neutral-2) 50%, var(--colors-neutral-3) 75%);
+        background-size: 200% 100%;
+        animation: skeleton-loading 1.5s ease-in-out infinite;
+        border-radius: 4px;
+    }
+
+    @keyframes skeleton-loading {
+        0% { background-position: 200% 0; }
+        100% { background-position: -200% 0; }
+    }
+
+    .skeleton-card {
+        background: white;
+        border-radius: var(--border-radius);
+        box-shadow: var(--card-shadow);
+        padding: 24px;
+        margin-bottom: 16px;
+    }
+
+    .skeleton-title {
+        height: 24px;
+        width: 60%;
+        margin-bottom: 12px;
+    }
+
+    .skeleton-text {
+        height: 16px;
+        width: 100%;
+        margin-bottom: 8px;
+    }
+
+    .skeleton-text-short {
+        height: 16px;
+        width: 40%;
+    }
+
+    .skeleton-badge {
+        height: 24px;
+        width: 80px;
+        display: inline-block;
+        margin-right: 8px;
     }
 
     /* Matrix Analysis Styles */
@@ -814,6 +858,25 @@ window.createMediaBiasBadges = createMediaBiasBadges;
     .mb-3 { margin-bottom: 1rem; }
     .mt-3 { margin-top: 1rem; }
 
+    /* Fix notification bell icon button - remove border */
+    .btn.btn-icon {
+        background: transparent;
+        border: none;
+        padding: 0.5rem;
+        cursor: pointer;
+        transition: background-color 0.15s ease;
+        border-radius: 0.375rem;
+    }
+
+    .btn.btn-icon:hover {
+        background-color: var(--colors-neutral-2);
+    }
+
+    .btn.btn-icon:focus {
+        outline: none;
+        box-shadow: none;
+    }
+
     /* Export Controls */
     .export-controls {
         display: flex;
@@ -872,10 +935,11 @@ window.createMediaBiasBadges = createMediaBiasBadges;
             <span>Monitor and compare bias across different AI models</span>
         </div>
         <div class="page-header-actions">
-            <button type="button" class="btn btn-icon" title="Notifications">
+            <button type="button" class="btn btn-icon" data-notification-trigger data-tooltip="View notifications for completed evaluations and updates" style="position: relative;">
                 <i class="far fa-bell"></i>
+                <span class="notification-badge"></span>
             </button>
-            <button class="btn-topic-setup" onclick="window.location.href='/onboarding?redo=true'" title="Set up a new topic">
+            <button class="btn-topic-setup" onclick="window.location.href='/onboarding?redo=true'" data-tooltip="Launch AI-guided wizard to create a new research topic">
                 <span>Set up topic</span>
                 <i class="fas fa-plus"></i>
             </button>
@@ -890,7 +954,7 @@ window.createMediaBiasBadges = createMediaBiasBadges;
     <div class="card">
         <div class="card-header">
             <h2 class="card-title">Create New Bias Evaluation</h2>
-            <button id="toggleCreateForm" class="btn-primary">
+            <button id="toggleCreateForm" class="btn-primary" data-tooltip="Create a new bias evaluation to compare multiple AI models">
                 <i class="fas fa-plus"></i> New Evaluation
             </button>
         </div>
@@ -911,7 +975,7 @@ window.createMediaBiasBadges = createMediaBiasBadges;
 
                 <div class="form-group">
                     <label for="benchmarkModel" class="form-label">Benchmark Model *</label>
-                    <select id="benchmarkModel" class="form-control form-select" required>
+                    <select id="benchmarkModel" class="form-select" required>
                         <option value="">Select benchmark model...</option>
                     </select>
                     <small class="text-muted">This model will be used as the reference point for comparison</small>
@@ -927,7 +991,7 @@ window.createMediaBiasBadges = createMediaBiasBadges;
 
                 <div class="form-group">
                     <label for="rounds" class="form-label">Number of Rounds</label>
-                    <select id="rounds" class="form-control form-select">
+                    <select id="rounds" class="form-select">
                         <option value="1">1 Round (Single evaluation)</option>
                         <option value="2">2 Rounds (Check consistency)</option>
                         <option value="3">3 Rounds (Moderate drift tracking)</option>
@@ -945,8 +1009,8 @@ window.createMediaBiasBadges = createMediaBiasBadges;
                 </div>
 
                 <div class="form-group">
-                    <label for="topicFilter" class="form-label">Topic Selection <span class="text-danger">*</span></label>
-                    <select id="topicFilter" class="form-control form-select" required>
+                    <label for="topicFilter" class="form-label">Topic Selection *</label>
+                    <select id="topicFilter" class="form-select" required>
                         <option value="">Select a topic to analyze</option>
                     </select>
                     <small class="text-muted">Select the topic to focus ontological field analysis on</small>
@@ -960,10 +1024,10 @@ window.createMediaBiasBadges = createMediaBiasBadges;
                 </div>
 
                 <div class="d-flex gap-3">
-                    <button type="submit" class="btn-primary">
+                    <button type="submit" class="btn-primary" data-tooltip="Begin the bias evaluation process (runs in background)">
                         <i class="fas fa-play"></i> Start Evaluation
                     </button>
-                    <button type="button" id="previewArticles" class="btn-secondary">
+                    <button type="button" id="previewArticles" class="btn-secondary" data-tooltip="Preview the articles that will be analyzed in this evaluation">
                         <i class="fas fa-eye"></i> Preview Articles
                     </button>
                 </div>
@@ -1177,10 +1241,8 @@ async function loadAvailableModels() {
 
 async function loadTopics() {
     try {
-        const response = await fetch('/api/model-bias-arena/topics');
-        const data = await response.json();
-        
-        availableTopics = data.topics || [];
+        const response = await fetch('/api/topics');
+        availableTopics = await response.json();
         populateTopicSelector();
     } catch (error) {
         console.error('Error loading topics:', error);
@@ -1217,7 +1279,7 @@ function populateModelSelectors() {
 function populateTopicSelector() {
     const topicSelect = document.getElementById('topicFilter');
     topicSelect.innerHTML = '<option value="">Select a topic to analyze</option>';
-    
+
     availableTopics.forEach(topic => {
         const option = document.createElement('option');
         option.value = topic.name;
@@ -1228,11 +1290,23 @@ function populateTopicSelector() {
 
 async function loadTopicFields(topicName) {
     try {
+        // Don't load if topic is empty or undefined
+        if (!topicName || topicName === 'undefined' || topicName === '') {
+            document.getElementById('topicFieldsPreview').style.display = 'none';
+            return;
+        }
+
         document.getElementById('topicFieldsPreview').style.display = 'block';
         document.getElementById('availableFields').innerHTML = '<small class="text-muted">Loading field information...</small>';
-        
+
         // Load categories for the topic
         const categoriesResponse = await fetch(`/api/categories/${encodeURIComponent(topicName)}`);
+
+        // Check if response is OK before parsing
+        if (!categoriesResponse.ok) {
+            throw new Error(`Failed to load categories: ${categoriesResponse.status}`);
+        }
+
         const categoriesData = await categoriesResponse.json();
         
         // Load other topic options (sentiment, signals, etc.)
@@ -1313,30 +1387,33 @@ async function submitBiasEvaluation() {
             return;
         }
 
-        // Submit
-        const response = await fetch('/api/model-bias-arena/runs', {
+        // Show success message IMMEDIATELY before starting async operation
+        showSuccess('Bias evaluation started! You will be notified when it completes.');
+
+        // Submit (run in background, don't await)
+        fetch('/api/model-bias-arena/runs', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
             },
             body: JSON.stringify(formData)
+        }).then(response => {
+            if (!response.ok) {
+                throw new Error('Failed to create evaluation');
+            }
+            return response.json();
+        }).then(result => {
+            // Refresh runs list after submission
+            setTimeout(() => loadRuns(), 1000);
+        }).catch(error => {
+            console.error('Error creating evaluation:', error);
+            showError('Failed to create bias evaluation: ' + error.message);
         });
 
-        if (!response.ok) {
-            throw new Error('Failed to create evaluation');
-        }
-
-        const result = await response.json();
-        
-        showSuccess('Bias evaluation started successfully!');
-        
-        // Reset form and hide it
+        // Reset form and hide it immediately (don't wait for async)
         document.getElementById('biasEvaluationForm').reset();
         document.getElementById('createRunForm').classList.add('d-none');
         document.getElementById('toggleCreateForm').innerHTML = '<i class="fas fa-plus"></i> New Evaluation';
-        
-        // Refresh runs list
-        setTimeout(() => loadRuns(), 1000);
         
     } catch (error) {
         console.error('Error submitting evaluation:', error);
@@ -2720,6 +2797,10 @@ function showError(message) {
     flex: 1;
     overflow-y: auto;
     padding: 1.5rem;
+    background: linear-gradient(135deg,
+        var(--colors-neutral-1) 0%,
+        var(--colors-neutral-2) 50%,
+        var(--colors-accent-alpha-5) 100%);
 }
 
 /* Breadcrumb Header */

@@ -2291,6 +2291,10 @@ class DatabaseQueryFacade:
         self.connection.commit()
 
     def sample_articles(self, count, topic):
+        """Sample articles with complete benchmark ontological data.
+
+        PostgreSQL-compatible version that handles NULL values correctly.
+        """
         statement = select(
             articles.c.uri,
             articles.c.title,
@@ -2307,24 +2311,25 @@ class DatabaseQueryFacade:
             articles.c.mbfc_credibility_rating,
             articles.c.bias_country
         ).where(
+            # Summary must exist and be substantial
             articles.c.summary.isnot(None),
-            func.length(articles.c.summary) > 100,
-            articles.c.analyzed == True,
-            articles.c.sentiment.isnot(None),
-            articles.c.sentiment != '',
-            articles.c.future_signal.isnot(None),
-            articles.c.future_signal != '',
-            articles.c.time_to_impact.isnot(None),
-            articles.c.time_to_impact != '',
-            articles.c.driver_type.isnot(None),
-            articles.c.driver_type != '',
-            articles.c.category.isnot(None),
-            articles.c.category != '',
-            articles.c.news_source.isnot(None),
-            articles.c.news_source != ''
+            func.char_length(articles.c.summary) > 100,  # PostgreSQL-compatible
+
+            # Must be analyzed (explicit boolean check for PostgreSQL)
+            articles.c.analyzed.is_(True),
+
+            # Ontological fields must be non-NULL and non-empty
+            # Using and_() for explicit PostgreSQL NULL handling
+            and_(articles.c.sentiment.isnot(None), articles.c.sentiment != ''),
+            and_(articles.c.future_signal.isnot(None), articles.c.future_signal != ''),
+            and_(articles.c.time_to_impact.isnot(None), articles.c.time_to_impact != ''),
+            and_(articles.c.driver_type.isnot(None), articles.c.driver_type != ''),
+            and_(articles.c.category.isnot(None), articles.c.category != ''),
+            and_(articles.c.news_source.isnot(None), articles.c.news_source != '')
         )
 
-        if topic:
+        # Optional topic filter (filter out 'undefined' from frontend)
+        if topic and topic != 'undefined' and topic.strip():
             statement = statement.where(
                 articles.c.topic == topic
             )
@@ -6498,3 +6503,209 @@ class DatabaseQueryFacade:
         except Exception as e:
             self.logger.error(f"Error getting recent future horizons analyses: {e}")
             return []
+
+    # ==================== Notifications ====================
+
+    def create_notification(self, username: str | None, type: str, title: str, message: str, link: str | None = None) -> int:
+        """Create a new notification.
+
+        Args:
+            username: Username to notify (None for system-wide notifications)
+            type: Notification type (e.g., 'evaluation_complete', 'article_analysis', 'system')
+            title: Notification title
+            message: Notification message
+            link: Optional link to navigate to when clicked
+
+        Returns:
+            Notification ID
+        """
+        from app.database_models import t_notifications
+
+        statement = insert(t_notifications).values(
+            username=username,
+            type=type,
+            title=title,
+            message=message,
+            link=link,
+            read=False
+        ).returning(t_notifications.c.id)
+
+        result = self._execute_with_rollback(statement).scalar_one()
+        self.logger.info(f"Created notification {result} for user {username}: {title}")
+        return result
+
+    def get_user_notifications(self, username: str, unread_only: bool = False, limit: int = 50) -> list:
+        """Get notifications for a user.
+
+        Args:
+            username: Username to get notifications for
+            unread_only: If True, only return unread notifications
+            limit: Maximum number of notifications to return
+
+        Returns:
+            List of notification dictionaries
+        """
+        from app.database_models import t_notifications
+
+        statement = select(t_notifications).where(
+            or_(
+                t_notifications.c.username == username,
+                t_notifications.c.username.is_(None)  # Include system-wide notifications
+            )
+        )
+
+        if unread_only:
+            statement = statement.where(t_notifications.c.read == False)
+
+        statement = statement.order_by(
+            t_notifications.c.created_at.desc()
+        ).limit(limit)
+
+        result = self._execute_with_rollback(statement)
+        return [dict(row._mapping) for row in result]
+
+    def get_unread_count(self, username: str) -> int:
+        """Get count of unread notifications for a user.
+
+        Args:
+            username: Check notifications for this username
+
+        Returns:
+            Count of unread notifications
+        """
+        from app.database_models import t_notifications
+
+        statement = select(func.count()).select_from(t_notifications).where(
+            and_(
+                or_(
+                    t_notifications.c.username == username,
+                    t_notifications.c.username.is_(None)
+                ),
+                t_notifications.c.read == False
+            )
+        )
+
+        return self._execute_with_rollback(statement).scalar() or 0
+
+    def mark_notification_as_read(self, notification_id: int, username: str) -> bool:
+        """Mark a notification as read.
+
+        Args:
+            notification_id: Notification ID
+            username: Username (for security check)
+
+        Returns:
+            True if successful
+        """
+        from app.database_models import t_notifications
+
+        statement = update(t_notifications).where(
+            and_(
+                t_notifications.c.id == notification_id,
+                or_(
+                    t_notifications.c.username == username,
+                    t_notifications.c.username.is_(None)
+                )
+            )
+        ).values(read=True)
+
+        self._execute_with_rollback(statement)
+        return True
+
+    def mark_all_notifications_as_read(self, username: str) -> int:
+        """Mark all notifications as read for a user.
+
+        Args:
+            username: Username
+
+        Returns:
+            Number of notifications marked as read
+        """
+        from app.database_models import t_notifications
+
+        statement = update(t_notifications).where(
+            and_(
+                or_(
+                    t_notifications.c.username == username,
+                    t_notifications.c.username.is_(None)
+                ),
+                t_notifications.c.read == False
+            )
+        ).values(read=True)
+
+        result = self._execute_with_rollback(statement)
+        count = result.rowcount
+        self.logger.info(f"Marked {count} notifications as read for user {username}")
+        return count
+
+    def delete_notification(self, notification_id: int, username: str) -> bool:
+        """Delete a specific notification.
+
+        Args:
+            notification_id: Notification ID to delete
+            username: Username (for security check)
+
+        Returns:
+            True if successful
+        """
+        from app.database_models import t_notifications
+
+        statement = delete(t_notifications).where(
+            and_(
+                t_notifications.c.id == notification_id,
+                or_(
+                    t_notifications.c.username == username,
+                    t_notifications.c.username.is_(None)
+                )
+            )
+        )
+
+        result = self._execute_with_rollback(statement)
+        self.logger.info(f"Deleted notification {notification_id} for user {username}")
+        return result.rowcount > 0
+
+    def delete_read_notifications(self, username: str) -> int:
+        """Delete all read notifications for a user.
+
+        Args:
+            username: Username to delete read notifications for
+
+        Returns:
+            Number of notifications deleted
+        """
+        from app.database_models import t_notifications
+
+        statement = delete(t_notifications).where(
+            and_(
+                t_notifications.c.username == username,
+                t_notifications.c.read == True
+            )
+        )
+
+        result = self._execute_with_rollback(statement)
+        count = result.rowcount
+        self.logger.info(f"Deleted {count} read notifications for user {username}")
+        return count
+
+    def delete_old_notifications(self, days: int = 30) -> int:
+        """Delete notifications older than specified days.
+
+        Args:
+            days: Number of days to keep notifications
+
+        Returns:
+            Number of notifications deleted
+        """
+        from app.database_models import t_notifications
+        from datetime import datetime, timedelta
+
+        cutoff_date = datetime.now() - timedelta(days=days)
+
+        statement = delete(t_notifications).where(
+            t_notifications.c.created_at < cutoff_date
+        )
+
+        result = self._execute_with_rollback(statement)
+        count = result.rowcount
+        self.logger.info(f"Deleted {count} notifications older than {days} days")
+        return count
