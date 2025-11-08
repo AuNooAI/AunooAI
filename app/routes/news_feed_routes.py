@@ -294,12 +294,13 @@ page_router = APIRouter(tags=["news-feed-pages"])
 
 @page_router.get("/news-feed", response_class=HTMLResponse)
 async def news_feed_page(request: Request, session=Depends(verify_session)):
-    """Render the main news feed page (Techmeme-style)"""
-    return templates.TemplateResponse("news_feed.html", {
+    """Render the main news feed page (modernized v2)"""
+    return templates.TemplateResponse("news_feed_new.html", {
         "request": request,
-        "page_title": "Daily News Feed",
+        "page_title": "News Narrator",
         "show_share_button": True,
-        "session": session
+        "session": session,
+        "current_page": "investigate"
     })
 
 

@@ -602,13 +602,14 @@
         left: 50%;
         transform: translateX(-50%);
         padding: 8px 12px;
-        background-color: rgba(0, 0, 0, 0.8);
+        background-color: rgba(0, 0, 0, 0.9);
         color: white;
         font-size: 0.8rem;
         border-radius: 6px;
         white-space: nowrap;
-        z-index: 1000;
-        margin-bottom: 5px;
+        z-index: 10000;
+        margin-bottom: 8px;
+        pointer-events: none;
     }
 
     [data-tooltip]:hover::after {
@@ -618,8 +619,22 @@
         left: 50%;
         transform: translateX(-50%);
         border: 6px solid transparent;
-        border-top-color: rgba(0, 0, 0, 0.8);
-        margin-bottom: -6px;
+        border-top-color: rgba(0, 0, 0, 0.9);
+        margin-bottom: 2px;
+        z-index: 10000;
+    }
+
+    /* Ensure table and card don't clip tooltips */
+    .table-responsive {
+        overflow: visible !important;
+    }
+
+    .card-body {
+        overflow: visible !important;
+    }
+
+    .card {
+        overflow: visible !important;
     }
 
     /* Enhanced stat card styles */
@@ -776,6 +791,25 @@
         cursor: pointer;
     }
 
+    .btn {
+        padding: 0.5rem 1rem;
+        font-size: 0.875rem;
+        border-radius: 0.375rem;
+        border: 1px solid transparent;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        text-decoration: none;
+    }
+
+    .btn-sm {
+        padding: 0.375rem 0.75rem;
+        font-size: 0.8125rem;
+    }
+
     .btn-soft-primary {
         background-color: rgba(13, 110, 253, 0.1);
         border: 1px solid rgba(13, 110, 253, 0.2);
@@ -788,6 +822,15 @@
         border-color: var(--primary-color);
         color: white;
         transform: translateY(-1px);
+    }
+
+    .btn-group {
+        display: inline-flex;
+        gap: 0.25rem;
+    }
+
+    .btn-group .btn {
+        margin: 0;
     }
 
     .bg-soft-primary {
@@ -1280,7 +1323,7 @@
 
     <!-- Stats Cards - Clickable with modern styling -->
     <div class="stats-grid">
-        <div class="stat-card-modern" onclick="window.location.href='/database-editor'">
+        <div class="stat-card-modern" onclick="window.location.href='/news-feed'" data-tooltip="View and manage all articles in the database">
             <div class="stat-card-content">
                 <div class="stat-info">
                     <p class="stat-label-modern">Total Articles</p>
@@ -1290,7 +1333,7 @@
             </div>
         </div>
 
-        <div class="stat-card-modern" onclick="window.location.href='/keyword-alerts'">
+        <div class="stat-card-modern" onclick="window.location.href='/keyword-alerts'" data-tooltip="View articles collected today">
             <div class="stat-card-content">
                 <div class="stat-info">
                     <p class="stat-label-modern">Articles Today</p>
@@ -1300,7 +1343,7 @@
             </div>
         </div>
 
-        <div class="stat-card-modern" onclick="window.location.href='/keyword-monitor'">
+        <div class="stat-card-modern" onclick="window.location.href='/keyword-monitor'" data-tooltip="Manage keyword groups and alerts">
             <div class="stat-card-content">
                 <div class="stat-info">
                     <p class="stat-label-modern">Keyword Groups</p>
@@ -1310,7 +1353,7 @@
             </div>
         </div>
 
-        <div class="stat-card-modern" onclick="window.location.href='/create_topic'">
+        <div class="stat-card-modern" onclick="window.location.href='/create_topic'" data-tooltip="View and create research topics">
             <div class="stat-card-content">
                 <div class="stat-info">
                     <p class="stat-label-modern">Topics</p>
@@ -1326,7 +1369,7 @@
         <h2 class="section-title">Detailed Metrics</h2>
         <div class="metrics-grid">
             <!-- CPU Metric Card -->
-            <div class="metric-card">
+            <div class="metric-card" data-tooltip="CPU usage statistics for the application process and system">
                 <div class="metric-header">
                     <i class="fas fa-microchip metric-icon"></i>
                     <h3 class="metric-title">CPU</h3>
@@ -1352,7 +1395,7 @@
             </div>
 
             <!-- Memory Metric Card -->
-            <div class="metric-card">
+            <div class="metric-card" data-tooltip="Memory usage for the application process and system">
                 <div class="metric-header">
                     <i class="fas fa-memory metric-icon"></i>
                     <h3 class="metric-title">Memory</h3>
@@ -1379,7 +1422,7 @@
             </div>
 
             <!-- API Keys Metric Card -->
-            <div class="metric-card">
+            <div class="metric-card" data-tooltip="Status of configured API keys for collectors, AI providers, and Firecrawl">
                 <div class="metric-header">
                     <i class="fas fa-key metric-icon" style="color: var(--primary-color);"></i>
                     <h3 class="metric-title">API Keys</h3>
@@ -1398,7 +1441,7 @@
             </div>
 
             <!-- Auto-polling Metric Card -->
-            <div class="metric-card">
+            <div class="metric-card" data-tooltip="Automatic article collection status and usage statistics">
                 <div class="metric-header">
                     <i class="fas fa-sync-alt metric-icon" style="color: var(--secondary-color);"></i>
                     <h3 class="metric-title">Auto-polling</h3>
