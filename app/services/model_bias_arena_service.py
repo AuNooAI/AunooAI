@@ -93,8 +93,37 @@ class ModelBiasArenaService:
         except Exception as e:
             logger.error(f"Error sampling articles: {e}")
             return []
-    
-    def create_bias_evaluation_run(self, 
+
+    async def create_and_evaluate_run(self,
+                                      name: str,
+                                      description: str,
+                                      benchmark_model: str,
+                                      selected_models: List[str],
+                                      article_count: int = 25,
+                                      rounds: int = 1,
+                                      topic: Optional[str] = None,
+                                      username: Optional[str] = None):
+        """Create a new bias evaluation run and immediately start evaluation (runs in background)."""
+        try:
+            # Create the run first
+            run_id = self.create_bias_evaluation_run(
+                name=name,
+                description=description,
+                benchmark_model=benchmark_model,
+                selected_models=selected_models,
+                article_count=article_count,
+                rounds=rounds,
+                topic=topic
+            )
+
+            # Start evaluation immediately
+            await self.evaluate_model_ontology(run_id, username)
+
+        except Exception as e:
+            logger.error(f"Error in create_and_evaluate_run: {e}")
+            # Don't raise - this runs in background, just log the error
+
+    def create_bias_evaluation_run(self,
                                  name: str,
                                  description: str,
                                  benchmark_model: str,
@@ -116,11 +145,11 @@ class ModelBiasArenaService:
                 (DatabaseQueryFacade(self.db, logger)).add_articles_to_run((run_id, article["uri"], article["title"], article["summary"]))
 
             return run_id
-                
+
         except Exception as e:
             logger.error(f"Error creating bias evaluation run: {e}")
             raise
-    
+
     async def evaluate_model_ontology(self, run_id: int, username: str = None) -> Dict[str, Any]:
         """Run ontological field evaluation for all models in a run using ArticleAnalyzer."""
         try:
@@ -214,9 +243,12 @@ class ModelBiasArenaService:
                                     from urllib.parse import urlparse
                                     parsed_uri = urlparse(article["article_uri"])
                                     source = parsed_uri.netloc or "Unknown Source"
-                                
+
                                 # Use ArticleAnalyzer like in research.py
-                                parsed_analysis = article_analyzer.analyze_content(
+                                # Wrap in asyncio.to_thread to prevent blocking the event loop
+                                import asyncio
+                                parsed_analysis = await asyncio.to_thread(
+                                    article_analyzer.analyze_content,
                                     article_text=article["article_summary"],
                                     title=article["article_title"],
                                     source=source,

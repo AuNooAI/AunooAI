@@ -110,6 +110,7 @@ class KeywordMonitorSettings(BaseModel):
     llm_temperature: float = 0.1
     llm_max_tokens: int = 1000
     max_articles_per_run: int = 50
+    auto_regenerate_reports: bool = False
 
 class PollingToggle(BaseModel):
     enabled: bool
@@ -839,6 +840,9 @@ async def get_settings(db=Depends(get_database_instance), session=Depends(verify
             # Get providers from facade
             providers_json = db.facade.get_keyword_monitoring_providers()
 
+            # Get auto_regenerate_reports setting
+            auto_regenerate_reports = db.facade.get_auto_regenerate_reports_setting()
+
             response_data = {
                 "check_interval": settings[0],
                 "interval_unit": settings[1],
@@ -858,6 +862,7 @@ async def get_settings(db=Depends(get_database_instance), session=Depends(verify
                 "llm_temperature": settings[14],
                 "llm_max_tokens": settings[15],
                 "max_articles_per_run": 50,      # Default value (not in query)
+                "auto_regenerate_reports": auto_regenerate_reports,
                 "requests_today": settings[16],  # Index 16: requests_today from status subquery
                 "last_error": settings[17],      # Index 17: last_error from status subquery
                 "last_run_time": settings[18],   # Index 18: last_check_time from status subquery
@@ -927,6 +932,9 @@ async def save_settings(settings: KeywordMonitorSettings, db=Depends(get_databas
                 db.facade.update_keyword_monitoring_providers(settings.providers)
             else:
                 logger.warning(f"No providers provided, keeping existing configuration")
+
+            # Save auto_regenerate_reports setting
+            db.facade.update_auto_regenerate_reports_setting(settings.auto_regenerate_reports)
 
             return {"success": True}
             

@@ -2711,7 +2711,7 @@ button#topic-select-btn {
                             <h5>Incident Tracking</h5>
                             <p class="text-muted mb-3">Track specific incidents, entities, and events for threat hunting.</p>
                             <p class="text-muted mb-4">Select topics and date range above, then click the button below to generate insights.</p>
-                            <button class="btn btn-baby-blue btn-lg" onclick="generateInsights()">
+                            <button class="btn btn-baby-blue btn-lg" onclick="smartGenerateInsights(true)">
                                 <i class="fas fa-magic me-2"></i>Generate Insights
                             </button>
                         </div>
@@ -4093,7 +4093,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <h5>Incident Tracking</h5>
                         <p class="text-muted mb-3">Track specific incidents, entities, and events for threat hunting.</p>
                         <p class="text-muted mb-4">Select topics and date range above, then click the button below to generate insights.</p>
-                        <button class="btn btn-primary btn-lg" onclick="generateInsights()">
+                        <button class="btn btn-baby-blue btn-lg" onclick="smartGenerateInsights(true)">
                             <i class="fas fa-magic me-2"></i>Generate Insights
                         </button>
                     </div>`;
@@ -4168,13 +4168,16 @@ document.addEventListener('DOMContentLoaded', function() {
                                 // Programmatically activate the Highlights sub-tab
                                 highlightsTab.click();
 
-                                // Wait for tab to become visible before auto-loading
+                                // Wait for tab to become visible and cache checks to complete before auto-loading
+                                // Increased from 100ms to 500ms to allow for cache checking and content loading
                                 setTimeout(() => {
-                                    console.log('[Tab Switch] Highlights tab activated, now auto-loading...');
+                                    console.log('[Tab Switch] Highlights tab activated (after 500ms delay), now auto-loading...');
                                     if (typeof autoLoadCachedInsights === 'function') {
                                         autoLoadCachedInsights();
+                                    } else {
+                                        console.error('[Tab Switch] autoLoadCachedInsights function not found!');
                                     }
-                                }, 100);
+                                }, 500);
                                 return; // Exit early since we'll auto-load after timeout
                             }
                         } else if (hasArticleCache && narrativesEmpty) {
@@ -5467,6 +5470,9 @@ function handleSixArticlesGenerate() {
     loadSixArticles(true);
 }
 
+// Global flag to track if we're initializing (to suppress notifications on page load)
+let isSixArticlesInitializing = false;
+
 // Handle persona change - reset button to "Write" to indicate new generation needed
 function handlePersonaChange() {
     const generateBtn = document.getElementById('six-articles-generate-btn');
@@ -5478,8 +5484,10 @@ function handlePersonaChange() {
         generateText.textContent = 'Write';
     }
 
-    // Show notification that settings changed
-    showNotification('Persona changed. Click "Write" to generate analysis for this persona.', 'info');
+    // Show notification only if not initializing (user actually changed the setting)
+    if (!isSixArticlesInitializing) {
+        showNotification('Persona changed. Click "Write" to generate analysis for this persona.', 'info');
+    }
 }
 
 // Handle article count change - reset button to "Write"
@@ -5493,9 +5501,11 @@ function handleArticleCountChange() {
         generateText.textContent = 'Write';
     }
 
-    // Show notification that settings changed
-    const count = document.getElementById('six-articles-count')?.value || '6';
-    showNotification(`Article count changed to ${count}. Click "Write" to generate.`, 'info');
+    // Show notification only if not initializing (user actually changed the setting)
+    if (!isSixArticlesInitializing) {
+        const count = document.getElementById('six-articles-count')?.value || '6';
+        showNotification(`Article count changed to ${count}. Click "Write" to generate.`, 'info');
+    }
 }
 
 // Helper functions for toolbar dropdown settings
@@ -13772,12 +13782,15 @@ document.addEventListener('DOMContentLoaded', function() {
         // Don't auto-load - wait for Generate Insights button
         const container = document.getElementById('incident-tracking-container');
         if (container && !container.querySelector('.insight-item-card')) {
-            // Show helpful message instead of auto-loading
+            // Show helpful message with prominent Generate Insights button
             container.innerHTML = `
                 <div class="text-center p-4 w-100">
                     <i class="fas fa-crosshairs fa-3x text-muted mb-3"></i>
                     <h5>Incident Tracking</h5>
-                    <p class="text-muted">Click "Generate Insights" to track specific incidents, entities, and events for threat hunting.</p>
+                    <p class="text-muted">Track specific incidents, entities, and events for threat hunting.</p>
+                    <button class="btn btn-baby-blue mt-3" onclick="smartGenerateInsights(true)">
+                        <i class="fas fa-magic me-2"></i>Generate Insights
+                    </button>
                 </div>
             `;
         }
@@ -19034,12 +19047,18 @@ document.addEventListener('DOMContentLoaded', function() {
     // Initialize Six Articles settings dropdown visual states
     // Set default selections to match the hidden select element defaults
     setTimeout(function() {
+        // Set flag to suppress notifications during initialization
+        isSixArticlesInitializing = true;
+
         if (typeof setPersona === 'function') {
             setPersona('CEO');
         }
         if (typeof setArticleCount === 'function') {
             setArticleCount(6);
         }
+
+        // Reset flag after initialization
+        isSixArticlesInitializing = false;
     }, 100); // Small delay to ensure DOM is fully ready
 });
 

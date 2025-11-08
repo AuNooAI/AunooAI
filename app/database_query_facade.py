@@ -187,6 +187,78 @@ class DatabaseQueryFacade:
 
         self._execute_with_rollback(stmt)
 
+    def get_auto_regenerate_reports_setting(self) -> bool:
+        """Get auto-regenerate reports setting"""
+        row = self.get_keyword_monitor_settings_by_id(1)
+        if row and 'auto_regenerate_reports' in row:
+            return bool(row['auto_regenerate_reports'])
+        return False
+
+    def update_auto_regenerate_reports_setting(self, enabled: bool):
+        """Update auto-regenerate reports setting"""
+        from sqlalchemy import update
+        from app.database_models import t_keyword_monitor_settings
+
+        stmt = update(t_keyword_monitor_settings).where(
+            t_keyword_monitor_settings.c.id == 1
+        ).values(auto_regenerate_reports=enabled)
+
+        self._execute_with_rollback(stmt)
+
+    def invalidate_six_articles_cache_for_topic(self, topic: str):
+        """Invalidate Six Articles cache entries for a topic"""
+        from app.database_models import t_article_analysis_cache
+        from sqlalchemy import delete, or_
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        # Pattern matches: six_articles_v5_YYYY-MM-DD_{topic}_*
+        topic_safe = topic or 'all'
+
+        stmt = delete(t_article_analysis_cache).where(
+            or_(
+                t_article_analysis_cache.c.article_uri.like(f'%six_articles_v5_%_{topic_safe}_%'),
+                t_article_analysis_cache.c.article_uri.like(f'%six_articles_%{topic_safe}%')
+            )
+        )
+
+        result = self._execute_with_rollback(stmt)
+        logger.info(f"Invalidated Six Articles cache for topic: {topic}")
+        return result.rowcount if hasattr(result, 'rowcount') else 0
+
+    def invalidate_insights_cache_for_topic(self, topic: str):
+        """Invalidate insights cache entries (article insights and incident tracking) for a topic"""
+        from app.database_models import t_article_analysis_cache
+        from sqlalchemy import delete, or_, and_
+        import logging
+
+        logger = logging.getLogger(__name__)
+
+        topic_safe = topic or 'all'
+
+        # Delete cache entries for article insights and incident tracking
+        # Patterns:
+        # - analysis_type LIKE 'article_insights_%{topic}%' for narratives
+        # - article_uri LIKE '%incident_tracking%{topic}%' for highlights
+        stmt = delete(t_article_analysis_cache).where(
+            or_(
+                # Article insights (narratives) stored by analysis_type
+                t_article_analysis_cache.c.analysis_type.like(f'%article_insights%{topic_safe}%'),
+                # Incident tracking (highlights) stored by article_uri pattern
+                t_article_analysis_cache.c.article_uri.like(f'%incident_tracking%{topic_safe}%'),
+                # Also catch any with topic in the article_uri for article insights
+                and_(
+                    t_article_analysis_cache.c.analysis_type.like('%article_insights%'),
+                    t_article_analysis_cache.c.article_uri.like(f'%{topic_safe}%')
+                )
+            )
+        )
+
+        result = self._execute_with_rollback(stmt)
+        logger.info(f"Invalidated insights cache (narratives + highlights) for topic: {topic}")
+        return result.rowcount if hasattr(result, 'rowcount') else 0
+
     def get_keyword_monitoring_counter(self):
         return self.get_keyword_monitor_status_by_id(1)
 
@@ -5793,6 +5865,32 @@ class DatabaseQueryFacade:
 
         except Exception as e:
             self.logger.error(f"Error getting Six Articles config for user {username}: {e}")
+            return None
+
+    def get_first_user_with_six_articles_config(self) -> Optional[Dict]:
+        """Get first user who has a Six Articles configuration saved"""
+        try:
+            query = text("""
+                SELECT DISTINCT u.username, u.id
+                FROM users u
+                INNER JOIN user_preferences up ON u.username = up.username
+                WHERE up.preference_key = 'six_articles_config'
+                LIMIT 1
+            """)
+
+            result = self.connection.execute(query).fetchone()
+
+            if result:
+                return {
+                    'username': result[0],
+                    'id': result[1],
+                    'user_id': result[1]
+                }
+
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Error getting first user with Six Articles config: {e}")
             return None
 
     def save_six_articles_config(self, username: str, config: Dict) -> bool:

@@ -1850,6 +1850,31 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     color: var(--colors-accent-8);
 }
 
+.btn-action-blue {
+    background: white;
+    border: 1px solid var(--colors-neutral-4);
+    color: #3b82f6; /* Blue text */
+    font-size: 0.875rem; /* text-sm */
+    font-weight: 500; /* font-medium */
+    padding: 0.5rem 0.75rem; /* px-3 py-2 */
+    border-radius: 0.375rem; /* rounded-md */
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.btn-action-blue:hover {
+    background: #eff6ff; /* Light blue background on hover */
+    color: #2563eb; /* Darker blue on hover */
+    border-color: #93c5fd; /* Blue border on hover */
+}
+
+.btn-action-blue i {
+    color: #3b82f6;
+}
+
 /* Icon-only button for bell */
 .page-header-actions .btn-icon {
     padding: 0.5rem;
@@ -2151,12 +2176,31 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 
 <!-- Main Content Area -->
 <div class="container-fluid" style="background-color: var(--colors-neutral-3);">
-    <div style="max-width: 1400px; margin: 0 auto; padding: 24px 48px;">
+    <div style="width: 100%; padding: 24px 48px;">
 
-        <!-- Status Ticker -->
-        <div class="d-flex justify-content-end align-items-center mb-3">
+        <!-- Action Buttons Row with Status Ticker -->
+        <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+            <!-- Action Buttons (left side) -->
+            <div class="d-flex gap-2 flex-wrap">
+                <button class="btn-action-blue" onclick="window.location.href='/submit-article'">
+                    <i class="fas fa-plus-circle"></i> Submit Articles
+                </button>
+                <button class="btn-action-pink" onclick="checkKeywords(event)">
+                    <i class="fas fa-sync"></i> Update Now
+                </button>
+                <button class="btn-action-pink" onclick="showAutoIngestSettings()">
+                    <i class="fas fa-cog"></i> Auto-Collect
+                </button>
+                <button class="btn-action-pink" id="cancelBackgroundTaskLink" onclick="cancelBackgroundTask()" style="display: none;">
+                    <i class="fas fa-stop"></i> Cancel Task
+                </button>
+                <button class="btn-action-pink" onclick="window.location.href='/keyword-monitor'">
+                    <i class="fas fa-tags"></i> Manage Keywords
+                </button>
+            </div>
+
+            <!-- Status Ticker (right side) -->
             <div class="d-flex align-items-center gap-3">
-                <!-- Status Ticker (compact) -->
                 <span class="text-muted small">
                     <i class="fas fa-clock"></i> Last search: <span id="lastCheckTime">{{ last_check_time|default('Never', true) }}</span>
                 </span>
@@ -2177,25 +2221,6 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                     </span>
                 {% endif %}
             </div>
-        </div>
-
-        <!-- Action Buttons Row (below topic section, matching ideal.png) -->
-        <div class="d-flex gap-2 mb-4 flex-wrap">
-            <button class="btn-action-pink" onclick="window.location.href='/submit-article'">
-                <i class="fas fa-plus-circle"></i> Submit Articles
-            </button>
-            <button class="btn-action-pink" onclick="checkKeywords(event)">
-                <i class="fas fa-sync"></i> Update Now
-            </button>
-            <button class="btn-action-pink" onclick="showAutoIngestSettings()">
-                <i class="fas fa-cog"></i> Auto-Collect
-            </button>
-            <button class="btn-action-pink" id="cancelBackgroundTaskLink" onclick="cancelBackgroundTask()" style="display: none;">
-                <i class="fas fa-stop"></i> Cancel Task
-            </button>
-            <button class="btn-action-pink" onclick="window.location.href='/keyword-monitor'">
-                <i class="fas fa-tags"></i> Manage Keywords
-            </button>
         </div>
 
         <!-- Page Header -->
@@ -2637,12 +2662,6 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                                     <i class="fas fa-clock me-1"></i>Processing
                                                 </span>
                                                 {% endif %}
-                                            {% endif %}
-                                            
-                                            {% if alert.article.quality_score is not none and alert.article.quality_score is defined %}
-                                            <span class="badge bg-secondary" title="Quality score: {{ '%.2f'|format(alert.article.quality_score) }}">
-                                                <i class="fas fa-star me-1"></i>{{ '%.0f'|format(alert.article.quality_score * 100) }}%
-                                            </span>
                                             {% endif %}
 
                                             {% if alert.article.below_threshold %}
@@ -3243,9 +3262,23 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                 <label for="maxArticlesPerRun" class="form-label">
                                     <i class="fas fa-list-ol me-1"></i>Max Articles Per Run
                                 </label>
-                                <input type="number" class="form-control" id="maxArticlesPerRun" 
+                                <input type="number" class="form-control" id="maxArticlesPerRun"
                                        min="1" max="200" step="1" value="50">
                                 <div class="form-text">Limit articles processed in each batch</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-12">
+                            <div class="mb-3">
+                                <label for="autoRegenerateReports" class="form-label">
+                                    <i class="fas fa-sync-alt me-1"></i>Auto-Regenerate Reports
+                                </label>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="autoRegenerateReports">
+                                </div>
+                                <div class="form-text">Automatically update Six Articles report and Dashboard when autocollect completes</div>
                             </div>
                         </div>
                     </div>
@@ -6438,12 +6471,6 @@ function updateGroupAlerts(card, data, groupId) {
                                 badges += '<span class="badge bg-info" title="Processing in progress"><i class="fas fa-clock me-1"></i>Processing</span>';
                             }
 
-                            // Quality score badge
-                            if (alert.article.quality_score != null && alert.article.quality_score !== undefined) {
-                                const scorePercent = Math.round(alert.article.quality_score * 100);
-                                badges += `<span class="badge bg-secondary" title="Quality score: ${alert.article.quality_score.toFixed(2)}"><i class="fas fa-star me-1"></i>${scorePercent}%</span>`;
-                            }
-
                             // Below threshold badge
                             if (alert.article.below_threshold) {
                                 badges += '<span class="badge bg-warning text-dark" title="Article relevance score is below threshold"><i class="fas fa-filter me-1"></i>Below Threshold</span>';
@@ -8676,10 +8703,20 @@ async function runAutoIngestNow() {
                             'success'
                         );
 
+                        // Refresh notification bell badge
+                        if (window.updateUnreadCount) {
+                            window.updateUnreadCount();
+                        }
+
                         // Refresh the page to show new articles
                         setTimeout(() => window.location.reload(), 2000);
                     } else {
                         showAlert('Auto-ingest completed with errors', 'warning');
+
+                        // Still refresh notification bell for error notifications
+                        if (window.updateUnreadCount) {
+                            window.updateUnreadCount();
+                        }
                     }
                 },
                 (error) => {
@@ -8969,6 +9006,7 @@ async function loadAutoIngestStatus() {
         document.getElementById('llmTemperature').value = settings.llm_temperature || 0.1;
         document.getElementById('llmMaxTokens').value = settings.llm_max_tokens || 1000;
         document.getElementById('maxArticlesPerRun').value = settings.max_articles_per_run || 50;
+        document.getElementById('autoRegenerateReports').checked = settings.auto_regenerate_reports || false;
 
         // Update threshold slider
         const threshold = settings.min_relevance_threshold || 0.3;
@@ -9064,7 +9102,8 @@ async function saveAutoIngestSettings() {
             default_llm_model: document.getElementById('defaultLlmModel').value,
             llm_temperature: parseFloat(document.getElementById('llmTemperature').value),
             llm_max_tokens: parseInt(document.getElementById('llmMaxTokens').value),
-            max_articles_per_run: parseInt(document.getElementById('maxArticlesPerRun').value)
+            max_articles_per_run: parseInt(document.getElementById('maxArticlesPerRun').value),
+            auto_regenerate_reports: document.getElementById('autoRegenerateReports').checked
         };
 
         const response = await fetch('/api/keyword-monitor/settings', {

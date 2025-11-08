@@ -109,22 +109,24 @@ async def create_run(
                     detail=f"Model '{model}' not available"
                 )
         
-        # Create the run
-        run_id = service.create_bias_evaluation_run(
+        # Get username for notification
+        username = session.get("user", {}).get("username")
+
+        # Create the run and start evaluation in background (non-blocking)
+        background_tasks.add_task(
+            service.create_and_evaluate_run,
             name=request.name,
             description=request.description,
             benchmark_model=request.benchmark_model,
             selected_models=request.selected_models,
             article_count=request.article_count,
             topic=request.topic,
-            rounds=request.rounds
+            rounds=request.rounds,
+            username=username
         )
-        
-        # Get username for notification
-        username = session.get("user", {}).get("username")
 
-        # Start ontological evaluation in background
-        background_tasks.add_task(service.evaluate_model_ontology, run_id, username)
+        # Return immediately without waiting for article sampling or evaluation
+        run_id = -1  # Placeholder - actual ID will be created in background
 
         return JSONResponse(content={"run_id": run_id, "status": "started"})
         

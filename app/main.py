@@ -2874,11 +2874,11 @@ async def get_flow_data(
 
     data = [
         {
-            "source": row[0],
-            "category": row[1],
-            "sentiment": row[2],
-            "driver_type": row[3],
-            "submission_date": row[4],
+            "source": row['source'],
+            "category": row['category'],
+            "sentiment": row['sentiment'],
+            "driver_type": row['driver_type'],
+            "submission_date": row['submission_date'].isoformat() if hasattr(row['submission_date'], 'isoformat') else row['submission_date'],
         } for row in rows
     ]
     logger.info("Returning %d flow records", len(data))
