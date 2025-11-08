@@ -569,161 +569,188 @@
 }
 
 /* Reader View - Bento Grid Layout using CSS Grid */
+/* Reader View - Tabbed Category Pills Layout (HUD button) */
 #articles-list.reader-view {
     display: block !important;
+    height: calc(100vh - 280px);
 }
 
-#articles-list.reader-view .bento-grid-container {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-    gap: 20px;
-    margin-top: 20px;
-    grid-auto-flow: dense; /* Allows items to fill gaps */
-}
-
-/* Bento grid item sizing - large categories span 2 columns */
-.reader-category-card.category-large {
-    grid-column: span 2;
-}
-
-.reader-category-card.category-medium {
-    grid-column: span 1;
-}
-
-.reader-category-card.category-small {
-    grid-column: span 1;
-}
-
-/* Ensure responsiveness - on smaller screens don't span multiple columns */
-@media (max-width: 992px) {
-    #articles-list.reader-view .bento-grid-container {
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    }
-}
-
-@media (max-width: 768px) {
-    #articles-list.reader-view .bento-grid-container {
-        grid-template-columns: 1fr;
-    }
-
-    .reader-category-card.category-large {
-        grid-column: span 1;
-    }
-}
-
-.reader-category-card {
-    background: white;
-    border-radius: 12px;
-    border: 1px solid var(--colors-neutral-4);
-    overflow: visible;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-    transition: all 0.2s ease;
+.category-pills-container {
     display: flex;
     flex-direction: column;
+    height: 100%;
 }
 
-.reader-category-card:hover {
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
-}
-
-.reader-category-header {
-    background: linear-gradient(135deg, var(--colors-accent-7), var(--colors-accent-10));
-    color: white;
-    padding: 15px 20px;
-    font-weight: 600;
-    font-size: 1rem;
+/* Pills navigation - with arrow controls */
+.category-pills-nav-wrapper {
     display: flex;
     align-items: center;
-    gap: 10px;
-}
-
-.reader-category-icon {
-    width: 28px;
-    height: 28px;
-    font-size: 20px;
-}
-
-.reader-category-count {
-    background: rgba(255, 255, 255, 0.25);
-    padding: 3px 10px;
-    border-radius: 12px;
-    font-size: 0.75rem;
-    margin-left: auto;
-}
-
-/* Category size visual indicators */
-.reader-category-card.category-large .reader-category-header {
-    background: linear-gradient(135deg, var(--colors-accent-8), var(--colors-accent-11));
-    padding: 18px 20px;
-    font-size: 1.1rem;
-}
-
-.reader-category-card.category-large .reader-category-count {
-    background: rgba(255, 255, 255, 0.35);
-    padding: 4px 12px;
-    font-weight: 600;
-}
-
-.reader-category-card.category-medium .reader-category-header {
-    background: linear-gradient(135deg, var(--colors-accent-7), var(--colors-accent-10));
-}
-
-.reader-category-card.category-small .reader-category-header {
-    background: linear-gradient(135deg, var(--colors-accent-6), var(--colors-accent-9));
-    padding: 12px 20px;
-    font-size: 0.9rem;
-}
-
-.reader-articles-container {
-    flex: 1;
-    padding: 15px;
-    overflow-y: visible;
-}
-
-.reader-article-entry {
-    padding: 15px;
+    background: white;
     border-bottom: 1px solid var(--colors-neutral-3);
-    transition: all 0.15s ease;
+    flex-shrink: 0;
+    position: relative;
 }
 
-.reader-article-entry:hover {
+.category-pills-nav-arrow {
+    background: white;
+    border: none;
+    color: var(--colors-primary);
+    padding: 15px 10px;
+    cursor: pointer;
+    font-size: 1.2rem;
+    transition: all 0.15s ease;
+    flex-shrink: 0;
+}
+
+.category-pills-nav-arrow:hover {
     background: var(--colors-neutral-2);
 }
 
-.reader-article-entry:last-child {
-    border-bottom: none;
+.category-pills-nav-arrow:disabled {
+    color: var(--colors-neutral-5);
+    cursor: not-allowed;
 }
 
-.reader-article-headline {
+.category-pills-nav {
+    display: flex;
+    gap: 0;
+    overflow-x: hidden;
+    overflow-y: hidden;
+    flex: 1;
+    scroll-behavior: smooth;
+    padding: 15px 0;
+}
+
+/* Individual pill button - simple text style like other tabs */
+.category-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 20px;
+    background: white;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-right: 1px solid var(--colors-neutral-4);
+    color: var(--colors-neutral-9);
+    font-weight: 400;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    flex-shrink: 0;
+    text-decoration: none;
+}
+
+.category-pill:last-child {
+    border-right: none;
+}
+
+.category-pill:hover {
+    background: var(--colors-neutral-1);
+    color: var(--colors-accent-8);
+}
+
+.category-pill.active {
+    background: white;
+    color: var(--colors-accent-8);
+    font-weight: 500;
+    border-bottom: 2px solid var(--colors-accent-8);
+}
+
+.category-pill-icon {
+    font-size: 0.9rem;
+    width: 16px;
+    display: inline-block;
+    flex-shrink: 0;
+}
+
+.category-pill-name {
+    font-size: 0.9rem;
+    flex-shrink: 0;
+}
+
+.category-pill-count {
+    background: var(--colors-neutral-3);
+    color: var(--colors-neutral-9);
+    padding: 2px 7px;
+    border-radius: 10px;
+    font-size: 0.7rem;
+    font-weight: 500;
+    min-width: 20px;
+    text-align: center;
+    display: inline-block;
+    flex-shrink: 0;
+}
+
+.category-pill.active .category-pill-count {
+    background: var(--colors-accent-8);
+    color: white;
+    font-weight: 600;
+}
+
+/* Pills content area */
+.category-pills-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+}
+
+.category-content {
+    display: none;
+}
+
+/* Compact article items */
+.compact-article-item {
+    background: white;
+    border: 1px solid var(--colors-neutral-4);
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.compact-article-item:hover {
+    background: var(--colors-neutral-1);
+    border-color: var(--colors-accent-6);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.compact-article-header {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.compact-article-title {
     font-size: 0.95rem;
     font-weight: 600;
     color: var(--colors-neutral-12);
-    margin-bottom: 8px;
     line-height: 1.4;
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
 }
 
-.reader-article-headline a {
+.compact-article-title a {
     color: var(--colors-neutral-12);
     text-decoration: none;
-    transition: color 0.15s ease;
+    flex: 1;
 }
 
-.reader-article-headline a:hover {
+.compact-article-title a:hover {
     color: var(--colors-accent-9);
 }
 
-.reader-article-summary {
-    font-size: 0.85rem;
-    color: var(--colors-neutral-10);
-    line-height: 1.5;
-    margin-bottom: 8px;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+.compact-article-title .expand-icon {
+    font-size: 0.8rem;
+    color: var(--colors-neutral-7);
+    margin-left: auto;
+    flex-shrink: 0;
+    margin-top: 4px;
 }
 
-.reader-article-footer {
+.compact-article-meta {
     display: flex;
     gap: 12px;
     align-items: center;
@@ -732,9 +759,89 @@
     flex-wrap: wrap;
 }
 
-.reader-article-footer .badge {
+.compact-article-meta .badge {
     font-size: 0.65rem;
-    padding: 3px 8px;
+    padding: 3px 6px;
+}
+
+.compact-article-summary {
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--colors-neutral-3);
+}
+
+.compact-article-summary p {
+    color: var(--colors-neutral-10);
+    line-height: 1.5;
+}
+
+/* Metadata grid - 2x2 layout */
+.metadata-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+.metadata-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    align-items: flex-start;
+}
+
+.metadata-label {
+    font-weight: 500;
+    color: var(--colors-neutral-9);
+    font-size: 0.75rem;
+}
+
+.metadata-item .badge {
+    width: auto;
+    display: inline-block;
+}
+
+.metadata-explanation {
+    color: var(--colors-neutral-8);
+    font-size: 0.7rem;
+    line-height: 1.3;
+    margin-top: 2px;
+}
+
+@media (max-width: 768px) {
+    .metadata-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Compact view action buttons */
+.compact-action-btn {
+    background: white;
+    border: none;
+    color: var(--colors-primary);
+    padding: 6px 12px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    transition: all 0.15s ease;
+}
+
+.compact-action-btn:hover {
+    background: var(--colors-neutral-2);
+    color: var(--colors-primary);
+}
+
+.compact-star-btn {
+    background: white;
+    border: none;
+    color: var(--colors-warning);
+    padding: 6px 10px;
+    font-size: 1rem;
+    transition: all 0.15s ease;
+}
+
+.compact-star-btn:hover {
+    background: var(--colors-neutral-2);
+    color: var(--colors-warning);
+    transform: scale(1.1);
 }
 
 /* Both HUD and Reader views show pagination since they can have 300+ articles */
@@ -8844,8 +8951,8 @@ function loadArticleDetailsHUD(article) {
     generateArticleAnalysis(article.uri, 'hud');
 }
 
-// NOTE: Despite the function name, this renders the BENTO GRID (category cards)
-// It's called by the "HUD" button (see routing at line ~8075)
+// HUD View - Tabbed category pills with article lists
+// Called by the "HUD" button (see routing at line ~8104)
 function renderArticleReaderView(articles) {
     const listContainer = document.getElementById('articles-list');
     if (!listContainer) return;
@@ -8871,159 +8978,194 @@ function renderArticleReaderView(articles) {
 
     listContainer.innerHTML = '';
 
-    // Create bento grid container
-    const bentoContainer = document.createElement('div');
-    bentoContainer.className = 'bento-grid-container';
+    // Create tabbed pills container
+    const pillsContainer = document.createElement('div');
+    pillsContainer.className = 'category-pills-container';
 
-    // Create category cards sorted by article count (descending)
-    Object.keys(categoryGroups).sort((a, b) => {
+    // Create nav wrapper with arrows
+    const navWrapper = document.createElement('div');
+    navWrapper.className = 'category-pills-nav-wrapper';
+
+    // Left arrow button
+    const leftArrow = document.createElement('button');
+    leftArrow.className = 'category-pills-nav-arrow';
+    leftArrow.innerHTML = '<i class="fas fa-chevron-left"></i>';
+    leftArrow.onclick = function() {
+        pillsNav.scrollBy({ left: -200, behavior: 'smooth' });
+    };
+
+    // Pills nav (horizontal scrollable)
+    const pillsNav = document.createElement('div');
+    pillsNav.className = 'category-pills-nav';
+
+    // Right arrow button
+    const rightArrow = document.createElement('button');
+    rightArrow.className = 'category-pills-nav-arrow';
+    rightArrow.innerHTML = '<i class="fas fa-chevron-right"></i>';
+    rightArrow.onclick = function() {
+        pillsNav.scrollBy({ left: 200, behavior: 'smooth' });
+    };
+
+    // Update arrow states on scroll
+    const updateArrows = function() {
+        leftArrow.disabled = pillsNav.scrollLeft <= 0;
+        rightArrow.disabled = pillsNav.scrollLeft >= pillsNav.scrollWidth - pillsNav.clientWidth - 1;
+    };
+    pillsNav.addEventListener('scroll', updateArrows);
+    updateArrows();
+
+    // Create content container for all category article lists
+    const contentContainer = document.createElement('div');
+    contentContainer.className = 'category-pills-content';
+
+    // Sort categories by article count (descending), show most articles first
+    const sortedCategories = Object.keys(categoryGroups).sort((a, b) => {
         return categoryGroups[b].length - categoryGroups[a].length;
-    }).forEach(category => {
+    });
+
+    let isFirst = true;
+
+    sortedCategories.forEach(category => {
         const articles = categoryGroups[category];
-        const categoryCard = document.createElement('div');
-
-        // Add size class based on article count
-        const articleCount = articles.length;
-        let sizeClass = 'category-small';
-        if (articleCount >= 10) {
-            sizeClass = 'category-large';
-        } else if (articleCount >= 5) {
-            sizeClass = 'category-medium';
-        }
-
-        categoryCard.className = 'reader-category-card ' + sizeClass;
-
-        // Category header with icon
+        const categoryId = category.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
         const icon = getCategoryIcon(category);
-        const header = document.createElement('div');
-        header.className = 'reader-category-header';
-        header.innerHTML = `
-            <span class="reader-category-icon">${icon}</span>
-            <span>${escapeHTML(category)}</span>
-            <span class="reader-category-count">${articles.length}</span>
+
+        // Create pill button
+        const pill = document.createElement('button');
+        pill.className = 'category-pill' + (isFirst ? ' active' : '');
+        pill.dataset.categoryId = categoryId;
+        pill.innerHTML = `
+            <span class="category-pill-icon">${icon}</span>
+            <span class="category-pill-name">${escapeHTML(category)}</span>
+            <span class="category-pill-count">${articles.length}</span>
         `;
+        pill.onclick = function() {
+            // Remove active from all pills
+            document.querySelectorAll('.category-pill').forEach(p => p.classList.remove('active'));
+            // Add active to clicked pill
+            this.classList.add('active');
+            // Hide all content sections
+            document.querySelectorAll('.category-content').forEach(c => c.style.display = 'none');
+            // Show selected content
+            document.getElementById('category-content-' + categoryId).style.display = 'block';
+        };
+        pillsNav.appendChild(pill);
 
-        // Articles container
-        const articlesContainer = document.createElement('div');
-        articlesContainer.className = 'reader-articles-container';
+        // Create content section for this category
+        const contentSection = document.createElement('div');
+        contentSection.className = 'category-content';
+        contentSection.id = 'category-content-' + categoryId;
+        contentSection.style.display = isFirst ? 'block' : 'none';
 
+        // Add articles to this category
         articles.forEach(article => {
-            const articleEntry = document.createElement('div');
-            articleEntry.className = 'reader-article-entry';
-            articleEntry.style.cursor = 'pointer';
+            const articleItem = document.createElement('div');
+            articleItem.className = 'compact-article-item';
 
             const isGrouped = article.grouped && article.groupedArticles;
 
-            articleEntry.innerHTML = `
-                <div class="reader-article-headline" title="${escapeHTML(article.summary)}">
-                    <a href="${article.uri}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
-                        ${escapeHTML(article.title)}
-                    </a>
-                    ${isGrouped ? `<span class="grouped-sources-badge ms-2" style="font-size: 0.7rem;"><i class="fas fa-layer-group me-1"></i>${article.groupedArticles.length} sources</span>` : ''}
-                    <i class="fas fa-chevron-down ms-2 expand-icon" style="font-size: 0.8rem; color: var(--colors-neutral-8);"></i>
-                </div>
-                <div class="reader-article-footer">
-                    <span><i class="fas fa-building me-1"></i>${formatSource(article.news_source, article.uri)}</span>
-                    <span><i class="fas fa-calendar me-1"></i>${formatPubDate(article.publication_date, false)}</span>
-                    ${article.bias ? `<span class="badge ${getBiasClass(article.bias)}">${article.bias}</span>` : ''}
-                    ${article.factual_reporting ? `<span class="badge ${getFactualityClass(article.factual_reporting)}">${article.factual_reporting}</span>` : ''}
-                    ${article.sentiment ? `<span class="badge ${getSentimentClass(article.sentiment)}">${article.sentiment}</span>` : ''}
-                    ${article.time_to_impact ? `<span class="badge bg-warning text-dark">${article.time_to_impact}</span>` : ''}
-                    ${article.driver_type ? `<span class="badge bg-secondary">${article.driver_type}</span>` : ''}
-                    ${article.future_signal ? `<span class="badge bg-dark text-white">${article.future_signal}</span>` : ''}
-                </div>
-                <div class="reader-article-details" style="display: none; margin-top: 15px; padding-top: 15px; border-top: 1px solid var(--colors-neutral-3);">
-                    <div class="mb-3">
-                        <h6 class="text-primary mb-2"><i class="fas fa-align-left me-2"></i>Full Summary</h6>
-                        <p class="small mb-0">${escapeHTML(article.summary)}</p>
+            articleItem.innerHTML = `
+                <div class="compact-article-header">
+                    <div class="compact-article-title">
+                        <a href="${article.uri}" target="_blank" rel="noopener" onclick="event.stopPropagation()">
+                            ${escapeHTML(article.title)}
+                        </a>
+                        ${isGrouped ? `<span class="grouped-sources-badge ms-2"><i class="fas fa-layer-group me-1"></i>${article.groupedArticles.length} sources</span>` : ''}
+                        <i class="fas fa-chevron-down expand-icon"></i>
                     </div>
-                    <h6 class="text-primary mb-2"><i class="fas fa-info-circle me-2"></i>Enriched Metadata</h6>
-                    <div class="small">
-                        ${(article.sentiment || article.sentiment_explanation) ? `
-                            <div class="mb-2">
-                                <strong>Sentiment:</strong> ${article.sentiment ? `<span class="badge ${getSentimentClass(article.sentiment)}">${article.sentiment}</span>` : ''}
-                                ${article.sentiment_explanation ? `<br><small class="text-muted">${escapeHTML(article.sentiment_explanation)}</small>` : ''}
-                            </div>
-                        ` : ''}
-                        ${(article.driver_type || article.driver_type_explanation) ? `
-                            <div class="mb-2">
-                                <strong>Driver Type:</strong> ${article.driver_type ? `<span class="badge bg-secondary">${article.driver_type}</span>` : ''}
-                                ${article.driver_type_explanation ? `<br><small class="text-muted">${escapeHTML(article.driver_type_explanation)}</small>` : ''}
-                            </div>
-                        ` : ''}
-                        ${(article.time_to_impact || article.time_to_impact_explanation) ? `
-                            <div class="mb-2">
-                                <strong>Time to Impact:</strong> ${article.time_to_impact ? `<span class="badge bg-warning text-dark">${article.time_to_impact}</span>` : ''}
-                                ${article.time_to_impact_explanation ? `<br><small class="text-muted">${escapeHTML(article.time_to_impact_explanation)}</small>` : ''}
-                            </div>
-                        ` : ''}
-                        ${(article.future_signal || article.future_signal_explanation) ? `
-                            <div class="mb-2">
-                                <strong>Future Signal:</strong> ${article.future_signal ? `<span class="badge bg-dark text-white">${article.future_signal}</span>` : ''}
-                                ${article.future_signal_explanation ? `<br><small class="text-muted">${escapeHTML(article.future_signal_explanation)}</small>` : ''}
-                            </div>
-                        ` : ''}
+                    <div class="compact-article-meta">
+                        <span><i class="fas fa-building me-1"></i>${formatSource(article.news_source, article.uri)}</span>
+                        <span><i class="fas fa-calendar me-1"></i>${formatPubDate(article.publication_date, false)}</span>
+                        ${article.bias ? `<span class="badge ${getBiasClass(article.bias)}">${article.bias}</span>` : ''}
+                        ${article.factual_reporting ? `<span class="badge ${getFactualityClass(article.factual_reporting)}">${article.factual_reporting}</span>` : ''}
                     </div>
-                    <div class="d-flex gap-2 flex-wrap mt-3">
-                        <button class="btn btn-outline-info btn-sm" onclick="event.stopPropagation(); launchAuspexDeepDive('${article.uri}')">
+                </div>
+                <div class="compact-article-summary" style="display: none;">
+                    <p class="small mb-3">${escapeHTML(article.summary)}</p>
+                    ${article.sentiment || article.sentiment_explanation || article.driver_type || article.driver_type_explanation || article.time_to_impact || article.time_to_impact_explanation || article.future_signal || article.future_signal_explanation ? `
+                        <div class="small mb-3">
+                            <strong class="d-block mb-2">Metadata:</strong>
+                            <div class="metadata-grid">
+                                ${article.sentiment || article.sentiment_explanation ? `
+                                    <div class="metadata-item">
+                                        <div class="metadata-label">Sentiment:</div>
+                                        ${article.sentiment ? `<span class="badge ${getSentimentClass(article.sentiment)}">${article.sentiment}</span>` : ''}
+                                        ${article.sentiment_explanation ? `<div class="metadata-explanation">${escapeHTML(article.sentiment_explanation)}</div>` : ''}
+                                    </div>
+                                ` : ''}
+                                ${article.driver_type || article.driver_type_explanation ? `
+                                    <div class="metadata-item">
+                                        <div class="metadata-label">Driver Type:</div>
+                                        ${article.driver_type ? `<span class="badge bg-secondary">${article.driver_type}</span>` : ''}
+                                        ${article.driver_type_explanation ? `<div class="metadata-explanation">${escapeHTML(article.driver_type_explanation)}</div>` : ''}
+                                    </div>
+                                ` : ''}
+                                ${article.time_to_impact || article.time_to_impact_explanation ? `
+                                    <div class="metadata-item">
+                                        <div class="metadata-label">Time to Impact:</div>
+                                        ${article.time_to_impact ? `<span class="badge bg-warning text-dark">${article.time_to_impact}</span>` : ''}
+                                        ${article.time_to_impact_explanation ? `<div class="metadata-explanation">${escapeHTML(article.time_to_impact_explanation)}</div>` : ''}
+                                    </div>
+                                ` : ''}
+                                ${article.future_signal || article.future_signal_explanation ? `
+                                    <div class="metadata-item">
+                                        <div class="metadata-label">Future Signal:</div>
+                                        ${article.future_signal ? `<span class="badge bg-dark text-white">${article.future_signal}</span>` : ''}
+                                        ${article.future_signal_explanation ? `<div class="metadata-explanation">${escapeHTML(article.future_signal_explanation)}</div>` : ''}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        </div>
+                    ` : ''}
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button class="btn btn-sm compact-action-btn" onclick="event.stopPropagation(); launchAuspexDeepDive('${article.uri}')">
                             <i class="fas fa-microscope me-1"></i>Deep Dive
                         </button>
-                        <button class="btn btn-outline-info btn-sm" onclick="event.stopPropagation(); launchAuspexChat('${article.uri}')">
+                        <button class="btn btn-sm compact-action-btn" onclick="event.stopPropagation(); launchAuspexChat('${article.uri}')">
                             <i class="fas fa-comments me-1"></i>Ask Auspex
                         </button>
-                        <button class="btn btn-outline-success btn-sm" onclick="event.stopPropagation(); openAnnotationModal('${article.uri}')">
+                        <button class="btn btn-sm compact-action-btn" onclick="event.stopPropagation(); openAnnotationModal('${article.uri}')">
                             <i class="fas fa-sticky-note me-1"></i>Add Note
                         </button>
-                        <button class="btn btn-outline-warning btn-sm" onclick="event.stopPropagation(); toggleStarArticle('${article.uri}', this)">
-                            <i class="fas fa-star me-1"></i>Star Article
+                        <button class="btn btn-sm compact-star-btn" onclick="event.stopPropagation(); toggleStarArticle('${article.uri}', this)">
+                            <i class="fas fa-star"></i>
                         </button>
                     </div>
                 </div>
-                ${article.tags ? `
-                <div class="reader-article-tags mt-2">
-                    ${(() => {
-                        let tags = [];
-                        if (Array.isArray(article.tags)) {
-                            tags = article.tags;
-                        } else if (typeof article.tags === 'string') {
-                            tags = article.tags.split(',').map(tag => tag.trim()).filter(tag => tag);
-                        }
-                        return tags.map(tag => {
-                            if (tag.startsWith('signal:')) {
-                                const signalName = tag.replace('signal:SIGNAL_', '').replace(/_/g, ' ');
-                                return '<span class="badge bg-danger text-white" style="font-size: 8px;" title="Flagged by signal: ' + escapeHTML(signalName) + '"><i class="fas fa-flag me-1"></i>' + escapeHTML(signalName) + '</span>';
-                            } else {
-                                return '<span class="badge bg-light text-dark" style="font-size: 8px;">' + escapeHTML(tag) + '</span>';
-                            }
-                        }).join(' ');
-                    })()}
-                </div>` : ''}
             `;
 
-            // Add click handler to toggle details
-            articleEntry.onclick = function() {
-                const detailsDiv = this.querySelector('.reader-article-details');
+            // Add click handler to toggle summary
+            articleItem.onclick = function() {
+                const summary = this.querySelector('.compact-article-summary');
                 const icon = this.querySelector('.expand-icon');
-
-                if (detailsDiv.style.display === 'none') {
-                    detailsDiv.style.display = 'block';
-                    icon.className = 'fas fa-chevron-up ms-2 expand-icon';
+                if (summary.style.display === 'none') {
+                    summary.style.display = 'block';
+                    icon.className = 'fas fa-chevron-up expand-icon';
                 } else {
-                    detailsDiv.style.display = 'none';
-                    icon.className = 'fas fa-chevron-down ms-2 expand-icon';
+                    summary.style.display = 'none';
+                    icon.className = 'fas fa-chevron-down expand-icon';
                 }
             };
 
-            articlesContainer.appendChild(articleEntry);
+            contentSection.appendChild(articleItem);
         });
 
-        categoryCard.appendChild(header);
-        categoryCard.appendChild(articlesContainer);
-        bentoContainer.appendChild(categoryCard);
+        contentContainer.appendChild(contentSection);
+        isFirst = false;
     });
 
-    // Append bento container to list container
-    listContainer.appendChild(bentoContainer);
+    // Assemble nav wrapper
+    navWrapper.appendChild(leftArrow);
+    navWrapper.appendChild(pillsNav);
+    navWrapper.appendChild(rightArrow);
+
+    // Assemble container
+    pillsContainer.appendChild(navWrapper);
+    pillsContainer.appendChild(contentContainer);
+    listContainer.appendChild(pillsContainer);
+
+    // Initial arrow state update after render
+    setTimeout(updateArrows, 100);
 }
 
 // Category icon cache (in memory)
@@ -16368,6 +16510,21 @@ async function deleteIncident(incidentName) {
     }
 }
 
+// Toggle incident table row details
+function toggleIncidentTableRow(incidentId) {
+    const detailsRow = document.getElementById('details-row-' + incidentId);
+    const expandBtn = document.getElementById('expand-btn-' + incidentId);
+    const icon = expandBtn.querySelector('i');
+
+    if (detailsRow.style.display === 'none') {
+        detailsRow.style.display = 'table-row';
+        icon.className = 'fas fa-chevron-up';
+    } else {
+        detailsRow.style.display = 'none';
+        icon.className = 'fas fa-chevron-down';
+    }
+}
+
 // Incident analysis functions
 async function toggleIncidentAnalysis(incidentName, articleUri, buttonElement) {
     const analysisId = `incident-analysis-${incidentName.replace(/[^a-zA-Z0-9]/g, '_')}`;
@@ -18576,6 +18733,8 @@ function renderTableRow(incident, isGrouped = false) {
 
     const namePrefix = isGrouped ? '&nbsp;&nbsp;↳ ' : '';
 
+    const incidentId = escapeHTML(incident.name).replace(/[^a-zA-Z0-9]/g, '_');
+
     return `
         <tr class="${rowClass}">
             <td>
@@ -18597,29 +18756,72 @@ function renderTableRow(incident, isGrouped = false) {
                 </div>
             </td>
             <td>
-                <div class="d-grid gap-1" style="grid-template-columns: 1fr 1fr; max-width: 120px;">
-                    <button class="btn btn-outline-primary btn-sm" onclick="launchAuspexResearchFromInsight('${escapeHTML(incident.name)}', 'incident')" title="Investigate">
-                        <i class="fas fa-search"></i>
+                <div class="d-flex gap-1">
+                    <button class="btn btn-info btn-sm expand-incident-btn"
+                            onclick="toggleIncidentTableRow('${incidentId}')"
+                            title="Expand details"
+                            id="expand-btn-${incidentId}">
+                        <i class="fas fa-chevron-down"></i>
                     </button>
                     ${incident.article_uris && incident.article_uris.length > 0 ? `
                         <button class="btn btn-outline-success btn-sm" onclick="openAnnotationModal('${incident.article_uris[0]}')" title="Annotate">
                             <i class="fas fa-sticky-note"></i>
                         </button>
-                    ` : `
-                        <div></div>
-                    `}
-                    ${status !== 'seen' ? `
-                        <button class="btn btn-outline-info btn-sm" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'seen')" title="Mark as seen">
-                            <i class="fas fa-eye"></i>
-                        </button>
-                    ` : `
-                        <button class="btn btn-outline-secondary btn-sm" onclick="updateIncidentStatus('${escapeHTML(incident.name)}', 'active')" title="Mark as unseen">
-                            <i class="fas fa-eye-slash"></i>
-                        </button>
-                    `}
-                    <button class="btn btn-outline-danger btn-sm" onclick="deleteIncident('${escapeHTML(incident.name)}')" title="Delete incident">
-                        <i class="fas fa-trash"></i>
-                    </button>
+                    ` : ''}
+                </div>
+            </td>
+        </tr>
+        <tr id="details-row-${incidentId}" style="display: none;">
+            <td colspan="7" class="p-0">
+                <div style="margin: 15px 20px; padding: 20px; background: var(--colors-neutral-2); border-radius: 8px; border-left: 4px solid var(--colors-info-5);">
+                    <h6 class="text-primary mb-3">${escapeHTML(incident.name || 'Unnamed Incident')}</h6>
+
+                    <div class="mb-3">
+                        <strong>Description:</strong>
+                        <p class="small mb-2">${escapeHTML(incident.description || 'No description available.')}</p>
+                    </div>
+
+                    ${incident.organizational_relevance ? `
+                        <div class="mb-3">
+                            <strong>Why This Matters:</strong>
+                            <p class="small mb-2">${escapeHTML(incident.organizational_relevance)}</p>
+                        </div>
+                    ` : ''}
+
+                    ${incident.credibility_summary ? `
+                        <div class="mb-3">
+                            <strong>Credibility Assessment:</strong>
+                            <p class="small mb-2">${escapeHTML(incident.credibility_summary)}</p>
+                        </div>
+                    ` : ''}
+
+                    ${incident.article_uris && incident.article_uris.length > 0 ? `
+                        <div class="mb-3">
+                            <strong>Related Articles:</strong>
+                            <div class="d-flex flex-column gap-1">
+                                ${incident.article_uris.map(uri => `
+                                    <a href="${uri}" target="_blank" rel="noopener" class="small text-primary text-decoration-none">
+                                        <i class="fas fa-external-link-alt me-1"></i>${uri}
+                                    </a>
+                                `).join('')}
+                            </div>
+                        </div>
+                    ` : ''}
+
+                    <div class="d-flex gap-2 flex-wrap mt-3">
+                        ${incident.article_uris && incident.article_uris.length > 0 ? `
+                            <button class="btn btn-outline-info btn-sm" onclick="launchIncidentDeepDive('${escapeHTML(incident.name)}', '${incident.article_uris[0]}')">
+                                <i class="fas fa-microscope me-1"></i>Deep Dive
+                            </button>
+                            <button class="btn btn-outline-warning btn-sm" onclick="launchIncidentConsensus('${escapeHTML(incident.name)}', '${incident.article_uris[0]}')">
+                                <i class="fas fa-balance-scale me-1"></i>Consensus Check
+                            </button>
+                        ` : `
+                            <button class="btn btn-outline-info btn-sm" onclick="launchAuspexResearchFromInsight('${escapeHTML(incident.name)}', 'incident')">
+                                <i class="fas fa-search me-1"></i>Research
+                            </button>
+                        `}
+                    </div>
                 </div>
             </td>
         </tr>
