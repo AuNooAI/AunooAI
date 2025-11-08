@@ -143,8 +143,10 @@ def create_app() -> FastAPI:
     # Set up templates for all routes that need them
     from app.routes.auth_routes import set_templates as set_auth_templates
     from app.routes.web_routes import set_templates as set_web_templates
+    from app.routes.onboarding_routes import set_templates as set_onboarding_templates
     set_auth_templates(templates)
     set_web_templates(templates)
+    set_onboarding_templates(templates)
     
     # Register all routers
     register_routers(app)

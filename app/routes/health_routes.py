@@ -210,32 +210,44 @@ def get_environment_info() -> Dict[str, Any]:
 
 
 def get_api_health() -> Dict[str, Any]:
-    """Check API accessibility and configuration."""
+    """Check API accessibility and configuration for the 3 required service categories."""
     try:
         api_status = {
             "status": "healthy",
             "apis": {}
         }
 
-        # Check for API keys
+        # Check for at least one news collector (NewsAPI OR TheNewsAPI OR NewsData.io)
+        newsapi_key = os.getenv("PROVIDER_NEWSAPI_API_KEY") or os.getenv("PROVIDER_NEWSAPI_KEY")
+        thenewsapi_key = os.getenv("PROVIDER_THENEWSAPI_API_KEY") or os.getenv("PROVIDER_THENEWSAPI_KEY")
+        newsdata_key = os.getenv("PROVIDER_NEWSDATA_API_KEY") or os.getenv("NEWSDATA_API_KEY")
+
+        collector_configured = bool(newsapi_key or thenewsapi_key or newsdata_key)
+        api_status["apis"]["collector"] = "configured" if collector_configured else "missing"
+
+        # Check for at least one AI provider (OpenAI OR Anthropic OR Google/Gemini)
         openai_key = os.getenv("OPENAI_API_KEY")
         anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-        google_key = os.getenv("GOOGLE_API_KEY")
-        newsapi_key = os.getenv("PROVIDER_NEWSAPI_KEY")
+        gemini_key = os.getenv("GEMINI_API_KEY")
 
-        api_status["apis"]["openai"] = "configured" if openai_key else "missing"
-        api_status["apis"]["anthropic"] = "configured" if anthropic_key else "missing"
-        api_status["apis"]["google"] = "configured" if google_key else "missing"
-        api_status["apis"]["newsapi"] = "configured" if newsapi_key else "missing"
+        ai_configured = bool(openai_key or anthropic_key or gemini_key)
+        api_status["apis"]["ai_provider"] = "configured" if ai_configured else "missing"
 
-        # Count configured APIs
+        # Check Firecrawl (required web scraper)
+        firecrawl_key = (os.getenv("PROVIDER_FIRECRAWL_API_KEY") or
+                        os.getenv("PROVIDER_FIRECRAWL_KEY") or
+                        os.getenv("FIRECRAWL_API_KEY"))
+        api_status["apis"]["firecrawl"] = "configured" if firecrawl_key else "missing"
+
+        # Count configured service categories (should be exactly 3)
         configured = sum(1 for v in api_status["apis"].values() if v == "configured")
         api_status["configured_count"] = configured
-        api_status["total_checked"] = len(api_status["apis"])
+        api_status["total_checked"] = 3  # Fixed: always checking exactly 3 categories
 
+        # Set overall status
         if configured == 0:
             api_status["status"] = "critical"
-        elif configured < len(api_status["apis"]) / 2:
+        elif configured < 3:
             api_status["status"] = "degraded"
 
         return api_status

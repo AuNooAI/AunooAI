@@ -153,16 +153,17 @@ async def index(
             logger.error(f"Error getting last check time: {str(e)}")
             last_check_time = None
 
-        # Serve the React Operations HQ app using Jinja template
-        # This allows Auspex chat modal to be included
-        return templates.TemplateResponse("operations_react.html", {
+        # Serve the Bootstrap Operations HQ dashboard (Community edition)
+        # React version available at /trend-convergence for Enterprise
+        return templates.TemplateResponse("index.html", {
             "request": request,
             "stats": stats,
             "session": session,
             "last_check_time": last_check_time,
             "db_status": db_status,
             "api_status": api_status,
-            "active_topics": active_topics
+            "active_topics": active_topics,
+            "current_page": "home"  # Highlights "Operations HQ" in left sidebar
         })
     except Exception as e:
         logger.error(f"Index page error: {str(e)}")

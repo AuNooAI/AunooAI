@@ -1,4 +1,4 @@
-{% extends "base.html" %}
+{% extends "base_with_shared_nav.html" %}
 
 {% block title %}AuNoo AI - Home{% endblock %}
 
@@ -7,8 +7,8 @@
     :root {
         --primary-color: var(--colors-accent-7);  /* Hot Pink */
         --primary-dark: var(--colors-accent-10);   /* Deep Pink */
-        --secondary-color: #32CD32;  /* Lime Green */
-        --secondary-dark: #228B22;   /* Forest Green */
+        --secondary-color: var(--colors-success-7);  /* Design system green */
+        --secondary-dark: var(--colors-success-9);   /* Design system dark green */
         --text-color: var(--colors-neutral-11);
         --light-gray: var(--colors-neutral-2);
         --medium-gray: var(--colors-neutral-4);
@@ -855,17 +855,368 @@
     /* ensure tooltips visible outside cards */
     .card{overflow:visible;}
     [data-tooltip]:hover::before{z-index:2000;}
+
+    /* ========================================
+       OPERATIONS HQ MODERN STYLING
+       ======================================== */
+
+    /* Breadcrumb Header - matching news_feed_new.html */
+    .page-breadcrumb-header {
+        background-color: white;
+        border-bottom: 1px solid var(--colors-neutral-4);
+        padding: 0.75rem 1.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-shrink: 0;
+    }
+
+    .breadcrumb-text {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.875rem;
+        color: var(--colors-neutral-8);
+    }
+
+    .breadcrumb-text span {
+        color: var(--colors-neutral-8);
+    }
+
+    .breadcrumb-text span.font-medium {
+        color: var(--colors-neutral-12);
+        font-weight: 500;
+    }
+
+    .page-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    /* Soft gray button matching React Operations HQ */
+    .btn-topic-setup {
+        background: var(--colors-neutral-3);
+        border: none;
+        color: var(--colors-neutral-12);
+        font-size: 0.875rem;
+        font-weight: 500;
+        padding: 0.5rem 1rem;
+        border-radius: 0.375rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+
+    .btn-topic-setup:hover {
+        background: var(--colors-neutral-4);
+        color: var(--colors-neutral-12);
+    }
+
+    .btn-icon {
+        padding: 0.5rem;
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border: none;
+        color: var(--colors-neutral-8);
+        cursor: pointer;
+        border-radius: 0.375rem;
+        transition: all 0.2s ease;
+    }
+
+    .btn-icon:hover {
+        background: var(--colors-neutral-3);
+        color: var(--colors-neutral-12);
+    }
+
+    .text-gray-500 {
+        color: var(--colors-neutral-8);
+    }
+
+    /* Main Content Container */
+    .operations-content {
+        padding: 24px 48px;
+        background-color: var(--colors-neutral-2);
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+
+    @media (max-width: 768px) {
+        .operations-content {
+            padding: 16px;
+        }
+    }
+
+    /* Health Status Banner - matching React version */
+    .health-status-banner {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        padding: 24px;
+        text-align: center;
+        margin-bottom: 24px;
+    }
+
+    .health-status-indicator {
+        display: inline-block;
+        padding: 12px 24px;
+        border-radius: 9999px;
+        color: white;
+        font-weight: bold;
+        font-size: 1.125rem;
+    }
+
+    .health-status-indicator.healthy {
+        background-color: #10b981;
+    }
+
+    .health-status-indicator.degraded {
+        background-color: #eab308;
+    }
+
+    .health-status-indicator.critical {
+        background-color: #ef4444;
+    }
+
+    .health-uptime {
+        color: var(--colors-neutral-8);
+        margin-top: 8px;
+        font-size: 0.875rem;
+    }
+
+    .health-warnings {
+        margin-top: 16px;
+        background: #fef3c7;
+        border: 1px solid #fde047;
+        border-radius: 8px;
+        padding: 16px;
+        text-align: left;
+    }
+
+    .health-warnings p {
+        font-weight: 600;
+        color: #92400e;
+        margin-bottom: 8px;
+    }
+
+    .health-warnings ul {
+        list-style: disc;
+        list-style-position: inside;
+        color: #a16207;
+        font-size: 0.875rem;
+    }
+
+    /* Stats Grid - matching React layout */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 24px;
+        margin-bottom: 24px;
+    }
+
+    @media (min-width: 768px) {
+        .stats-grid {
+            grid-template-columns: repeat(4, 1fr);
+        }
+    }
+
+    /* Modern Stat Cards */
+    .stat-card-modern {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        padding: 24px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .stat-card-modern:hover {
+        box-shadow: 0 8px 16px rgba(0,0,0,0.12);
+        transform: translateY(-2px);
+    }
+
+    .stat-card-content {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .stat-info {
+        flex: 1;
+    }
+
+    .stat-label-modern {
+        color: var(--colors-neutral-8);
+        font-size: 0.875rem;
+        margin: 0 0 4px 0;
+    }
+
+    .stat-value-modern {
+        font-size: 2rem;
+        font-weight: bold;
+        color: var(--colors-accent-7);
+        margin: 0;
+    }
+
+    .stat-icon-large {
+        font-size: 3rem;
+        color: var(--colors-accent-2);
+        opacity: 0.6;
+    }
+
+    /* Section Title */
+    .section-title {
+        font-size: 1.25rem;
+        font-weight: bold;
+        color: var(--colors-neutral-11);
+        margin-bottom: 16px;
+    }
+
+    /* Metrics Grid */
+    .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 24px;
+        margin-bottom: 24px;
+    }
+
+    @media (min-width: 992px) {
+        .metrics-grid {
+            grid-template-columns: repeat(4, 1fr);
+        }
+    }
+
+    /* Metric Cards */
+    .metric-card {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        padding: 24px;
+    }
+
+    .metric-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 2px solid var(--colors-accent-7);
+    }
+
+    .metric-icon {
+        font-size: 1.5rem;
+        color: var(--colors-accent-7);
+    }
+
+    .metric-title {
+        font-size: 1.125rem;
+        font-weight: 600;
+        margin: 0;
+    }
+
+    .metric-body {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .metric-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.875rem;
+    }
+
+    .metric-label {
+        color: var(--colors-neutral-8);
+    }
+
+    .metric-value {
+        font-weight: 600;
+        color: var(--colors-neutral-11);
+    }
+
+    .metric-value-sm {
+        font-size: 0.75rem;
+    }
+
+    /* Progress Bars */
+    .metric-progress {
+        width: 100%;
+        background-color: var(--colors-neutral-3);
+        border-radius: 9999px;
+        height: 16px;
+        overflow: hidden;
+        margin-top: 12px;
+        position: relative;
+    }
+
+    .metric-progress-bar {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 0.75rem;
+        font-weight: 600;
+        transition: width 0.3s ease;
+    }
+
+    .metric-progress-bar.bg-green {
+        background-color: #10b981;
+    }
+
+    .metric-progress-bar.bg-yellow {
+        background-color: #eab308;
+    }
+
+    .metric-progress-bar.bg-red {
+        background-color: #ef4444;
+    }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <div class="news-header">
-        <h1 class="news-title">
-            <i class="fas fa-tachometer-alt news-title-icon"></i>
-            <span>Operations Dashboard</span>
-        </h1>
-        <p class="text-muted mb-0">What is going on in the world?</p>
+<!-- Breadcrumb Header - matching React Operations HQ and news_feed_new.html -->
+<div class="page-breadcrumb-header">
+    <div class="breadcrumb-text">
+        <span>Operations</span>
+        <span>/</span>
+        <span class="font-medium">System Health</span>
+        <span>•</span>
+        <span>Monitor system status and world operations</span>
+    </div>
+    <div class="page-header-actions">
+        <button class="btn-icon" onclick="window.location.href='/keyword-alerts'">
+            <i class="far fa-bell"></i>
+        </button>
+        <button class="btn-topic-setup" onclick="window.location.href='/onboarding?redo=true'">
+            <span>Set up topic</span>
+            <span class="text-gray-500">+</span>
+        </button>
+    </div>
+</div>
+
+<!-- Main Content Container -->
+<div class="operations-content">
+    <!-- System Health Status Banner -->
+    <div class="health-status-banner" id="healthStatusBanner">
+        <div class="health-status-indicator" id="healthStatusIndicator">
+            <i class="fas fa-spinner fa-spin"></i> Loading...
+        </div>
+        <p class="health-uptime">
+            {% if last_check_time %}
+                Last article collection: {{ last_check_time|timeago }}
+            {% else %}
+                No recent article collection
+            {% endif %}
+        </p>
+        <div class="health-warnings" id="healthWarnings" style="display: none;"></div>
     </div>
 
     <!-- World Clock Section -->
@@ -927,152 +1278,149 @@
         </div>
     </div>
 
-    <!-- Update the quick stats section -->
-    <div class="row mb-4">
-        <div class="col-md-3">
-            <div class="stat-card" data-tooltip="Total number of articles in the database" onclick="window.location.href='/database-editor'" style="cursor:pointer;">
-                <div class="stat-icon">
-                    <i class="fas fa-newspaper"></i>
+    <!-- Stats Cards - Clickable with modern styling -->
+    <div class="stats-grid">
+        <div class="stat-card-modern" onclick="window.location.href='/database-editor'">
+            <div class="stat-card-content">
+                <div class="stat-info">
+                    <p class="stat-label-modern">Total Articles</p>
+                    <p class="stat-value-modern">{{ stats.total_articles|default(0) }}</p>
                 </div>
-                <div class="stat-content">
-                    <div class="stat-value">{{ stats.total_articles|default(0) }}</div>
-                    <div class="stat-label">Total Articles</div>
-                </div>
+                <i class="fas fa-newspaper stat-icon-large"></i>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="stat-card" data-tooltip="Articles collected in the last 24 hours" onclick="window.location.href='/keyword-alerts'" style="cursor:pointer;">
-                <div class="stat-icon">
-                    <i class="fas fa-clock"></i>
+
+        <div class="stat-card-modern" onclick="window.location.href='/keyword-alerts'">
+            <div class="stat-card-content">
+                <div class="stat-info">
+                    <p class="stat-label-modern">Articles Today</p>
+                    <p class="stat-value-modern">{{ stats.articles_today|default(0) }}</p>
                 </div>
-                <div class="stat-content">
-                    <div class="stat-value">{{ stats.articles_today|default(0) }}</div>
-                    <div class="stat-label">Articles Today</div>
-                </div>
+                <i class="fas fa-clock stat-icon-large"></i>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="stat-card" data-tooltip="Number of active keyword groups" onclick="window.location.href='/keyword-monitor'" style="cursor:pointer;">
-                <div class="stat-icon">
-                    <i class="fas fa-tags"></i>
+
+        <div class="stat-card-modern" onclick="window.location.href='/keyword-monitor'">
+            <div class="stat-card-content">
+                <div class="stat-info">
+                    <p class="stat-label-modern">Keyword Groups</p>
+                    <p class="stat-value-modern">{{ stats.keyword_groups|default(0) }}</p>
                 </div>
-                <div class="stat-content">
-                    <div class="stat-value">{{ stats.keyword_groups|default(0) }}</div>
-                    <div class="stat-label">Keyword Groups</div>
-                </div>
+                <i class="fas fa-tags stat-icon-large"></i>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="stat-card" data-tooltip="Total topics being monitored" onclick="window.location.href='/create_topic'" style="cursor:pointer;">
-                <div class="stat-icon">
-                    <i class="fas fa-folder"></i>
+
+        <div class="stat-card-modern" onclick="window.location.href='/create_topic'">
+            <div class="stat-card-content">
+                <div class="stat-info">
+                    <p class="stat-label-modern">Topics</p>
+                    <p class="stat-value-modern">{{ active_topics|length }}</p>
                 </div>
-                <div class="stat-content">
-                    <div class="stat-value">{{ active_topics|length }}</div>
-                    <div class="stat-label">Topics</div>
-                </div>
+                <i class="fas fa-folder stat-icon-large"></i>
             </div>
         </div>
     </div>
 
-    <!-- After the stats cards, before the world clock -->
-    <div class="row mb-4">
-        <!-- Quick Links Panel -->
-        <div class="col-md-6">
-            <div class="card h-100" data-tooltip="Quick access to key features">
-                <div class="card-header">
-                    <h5 class="mb-0">
-                        <i class="fas fa-link"></i> What do you want to do today?
-                    </h5>
+    <!-- System Health Detailed Metrics -->
+    <div id="detailedMetrics">
+        <h2 class="section-title">Detailed Metrics</h2>
+        <div class="metrics-grid">
+            <!-- CPU Metric Card -->
+            <div class="metric-card">
+                <div class="metric-header">
+                    <i class="fas fa-microchip metric-icon"></i>
+                    <h3 class="metric-title">CPU</h3>
                 </div>
-                <div class="card-body">
-                    <div class="list-group">
-                        <a href="/" class="list-group-item list-group-item-action"
-                           data-tooltip="View system status and overview">
-                            <i class="fas fa-home me-2"></i> Status
-                        </a>
-                        <a href="/keyword-alerts" class="list-group-item list-group-item-action"
-                           data-tooltip="Explore news trends and alerts">
-                            <i class="fas fa-fire me-2"></i> Explore News
-                        </a>
-                        <a href="/collect" class="list-group-item list-group-item-action"
-                            data-tooltip="Search and collect news articles">
-                            <i class="fas fa-newspaper me-2"></i> Collect News
-                        </a>
-                        <a href="/submit-article" class="list-group-item list-group-item-action"
-                           data-tooltip="Submit an article for analysis">
-                            <i class="fas fa-plus-circle me-2"></i> Submit an Article
-                        </a>
-                        <a href="/create_topic" class="list-group-item list-group-item-action"
-                           data-tooltip="Create a new topic to monitor">
-                            <i class="fas fa-folder-plus me-2"></i> New Topic
-                        </a>
-                        <a href="/vector-analysis-improved" class="list-group-item list-group-item-action"
-                           data-tooltip="Advanced vector search and analysis">
-                            <i class="fas fa-brain me-2"></i> Nerd Mode
-                        </a>
+                <div class="metric-body">
+                    <div class="metric-row">
+                        <span class="metric-label">Process:</span>
+                        <span class="metric-value" id="cpuProcessPercent">--</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">System:</span>
+                        <span class="metric-value" id="cpuSystemPercent">--</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Cores:</span>
+                        <span class="metric-value" id="cpuCores">--</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Load:</span>
+                        <span class="metric-value metric-value-sm" id="cpuLoadAvg">--</span>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- System Status Panel -->
-        <div class="col-md-6">
-            <div class="card h-100" data-tooltip="System health and status information">
-                <div class="card-header">
-                    <h5 class="mb-0">
-                        <i class="fas fa-heartbeat"></i> System Status
-                    </h5>
+            <!-- Memory Metric Card -->
+            <div class="metric-card">
+                <div class="metric-header">
+                    <i class="fas fa-memory metric-icon"></i>
+                    <h3 class="metric-title">Memory</h3>
                 </div>
-                <div class="card-body">
-                    <ul class="list-group">
-                        <li class="list-group-item d-flex justify-content-between align-items-center"
-                            data-tooltip="Current API operational status">
-                            <span>API Status</span>
-                            <span class="badge {{ api_status.status }}" id="apiStatus">
-                                <i class="fas fa-{{ 'check-circle' if api_status.status == 'success' 
-                                                else 'exclamation-triangle' if api_status.status == 'warning'
-                                                else 'times-circle' }}"></i> 
-                                {{ api_status.message }}
-                            </span>
-                        </li>
-                        <li class="list-group-item d-flex justify-content-between align-items-center"
-                            data-tooltip="Auto-polling status">
-                            <span>Auto-polling</span>
-                            <span class="badge" id="pollingStatus">
-                                <i class="fas fa-circle"></i> Loading...
-                            </span>
-                        </li>
-                        <li class="list-group-item d-flex justify-content-between align-items-center"
-                            data-tooltip="API request usage">
-                            <span>API Requests</span>
-                            <span class="badge bg-primary" id="requestStatus">
-                                <i class="fas fa-chart-line"></i> 
-                                <span id="requestCount">...</span>/<span id="requestLimit">...</span>
-                            </span>
-                        </li>
-                        <li class="list-group-item d-flex justify-content-between align-items-center"
-                            data-tooltip="Database connection status">
-                            <span>Database</span>
-                            <span class="badge {{ db_status.status }}" id="dbStatus">
-                                <i class="fas fa-database"></i> {{ db_status.message }}
-                            </span>
-                        </li>
-                        <li class="list-group-item d-flex justify-content-between align-items-center"
-                            data-tooltip="Time since last system update">
-                            <span>Last Update</span>
-                            <span class="text-muted small" id="lastUpdate"
-                                  data-last-check="{{ last_check_time }}"
-                                  data-tooltip="Time since last system update">
-                                {{ last_check_time|timeago if last_check_time else 'Never' }}
-                            </span>
-                        </li>
-                    </ul>
-                    <div class="mt-3">
-                        <a href="/health/dashboard" class="btn btn-outline-primary btn-sm w-100">
-                            <i class="fas fa-chart-line me-2"></i>View Detailed Health Dashboard
-                        </a>
+                <div class="metric-body">
+                    <div class="metric-row">
+                        <span class="metric-label">Process RSS:</span>
+                        <span class="metric-value" id="memRss">--</span>
                     </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Process %:</span>
+                        <span class="metric-value" id="memPercent">--</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Threads:</span>
+                        <span class="metric-value" id="memThreads">--</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">System:</span>
+                        <span class="metric-value" id="memSystemUsed">--</span> / <span class="metric-value" id="memSystemTotal">--</span>
+                    </div>
+                    <div class="metric-progress" id="memProgress"></div>
+                </div>
+            </div>
+
+            <!-- API Keys Metric Card -->
+            <div class="metric-card">
+                <div class="metric-header">
+                    <i class="fas fa-key metric-icon" style="color: var(--primary-color);"></i>
+                    <h3 class="metric-title">API Keys</h3>
+                </div>
+                <div class="metric-body" id="apiKeysBody">
+                    <div class="metric-row">
+                        <span class="metric-label">Status:</span>
+                        <span class="metric-value" id="apiStatus">--</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Configured:</span>
+                        <span class="metric-value" id="apiConfigured">--</span>
+                    </div>
+                    <div id="apiDetails"></div>
+                </div>
+            </div>
+
+            <!-- Auto-polling Metric Card -->
+            <div class="metric-card">
+                <div class="metric-header">
+                    <i class="fas fa-sync-alt metric-icon" style="color: var(--secondary-color);"></i>
+                    <h3 class="metric-title">Auto-polling</h3>
+                </div>
+                <div class="metric-body" id="autopollingBody">
+                    <div class="metric-row">
+                        <span class="metric-label">Status:</span>
+                        <span class="metric-value" id="pollingStatus">--</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Requests Today:</span>
+                        <span class="metric-value" id="pollingRequests">--</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Usage:</span>
+                        <span class="metric-value" id="pollingUsage">--</span>
+                    </div>
+                    <div class="metric-row" id="lastPollRow" style="display: none;">
+                        <span class="metric-label">Last Poll:</span>
+                        <span class="metric-value metric-value-sm" id="pollingLastPoll">--</span>
+                    </div>
+                    <div class="metric-progress" id="pollingProgress"></div>
                 </div>
             </div>
         </div>
@@ -1155,7 +1503,7 @@
             {% endif %}
         </div>
     </div>
-</div>
+</div> <!-- End operations-content -->
 
 <!-- Clock Config Modal -->
 <div class="modal" id="clockConfigModal" tabindex="-1" role="dialog" aria-hidden="true">
@@ -1447,6 +1795,367 @@
             dl.appendChild(opt);
         });
     })();
+
+    // ==================== Health Data Fetching ====================
+
+    /**
+     * Fetch health data from API and update the UI
+     */
+    async function fetchHealthData() {
+        try {
+            const response = await fetch('/health/detailed');
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            updateHealthStatus(data);
+            updateMetrics(data);
+        } catch (error) {
+            console.error('Failed to fetch health data:', error);
+            showHealthError(error.message);
+        }
+    }
+
+    /**
+     * Update the health status banner
+     */
+    function updateHealthStatus(data) {
+        const indicator = document.getElementById('healthStatusIndicator');
+        const warnings = document.getElementById('healthWarnings');
+
+        if (!indicator || !warnings) return;
+
+        // Update status indicator
+        const status = data.status || 'unknown';
+        let statusHtml = '';
+        let statusClass = '';
+
+        if (status === 'healthy') {
+            statusHtml = '<i class="fas fa-check-circle"></i> System Healthy';
+            statusClass = 'text-success';
+        } else if (status === 'degraded') {
+            statusHtml = '<i class="fas fa-exclamation-triangle"></i> System Degraded';
+            statusClass = 'text-warning';
+        } else if (status === 'unhealthy') {
+            statusHtml = '<i class="fas fa-times-circle"></i> System Unhealthy';
+            statusClass = 'text-danger';
+        } else {
+            statusHtml = '<i class="fas fa-question-circle"></i> Status Unknown';
+            statusClass = 'text-muted';
+        }
+
+        indicator.innerHTML = statusHtml;
+        indicator.className = `health-status-indicator ${statusClass}`;
+
+        // Note: Article collection time is displayed server-side via Jinja template
+        // No need to update dynamically as it doesn't change frequently
+
+        // Update warnings
+        if (data.warnings && data.warnings.length > 0) {
+            warnings.innerHTML = data.warnings.map(w =>
+                `<div class="health-warning-item"><i class="fas fa-exclamation-triangle"></i> ${w}</div>`
+            ).join('');
+            warnings.style.display = 'block';
+        } else {
+            warnings.style.display = 'none';
+        }
+    }
+
+    /**
+     * Format uptime seconds into human-readable string
+     */
+    function formatUptime(seconds) {
+        const days = Math.floor(seconds / 86400);
+        const hours = Math.floor((seconds % 86400) / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+
+        const parts = [];
+        if (days > 0) parts.push(`${days}d`);
+        if (hours > 0) parts.push(`${hours}h`);
+        if (minutes > 0 || parts.length === 0) parts.push(`${minutes}m`);
+
+        return parts.join(' ');
+    }
+
+    /**
+     * Update the detailed metrics cards
+     */
+    function updateMetrics(data) {
+        updateCpuMetrics(data.cpu);
+        updateMemoryMetrics(data.memory);
+        updateApiKeysMetrics(data.api_health);
+        updateAutopollingMetrics(data.autopolling);
+    }
+
+    /**
+     * Update CPU metrics card
+     */
+    function updateCpuMetrics(cpu) {
+        if (!cpu) return;
+
+        const processPercent = document.getElementById('cpuProcessPercent');
+        const systemPercent = document.getElementById('cpuSystemPercent');
+        const cores = document.getElementById('cpuCores');
+        const loadAvg = document.getElementById('cpuLoadAvg');
+
+        if (processPercent) processPercent.textContent = cpu.process_percent?.toFixed(1) + '%' || '--';
+        if (systemPercent) systemPercent.textContent = cpu.system_percent?.toFixed(1) + '%' || '--';
+        if (cores) cores.textContent = cpu.cores || '--';
+        if (loadAvg) {
+            const load = cpu.load_average;
+            if (load && load.length >= 3) {
+                loadAvg.textContent = `${load[0].toFixed(2)}, ${load[1].toFixed(2)}, ${load[2].toFixed(2)}`;
+            } else {
+                loadAvg.textContent = '--';
+            }
+        }
+    }
+
+    /**
+     * Update Memory metrics card with progress bar
+     */
+    function updateMemoryMetrics(memory) {
+        if (!memory) return;
+
+        const rss = document.getElementById('memRss');
+        const percent = document.getElementById('memPercent');
+        const threads = document.getElementById('memThreads');
+        const systemUsed = document.getElementById('memSystemUsed');
+        const systemTotal = document.getElementById('memSystemTotal');
+        const progressContainer = document.getElementById('memProgress');
+
+        // Access nested process data
+        if (rss && memory.process) {
+            rss.textContent = memory.process.rss_mb ? memory.process.rss_mb.toFixed(0) + ' MB' : '--';
+        }
+        if (percent && memory.process) {
+            percent.textContent = memory.process.percent != null ? memory.process.percent.toFixed(1) + '%' : '--';
+        }
+        if (threads && memory.process) {
+            threads.textContent = memory.process.num_threads || '--';
+        }
+
+        // Access nested system data
+        if (systemUsed && memory.system) {
+            systemUsed.textContent = memory.system.used_gb ? memory.system.used_gb.toFixed(2) + ' GB' : '--';
+        }
+        if (systemTotal && memory.system) {
+            systemTotal.textContent = memory.system.total_gb ? memory.system.total_gb.toFixed(2) + ' GB' : '--';
+        }
+
+        // Update progress bar using system percent
+        if (progressContainer && memory.system && memory.system.percent != null) {
+            const systemPercent = memory.system.percent;
+            const colorClass = getProgressColor(systemPercent);
+            progressContainer.innerHTML = `
+                <div class="metric-progress-bar ${colorClass}" style="width: ${systemPercent}%">
+                    ${systemPercent.toFixed(0)}%
+                </div>
+            `;
+        }
+    }
+
+    /**
+     * Update API Keys metrics card
+     */
+    function updateApiKeysMetrics(apiHealth) {
+        if (!apiHealth) return;
+
+        const status = document.getElementById('apiStatus');
+        const configured = document.getElementById('apiConfigured');
+        const details = document.getElementById('apiDetails');
+
+        // Update status with icon and color
+        if (status) {
+            let statusIcon = 'fa-times-circle';
+            let statusColor = 'var(--colors-error-7)';
+            let statusText = 'Error';
+
+            if (apiHealth.status === 'healthy') {
+                statusIcon = 'fa-check-circle';
+                statusColor = 'var(--colors-success-9)';
+                statusText = 'Healthy';
+            } else if (apiHealth.status === 'degraded') {
+                statusIcon = 'fa-exclamation-triangle';
+                statusColor = 'var(--colors-warning-9)';
+                statusText = 'Degraded';
+            }
+
+            status.innerHTML = `<i class="fas ${statusIcon}" style="color: ${statusColor};"></i> ${statusText}`;
+        }
+
+        // Update configured count
+        if (configured) {
+            configured.textContent = `${apiHealth.configured_count || 0} / ${apiHealth.total_checked || 0}`;
+        }
+
+        // Update API details
+        if (details && apiHealth.apis) {
+            let detailsHtml = '';
+
+            // Map API keys to user-friendly display names
+            const displayNameMap = {
+                'ai_provider': 'AI Provider',
+                'collector': 'News API',
+                'firecrawl': 'Firecrawl'
+            };
+
+            for (const [api, apiStatus] of Object.entries(apiHealth.apis)) {
+                const isConfigured = apiStatus === 'configured';
+                const icon = isConfigured ? 'fa-check' : 'fa-times';
+                const color = isConfigured ? 'var(--colors-success-9)' : 'var(--colors-error-7)';
+                const displayName = displayNameMap[api] || api.charAt(0).toUpperCase() + api.slice(1);
+                const displayStatus = apiStatus.charAt(0).toUpperCase() + apiStatus.slice(1);
+
+                detailsHtml += `
+                    <div class="metric-row">
+                        <span class="metric-label">${displayName}:</span>
+                        <span class="metric-value" style="color: ${color};">
+                            <i class="fas ${icon}"></i> ${displayStatus}
+                        </span>
+                    </div>
+                `;
+            }
+            details.innerHTML = detailsHtml;
+        }
+    }
+
+    /**
+     * Update Auto-polling metrics card with progress bar
+     */
+    function updateAutopollingMetrics(autopolling) {
+        if (!autopolling) return;
+
+        const status = document.getElementById('pollingStatus');
+        const requests = document.getElementById('pollingRequests');
+        const usage = document.getElementById('pollingUsage');
+        const lastPoll = document.getElementById('pollingLastPoll');
+        const lastPollRow = document.getElementById('lastPollRow');
+        const progressContainer = document.getElementById('pollingProgress');
+
+        // Update status with icon and color
+        if (status) {
+            if (autopolling.status === 'enabled' || autopolling.status === 'disabled') {
+                const isEnabled = autopolling.is_enabled || autopolling.status === 'enabled';
+                const statusIcon = isEnabled ? 'fa-check-circle' : 'fa-pause-circle';
+                const statusColor = isEnabled ? 'var(--colors-success-9)' : 'var(--colors-warning-9)';
+                const statusText = autopolling.status.charAt(0).toUpperCase() + autopolling.status.slice(1);
+                status.innerHTML = `<i class="fas ${statusIcon}" style="color: ${statusColor};"></i> ${statusText}`;
+            } else if (autopolling.status === 'unknown') {
+                const statusIcon = 'fa-question-circle';
+                const statusColor = 'var(--colors-warning-9)';
+                const statusText = autopolling.message || 'Unknown';
+                status.innerHTML = `<i class="fas ${statusIcon}" style="color: ${statusColor};"></i> ${statusText}`;
+            } else if (autopolling.status === 'error') {
+                const statusIcon = 'fa-times-circle';
+                const statusColor = 'var(--colors-error-7)';
+                const statusText = autopolling.error || 'Error';
+                status.innerHTML = `<i class="fas ${statusIcon}" style="color: ${statusColor};"></i> ${statusText}`;
+            } else {
+                status.innerHTML = `<i class="fas fa-question-circle" style="color: var(--colors-warning-9);"></i> ${autopolling.status}`;
+            }
+        }
+
+        // Update requests count - only if data is available
+        if (requests) {
+            if (autopolling.requests_today != null && autopolling.daily_request_limit != null) {
+                requests.textContent = `${autopolling.requests_today} / ${autopolling.daily_request_limit}`;
+            } else {
+                requests.textContent = 'N/A';
+            }
+        }
+
+        // Update usage percentage - only if data is available
+        if (usage) {
+            if (autopolling.usage_percent != null) {
+                usage.textContent = `${autopolling.usage_percent}%`;
+            } else {
+                usage.textContent = 'N/A';
+            }
+        }
+
+        // Update last poll time (if available)
+        if (lastPoll && lastPollRow && autopolling.last_poll_time) {
+            lastPoll.textContent = autopolling.last_poll_time;
+            lastPollRow.style.display = '';
+        } else if (lastPollRow) {
+            lastPollRow.style.display = 'none';
+        }
+
+        // Update progress bar - only if usage data is available
+        if (progressContainer) {
+            if (autopolling.usage_percent != null) {
+                const pollPercent = autopolling.usage_percent;
+                let colorClass = 'bg-green';
+                if (pollPercent >= 100) {
+                    colorClass = 'bg-red';
+                } else if (pollPercent >= 80) {
+                    colorClass = 'bg-yellow';
+                }
+
+                progressContainer.innerHTML = `
+                    <div class="metric-progress-bar ${colorClass}" style="width: ${Math.min(pollPercent, 100)}%">
+                        ${pollPercent}%
+                    </div>
+                `;
+            } else {
+                // Hide progress bar when no data available
+                progressContainer.innerHTML = '';
+            }
+        }
+    }
+
+    /**
+     * Get progress bar color class based on percentage
+     * Green: < 75%, Yellow: 75-90%, Red: >= 90%
+     */
+    function getProgressColor(percent) {
+        if (percent >= 90) return 'bg-red';
+        if (percent >= 75) return 'bg-yellow';
+        return 'bg-green';
+    }
+
+    /**
+     * Format bytes into human-readable string
+     */
+    function formatBytes(bytes) {
+        if (bytes == null || isNaN(bytes)) return null;
+
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        if (bytes === 0) return '0 B';
+
+        const i = Math.floor(Math.log(bytes) / Math.log(1024));
+        const value = bytes / Math.pow(1024, i);
+
+        return value.toFixed(1) + ' ' + sizes[i];
+    }
+
+    /**
+     * Show error in health status banner
+     */
+    function showHealthError(message) {
+        const indicator = document.getElementById('healthStatusIndicator');
+        const uptime = document.getElementById('healthUptime');
+
+        if (indicator) {
+            indicator.innerHTML = '<i class="fas fa-exclamation-circle"></i> Error Loading Health Data';
+            indicator.className = 'health-status-indicator text-danger';
+        }
+
+        if (uptime) {
+            uptime.textContent = `Error: ${message}`;
+        }
+    }
+
+    // Initialize health data fetching on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        // Fetch immediately
+        fetchHealthData();
+
+        // Refresh every 30 seconds (matching React version)
+        setInterval(fetchHealthData, 30000);
+    });
 </script>
 
 <!-- Add Font Awesome for the clock icon -->

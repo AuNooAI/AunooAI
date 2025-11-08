@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Request, Depends, HTTPException, Body, Query
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 from app.security.session import verify_session
 from app.database import Database, get_database_instance
 from app.database_query_facade import DatabaseQueryFacade
 import os
 import aiohttp
 import logging
-from typing import Dict
+from typing import Dict, Optional
 import json
 import yaml
 from dotenv import load_dotenv, set_key
@@ -15,6 +16,14 @@ from app.ai_models import ai_get_available_models  # Add this import at the top
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Templates instance will be set by the main app
+templates: Optional[Jinja2Templates] = None
+
+def set_templates(template_instance: Jinja2Templates):
+    """Set the templates instance for this router."""
+    global templates
+    templates = template_instance
 
 @router.post("/api/onboarding/validate-api-key")
 async def validate_api_key(request: Request, key_data: Dict = Body(...)):
@@ -466,13 +475,13 @@ async def get_api_key_status():
         logger.error(f"Error checking API keys: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/onboarding")
+@router.get("/onboarding", response_class=HTMLResponse)
 async def onboarding_page(
     request: Request,
     session=Depends(verify_session),
     redo: bool = Query(False)
 ):
-    """Redirect to React onboarding wizard."""
+    """Display Bootstrap onboarding wizard (Community edition)."""
     # Check if user has completed onboarding
     db = Database()
     user = request.session.get("user")
@@ -490,8 +499,59 @@ async def onboarding_page(
     if user_data.get("completed_onboarding") and not redo:
         return RedirectResponse(url="/")
 
-    # Redirect to React Trend Convergence page with onboarding=true parameter
-    return RedirectResponse(url="/trend-convergence?onboarding=true")
+    # Prepare example data for the wizard template
+    example_signals = [
+        "AI adoption accelerating",
+        "Regulatory pushback increasing",
+        "Market consolidation",
+        "Innovation stagnating",
+        "Democratization of technology"
+    ]
+
+    example_categories = [
+        "Product Launches",
+        "Market Trends",
+        "Regulatory Changes",
+        "Technology Breakthroughs",
+        "Competitive Analysis"
+    ]
+
+    example_sentiments = [
+        "Positive",
+        "Negative",
+        "Neutral",
+        "Critical",
+        "Optimistic",
+        "Skeptical"
+    ]
+
+    example_time_to_impact = [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+    ]
+
+    example_driver_types = [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+    ]
+
+    # Render Bootstrap wizard template
+    return templates.TemplateResponse(
+        "onboarding/wizard.html",
+        {
+            "request": request,
+            "example_signals": example_signals,
+            "example_categories": example_categories,
+            "example_sentiments": example_sentiments,
+            "example_time_to_impact": example_time_to_impact,
+            "example_driver_types": example_driver_types
+        }
+    )
 
 def ensure_structured_keywords(raw_keywords, topic_name):
     # If already structured, ensure all keys exist
