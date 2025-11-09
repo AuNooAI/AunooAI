@@ -4789,14 +4789,33 @@ class DatabaseQueryFacade:
 
         # Add topic filter if specified
         if topic:
-            topic_pattern = f"%{topic}%"
-            where_conditions.append(
-                or_(
-                    articles.c.topic == topic,
-                    articles.c.title.like(topic_pattern),
-                    articles.c.summary.like(topic_pattern)
+            # Handle comma-separated multiple topics
+            topics = [t.strip() for t in topic.split(',') if t.strip()]
+
+            if len(topics) == 1:
+                # Single topic - use existing logic
+                topic_pattern = f"%{topics[0]}%"
+                where_conditions.append(
+                    or_(
+                        articles.c.topic == topics[0],
+                        articles.c.title.like(topic_pattern),
+                        articles.c.summary.like(topic_pattern)
+                    )
                 )
-            )
+            elif len(topics) > 1:
+                # Multiple topics - create OR condition for each topic
+                topic_conditions = []
+                for t in topics:
+                    topic_pattern = f"%{t}%"
+                    topic_conditions.append(
+                        or_(
+                            articles.c.topic == t,
+                            articles.c.title.like(topic_pattern),
+                            articles.c.summary.like(topic_pattern)
+                        )
+                    )
+                # Combine all topic conditions with OR
+                where_conditions.append(or_(*topic_conditions))
 
         # Add spam/promotional content filters
         where_conditions.extend([
@@ -4963,14 +4982,33 @@ class DatabaseQueryFacade:
 
         # Add topic filter if specified
         if topic:
-            topic_pattern = f"%{topic}%"
-            where_conditions.append(
-                or_(
-                    articles.c.topic == topic,
-                    articles.c.title.like(topic_pattern),
-                    articles.c.summary.like(topic_pattern)
+            # Handle comma-separated multiple topics
+            topics = [t.strip() for t in topic.split(',') if t.strip()]
+
+            if len(topics) == 1:
+                # Single topic - use existing logic
+                topic_pattern = f"%{topics[0]}%"
+                where_conditions.append(
+                    or_(
+                        articles.c.topic == topics[0],
+                        articles.c.title.like(topic_pattern),
+                        articles.c.summary.like(topic_pattern)
+                    )
                 )
-            )
+            elif len(topics) > 1:
+                # Multiple topics - create OR condition for each topic
+                topic_conditions = []
+                for t in topics:
+                    topic_pattern = f"%{t}%"
+                    topic_conditions.append(
+                        or_(
+                            articles.c.topic == t,
+                            articles.c.title.like(topic_pattern),
+                            articles.c.summary.like(topic_pattern)
+                        )
+                    )
+                # Combine all topic conditions with OR
+                where_conditions.append(or_(*topic_conditions))
 
         # Build COUNT query
         statement = select(
