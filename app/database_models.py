@@ -270,7 +270,8 @@ t_keyword_monitor_settings = Table(
     Column('auto_save_approved_only', Boolean, nullable=False, default=text('FALSE')),
     Column('default_llm_model', Text, nullable=False, default=text('"gpt-4o-mini"')),
     Column('llm_temperature', REAL, nullable=False, default=text('0.1')),
-    Column('llm_max_tokens', Integer, nullable=False, default=text('1000'))
+    Column('llm_max_tokens', Integer, nullable=False, default=text('1000')),
+    Column('auto_regenerate_reports', Boolean, nullable=True, default=False)
 )
 
 t_keyword_monitor_status = Table(
