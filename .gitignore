@@ -79,3 +79,5 @@ chroma_db/
 app/server_run.py
 # Encrypted environment files (tenant-specific)
 .env.encrypted
+.env.backup.*
+.env.*.broken.*
