@@ -448,7 +448,6 @@ class KeywordMonitor:
                                         logger.info(f"Auto-regenerate enabled: regenerating Six Articles for topic '{topic}'")
 
                                         # Run regeneration in background task to avoid blocking
-                                        import asyncio
                                         asyncio.create_task(
                                             self._regenerate_six_articles_background(topic)
                                         )
