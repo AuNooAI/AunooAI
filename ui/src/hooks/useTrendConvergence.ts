@@ -20,7 +20,7 @@ export interface AnalysisConfig {
   topic: string;
   timeframe_days: number;
   model: string;
-  analysis_depth: string;
+  source_quality: string;  // 'all' or 'high_quality'
   sample_size_mode: string;
   custom_limit?: number;
   consistency_mode: string;
@@ -52,7 +52,7 @@ const DEFAULT_CONFIG: AnalysisConfig = {
   topic: '',
   timeframe_days: 365,
   model: 'gpt-4o',
-  analysis_depth: 'standard',
+  source_quality: 'all',
   sample_size_mode: 'auto',
   consistency_mode: 'balanced',
   enable_caching: true,

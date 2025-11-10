@@ -1,288 +1,463 @@
 /**
- * Future Horizons Tab Component with Futures Cone Visualization
+ * Future Horizons Tab Component with Three Horizons Model
+ * Shows transitions from current state (H1) through innovation (H2) to future vision (H3)
  */
 
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { useState } from 'react';
+import { X } from 'lucide-react';
+import '../styles/citations.css';
 
 interface Scenario {
+  type: 'h1' | 'h2' | 'h3'; // Three Horizons: H1 (current), H2 (transition), H3 (future)
   title: string;
   description: string;
-  probability: 'Plausible' | 'Probable' | 'Possible' | 'Preferable' | 'Wildcard';
   timeframe: string;
-  icon?: string;
+  sentiment?: string;
+  drivers?: Array<{ type: string; description: string }>;
+  signals?: string[];
+}
+
+interface Article {
+  id?: number;
+  uri?: string;
+  url?: string;
+  title: string;
+  source?: string;
+  source_name?: string;
+  publication_date?: string;
 }
 
 interface FutureHorizonsProps {
   scenarios: Scenario[];
+  articleList?: Article[];
 }
 
-export function FutureHorizons({ scenarios }: FutureHorizonsProps) {
-  // Group scenarios by probability
-  const plausibleScenarios = scenarios.filter(s => s.probability === 'Plausible');
-  const probableScenarios = scenarios.filter(s => s.probability === 'Probable');
+export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsProps) {
+  const [selectedScenario, setSelectedScenario] = useState<Scenario | null>(null);
+
+  // Parse timeframe to get years
+  const parseTimeframe = (timeframe: string): { start: number; end: number } => {
+    const years = timeframe.match(/\d{4}/g);
+    if (years && years.length >= 2) {
+      return { start: parseInt(years[0]), end: parseInt(years[1]) };
+    }
+    return { start: 2025, end: 2040 };
+  };
+
+  // Calculate position on Three Horizons curves for scenario markers
+  const calculateHorizonPosition = (scenario: Scenario, idx: number): { x: number; y: number } => {
+    const { start, end } = parseTimeframe(scenario.timeframe);
+    const avgYear = (start + end) / 2;
+
+    // X position based on time (10% at 2025, 90% at 2040)
+    const baseX = 10 + ((avgYear - 2025) / 15) * 75;
+
+    // Add horizontal jitter to spread scenarios with similar timeframes (±8%)
+    const xJitter = ((idx % 7) - 3) * 2.5;
+    const x = baseX + xJitter;
+
+    // Add substantial vertical jitter to prevent overlapping (±10%)
+    const yJitter = ((idx % 7) - 3) * 3.5;
+
+    // Calculate normalized time (0 to 1 across the timeline)
+    const t = (avgYear - 2025) / 15;
+
+    let y = 50;
+
+    switch (scenario.type) {
+      case 'h1': // Current/Declining - starts at top (20%), declines to bottom (70%)
+        y = 20 + (t * 50) + yJitter;
+        break;
+      case 'h2': // Transition/Innovation - bell curve in middle (peaks around 50%)
+        y = 50 + (Math.sin((t - 0.5) * Math.PI) * -15) + yJitter;
+        break;
+      case 'h3': // Future Vision - starts at bottom (80%), rises to top (30%)
+        y = 80 - (t * 50) + yJitter;
+        break;
+    }
+
+    return { x, y };
+  };
+
+  // Replace [1], [2] citations with clickable links
+  const replaceCitations = (text: string): string => {
+    if (!text) return '';
+
+    return text.replace(/\[(\d+)\]/g, (match, num) => {
+      const index = parseInt(num) - 1;
+      const article = articleList[index];
+
+      if (article && (article.url || article.uri)) {
+        const url = article.url || article.uri || '#';
+        const title = article.title || 'Unknown';
+        const source = article.source || article.source_name || 'Unknown source';
+
+        return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="citation-link" title="${title} - ${source}">[${num}]</a>`;
+      }
+      return match;
+    });
+  };
+
+  // Timeline slider component for each scenario card
+  const TimelineSlider = ({ scenario }: { scenario: Scenario }) => {
+    const { start, end } = parseTimeframe(scenario.timeframe);
+    const totalYears = 2040 - 2025; // 15 years
+    const startPercent = ((start - 2025) / totalYears) * 100;
+    const endPercent = ((end - 2025) / totalYears) * 100;
+    const rangeWidth = endPercent - startPercent;
+
+    return (
+      <div className="mt-3">
+        {/* Timeline track */}
+        <div className="relative h-2 bg-gray-300 rounded-full">
+          {/* Active range indicator */}
+          <div
+            className="absolute top-0 h-full bg-gradient-to-r from-gray-600 to-gray-800 rounded-full"
+            style={{
+              left: `${startPercent}%`,
+              width: `${rangeWidth}%`,
+            }}
+          />
+          {/* Start marker */}
+          <div
+            className="absolute top-1/2 w-3 h-3 bg-white border-2 border-gray-800 rounded-full shadow-sm"
+            style={{ left: `${startPercent}%`, transform: 'translate(-50%, -50%)' }}
+          />
+          {/* End marker */}
+          <div
+            className="absolute top-1/2 w-3 h-3 bg-white border-2 border-gray-800 rounded-full shadow-sm"
+            style={{ left: `${endPercent}%`, transform: 'translate(-50%, -50%)' }}
+          />
+        </div>
+        {/* Year labels */}
+        <div className="flex justify-between text-[9px] text-gray-700 font-medium mt-1">
+          <span>2025<br/>Present</span>
+          <span>2029<br/>Short</span>
+          <span>2033<br/>Mid</span>
+          <span>2037<br/>Long</span>
+          <span>2040<br/>Horizon</span>
+        </div>
+      </div>
+    );
+  };
+
+  // Three Horizons definitions
+  const horizons = [
+    {
+      key: 'h1',
+      label: 'Horizon 1',
+      subtitle: 'Current State',
+      tooltip: 'The dominant paradigm today - business-as-usual trends that are gradually declining as new innovations emerge',
+      color: 'blue',
+      bgClass: 'bg-blue-600',
+      textClass: 'text-blue-600'
+    },
+    {
+      key: 'h2',
+      label: 'Horizon 2',
+      subtitle: 'Transition',
+      tooltip: 'Emerging innovations and disruptions - entrepreneurial activity, pilot projects, and transitional period where old and new coexist',
+      color: 'purple',
+      bgClass: 'bg-purple-600',
+      textClass: 'text-purple-600'
+    },
+    {
+      key: 'h3',
+      label: 'Horizon 3',
+      subtitle: 'Future Vision',
+      tooltip: 'Transformative visions becoming reality - preferred future state where the new paradigm is fully established',
+      color: 'green',
+      bgClass: 'bg-green-600',
+      textClass: 'text-green-600'
+    },
+  ];
 
   return (
-    <div className="space-y-6">
-      {/* Futures Cone Visualization */}
-      <div className="bg-white border border-gray-200 rounded-xl p-8 relative">
-        {/* Navigation arrows */}
-        <button className="absolute left-4 top-1/2 transform -translate-y-1/2 w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center">
-          <ChevronLeft className="w-5 h-5 text-gray-700" />
-        </button>
-        <button className="absolute right-4 top-1/2 transform -translate-y-1/2 w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center">
-          <ChevronRight className="w-5 h-5 text-gray-700" />
-        </button>
-
-        {/* Futures Cone SVG */}
-        <svg viewBox="0 0 800 400" className="w-full h-64">
-          {/* Cone layers */}
-          <path
-            d="M 50 350 Q 200 200, 750 100 L 750 320 Q 200 380, 50 350 Z"
-            fill="#FCD34D"
-            opacity="0.3"
-          />
-          <path
-            d="M 50 350 Q 200 220, 700 120 L 700 300 Q 200 370, 50 350 Z"
-            fill="#FCD34D"
-            opacity="0.4"
-          />
-          <path
-            d="M 50 350 Q 200 240, 650 140 L 650 280 Q 200 360, 50 350 Z"
-            fill="#FCD34D"
-            opacity="0.5"
-          />
-          <path
-            d="M 50 350 Q 200 260, 600 160 L 600 260 Q 200 350, 50 350 Z"
-            fill="#FCD34D"
-            opacity="0.6"
-          />
-          <path
-            d="M 50 350 Q 200 280, 550 180 L 550 240 Q 200 340, 50 350 Z"
-            fill="#FCD34D"
-            opacity="0.7"
-          />
-
-          {/* Labels */}
-          <text x="100" y="340" fill="#92400E" fontSize="14" fontWeight="600">Plausible</text>
-          <text x="200" y="290" fill="#92400E" fontSize="14" fontWeight="600">Possible</text>
-          <text x="300" y="240" fill="#92400E" fontSize="14" fontWeight="600">Probable</text>
-          <text x="400" y="190" fill="#92400E" fontSize="14" fontWeight="600">Preferable</text>
-          <text x="520" y="140" fill="#92400E" fontSize="14" fontWeight="600">Wildcard</text>
-
-          {/* Example scenario card on cone */}
-          <foreignObject x="250" y="220" width="200" height="80">
-            <div className="bg-white rounded-lg shadow-lg p-3 border border-gray-200">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-xs font-semibold">Legal Clarification</span>
-                <span className="text-xs text-gray-500">📝</span>
-              </div>
-              <p className="text-xs text-gray-700">Courts gradually clarify existing copyright law for AI content</p>
-            </div>
-          </foreignObject>
-        </svg>
-
-        {/* Timeline */}
-        <div className="flex justify-between items-center mt-4 px-4">
-          <div className="flex items-center gap-8">
-            <div className="text-center">
-              <div className="w-3 h-3 bg-gray-400 rounded-full mx-auto mb-1"></div>
-              <div className="text-xs text-gray-700">2025</div>
-              <div className="text-xs text-gray-600">Present</div>
-            </div>
-            <div className="text-center">
-              <div className="w-3 h-3 bg-gray-400 rounded-full mx-auto mb-1"></div>
-              <div className="text-xs text-gray-700">2026</div>
-              <div className="text-xs text-gray-600">Short-term</div>
-            </div>
-            <div className="text-center">
-              <div className="w-3 h-3 bg-gray-400 rounded-full mx-auto mb-1"></div>
-              <div className="text-xs text-gray-700">2027</div>
-              <div className="text-xs text-gray-600">Mid-term</div>
-            </div>
-            <div className="text-center">
-              <div className="w-3 h-3 bg-gray-400 rounded-full mx-auto mb-1"></div>
-              <div className="text-xs text-gray-700">2028</div>
-              <div className="text-xs text-gray-600">Long-term</div>
-            </div>
-            <div className="text-center">
-              <div className="w-3 h-3 bg-gray-400 rounded-full mx-auto mb-1"></div>
-              <div className="text-xs text-gray-700">2029</div>
-              <div className="text-xs text-gray-600">Horizon</div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Scenario Cards Grid */}
-      <div className="grid grid-cols-2 gap-6">
-        {/* Plausible Scenarios */}
-        <div>
-          <div className="bg-yellow-100 text-yellow-900 px-4 py-2 rounded-t-xl font-semibold text-sm">
-            Plausible - Reasonably possible
-          </div>
-          <div className="bg-gray-50 border border-gray-200 rounded-b-xl p-4 space-y-3">
-            {plausibleScenarios.length > 0 ? plausibleScenarios.map((scenario, idx) => (
-              <ScenarioCard key={idx} scenario={scenario} />
-            )) : (
-              <div className="space-y-3">
-                <ScenarioCard scenario={{
-                  title: 'Legal Clarification',
-                  description: 'Courts gradually clarify existing copyright law for AI content',
-                  probability: 'Plausible',
-                  timeframe: '2025-2027',
-                  icon: '📝'
-                }} />
-                <ScenarioCard scenario={{
-                  title: 'Legal Clarification',
-                  description: 'Courts gradually clarify existing copyright law for AI content',
-                  probability: 'Plausible',
-                  timeframe: '2025-2027',
-                  icon: '📝'
-                }} />
-                <ScenarioCard scenario={{
-                  title: 'Legal Clarification',
-                  description: 'Courts gradually clarify existing copyright law for AI content',
-                  probability: 'Plausible',
-                  timeframe: '2025-2027',
-                  icon: '📝'
-                }} />
-              </div>
-            )}
-            {/* Timeline for plausible scenarios */}
-            <div className="mt-4 pt-4 border-t border-gray-300">
-              <div className="flex justify-between text-xs text-gray-700 mb-2">
-                <span>2025</span>
-                <span>2026</span>
-                <span>2027</span>
-                <span>2028</span>
-                <span>2029</span>
-              </div>
-              <div className="relative h-2">
-                <div className="absolute inset-0 bg-gray-200 rounded-full"></div>
-                <div className="absolute left-0 h-2 bg-yellow-400 rounded-full" style={{width: '40%'}}></div>
-              </div>
-            </div>
-          </div>
+    <div className="space-y-8">
+      {/* Three Horizons Visualization */}
+      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+        {/* Title and Description */}
+        <div className="border-b border-gray-200 bg-gradient-to-r from-blue-50 via-purple-50 to-green-50 px-6 py-4">
+          <h3 className="text-lg font-bold text-gray-900">Three Horizons Model</h3>
+          <p className="text-sm text-gray-600 mt-1">
+            Visualizing the transition from current systems (H1) through emerging innovations (H2) to future visions (H3)
+          </p>
         </div>
 
-        {/* Probable Scenarios */}
-        <div>
-          <div className="bg-blue-500 text-white px-4 py-2 rounded-t-xl font-semibold text-sm">
-            Probable - Most likely outcomes
-          </div>
-          <div className="bg-gray-50 border border-gray-200 rounded-b-xl p-4 space-y-3">
-            {probableScenarios.length > 0 ? probableScenarios.map((scenario, idx) => (
-              <ScenarioCard key={idx} scenario={scenario} />
-            )) : (
-              <div className="space-y-3">
-                <ScenarioCard scenario={{
-                  title: 'Legal Clarification',
-                  description: 'Courts gradually clarify existing copyright law for AI content',
-                  probability: 'Probable',
-                  timeframe: '2025-2027',
-                  icon: '📝'
-                }} />
-                <ScenarioCard scenario={{
-                  title: 'Legal Clarification',
-                  description: 'Courts gradually clarify existing copyright law for AI content',
-                  probability: 'Probable',
-                  timeframe: '2025-2027',
-                  icon: '📝'
-                }} />
-                <ScenarioCard scenario={{
-                  title: 'Legal Clarification',
-                  description: 'Courts gradually clarify existing copyright law for AI content',
-                  probability: 'Probable',
-                  timeframe: '2025-2027',
-                  icon: '📝'
-                }} />
-              </div>
-            )}
-            {/* Timeline for probable scenarios */}
-            <div className="mt-4 pt-4 border-t border-gray-300">
-              <div className="flex justify-between text-xs text-gray-700 mb-2">
-                <span>Present</span>
-                <span>2026</span>
-                <span>2027</span>
-                <span>2028</span>
-                <span>2029</span>
-              </div>
-              <div className="relative h-2">
-                <div className="absolute inset-0 bg-gray-200 rounded-full"></div>
-                <div className="absolute left-0 h-2 bg-blue-500 rounded-full" style={{width: '60%'}}></div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+        {/* Waves Container */}
+        <div className="relative bg-gradient-to-br from-gray-50 to-white" style={{ height: '500px' }}>
+          {/* SVG Three Horizons Waves */}
+          <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
+            <defs>
+              {/* H1 gradient - Blue (declining) */}
+              <linearGradient id="h1Gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" style={{ stopColor: '#2563eb', stopOpacity: 0.6 }} />
+                <stop offset="100%" style={{ stopColor: '#3b82f6', stopOpacity: 0.2 }} />
+              </linearGradient>
+              {/* H2 gradient - Purple (transitioning) */}
+              <linearGradient id="h2Gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" style={{ stopColor: '#9333ea', stopOpacity: 0.2 }} />
+                <stop offset="50%" style={{ stopColor: '#a855f7', stopOpacity: 0.6 }} />
+                <stop offset="100%" style={{ stopColor: '#c084fc', stopOpacity: 0.2 }} />
+              </linearGradient>
+              {/* H3 gradient - Green (emerging) */}
+              <linearGradient id="h3Gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" style={{ stopColor: '#16a34a', stopOpacity: 0.2 }} />
+                <stop offset="100%" style={{ stopColor: '#22c55e', stopOpacity: 0.6 }} />
+              </linearGradient>
+            </defs>
 
-      {/* Icons Legend */}
-      <div className="bg-white border border-gray-200 rounded-xl p-6">
-        <h3 className="font-semibold mb-4">Icons Legend</h3>
-        <div className="grid grid-cols-2 gap-x-8 gap-y-3">
-          <div className="flex items-center gap-2">
-            <span className="text-gray-500">😐</span>
-            <span className="text-sm text-gray-800">Mixed/Neutral</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-yellow-500">😊👍</span>
-            <span className="text-sm text-gray-800">Mixed/Positive</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-orange-500">⚠️</span>
-            <span className="text-sm text-gray-800">Critical/Neutral</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-green-500">✅</span>
-            <span className="text-sm text-gray-800">Positive</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-red-500">❌</span>
-            <span className="text-sm text-gray-800">Negative/Disruptive</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-blue-500">📈</span>
-            <span className="text-sm text-gray-800">Evolution/Trend</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-purple-500">📝</span>
-            <span className="text-sm text-gray-800">Trend/Evolution</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-gray-600">⚠️</span>
-            <span className="text-sm text-gray-800">Disruption/Warning</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-pink-500">🚀</span>
-            <span className="text-sm text-gray-800">Breakthrough</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-amber-500">⚡</span>
-            <span className="text-sm text-gray-800">Warning/Disruption</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+            {/* H1 - Current/Declining (Blue wave starting high, declining) */}
+            <path
+              d="M 0,25 Q 25,28 50,45 T 100,75 L 100,100 L 0,100 Z"
+              fill="url(#h1Gradient)"
+            />
+            <path
+              d="M 0,25 Q 25,28 50,45 T 100,75"
+              fill="none"
+              stroke="#2563eb"
+              strokeWidth="0.6"
+            />
 
-function ScenarioCard({ scenario }: { scenario: Scenario }) {
-  return (
-    <div className="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-md transition-shadow">
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <h4 className="font-semibold text-sm">{scenario.title}</h4>
-            {scenario.icon && <span className="text-sm">{scenario.icon}</span>}
-          </div>
-          <p className="text-xs text-gray-700">{scenario.description}</p>
-        </div>
-        <button className="text-gray-500 hover:text-gray-700">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+            {/* H2 - Transition/Innovation (Purple bell curve) */}
+            <path
+              d="M 0,85 Q 25,75 40,55 Q 55,35 70,40 Q 85,45 100,60 L 100,100 L 0,100 Z"
+              fill="url(#h2Gradient)"
+            />
+            <path
+              d="M 0,85 Q 25,75 40,55 Q 55,35 70,40 Q 85,45 100,60"
+              fill="none"
+              stroke="#9333ea"
+              strokeWidth="0.6"
+            />
+
+            {/* H3 - Future Vision (Green wave starting low, rising) */}
+            <path
+              d="M 0,95 Q 30,95 50,85 Q 70,75 85,55 T 100,20 L 100,100 L 0,100 Z"
+              fill="url(#h3Gradient)"
+            />
+            <path
+              d="M 0,95 Q 30,95 50,85 Q 70,75 85,55 T 100,20"
+              fill="none"
+              stroke="#16a34a"
+              strokeWidth="0.6"
+            />
+
+            {/* NOW marker at left */}
+            <circle cx="3" cy="50" r="2" fill="#1f2937" />
+            <text x="3" y="58" fontSize="3" fill="#1f2937" textAnchor="middle" fontWeight="bold">NOW</text>
           </svg>
-        </button>
+
+          {/* Horizon labels on left with tooltips */}
+          <div className="absolute left-3 top-0 bottom-0 flex flex-col justify-around text-xs font-medium pointer-events-auto z-20 py-12">
+            {horizons.map(({ key, label, tooltip, bgClass }) => (
+              <div key={key} className="relative group">
+                <div className={`${bgClass} text-white px-3 py-1.5 rounded shadow-md cursor-help`}>
+                  {label}
+                </div>
+                {/* Tooltip on hover */}
+                <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 hidden group-hover:block z-50 pointer-events-none">
+                  <div className="bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl max-w-xs">
+                    <div className="font-semibold mb-1">{label}</div>
+                    {tooltip}
+                    {/* Arrow pointing left */}
+                    <div className="absolute right-full top-1/2 -translate-y-1/2 border-[6px] border-transparent border-r-gray-900"></div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Scenario markers ON the waves */}
+          {scenarios.map((scenario, idx) => {
+            const pos = calculateHorizonPosition(scenario, idx);
+
+            // Get border color matching horizon
+            const borderColor =
+              scenario.type === 'h1' ? 'border-blue-600' :
+              scenario.type === 'h2' ? 'border-purple-600' :
+              'border-green-600'; // h3
+
+            const bgColor =
+              scenario.type === 'h1' ? 'bg-blue-50' :
+              scenario.type === 'h2' ? 'bg-purple-50' :
+              'bg-green-50'; // h3
+
+            return (
+              <div
+                key={idx}
+                className="absolute transform -translate-x-1/2 -translate-y-1/2 z-10 group cursor-pointer"
+                style={{
+                  left: `${pos.x}%`,
+                  top: `${pos.y}%`,
+                }}
+                onClick={() => setSelectedScenario(scenario)}
+              >
+                {/* Small card with title */}
+                <div className={`${bgColor} border-2 ${borderColor} rounded px-2 py-1 shadow-md hover:shadow-xl transition-all max-w-[140px]`}>
+                  <div className="text-[9px] font-bold text-gray-900 leading-tight line-clamp-2">
+                    {scenario.title}
+                  </div>
+                </div>
+
+                {/* Hover popup with details */}
+                <div className="absolute left-full ml-2 top-0 hidden group-hover:block z-50 pointer-events-none">
+                  <div className="bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl w-64">
+                    <div className="font-bold mb-1">{scenario.title}</div>
+                    <div className="text-[10px] mb-2 opacity-90">{scenario.timeframe}</div>
+                    <p
+                      className="text-[10px] leading-relaxed"
+                      dangerouslySetInnerHTML={{ __html: replaceCitations(scenario.description.substring(0, 150) + '...') }}
+                    />
+                    {/* Arrow pointing left */}
+                    <div className="absolute right-full top-4 border-[6px] border-transparent border-r-gray-900"></div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Timeline at bottom */}
+        <div className="border-t border-gray-200 bg-gray-50 px-8 py-3">
+          <div className="flex justify-between text-sm text-gray-600">
+            <div><span className="font-semibold">2025</span><br/><span className="text-xs">Present</span></div>
+            <div><span className="font-semibold">2029</span><br/><span className="text-xs">Short-term</span></div>
+            <div><span className="font-semibold">2033</span><br/><span className="text-xs">Mid-term</span></div>
+            <div><span className="font-semibold">2037</span><br/><span className="text-xs">Long-term</span></div>
+            <div><span className="font-semibold">2040</span><br/><span className="text-xs">Horizon</span></div>
+          </div>
+        </div>
       </div>
+
+      {/* Three Horizons Columns */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {horizons.map(({ key, label, subtitle, tooltip, bgClass }) => {
+          const typeScenarios = scenarios.filter(s => s.type === key);
+
+          return (
+            <div key={key} className="flex flex-col">
+              {/* Column header */}
+              <div className={`${bgClass} text-white px-4 py-3 rounded-t-lg text-center group relative`}>
+                <div className="font-bold text-sm">{label}</div>
+                <div className="text-xs opacity-90">{subtitle}</div>
+                {/* Tooltip on hover */}
+                <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 hidden group-hover:block z-50 pointer-events-none">
+                  <div className="bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl max-w-xs whitespace-normal">
+                    {tooltip}
+                    {/* Arrow pointing up */}
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 border-[6px] border-transparent border-b-gray-900"></div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Scenario cards */}
+              <div className="bg-gray-50 rounded-b-lg p-3 space-y-3 flex-1">
+                {typeScenarios.length > 0 ? (
+                  typeScenarios.map((scenario, idx) => (
+                    <div
+                      key={idx}
+                      className="bg-white rounded-lg p-3 border border-gray-200 hover:shadow-lg transition-shadow cursor-pointer"
+                      onClick={() => setSelectedScenario(scenario)}
+                    >
+                      {/* Title with edit icon */}
+                      <div className="flex items-start justify-between mb-2">
+                        <h4 className="font-semibold text-sm text-gray-900 flex-1 leading-tight">
+                          {scenario.title}
+                        </h4>
+                        <button className="text-gray-400 hover:text-gray-600 ml-2 flex-shrink-0">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                          </svg>
+                        </button>
+                      </div>
+
+                      {/* Description with citations */}
+                      <p
+                        className="text-xs text-gray-800 mb-3 leading-relaxed"
+                        dangerouslySetInnerHTML={{ __html: replaceCitations(scenario.description) }}
+                      />
+
+                      {/* Individual timeline slider */}
+                      <TimelineSlider scenario={scenario} />
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-gray-500 text-center py-4">No {label.toLowerCase()} scenarios</p>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Detailed scenario modal */}
+      {selectedScenario && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-gray-900">{selectedScenario.title}</h2>
+                <div className="flex items-center gap-3 mt-1">
+                  <span className="text-sm text-gray-500">{selectedScenario.timeframe}</span>
+                  <span className={`text-xs px-2 py-1 rounded-full font-medium ${
+                    selectedScenario.type === 'h1' ? 'bg-blue-100 text-blue-800' :
+                    selectedScenario.type === 'h2' ? 'bg-purple-100 text-purple-800' :
+                    'bg-green-100 text-green-800' // h3
+                  }`}>
+                    {selectedScenario.type === 'h1' ? 'Horizon 1 (Current)' :
+                     selectedScenario.type === 'h2' ? 'Horizon 2 (Transition)' :
+                     'Horizon 3 (Future)'}
+                  </span>
+                </div>
+              </div>
+              <button
+                onClick={() => setSelectedScenario(null)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <h3 className="font-semibold text-gray-700 mb-2">Description</h3>
+                <p
+                  className="text-gray-600 leading-relaxed"
+                  dangerouslySetInnerHTML={{ __html: replaceCitations(selectedScenario.description) }}
+                />
+              </div>
+              {selectedScenario.sentiment && (
+                <div>
+                  <h3 className="font-semibold text-gray-700 mb-2">Sentiment</h3>
+                  <span className="text-gray-600">{selectedScenario.sentiment}</span>
+                </div>
+              )}
+              {selectedScenario.drivers && selectedScenario.drivers.length > 0 && (
+                <div>
+                  <h3 className="font-semibold text-gray-700 mb-2">Key Drivers</h3>
+                  <ul className="space-y-2">
+                    {selectedScenario.drivers.map((driver, idx) => (
+                      <li key={idx} className="text-gray-600">
+                        <span className="font-medium">{driver.type}:</span> {driver.description}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {selectedScenario.signals && selectedScenario.signals.length > 0 && (
+                <div>
+                  <h3 className="font-semibold text-gray-700 mb-2">Signals</h3>
+                  <ul className="list-disc list-inside space-y-1">
+                    {selectedScenario.signals.map((signal, idx) => (
+                      <li key={idx} className="text-gray-600">{signal}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -5,6 +5,7 @@
 interface Tab {
   id: string;
   label: string;
+  tooltip: string;
 }
 
 interface TabNavigationProps {
@@ -13,11 +14,31 @@ interface TabNavigationProps {
 }
 
 const tabs: Tab[] = [
-  { id: 'strategic-recommendations', label: 'Strategic Recommendations' },
-  { id: 'market-signals', label: 'Market Signals & Strategic Risks' },
-  { id: 'consensus', label: 'Consensus Analysis' },
-  { id: 'impact-timeline', label: 'Impact Timeline' },
-  { id: 'future-horizons', label: 'Future Horizons' },
+  {
+    id: 'strategic-recommendations',
+    label: 'Strategic Recommendations',
+    tooltip: 'Actionable strategic insights across near, mid, and long-term horizons'
+  },
+  {
+    id: 'market-signals',
+    label: 'Market Signals & Strategic Risks',
+    tooltip: 'Identify emerging trends, disruption scenarios, and strategic opportunities'
+  },
+  {
+    id: 'consensus',
+    label: 'Consensus Analysis',
+    tooltip: 'Analyze convergent themes and identify areas of agreement across sources'
+  },
+  {
+    id: 'impact-timeline',
+    label: 'Impact Timeline',
+    tooltip: 'Visualize key impacts and developments over time'
+  },
+  {
+    id: 'future-horizons',
+    label: 'Future Horizons',
+    tooltip: 'Explore long-term scenarios and future possibilities'
+  },
 ];
 
 export function TabNavigation({ activeTab, onTabChange }: TabNavigationProps) {
@@ -27,6 +48,7 @@ export function TabNavigation({ activeTab, onTabChange }: TabNavigationProps) {
         <button
           key={tab.id}
           onClick={() => onTabChange(tab.id)}
+          title={tab.tooltip}
           className={`
             px-6 py-3 text-sm font-medium transition-all relative
             ${activeTab === tab.id

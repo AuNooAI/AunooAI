@@ -919,12 +919,12 @@
                         </div>
                         
                         <div class="mb-3">
-                            <label for="analysisDepth" class="form-label">Analysis Depth</label>
-                            <select class="form-select" id="analysisDepth">
-                                <option value="standard" selected>Standard Analysis</option>
-                                <option value="detailed">Detailed Analysis</option>
-                                <option value="comprehensive">Comprehensive Analysis</option>
+                            <label for="sourceQuality" class="form-label">Source Quality</label>
+                            <select class="form-select" id="sourceQuality">
+                                <option value="all" selected>All Sources</option>
+                                <option value="high_quality">High Quality Only</option>
                             </select>
+                            <small class="text-muted">High Quality = High factual reporting AND high credibility rating</small>
                         </div>
                         
                         <div class="mb-3">
@@ -1325,22 +1325,22 @@ async function loadFuturesConeAnalysis() {
     const timeframeElement = document.getElementById('timeframe');
     const modelElement = document.getElementById('model');
     const futureHorizonElement = document.getElementById('futureHorizon');
-    const analysisDepthElement = document.getElementById('analysisDepth');
+    const sourceQualityElement = document.getElementById('sourceQuality');
     const scenarioCountElement = document.getElementById('scenarioCount');
-    
+
     const loadingSpinner = document.getElementById('loadingSpinner');
     const futuresConeContainer = document.getElementById('futuresConeContainer');
-    
+
     if (!topicElement || !timeframeElement || !modelElement) {
         showError('Required form elements not found. Please refresh the page.');
         return;
     }
-    
+
     const topic = topicElement.value;
     const timeframe = timeframeElement.value;
     const model = modelElement.value;
     const futureHorizon = futureHorizonElement ? futureHorizonElement.value : '5';
-    const analysisDepth = analysisDepthElement ? analysisDepthElement.value : 'standard';
+    const sourceQuality = sourceQualityElement ? sourceQualityElement.value : 'all';
     const scenarioCount = scenarioCountElement ? scenarioCountElement.value : 'standard';
     
     if (!topic) {
@@ -1394,7 +1394,7 @@ async function loadFuturesConeAnalysis() {
             timeframe_days: actualTimeframe,
             model: model,
             future_horizon: futureHorizon,
-            analysis_depth: analysisDepth,
+            source_quality: sourceQuality,
             sample_size_mode: sampleSizeMode
         });
         
@@ -2046,26 +2046,26 @@ function saveConfigurationAndClose() {
     const model = document.getElementById('model').value;
     const timeframe = document.getElementById('timeframe').value;
     const futureHorizon = document.getElementById('futureHorizon').value;
-    const analysisDepth = document.getElementById('analysisDepth').value;
+    const sourceQuality = document.getElementById('sourceQuality').value;
     const sampleSizeMode = document.getElementById('sampleSizeMode').value;
     const customLimit = document.getElementById('customLimit').value;
-    
+
     if (!topic) {
         alert('Please select a topic');
         return;
     }
-    
+
     if (!model) {
         alert('Please select a model');
         return;
     }
-    
+
     const config = {
         topic,
         model,
         timeframe,
         futureHorizon,
-        analysisDepth,
+        sourceQuality,
         sampleSizeMode,
         customLimit,
         timestamp: new Date().toISOString()
@@ -2111,7 +2111,7 @@ function generateCacheKey(config) {
         customDays: config.customDays,
         model: config.model,
         futureHorizon: config.futureHorizon,
-        analysisDepth: config.analysisDepth,
+        sourceQuality: config.sourceQuality,
         sampleSizeMode: config.sampleSizeMode,
         customLimit: config.customLimit
     };
@@ -2131,18 +2131,18 @@ function generateCacheKey(config) {
 function getCurrentConfiguration() {
     const timeframe = document.getElementById('timeframe')?.value || '';
     let customDays = null;
-    
+
     if (timeframe === 'custom') {
         customDays = document.getElementById('customDays')?.value || null;
     }
-    
+
     return {
         topic: document.getElementById('topic')?.value || '',
         timeframe: timeframe,
         customDays: customDays,
         model: document.getElementById('model')?.value || '',
         futureHorizon: document.getElementById('futureHorizon')?.value || '5',
-        analysisDepth: document.getElementById('analysisDepth')?.value || 'standard',
+        sourceQuality: document.getElementById('sourceQuality')?.value || 'all',
         sampleSizeMode: document.getElementById('sampleSizeMode')?.value || 'auto',
         customLimit: document.getElementById('customLimit')?.value || null
     };
@@ -2233,7 +2233,7 @@ async function loadSavedConfiguration() {
                 }
             }
             if (config.futureHorizon) document.getElementById('futureHorizon').value = config.futureHorizon;
-            if (config.analysisDepth) document.getElementById('analysisDepth').value = config.analysisDepth;
+            if (config.sourceQuality) document.getElementById('sourceQuality').value = config.sourceQuality;
             if (config.sampleSizeMode) {
                 document.getElementById('sampleSizeMode').value = config.sampleSizeMode;
                 handleSampleSizeModeChange();
@@ -2268,7 +2268,7 @@ function clearSavedConfiguration() {
         document.getElementById('model').value = '';
         document.getElementById('timeframe').value = '365d';
         document.getElementById('futureHorizon').value = '5';
-        document.getElementById('analysisDepth').value = 'standard';
+        document.getElementById('sourceQuality').value = 'all';
         document.getElementById('sampleSizeMode').value = 'auto';
         document.getElementById('customLimit').value = '50';
         document.getElementById('customDays').style.display = 'none';

@@ -325,7 +325,7 @@ export async function generateTrendConvergence(params: {
   topic: string;
   timeframe_days?: number;
   model: string;
-  analysis_depth?: string;
+  source_quality?: string;
   sample_size_mode?: string;
   custom_limit?: number;
   consistency_mode?: string;
@@ -341,7 +341,7 @@ export async function generateTrendConvergence(params: {
 
   // Optional params with defaults
   queryParams.append('timeframe_days', String(params.timeframe_days || 365));
-  queryParams.append('analysis_depth', params.analysis_depth || 'standard');
+  queryParams.append('source_quality', params.source_quality || 'all');
   queryParams.append('sample_size_mode', params.sample_size_mode || 'auto');
   queryParams.append('consistency_mode', params.consistency_mode || 'balanced');
   queryParams.append('enable_caching', String(params.enable_caching !== false));

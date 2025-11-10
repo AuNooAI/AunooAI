@@ -47,6 +47,7 @@ function App() {
   const [showRawModal, setShowRawModal] = useState(false);
   const [rawAnalysisData, setRawAnalysisData] = useState<any>(null);
   const [loadingRaw, setLoadingRaw] = useState(false);
+  const [articleList, setArticleList] = useState<any[]>([]);
 
   // Check URL parameters for auto-opening onboarding wizard
   useEffect(() => {
@@ -93,6 +94,27 @@ function App() {
       setContextInfo(info);
     }
   }, [config.model, config.custom_limit]);
+
+  // Fetch articles for Future Horizons tab when analysis ID is available
+  useEffect(() => {
+    const fetchArticlesForHorizons = async () => {
+      if (activeTab === 'future-horizons' && data?.analysis_id && config.topic) {
+        try {
+          const endpoint = `/api/trend-convergence/horizons/${data.analysis_id}/articles?topic=${encodeURIComponent(config.topic)}`;
+          const response = await fetch(endpoint);
+
+          if (response.ok) {
+            const result = await response.json();
+            setArticleList(result.articles || []);
+          }
+        } catch (error) {
+          console.error('Failed to fetch articles for Future Horizons:', error);
+        }
+      }
+    };
+
+    fetchArticlesForHorizons();
+  }, [activeTab, data?.analysis_id, config.topic]);
 
   const handleGenerate = async () => {
     await generateAnalysis();
@@ -295,17 +317,16 @@ function App() {
 
                   {/* Right Column */}
                   <div className="space-y-6">
-                    {/* Analysis Depth */}
+                    {/* Source Quality Filter */}
                     <div>
-                      <label className="text-sm font-semibold mb-2 block">Analysis Depth</label>
-                      <Select value={config.analysis_depth} onValueChange={(value) => updateConfig({ analysis_depth: value })}>
+                      <label className="text-sm font-semibold mb-2 block">Source Quality</label>
+                      <Select value={config.source_quality} onValueChange={(value) => updateConfig({ source_quality: value })}>
                         <SelectTrigger className="w-full">
-                          <SelectValue placeholder="Standard analysis" />
+                          <SelectValue placeholder="All sources" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="quick">Quick Overview</SelectItem>
-                          <SelectItem value="standard">Standard analysis</SelectItem>
-                          <SelectItem value="deep">Deep Dive</SelectItem>
+                          <SelectItem value="all">All Sources</SelectItem>
+                          <SelectItem value="high_quality">High Quality Only (High Factuality & Credibility)</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -521,6 +542,13 @@ function App() {
               {/* Impact Timeline Tab */}
               {activeTab === 'impact-timeline' && (
                 <>
+                  {/* Dashboard Description */}
+                  <div className="mb-6 p-4 bg-blue-50 border-l-4 border-blue-500 rounded-r-lg">
+                    <p className="text-sm text-gray-700">
+                      <strong>Impact Timeline:</strong> Visualize key impacts and developments over time to understand when changes will occur.
+                    </p>
+                  </div>
+
                   {/* Impact Timeline Cards */}
                   <div className="space-y-4">
                     {(data.impact_timeline || []).map((item, idx) => {
@@ -582,6 +610,13 @@ function App() {
               {/* Market Signals & Strategic Risks Tab */}
               {activeTab === 'market-signals' && (
                 <>
+                  {/* Dashboard Description */}
+                  <div className="mb-6 p-4 bg-purple-50 border-l-4 border-purple-500 rounded-r-lg">
+                    <p className="text-sm text-gray-700">
+                      <strong>Market Signals & Strategic Risks:</strong> Identify emerging trends, disruption scenarios, and strategic opportunities to stay ahead of market changes.
+                    </p>
+                  </div>
+
                   {/* Future Signal Table */}
                   <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
                     <table className="w-full">
@@ -737,6 +772,13 @@ function App() {
               {/* Consensus Analysis Tab */}
               {activeTab === 'consensus' && (
                 <>
+                  {/* Dashboard Description */}
+                  <div className="mb-6 p-4 bg-green-50 border-l-4 border-green-500 rounded-r-lg">
+                    <p className="text-sm text-gray-700">
+                      <strong>Consensus Analysis:</strong> Analyze convergent themes across multiple sources and identify areas of agreement, emerging consensus, and divergent viewpoints.
+                    </p>
+                  </div>
+
                   {/* Consensus Category Cards (New Auspex Structure) */}
                   <div className="space-y-4">
                     {(data.categories || []).map((category, idx) => (
@@ -826,6 +868,13 @@ function App() {
               {/* Strategic Recommendations Tab */}
               {activeTab === 'strategic-recommendations' && (
               <>
+                {/* Dashboard Description */}
+                <div className="mb-6 p-4 bg-pink-50 border-l-4 border-pink-500 rounded-r-lg">
+                  <p className="text-sm text-gray-700">
+                    <strong>Strategic Recommendations:</strong> Actionable strategic insights across near, mid, and long-term horizons to guide decision-making.
+                  </p>
+                </div>
+
                 {/* Strategic Recommendations */}
                 <div>
                 <div className="grid grid-cols-3 gap-6">
@@ -968,7 +1017,14 @@ function App() {
               {/* Future Horizons Tab */}
               {activeTab === 'future-horizons' && (
                 <>
-                  <FutureHorizons scenarios={data.scenarios || []} />
+                  {/* Dashboard Description */}
+                  <div className="mb-6 p-4 bg-indigo-50 border-l-4 border-indigo-500 rounded-r-lg">
+                    <p className="text-sm text-gray-700">
+                      <strong>Future Horizons:</strong> Explore long-term scenarios and future possibilities to prepare for what's ahead.
+                    </p>
+                  </div>
+
+                  <FutureHorizons scenarios={data.scenarios || []} articleList={articleList} />
 
                   {/* AI Disclosure Footer */}
                   <AIDisclosureFooter

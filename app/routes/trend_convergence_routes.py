@@ -125,6 +125,168 @@ def calculate_optimal_sample_size(model: str, sample_size_mode: str = 'auto', cu
     
     return max(min_limit, min(base_sample_size, max_limit))
 
+def filter_articles_by_source_quality(articles: List, source_quality: str) -> List:
+    """
+    Filter articles based on source quality setting.
+
+    Args:
+        articles: List of article dictionaries
+        source_quality: 'all' or 'high_quality'
+
+    Returns:
+        Filtered list of articles
+    """
+    if source_quality == 'all':
+        return articles
+
+    # High quality filter: factual_reporting in ['High', 'Very High'] AND mbfc_credibility_rating in ['High', 'Very High']
+    high_quality_articles = []
+    for article in articles:
+        factual = (article.get('factual_reporting') or '').strip()
+        credibility = (article.get('mbfc_credibility_rating') or '').strip()
+
+        # Accept if both factuality and credibility are High or Very High
+        if (factual in ['High', 'Very High', 'high', 'very high']) and \
+           (credibility in ['High', 'Very High', 'high', 'very high']):
+            high_quality_articles.append(article)
+
+    return high_quality_articles
+
+def weight_articles_for_dashboard(articles: List, dashboard_type: str) -> List:
+    """
+    Weight/prioritize articles based on dashboard-specific criteria.
+    Returns articles sorted by relevance for that dashboard type.
+
+    Args:
+        articles: List of article dictionaries
+        dashboard_type: 'consensus', 'strategic', 'signals', 'timeline', 'horizons'
+
+    Returns:
+        Articles sorted by dashboard-specific relevance
+    """
+    from datetime import datetime, timedelta
+    import copy
+
+    scored_articles = []
+    now = datetime.now()
+
+    for article in articles:
+        score = 0.0
+        # Convert RowMapping to dict if needed
+        if hasattr(article, '_mapping'):
+            article_dict = dict(article._mapping)
+        elif hasattr(article, '__dict__'):
+            article_dict = dict(article.__dict__)
+        else:
+            article_dict = dict(article)
+
+        # Parse publication date
+        pub_date_str = article_dict.get('publication_date', '')
+        try:
+            if pub_date_str:
+                pub_date = datetime.fromisoformat(pub_date_str.replace('Z', '+00:00'))
+                # Remove timezone info to make it naive for comparison
+                if pub_date.tzinfo is not None:
+                    pub_date = pub_date.replace(tzinfo=None)
+            else:
+                pub_date = now
+        except:
+            pub_date = now
+
+        days_old = (now - pub_date).days
+
+        if dashboard_type == 'consensus':
+            # Prioritize articles with high agreement signals
+            # Boost articles with quality indicators
+            quality_score = article_dict.get('quality_score', 0) or 0
+            score += float(quality_score) * 2
+
+            # Boost articles from high-credibility sources
+            if (article_dict.get('mbfc_credibility_rating') or '').lower() in ['high', 'very high']:
+                score += 5
+
+            # Slight preference for recent but not too recent (30-180 days old)
+            if 30 <= days_old <= 180:
+                score += 3
+
+        elif dashboard_type == 'strategic':
+            # Prioritize authoritative sources and long-form analysis
+            # High factuality and credibility
+            if (article_dict.get('factual_reporting') or '').lower() in ['high', 'very high']:
+                score += 5
+            if (article_dict.get('mbfc_credibility_rating') or '').lower() in ['high', 'very high']:
+                score += 5
+
+            # Quality score boost
+            quality_score = article_dict.get('quality_score', 0) or 0
+            score += float(quality_score) * 3
+
+            # Moderate recency preference (within 1 year)
+            if days_old <= 365:
+                score += 2
+
+        elif dashboard_type == 'signals':
+            # Prioritize recent articles (last 90 days) and emerging trends
+            if days_old <= 30:
+                score += 10  # Very recent
+            elif days_old <= 90:
+                score += 7   # Recent
+            elif days_old <= 180:
+                score += 3   # Moderately recent
+
+            # Boost articles marked with future signals
+            if article_dict.get('future_signal'):
+                score += 5
+
+            # Time to impact indicators
+            if (article_dict.get('time_to_impact') or '').lower() in ['immediate', 'short-term']:
+                score += 4
+
+        elif dashboard_type == 'timeline':
+            # Prioritize articles with temporal mentions
+            # Boost articles with time_to_impact data
+            if article_dict.get('time_to_impact'):
+                score += 7
+
+            # Distribute across time periods - prefer variety
+            if days_old <= 60:
+                score += 4
+            elif days_old <= 180:
+                score += 5  # Sweet spot for timeline analysis
+            elif days_old <= 365:
+                score += 3
+
+            # Quality matters for timeline accuracy
+            quality_score = article_dict.get('quality_score', 0) or 0
+            score += float(quality_score) * 2
+
+        elif dashboard_type == 'horizons':
+            # Prioritize speculative/forward-looking content
+            # Future signals are key
+            if article_dict.get('future_signal'):
+                score += 8
+
+            # Longer time to impact = more relevant for futures
+            time_impact = (article_dict.get('time_to_impact') or '').lower()
+            if 'long' in time_impact or 'mid' in time_impact:
+                score += 6
+
+            # Some recency but not critical
+            if days_old <= 180:
+                score += 2
+
+        else:  # Default/unknown dashboard type
+            # Basic quality scoring
+            quality_score = article_dict.get('quality_score', 0) or 0
+            score += float(quality_score)
+
+        article_dict['dashboard_score'] = score
+        scored_articles.append((score, article_dict))
+
+    # Sort by score (highest first) and return articles
+    scored_articles.sort(key=lambda x: x[0], reverse=True)
+    return [article for (score, article) in scored_articles]
+
 def _extract_from_code_block(text: str) -> str:
     """Extract JSON from code blocks if present"""
     import re
@@ -387,7 +549,7 @@ async def generate_trend_convergence(
     topic: str,
     timeframe_days: int = Query(365),
     model: str = Query(...),
-    analysis_depth: str = Query("standard"),
+    source_quality: str = Query("all", description="Source quality filter: all, high_quality"),
     sample_size_mode: str = Query("auto"),
     custom_limit: int = Query(None),
     persona: str = Query("executive", description="Analysis persona: executive, analyst, strategist"),
@@ -411,7 +573,7 @@ async def generate_trend_convergence(
 
         # Generate comprehensive cache key for all parameters including tab
         cache_key = generate_comprehensive_cache_key(
-            topic, timeframe_days, model, analysis_depth, sample_size_mode,
+            topic, timeframe_days, model, source_quality, sample_size_mode,
             custom_limit, profile_id, consistency_mode, persona, customer_type, tab
         )
 
@@ -436,7 +598,7 @@ async def generate_trend_convergence(
                     customer_type=customer_type,
                     cache_key=cache_key,
                     cache_hit=True,
-                    metadata={'analysis_depth': analysis_depth}
+                    metadata={'source_quality': source_quality}
                 )
                 facade.complete_analysis_run_log(run_id, status='completed')
 
@@ -462,14 +624,32 @@ async def generate_trend_convergence(
 
         if not articles:
             raise HTTPException(
-                status_code=404, 
+                status_code=404,
                 detail=f"No articles found for topic '{topic}' in the specified timeframe"
             )
-        
+
         logger.info(f"Found {len(articles)} articles for analysis")
-        
+
+        # Filter by source quality if specified
+        filtered_articles = filter_articles_by_source_quality(articles, source_quality)
+        logger.info(f"After source quality filter ({source_quality}): {len(filtered_articles)} articles")
+
+        if not filtered_articles:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No high-quality articles found for topic '{topic}'. Try using 'All Sources' filter."
+            )
+
+        # Weight/prioritize articles for the specific dashboard type (if tab is specified)
+        if tab:
+            weighted_articles = weight_articles_for_dashboard(filtered_articles, tab)
+            logger.info(f"Articles weighted for dashboard type: {tab}")
+        else:
+            # No specific tab, use default weighting (balanced)
+            weighted_articles = filtered_articles
+
         # Use deterministic article selection for consistency
-        diverse_articles = select_articles_deterministic(articles, min(len(articles), optimal_sample_size), consistency_mode)
+        diverse_articles = select_articles_deterministic(weighted_articles, min(len(weighted_articles), optimal_sample_size), consistency_mode)
         logger.info(f"Selected {len(diverse_articles)} diverse articles using {consistency_mode.value} mode")
 
         # Create analysis run log
@@ -488,7 +668,7 @@ async def generate_trend_convergence(
             cache_key=cache_key,
             cache_hit=False,
             metadata={
-                'analysis_depth': analysis_depth,
+                'source_quality': source_quality,
                 'sample_size_mode': sample_size_mode,
                 'custom_limit': custom_limit
             }
@@ -584,6 +764,9 @@ ORGANIZATIONAL CONTEXT:
             formatted_prompt = generate_future_horizons_prompt(
                 topic, diverse_articles, org_context
             )
+            logger.info(f"Future Horizons prompt (first 500 chars): {formatted_prompt[:500]}")
+            logger.info(f"Checking if prompt contains 'Three Horizons': {'Three Horizons' in formatted_prompt}")
+            logger.info(f"Checking if prompt contains 'h1|h2|h3': {'h1|h2|h3' in formatted_prompt}")
         else:
             # Generate all tabs with unified prompt (legacy mode)
             logger.info("Generating all tabs with unified prompt")
@@ -938,6 +1121,22 @@ Article {i}:
             logger.error(f"Invalid JSON structure in response: {e}")
             raise HTTPException(status_code=500, detail="AI response contains invalid JSON structure")
 
+        # Validate Three Horizons scenarios
+        if 'scenarios' in trend_convergence_data and isinstance(trend_convergence_data['scenarios'], list):
+            for i, scenario in enumerate(trend_convergence_data['scenarios']):
+                if not isinstance(scenario, dict):
+                    logger.error(f"Scenario {i} is not a dict: {scenario}")
+                    continue
+
+                # Log actual type value for debugging
+                actual_type = scenario.get('type', 'MISSING')
+                logger.info(f"Scenario {i} '{scenario.get('title', 'NO TITLE')}' has type: '{actual_type}'")
+
+                # Validate type is one of h1, h2, h3
+                if actual_type not in ['h1', 'h2', 'h3']:
+                    logger.error(f"INVALID TYPE: Scenario {i} has type '{actual_type}' instead of h1/h2/h3")
+                    logger.error(f"Full scenario: {scenario}")
+
         # Normalize sentiment distributions in categories (fix data quality issues)
         if 'categories' in trend_convergence_data:
             for category in trend_convergence_data['categories']:
@@ -965,7 +1164,7 @@ Article {i}:
             'total_articles_found': len(articles),
             'timeframe_days': timeframe_days,
             'model_used': model,
-            'analysis_depth': analysis_depth,
+            'source_quality': source_quality,
             'persona': persona,
             'customer_type': customer_type,
             'consistency_mode': consistency_mode.value,
@@ -1731,6 +1930,13 @@ def generate_strategic_recommendations_prompt(
 
     prompt = f"""Analyze {len(articles)} articles about "{topic}" and generate strategic recommendations across three time horizons.{org_context}
 
+CRITICAL CITATION INSTRUCTIONS:
+- Use numbered citations [1], [2], [3] to reference articles
+- The numbered article list is provided below with titles, sources, and URLs
+- Example: "Multiple sources including [1] and [3] indicate that..." or "According to [1], [2], and [5]..."
+- Use 2-4 citations per description to support key claims
+- Do NOT use plain text source names like "(The Hindu, Times of India)"
+
 REQUIRED OUTPUT FORMAT:
 {{
   "strategic_recommendations": {{
@@ -1739,10 +1945,10 @@ REQUIRED OUTPUT FORMAT:
       "trends": [
         {{
           "name": "Trend name",
-          "description": "Detailed trend description",
+          "description": "Detailed trend description with numbered citations [1], [2] to support analysis",
           "confidence": "High|Medium|Low",
           "key_drivers": ["driver1", "driver2"],
-          "potential_impact": "Impact description"
+          "potential_impact": "Impact description with supporting citations [3], [4]"
         }}
       ]
     }},
@@ -1759,8 +1965,8 @@ REQUIRED OUTPUT FORMAT:
     "principles": [
       {{
         "name": "Principle name",
-        "description": "Principle description",
-        "rationale": "Why important",
+        "description": "Principle description with citations [1], [2]",
+        "rationale": "Why important, supported by [3]",
         "implementation": "How to apply"
       }}
     ]
@@ -1768,7 +1974,7 @@ REQUIRED OUTPUT FORMAT:
   "next_steps": [
     {{
       "priority": "High|Medium|Low",
-      "action": "Specific actionable step",
+      "action": "Specific actionable step with supporting evidence [1], [2]",
       "timeline": "When to complete",
       "stakeholders": ["stakeholder1"],
       "success_metrics": ["metric1"]
@@ -1782,6 +1988,7 @@ INSTRUCTIONS:
 - Provide 3-4 specific, actionable next steps with priorities
 - Focus on actionable insights for {prompt_template['focus']}
 - Use decision-making style: {prompt_template['next_steps_style']}
+- Support ALL descriptions with numbered citations from the article list below
 
 ARTICLE DATA:
 {analysis_summary}
@@ -1805,12 +2012,19 @@ def generate_market_signals_prompt(
 
     prompt = f"""Analyze {len(articles)} articles about "{topic}" and identify market signals, disruptions, and opportunities.{org_context}
 
+CRITICAL CITATION INSTRUCTIONS:
+- Use numbered citations [1], [2], [3] to reference articles
+- The numbered article list is provided below with titles, sources, and URLs
+- Example: "Multiple sources including [1] and [3] indicate that..." or "According to [1], [2], and [5]..."
+- Use 2-4 citations per description to support key claims
+- Do NOT use plain text source names like "(The Hindu, Times of India)"
+
 REQUIRED OUTPUT FORMAT:
 {{
   "future_signals": [
     {{
       "name": "Signal name",
-      "description": "Signal description",
+      "description": "Signal description with numbered citations [1], [2] to support claims",
       "frequency": "Badge|Emerging|Established|Dominant",
       "time_to_impact": "Immediate/Short-term|Mid-term|Long-term"
     }}
@@ -1818,7 +2032,7 @@ REQUIRED OUTPUT FORMAT:
   "disruption_scenarios": [
     {{
       "title": "Disruption title",
-      "description": "Description of disruption or risk",
+      "description": "Description of disruption or risk with numbered citations [1], [3] to support analysis",
       "probability": "High|Medium|Low",
       "severity": "Critical|Significant|Moderate"
     }}
@@ -1826,7 +2040,7 @@ REQUIRED OUTPUT FORMAT:
   "opportunities": [
     {{
       "title": "Opportunity title",
-      "description": "Description of opportunity",
+      "description": "Description of opportunity with numbered citations [2], [4] to support potential",
       "feasibility": "High|Medium|Low",
       "potential_impact": "Transformative|Significant|Moderate"
     }}
@@ -1837,6 +2051,7 @@ INSTRUCTIONS:
 - Identify 3-4 future signals with frequency and time to impact
 - Identify 2 disruption scenarios or strategic risks
 - Identify 2 strategic opportunities
+- Support ALL descriptions with numbered citations from the article list below
 
 ARTICLE DATA:
 {analysis_summary}
@@ -1891,35 +2106,70 @@ def generate_future_horizons_prompt(
 ) -> str:
     """
     Generate specialized prompt for Future Horizons tab.
-    Focus on scenario planning across probability categories.
+    Focus on Three Horizons framework showing transition from current state to future vision.
     """
 
     analysis_summary = prepare_analysis_summary(articles, topic)
 
-    prompt = f"""Analyze {len(articles)} articles about "{topic}" and create future scenario horizons.{org_context}
+    # Create numbered article reference list for citations
+    article_references = "\n".join([
+        f"[{i+1}] {article.get('title', 'Untitled')} - {article.get('source_name', 'Unknown')} - {str(article.get('publication_date', ''))[:10]}"
+        for i, article in enumerate(articles[:50])  # Limit to first 50 articles
+    ])
+
+    prompt = f"""Analyze {len(articles)} articles about "{topic}" and generate future scenarios using the Three Horizons framework.{org_context}
+
+THREE HORIZONS FRAMEWORK DEFINITIONS:
+- **Horizon 1 (H1) - Current State/Declining**: The dominant paradigm today. Business-as-usual trends and systems that are gradually declining as new innovations emerge. Represents what's working now but won't sustain long-term.
+- **Horizon 2 (H2) - Transition/Innovation**: Emerging innovations and disruptions. Entrepreneurial activity, pilot projects, and the transitional period where old and new systems coexist. The space of experimentation and change.
+- **Horizon 3 (H3) - Future Vision/Emerging**: Transformative visions becoming reality. The preferred future state where new paradigms are fully established. Represents radical departures from current norms.
 
 REQUIRED OUTPUT FORMAT:
 {{
   "scenarios": [
     {{
-      "title": "Scenario title",
-      "description": "Scenario description",
-      "probability": "Plausible|Probable|Possible|Preferable|Wildcard",
-      "timeframe": "2025-2027",
-      "icon": "📝"
+      "type": "h1|h2|h3",
+      "title": "Scenario title (max 12 words)",
+      "description": "Detailed description with inline citations [1] [2] (2-3 sentences)",
+      "timeframe": "2025-2040",
+      "sentiment": "Positive|Negative|Mixed|Neutral|Mixed/Positive|Critical/Neutral|Negative/Disruptive|Trend/Evolution|Breakthrough|Disruption/Warning|Warning/Disruption"
     }}
   ]
 }}
 
-INSTRUCTIONS:
-- Create 4-6 scenarios across probability categories
-- Distribute as: Plausible (2-3), Probable (2-3)
-- Include timeframes and visual icons
+REQUIRED DISTRIBUTION:
+- 4-5 H1 scenarios (current systems and business-as-usual trends that are declining)
+- 4-5 H2 scenarios (emerging innovations, pilot projects, transitional disruptions)
+- 3-4 H3 scenarios (transformative future visions, new paradigms)
+Total: 12-14 scenarios
 
-ARTICLE DATA:
+TIMEFRAME GUIDELINES (all scenarios in 2025-2040 range):
+- H1 scenarios: Focus on 2025-2032 (current systems gradually declining)
+- H2 scenarios: Focus on 2027-2037 (transition period, peak around 2030-2033)
+- H3 scenarios: Focus on 2033-2040 (future visions emerging and taking hold)
+- Distribute scenarios to show the transition arc from H1 → H2 → H3
+
+ARTICLE REFERENCES (cite these using [1], [2], etc. in your scenario descriptions):
+{article_references}
+
+ARTICLE DATA SUMMARY:
 {analysis_summary}
 
-Return ONLY the JSON object."""
+CRITICAL REQUIREMENTS:
+- Use "type" field exactly as specified: "h1", "h2", or "h3" (lowercase)
+- H1 scenarios should describe current dominant systems and why they're declining
+- H2 scenarios should highlight innovations, experiments, and transitional tensions
+- H3 scenarios should paint visions of transformed future states
+- Keep titles concise (max 12 words)
+- **IMPORTANT: Include citations [1], [2], [3] etc. in scenario descriptions to reference specific articles**
+- Each scenario description should cite 2-4 relevant articles
+- Descriptions should be 2-3 sentences with specific details and citations
+- Base all scenarios on actual article data and signals from the reference list above
+- Sentiment should reflect the nature of the scenario using the exact values provided
+- All timeframes must be in 2025-2040 range
+- Show the narrative arc: H1 declining → H2 innovating → H3 emerging
+
+Return ONLY the JSON object with the scenarios array."""
 
     return prompt
 
@@ -2031,7 +2281,7 @@ def generate_comprehensive_cache_key(
     topic: str,
     timeframe_days: int,
     model: str,
-    analysis_depth: str,
+    source_quality: str,
     sample_size_mode: str,
     custom_limit: Optional[int],
     profile_id: Optional[int],
@@ -2051,7 +2301,7 @@ def generate_comprehensive_cache_key(
         'topic': topic,
         'timeframe_days': timeframe_days,
         'model': model,
-        'analysis_depth': analysis_depth,
+        'source_quality': source_quality,
         'sample_size_mode': sample_size_mode,
         'custom_limit': custom_limit,
         'profile_id': profile_id,
