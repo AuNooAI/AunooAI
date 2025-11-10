@@ -379,9 +379,17 @@
                         </div>
 
                         <div class="mb-3">
-                            <button class="btn btn-outline-primary" type="button" onclick="suggestAttributes()">
+                            <button id="suggest-btn" class="btn btn-outline-primary" type="button" onclick="suggestAttributes()">
                                 <i class="fas fa-magic"></i> Suggest Categories
                             </button>
+                            <div id="suggest-spinner" class="mt-2" style="display: none;">
+                                <div class="d-flex align-items-center">
+                                    <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                    <span class="text-muted">Generating suggestions with AI...</span>
+                                </div>
+                            </div>
                         </div>
 
                         <div id="topic-suggestions" class="topic-suggestions">
@@ -1035,6 +1043,14 @@ async function suggestAttributes() {
         return;
     }
 
+    // Show spinner and disable button
+    const suggestBtn = document.getElementById('suggest-btn');
+    const suggestSpinner = document.getElementById('suggest-spinner');
+    const originalBtnContent = suggestBtn.innerHTML;
+    suggestBtn.disabled = true;
+    suggestBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Generating...';
+    suggestSpinner.style.display = 'block';
+
     try {
         const response = await fetch('/api/onboarding/suggest-topic-attributes', {
             method: 'POST',
@@ -1145,6 +1161,13 @@ async function suggestAttributes() {
     } catch (error) {
         console.error("Error in suggestAttributes:", error);
         alert(`Error: ${error.message}`);
+    } finally {
+        // Hide spinner and re-enable button
+        const suggestBtn = document.getElementById('suggest-btn');
+        const suggestSpinner = document.getElementById('suggest-spinner');
+        suggestBtn.disabled = false;
+        suggestBtn.innerHTML = '<i class="fas fa-magic"></i> Suggest Categories';
+        suggestSpinner.style.display = 'none';
     }
 }
 
@@ -1730,12 +1753,17 @@ function showSuccessMessage(message) {
         <i class="fas fa-check-circle"></i>
         ${message}
     `;
-    document.querySelector('.card-body').appendChild(successMsg);
-    
-    // Remove message after 3 seconds
-    setTimeout(() => {
-        successMsg.remove();
-    }, 3000);
+
+    // Find the appropriate container (wizard-card or fall back to body)
+    const container = document.querySelector('.wizard-card') || document.querySelector('.card-body') || document.body;
+    if (container) {
+        container.appendChild(successMsg);
+
+        // Remove message after 3 seconds
+        setTimeout(() => {
+            successMsg.remove();
+        }, 3000);
+    }
 }
 
 function showErrorMessage(message) {
@@ -1745,12 +1773,17 @@ function showErrorMessage(message) {
         <i class="fas fa-exclamation-circle"></i>
         ${message}
     `;
-    document.querySelector('.card-body').appendChild(errorMsg);
-    
-    // Remove message after 5 seconds
-    setTimeout(() => {
-        errorMsg.remove();
-    }, 5000);
+
+    // Find the appropriate container (wizard-card or fall back to body)
+    const container = document.querySelector('.wizard-card') || document.querySelector('.card-body') || document.body;
+    if (container) {
+        container.appendChild(errorMsg);
+
+        // Remove message after 5 seconds
+        setTimeout(() => {
+            errorMsg.remove();
+        }, 5000);
+    }
 }
 
 // Helper functions for getting tags
