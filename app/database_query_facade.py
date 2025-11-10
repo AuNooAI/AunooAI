@@ -6845,3 +6845,348 @@ class DatabaseQueryFacade:
         count = result.rowcount
         self.logger.info(f"Deleted {count} notifications older than {days} days")
         return count
+
+    # =============================================================================
+    # Trend Convergence Dashboard Reference Articles
+    # =============================================================================
+
+    def save_consensus_reference_articles(self, consensus_id: str, article_uris: List[str], topic: str) -> bool:
+        """Save reference articles for consensus analysis
+
+        Args:
+            consensus_id: Unique identifier for the consensus analysis run
+            article_uris: List of article URIs to store as references
+            topic: Topic name for this analysis
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            from app.database_models import t_consensus_reference_articles
+
+            # Insert all article references
+            for uri in article_uris:
+                stmt = insert(t_consensus_reference_articles).values(
+                    consensus_id=consensus_id,
+                    article_uri=uri,
+                    topic=topic
+                )
+                self._execute_with_rollback(stmt)
+
+            self.logger.info(f"Saved {len(article_uris)} reference articles for consensus {consensus_id}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error saving consensus reference articles: {e}")
+            return False
+
+    def get_consensus_reference_articles(self, consensus_id: str, topic: str) -> List[Dict]:
+        """Retrieve reference articles for consensus analysis with full article details
+
+        Args:
+            consensus_id: Unique identifier for the consensus analysis run
+            topic: Topic name for this analysis
+
+        Returns:
+            List of article dictionaries with full metadata
+        """
+        try:
+            from app.database_models import t_consensus_reference_articles, t_articles
+
+            stmt = select(
+                t_articles.c.uri,
+                t_articles.c.title,
+                t_articles.c.news_source.label('source'),
+                t_articles.c.publication_date.label('published_at'),
+                t_consensus_reference_articles.c.retrieved_at
+            ).select_from(
+                t_consensus_reference_articles.join(
+                    t_articles,
+                    t_consensus_reference_articles.c.article_uri == t_articles.c.uri
+                )
+            ).where(
+                t_consensus_reference_articles.c.consensus_id == consensus_id,
+                t_consensus_reference_articles.c.topic == topic
+            )
+
+            results = self._execute_with_rollback(stmt).fetchall()
+            articles = []
+            for idx, row in enumerate(results, 1):
+                article_dict = dict(row._mapping) if hasattr(row, '_mapping') else dict(row)
+                article_dict['id'] = idx  # Add sequential ID for frontend
+                articles.append(article_dict)
+            return articles
+        except Exception as e:
+            self.logger.error(f"Error retrieving consensus reference articles: {e}")
+            return []
+
+    def save_strategic_recommendation_articles(self, recommendation_id: str, article_uris: List[str], topic: str) -> bool:
+        """Save reference articles for strategic recommendation
+
+        Args:
+            recommendation_id: Unique identifier for the strategic recommendations run
+            article_uris: List of article URIs to store as references
+            topic: Topic name for this analysis
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            from app.database_models import t_strategic_recommendation_articles
+
+            for uri in article_uris:
+                stmt = insert(t_strategic_recommendation_articles).values(
+                    recommendation_id=recommendation_id,
+                    article_uri=uri,
+                    topic=topic
+                )
+                self._execute_with_rollback(stmt)
+
+            self.logger.info(f"Saved {len(article_uris)} reference articles for recommendation {recommendation_id}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error saving strategic recommendation articles: {e}")
+            return False
+
+    def get_strategic_recommendation_articles(self, recommendation_id: str, topic: str) -> List[Dict]:
+        """Retrieve reference articles for strategic recommendation with full details
+
+        Args:
+            recommendation_id: Unique identifier for the strategic recommendations run
+            topic: Topic name for this analysis
+
+        Returns:
+            List of article dictionaries with full metadata
+        """
+        try:
+            from app.database_models import t_strategic_recommendation_articles, t_articles
+
+            stmt = select(
+                t_articles.c.uri,
+                t_articles.c.title,
+                t_articles.c.news_source.label('source'),
+                t_articles.c.publication_date.label('published_at'),
+                t_strategic_recommendation_articles.c.retrieved_at
+            ).select_from(
+                t_strategic_recommendation_articles.join(
+                    t_articles,
+                    t_strategic_recommendation_articles.c.article_uri == t_articles.c.uri
+                )
+            ).where(
+                t_strategic_recommendation_articles.c.recommendation_id == recommendation_id,
+                t_strategic_recommendation_articles.c.topic == topic
+            )
+
+            results = self._execute_with_rollback(stmt).fetchall()
+            articles = []
+            for idx, row in enumerate(results, 1):
+                article_dict = dict(row._mapping) if hasattr(row, '_mapping') else dict(row)
+                article_dict['id'] = idx  # Add sequential ID for frontend
+                articles.append(article_dict)
+            return articles
+        except Exception as e:
+            self.logger.error(f"Error retrieving strategic recommendation articles: {e}")
+            return []
+
+    def save_market_signal_articles(self, signal_id: str, article_uris: List[str], topic: str) -> bool:
+        """Save reference articles for market signals
+
+        Args:
+            signal_id: Unique identifier for the market signals run
+            article_uris: List of article URIs to store as references
+            topic: Topic name for this analysis
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            from app.database_models import t_market_signal_articles
+
+            for uri in article_uris:
+                stmt = insert(t_market_signal_articles).values(
+                    signal_id=signal_id,
+                    article_uri=uri,
+                    topic=topic
+                )
+                self._execute_with_rollback(stmt)
+
+            self.logger.info(f"Saved {len(article_uris)} reference articles for signal {signal_id}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error saving market signal articles: {e}")
+            return False
+
+    def get_market_signal_articles(self, signal_id: str, topic: str) -> List[Dict]:
+        """Retrieve reference articles for market signals with full details
+
+        Args:
+            signal_id: Unique identifier for the market signals run
+            topic: Topic name for this analysis
+
+        Returns:
+            List of article dictionaries with full metadata
+        """
+        try:
+            from app.database_models import t_market_signal_articles, t_articles
+
+            stmt = select(
+                t_articles.c.uri,
+                t_articles.c.title,
+                t_articles.c.news_source.label('source'),
+                t_articles.c.publication_date.label('published_at'),
+                t_market_signal_articles.c.retrieved_at
+            ).select_from(
+                t_market_signal_articles.join(
+                    t_articles,
+                    t_market_signal_articles.c.article_uri == t_articles.c.uri
+                )
+            ).where(
+                t_market_signal_articles.c.signal_id == signal_id,
+                t_market_signal_articles.c.topic == topic
+            )
+
+            results = self._execute_with_rollback(stmt).fetchall()
+            articles = []
+            for idx, row in enumerate(results, 1):
+                article_dict = dict(row._mapping) if hasattr(row, '_mapping') else dict(row)
+                article_dict['id'] = idx  # Add sequential ID for frontend
+                articles.append(article_dict)
+            return articles
+        except Exception as e:
+            self.logger.error(f"Error retrieving market signal articles: {e}")
+            return []
+
+    def save_impact_timeline_articles(self, timeline_id: str, article_uris: List[str], topic: str) -> bool:
+        """Save reference articles for impact timeline
+
+        Args:
+            timeline_id: Unique identifier for the impact timeline run
+            article_uris: List of article URIs to store as references
+            topic: Topic name for this analysis
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            from app.database_models import t_impact_timeline_articles
+
+            for uri in article_uris:
+                stmt = insert(t_impact_timeline_articles).values(
+                    timeline_id=timeline_id,
+                    article_uri=uri,
+                    topic=topic
+                )
+                self._execute_with_rollback(stmt)
+
+            self.logger.info(f"Saved {len(article_uris)} reference articles for timeline {timeline_id}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error saving impact timeline articles: {e}")
+            return False
+
+    def get_impact_timeline_articles(self, timeline_id: str, topic: str) -> List[Dict]:
+        """Retrieve reference articles for impact timeline with full details
+
+        Args:
+            timeline_id: Unique identifier for the impact timeline run
+            topic: Topic name for this analysis
+
+        Returns:
+            List of article dictionaries with full metadata
+        """
+        try:
+            from app.database_models import t_impact_timeline_articles, t_articles
+
+            stmt = select(
+                t_articles.c.uri,
+                t_articles.c.title,
+                t_articles.c.news_source.label('source'),
+                t_articles.c.publication_date.label('published_at'),
+                t_impact_timeline_articles.c.retrieved_at
+            ).select_from(
+                t_impact_timeline_articles.join(
+                    t_articles,
+                    t_impact_timeline_articles.c.article_uri == t_articles.c.uri
+                )
+            ).where(
+                t_impact_timeline_articles.c.timeline_id == timeline_id,
+                t_impact_timeline_articles.c.topic == topic
+            )
+
+            results = self._execute_with_rollback(stmt).fetchall()
+            articles = []
+            for idx, row in enumerate(results, 1):
+                article_dict = dict(row._mapping) if hasattr(row, '_mapping') else dict(row)
+                article_dict['id'] = idx  # Add sequential ID for frontend
+                articles.append(article_dict)
+            return articles
+        except Exception as e:
+            self.logger.error(f"Error retrieving impact timeline articles: {e}")
+            return []
+
+    def save_future_horizon_articles(self, horizon_id: str, article_uris: List[str], topic: str) -> bool:
+        """Save reference articles for future horizons
+
+        Args:
+            horizon_id: Unique identifier for the future horizons run
+            article_uris: List of article URIs to store as references
+            topic: Topic name for this analysis
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            from app.database_models import t_future_horizon_articles
+
+            for uri in article_uris:
+                stmt = insert(t_future_horizon_articles).values(
+                    horizon_id=horizon_id,
+                    article_uri=uri,
+                    topic=topic
+                )
+                self._execute_with_rollback(stmt)
+
+            self.logger.info(f"Saved {len(article_uris)} reference articles for horizon {horizon_id}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error saving future horizon articles: {e}")
+            return False
+
+    def get_future_horizon_articles(self, horizon_id: str, topic: str) -> List[Dict]:
+        """Retrieve reference articles for future horizons with full details
+
+        Args:
+            horizon_id: Unique identifier for the future horizons run
+            topic: Topic name for this analysis
+
+        Returns:
+            List of article dictionaries with full metadata
+        """
+        try:
+            from app.database_models import t_future_horizon_articles, t_articles
+
+            stmt = select(
+                t_articles.c.uri,
+                t_articles.c.title,
+                t_articles.c.news_source.label('source'),
+                t_articles.c.publication_date.label('published_at'),
+                t_future_horizon_articles.c.retrieved_at
+            ).select_from(
+                t_future_horizon_articles.join(
+                    t_articles,
+                    t_future_horizon_articles.c.article_uri == t_articles.c.uri
+                )
+            ).where(
+                t_future_horizon_articles.c.horizon_id == horizon_id,
+                t_future_horizon_articles.c.topic == topic
+            )
+
+            results = self._execute_with_rollback(stmt).fetchall()
+            articles = []
+            for idx, row in enumerate(results, 1):
+                article_dict = dict(row._mapping) if hasattr(row, '_mapping') else dict(row)
+                article_dict['id'] = idx  # Add sequential ID for frontend
+                articles.append(article_dict)
+            return articles
+        except Exception as e:
+            self.logger.error(f"Error retrieving future horizon articles: {e}")
+            return []

@@ -712,3 +712,59 @@ t_notifications = Table(
     Index('ix_notifications_created_at', 'created_at'),
     Index('ix_notifications_username_read', 'username', 'read')
 )
+
+# Trend Convergence Dashboard Reference Article Tables
+t_consensus_reference_articles = Table(
+    'consensus_reference_articles', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('consensus_id', String(36), nullable=False),
+    Column('article_uri', String, ForeignKey('articles.uri')),
+    Column('topic', String, nullable=False),
+    Column('retrieved_at', DateTime, server_default=text('CURRENT_TIMESTAMP')),
+    Index('ix_consensus_ref_articles_consensus_id', 'consensus_id'),
+    Index('ix_consensus_ref_articles_topic', 'topic')
+)
+
+t_strategic_recommendation_articles = Table(
+    'strategic_recommendation_articles', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('recommendation_id', String(36), nullable=False),
+    Column('article_uri', String, ForeignKey('articles.uri')),
+    Column('topic', String, nullable=False),
+    Column('retrieved_at', DateTime, server_default=text('CURRENT_TIMESTAMP')),
+    Index('ix_strategic_rec_articles_recommendation_id', 'recommendation_id'),
+    Index('ix_strategic_rec_articles_topic', 'topic')
+)
+
+t_market_signal_articles = Table(
+    'market_signal_articles', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('signal_id', String(36), nullable=False),
+    Column('article_uri', String, ForeignKey('articles.uri')),
+    Column('topic', String, nullable=False),
+    Column('retrieved_at', DateTime, server_default=text('CURRENT_TIMESTAMP')),
+    Index('ix_market_signal_articles_signal_id', 'signal_id'),
+    Index('ix_market_signal_articles_topic', 'topic')
+)
+
+t_impact_timeline_articles = Table(
+    'impact_timeline_articles', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('timeline_id', String(36), nullable=False),
+    Column('article_uri', String, ForeignKey('articles.uri')),
+    Column('topic', String, nullable=False),
+    Column('retrieved_at', DateTime, server_default=text('CURRENT_TIMESTAMP')),
+    Index('ix_impact_timeline_articles_timeline_id', 'timeline_id'),
+    Index('ix_impact_timeline_articles_topic', 'topic')
+)
+
+t_future_horizon_articles = Table(
+    'future_horizon_articles', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('horizon_id', String(36), nullable=False),
+    Column('article_uri', String, ForeignKey('articles.uri')),
+    Column('topic', String, nullable=False),
+    Column('retrieved_at', DateTime, server_default=text('CURRENT_TIMESTAMP')),
+    Index('ix_future_horizon_articles_horizon_id', 'horizon_id'),
+    Index('ix_future_horizon_articles_topic', 'topic')
+)

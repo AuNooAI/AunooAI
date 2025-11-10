@@ -44,7 +44,9 @@
             "recharts": "^2.15.2",
             "sonner": "^2.0.3",
             "tailwind-merge": "*",
-            "vaul": "^1.1.2"
+            "vaul": "^1.1.2",
+            "html2canvas": "^1.4.1",
+            "jspdf": "^2.5.1"
       },
       "devDependencies": {
             "@types/node": "^20.10.0",

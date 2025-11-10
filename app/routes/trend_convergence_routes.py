@@ -987,7 +987,7 @@ Article {i}:
             if tab == 'consensus':
                 # Prepare article list for storage
                 article_list = []
-                for idx, article in enumerate(diverse_articles[:50], 1):
+                for idx, article in enumerate(diverse_articles, 1):
                     article_list.append({
                         'id': idx,
                         'title': article.get('title', 'Untitled'),
@@ -1012,6 +1012,15 @@ Article {i}:
                 )
                 logger.info(f"Saved consensus analysis {analysis_id} to database")
 
+                # Store reference articles for consensus analysis
+                article_uris = [a.get('uri') for a in diverse_articles if a.get('uri')]
+                facade.save_consensus_reference_articles(
+                    consensus_id=analysis_id,
+                    article_uris=article_uris,
+                    topic=topic
+                )
+                logger.info(f"Stored {len(article_uris)} reference articles for consensus analysis {analysis_id}")
+
             elif tab == 'timeline':
                 facade.save_impact_timeline_analysis(
                     analysis_id=analysis_id,
@@ -1023,6 +1032,15 @@ Article {i}:
                     analysis_duration_seconds=analysis_duration
                 )
                 logger.info(f"Saved impact timeline analysis {analysis_id} to database")
+
+                # Store reference articles for impact timeline
+                article_uris = [a.get('uri') for a in diverse_articles if a.get('uri')]
+                facade.save_impact_timeline_articles(
+                    timeline_id=analysis_id,
+                    article_uris=article_uris,
+                    topic=topic
+                )
+                logger.info(f"Stored {len(article_uris)} reference articles for timeline analysis {analysis_id}")
 
             elif tab == 'strategic':
                 facade.save_strategic_recommendations_analysis(
@@ -1036,6 +1054,15 @@ Article {i}:
                 )
                 logger.info(f"Saved strategic recommendations analysis {analysis_id} to database")
 
+                # Store reference articles for strategic recommendations
+                article_uris = [a.get('uri') for a in diverse_articles if a.get('uri')]
+                facade.save_strategic_recommendation_articles(
+                    recommendation_id=analysis_id,
+                    article_uris=article_uris,
+                    topic=topic
+                )
+                logger.info(f"Stored {len(article_uris)} reference articles for strategic recommendations {analysis_id}")
+
             elif tab == 'horizons':
                 facade.save_future_horizons_analysis(
                     analysis_id=analysis_id,
@@ -1047,6 +1074,37 @@ Article {i}:
                     analysis_duration_seconds=analysis_duration
                 )
                 logger.info(f"Saved future horizons analysis {analysis_id} to database")
+
+                # Store reference articles for future horizons
+                article_uris = [a.get('uri') for a in diverse_articles if a.get('uri')]
+                facade.save_future_horizon_articles(
+                    horizon_id=analysis_id,
+                    article_uris=article_uris,
+                    topic=topic
+                )
+                logger.info(f"Stored {len(article_uris)} reference articles for future horizons {analysis_id}")
+
+            elif tab == 'signals':
+                # Save market signals analysis (if not already being saved elsewhere)
+                facade.save_market_signals_analysis(
+                    analysis_id=analysis_id,
+                    user_id=user_id,
+                    topic=topic,
+                    model_used=model,
+                    raw_output=trend_convergence_data,
+                    total_articles_analyzed=len(diverse_articles),
+                    analysis_duration_seconds=analysis_duration
+                )
+                logger.info(f"Saved market signals analysis {analysis_id} to database")
+
+                # Store reference articles for market signals
+                article_uris = [a.get('uri') for a in diverse_articles if a.get('uri')]
+                facade.save_market_signal_articles(
+                    signal_id=analysis_id,
+                    article_uris=article_uris,
+                    topic=topic
+                )
+                logger.info(f"Stored {len(article_uris)} reference articles for market signals {analysis_id}")
 
         # Save this version for potential reload (legacy system)
         await _save_analysis_version(topic, trend_convergence_data, db)
@@ -1277,8 +1335,8 @@ def prepare_analysis_summary(articles: List, topic: str) -> str:
     drivers = []
     signals = []
     time_impacts = []
-    
-    for article in articles[:50]:  # Limit to avoid token limits
+
+    for article in articles:  # Process all articles
         if article['sentiment']:
             sentiments.append(article['sentiment'])
         if article['category']:
@@ -1638,7 +1696,7 @@ NUMBERED ARTICLE LIST (Use these numbers for citations):
 """
 
     # Add numbered article list
-    for idx, article in enumerate(articles[:50], 1):  # Limit to 50 to avoid token limits
+    for idx, article in enumerate(articles, 1):  # Include all articles
         title = article.get('title', 'Untitled')
         source = article.get('source', 'Unknown Source')
         url = article.get('uri', article.get('url', ''))
@@ -2466,4 +2524,108 @@ async def get_future_horizons_raw(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve analysis: {str(e)}"
+        )
+
+
+# ============================================================================
+# Reference Article Retrieval Endpoints
+# ============================================================================
+
+@router.get("/api/trend-convergence/consensus/{analysis_id}/articles")
+async def get_consensus_articles(
+    analysis_id: str,
+    topic: str = Query(..., description="Topic name for filtering"),
+    session: dict = Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Retrieve reference articles for a consensus analysis run"""
+    try:
+        facade = DatabaseQueryFacade(db, logger)
+        articles = facade.get_consensus_reference_articles(analysis_id, topic)
+        return {"articles": articles, "count": len(articles)}
+    except Exception as e:
+        logger.error(f"Error retrieving consensus reference articles for {analysis_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve articles: {str(e)}"
+        )
+
+
+@router.get("/api/trend-convergence/strategic/{analysis_id}/articles")
+async def get_strategic_articles(
+    analysis_id: str,
+    topic: str = Query(..., description="Topic name for filtering"),
+    session: dict = Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Retrieve reference articles for a strategic recommendations run"""
+    try:
+        facade = DatabaseQueryFacade(db, logger)
+        articles = facade.get_strategic_recommendation_articles(analysis_id, topic)
+        return {"articles": articles, "count": len(articles)}
+    except Exception as e:
+        logger.error(f"Error retrieving strategic recommendation articles for {analysis_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve articles: {str(e)}"
+        )
+
+
+@router.get("/api/trend-convergence/market-signals/{analysis_id}/articles")
+async def get_market_signal_articles(
+    analysis_id: str,
+    topic: str = Query(..., description="Topic name for filtering"),
+    session: dict = Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Retrieve reference articles for a market signals analysis run"""
+    try:
+        facade = DatabaseQueryFacade(db, logger)
+        articles = facade.get_market_signal_articles(analysis_id, topic)
+        return {"articles": articles, "count": len(articles)}
+    except Exception as e:
+        logger.error(f"Error retrieving market signal articles for {analysis_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve articles: {str(e)}"
+        )
+
+
+@router.get("/api/trend-convergence/timeline/{analysis_id}/articles")
+async def get_timeline_articles(
+    analysis_id: str,
+    topic: str = Query(..., description="Topic name for filtering"),
+    session: dict = Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Retrieve reference articles for an impact timeline analysis run"""
+    try:
+        facade = DatabaseQueryFacade(db, logger)
+        articles = facade.get_impact_timeline_articles(analysis_id, topic)
+        return {"articles": articles, "count": len(articles)}
+    except Exception as e:
+        logger.error(f"Error retrieving impact timeline articles for {analysis_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve articles: {str(e)}"
+        )
+
+
+@router.get("/api/trend-convergence/horizons/{analysis_id}/articles")
+async def get_horizon_articles(
+    analysis_id: str,
+    topic: str = Query(..., description="Topic name for filtering"),
+    session: dict = Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Retrieve reference articles for a future horizons analysis run"""
+    try:
+        facade = DatabaseQueryFacade(db, logger)
+        articles = facade.get_future_horizon_articles(analysis_id, topic)
+        return {"articles": articles, "count": len(articles)}
+    except Exception as e:
+        logger.error(f"Error retrieving future horizon articles for {analysis_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve articles: {str(e)}"
         )

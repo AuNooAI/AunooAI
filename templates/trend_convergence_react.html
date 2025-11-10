@@ -13,7 +13,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <!-- React App CSS -->
     <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/index-ZFXcvKvL.css">
-    <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/main-DsWPuAbI.css">
+    <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/main-e8hc6bOo.css">
     <!-- Auspex Chat CSS (loaded after React CSS to ensure proper z-index) -->
     <link rel="stylesheet" href="/static/css/auspex-chat.css">
     <style>
@@ -25,8 +25,20 @@
         z-index: 9998 !important;
       }
     </style>
-    <script type="module" crossorigin src="/static/trend-convergence/assets/main--P9MM1n-.js"></script>
-    <link rel="modulepreload" crossorigin href="/static/trend-convergence/assets/index-PHY4tjjG.js">
+    <!-- Inject user session data for React app -->
+    <script>
+      window.userSession = {
+        {% if session.get('user') %}
+        username: {{ session.get('user', {}).get('username', 'User') | tojson | safe }},
+        email: {{ session.get('user', {}).get('email', '') | tojson | safe }}
+        {% else %}
+        username: null,
+        email: null
+        {% endif %}
+      };
+    </script>
+    <script type="module" crossorigin src="/static/trend-convergence/assets/main-DNOnswdn.js"></script>
+    <link rel="modulepreload" crossorigin href="/static/trend-convergence/assets/index-C3TNBqCS.js">
   </head>
 
   <body>

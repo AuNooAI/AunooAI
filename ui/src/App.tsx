@@ -21,6 +21,9 @@ import { Loader2, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from './components/ui/alert';
 import { calculateContextInfo, type ContextInfo } from './utils/contextCalculation';
 import { getMarketSignalsRaw, getImpactTimelineRaw, getStrategicRecommendationsRaw, getFutureHorizonsRaw, getConsensusAnalysisRaw } from './services/api';
+import { ExportService } from './services/exportService';
+import { ArticleCitations } from './components/ArticleCitations';
+import { AIDisclosureFooter, dashboardFooterConfigs } from './components/AIDisclosureFooter';
 
 function App() {
   const {
@@ -137,6 +140,49 @@ function App() {
     } finally {
       setLoadingRaw(false);
     }
+  };
+
+  const handleExport = async (format: 'json' | 'markdown' | 'pdf' | 'image') => {
+    if (!data) {
+      alert('No data available to export');
+      return;
+    }
+
+    const timestamp = Date.now();
+    const dashboardName = getTitleForTab(activeTab);
+    const baseFilename = `${activeTab}-${config.topic.toLowerCase().replace(/\s+/g, '-')}-${timestamp}`;
+    const elementId = 'dashboard-content'; // Main dashboard container ID
+
+    try {
+      switch (format) {
+        case 'json':
+          ExportService.exportJSON(data, baseFilename);
+          break;
+        case 'markdown':
+          ExportService.exportMarkdown(data, dashboardName, config.topic);
+          break;
+        case 'pdf':
+          await ExportService.exportPDF(elementId, baseFilename);
+          break;
+        case 'image':
+          await ExportService.exportImage(elementId, baseFilename);
+          break;
+      }
+    } catch (error) {
+      console.error(`Export failed for ${format}:`, error);
+      alert(`Failed to export as ${format}. Please try again.`);
+    }
+  };
+
+  const getTitleForTab = (tab: string): string => {
+    const titles: Record<string, string> = {
+      'consensus': 'Consensus Analysis',
+      'strategic-recommendations': 'Strategic Recommendations',
+      'market-signals': 'Market Signals',
+      'impact-timeline': 'Impact Timeline',
+      'future-horizons': 'Future Horizons'
+    };
+    return titles[tab] || tab;
   };
 
   const copyToClipboard = () => {
@@ -406,17 +452,21 @@ function App() {
             Configure
           </button>
           <div className="flex items-center gap-2">
-            <button className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500">
-              <FileText className="w-4 h-4" />
-              Columns
-            </button>
-            <button className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500">
-              <ImageIcon className="w-4 h-4" />
-              Image
-            </button>
-            <button className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500">
+            <button
+              onClick={() => handleExport('pdf')}
+              disabled={!data}
+              className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
               <Download className="w-4 h-4" />
               PDF
+            </button>
+            <button
+              onClick={() => handleExport('image')}
+              disabled={!data}
+              className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <ImageIcon className="w-4 h-4" />
+              PNG
             </button>
             <button
               onClick={handleViewRaw}
@@ -426,11 +476,27 @@ function App() {
               <Code className="w-4 h-4" />
               {loadingRaw ? 'Loading...' : 'Raw'}
             </button>
+            {data?.analysis_id && (
+              <div className="reference-articles-button-wrapper">
+                <ArticleCitations
+                  dashboardType={
+                    activeTab === 'consensus' ? 'consensus' :
+                    activeTab === 'strategic-recommendations' ? 'strategic' :
+                    activeTab === 'market-signals' ? 'market-signals' :
+                    activeTab === 'impact-timeline' ? 'timeline' :
+                    activeTab === 'future-horizons' ? 'horizons' :
+                    'consensus'
+                  }
+                  analysisId={data.analysis_id}
+                  topic={config.topic}
+                />
+              </div>
+            )}
           </div>
         </div>
 
         {/* Main Scrollable Content */}
-        <div className="flex-1 overflow-y-auto px-6 py-6">
+        <div id="dashboard-content" className="flex-1 overflow-y-auto px-6 py-6">
           {loading ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
@@ -504,6 +570,12 @@ function App() {
                       </div>
                     </div>
                   )}
+
+                  {/* AI Disclosure Footer */}
+                  <AIDisclosureFooter
+                    {...dashboardFooterConfigs.timeline}
+                    modelUsed={data.model_used}
+                  />
                 </>
               )}
 
@@ -653,6 +725,12 @@ function App() {
                       </div>
                     ))}
                   </div>
+
+                  {/* AI Disclosure Footer */}
+                  <AIDisclosureFooter
+                    {...dashboardFooterConfigs.signals}
+                    modelUsed={data.model_used}
+                  />
                 </>
               )}
 
@@ -736,6 +814,12 @@ function App() {
                       </div>
                     </div>
                   )}
+
+                  {/* AI Disclosure Footer */}
+                  <AIDisclosureFooter
+                    {...dashboardFooterConfigs.consensus}
+                    modelUsed={data.model_used}
+                  />
                 </>
               )}
 
@@ -744,7 +828,6 @@ function App() {
               <>
                 {/* Strategic Recommendations */}
                 <div>
-                <h2 className="text-2xl font-bold mb-6">Strategic Recommendations</h2>
                 <div className="grid grid-cols-3 gap-6">
                   {/* Near-term */}
                   <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
@@ -873,6 +956,12 @@ function App() {
                   ))}
                 </div>
               </div>
+
+              {/* AI Disclosure Footer */}
+              <AIDisclosureFooter
+                {...dashboardFooterConfigs.strategic}
+                modelUsed={data.model_used}
+              />
               </>
               )}
 
@@ -880,6 +969,12 @@ function App() {
               {activeTab === 'future-horizons' && (
                 <>
                   <FutureHorizons scenarios={data.scenarios || []} />
+
+                  {/* AI Disclosure Footer */}
+                  <AIDisclosureFooter
+                    {...dashboardFooterConfigs.horizons}
+                    modelUsed={data.model_used}
+                  />
                 </>
               )}
             </div>
