@@ -198,6 +198,8 @@
   transition: color 0.2s ease;
   word-break: break-all;
   overflow-wrap: break-word;
+  cursor: pointer;
+  display: block;
 }
 
 .article-citations-item-title-link:hover .article-citations-item-title {

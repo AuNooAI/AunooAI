@@ -184,22 +184,13 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
     try {
       let result: TrendConvergenceData | MarketSignalsData;
 
-      // Market Signals uses a different API endpoint
-      if (config.tab === 'signals') {
-        result = await getMarketSignals(
-          config.topic,
-          config.model,
-          config.custom_limit || 100
-          // temperature and max_tokens are handled by prompt defaults
-        );
-      } else {
-        // If force refresh, disable caching temporarily
-        const analysisConfig = forceRefresh
-          ? { ...config, enable_caching: false }
-          : config;
+      // All tabs now use the unified trend convergence endpoint
+      // If force refresh, disable caching temporarily
+      const analysisConfig = forceRefresh
+        ? { ...config, enable_caching: false }
+        : config;
 
-        result = await generateTrendConvergence(analysisConfig);
-      }
+      result = await generateTrendConvergence(analysisConfig);
 
       setData(result);
 

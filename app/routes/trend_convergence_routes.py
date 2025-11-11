@@ -1195,6 +1195,61 @@ Article {i}:
                             dist['neutral'] *= factor
                             dist['critical'] *= factor
 
+        # Transform Market Signals quotes from new format to legacy format
+        if tab == 'signals' or 'future_signals' in trend_convergence_data:
+            quotes = []
+            article_lookup = {idx + 1: article for idx, article in enumerate(diverse_articles)}
+
+            # Extract quotes from future_signals
+            if 'future_signals' in trend_convergence_data:
+                for signal in trend_convergence_data.get('future_signals', []):
+                    if 'quote' in signal and 'quote_source' in signal:
+                        source_article = article_lookup.get(signal['quote_source'])
+                        if source_article:
+                            quotes.append({
+                                'text': signal['quote'],
+                                'source': source_article.get('title', 'Unknown Source'),
+                                'url': source_article.get('uri', ''),
+                                'context': signal.get('signal', 'Future Signal'),
+                                'quote_type': signal.get('quote_type', 'summary'),
+                                'relevance': f"Future Signal: {signal.get('timeline', 'Unknown timeline')}"
+                            })
+
+            # Extract quotes from risk_cards
+            if 'risk_cards' in trend_convergence_data:
+                for disruption in trend_convergence_data.get('risk_cards', []):
+                    if 'quote' in disruption and 'quote_source' in disruption:
+                        source_article = article_lookup.get(disruption['quote_source'])
+                        if source_article:
+                            quotes.append({
+                                'text': disruption['quote'],
+                                'source': source_article.get('title', 'Unknown Source'),
+                                'url': source_article.get('uri', ''),
+                                'context': disruption.get('title', 'Risk Card'),
+                                'quote_type': disruption.get('quote_type', 'summary'),
+                                'relevance': f"Risk: {disruption.get('severity', 'Unknown')} severity"
+                            })
+
+            # Extract quotes from opportunity_cards
+            if 'opportunity_cards' in trend_convergence_data:
+                for opp in trend_convergence_data.get('opportunity_cards', []):
+                    if 'quote' in opp and 'quote_source' in opp:
+                        source_article = article_lookup.get(opp['quote_source'])
+                        if source_article:
+                            quotes.append({
+                                'text': opp['quote'],
+                                'source': source_article.get('title', 'Unknown Source'),
+                                'url': source_article.get('uri', ''),
+                                'context': opp.get('title', 'Opportunity'),
+                                'quote_type': opp.get('quote_type', 'summary'),
+                                'relevance': f"Opportunity: {opp.get('impact', 'Unknown')} impact"
+                            })
+
+            # Add quotes to response
+            if quotes:
+                trend_convergence_data['quotes'] = quotes
+                logger.info(f"Transformed {len(quotes)} quotes for Market Signals (direct_quotes: {sum(1 for q in quotes if q.get('quote_type') == 'direct_quote')}, summaries: {sum(1 for q in quotes if q.get('quote_type') == 'summary')})")
+
         # Add metadata
         trend_convergence_data.update({
             'generated_at': datetime.now().isoformat(),
@@ -1212,7 +1267,7 @@ Article {i}:
         })
 
         # Save tab-specific analyses to dedicated tables
-        if tab and tab in ['consensus', 'timeline', 'strategic', 'horizons']:
+        if tab and tab in ['consensus', 'timeline', 'strategic', 'horizons', 'signals']:
             analysis_id = str(uuid.uuid4())
             trend_convergence_data['analysis_id'] = analysis_id
 
@@ -2044,55 +2099,95 @@ def generate_market_signals_prompt(
     """
     Generate specialized prompt for Market Signals tab.
     Focus on future signals, disruptions, and opportunities.
+    Uses full article text when available for real quotes.
     """
 
     analysis_summary = prepare_analysis_summary(articles, topic)
 
+    # Prepare detailed article content with raw text when available
+    article_details = []
+    for idx, article in enumerate(articles, 1):
+        raw_text = article.get('raw_markdown', '').strip() if article.get('raw_markdown') else None
+
+        if raw_text:
+            # Truncate long articles to first 1500 chars to stay within context limits
+            content = raw_text[:1500] + "..." if len(raw_text) > 1500 else raw_text
+            content_type = "full_text"
+        else:
+            content = article.get('summary', '')
+            content_type = "summary"
+
+        article_details.append(f"""[{idx}] {article.get('title', 'Untitled')}
+   Source: {article.get('uri', 'No URL')}
+   Date: {str(article.get('publication_date', 'Unknown'))[:10]}
+   Content Type: {content_type}
+   Content: {content}
+   ---""")
+
+    articles_text = "\n\n".join(article_details)
+
     prompt = f"""Analyze {len(articles)} articles about "{topic}" and identify market signals, disruptions, and opportunities.{org_context}
 
-CRITICAL CITATION INSTRUCTIONS:
+CRITICAL CITATION AND QUOTE INSTRUCTIONS:
 - Use numbered citations [1], [2], [3] to reference articles
-- The numbered article list is provided below with titles, sources, and URLs
-- Example: "Multiple sources including [1] and [3] indicate that..." or "According to [1], [2], and [5]..."
+- When an article has "Content Type: full_text", you can extract REAL DIRECT QUOTES
+- When an article has "Content Type: summary", provide key points but mark quote_type as "summary"
+- Example citation: "Multiple sources including [1] and [3] indicate that..." or "According to [1], [2], and [5]..."
 - Use 2-4 citations per description to support key claims
 - Do NOT use plain text source names like "(The Hindu, Times of India)"
+- For quotes field: Use actual text excerpts from full_text articles, or key summary points from summary articles
 
 REQUIRED OUTPUT FORMAT:
 {{
   "future_signals": [
     {{
-      "name": "Signal name",
+      "signal": "Signal name",
       "description": "Signal description with numbered citations [1], [2] to support claims",
-      "frequency": "Badge|Emerging|Established|Dominant",
-      "time_to_impact": "Immediate/Short-term|Mid-term|Long-term"
+      "impact": "High|Medium|Low",
+      "timeline": "1-2 years|3-5 years|5-10 years|10+ years",
+      "confidence": "High|Medium|Low",
+      "quote": "Direct quote or key excerpt from cited article",
+      "quote_source": 1,
+      "quote_type": "direct_quote|summary"
     }}
   ],
-  "disruption_scenarios": [
+  "risk_cards": [
     {{
-      "title": "Disruption title",
+      "title": "Risk title",
       "description": "Description of disruption or risk with numbered citations [1], [3] to support analysis",
-      "probability": "High|Medium|Low",
-      "severity": "Critical|Significant|Moderate"
+      "severity": "critical|high|medium|low",
+      "icon": "warning|clock",
+      "quote": "Direct quote or key excerpt from cited article",
+      "quote_source": 1,
+      "quote_type": "direct_quote|summary"
     }}
   ],
-  "opportunities": [
+  "opportunity_cards": [
     {{
       "title": "Opportunity title",
       "description": "Description of opportunity with numbered citations [2], [4] to support potential",
-      "feasibility": "High|Medium|Low",
-      "potential_impact": "Transformative|Significant|Moderate"
+      "impact": "high|medium|low",
+      "icon": "lightbulb|checkmark",
+      "quote": "Direct quote or key excerpt from cited article",
+      "quote_source": 2,
+      "quote_type": "direct_quote|summary"
     }}
   ]
 }}
 
 INSTRUCTIONS:
-- Identify 3-4 future signals with frequency and time to impact
-- Identify 2 disruption scenarios or strategic risks
-- Identify 2 strategic opportunities
+- Identify 3-5 future signals with impact, timeline, and confidence levels
+- Identify 2 risk cards (1 with icon="warning", 1 with icon="clock")
+- Identify 2 opportunity cards (1 with icon="lightbulb", 1 with icon="checkmark")
 - Support ALL descriptions with numbered citations from the article list below
+- Extract real quotes from full_text articles when available
+- Mark quote_type as "direct_quote" when from full_text, "summary" when from summaries
 
-ARTICLE DATA:
+ANALYSIS SUMMARY:
 {analysis_summary}
+
+DETAILED ARTICLE CONTENT (with full text when available):
+{articles_text}
 
 Return ONLY the JSON object."""
 
@@ -2850,6 +2945,9 @@ async def get_strategic_articles(
     try:
         facade = DatabaseQueryFacade(db, logger)
         articles = facade.get_strategic_recommendation_articles(analysis_id, topic)
+        logger.info(f"Retrieved {len(articles)} articles for strategic {analysis_id}, topic={topic}")
+        if articles:
+            logger.info(f"First article sample: {articles[0]}")
         return {"articles": articles, "count": len(articles)}
     except Exception as e:
         logger.error(f"Error retrieving strategic recommendation articles for {analysis_id}: {e}")
@@ -2870,6 +2968,9 @@ async def get_market_signal_articles(
     try:
         facade = DatabaseQueryFacade(db, logger)
         articles = facade.get_market_signal_articles(analysis_id, topic)
+        logger.info(f"Retrieved {len(articles)} articles for market signals {analysis_id}, topic={topic}")
+        if articles:
+            logger.info(f"First article sample: {articles[0]}")
         return {"articles": articles, "count": len(articles)}
     except Exception as e:
         logger.error(f"Error retrieving market signal articles for {analysis_id}: {e}")

@@ -24,6 +24,7 @@ import { getMarketSignalsRaw, getImpactTimelineRaw, getStrategicRecommendationsR
 import { ExportService } from './services/exportService';
 import { ArticleCitations } from './components/ArticleCitations';
 import { AIDisclosureFooter, dashboardFooterConfigs } from './components/AIDisclosureFooter';
+import { renderCitationsAsLinks } from './utils/citationRenderer';
 
 function App() {
   const {
@@ -95,25 +96,41 @@ function App() {
     }
   }, [config.model, config.custom_limit]);
 
-  // Fetch articles for Future Horizons tab when analysis ID is available
+  // Fetch articles for tabs that need inline citation links
   useEffect(() => {
-    const fetchArticlesForHorizons = async () => {
-      if (activeTab === 'future-horizons' && data?.analysis_id && config.topic) {
+    const fetchArticles = async () => {
+      if (!data?.analysis_id || !config.topic) {
+        setArticleList([]);
+        return;
+      }
+
+      const tabEndpoints: Record<string, string> = {
+        'future-horizons': 'horizons',
+        'strategic-recommendations': 'strategic',
+        'market-signals': 'market-signals'
+      };
+
+      const endpointKey = tabEndpoints[activeTab];
+      if (endpointKey) {
         try {
-          const endpoint = `/api/trend-convergence/horizons/${data.analysis_id}/articles?topic=${encodeURIComponent(config.topic)}`;
+          const endpoint = `/api/trend-convergence/${endpointKey}/${data.analysis_id}/articles?topic=${encodeURIComponent(config.topic)}`;
           const response = await fetch(endpoint);
 
           if (response.ok) {
             const result = await response.json();
             setArticleList(result.articles || []);
+            console.log(`Fetched ${result.articles?.length || 0} articles for ${activeTab}`);
           }
         } catch (error) {
-          console.error('Failed to fetch articles for Future Horizons:', error);
+          console.error(`Failed to fetch articles for ${activeTab}:`, error);
+          setArticleList([]);
         }
+      } else {
+        setArticleList([]);
       }
     };
 
-    fetchArticlesForHorizons();
+    fetchArticles();
   }, [activeTab, data?.analysis_id, config.topic]);
 
   const handleGenerate = async () => {
@@ -822,12 +839,14 @@ function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
-                        {('future_signals' in data ? data.future_signals : []).map((signal: any, idx: number) => (
-                          <tr key={idx} className="hover:bg-gray-50">
-                            <td className="px-6 py-4">
-                              <div className="text-sm font-medium text-gray-950">{signal.signal}</div>
-                              <div className="text-xs text-gray-600 mt-1">{signal.description}</div>
-                            </td>
+                        {('future_signals' in data ? data.future_signals : []).map((signal: any, idx: number) => {
+                          const html = renderCitationsAsLinks(signal.description || '', articleList);
+                          return (
+                            <tr key={idx} className="hover:bg-gray-50">
+                              <td className="px-6 py-4">
+                                <div className="text-sm font-medium text-gray-950">{signal.signal}</div>
+                                <div className="text-xs text-gray-600 mt-1" dangerouslySetInnerHTML={{ __html: html }} />
+                              </td>
                             <td className="px-6 py-4">
                               <span className={`inline-block px-3 py-1 text-xs font-medium rounded ${
                                 signal.impact === 'High' ? 'bg-red-100 text-red-700' :
@@ -837,14 +856,15 @@ function App() {
                                 {signal.impact}
                               </span>
                             </td>
-                            <td className="px-6 py-4 text-sm text-gray-700">
-                              {signal.timeline}
-                            </td>
-                            <td className="px-6 py-4 text-sm text-gray-700">
-                              {signal.confidence}
-                            </td>
-                          </tr>
-                        ))}
+                              <td className="px-6 py-4 text-sm text-gray-700">
+                                {signal.timeline}
+                              </td>
+                              <td className="px-6 py-4 text-sm text-gray-700">
+                                {signal.confidence}
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -853,24 +873,26 @@ function App() {
                   <div className="grid grid-cols-2 gap-6">
                     {/* Risk Cards - Left Column */}
                     <div className="space-y-4">
-                      {('risk_cards' in data ? data.risk_cards : []).map((risk: any, idx: number) => (
-                        <div key={idx} className="bg-white border border-gray-200 rounded-xl p-5">
-                          <div className="flex items-start gap-3">
-                            <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
-                              risk.severity === 'High' || risk.severity === 'Critical' ? 'bg-red-100' :
-                              risk.severity === 'Medium' ? 'bg-yellow-100' : 'bg-orange-100'
-                            }`}>
-                              <AlertCircle className={`w-5 h-5 ${
-                                risk.severity === 'High' || risk.severity === 'Critical' ? 'text-red-600' :
-                                risk.severity === 'Medium' ? 'text-yellow-600' : 'text-orange-600'
-                              }`} />
-                            </div>
-                            <div className="flex-1">
-                              <div className="flex items-center justify-between mb-2">
-                                <h3 className="font-semibold text-gray-950">{risk.title}</h3>
-                                <span className="text-xs text-gray-500">{risk.timeframe}</span>
+                      {('risk_cards' in data ? data.risk_cards : []).map((risk: any, idx: number) => {
+                        const html = renderCitationsAsLinks(risk.description || '', articleList);
+                        return (
+                          <div key={idx} className="bg-white border border-gray-200 rounded-xl p-5">
+                            <div className="flex items-start gap-3">
+                              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                                risk.severity === 'High' || risk.severity === 'Critical' ? 'bg-red-100' :
+                                risk.severity === 'Medium' ? 'bg-yellow-100' : 'bg-orange-100'
+                              }`}>
+                                <AlertCircle className={`w-5 h-5 ${
+                                  risk.severity === 'High' || risk.severity === 'Critical' ? 'text-red-600' :
+                                  risk.severity === 'Medium' ? 'text-yellow-600' : 'text-orange-600'
+                                }`} />
                               </div>
-                              <p className="text-sm text-gray-700 mb-3">{risk.description}</p>
+                              <div className="flex-1">
+                                <div className="flex items-center justify-between mb-2">
+                                  <h3 className="font-semibold text-gray-950">{risk.title}</h3>
+                                  <span className="text-xs text-gray-500">{risk.timeframe}</span>
+                                </div>
+                                <p className="text-sm text-gray-700 mb-3" dangerouslySetInnerHTML={{ __html: html }} />
                               {risk.mitigation_strategies && risk.mitigation_strategies.length > 0 && (
                                 <div className="text-xs">
                                   <p className="font-medium text-gray-600 mb-1">Mitigation:</p>
@@ -879,28 +901,31 @@ function App() {
                                       <li key={sidx}>{strategy}</li>
                                     ))}
                                   </ul>
-                                </div>
-                              )}
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
 
                     {/* Opportunity Cards - Right Column */}
                     <div className="space-y-4">
-                      {('opportunity_cards' in data ? data.opportunity_cards : []).map((opportunity: any, idx: number) => (
-                        <div key={idx} className="bg-white border border-gray-200 rounded-xl p-5">
-                          <div className="flex items-start gap-3">
-                            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                              <Target className="w-5 h-5 text-green-600" />
-                            </div>
-                            <div className="flex-1">
-                              <div className="flex items-center justify-between mb-2">
-                                <h3 className="font-semibold text-gray-950">{opportunity.title}</h3>
-                                <span className="text-xs text-gray-500">{opportunity.timeframe}</span>
+                      {('opportunity_cards' in data ? data.opportunity_cards : []).map((opportunity: any, idx: number) => {
+                        const html = renderCitationsAsLinks(opportunity.description || '', articleList);
+                        return (
+                          <div key={idx} className="bg-white border border-gray-200 rounded-xl p-5">
+                            <div className="flex items-start gap-3">
+                              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+                                <Target className="w-5 h-5 text-green-600" />
                               </div>
-                              <p className="text-sm text-gray-700 mb-3">{opportunity.description}</p>
+                              <div className="flex-1">
+                                <div className="flex items-center justify-between mb-2">
+                                  <h3 className="font-semibold text-gray-950">{opportunity.title}</h3>
+                                  <span className="text-xs text-gray-500">{opportunity.timeframe}</span>
+                                </div>
+                                <p className="text-sm text-gray-700 mb-3" dangerouslySetInnerHTML={{ __html: html }} />
                               {opportunity.potential_value && (
                                 <p className="text-xs font-medium text-green-600 mb-2">
                                   Value: {opportunity.potential_value}
@@ -914,44 +939,70 @@ function App() {
                                       <li key={sidx}>{step}</li>
                                     ))}
                                   </ul>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Quotes/Excerpts Section */}
+                  <div className="space-y-4">
+                    {('quotes' in data ? data.quotes : []).slice(0, 3).map((quote: any, idx: number) => {
+                      // Determine if this is a direct quote or Auspex commentary
+                      const isDirectQuote = quote.quote_type === 'direct_quote';
+                      const labelText = isDirectQuote ? 'Source Quote' : 'Auspex Commentary';
+                      const bgColor = isDirectQuote ? 'bg-cyan-50 border-cyan-200' : 'bg-amber-50 border-amber-200';
+                      const accentColor = isDirectQuote ? 'text-cyan-400' : 'text-amber-400';
+                      const linkColor = isDirectQuote ? 'text-cyan-600 hover:text-cyan-700' : 'text-amber-600 hover:text-amber-700';
+                      const borderColor = isDirectQuote ? 'border-cyan-200' : 'border-amber-200';
+
+                      return (
+                        <div key={idx} className={`border rounded-xl p-6 ${bgColor}`}>
+                          {/* Quote Type Badge */}
+                          <div className="flex justify-between items-start mb-3">
+                            <span
+                              className={`inline-flex items-center gap-1.5 px-2 py-1 text-xs font-semibold rounded ${isDirectQuote ? 'bg-cyan-100 text-cyan-700' : 'bg-amber-100 text-amber-700'}`}
+                              title={isDirectQuote ? 'Direct quote extracted from full article text' : 'AI-generated analysis based on article summary'}
+                            >
+                              {!isDirectQuote && (
+                                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                                  <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                                </svg>
+                              )}
+                              {labelText}
+                            </span>
+                          </div>
+
+                          <div className="flex gap-4">
+                            <div className={`text-4xl font-serif leading-none ${accentColor}`}>"</div>
+                            <div className="flex-1">
+                              <p className="text-gray-800 mb-2 italic">
+                                {quote.text}
+                              </p>
+                              <div className="flex justify-between items-end">
+                                <div className="text-xs text-gray-600">
+                                  {quote.context}
+                                </div>
+                                <p className="text-sm text-gray-700">
+                                  — <a href={quote.url} target="_blank" rel="noopener noreferrer" className={`${linkColor} hover:underline`}>
+                                    {quote.source}
+                                  </a>
+                                </p>
+                              </div>
+                              {quote.relevance && (
+                                <div className={`mt-2 text-xs text-gray-600 border-t pt-2 ${borderColor}`}>
+                                  <span className="font-medium">Relevance:</span> {quote.relevance}
                                 </div>
                               )}
                             </div>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Quotes Section */}
-                  <div className="space-y-4">
-                    {('quotes' in data ? data.quotes : []).slice(0, 3).map((quote: any, idx: number) => (
-                      <div key={idx} className="bg-cyan-50 border border-cyan-200 rounded-xl p-6">
-                        <div className="flex gap-4">
-                          <div className="text-4xl text-cyan-400 font-serif leading-none">"</div>
-                          <div className="flex-1">
-                            <p className="text-gray-800 mb-2 italic">
-                              {quote.text}
-                            </p>
-                            <div className="flex justify-between items-end">
-                              <div className="text-xs text-gray-600">
-                                {quote.context}
-                              </div>
-                              <p className="text-sm text-gray-700">
-                                — <a href={quote.url} target="_blank" rel="noopener noreferrer" className="text-cyan-600 hover:text-cyan-700 hover:underline">
-                                  {quote.source}
-                                </a>
-                              </p>
-                            </div>
-                            {quote.relevance && (
-                              <div className="mt-2 text-xs text-gray-600 border-t border-cyan-200 pt-2">
-                                <span className="font-medium">Relevance:</span> {quote.relevance}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   {/* AI Disclosure Footer */}
@@ -1086,12 +1137,16 @@ function App() {
                     </div>
                     <div className="p-6">
                       <ul className="space-y-3">
-                        {(data.strategic_recommendations?.near_term?.trends || []).slice(0, 4).map((trend, idx) => (
-                          <li key={idx} className="text-sm text-gray-700 leading-relaxed flex gap-2">
-                            <span className="text-green-600 font-bold">•</span>
-                            <span>{typeof trend === 'string' ? trend : trend.name || trend.description}</span>
-                          </li>
-                        ))}
+                        {(data.strategic_recommendations?.near_term?.trends || []).slice(0, 4).map((trend, idx) => {
+                          const text = typeof trend === 'string' ? trend : trend.name || trend.description;
+                          const html = renderCitationsAsLinks(text, articleList);
+                          return (
+                            <li key={idx} className="text-sm text-gray-700 leading-relaxed flex gap-2">
+                              <span className="text-green-600 font-bold">•</span>
+                              <span dangerouslySetInnerHTML={{ __html: html }} />
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                     <div className="px-6 pb-6">
@@ -1114,12 +1169,16 @@ function App() {
                     </div>
                     <div className="p-6">
                       <ul className="space-y-3">
-                        {(data.strategic_recommendations?.mid_term?.trends || []).slice(0, 4).map((trend, idx) => (
-                          <li key={idx} className="text-sm text-gray-700 leading-relaxed flex gap-2">
-                            <span className="text-amber-600 font-bold">•</span>
-                            <span>{typeof trend === 'string' ? trend : trend.name || trend.description}</span>
-                          </li>
-                        ))}
+                        {(data.strategic_recommendations?.mid_term?.trends || []).slice(0, 4).map((trend, idx) => {
+                          const text = typeof trend === 'string' ? trend : trend.name || trend.description;
+                          const html = renderCitationsAsLinks(text, articleList);
+                          return (
+                            <li key={idx} className="text-sm text-gray-700 leading-relaxed flex gap-2">
+                              <span className="text-amber-600 font-bold">•</span>
+                              <span dangerouslySetInnerHTML={{ __html: html }} />
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                     <div className="px-6 pb-6">
@@ -1142,12 +1201,16 @@ function App() {
                     </div>
                     <div className="p-6">
                       <ul className="space-y-3">
-                        {(data.strategic_recommendations?.long_term?.trends || []).slice(0, 4).map((trend, idx) => (
-                          <li key={idx} className="text-sm text-gray-700 leading-relaxed flex gap-2">
-                            <span className="text-rose-600 font-bold">•</span>
-                            <span>{typeof trend === 'string' ? trend : trend.name || trend.description}</span>
-                          </li>
-                        ))}
+                        {(data.strategic_recommendations?.long_term?.trends || []).slice(0, 4).map((trend, idx) => {
+                          const text = typeof trend === 'string' ? trend : trend.name || trend.description;
+                          const html = renderCitationsAsLinks(text, articleList);
+                          return (
+                            <li key={idx} className="text-sm text-gray-700 leading-relaxed flex gap-2">
+                              <span className="text-rose-600 font-bold">•</span>
+                              <span dangerouslySetInnerHTML={{ __html: html }} />
+                            </li>
+                          );
+                        })}
                       </ul>
                     </div>
                     <div className="px-6 pb-6">
@@ -1164,16 +1227,18 @@ function App() {
                   <h2 className="text-xl font-bold">Executive Decision Framework</h2>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  {(data.executive_decision_framework?.principles || []).map((principle, idx) => (
-                    <div key={idx} className="bg-white rounded-lg p-4 border border-orange-200">
-                      <h3 className="font-semibold text-sm mb-2">
-                        {principle.title || principle.name}
-                      </h3>
-                      <p className="text-sm text-gray-800">
-                        {principle.description || principle.content || principle.rationale}
-                      </p>
-                    </div>
-                  ))}
+                  {(data.executive_decision_framework?.principles || []).map((principle, idx) => {
+                    const text = principle.description || principle.content || principle.rationale;
+                    const html = renderCitationsAsLinks(text, articleList);
+                    return (
+                      <div key={idx} className="bg-white rounded-lg p-4 border border-orange-200">
+                        <h3 className="font-semibold text-sm mb-2">
+                          {principle.title || principle.name}
+                        </h3>
+                        <p className="text-sm text-gray-800" dangerouslySetInnerHTML={{ __html: html }} />
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -1184,18 +1249,20 @@ function App() {
                   <h2 className="text-xl font-bold">Next Steps:</h2>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
-                  {(data.next_steps || []).map((step, idx) => (
-                    <div key={idx} className="flex gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                      <div className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-sm font-medium text-gray-800">
-                        {idx + 1}
+                  {(data.next_steps || []).map((step, idx) => {
+                    const text = typeof step === 'string' ? step : step.action || step.description || JSON.stringify(step);
+                    const html = renderCitationsAsLinks(text, articleList);
+                    return (
+                      <div key={idx} className="flex gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                        <div className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-sm font-medium text-gray-800">
+                          {idx + 1}
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm text-gray-800" dangerouslySetInnerHTML={{ __html: html }} />
+                        </div>
                       </div>
-                      <div className="flex-1">
-                        <p className="text-sm text-gray-800">
-                          {typeof step === 'string' ? step : step.action || step.description || JSON.stringify(step)}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
 

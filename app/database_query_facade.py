@@ -536,6 +536,9 @@ class DatabaseQueryFacade:
         # Fetch more articles for deterministic selection to ensure good diversity
         fetch_multiplier = 2 if consistency_mode in [ConsistencyMode.DETERMINISTIC, ConsistencyMode.LOW_VARIANCE] else 1
 
+        # Import raw_articles table for LEFT JOIN
+        from app.database_models import t_raw_articles as raw_articles_table
+
         statement = select(
             articles.c.title,
             articles.c.summary,
@@ -545,7 +548,13 @@ class DatabaseQueryFacade:
             articles.c.category,
             articles.c.future_signal,
             articles.c.driver_type,
-            articles.c.time_to_impact
+            articles.c.time_to_impact,
+            raw_articles_table.c.raw_markdown.label('raw_markdown')  # Add raw content
+        ).select_from(
+            articles.outerjoin(
+                raw_articles_table,
+                articles.c.uri == raw_articles_table.c.uri
+            )
         ).where(
             and_(
                 articles.c.topic == topic,
