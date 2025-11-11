@@ -635,10 +635,18 @@ async def generate_trend_convergence(
         logger.info(f"After source quality filter ({source_quality}): {len(filtered_articles)} articles")
 
         if not filtered_articles:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No high-quality articles found for topic '{topic}'. Try using 'All Sources' filter."
-            )
+            if source_quality == 'high_quality':
+                # Inform user that no high-quality articles exist, suggest alternative
+                total_count = len(articles)
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"No high-quality articles found for topic '{topic}'. Found {total_count} total articles. Please change 'Source Quality' filter to 'All Sources' in the configuration panel."
+                )
+            else:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No articles found for topic '{topic}'. Please check the topic name or add more articles to the database."
+                )
 
         # Weight/prioritize articles for the specific dashboard type (if tab is specified)
         if tab:
@@ -1030,10 +1038,40 @@ Article {i}:
             
             logger.info(f"AI response received for topic: {topic}")
             logger.info(f"Raw AI response (first 200 chars): {response_text[:200]}...")
-            
+
+            # Check for common API errors in the response text
+            if "Error generating response:" in response_text:
+                error_message = response_text
+
+                # Check for specific error types
+                if "RateLimitError" in error_message or "exceeded your current quota" in error_message:
+                    logger.error(f"API quota/rate limit error: {error_message}")
+                    raise HTTPException(
+                        status_code=429,
+                        detail=f"API quota exceeded for model '{model}'. Please switch to a different model or add credits to your API account."
+                    )
+                elif "AuthenticationError" in error_message or "Invalid API key" in error_message:
+                    logger.error(f"API authentication error: {error_message}")
+                    raise HTTPException(
+                        status_code=401,
+                        detail=f"API authentication failed for model '{model}'. Please check your API key configuration."
+                    )
+                elif "ServiceUnavailableError" in error_message or "overloaded" in error_message:
+                    logger.error(f"API service unavailable: {error_message}")
+                    raise HTTPException(
+                        status_code=503,
+                        detail=f"AI service temporarily unavailable for model '{model}'. Please try again in a few moments."
+                    )
+                else:
+                    logger.error(f"AI service error: {error_message}")
+                    raise HTTPException(
+                        status_code=500,
+                        detail=f"AI model error: {error_message[:200]}..."
+                    )
+
             # Extract JSON from the response (same approach as AI timeline)
             import re
-            
+
             # First try to find JSON in code blocks
             json_match = re.search(r'```json\s*(\{.*?\})\s*```', response_text, re.DOTALL)
             if json_match:

@@ -178,7 +178,59 @@ function App() {
     try {
       switch (format) {
         case 'json':
-          ExportService.exportJSON(data, baseFilename);
+          // Extract tab-specific data based on activeTab
+          let exportData: any = data;
+
+          switch (activeTab) {
+            case 'consensus-analysis':
+              exportData = {
+                categories: data.categories || data.convergences,
+                article_count: data.article_count,
+                topic: data.topic,
+                model_used: data.model_used
+              };
+              break;
+            case 'strategic-recommendations':
+              exportData = {
+                strategic_recommendations: data.strategic_recommendations,
+                executive_decision_framework: data.executive_decision_framework,
+                next_steps: data.next_steps,
+                article_count: data.article_count,
+                topic: data.topic,
+                model_used: data.model_used
+              };
+              break;
+            case 'impact-timeline':
+              exportData = {
+                impact_timeline: data.impact_timeline,
+                key_insights: data.key_insights,
+                article_count: data.article_count,
+                topic: data.topic,
+                model_used: data.model_used
+              };
+              break;
+            case 'market-signals':
+              exportData = {
+                future_signals: data.future_signals,
+                risk_cards: data.risk_cards,
+                opportunity_cards: data.opportunity_cards,
+                quotes: data.quotes,
+                article_count: data.article_count,
+                topic: data.topic,
+                model_used: data.model_used
+              };
+              break;
+            case 'future-horizons':
+              exportData = {
+                scenarios: data.scenarios,
+                article_count: data.article_count,
+                topic: data.topic,
+                model_used: data.model_used
+              };
+              break;
+          }
+
+          ExportService.exportJSON(exportData, baseFilename);
           break;
         case 'markdown':
           ExportService.exportMarkdown(data, dashboardName, config.topic);
@@ -564,6 +616,7 @@ function App() {
                           timelineEnd={typeof item === 'string' ? 2030 : item.timeline_end || 2030}
                           tooltipPositions={typeof item === 'string' ? [] : item.tooltip_positions || []}
                           color={color}
+                          citations={typeof item === 'string' ? [] : item.citations || []}
                         />
                       );
                     })}
@@ -584,13 +637,47 @@ function App() {
                           return (
                             <div key={idx} className="flex gap-3">
                               <div className={`w-3 h-3 ${dotColor} rounded-full mt-1 shrink-0`}></div>
-                              <div>
+                              <div className="flex-1">
                                 <div className="text-sm font-semibold text-gray-950 mb-1">
                                   {typeof insight === 'string' ? insight : insight.quote || insight.insight}
                                 </div>
-                                <div className="text-xs text-gray-700">
+                                <div className="text-xs text-gray-700 mb-2">
                                   {typeof insight === 'string' ? '' : insight.relevance || insight.source || ''}
                                 </div>
+                                {/* Article Citations for Key Insight (supports both single and multiple citations) */}
+                                {typeof insight !== 'string' && (() => {
+                                  // Handle both new format (citations array) and old format (citation object)
+                                  const citationList = insight.citations && Array.isArray(insight.citations)
+                                    ? insight.citations
+                                    : insight.citation
+                                    ? [insight.citation]
+                                    : [];
+
+                                  if (citationList.length === 0) return null;
+
+                                  return (
+                                    <div className="text-xs mt-1 pt-1 border-t border-gray-300">
+                                      <div className="space-y-1">
+                                        {citationList.map((citation: any, idx: number) => (
+                                          <a
+                                            key={idx}
+                                            href={citation.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-cyan-700 hover:underline flex items-center gap-1"
+                                          >
+                                            <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                                            </svg>
+                                            <span>
+                                              {citation.title.substring(0, 50)}{citation.title.length > 50 ? '...' : ''}
+                                            </span>
+                                          </a>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             </div>
                           );
@@ -604,6 +691,112 @@ function App() {
                     {...dashboardFooterConfigs.timeline}
                     modelUsed={data.model_used}
                   />
+
+                  {/* Print-only: Organized References by Category */}
+                  {(() => {
+                    // Organize citations by category
+                    const categoryReferences: Record<string, Array<{ title: string; url: string }>> = {};
+                    const seenUrls = new Set<string>();
+
+                    // Collect citations from impact_timeline items (organized by category title)
+                    if (data.impact_timeline && Array.isArray(data.impact_timeline)) {
+                      data.impact_timeline.forEach((item: any) => {
+                        const categoryName = item.title || 'Uncategorized';
+
+                        if (!categoryReferences[categoryName]) {
+                          categoryReferences[categoryName] = [];
+                        }
+
+                        if (item.citations && Array.isArray(item.citations)) {
+                          item.citations.forEach((citation: any) => {
+                            if (citation.url && !seenUrls.has(citation.url)) {
+                              seenUrls.add(citation.url);
+                              categoryReferences[categoryName].push({
+                                title: citation.title || 'Untitled',
+                                url: citation.url
+                              });
+                            }
+                          });
+                        }
+                      });
+                    }
+
+                    // Collect citations from key_insights (separate section)
+                    const insightCitations: Array<{ title: string; url: string }> = [];
+                    if (data.key_insights && Array.isArray(data.key_insights)) {
+                      data.key_insights.forEach((insight: any) => {
+                        // Handle both new format (citations array) and old format (citation object)
+                        const citationList = insight.citations && Array.isArray(insight.citations)
+                          ? insight.citations
+                          : insight.citation
+                          ? [insight.citation]
+                          : [];
+
+                        citationList.forEach((citation: any) => {
+                          if (citation.url && !seenUrls.has(citation.url)) {
+                            seenUrls.add(citation.url);
+                            insightCitations.push({
+                              title: citation.title || 'Untitled',
+                              url: citation.url
+                            });
+                          }
+                        });
+                      });
+                    }
+
+                    // Check if we have any citations at all
+                    const hasTimlineCitations = Object.keys(categoryReferences).some(
+                      cat => categoryReferences[cat].length > 0
+                    );
+                    const hasInsightCitations = insightCitations.length > 0;
+
+                    if (!hasTimlineCitations && !hasInsightCitations) return null;
+
+                    return (
+                      <div className="hidden print:block mt-8 pt-6 border-t-2 border-gray-300 page-break-before">
+                        <h3 className="text-lg font-bold mb-4 text-gray-900">References</h3>
+
+                        {/* Timeline Category References */}
+                        {hasTimlineCitations && (
+                          <div className="mb-6">
+                            <h4 className="text-md font-semibold mb-3 text-gray-800">Impact Timeline Sources</h4>
+                            {Object.entries(categoryReferences).map(([category, citations]) => {
+                              if (citations.length === 0) return null;
+
+                              return (
+                                <div key={category} className="mb-4">
+                                  <h5 className="text-sm font-semibold text-gray-700 mb-2">{category}</h5>
+                                  <div className="space-y-2 ml-4">
+                                    {citations.map((citation, idx) => (
+                                      <div key={idx} className="text-xs leading-relaxed text-gray-800">
+                                        <span className="font-semibold">[{idx + 1}]</span> {citation.title}
+                                        <div className="text-[10px] text-gray-600 ml-6 break-all">{citation.url}</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Key Insights References */}
+                        {hasInsightCitations && (
+                          <div>
+                            <h4 className="text-md font-semibold mb-3 text-gray-800">Key Insights Sources</h4>
+                            <div className="space-y-2 ml-4">
+                              {insightCitations.map((citation, idx) => (
+                                <div key={idx} className="text-xs leading-relaxed text-gray-800">
+                                  <span className="font-semibold">[{idx + 1}]</span> {citation.title}
+                                  <div className="text-[10px] text-gray-600 ml-6 break-all">{citation.url}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </>
               )}
 
@@ -1062,7 +1255,7 @@ function App() {
       {/* Raw Analysis Modal */}
       {showRawModal && (
         <Dialog open={showRawModal} onOpenChange={setShowRawModal}>
-          <DialogContent className="max-w-4xl max-h-[80vh] overflow-auto">
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Raw Analysis Output</DialogTitle>
               <DialogDescription>
@@ -1080,7 +1273,7 @@ function App() {
                     <p><strong>Articles Analyzed:</strong> {rawAnalysisData.total_articles_analyzed}</p>
                   </div>
                   <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                    <pre className="text-xs overflow-auto whitespace-pre-wrap">
+                    <pre className="text-xs overflow-y-auto whitespace-pre-wrap break-all">
                       {JSON.stringify(rawAnalysisData.raw_output, null, 2)}
                     </pre>
                   </div>

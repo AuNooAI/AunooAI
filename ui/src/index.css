@@ -61,3 +61,75 @@
   --input: oklch(0.269 0 0);
   --ring: oklch(0.439 0 0);
 }
+
+/* Toast Notifications */
+#toastContainer {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 10000;
+  pointer-events: none;
+}
+
+.toast {
+  background: white;
+  padding: 16px 20px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 320px;
+  max-width: 480px;
+  transform: translateX(400px);
+  transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
+  opacity: 0;
+  pointer-events: auto;
+  border-left: 4px solid #28a745;
+  font-size: 14px;
+  color: #333;
+}
+
+.toast.show {
+  transform: translateX(0);
+  opacity: 1;
+}
+
+.toast.error {
+  border-left-color: #dc3545;
+}
+
+.toast.error i {
+  color: #dc3545;
+}
+
+.toast.warning {
+  border-left-color: #ffc107;
+}
+
+.toast.warning i {
+  color: #d39e00;
+}
+
+.toast.info {
+  border-left-color: #17a2b8;
+}
+
+.toast.info i {
+  color: #17a2b8;
+}
+
+.toast.success i {
+  color: #28a745;
+}
+
+.toast i {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.toast span {
+  flex: 1;
+  line-height: 1.4;
+}

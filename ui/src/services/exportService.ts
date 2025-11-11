@@ -73,6 +73,16 @@ export class ExportService {
     const originalHeight = element.style.height;
     const originalMaxHeight = element.style.maxHeight;
 
+    // Find and temporarily show print-only elements
+    const printOnlyElements = element.querySelectorAll('.print\\:block');
+    const printOnlyOriginalClasses: Map<Element, string> = new Map();
+
+    printOnlyElements.forEach((el) => {
+      printOnlyOriginalClasses.set(el, el.className);
+      // Remove 'hidden' class to make print-only content visible for capture
+      el.className = el.className.replace('hidden', '');
+    });
+
     // Temporarily expand element to capture full content
     element.style.overflow = 'visible';
     element.style.height = 'auto';
@@ -119,6 +129,11 @@ export class ExportService {
       element.style.overflow = originalOverflow;
       element.style.height = originalHeight;
       element.style.maxHeight = originalMaxHeight;
+
+      // Restore original classes for print-only elements
+      printOnlyOriginalClasses.forEach((originalClass, el) => {
+        el.className = originalClass;
+      });
     }
   }
 
@@ -135,6 +150,16 @@ export class ExportService {
     const originalOverflow = element.style.overflow;
     const originalHeight = element.style.height;
     const originalMaxHeight = element.style.maxHeight;
+
+    // Find and temporarily show print-only elements
+    const printOnlyElements = element.querySelectorAll('.print\\:block');
+    const printOnlyOriginalClasses: Map<Element, string> = new Map();
+
+    printOnlyElements.forEach((el) => {
+      printOnlyOriginalClasses.set(el, el.className);
+      // Remove 'hidden' class to make print-only content visible for capture
+      el.className = el.className.replace('hidden', '');
+    });
 
     // Temporarily expand element to capture full content
     element.style.overflow = 'visible';
@@ -166,6 +191,11 @@ export class ExportService {
       element.style.overflow = originalOverflow;
       element.style.height = originalHeight;
       element.style.maxHeight = originalMaxHeight;
+
+      // Restore original classes for print-only elements
+      printOnlyOriginalClasses.forEach((originalClass, el) => {
+        el.className = originalClass;
+      });
     }
   }
 

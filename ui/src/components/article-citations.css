@@ -188,12 +188,16 @@
   color: #111827;
   margin: 0 0 8px 0;
   line-height: 1.5;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .article-citations-item-title-link {
   text-decoration: none;
   color: inherit;
   transition: color 0.2s ease;
+  word-break: break-all;
+  overflow-wrap: break-word;
 }
 
 .article-citations-item-title-link:hover .article-citations-item-title {
@@ -205,12 +209,16 @@
   font-size: 13px;
   color: #6b7280;
   margin: 0 0 4px 0;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .article-citations-item-date {
   font-size: 12px;
   color: #9ca3af;
   margin: 0;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .article-citations-item-link {

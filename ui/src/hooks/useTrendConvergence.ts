@@ -166,7 +166,7 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
   };
 
   // Generate analysis
-  const generateAnalysis = useCallback(async (forceRefresh: boolean = false) => {
+  const generateAnalysis = useCallback(async (forceRefresh: boolean = false, skipQualityFallback: boolean = false) => {
     if (!config.topic) {
       setError('Please select a topic');
       return;
@@ -216,7 +216,93 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
       }
     } catch (err) {
       console.error('Error generating analysis:', err);
-      setError(err instanceof Error ? err.message : 'Failed to generate analysis');
+      const errorMessage = err instanceof Error ? err.message : 'Failed to generate analysis';
+
+      // Check if this is an API quota error
+      if (errorMessage.includes('API quota exceeded') || errorMessage.includes('exceeded your current quota')) {
+        import('../utils/toast').then(({ showError }) => {
+          showError(
+            `API quota exceeded for ${config.model}. Please switch to a different model (e.g., claude-3.5-sonnet or gpt-4o-mini).`,
+            10000
+          );
+        });
+        setError(errorMessage);
+        return;
+      }
+
+      // Check if this is an API authentication error
+      if (errorMessage.includes('API authentication failed') || errorMessage.includes('Invalid API key')) {
+        import('../utils/toast').then(({ showError }) => {
+          showError(
+            `API authentication failed for ${config.model}. Please check your API key configuration.`,
+            10000
+          );
+        });
+        setError(errorMessage);
+        return;
+      }
+
+      // Check if this is a service unavailable error
+      if (errorMessage.includes('temporarily unavailable') || errorMessage.includes('overloaded')) {
+        import('../utils/toast').then(({ showWarning }) => {
+          showWarning(
+            `AI service temporarily unavailable. Please try again in a few moments.`,
+            8000
+          );
+        });
+        setError(errorMessage);
+        return;
+      }
+
+      // Check if this is a "no high-quality articles" error (only try fallback once)
+      if (!skipQualityFallback && errorMessage.includes('No high-quality articles found') && config.source_quality === 'high_quality') {
+        // Import toast utility dynamically
+        import('../utils/toast').then(({ showWarning, showSuccess }) => {
+          // Extract article count from error message
+          const countMatch = errorMessage.match(/Found (\d+) total articles/);
+          const articleCount = countMatch ? countMatch[1] : 'all available';
+
+          // Show warning toast
+          showWarning(
+            `No high-quality articles available for ${config.topic} (${articleCount} total). Switching to All Sources...`,
+            6000
+          );
+
+          // Automatically switch to 'all' sources
+          console.log('No high-quality articles found, switching to all sources...');
+          const newConfig = { ...config, source_quality: 'all' };
+          setConfig(newConfig);
+
+          // Save updated config
+          try {
+            localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(newConfig));
+          } catch (e) {
+            console.error('Error saving updated config:', e);
+          }
+
+          // Clear error state and retry ONCE with skipQualityFallback=true
+          setError(null);
+          setTimeout(() => {
+            generateAnalysis(forceRefresh, true).then(() => {
+              // Show success toast after analysis completes
+              showSuccess(`Analysis complete using ${articleCount} articles from all sources`, 5000);
+            }).catch((retryErr) => {
+              // If retry also fails, show error
+              const retryErrorMsg = retryErr instanceof Error ? retryErr.message : 'Analysis failed';
+              import('../utils/toast').then(({ showError }) => {
+                showError(retryErrorMsg, 7000);
+              });
+              setError(retryErrorMsg);
+            });
+          }, 1000);
+        });
+      } else {
+        // For other errors, show error toast
+        import('../utils/toast').then(({ showError }) => {
+          showError(errorMessage, 7000);
+        });
+        setError(errorMessage);
+      }
     } finally {
       setLoading(false);
     }
