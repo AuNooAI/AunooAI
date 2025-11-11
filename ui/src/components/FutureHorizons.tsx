@@ -44,37 +44,79 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
     return { start: 2025, end: 2040 };
   };
 
+  // Interpolate along actual SVG Bezier curves
+  const interpolateBezier = (t: number, points: number[][]): number => {
+    // For quadratic Bezier: B(t) = (1-t)^2 * P0 + 2(1-t)t * P1 + t^2 * P2
+    const [p0, p1, p2] = points;
+    const mt = 1 - t;
+    return mt * mt * p0[1] + 2 * mt * t * p1[1] + t * t * p2[1];
+  };
+
+  // Get Y coordinate for a given X position on a specific wave
+  const getYOnCurve = (x: number, waveType: 'h1' | 'h2' | 'h3'): number => {
+    const t = x / 100;
+    let y = 50;
+
+    switch (waveType) {
+      case 'h1': // Blue wave: M 0,25 Q 25,28 50,45 T 100,75
+        if (t <= 0.5) {
+          const localT = t / 0.5;
+          y = interpolateBezier(localT, [[0, 25], [25, 28], [50, 45]]);
+        } else {
+          const localT = (t - 0.5) / 0.5;
+          y = interpolateBezier(localT, [[50, 45], [75, 62], [100, 75]]);
+        }
+        break;
+
+      case 'h2': // Purple wave: M 0,85 Q 25,75 40,55 Q 55,35 70,40 Q 85,45 100,60
+        if (t <= 0.4) {
+          const localT = t / 0.4;
+          y = interpolateBezier(localT, [[0, 85], [25, 75], [40, 55]]);
+        } else if (t <= 0.7) {
+          const localT = (t - 0.4) / 0.3;
+          y = interpolateBezier(localT, [[40, 55], [55, 35], [70, 40]]);
+        } else {
+          const localT = (t - 0.7) / 0.3;
+          y = interpolateBezier(localT, [[70, 40], [85, 45], [100, 60]]);
+        }
+        break;
+
+      case 'h3': // Green wave: M 0,95 Q 30,95 50,85 Q 70,75 85,55 T 100,20
+        if (t <= 0.5) {
+          const localT = t / 0.5;
+          y = interpolateBezier(localT, [[0, 95], [30, 95], [50, 85]]);
+        } else if (t <= 0.85) {
+          const localT = (t - 0.5) / 0.35;
+          y = interpolateBezier(localT, [[50, 85], [70, 75], [85, 55]]);
+        } else {
+          const localT = (t - 0.85) / 0.15;
+          y = interpolateBezier(localT, [[85, 55], [92.5, 37.5], [100, 20]]);
+        }
+        break;
+    }
+
+    return y;
+  };
+
   // Calculate position on Three Horizons curves for scenario markers
-  const calculateHorizonPosition = (scenario: Scenario, idx: number): { x: number; y: number } => {
+  const calculateHorizonPosition = (scenario: Scenario, idx: number, typeIndex: number, totalInType: number): { x: number; y: number } => {
     const { start, end } = parseTimeframe(scenario.timeframe);
     const avgYear = (start + end) / 2;
 
     // X position based on time (10% at 2025, 90% at 2040)
     const baseX = 10 + ((avgYear - 2025) / 15) * 75;
 
-    // Add horizontal jitter to spread scenarios with similar timeframes (±8%)
-    const xJitter = ((idx % 7) - 3) * 2.5;
-    const x = baseX + xJitter;
+    // Distribute cards within their type group to prevent overlap
+    // Spread them across the X axis more aggressively
+    const spreadFactor = totalInType > 1 ? (typeIndex / (totalInType - 1) - 0.5) * 40 : 0;
+    const x = Math.min(92, Math.max(8, baseX + spreadFactor));
 
-    // Add substantial vertical jitter to prevent overlapping (±10%)
-    const yJitter = ((idx % 7) - 3) * 3.5;
+    // Get Y position on the curve for this X
+    let y = getYOnCurve(x, scenario.type);
 
-    // Calculate normalized time (0 to 1 across the timeline)
-    const t = (avgYear - 2025) / 15;
-
-    let y = 50;
-
-    switch (scenario.type) {
-      case 'h1': // Current/Declining - starts at top (20%), declines to bottom (70%)
-        y = 20 + (t * 50) + yJitter;
-        break;
-      case 'h2': // Transition/Innovation - bell curve in middle (peaks around 50%)
-        y = 50 + (Math.sin((t - 0.5) * Math.PI) * -15) + yJitter;
-        break;
-      case 'h3': // Future Vision - starts at bottom (80%), rises to top (30%)
-        y = 80 - (t * 50) + yJitter;
-        break;
-    }
+    // Add alternating vertical offset to prevent overlap
+    const verticalOffset = (typeIndex % 3 - 1) * 8;
+    y += verticalOffset;
 
     return { x, y };
   };
@@ -145,8 +187,8 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
   const horizons = [
     {
       key: 'h1',
-      label: 'Horizon 1',
-      subtitle: 'Current State',
+      label: 'Current',
+      subtitle: 'Declining Systems',
       tooltip: 'The dominant paradigm today - business-as-usual trends that are gradually declining as new innovations emerge',
       color: 'blue',
       bgClass: 'bg-blue-600',
@@ -154,8 +196,8 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
     },
     {
       key: 'h2',
-      label: 'Horizon 2',
-      subtitle: 'Transition',
+      label: 'Transition',
+      subtitle: 'Innovation',
       tooltip: 'Emerging innovations and disruptions - entrepreneurial activity, pilot projects, and transitional period where old and new coexist',
       color: 'purple',
       bgClass: 'bg-purple-600',
@@ -163,8 +205,8 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
     },
     {
       key: 'h3',
-      label: 'Horizon 3',
-      subtitle: 'Future Vision',
+      label: 'Future',
+      subtitle: 'Emerging Vision',
       tooltip: 'Transformative visions becoming reality - preferred future state where the new paradigm is fully established',
       color: 'green',
       bgClass: 'bg-green-600',
@@ -175,7 +217,7 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
   return (
     <div className="space-y-8">
       {/* Three Horizons Visualization */}
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm">
+      <div className="bg-white border border-gray-200 rounded-xl shadow-sm" style={{ overflow: 'visible' }}>
         {/* Title and Description */}
         <div className="border-b border-gray-200 bg-gradient-to-r from-blue-50 via-purple-50 to-green-50 px-6 py-4">
           <h3 className="text-lg font-bold text-gray-900">Three Horizons Model</h3>
@@ -185,25 +227,27 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
         </div>
 
         {/* Waves Container */}
-        <div className="relative bg-gradient-to-br from-gray-50 to-white" style={{ height: '500px' }}>
+        <div className="relative bg-gradient-to-br from-pink-50 via-purple-50 to-blue-50" style={{ height: '500px' }}>
           {/* SVG Three Horizons Waves */}
           <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
             <defs>
-              {/* H1 gradient - Blue (declining) */}
+              {/* H1 gradient - Blue with pink tones (declining) */}
               <linearGradient id="h1Gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" style={{ stopColor: '#2563eb', stopOpacity: 0.6 }} />
-                <stop offset="100%" style={{ stopColor: '#3b82f6', stopOpacity: 0.2 }} />
+                <stop offset="0%" style={{ stopColor: '#3b82f6', stopOpacity: 0.7 }} />
+                <stop offset="50%" style={{ stopColor: '#ec4899', stopOpacity: 0.3 }} />
+                <stop offset="100%" style={{ stopColor: '#93c5fd', stopOpacity: 0.2 }} />
               </linearGradient>
-              {/* H2 gradient - Purple (transitioning) */}
+              {/* H2 gradient - Purple with pink (transitioning) */}
               <linearGradient id="h2Gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" style={{ stopColor: '#9333ea', stopOpacity: 0.2 }} />
-                <stop offset="50%" style={{ stopColor: '#a855f7', stopOpacity: 0.6 }} />
-                <stop offset="100%" style={{ stopColor: '#c084fc', stopOpacity: 0.2 }} />
+                <stop offset="0%" style={{ stopColor: '#a855f7', stopOpacity: 0.3 }} />
+                <stop offset="50%" style={{ stopColor: '#ec4899', stopOpacity: 0.7 }} />
+                <stop offset="100%" style={{ stopColor: '#c084fc', stopOpacity: 0.3 }} />
               </linearGradient>
-              {/* H3 gradient - Green (emerging) */}
+              {/* H3 gradient - Green with pink accents (emerging) */}
               <linearGradient id="h3Gradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" style={{ stopColor: '#16a34a', stopOpacity: 0.2 }} />
-                <stop offset="100%" style={{ stopColor: '#22c55e', stopOpacity: 0.6 }} />
+                <stop offset="0%" style={{ stopColor: '#22c55e', stopOpacity: 0.2 }} />
+                <stop offset="50%" style={{ stopColor: '#f472b6', stopOpacity: 0.4 }} />
+                <stop offset="100%" style={{ stopColor: '#4ade80', stopOpacity: 0.7 }} />
               </linearGradient>
             </defs>
 
@@ -248,29 +292,62 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
             <text x="3" y="58" fontSize="3" fill="#1f2937" textAnchor="middle" fontWeight="bold">NOW</text>
           </svg>
 
-          {/* Horizon labels on left with tooltips */}
-          <div className="absolute left-3 top-0 bottom-0 flex flex-col justify-around text-xs font-medium pointer-events-auto z-20 py-12">
-            {horizons.map(({ key, label, tooltip, bgClass }) => (
-              <div key={key} className="relative group">
-                <div className={`${bgClass} text-white px-3 py-1.5 rounded shadow-md cursor-help`}>
-                  {label}
-                </div>
-                {/* Tooltip on hover */}
-                <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 hidden group-hover:block z-50 pointer-events-none">
-                  <div className="bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl max-w-xs">
-                    <div className="font-semibold mb-1">{label}</div>
-                    {tooltip}
-                    {/* Arrow pointing left */}
-                    <div className="absolute right-full top-1/2 -translate-y-1/2 border-[6px] border-transparent border-r-gray-900"></div>
+          {/* Horizon labels on left with tooltips - positioned at wave start points */}
+          <div className="absolute left-3 top-0 bottom-0 text-xs font-medium pointer-events-auto z-20">
+            {horizons.map(({ key, label, tooltip, bgClass }) => {
+              // Position badges at wave starting points
+              const topPosition =
+                key === 'h1' ? '25%' :  // Blue wave starts at ~25%
+                key === 'h2' ? '85%' :  // Purple wave starts at ~85%
+                '95%';                   // Green wave starts at ~95%
+
+              return (
+                <div key={key} className="absolute relative group" style={{ top: topPosition, transform: 'translateY(-50%)' }}>
+                  <div className={`${bgClass} text-white px-3 py-1.5 rounded shadow-md cursor-help`}>
+                    {label}
+                  </div>
+                  {/* Tooltip on hover */}
+                  <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 hidden group-hover:block z-50 pointer-events-none">
+                    <div className="bg-gray-900 text-white text-xs rounded-lg p-3 shadow-xl max-w-xs">
+                      <div className="font-semibold mb-1">{label}</div>
+                      {tooltip}
+                      {/* Arrow pointing left */}
+                      <div className="absolute right-full top-1/2 -translate-y-1/2 border-[6px] border-transparent border-r-gray-900"></div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Scenario markers ON the waves */}
-          {scenarios.map((scenario, idx) => {
-            const pos = calculateHorizonPosition(scenario, idx);
+          {(() => {
+            // Group scenarios by type and sort by timeframe within each type
+            const h1Scenarios = scenarios.filter(s => s.type === 'h1').sort((a, b) => {
+              const { start: aStart } = parseTimeframe(a.timeframe);
+              const { start: bStart } = parseTimeframe(b.timeframe);
+              return aStart - bStart;
+            });
+            const h2Scenarios = scenarios.filter(s => s.type === 'h2').sort((a, b) => {
+              const { start: aStart } = parseTimeframe(a.timeframe);
+              const { start: bStart } = parseTimeframe(b.timeframe);
+              return aStart - bStart;
+            });
+            const h3Scenarios = scenarios.filter(s => s.type === 'h3').sort((a, b) => {
+              const { start: aStart } = parseTimeframe(a.timeframe);
+              const { start: bStart } = parseTimeframe(b.timeframe);
+              return aStart - bStart;
+            });
+
+            // Create indexed scenarios with their position within their type
+            const indexedScenarios = [
+              ...h1Scenarios.map((s, i) => ({ scenario: s, typeIndex: i, totalInType: h1Scenarios.length })),
+              ...h2Scenarios.map((s, i) => ({ scenario: s, typeIndex: i, totalInType: h2Scenarios.length })),
+              ...h3Scenarios.map((s, i) => ({ scenario: s, typeIndex: i, totalInType: h3Scenarios.length })),
+            ];
+
+            return indexedScenarios.map(({ scenario, typeIndex, totalInType }, idx) => {
+              const pos = calculateHorizonPosition(scenario, idx, typeIndex, totalInType);
 
             // Get border color matching horizon
             const borderColor =
@@ -315,7 +392,8 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
                 </div>
               </div>
             );
-          })}
+          });
+          })()}
         </div>
 
         {/* Timeline at bottom */}
@@ -405,9 +483,9 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
                     selectedScenario.type === 'h2' ? 'bg-purple-100 text-purple-800' :
                     'bg-green-100 text-green-800' // h3
                   }`}>
-                    {selectedScenario.type === 'h1' ? 'Horizon 1 (Current)' :
-                     selectedScenario.type === 'h2' ? 'Horizon 2 (Transition)' :
-                     'Horizon 3 (Future)'}
+                    {selectedScenario.type === 'h1' ? 'Current' :
+                     selectedScenario.type === 'h2' ? 'Transition' :
+                     'Future'}
                   </span>
                 </div>
               </div>
