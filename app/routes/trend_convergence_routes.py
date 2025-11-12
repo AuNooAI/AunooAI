@@ -18,6 +18,7 @@ from app.database import Database, get_database_instance
 from app.database_query_facade import DatabaseQueryFacade
 from app.services.auspex_service import get_auspex_service
 from app.services.prompt_loader import PromptLoader
+from app.analyzers.prompt_manager import PromptManager, PromptManagerError
 
 # Context limits for different AI models (copied from futures cone)
 CONTEXT_LIMITS = {
@@ -1820,6 +1821,9 @@ def generate_consensus_analysis_prompt(
     Matches skunkworkx consensus_analysis.html data structure.
     """
 
+    # Load prompt from JSON file
+    prompt_data = PromptLoader.load_prompt("consensus_analysis", "current")
+
     analysis_summary = prepare_analysis_summary(articles, topic)
 
     # Get organization-specific context
@@ -1827,229 +1831,31 @@ def generate_consensus_analysis_prompt(
     org_name = organizational_profile.get('name', 'your organization') if organizational_profile else 'your organization'
     action_vocabulary = get_action_vocabulary(org_type)
 
-    prompt = f"""CRITICAL ORGANIZATIONAL CONTEXT: You are advising {org_name}, a {org_type} organization. ALL analysis and recommendations must be appropriate for their organizational type, capabilities, and sphere of influence.{org_context}
+    # Create numbered article reference list for citations
+    article_references = "\n".join([
+        f"[{i+1}] {article.get('title', 'Untitled')}\n    Source: {article.get('source', 'Unknown Source')} | Date: {str(article.get('publication_date', ''))[:10] if article.get('publication_date') else 'Unknown'}\n    URL: {article.get('uri', article.get('url', ''))}"
+        for i, article in enumerate(articles)
+    ])
 
-{action_vocabulary}
+    # Fill prompt template variables
+    system_prompt, user_prompt = PromptLoader.get_prompt_template(
+        prompt_data,
+        {
+            "topic": topic,
+            "article_count": len(articles),
+            "articles": analysis_summary,
+            "article_references": article_references,
+            "org_context": f"CRITICAL ORGANIZATIONAL CONTEXT: You are advising {org_name}, a {org_type} organization. ALL analysis and recommendations must be appropriate for their organizational type, capabilities, and sphere of influence.{org_context}\n\nIMPORTANT: Your outputs must align with what a {org_type} organization can realistically do. Do NOT recommend actions that require governmental authority, corporate resources, or capabilities beyond this organization's scope.",
+            "action_vocabulary": action_vocabulary,
+            "org_name": org_name,
+            "org_type": org_type,
+            "prompt_focus": prompt_template.get('focus', 'Strategic decision-making and competitive positioning')
+        }
+    )
 
-IMPORTANT: Your outputs must align with what a {org_type} organization can realistically do. Do NOT recommend actions that require governmental authority, corporate resources, or capabilities beyond this organization's scope.
+    # Combine system and user prompts
+    return f"{system_prompt}\n\n{user_prompt}"
 
-Conduct a DEEP EVIDENCE SYNTHESIS analysis of {len(articles)} articles about "{topic}".
-
-MISSION: Identify 3-4 major CONSENSUS CATEGORIES where trends, forecasts, and expert opinions align across multiple sources. This is NOT a summary - it's a cross-source analysis revealing patterns of agreement and disagreement.
-
-CRITICAL CITATION INSTRUCTIONS:
-- Use numbered citations [1], [2], [3] to reference articles
-- The numbered article list is provided below with titles, sources, and URLs
-- Example: "Multiple sources including [1] and [3] agree that..." or "According to [1], [2], and [5]..."
-- Use 3-5 citations per category_description to support key claims
-- Do NOT use plain text source names like "(The Hindu, Times of India)"
-
-REQUIRED OUTPUT FORMAT - Use EXACTLY this Auspex numbered field JSON structure:
-{{
-  "categories": [
-    {{
-      "category_name": "Category Name (e.g., 'AI Safety Consensus', 'Climate Action Timeline', 'Market Transformation')",
-      "category_description": "EVIDENCE-BASED description synthesizing insights from multiple sources. Use numbered citations: 'Multiple sources including [1], [3], and [7] agree that... while [2] and [5] emphasize...'",
-      "articles_analyzed": {len(articles)},
-      "1_consensus_type": {{
-        "summary": "Positive Growth|Mixed Consensus|Regulatory Response|Safety/Security|Societal Impact|Technical Advancement|Market Shift",
-        "distribution": {{
-          "positive": 55,
-          "neutral": 30,
-          "critical": 15
-        }},
-        "confidence_level": 85
-      }},
-      "2_timeline_consensus": {{
-        "distribution": {{
-          "Immediate (2025)": 10,
-          "Short-term (2025-2027)": 45,
-          "Mid-term (2027-2030)": 30,
-          "Long-term (2030-2035+)": 15
-        }},
-        "consensus_window": {{
-          "start_year": 2027,
-          "end_year": 2035,
-          "label": "Mid-term (2027-2035)"
-        }}
-      }},
-      "3_confidence_level": {{
-        "majority_agreement": 80,
-        "consensus_strength": "Strong|Moderate|Emerging",
-        "evidence_quality": "High|Medium|Low"
-      }},
-      "4_optimistic_outliers": [
-        {{
-          "scenario": "Specific optimistic scenario title",
-          "details": "Detailed description of this optimistic view. Include which sources predict this.",
-          "year": 2025,
-          "source_percentage": 20,
-          "reference": "Source names or article titles supporting this view"
-        }}
-      ],
-      "5_pessimistic_outliers": [
-        {{
-          "scenario": "Specific pessimistic scenario title",
-          "details": "Detailed description of this pessimistic view. Include which sources predict this.",
-          "year": 2035,
-          "source_percentage": 15,
-          "reference": "Source names or article titles supporting this view"
-        }}
-      ],
-      "6_key_articles": [
-        {{
-          "title": "Actual article title from data",
-          "url": "Actual URL from data",
-          "summary": "How this article supports this consensus category",
-          "sentiment": "positive|neutral|critical",
-          "relevance_score": 0.95
-        }}
-      ],
-      "7_strategic_implications": "Clear organizational impact for {org_name} (a {org_type} organization). What actions should be taken within their sphere of influence? What risks or opportunities does this reveal?",
-      "8_key_decision_windows": [
-        {{
-          "urgency": "Critical|High|Medium|Low",
-          "window": "Immediate (0-6 months)|Short-term (6-18 months)|Mid-term (18-36 months)",
-          "action": "Specific actionable milestone or decision point that {org_name} can realistically execute as a {org_type} organization",
-          "rationale": "Why this action is important and time-sensitive for {org_name}",
-          "owner": "Recommended team/role appropriate for a {org_type} organization (e.g., for NGO: 'Advocacy Team', 'Communications Team'; for Publisher: 'Editorial Board', 'Content Strategy Team'; for Corporation: 'Executive Team', 'Product Team')",
-          "dependencies": ["dependency1", "dependency2"],
-          "success_metrics": ["metric1", "metric2"]
-        }}
-      ],
-      "9_timeframe_analysis": {{
-        "immediate": "Actions to take immediately (0-6 months)",
-        "short_term": "Strategic positioning for 6-18 months",
-        "mid_term": "Long-term implications and preparation (18-36 months)",
-        "key_milestones": [
-          {{
-            "year": 2025,
-            "milestone": "Expected milestone or checkpoint",
-            "significance": "Why this milestone matters"
-          }}
-        ]
-      }}
-    }}
-  ],
-  "key_insights": [
-    {{
-      "quote": "Compelling insight or data point synthesized from evidence. Example: '75% of sources agree that X will happen by Y, with only Z expressing skepticism'",
-      "source": "Multi-source synthesis|Industry Analysis|Expert Consensus|Market Research",
-      "relevance": "Why this insight matters for strategic decision-making"
-    }}
-  ]
-}}
-
-EVIDENCE SYNTHESIS INSTRUCTIONS:
-
-1. IDENTIFY 3-4 CONSENSUS CATEGORIES:
-   - Look for themes where multiple sources agree (even if phrased differently)
-   - Calculate consensus percentage based on actual source agreement
-   - Don't just list what sources say - identify PATTERNS across sources
-   - Each category should represent a distinct area of agreement/disagreement
-
-2. QUANTIFY EVERYTHING ACCURATELY:
-   - Consensus confidence = (# sources supporting view) / (total sources) * 100
-   - Source percentages for outliers must be realistic (typically 5-25%)
-   - Sentiment distribution must sum to 100%
-   - Timeline distribution must sum to 100%
-   - Count articles_analyzed for each category
-
-3. CROSS-REFERENCE SOURCES:
-   - Each category must cite at least 3-5 supporting articles in 6_key_articles
-   - Descriptions should reference specific sources: "According to Article A..., corroborated by Article B..."
-   - Identify both majority and minority positions
-   - Include actual article titles and URLs from provided data
-
-4. EXTRACT 4-6 KEY INSIGHTS (top-level):
-   - These should reveal cross-cutting patterns across ALL categories
-   - Include compelling statistics or data points
-   - Show unexpected agreements or surprising disagreements
-   - Each insight should synthesize multiple sources
-
-5. IDENTIFY OUTLIERS PER CATEGORY (ONLY IF GENUINELY PRESENT):
-   - Optimistic outliers (4_optimistic_outliers) = minority views predicting faster/better outcomes
-   - Pessimistic outliers (5_pessimistic_outliers) = minority views predicting slower/worse outcomes
-   - ONLY include outliers if sources genuinely present dissenting views (>5% of sources)
-   - May have 0-3 optimistic outliers and 0-3 pessimistic outliers per category
-   - DO NOT fabricate outliers if sources show strong consensus
-   - Calculate what % of sources hold each outlier view (must be realistic: 5-25%)
-   - Be specific about years and scenarios
-   - Each outlier must cite actual sources from the data
-
-6. STRATEGIC IMPLICATIONS (7_strategic_implications):
-   - For each category, explain organizational impact for {org_name} (a {org_type} organization)
-   - What actions should {org_name} take within their sphere of influence?
-   - What risks or opportunities does this reveal for a {org_type} organization?
-   - Be specific and actionable, tailored to {org_type} capabilities
-
-7. KEY DECISION WINDOWS (8_key_decision_windows) - 3-5 per category:
-   - CRITICAL: All actions must be appropriate for a {org_type} organization
-   - Identify specific time-sensitive action points that {org_name} can realistically execute
-   - Urgency levels: Critical (red), High (orange), Medium (blue), Low (gray)
-   - Assign realistic timeframes: Immediate (0-6 months), Short-term (6-18 months), Mid-term (18-36 months)
-   - Specify owners using roles appropriate for {org_type} organizations
-   - Define measurable success metrics relevant to {org_type} work
-   - Note any dependencies or prerequisites
-   - Make actions concrete and executable within {org_type} organizational capabilities
-
-8. TIMEFRAME ANALYSIS (9_timeframe_analysis) per category:
-   - Break down implications across three timeframes:
-   - **Immediate (0-6 months)**: What needs to happen right now? Urgent decisions, immediate actions
-   - **Short-term (6-18 months)**: Strategic positioning, capability building, resource allocation
-   - **Mid-term (18-36 months)**: Long-term preparation, transformation initiatives, competitive positioning
-   - Identify 2-3 key milestones within the consensus timeline with specific years
-   - For each milestone, explain its significance and what it means for the organization
-
-9. TIMELINE CONSENSUS (2_timeline_consensus):
-   - Calculate realistic distribution across time periods based on article data
-   - consensus_window should capture the PRIMARY timeframe where most impact is expected
-   - IMPORTANT: start_year should reflect when impact BEGINS to manifest (can be > 2025, NOT always 2025)
-   - start_year and end_year define the thick colored bar on the timeline visualization (2025-2050 range)
-   - Example: If impact mainly occurs 2030-2040, use start_year: 2030, end_year: 2040
-   - Make sure this aligns with the distribution percentages
-
-10. CONSENSUS TYPE (1_consensus_type):
-   - Choose the type that best represents the nature of this consensus category
-   - Calculate accurate sentiment distribution from articles (positive, neutral, critical)
-   - CRITICAL: Distribution values MUST sum to 100 (they are percentages, not decimals or counts)
-   - Example: {{"positive": 60, "neutral": 30, "critical": 10}} (sums to 100)
-   - Confidence level should reflect strength of agreement (typically 60-95%)
-
-QUALITY REQUIREMENTS:
-- Every claim must reference specific sources
-- Percentages must be calculated from actual article counts and be realistic
-- Descriptions must synthesize across sources, not just summarize one
-- Timeline predictions must be grounded in source data
-- No generic statements - be specific and evidence-based
-- All article references in 6_key_articles must use real titles and URLs from data
-- Outliers should be genuinely different perspectives, not just variations
-
-ARTICLE DATA FOR ANALYSIS:
-{analysis_summary}
-
-NUMBERED ARTICLE LIST (Use these numbers for citations):
-"""
-
-    # Add numbered article list
-    for idx, article in enumerate(articles, 1):  # Include all articles
-        title = article.get('title', 'Untitled')
-        source = article.get('source', 'Unknown Source')
-        url = article.get('uri', article.get('url', ''))
-        pub_date = str(article.get('publication_date', ''))[:10] if article.get('publication_date') else 'Unknown'
-
-        prompt += f"\n[{idx}] {title}"
-        prompt += f"\n    Source: {source} | Date: {pub_date}"
-        if url:
-            prompt += f"\n    URL: {url}"
-        prompt += "\n"
-
-    prompt += f"""
-STRATEGIC FOCUS: {prompt_template['focus']}
-
-Now analyze these articles and return ONLY the JSON object with the Auspex numbered field structure. Focus on SYNTHESIS across sources, not individual summaries."""
-
-    return prompt
 
 
 def get_framework_section_name(org_type: str) -> str:
@@ -2163,6 +1969,9 @@ def generate_strategic_recommendations_prompt(
     Focus on near/mid/long-term trends and actionable recommendations.
     """
 
+    # Load prompt from JSON file
+    prompt_data = PromptLoader.load_prompt("strategic_recommendations", "current")
+
     analysis_summary = prepare_analysis_summary(articles, topic)
 
     # Get organization-specific section names and vocabulary
@@ -2171,82 +1980,33 @@ def generate_strategic_recommendations_prompt(
     framework_section = get_framework_section_name(org_type)
     action_vocabulary = get_action_vocabulary(org_type)
 
-    prompt = f"""CRITICAL ORGANIZATIONAL CONTEXT: You are advising {org_name}, a {org_type} organization. ALL recommendations must be appropriate for their organizational type, capabilities, and sphere of influence.{org_context}
+    # Create numbered article reference list
+    article_references = "\n".join([
+        f"[{i+1}] {article.get('title', 'Untitled')}\n    Source: {article.get('source', 'Unknown Source')} | Date: {str(article.get('publication_date', ''))[:10] if article.get('publication_date') else 'Unknown'}\n    URL: {article.get('uri', article.get('url', ''))}"
+        for i, article in enumerate(articles)
+    ])
 
-{action_vocabulary}
+    # Fill prompt template variables
+    system_prompt, user_prompt = PromptLoader.get_prompt_template(
+        prompt_data,
+        {
+            "topic": topic,
+            "article_count": len(articles),
+            "articles": analysis_summary,
+            "article_references": article_references,
+            "org_context": f"CRITICAL ORGANIZATIONAL CONTEXT: You are advising {org_name}, a {org_type} organization. ALL recommendations must be appropriate for their organizational type, capabilities, and sphere of influence.{org_context}\n\nIMPORTANT: Your recommendations must align with what a {org_type} organization can realistically do. Do NOT recommend actions that require governmental authority, corporate resources, or capabilities beyond this organization's scope.",
+            "action_vocabulary": action_vocabulary,
+            "org_name": org_name,
+            "org_type": org_type,
+            "framework_section": framework_section,
+            "prompt_focus": prompt_template.get('focus', 'Strategic decision-making and competitive positioning'),
+            "next_steps_style": prompt_template.get('next_steps_style', 'High-level strategic initiatives with clear ownership')
+        }
+    )
 
-IMPORTANT: Your recommendations must align with what a {org_type} organization can realistically do. Do NOT recommend actions that require governmental authority, corporate resources, or capabilities beyond this organization's scope.
+    # Combine system and user prompts
+    return f"{system_prompt}\n\n{user_prompt}"
 
-Analyze {len(articles)} articles about "{topic}" and generate strategic recommendations across three time horizons.
-
-CRITICAL CITATION INSTRUCTIONS:
-- Use numbered citations [1], [2], [3] to reference articles
-- The numbered article list is provided below with titles, sources, and URLs
-- Example: "Multiple sources including [1] and [3] indicate that..." or "According to [1], [2], and [5]..."
-- Use 2-4 citations per description to support key claims
-- Do NOT use plain text source names like "(The Hindu, Times of India)"
-
-REQUIRED OUTPUT FORMAT:
-{{
-  "strategic_recommendations": {{
-    "near_term": {{
-      "timeframe": "2025-2027",
-      "trends": [
-        {{
-          "name": "Trend name",
-          "description": "Detailed trend description with numbered citations [1], [2] to support analysis",
-          "confidence": "High|Medium|Low",
-          "key_drivers": ["driver1", "driver2"],
-          "potential_impact": "Impact description with supporting citations [3], [4]"
-        }}
-      ]
-    }},
-    "mid_term": {{
-      "timeframe": "2027-2030",
-      "trends": [...]
-    }},
-    "long_term": {{
-      "timeframe": "2030-2035+",
-      "trends": [...]
-    }}
-  }},
-  "{framework_section}": {{
-    "principles": [
-      {{
-        "name": "Principle name appropriate for {org_type} organizations",
-        "description": "Principle description with citations [1], [2]",
-        "rationale": "Why important for {org_name}, supported by [3]",
-        "implementation": "How {org_name} can apply this principle within their capabilities"
-      }}
-    ]
-  }},
-  "next_steps": [
-    {{
-      "priority": "High|Medium|Low",
-      "action": "Specific actionable step that {org_name} (a {org_type} organization) can realistically execute, with supporting evidence [1], [2]",
-      "timeline": "When to complete",
-      "stakeholders": ["stakeholder1"],
-      "success_metrics": ["metric1"]
-    }}
-  ]
-}}
-
-INSTRUCTIONS:
-- As a {org_type} organization, identify 2 major trends for each time horizon
-- Create 3-4 decision principles appropriate for {org_type} organizations (not generic executive principles)
-- Provide 3-4 specific, actionable next steps that {org_name} can realistically execute within their sphere of influence
-- CRITICAL: All next steps must be actions a {org_type} organization can take - do NOT recommend actions requiring governmental authority, corporate implementation power, or resources beyond their scope
-- Focus on actionable insights for {prompt_template['focus']}
-- Use decision-making style: {prompt_template['next_steps_style']}
-- Remember: {org_name} influences through their specific organizational capabilities, not through direct policy implementation or enforcement
-- Support ALL descriptions with numbered citations from the article list below
-
-ARTICLE DATA:
-{analysis_summary}
-
-Return ONLY the JSON object."""
-
-    return prompt
 
 
 def generate_market_signals_prompt(
@@ -2257,121 +2017,47 @@ def generate_market_signals_prompt(
 ) -> str:
     """
     Generate specialized prompt for Market Signals tab.
-    Focus on future signals, disruptions, and opportunities.
-    Uses full article text when available for real quotes.
+    Focus on identifying signals, risks, and opportunities.
     """
 
-    analysis_summary = prepare_analysis_summary(articles, topic)
+    # Load prompt from JSON file
+    prompt_data = PromptLoader.load_prompt("market_signals", "current")
 
     # Get organization-specific context
     org_type = organizational_profile.get('organization_type', 'executive') if organizational_profile else 'executive'
     org_name = organizational_profile.get('name', 'your organization') if organizational_profile else 'your organization'
     action_vocabulary = get_action_vocabulary(org_type)
 
-    # Get org-specific signal terminology
-    if 'ngo' in org_type.lower() or 'nonprofit' in org_type.lower() or 'activist' in org_type.lower():
-        signals_term = "advocacy signals, policy opportunities, and mobilization windows"
-    elif 'publisher' in org_type.lower() or 'academic' in org_type.lower():
-        signals_term = "content signals, editorial opportunities, and audience trends"
-    elif 'think tank' in org_type.lower() or 'research' in org_type.lower():
-        signals_term = "research signals, policy windows, and knowledge opportunities"
-    else:
-        signals_term = "market signals, disruptions, and opportunities"
+    # Prepare article content with raw_markdown when available
+    article_content = "\n\n".join([
+        f"**Article {i+1}: {article.get('title', 'Untitled')}**\n{article.get('raw_markdown', article.get('summary', 'No content'))}"
+        for i, article in enumerate(articles[:30])  # Limit to 30 for market signals
+    ])
 
-    # Prepare detailed article content with raw text when available
-    article_details = []
-    for idx, article in enumerate(articles, 1):
-        raw_text = article.get('raw_markdown', '').strip() if article.get('raw_markdown') else None
+    # Calculate date range
+    from datetime import datetime, timedelta
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=30)
+    date_range = f"{start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
 
-        if raw_text:
-            # Truncate long articles to first 1500 chars to stay within context limits
-            content = raw_text[:1500] + "..." if len(raw_text) > 1500 else raw_text
-            content_type = "full_text"
-        else:
-            content = article.get('summary', '')
-            content_type = "summary"
+    # Fill prompt template variables
+    system_prompt, user_prompt = PromptLoader.get_prompt_template(
+        prompt_data,
+        {
+            "topic": topic,
+            "article_count": len(articles),
+            "articles": article_content,
+            "date_range": date_range,
+            "org_context": f"CRITICAL ORGANIZATIONAL CONTEXT: You are advising {org_name}, a {org_type} organization.{org_context}",
+            "action_vocabulary": action_vocabulary,
+            "org_name": org_name,
+            "org_type": org_type
+        }
+    )
 
-        article_details.append(f"""[{idx}] {article.get('title', 'Untitled')}
-   Source: {article.get('uri', 'No URL')}
-   Date: {str(article.get('publication_date', 'Unknown'))[:10]}
-   Content Type: {content_type}
-   Content: {content}
-   ---""")
+    # Combine system and user prompts
+    return f"{system_prompt}\n\n{user_prompt}"
 
-    articles_text = "\n\n".join(article_details)
-
-    prompt = f"""CRITICAL ORGANIZATIONAL CONTEXT: You are advising {org_name}, a {org_type} organization. ALL analysis must be appropriate for their organizational type, capabilities, and sphere of influence.{org_context}
-
-{action_vocabulary}
-
-IMPORTANT: Your outputs must align with what a {org_type} organization can realistically do. Frame all signals, opportunities, and risks from the perspective of a {org_type} organization.
-
-Analyze {len(articles)} articles about "{topic}" and identify {signals_term}.
-
-CRITICAL CITATION AND QUOTE INSTRUCTIONS:
-- Use numbered citations [1], [2], [3] to reference articles
-- When an article has "Content Type: full_text", you can extract REAL DIRECT QUOTES
-- When an article has "Content Type: summary", provide key points but mark quote_type as "summary"
-- Example citation: "Multiple sources including [1] and [3] indicate that..." or "According to [1], [2], and [5]..."
-- Use 2-4 citations per description to support key claims
-- Do NOT use plain text source names like "(The Hindu, Times of India)"
-- For quotes field: Use actual text excerpts from full_text articles, or key summary points from summary articles
-
-REQUIRED OUTPUT FORMAT:
-{{
-  "future_signals": [
-    {{
-      "signal": "Signal name",
-      "description": "Signal description with numbered citations [1], [2] to support claims",
-      "impact": "High|Medium|Low",
-      "timeline": "1-2 years|3-5 years|5-10 years|10+ years",
-      "confidence": "High|Medium|Low",
-      "quote": "Direct quote or key excerpt from cited article",
-      "quote_source": 1,
-      "quote_type": "direct_quote|summary"
-    }}
-  ],
-  "risk_cards": [
-    {{
-      "title": "Risk title",
-      "description": "Description of disruption or risk with numbered citations [1], [3] to support analysis",
-      "severity": "critical|high|medium|low",
-      "icon": "warning|clock",
-      "quote": "Direct quote or key excerpt from cited article",
-      "quote_source": 1,
-      "quote_type": "direct_quote|summary"
-    }}
-  ],
-  "opportunity_cards": [
-    {{
-      "title": "Opportunity title",
-      "description": "Description of opportunity with numbered citations [2], [4] to support potential",
-      "impact": "high|medium|low",
-      "icon": "lightbulb|checkmark",
-      "quote": "Direct quote or key excerpt from cited article",
-      "quote_source": 2,
-      "quote_type": "direct_quote|summary"
-    }}
-  ]
-}}
-
-INSTRUCTIONS:
-- Identify 3-5 future signals with impact, timeline, and confidence levels
-- Identify 2 risk cards (1 with icon="warning", 1 with icon="clock")
-- Identify 2 opportunity cards (1 with icon="lightbulb", 1 with icon="checkmark")
-- Support ALL descriptions with numbered citations from the article list below
-- Extract real quotes from full_text articles when available
-- Mark quote_type as "direct_quote" when from full_text, "summary" when from summaries
-
-ANALYSIS SUMMARY:
-{analysis_summary}
-
-DETAILED ARTICLE CONTENT (with full text when available):
-{articles_text}
-
-Return ONLY the JSON object."""
-
-    return prompt
 
 
 def generate_impact_timeline_prompt(
@@ -2438,6 +2124,9 @@ def generate_future_horizons_prompt(
     Focus on Three Horizons framework showing transition from current state to future vision.
     """
 
+    # Load prompt from JSON file
+    prompt_data = PromptLoader.load_prompt("future_horizons", "current")
+
     analysis_summary = prepare_analysis_summary(articles, topic)
 
     # Get organization-specific context
@@ -2447,71 +2136,28 @@ def generate_future_horizons_prompt(
 
     # Create numbered article reference list for citations
     article_references = "\n".join([
-        f"[{i+1}] {article.get('title', 'Untitled')} - {article.get('source_name', 'Unknown')} - {str(article.get('publication_date', ''))[:10]}"
+        f"[{i+1}] {article.get('title', 'Untitled')} - {article.get('source', article.get('source_name', 'Unknown'))} - {str(article.get('publication_date', ''))[:10]}"
         for i, article in enumerate(articles[:50])  # Limit to first 50 articles
     ])
 
-    prompt = f"""CRITICAL ORGANIZATIONAL CONTEXT: You are advising {org_name}, a {org_type} organization. ALL scenario analysis must be framed from the perspective of a {org_type} organization and their sphere of influence.{org_context}
+    # Fill prompt template variables
+    system_prompt, user_prompt = PromptLoader.get_prompt_template(
+        prompt_data,
+        {
+            "topic": topic,
+            "article_count": len(articles),
+            "articles": analysis_summary,
+            "article_references": article_references,
+            "org_context": f"CRITICAL ORGANIZATIONAL CONTEXT: You are advising {org_name}, a {org_type} organization. ALL scenario analysis must be framed from the perspective of a {org_type} organization and their sphere of influence.{org_context}\n\nIMPORTANT: Frame all scenarios from the perspective of a {org_type} organization. Consider how these trends affect and are shaped by {org_type} organizations.",
+            "action_vocabulary": action_vocabulary,
+            "org_name": org_name,
+            "org_type": org_type
+        }
+    )
 
-{action_vocabulary}
+    # Combine system and user prompts
+    return f"{system_prompt}\n\n{user_prompt}"
 
-IMPORTANT: Frame all scenarios from the perspective of a {org_type} organization. Consider how these trends affect and are shaped by {org_type} organizations.
-
-Analyze {len(articles)} articles about "{topic}" and generate future scenarios using the Three Horizons framework.
-
-THREE HORIZONS FRAMEWORK DEFINITIONS:
-- **Horizon 1 (H1) - Current Paradigm/Declining**: The dominant paradigm today. Current established practices and systems that are gradually declining as new innovations emerge. Represents what's working now but won't sustain long-term.
-- **Horizon 2 (H2) - Transition/Innovation**: Emerging innovations and disruptions. Innovative initiatives, experimental approaches, and the transitional period where old and new systems coexist. The space of experimentation and change.
-- **Horizon 3 (H3) - Future Vision/Emerging**: Transformative visions becoming reality. The preferred future state where new paradigms are fully established. Represents radical departures from current norms.
-
-REQUIRED OUTPUT FORMAT:
-{{
-  "scenarios": [
-    {{
-      "type": "h1|h2|h3",
-      "title": "Scenario title (max 12 words)",
-      "description": "Detailed description with inline citations [1] [2] (2-3 sentences)",
-      "timeframe": "2025-2040",
-      "sentiment": "Positive|Negative|Mixed|Neutral|Mixed/Positive|Critical/Neutral|Negative/Disruptive|Trend/Evolution|Breakthrough|Disruption/Warning|Warning/Disruption"
-    }}
-  ]
-}}
-
-REQUIRED DISTRIBUTION:
-- 4-5 H1 scenarios (current systems and business-as-usual trends that are declining)
-- 4-5 H2 scenarios (emerging innovations, pilot projects, transitional disruptions)
-- 3-4 H3 scenarios (transformative future visions, new paradigms)
-Total: 12-14 scenarios
-
-TIMEFRAME GUIDELINES (all scenarios in 2025-2040 range):
-- H1 scenarios: Focus on 2025-2032 (current systems gradually declining)
-- H2 scenarios: Focus on 2027-2037 (transition period, peak around 2030-2033)
-- H3 scenarios: Focus on 2033-2040 (future visions emerging and taking hold)
-- Distribute scenarios to show the transition arc from H1 → H2 → H3
-
-ARTICLE REFERENCES (cite these using [1], [2], etc. in your scenario descriptions):
-{article_references}
-
-ARTICLE DATA SUMMARY:
-{analysis_summary}
-
-CRITICAL REQUIREMENTS:
-- Use "type" field exactly as specified: "h1", "h2", or "h3" (lowercase)
-- H1 scenarios should describe current dominant systems and why they're declining
-- H2 scenarios should highlight innovations, experiments, and transitional tensions
-- H3 scenarios should paint visions of transformed future states
-- Keep titles concise (max 12 words)
-- **IMPORTANT: Include citations [1], [2], [3] etc. in scenario descriptions to reference specific articles**
-- Each scenario description should cite 2-4 relevant articles
-- Descriptions should be 2-3 sentences with specific details and citations
-- Base all scenarios on actual article data and signals from the reference list above
-- Sentiment should reflect the nature of the scenario using the exact values provided
-- All timeframes must be in 2025-2040 range
-- Show the narrative arc: H1 declining → H2 innovating → H3 emerging
-
-Return ONLY the JSON object with the scenarios array."""
-
-    return prompt
 
 # ============================================================================
 # END TAB-SPECIFIC PROMPT FUNCTIONS
@@ -3225,3 +2871,354 @@ async def get_horizon_articles(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve articles: {str(e)}"
         )
+
+@router.get("/api/trend-convergence/prompt-preview/{tab_name}")
+async def get_prompt_preview(
+    tab_name: str,
+    topic: str = Query(..., description="Topic for analysis"),
+    profile_id: Optional[int] = Query(None, description="Organizational profile ID"),
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """
+    Get a preview of the prompt that will be sent to the LLM for a specific tab.
+    This shows the prompt structure without actual article data.
+    """
+    try:
+        # Get organizational profile if provided
+        organizational_profile = None
+        if profile_id:
+            facade = DatabaseQueryFacade(db, logger)
+            profile_row = facade.get_organizational_profile_for_ui(profile_id)
+
+            if profile_row:
+                # Helper function to safely parse JSON fields
+                def safe_json_parse(field_value):
+                    if not field_value:
+                        return []
+                    if isinstance(field_value, str):
+                        try:
+                            return json.loads(field_value)
+                        except json.JSONDecodeError:
+                            logger.error(f"Failed to parse JSON: {field_value}")
+                            return []
+                    return field_value
+
+                organizational_profile = {
+                    'id': profile_row['id'],
+                    'name': profile_row['name'],
+                    'description': profile_row['description'],
+                    'industry': profile_row['industry'],
+                    'organization_type': profile_row['organization_type'],
+                    'region': profile_row['region'],
+                    'key_concerns': safe_json_parse(profile_row['key_concerns']),
+                    'strategic_priorities': safe_json_parse(profile_row['strategic_priorities']),
+                    'risk_tolerance': profile_row['risk_tolerance'],
+                    'innovation_appetite': profile_row['innovation_appetite'],
+                    'decision_making_style': profile_row['decision_making_style'],
+                    'stakeholder_focus': safe_json_parse(profile_row['stakeholder_focus']),
+                    'competitive_landscape': safe_json_parse(profile_row['competitive_landscape']),
+                    'regulatory_environment': safe_json_parse(profile_row['regulatory_environment']),
+                    'custom_context': profile_row['custom_context']
+                }
+
+        # Build org context string
+        org_context = ""
+        if organizational_profile:
+            org_context = f"""
+ORGANIZATIONAL CONTEXT:
+- Organization: {organizational_profile['name']}
+- Type: {organizational_profile['organization_type']}
+- Industry: {organizational_profile['industry']}
+- Region: {organizational_profile['region']}
+- Key Concerns: {', '.join(organizational_profile['key_concerns'])}
+- Strategic Priorities: {', '.join(organizational_profile['strategic_priorities'])}
+- Risk Tolerance: {organizational_profile['risk_tolerance']}
+- Innovation Appetite: {organizational_profile['innovation_appetite']}
+- Decision Making Style: {organizational_profile['decision_making_style']}
+- Key Stakeholders: {', '.join(organizational_profile['stakeholder_focus'])}
+- Competitive Landscape: {', '.join(organizational_profile['competitive_landscape'])}
+- Regulatory Environment: {', '.join(organizational_profile['regulatory_environment'])}
+- Additional Context: {organizational_profile['custom_context']}
+"""
+
+        # Get enhanced prompt template config (for metadata)
+        prompt_template_config = get_enhanced_prompt_template(organizational_profile=organizational_profile)
+
+        # Load the actual prompt template JSON (with system_prompt and user_prompt)
+        prompt_template = None
+        try:
+            # Map tab name to prompt type
+            prompt_type_mapping = {
+                "consensus": "consensus_analysis",
+                "consensus-analysis": "consensus_analysis",
+                "strategic": "strategic_recommendations",
+                "strategic-recommendations": "strategic_recommendations",
+                "signals": "market_signals",
+                "market-signals": "market_signals",
+                "timeline": "impact_timeline",
+                "impact-timeline": "impact_timeline",
+                "horizons": "future_horizons",
+                "future-horizons": "future_horizons"
+            }
+            prompt_type = prompt_type_mapping.get(tab_name, "strategic_recommendations")
+            prompt_template = prompt_manager.get_version(prompt_type, "current")
+        except Exception as e:
+            logger.warning(f"Could not load prompt template for {tab_name}: {str(e)}")
+
+        # Create placeholder articles with COMPLETE structure matching database schema
+        placeholder_articles = [{
+            # Core fields
+            'title': '[Article titles will be inserted here]',
+            'summary': '[Article summaries will be inserted here]',
+            'uri': 'https://example.com/placeholder',
+            'publication_date': '2024-01-01',
+            'raw_markdown': '[Full article content when available]',
+
+            # Analysis fields
+            'sentiment': 'Neutral',
+            'category': 'Technology',
+            'future_signal': 'emerging',
+            'driver_type': 'technological',
+            'time_to_impact': 'medium-term',
+
+            # Source fields (multiple aliases for compatibility)
+            'news_source': 'Example News',
+            'source': 'Example News',
+            'source_name': 'Example News',
+
+            # Quality fields (may be None in real data)
+            'factual_reporting': 'High',
+            'mbfc_credibility_rating': 'High',
+            'quality_score': 0.8,
+
+            # Compatibility aliases
+            'url': 'https://example.com/placeholder',
+            'content': '[Article content]'
+        }]
+
+        # Map frontend tab names to backend function names
+        tab_mapping = {
+            "consensus": "consensus-analysis",
+            "consensus-analysis": "consensus-analysis",
+            "strategic": "strategic-recommendations",
+            "strategic-recommendations": "strategic-recommendations",
+            "signals": "market-signals",
+            "market-signals": "market-signals",
+            "timeline": "impact-timeline",
+            "impact-timeline": "impact-timeline",
+            "horizons": "future-horizons",
+            "future-horizons": "future-horizons"
+        }
+
+        normalized_tab = tab_mapping.get(tab_name, tab_name)
+
+        # Generate the appropriate prompt based on tab name
+        if normalized_tab == "consensus-analysis":
+            prompt = generate_consensus_analysis_prompt(
+                topic=topic,
+                articles=placeholder_articles,
+                org_context=org_context,
+                prompt_template=prompt_template_config,
+                organizational_profile=organizational_profile
+            )
+        elif normalized_tab == "strategic-recommendations":
+            prompt = generate_strategic_recommendations_prompt(
+                topic=topic,
+                articles=placeholder_articles,
+                org_context=org_context,
+                prompt_template=prompt_template_config,
+                organizational_profile=organizational_profile
+            )
+        elif normalized_tab == "market-signals":
+            prompt = generate_market_signals_prompt(
+                topic=topic,
+                articles=placeholder_articles,
+                org_context=org_context,
+                organizational_profile=organizational_profile
+            )
+        elif normalized_tab == "impact-timeline":
+            prompt = generate_impact_timeline_prompt(
+                topic=topic,
+                articles=placeholder_articles,
+                org_context=org_context,
+                organizational_profile=organizational_profile
+            )
+        elif normalized_tab == "future-horizons":
+            prompt = generate_future_horizons_prompt(
+                topic=topic,
+                articles=placeholder_articles,
+                org_context=org_context,
+                organizational_profile=organizational_profile
+            )
+        else:
+            raise HTTPException(status_code=400, detail=f"Unknown tab name: {tab_name} (normalized: {normalized_tab})")
+
+        # Also return the template (user_prompt from JSON)
+        template_user_prompt = ""
+        template_system_prompt = ""
+        template_output_format = ""
+        expected_output_schema = None
+        variables = {}
+        if prompt_template:
+            template_system_prompt = prompt_template.get('system_prompt', '')
+            full_user_prompt = prompt_template.get('user_prompt', '')
+
+            # Split user_prompt into editable instructions and fixed output format
+            # Look for "REQUIRED OUTPUT FORMAT:" marker
+            if "REQUIRED OUTPUT FORMAT:" in full_user_prompt:
+                parts = full_user_prompt.split("REQUIRED OUTPUT FORMAT:", 1)
+                template_user_prompt = parts[0].rstrip()  # Editable instructions
+                template_output_format = "REQUIRED OUTPUT FORMAT:" + parts[1]  # Fixed output format
+            else:
+                template_user_prompt = full_user_prompt
+                template_output_format = ""
+
+            expected_output_schema = prompt_template.get('expected_output_schema')
+            variables = prompt_template.get('variables', {})
+
+        return {
+            "success": True,
+            "prompt": prompt,  # Fully rendered prompt (for preview)
+            "template": {
+                "system_prompt": template_system_prompt,
+                "user_prompt": template_user_prompt,  # Instructions only (without output format)
+                "output_format": template_output_format,  # Fixed output format section
+                "expected_output_schema": expected_output_schema,
+                "variables": variables
+            },
+            "info": {
+                "tab": tab_name,
+                "topic": topic,
+                "organizational_profile": organizational_profile['name'] if organizational_profile else "Generic Enterprise"
+            }
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error generating prompt preview: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate prompt preview: {str(e)}")
+
+
+# Initialize prompt manager for Tune feature
+prompt_manager = PromptManager()
+
+
+class TunePromptData(BaseModel):
+    system_prompt: str
+    user_prompt: str
+
+
+@router.post("/api/trend-convergence/prompts/{tab_name}")
+async def save_tune_prompt(
+    tab_name: str,
+    prompt_data: TunePromptData,
+    session=Depends(verify_session)
+):
+    """
+    Save a custom prompt from the Tune modal.
+    Creates a versioned copy + updates current.json.
+    """
+    try:
+        # Map frontend tab names to backend feature names
+        tab_mapping = {
+            "consensus": "consensus_analysis",
+            "strategic": "strategic_recommendations",
+            "signals": "market_signals",
+            "timeline": "impact_timeline",
+            "horizons": "future_horizons"
+        }
+
+        feature_name = tab_mapping.get(tab_name)
+        if not feature_name:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown tab name: {tab_name}. Valid options: {list(tab_mapping.keys())}"
+            )
+
+        logger.info(f"Saving custom prompt for {feature_name} (tab: {tab_name})")
+
+        # Load existing template to get the output format section
+        try:
+            existing_template = prompt_manager.get_version(feature_name, "current")
+            existing_full_prompt = existing_template.get('user_prompt', '')
+
+            # Extract the output format section (everything from "REQUIRED OUTPUT FORMAT:" onwards)
+            output_format_section = ""
+            if "REQUIRED OUTPUT FORMAT:" in existing_full_prompt:
+                parts = existing_full_prompt.split("REQUIRED OUTPUT FORMAT:", 1)
+                output_format_section = "\n\nREQUIRED OUTPUT FORMAT:" + parts[1]
+        except Exception as e:
+            logger.warning(f"Could not load existing output format: {str(e)}")
+            output_format_section = ""
+
+        # Reconstruct the full user_prompt: user's editable instructions + fixed output format
+        full_user_prompt = prompt_data.user_prompt
+        if output_format_section:
+            full_user_prompt = prompt_data.user_prompt.rstrip() + output_format_section
+
+        # Use PromptManager to save version + update current.json
+        version_info = prompt_manager.save_version(
+            feature_name,
+            prompt_data.system_prompt,
+            full_user_prompt  # Save with output format appended
+        )
+
+        return {
+            "success": True,
+            "message": f"Prompt saved successfully as version {version_info['version']}",
+            "version": version_info
+        }
+
+    except PromptManagerError as e:
+        logger.error(f"Failed to save prompt: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error saving prompt: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to save prompt: {str(e)}")
+
+
+@router.post("/api/trend-convergence/prompts/{tab_name}/restore-default")
+async def restore_default_tune_prompt(
+    tab_name: str,
+    session=Depends(verify_session)
+):
+    """
+    Restore prompt to bundled default.
+    Reloads from the checked-in current.json template.
+    """
+    try:
+        # Map frontend tab names to backend feature names
+        tab_mapping = {
+            "consensus": "consensus_analysis",
+            "strategic": "strategic_recommendations",
+            "signals": "market_signals",
+            "timeline": "impact_timeline",
+            "horizons": "future_horizons"
+        }
+
+        feature_name = tab_mapping.get(tab_name)
+        if not feature_name:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown tab name: {tab_name}. Valid options: {list(tab_mapping.keys())}"
+            )
+
+        logger.info(f"Restoring default prompt for {feature_name} (tab: {tab_name})")
+
+        # Use PromptManager to restore to bundled default
+        version_info = prompt_manager.restore_to_default(feature_name)
+
+        return {
+            "success": True,
+            "message": f"Prompt restored to default (version {version_info['version']})",
+            "version": version_info
+        }
+
+    except PromptManagerError as e:
+        logger.error(f"Failed to restore prompt: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unexpected error restoring prompt: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to restore prompt: {str(e)}")

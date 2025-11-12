@@ -333,6 +333,7 @@ export async function generateTrendConvergence(params: {
   cache_duration_hours?: number;
   profile_id?: number;
   tab?: string;  // Specific tab to generate: consensus, strategic, signals, timeline, horizons
+  custom_prompt?: string;  // Custom prompt override for tuning
 }): Promise<TrendConvergenceData> {
   const queryParams = new URLSearchParams();
 
@@ -357,6 +358,10 @@ export async function generateTrendConvergence(params: {
 
   if (params.tab) {
     queryParams.append('tab', params.tab);
+  }
+
+  if (params.custom_prompt) {
+    queryParams.append('custom_prompt', params.custom_prompt);
   }
 
   const url = `${API_BASE_URL}/api/trend-convergence/${encodeURIComponent(params.topic)}?${queryParams}`;

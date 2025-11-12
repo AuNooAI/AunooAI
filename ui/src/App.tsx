@@ -49,6 +49,84 @@ function App() {
   const [rawAnalysisData, setRawAnalysisData] = useState<any>(null);
   const [loadingRaw, setLoadingRaw] = useState(false);
   const [articleList, setArticleList] = useState<any[]>([]);
+  const [isPromptEditorOpen, setIsPromptEditorOpen] = useState(false);
+  const [currentPrompt, setCurrentPrompt] = useState('');
+  const [customPrompt, setCustomPrompt] = useState<string | null>(null);
+  const [templateSystemPrompt, setTemplateSystemPrompt] = useState('');
+  const [templateUserPrompt, setTemplateUserPrompt] = useState('');
+  const [templateOutputFormat, setTemplateOutputFormat] = useState('');
+  const [showPreview, setShowPreview] = useState(false);
+  const [templateVariables, setTemplateVariables] = useState<Record<string, string>>({});
+
+  // Fetch prompt preview when Tune modal opens
+  useEffect(() => {
+    if (!isPromptEditorOpen) return;
+
+    console.log('🔧 Tune modal opened, preparing to fetch prompt...');
+    console.log('🔧 Config:', { topic: config.topic, profile_id: config.profile_id, activeTab });
+
+    // Validate required data
+    if (!config.topic) {
+      console.error('❌ Cannot fetch prompt: config.topic is missing');
+      setCustomPrompt('Error: No topic selected. Please configure a topic first.');
+      return;
+    }
+
+    if (!activeTab) {
+      console.error('❌ Cannot fetch prompt: activeTab is missing');
+      setCustomPrompt('Error: No active tab selected.');
+      return;
+    }
+
+    // Reset states and fetch prompt
+    setCustomPrompt("Loading prompt preview...");
+    setCurrentPrompt("");
+
+    const fetchPrompt = async () => {
+      try {
+        const params = new URLSearchParams({
+          topic: config.topic
+        });
+        if (config.profile_id) {
+          params.append('profile_id', config.profile_id.toString());
+        }
+
+        console.log(`🔧 Fetching prompt preview for tab: ${activeTab}, topic: ${config.topic}`);
+        const response = await fetch(`/api/trend-convergence/prompt-preview/${activeTab}?${params}`, {
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+
+        console.log(`🔧 Prompt preview response status: ${response.status}`);
+        if (response.ok) {
+          const result = await response.json();
+          console.log(`✅ Prompt loaded successfully, length: ${result.prompt?.length || 0} characters`);
+          // Store the fully rendered preview
+          setCurrentPrompt(result.prompt);
+          setCustomPrompt(result.prompt);
+          // Store the editable templates
+          setTemplateSystemPrompt(result.template?.system_prompt || '');
+          setTemplateUserPrompt(result.template?.user_prompt || '');
+          setTemplateOutputFormat(result.template?.output_format || '');
+          // Store variables
+          setTemplateVariables(result.template?.variables || {});
+        } else {
+          const errorText = await response.text();
+          console.error(`❌ Failed to load prompt (${response.status}):`, errorText);
+          setCurrentPrompt(`Failed to load prompt preview (${response.status}). Please try again.`);
+          setCustomPrompt(`Failed to load prompt preview (${response.status}). Please try again.`);
+        }
+      } catch (error) {
+        console.error("❌ Error fetching prompt:", error);
+        setCurrentPrompt("Error loading prompt preview. Check console for details.");
+        setCustomPrompt("Error loading prompt preview. Check console for details.");
+      }
+    };
+
+    fetchPrompt();
+  }, [isPromptEditorOpen, activeTab, config.topic, config.profile_id]);
 
   // Check URL parameters for auto-opening onboarding wizard
   useEffect(() => {
@@ -538,13 +616,25 @@ function App() {
 
         {/* Action Buttons */}
         <div className="bg-white px-6 py-3 border-b border-gray-200 flex justify-between items-center">
-          <button
-            onClick={() => setIsConfigOpen(true)}
-            className="px-4 py-2 text-pink-500 hover:bg-pink-50 rounded-md text-sm font-medium flex items-center gap-2"
-          >
-            <Settings className="w-4 h-4" />
-            Configure
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsConfigOpen(true)}
+              className="px-4 py-2 text-pink-500 hover:bg-pink-50 rounded-md text-sm font-medium flex items-center gap-2"
+            >
+              <Settings className="w-4 h-4" />
+              Configure
+            </button>
+            <button
+              onClick={() => {
+                console.log('🔧 Tune button clicked');
+                setIsPromptEditorOpen(true);
+              }}
+              className="px-4 py-2 text-pink-500 hover:bg-pink-50 rounded-md text-sm font-medium flex items-center gap-2"
+            >
+              <FileText className="w-4 h-4" />
+              Tune
+            </button>
+          </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => handleExport('pdf')}
@@ -1381,6 +1471,249 @@ function App() {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Tune Prompt Dialog */}
+      <Dialog open={isPromptEditorOpen} onOpenChange={setIsPromptEditorOpen}>
+        <DialogContent className="max-w-[95vw] w-[95vw] h-[95vh] max-h-[95vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold">Tune: {activeTab.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}</DialogTitle>
+            <DialogDescription>
+              Customize how the AI analyzes your content
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto space-y-6 mt-4 pr-2">
+            {/* Organization Section */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-3">
+                <label className="text-sm font-semibold text-gray-700">Organization</label>
+                {config.profile_id && profiles.find(p => p.id === config.profile_id) ? (
+                  <button
+                    onClick={() => {
+                      setIsPromptEditorOpen(false);
+                      setIsProfileModalOpen(true);
+                    }}
+                    className="px-3 py-1 text-xs bg-white hover:bg-gray-50 text-gray-700 rounded border border-gray-300 font-medium"
+                  >
+                    Configure
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setIsPromptEditorOpen(false);
+                      setIsProfileModalOpen(true);
+                    }}
+                    className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded font-medium"
+                  >
+                    Set Profile
+                  </button>
+                )}
+              </div>
+
+              {config.profile_id && profiles.find(p => p.id === config.profile_id) ? (
+                <div className="bg-white border rounded-lg p-3 space-y-2">
+                  <div>
+                    <div className="font-semibold text-gray-800">{profiles.find(p => p.id === config.profile_id)?.name}</div>
+                    <div className="text-xs text-gray-600 capitalize">{profiles.find(p => p.id === config.profile_id)?.organization_type}</div>
+                  </div>
+                  {(() => {
+                    const profile = profiles.find(p => p.id === config.profile_id);
+                    if (!profile) return null;
+
+                    return (
+                      <div className="text-xs text-gray-700 space-y-1 border-t pt-2 max-h-32 overflow-y-auto">
+                        {profile.industry && <div><span className="font-medium">Industry:</span> {profile.industry}</div>}
+                        {profile.region && <div><span className="font-medium">Region:</span> {profile.region}</div>}
+                        {profile.key_concerns && <div><span className="font-medium">Key Concerns:</span> {profile.key_concerns}</div>}
+                        {profile.strategic_priorities && <div><span className="font-medium">Strategic Priorities:</span> {profile.strategic_priorities}</div>}
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-600 italic">No organization profile selected. Click "Set Profile" to configure your organization's context.</p>
+              )}
+            </div>
+
+            {/* Editable Template - Role */}
+            <div>
+              <label className="text-sm font-semibold mb-2 block text-gray-700">1. Role (Editable Template)</label>
+              <p className="text-xs text-gray-500 mb-2">Define the AI's expertise and perspective</p>
+              <textarea
+                value={templateSystemPrompt}
+                onChange={(e) => setTemplateSystemPrompt(e.target.value)}
+                className="w-full h-24 p-4 border rounded-lg font-mono text-sm"
+                placeholder="You are an expert analyst..."
+              />
+            </div>
+
+            {/* Editable Template - Instructions */}
+            <div>
+              <label className="text-sm font-semibold mb-2 block text-gray-700">2. Instructions (Editable)</label>
+              <p className="text-xs text-gray-500 mb-2">
+                💡 Core instructions for the AI. Use variables like <code className="bg-gray-100 px-1 rounded">{'{topic}'}</code>, <code className="bg-gray-100 px-1 rounded">{'{article_count}'}</code>, <code className="bg-gray-100 px-1 rounded">{'{org_context}'}</code> - see full list below
+              </p>
+              <textarea
+                value={templateUserPrompt}
+                onChange={(e) => setTemplateUserPrompt(e.target.value)}
+                className="w-full h-[400px] p-4 border rounded-lg font-mono text-xs leading-relaxed resize-y"
+                placeholder="{org_context}\n\n{action_vocabulary}\n\nAnalyze {article_count} articles about {topic}..."
+              />
+            </div>
+
+            {/* Output Format (Read-Only) */}
+            {templateOutputFormat && (
+              <div>
+                <label className="text-sm font-semibold mb-2 block text-gray-700">3. Output Format (Read-Only)</label>
+                <p className="text-xs text-gray-500 mb-2">
+                  🔒 This defines the exact JSON structure the AI must return. Cannot be edited to ensure frontend compatibility.
+                </p>
+                <div className="bg-gray-50 border rounded-lg p-4 max-h-[400px] overflow-y-auto">
+                  <pre className="text-xs font-mono whitespace-pre-wrap text-gray-700">{templateOutputFormat}</pre>
+                </div>
+              </div>
+            )}
+
+            {/* Preview Section */}
+            <div className="border-t pt-4">
+              <button
+                onClick={() => setShowPreview(!showPreview)}
+                className="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-gray-900 mb-2"
+              >
+                <span>{showPreview ? '▼' : '▶'}</span>
+                <span>📄 Preview - Final Rendered Prompt</span>
+              </button>
+              <p className="text-xs text-gray-500 mb-2">See how your template will look with current topic and organization</p>
+
+              {showPreview && (
+                <div className="bg-gray-50 border rounded-lg p-4 max-h-96 overflow-y-auto">
+                  <pre className="text-xs font-mono whitespace-pre-wrap text-gray-800">{currentPrompt || 'Loading preview...'}</pre>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-between items-center pt-4 border-t">
+              <button
+                onClick={async () => {
+                  console.log('🔄 Restoring default prompt...');
+                  try {
+                    const response = await fetch(`/api/trend-convergence/prompts/${activeTab}/restore-default`, {
+                      method: 'POST',
+                      credentials: 'include',
+                      headers: { 'Content-Type': 'application/json' }
+                    });
+
+                    if (!response.ok) {
+                      const error = await response.json();
+                      throw new Error(error.detail || 'Failed to restore default');
+                    }
+
+                    const result = await response.json();
+                    console.log('✅ Default restored:', result);
+
+                    // Reload prompt preview to show the restored default
+                    const previewParams = new URLSearchParams({ topic: config.topic });
+                    if (config.profile_id) {
+                      previewParams.append('profile_id', config.profile_id.toString());
+                    }
+
+                    const previewResponse = await fetch(`/api/trend-convergence/prompt-preview/${activeTab}?${previewParams}`, {
+                      credentials: 'include',
+                      headers: { 'Content-Type': 'application/json' }
+                    });
+
+                    if (previewResponse.ok) {
+                      const previewResult = await previewResponse.json();
+                      setCurrentPrompt(previewResult.prompt);
+                      setCustomPrompt(previewResult.prompt);
+                      // Update template state
+                      setTemplateSystemPrompt(previewResult.template?.system_prompt || '');
+                      setTemplateUserPrompt(previewResult.template?.user_prompt || '');
+                      setTemplateOutputFormat(previewResult.template?.output_format || '');
+                      // Update variables
+                      setTemplateVariables(previewResult.template?.variables || {});
+                      alert(`✅ ${result.message}`);
+                    }
+                  } catch (error) {
+                    console.error('❌ Error restoring default:', error);
+                    alert(`Failed to restore default: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                  }
+                }}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md text-sm font-medium"
+              >
+                Reset to Default
+              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setIsPromptEditorOpen(false)}
+                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md text-sm font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    console.log('💾 Saving custom prompt template...');
+                    try {
+                      // Save the editable templates (with {variables})
+                      const response = await fetch(`/api/trend-convergence/prompts/${activeTab}`, {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          system_prompt: templateSystemPrompt,
+                          user_prompt: templateUserPrompt
+                        })
+                      });
+
+                      if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.detail || 'Failed to save prompt');
+                      }
+
+                      const result = await response.json();
+                      console.log('✅ Prompt saved:', result);
+                      alert(`✅ ${result.message}`);
+
+                      // Close modal and regenerate analysis with new prompt
+                      setIsPromptEditorOpen(false);
+                      await generateAnalysis(true);  // Force refresh to use new prompt
+                    } catch (error) {
+                      console.error('❌ Error saving prompt:', error);
+                      alert(`Failed to save prompt: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                    }
+                  }}
+                  disabled={!templateUserPrompt || !templateSystemPrompt}
+                  className="px-4 py-2 bg-pink-500 text-white hover:bg-pink-600 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+
+            {/* Variable Documentation - Dynamically loaded from template */}
+            <div className="border-t pt-4 mt-4">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Available Variables</h3>
+              <p className="text-xs text-gray-600 mb-3">Use these variables in your instructions to insert dynamic content</p>
+              {Object.keys(templateVariables).length > 0 ? (
+                <div className="bg-gray-50 rounded-lg p-4 text-xs max-h-64 overflow-y-auto">
+                  <ul className="space-y-2 text-gray-700">
+                    {Object.entries(templateVariables).map(([key, description]) => (
+                      <li key={key} className="flex gap-2">
+                        <code className="bg-white px-2 py-1 rounded border font-mono text-xs whitespace-nowrap">{`{${key}}`}</code>
+                        <span className="text-gray-600">- {description}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <div className="bg-gray-50 rounded-lg p-4 text-xs text-gray-500 italic">
+                  Loading variable documentation...
+                </div>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

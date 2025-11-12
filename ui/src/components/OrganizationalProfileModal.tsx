@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogPortal, DialogOverlay } from './ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogPortal, DialogOverlay } from './ui/dialog';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
@@ -25,33 +25,33 @@ interface ProfileFormData {
   industry: string;
   organization_type: string;
   risk_tolerance: string;
-  innovation_approach: string;
+  innovation_appetite: string;
   region: string;
   decision_making_style: string;
   competitive_landscape: string;
   description: string;
   key_concerns: string;
   strategic_priorities: string;
-  key_stakeholders: string;
+  stakeholder_focus: string;
   regulatory_environment: string;
-  additional_context: string;
+  custom_context: string;
 }
 
 const DEFAULT_FORM_DATA: ProfileFormData = {
   name: '',
   industry: '',
   organization_type: '',
-  risk_tolerance: '',
-  innovation_approach: '',
-  region: '',
-  decision_making_style: '',
+  risk_tolerance: 'medium',
+  innovation_appetite: 'moderate',
+  region: 'global',
+  decision_making_style: 'collaborative',
   competitive_landscape: '',
   description: '',
   key_concerns: '',
   strategic_priorities: '',
-  key_stakeholders: '',
+  stakeholder_focus: '',
   regulatory_environment: '',
-  additional_context: '',
+  custom_context: '',
 };
 
 export function OrganizationalProfileModal({
@@ -72,17 +72,17 @@ export function OrganizationalProfileModal({
         name: profile.name || '',
         industry: profile.industry || '',
         organization_type: profile.organization_type || '',
-        risk_tolerance: profile.risk_tolerance || '',
-        innovation_approach: profile.innovation_approach || '',
-        region: profile.region || '',
-        decision_making_style: profile.decision_making_style || '',
-        competitive_landscape: profile.competitive_landscape || '',
+        risk_tolerance: profile.risk_tolerance || 'medium',
+        innovation_appetite: profile.innovation_appetite || 'moderate',
+        region: profile.region || 'global',
+        decision_making_style: profile.decision_making_style || 'collaborative',
+        competitive_landscape: Array.isArray(profile.competitive_landscape) ? profile.competitive_landscape.join(', ') : '',
         description: profile.description || '',
-        key_concerns: profile.key_concerns || '',
-        strategic_priorities: profile.strategic_priorities || '',
-        key_stakeholders: profile.key_stakeholders || '',
-        regulatory_environment: profile.regulatory_environment || '',
-        additional_context: profile.additional_context || '',
+        key_concerns: Array.isArray(profile.key_concerns) ? profile.key_concerns.join(', ') : '',
+        strategic_priorities: Array.isArray(profile.strategic_priorities) ? profile.strategic_priorities.join(', ') : '',
+        stakeholder_focus: Array.isArray(profile.stakeholder_focus) ? profile.stakeholder_focus.join(', ') : '',
+        regulatory_environment: Array.isArray(profile.regulatory_environment) ? profile.regulatory_environment.join(', ') : '',
+        custom_context: profile.custom_context || '',
       });
     }
   };
@@ -115,7 +115,7 @@ export function OrganizationalProfileModal({
         />
         <DialogPrimitive.Content
           className={cn(
-            "bg-white data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-[60] grid w-full max-w-6xl translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border shadow-lg duration-200 max-h-[90vh] overflow-hidden p-0"
+            "bg-white data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-[70] grid w-full max-w-6xl translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border shadow-lg duration-200 max-h-[90vh] overflow-hidden p-0"
           )}
         >
           <DialogPrimitive.Close className="ring-offset-background focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute top-4 right-4 z-10 rounded-xs opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4">
@@ -153,15 +153,21 @@ export function OrganizationalProfileModal({
                       <div className="font-semibold text-sm text-gray-950 mb-0.5">
                         {profile.name}
                       </div>
-                      <div className="text-xs text-gray-600 mb-1">
-                        {profile.industry} • {profile.organization_type}
-                      </div>
-                      <div className="text-xs text-gray-700 mb-1">
-                        {profile.tags?.join(' • ')}
-                      </div>
-                      <span className="inline-block text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
-                        Default
-                      </span>
+                      {(profile.industry || profile.organization_type) && (
+                        <div className="text-xs text-gray-600 mb-1">
+                          {[profile.industry, profile.organization_type].filter(Boolean).join(' • ')}
+                        </div>
+                      )}
+                      {profile.tags && profile.tags.length > 0 && (
+                        <div className="text-xs text-gray-700 mb-1">
+                          {profile.tags.join(' • ')}
+                        </div>
+                      )}
+                      {profile.is_default === true && (
+                        <span className="inline-block text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded mt-1">
+                          Default
+                        </span>
+                      )}
                     </div>
                     <Edit2 className="w-3.5 h-3.5 text-pink-500 shrink-0" />
                   </div>
@@ -178,6 +184,9 @@ export function OrganizationalProfileModal({
                 {selectedProfileId ? 'Edit Profile: ' : 'New Profile: '}
                 {formData.name || 'Untitled'}
               </DialogTitle>
+              <DialogDescription className="text-sm text-gray-600">
+                Configure your organization's profile to personalize AI analysis
+              </DialogDescription>
             </DialogHeader>
 
             {/* Form Content */}
@@ -214,22 +223,15 @@ export function OrganizationalProfileModal({
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-semibold mb-1.5 block">Industry</label>
-                    <Select
+                    <Input
                       value={formData.industry}
-                      onValueChange={(value) => setFormData({ ...formData, industry: value })}
-                    >
-                      <SelectTrigger className="h-9">
-                        <SelectValue placeholder="Cybersecurity" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Cybersecurity">Cybersecurity</SelectItem>
-                        <SelectItem value="Financial Services">Financial Services</SelectItem>
-                        <SelectItem value="Healthcare">Healthcare</SelectItem>
-                        <SelectItem value="Technology">Technology</SelectItem>
-                        <SelectItem value="Manufacturing">Manufacturing</SelectItem>
-                        <SelectItem value="Retail">Retail</SelectItem>
-                      </SelectContent>
-                    </Select>
+                      onChange={(e) => setFormData({ ...formData, industry: e.target.value })}
+                      placeholder="e.g., Academic Publishing, Cybersecurity, Healthcare"
+                      className="h-9"
+                    />
+                    <p className="text-xs text-gray-600 mt-0.5">
+                      ⓘ Enter your organization's primary industry
+                    </p>
                   </div>
                   <div>
                     <label className="text-sm font-semibold mb-1.5 block">Organization Type</label>
@@ -256,12 +258,12 @@ export function OrganizationalProfileModal({
                       onValueChange={(value) => setFormData({ ...formData, risk_tolerance: value })}
                     >
                       <SelectTrigger className="h-9">
-                        <SelectValue placeholder="Conservative (Low Risk)" />
+                        <SelectValue placeholder="Medium" />
                       </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Conservative">Conservative (Low Risk)</SelectItem>
-                        <SelectItem value="Moderate">Moderate</SelectItem>
-                        <SelectItem value="Aggressive">Aggressive (High Risk)</SelectItem>
+                      <SelectContent className="z-[80]">
+                        <SelectItem value="low">Low</SelectItem>
+                        <SelectItem value="medium">Medium</SelectItem>
+                        <SelectItem value="high">High</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -281,43 +283,43 @@ export function OrganizationalProfileModal({
                   </div>
                 </div>
 
-                {/* Row 4: Innovation Approach | Key Stakeholders */}
+                {/* Row 4: Innovation Appetite | Key Stakeholders */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="text-sm font-semibold mb-1.5 block">Innovation Approach</label>
+                    <label className="text-sm font-semibold mb-1.5 block">Innovation Appetite</label>
                     <Select
-                      value={formData.innovation_approach}
+                      value={formData.innovation_appetite}
                       onValueChange={(value) =>
-                        setFormData({ ...formData, innovation_approach: value })
+                        setFormData({ ...formData, innovation_appetite: value })
                       }
                     >
                       <SelectTrigger className="h-9">
-                        <SelectValue placeholder="Conservative" />
+                        <SelectValue placeholder="Moderate" />
                       </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Conservative">Conservative</SelectItem>
-                        <SelectItem value="Balanced">Balanced</SelectItem>
-                        <SelectItem value="Aggressive">Aggressive</SelectItem>
+                      <SelectContent className="z-[80]">
+                        <SelectItem value="conservative">Conservative</SelectItem>
+                        <SelectItem value="moderate">Moderate</SelectItem>
+                        <SelectItem value="aggressive">Aggressive</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
                     <label className="text-sm font-semibold mb-1.5 block">Key Stakeholders</label>
                     <Textarea
-                      value={formData.key_stakeholders}
+                      value={formData.stakeholder_focus}
                       onChange={(e) =>
-                        setFormData({ ...formData, key_stakeholders: e.target.value })
+                        setFormData({ ...formData, stakeholder_focus: e.target.value })
                       }
                       placeholder="C-suite executives, IT teams..."
                       className="min-h-[60px] text-sm resize-none"
                     />
                     <p className="text-xs text-gray-600 mt-0.5">
-                      ⓘ Separate multiple priorities with commas
+                      ⓘ Separate multiple stakeholders with commas
                     </p>
                   </div>
                 </div>
 
-                {/* Row 5: Region | (empty) */}
+                {/* Row 5: Region | Regulatory Environment */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-semibold mb-1.5 block">Region</label>
@@ -328,12 +330,14 @@ export function OrganizationalProfileModal({
                       <SelectTrigger className="h-9">
                         <SelectValue placeholder="Global" />
                       </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Global">Global</SelectItem>
-                        <SelectItem value="North America">North America</SelectItem>
-                        <SelectItem value="Europe">Europe</SelectItem>
-                        <SelectItem value="Asia Pacific">Asia Pacific</SelectItem>
-                        <SelectItem value="Latin America">Latin America</SelectItem>
+                      <SelectContent className="z-[80]">
+                        <SelectItem value="global">Global</SelectItem>
+                        <SelectItem value="north_america">North America</SelectItem>
+                        <SelectItem value="europe">Europe</SelectItem>
+                        <SelectItem value="asia_pacific">Asia Pacific</SelectItem>
+                        <SelectItem value="latin_america">Latin America</SelectItem>
+                        <SelectItem value="middle_east">Middle East</SelectItem>
+                        <SelectItem value="africa">Africa</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -350,7 +354,7 @@ export function OrganizationalProfileModal({
                   </div>
                 </div>
 
-                {/* Row 6: Decision Making Style | (empty) */}
+                {/* Row 6: Decision Making Style */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="text-sm font-semibold mb-1.5 block">Decision Making Style</label>
@@ -361,13 +365,14 @@ export function OrganizationalProfileModal({
                       }
                     >
                       <SelectTrigger className="h-9">
-                        <SelectValue placeholder="Data-Driven" />
+                        <SelectValue placeholder="Collaborative" />
                       </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Data-Driven">Data-Driven</SelectItem>
-                        <SelectItem value="Intuitive">Intuitive</SelectItem>
-                        <SelectItem value="Collaborative">Collaborative</SelectItem>
-                        <SelectItem value="Hierarchical">Hierarchical</SelectItem>
+                      <SelectContent className="z-[80]">
+                        <SelectItem value="data_driven">Data-Driven</SelectItem>
+                        <SelectItem value="intuitive">Intuitive</SelectItem>
+                        <SelectItem value="collaborative">Collaborative</SelectItem>
+                        <SelectItem value="hierarchical">Hierarchical</SelectItem>
+                        <SelectItem value="consensus">Consensus</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -402,9 +407,9 @@ export function OrganizationalProfileModal({
                 <div>
                   <label className="text-sm font-semibold mb-1.5 block">Additional Context</label>
                   <Textarea
-                    value={formData.additional_context}
+                    value={formData.custom_context}
                     onChange={(e) =>
-                      setFormData({ ...formData, additional_context: e.target.value })
+                      setFormData({ ...formData, custom_context: e.target.value })
                     }
                     placeholder="Zero-trust security approach with emphasis on proactive threat detection..."
                     className="min-h-[80px] text-sm resize-none"

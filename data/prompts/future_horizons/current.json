@@ -1,0 +1,50 @@
+{
+  "prompt_name": "Future Horizons - Three Horizons Framework",
+  "feature": "future_horizons",
+  "version": "1.0.0",
+  "created_at": "2025-11-12T12:00:00Z",
+  "updated_at": "2025-11-12T12:00:00Z",
+  "author": "System",
+  "description": "Future scenarios analysis using the Three Horizons framework. Maps the transition from current declining systems (H1) through emerging innovations (H2) to transformative future visions (H3).",
+
+  "system_prompt": "You are a strategic foresight expert specializing in the Three Horizons framework for scenario planning. Your role is to map the transition from current paradigms to future possibilities, identifying what's declining, what's emerging, and what's transforming.",
+
+  "user_prompt": "{org_context}\n\n{action_vocabulary}\n\nAnalyze {article_count} articles about \"{topic}\" and generate future scenarios using the Three Horizons framework.\n\nTHREE HORIZONS FRAMEWORK DEFINITIONS:\n- **Horizon 1 (H1) - Current Paradigm/Declining**: The dominant paradigm today. Current established practices and systems that are gradually declining as new innovations emerge. Represents what's working now but won't sustain long-term.\n- **Horizon 2 (H2) - Transition/Innovation**: Emerging innovations and disruptions. Innovative initiatives, experimental approaches, and the transitional period where old and new systems coexist. The space of experimentation and change.\n- **Horizon 3 (H3) - Future Vision/Emerging**: Transformative visions becoming reality. The preferred future state where new paradigms are fully established. Represents radical departures from current norms.\n\nREQUIRED OUTPUT FORMAT:\n{\n  \"scenarios\": [\n    {\n      \"type\": \"h1|h2|h3\",\n      \"title\": \"Scenario title (max 12 words)\",\n      \"description\": \"Detailed description with inline citations [1] [2] (2-3 sentences)\",\n      \"timeframe\": \"2025-2040\",\n      \"sentiment\": \"Positive|Negative|Mixed|Neutral|Mixed/Positive|Critical/Neutral|Negative/Disruptive|Trend/Evolution|Breakthrough|Disruption/Warning|Warning/Disruption\"\n    }\n  ]\n}\n\nREQUIRED DISTRIBUTION:\n- 4-5 H1 scenarios (current systems and business-as-usual trends that are declining)\n- 4-5 H2 scenarios (emerging innovations, pilot projects, transitional disruptions)\n- 3-4 H3 scenarios (transformative future visions, new paradigms)\nTotal: 12-14 scenarios\n\nTIMEFRAME GUIDELINES (all scenarios in 2025-2040 range):\n- H1 scenarios: Focus on 2025-2032 (current systems gradually declining)\n- H2 scenarios: Focus on 2027-2037 (transition period, peak around 2030-2033)\n- H3 scenarios: Focus on 2033-2040 (future visions emerging and taking hold)\n- Distribute scenarios to show the transition arc from H1 → H2 → H3\n\nARTICLE REFERENCES (cite these using [1], [2], etc. in your scenario descriptions):\n{article_references}\n\nARTICLE DATA SUMMARY:\n{articles}\n\nCRITICAL REQUIREMENTS:\n- Use \"type\" field exactly as specified: \"h1\", \"h2\", or \"h3\" (lowercase)\n- H1 scenarios should describe current dominant systems and why they're declining\n- H2 scenarios should highlight innovations, experiments, and transitional tensions\n- H3 scenarios should paint visions of transformed future states\n- Keep titles concise (max 12 words)\n- **IMPORTANT: Include citations [1], [2], [3] etc. in scenario descriptions to reference specific articles**\n- Each scenario description should cite 2-4 relevant articles\n- Descriptions should be 2-3 sentences with specific details and citations\n- Base all scenarios on actual article data and signals from the reference list above\n- Sentiment should reflect the nature of the scenario using the exact values provided\n- All timeframes must be in 2025-2040 range\n- Show the narrative arc: H1 declining → H2 innovating → H3 emerging\n\nReturn ONLY the JSON object with the scenarios array.",
+
+  "expected_output_schema": {
+    "type": "object",
+    "properties": {
+      "scenarios": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "type": {"type": "string", "enum": ["h1", "h2", "h3"]},
+            "title": {"type": "string"},
+            "description": {"type": "string"},
+            "timeframe": {"type": "string"},
+            "sentiment": {"type": "string"}
+          }
+        }
+      }
+    }
+  },
+
+  "variables": {
+    "topic": "Research topic name",
+    "article_count": "Number of articles analyzed",
+    "articles": "Formatted article analysis summary with statistics",
+    "article_references": "Numbered list of article citations for inline referencing",
+    "org_context": "Organizational context and framing",
+    "action_vocabulary": "Organization-specific action vocabulary",
+    "org_name": "Organization name",
+    "org_type": "Organization type (ngo, publisher, corporation, etc.)"
+  },
+
+  "metadata": {
+    "model": "gpt-4o",
+    "temperature": 0.7,
+    "max_tokens": 3500,
+    "response_format": "json"
+  }
+}

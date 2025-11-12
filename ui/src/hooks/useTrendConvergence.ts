@@ -28,6 +28,7 @@ export interface AnalysisConfig {
   cache_duration_hours: number;
   profile_id?: number;
   tab?: string;  // Active tab: consensus, strategic, signals, timeline, horizons
+  custom_prompt?: string;  // Custom prompt override for tuning
 }
 
 export interface UseTrendConvergenceReturn {
