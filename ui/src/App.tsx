@@ -208,9 +208,13 @@ function App() {
               };
               break;
             case 'strategic-recommendations':
+              // Find the framework section dynamically
+              const frameworkKey = Object.keys(data).find(key =>
+                key.endsWith('_framework') || key === 'executive_decision_framework'
+              );
               exportData = {
                 strategic_recommendations: data.strategic_recommendations,
-                executive_decision_framework: data.executive_decision_framework,
+                [frameworkKey || 'executive_decision_framework']: data[frameworkKey || 'executive_decision_framework'],
                 next_steps: data.next_steps,
                 article_count: data.article_count,
                 topic: data.topic,
@@ -1220,27 +1224,46 @@ function App() {
                 </div>
               </div>
 
-              {/* Executive Decision Framework */}
-              <div className="bg-orange-50 border border-orange-200 rounded-xl p-6">
-                <div className="flex items-center gap-2 mb-4">
-                  <Target className="w-5 h-5 text-orange-600" />
-                  <h2 className="text-xl font-bold">Executive Decision Framework</h2>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  {(data.executive_decision_framework?.principles || []).map((principle, idx) => {
-                    const text = principle.description || principle.content || principle.rationale;
-                    const html = renderCitationsAsLinks(text, articleList);
-                    return (
-                      <div key={idx} className="bg-white rounded-lg p-4 border border-orange-200">
-                        <h3 className="font-semibold text-sm mb-2">
-                          {principle.title || principle.name}
-                        </h3>
-                        <p className="text-sm text-gray-800" dangerouslySetInnerHTML={{ __html: html }} />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+              {/* Framework Section (dynamic based on org type) */}
+              {(() => {
+                // Find the framework section dynamically
+                const frameworkKey = Object.keys(data).find(key =>
+                  key.endsWith('_framework') || key === 'executive_decision_framework'
+                );
+                const frameworkData = frameworkKey ? data[frameworkKey] : null;
+
+                // Generate human-readable title from key
+                const getFrameworkTitle = (key: string) => {
+                  if (!key) return 'Decision Framework';
+                  return key
+                    .split('_')
+                    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                    .join(' ');
+                };
+
+                return frameworkData?.principles ? (
+                  <div className="bg-orange-50 border border-orange-200 rounded-xl p-6">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Target className="w-5 h-5 text-orange-600" />
+                      <h2 className="text-xl font-bold">{getFrameworkTitle(frameworkKey)}</h2>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      {(frameworkData.principles || []).map((principle, idx) => {
+                        const text = principle.description || principle.content || principle.rationale;
+                        const html = renderCitationsAsLinks(text, articleList);
+                        return (
+                          <div key={idx} className="bg-white rounded-lg p-4 border border-orange-200">
+                            <h3 className="font-semibold text-sm mb-2">
+                              {principle.title || principle.name}
+                            </h3>
+                            <p className="text-sm text-gray-800" dangerouslySetInnerHTML={{ __html: html }} />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null;
+              })()}
 
               {/* Next Steps */}
               <div className="bg-white border border-gray-200 rounded-xl p-6">

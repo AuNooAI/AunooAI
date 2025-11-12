@@ -746,31 +746,31 @@ ORGANIZATIONAL CONTEXT:
             # Use specialized consensus analysis prompt
             logger.info("Generating Consensus Analysis tab only")
             formatted_prompt = generate_consensus_analysis_prompt(
-                topic, diverse_articles, org_context, prompt_template
+                topic, diverse_articles, org_context, prompt_template, organizational_profile
             )
         elif tab == "strategic":
             # Use specialized strategic recommendations prompt
             logger.info("Generating Strategic Recommendations tab only")
             formatted_prompt = generate_strategic_recommendations_prompt(
-                topic, diverse_articles, org_context, prompt_template
+                topic, diverse_articles, org_context, prompt_template, organizational_profile
             )
         elif tab == "signals":
             # Use specialized market signals prompt
             logger.info("Generating Market Signals tab only")
             formatted_prompt = generate_market_signals_prompt(
-                topic, diverse_articles, org_context
+                topic, diverse_articles, org_context, organizational_profile
             )
         elif tab == "timeline":
             # Use specialized impact timeline prompt
             logger.info("Generating Impact Timeline tab only")
             formatted_prompt = generate_impact_timeline_prompt(
-                topic, diverse_articles, org_context
+                topic, diverse_articles, org_context, organizational_profile
             )
         elif tab == "horizons":
             # Use specialized future horizons prompt
             logger.info("Generating Future Horizons tab only")
             formatted_prompt = generate_future_horizons_prompt(
-                topic, diverse_articles, org_context
+                topic, diverse_articles, org_context, organizational_profile
             )
             logger.info(f"Future Horizons prompt (first 500 chars): {formatted_prompt[:500]}")
             logger.info(f"Checking if prompt contains 'Three Horizons': {'Three Horizons' in formatted_prompt}")
@@ -1741,10 +1741,41 @@ def get_enhanced_prompt_template(persona: str = "executive", customer_type: str 
         org_type = organizational_profile.get('organization_type', '').lower()
         industry = organizational_profile.get('industry', '').lower()
         
+        # Organization-type specific customizations
         if 'publisher' in org_type or 'academic' in industry or 'scientific' in industry:
             enhanced_template['focus'] += f" with specific attention to {organizational_profile.get('industry', 'publishing')} industry dynamics"
             enhanced_template['framework_emphasis'] += ", intellectual property considerations, and content ecosystem sustainability"
             enhanced_template['next_steps_style'] += " while balancing traditional publishing values with digital innovation"
+
+        elif 'ngo' in org_type or 'nonprofit' in org_type or 'activist' in org_type or 'advocacy' in org_type:
+            enhanced_template['focus'] += f" with emphasis on advocacy, public awareness, and social impact in {organizational_profile.get('industry', 'civil society')}"
+            enhanced_template['framework_emphasis'] += ", grassroots mobilization, coalition-building strategies, and stakeholder pressure tactics"
+            enhanced_template['next_steps_style'] += " prioritizing influence campaigns, public education, advocacy initiatives, and alliance-building rather than direct implementation"
+
+        elif 'government' in org_type or 'public sector' in org_type or 'public' in org_type or 'agency' in org_type:
+            enhanced_template['focus'] += f" with focus on policy-making, regulation, and public service delivery in {organizational_profile.get('industry', 'public sector')}"
+            enhanced_template['framework_emphasis'] += ", regulatory frameworks, stakeholder governance, and public accountability"
+            enhanced_template['next_steps_style'] += " emphasizing policy development, regulatory enforcement mechanisms, public resource allocation, and inter-agency coordination"
+
+        elif 'think tank' in org_type or 'research institution' in org_type or 'research' in org_type or 'institute' in org_type:
+            enhanced_template['focus'] += f" with emphasis on research, analysis, and evidence-based policy recommendations in {organizational_profile.get('industry', 'research and policy')}"
+            enhanced_template['framework_emphasis'] += ", rigorous analysis, policy brief development, and expert convening"
+            enhanced_template['next_steps_style'] += " prioritizing research initiatives, policy papers, stakeholder briefings, and thought leadership rather than direct policy implementation"
+
+        elif 'manufacturer' in org_type or 'manufacturing' in org_type or 'industrial' in org_type:
+            enhanced_template['focus'] += f" with focus on operational excellence, supply chain resilience, and production efficiency in {organizational_profile.get('industry', 'manufacturing')}"
+            enhanced_template['framework_emphasis'] += ", quality control, cost optimization, and sustainable manufacturing practices"
+            enhanced_template['next_steps_style'] += " emphasizing process improvements, technology adoption, supplier relationships, and workforce development"
+
+        elif 'bank' in org_type or 'financial' in org_type or 'finance' in org_type or 'insurer' in org_type or 'insurance' in org_type:
+            enhanced_template['focus'] += f" with focus on risk management, regulatory compliance, and customer trust in {organizational_profile.get('industry', 'financial services')}"
+            enhanced_template['framework_emphasis'] += ", financial stability, regulatory adherence, and fiduciary responsibility"
+            enhanced_template['next_steps_style'] += " emphasizing risk mitigation, compliance frameworks, customer protection, and conservative innovation approaches"
+
+        elif 'security' in org_type or 'cybersecurity' in org_type or 'security_team' in org_type:
+            enhanced_template['focus'] += f" with focus on threat prevention, incident response, and security architecture in {organizational_profile.get('industry', 'cybersecurity')}"
+            enhanced_template['framework_emphasis'] += ", threat intelligence, vulnerability management, and zero-trust principles"
+            enhanced_template['next_steps_style'] += " emphasizing proactive defense, rapid detection and response, security awareness, and continuous monitoring"
         
         # Add key concerns to framework emphasis
         key_concerns = organizational_profile.get('key_concerns', [])
@@ -1780,7 +1811,8 @@ def generate_consensus_analysis_prompt(
     topic: str,
     articles: List,
     org_context: str,
-    prompt_template: Dict[str, str]
+    prompt_template: Dict[str, str],
+    organizational_profile: Dict = None
 ) -> str:
     """
     Generate specialized prompt for Consensus Analysis tab using Auspex numbered field structure.
@@ -1790,7 +1822,18 @@ def generate_consensus_analysis_prompt(
 
     analysis_summary = prepare_analysis_summary(articles, topic)
 
-    prompt = f"""Conduct a DEEP EVIDENCE SYNTHESIS analysis of {len(articles)} articles about "{topic}".{org_context}
+    # Get organization-specific context
+    org_type = organizational_profile.get('organization_type', 'executive') if organizational_profile else 'executive'
+    org_name = organizational_profile.get('name', 'your organization') if organizational_profile else 'your organization'
+    action_vocabulary = get_action_vocabulary(org_type)
+
+    prompt = f"""CRITICAL ORGANIZATIONAL CONTEXT: You are advising {org_name}, a {org_type} organization. ALL analysis and recommendations must be appropriate for their organizational type, capabilities, and sphere of influence.{org_context}
+
+{action_vocabulary}
+
+IMPORTANT: Your outputs must align with what a {org_type} organization can realistically do. Do NOT recommend actions that require governmental authority, corporate resources, or capabilities beyond this organization's scope.
+
+Conduct a DEEP EVIDENCE SYNTHESIS analysis of {len(articles)} articles about "{topic}".
 
 MISSION: Identify 3-4 major CONSENSUS CATEGORIES where trends, forecasts, and expert opinions align across multiple sources. This is NOT a summary - it's a cross-source analysis revealing patterns of agreement and disagreement.
 
@@ -1862,14 +1905,14 @@ REQUIRED OUTPUT FORMAT - Use EXACTLY this Auspex numbered field JSON structure:
           "relevance_score": 0.95
         }}
       ],
-      "7_strategic_implications": "Clear business/organizational impact. What should decision-makers do? What risks or opportunities does this reveal?",
+      "7_strategic_implications": "Clear organizational impact for {org_name} (a {org_type} organization). What actions should be taken within their sphere of influence? What risks or opportunities does this reveal?",
       "8_key_decision_windows": [
         {{
           "urgency": "Critical|High|Medium|Low",
           "window": "Immediate (0-6 months)|Short-term (6-18 months)|Mid-term (18-36 months)",
-          "action": "Specific actionable milestone or decision point",
-          "rationale": "Why this action is important and time-sensitive",
-          "owner": "Recommended team/role (e.g., 'Executive Team', 'Product Team', 'Strategy Team')",
+          "action": "Specific actionable milestone or decision point that {org_name} can realistically execute as a {org_type} organization",
+          "rationale": "Why this action is important and time-sensitive for {org_name}",
+          "owner": "Recommended team/role appropriate for a {org_type} organization (e.g., for NGO: 'Advocacy Team', 'Communications Team'; for Publisher: 'Editorial Board', 'Content Strategy Team'; for Corporation: 'Executive Team', 'Product Team')",
           "dependencies": ["dependency1", "dependency2"],
           "success_metrics": ["metric1", "metric2"]
         }}
@@ -1935,19 +1978,20 @@ EVIDENCE SYNTHESIS INSTRUCTIONS:
    - Each outlier must cite actual sources from the data
 
 6. STRATEGIC IMPLICATIONS (7_strategic_implications):
-   - For each category, explain business/organizational impact
-   - What decisions should be made based on this consensus?
-   - What risks or opportunities does this reveal?
-   - Be specific and actionable, not generic
+   - For each category, explain organizational impact for {org_name} (a {org_type} organization)
+   - What actions should {org_name} take within their sphere of influence?
+   - What risks or opportunities does this reveal for a {org_type} organization?
+   - Be specific and actionable, tailored to {org_type} capabilities
 
 7. KEY DECISION WINDOWS (8_key_decision_windows) - 3-5 per category:
-   - Identify specific time-sensitive action points
+   - CRITICAL: All actions must be appropriate for a {org_type} organization
+   - Identify specific time-sensitive action points that {org_name} can realistically execute
    - Urgency levels: Critical (red), High (orange), Medium (blue), Low (gray)
    - Assign realistic timeframes: Immediate (0-6 months), Short-term (6-18 months), Mid-term (18-36 months)
-   - Specify who should own each action
-   - Define measurable success metrics
+   - Specify owners using roles appropriate for {org_type} organizations
+   - Define measurable success metrics relevant to {org_type} work
    - Note any dependencies or prerequisites
-   - Make actions concrete and executable, not generic advice
+   - Make actions concrete and executable within {org_type} organizational capabilities
 
 8. TIMEFRAME ANALYSIS (9_timeframe_analysis) per category:
    - Break down implications across three timeframes:
@@ -2008,11 +2052,111 @@ Now analyze these articles and return ONLY the JSON object with the Auspex numbe
     return prompt
 
 
+def get_framework_section_name(org_type: str) -> str:
+    """Get appropriate framework section name based on organization type."""
+    org_type_lower = org_type.lower()
+
+    if 'ngo' in org_type_lower or 'nonprofit' in org_type_lower or 'activist' in org_type_lower or 'advocacy' in org_type_lower:
+        return "advocacy_and_influence_framework"
+    elif 'government' in org_type_lower or 'public sector' in org_type_lower or 'public' in org_type_lower or 'agency' in org_type_lower:
+        return "policy_and_governance_framework"
+    elif 'publisher' in org_type_lower or 'academic' in org_type_lower or 'scientific' in org_type_lower:
+        return "content_strategy_framework"
+    elif 'think tank' in org_type_lower or 'research institution' in org_type_lower or 'research' in org_type_lower or 'institute' in org_type_lower:
+        return "research_and_policy_framework"
+    else:
+        return "executive_decision_framework"
+
+
+def get_action_vocabulary(org_type: str) -> str:
+    """Get appropriate action vocabulary based on organization type."""
+    org_type_lower = org_type.lower()
+
+    if 'ngo' in org_type_lower or 'nonprofit' in org_type_lower or 'activist' in org_type_lower or 'advocacy' in org_type_lower:
+        return """APPROPRIATE ACTIONS FOR YOUR ORGANIZATION TYPE (NGO/Activist):
+- Advocate for policy changes through lobbying and stakeholder engagement
+- Launch public awareness and education campaigns
+- Build coalitions with aligned organizations and communities
+- Mobilize grassroots support and public pressure
+- Publish reports, briefings, and position papers to influence opinion
+- Engage media to amplify messages and shape narratives
+- Organize events, protests, or demonstrations (when appropriate)
+- Monitor and report on relevant developments
+- Provide testimony to government bodies or international forums"""
+
+    elif 'government' in org_type_lower or 'public sector' in org_type_lower or 'public' in org_type_lower or 'agency' in org_type_lower:
+        return """APPROPRIATE ACTIONS FOR YOUR ORGANIZATION TYPE (Government/Public Sector):
+- Develop and implement policies and regulations
+- Enforce compliance through regulatory mechanisms
+- Allocate public resources and funding
+- Coordinate inter-agency initiatives
+- Conduct public consultations and stakeholder engagement
+- Commission research and expert analysis
+- Provide public services and infrastructure
+- Establish standards and certification programs"""
+
+    elif 'publisher' in org_type_lower or 'academic' in org_type_lower or 'scientific' in org_type_lower:
+        return """APPROPRIATE ACTIONS FOR YOUR ORGANIZATION TYPE (Publisher/Academic):
+- Publish content, research, and educational materials
+- Convene expert panels and editorial boards
+- Commission research and thought leadership pieces
+- Curate and disseminate knowledge
+- Educate audiences through various channels
+- Foster researcher and author communities
+- Develop digital platforms and tools
+- Protect and manage intellectual property"""
+
+    elif 'think tank' in org_type_lower or 'research institution' in org_type_lower or 'research' in org_type_lower or 'institute' in org_type_lower:
+        return """APPROPRIATE ACTIONS FOR YOUR ORGANIZATION TYPE (Think Tank/Research Institution):
+- Conduct rigorous research and analysis
+- Publish policy briefs, white papers, and reports
+- Brief policymakers and stakeholders
+- Convene expert roundtables and conferences
+- Provide expert testimony and consultation
+- Build evidence bases for policy recommendations
+- Foster networks of researchers and practitioners
+- Engage in public education and thought leadership"""
+
+    elif 'manufacturer' in org_type_lower or 'manufacturing' in org_type_lower or 'industrial' in org_type_lower:
+        return """APPROPRIATE ACTIONS FOR YOUR ORGANIZATION TYPE (Manufacturing):
+- Optimize production processes and efficiency
+- Adopt new technologies and automation
+- Strengthen supplier relationships and supply chain resilience
+- Invest in workforce development and training
+- Implement quality control and assurance systems
+- Pursue sustainability and environmental initiatives
+- Expand into new markets or product lines
+- Form strategic partnerships or joint ventures"""
+
+    elif 'bank' in org_type_lower or 'financial' in org_type_lower or 'finance' in org_type_lower or 'insurer' in org_type_lower or 'insurance' in org_type_lower:
+        return """APPROPRIATE ACTIONS FOR YOUR ORGANIZATION TYPE (Financial Services):
+- Enhance risk management frameworks
+- Ensure regulatory compliance
+- Develop new financial products or services
+- Strengthen customer protection measures
+- Invest in digital transformation and fintech
+- Conduct stress testing and scenario planning
+- Build capital reserves and liquidity buffers
+- Improve customer experience and trust"""
+
+    else:
+        return """APPROPRIATE ACTIONS FOR YOUR ORGANIZATION TYPE (General Business/Enterprise):
+- Develop and launch new products or services
+- Enter new markets or expand existing presence
+- Invest in technology and digital transformation
+- Form strategic partnerships or acquisitions
+- Optimize operations and cost structures
+- Invest in workforce capabilities
+- Enhance customer experience and engagement
+- Build competitive advantages and market position"""
+
+
 def generate_strategic_recommendations_prompt(
     topic: str,
     articles: List,
     org_context: str,
-    prompt_template: Dict[str, str]
+    prompt_template: Dict[str, str],
+    organizational_profile: Dict = None
 ) -> str:
     """
     Generate specialized prompt for Strategic Recommendations tab.
@@ -2021,7 +2165,19 @@ def generate_strategic_recommendations_prompt(
 
     analysis_summary = prepare_analysis_summary(articles, topic)
 
-    prompt = f"""Analyze {len(articles)} articles about "{topic}" and generate strategic recommendations across three time horizons.{org_context}
+    # Get organization-specific section names and vocabulary
+    org_type = organizational_profile.get('organization_type', 'executive') if organizational_profile else 'executive'
+    org_name = organizational_profile.get('name', 'your organization') if organizational_profile else 'your organization'
+    framework_section = get_framework_section_name(org_type)
+    action_vocabulary = get_action_vocabulary(org_type)
+
+    prompt = f"""CRITICAL ORGANIZATIONAL CONTEXT: You are advising {org_name}, a {org_type} organization. ALL recommendations must be appropriate for their organizational type, capabilities, and sphere of influence.{org_context}
+
+{action_vocabulary}
+
+IMPORTANT: Your recommendations must align with what a {org_type} organization can realistically do. Do NOT recommend actions that require governmental authority, corporate resources, or capabilities beyond this organization's scope.
+
+Analyze {len(articles)} articles about "{topic}" and generate strategic recommendations across three time horizons.
 
 CRITICAL CITATION INSTRUCTIONS:
 - Use numbered citations [1], [2], [3] to reference articles
@@ -2054,20 +2210,20 @@ REQUIRED OUTPUT FORMAT:
       "trends": [...]
     }}
   }},
-  "executive_decision_framework": {{
+  "{framework_section}": {{
     "principles": [
       {{
-        "name": "Principle name",
+        "name": "Principle name appropriate for {org_type} organizations",
         "description": "Principle description with citations [1], [2]",
-        "rationale": "Why important, supported by [3]",
-        "implementation": "How to apply"
+        "rationale": "Why important for {org_name}, supported by [3]",
+        "implementation": "How {org_name} can apply this principle within their capabilities"
       }}
     ]
   }},
   "next_steps": [
     {{
       "priority": "High|Medium|Low",
-      "action": "Specific actionable step with supporting evidence [1], [2]",
+      "action": "Specific actionable step that {org_name} (a {org_type} organization) can realistically execute, with supporting evidence [1], [2]",
       "timeline": "When to complete",
       "stakeholders": ["stakeholder1"],
       "success_metrics": ["metric1"]
@@ -2076,11 +2232,13 @@ REQUIRED OUTPUT FORMAT:
 }}
 
 INSTRUCTIONS:
-- Identify 2 major trends for each time horizon
-- Create 3-4 executive decision principles
-- Provide 3-4 specific, actionable next steps with priorities
+- As a {org_type} organization, identify 2 major trends for each time horizon
+- Create 3-4 decision principles appropriate for {org_type} organizations (not generic executive principles)
+- Provide 3-4 specific, actionable next steps that {org_name} can realistically execute within their sphere of influence
+- CRITICAL: All next steps must be actions a {org_type} organization can take - do NOT recommend actions requiring governmental authority, corporate implementation power, or resources beyond their scope
 - Focus on actionable insights for {prompt_template['focus']}
 - Use decision-making style: {prompt_template['next_steps_style']}
+- Remember: {org_name} influences through their specific organizational capabilities, not through direct policy implementation or enforcement
 - Support ALL descriptions with numbered citations from the article list below
 
 ARTICLE DATA:
@@ -2094,7 +2252,8 @@ Return ONLY the JSON object."""
 def generate_market_signals_prompt(
     topic: str,
     articles: List,
-    org_context: str
+    org_context: str,
+    organizational_profile: Dict = None
 ) -> str:
     """
     Generate specialized prompt for Market Signals tab.
@@ -2103,6 +2262,21 @@ def generate_market_signals_prompt(
     """
 
     analysis_summary = prepare_analysis_summary(articles, topic)
+
+    # Get organization-specific context
+    org_type = organizational_profile.get('organization_type', 'executive') if organizational_profile else 'executive'
+    org_name = organizational_profile.get('name', 'your organization') if organizational_profile else 'your organization'
+    action_vocabulary = get_action_vocabulary(org_type)
+
+    # Get org-specific signal terminology
+    if 'ngo' in org_type.lower() or 'nonprofit' in org_type.lower() or 'activist' in org_type.lower():
+        signals_term = "advocacy signals, policy opportunities, and mobilization windows"
+    elif 'publisher' in org_type.lower() or 'academic' in org_type.lower():
+        signals_term = "content signals, editorial opportunities, and audience trends"
+    elif 'think tank' in org_type.lower() or 'research' in org_type.lower():
+        signals_term = "research signals, policy windows, and knowledge opportunities"
+    else:
+        signals_term = "market signals, disruptions, and opportunities"
 
     # Prepare detailed article content with raw text when available
     article_details = []
@@ -2126,7 +2300,13 @@ def generate_market_signals_prompt(
 
     articles_text = "\n\n".join(article_details)
 
-    prompt = f"""Analyze {len(articles)} articles about "{topic}" and identify market signals, disruptions, and opportunities.{org_context}
+    prompt = f"""CRITICAL ORGANIZATIONAL CONTEXT: You are advising {org_name}, a {org_type} organization. ALL analysis must be appropriate for their organizational type, capabilities, and sphere of influence.{org_context}
+
+{action_vocabulary}
+
+IMPORTANT: Your outputs must align with what a {org_type} organization can realistically do. Frame all signals, opportunities, and risks from the perspective of a {org_type} organization.
+
+Analyze {len(articles)} articles about "{topic}" and identify {signals_term}.
 
 CRITICAL CITATION AND QUOTE INSTRUCTIONS:
 - Use numbered citations [1], [2], [3] to reference articles
@@ -2197,13 +2377,19 @@ Return ONLY the JSON object."""
 def generate_impact_timeline_prompt(
     topic: str,
     articles: List,
-    org_context: str
+    org_context: str,
+    organizational_profile: Dict = None
 ) -> str:
     """
     Generate specialized prompt for Impact Timeline tab.
     Focus on timeline visualization of key impact areas.
     Uses PromptLoader to load prompt from data/prompts/impact_timeline/current.json
     """
+
+    # Get organization-specific context
+    org_type = organizational_profile.get('organization_type', 'executive') if organizational_profile else 'executive'
+    org_name = organizational_profile.get('name', 'your organization') if organizational_profile else 'your organization'
+    action_vocabulary = get_action_vocabulary(org_type)
 
     # Load prompt from JSON file
     prompt_data = PromptLoader.load_prompt("impact_timeline", "current")
@@ -2212,12 +2398,21 @@ def generate_impact_timeline_prompt(
     # Prepare analysis summary from articles
     analysis_summary = prepare_analysis_summary(articles, topic)
 
+    # Add organizational framing before the template
+    org_framing = f"""CRITICAL ORGANIZATIONAL CONTEXT: You are advising {org_name}, a {org_type} organization. ALL timeline analysis and strategic planning recommendations must be appropriate for their organizational type, capabilities, and sphere of influence.{org_context}
+
+{action_vocabulary}
+
+IMPORTANT: Your outputs must align with what a {org_type} organization can realistically do. Frame all strategic planning and preparation activities from the perspective of a {org_type} organization.
+
+"""
+
     # Prepare variables for prompt template
     variables = {
         "topic": topic,
         "article_count": len(articles),
         "articles": analysis_summary,
-        "org_context": org_context if org_context else ""
+        "org_context": org_framing
     }
 
     # Fill prompt template
@@ -2235,7 +2430,8 @@ def generate_impact_timeline_prompt(
 def generate_future_horizons_prompt(
     topic: str,
     articles: List,
-    org_context: str
+    org_context: str,
+    organizational_profile: Dict = None
 ) -> str:
     """
     Generate specialized prompt for Future Horizons tab.
@@ -2244,17 +2440,28 @@ def generate_future_horizons_prompt(
 
     analysis_summary = prepare_analysis_summary(articles, topic)
 
+    # Get organization-specific context
+    org_type = organizational_profile.get('organization_type', 'executive') if organizational_profile else 'executive'
+    org_name = organizational_profile.get('name', 'your organization') if organizational_profile else 'your organization'
+    action_vocabulary = get_action_vocabulary(org_type)
+
     # Create numbered article reference list for citations
     article_references = "\n".join([
         f"[{i+1}] {article.get('title', 'Untitled')} - {article.get('source_name', 'Unknown')} - {str(article.get('publication_date', ''))[:10]}"
         for i, article in enumerate(articles[:50])  # Limit to first 50 articles
     ])
 
-    prompt = f"""Analyze {len(articles)} articles about "{topic}" and generate future scenarios using the Three Horizons framework.{org_context}
+    prompt = f"""CRITICAL ORGANIZATIONAL CONTEXT: You are advising {org_name}, a {org_type} organization. ALL scenario analysis must be framed from the perspective of a {org_type} organization and their sphere of influence.{org_context}
+
+{action_vocabulary}
+
+IMPORTANT: Frame all scenarios from the perspective of a {org_type} organization. Consider how these trends affect and are shaped by {org_type} organizations.
+
+Analyze {len(articles)} articles about "{topic}" and generate future scenarios using the Three Horizons framework.
 
 THREE HORIZONS FRAMEWORK DEFINITIONS:
-- **Horizon 1 (H1) - Current State/Declining**: The dominant paradigm today. Business-as-usual trends and systems that are gradually declining as new innovations emerge. Represents what's working now but won't sustain long-term.
-- **Horizon 2 (H2) - Transition/Innovation**: Emerging innovations and disruptions. Entrepreneurial activity, pilot projects, and the transitional period where old and new systems coexist. The space of experimentation and change.
+- **Horizon 1 (H1) - Current Paradigm/Declining**: The dominant paradigm today. Current established practices and systems that are gradually declining as new innovations emerge. Represents what's working now but won't sustain long-term.
+- **Horizon 2 (H2) - Transition/Innovation**: Emerging innovations and disruptions. Innovative initiatives, experimental approaches, and the transitional period where old and new systems coexist. The space of experimentation and change.
 - **Horizon 3 (H3) - Future Vision/Emerging**: Transformative visions becoming reality. The preferred future state where new paradigms are fully established. Represents radical departures from current norms.
 
 REQUIRED OUTPUT FORMAT:
