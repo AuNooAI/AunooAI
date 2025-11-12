@@ -84,7 +84,19 @@ class PromptManager:
         except Exception:
             return "1.0.0"  # Fallback if anything goes wrong
 
-    def save_version(self, prompt_type: str, system_prompt: str, user_prompt: str) -> Dict:
+    def save_version(self, prompt_type: str, system_prompt: str, user_prompt: str,
+                     additional_fields: Optional[Dict] = None) -> Dict:
+        """Save a new prompt version, preserving additional fields for dashboard prompts.
+
+        Args:
+            prompt_type: Type of prompt (e.g., 'consensus_analysis')
+            system_prompt: System prompt text
+            user_prompt: User prompt text
+            additional_fields: Optional dict with fields like expected_output_schema, variables, metadata
+
+        Returns:
+            Dict with saved prompt data including hash
+        """
         try:
             if prompt_type not in self.VALID_PROMPT_TYPES:
                 raise PromptManagerError(f"Invalid prompt type: {prompt_type}")
@@ -92,6 +104,7 @@ class PromptManager:
             # Get next version number
             next_version = self._get_next_version(prompt_type)
 
+            # Base prompt data
             prompt_data = {
                 "system_prompt": system_prompt,
                 "user_prompt": user_prompt,
@@ -99,10 +112,14 @@ class PromptManager:
                 "created_at": datetime.now().isoformat()
             }
 
+            # Merge in additional fields (like expected_output_schema, variables, metadata)
+            if additional_fields:
+                prompt_data.update(additional_fields)
+
             # Compute hash and save version
             version_hash = self._compute_hash(prompt_data)
             version_path = self._get_version_path(prompt_type, version_hash)
-            
+
             # Save as a version
             with open(version_path, 'w') as f:
                 json.dump(prompt_data, f, indent=2)
@@ -125,7 +142,15 @@ class PromptManager:
 
             versions = []
             prompt_dir = os.path.join(self.storage_dir, prompt_type)
-            
+
+            # Include current.json in the list
+            current_path = os.path.join(prompt_dir, "current.json")
+            if os.path.exists(current_path):
+                with open(current_path, 'r') as f:
+                    current_data = json.load(f)
+                    versions.append({"hash": "current", **current_data})
+
+            # Also include versioned files
             for filename in os.listdir(prompt_dir):
                 if filename != "current.json" and filename.endswith('.json'):
                     version_hash = filename[:-5]  # Remove .json
@@ -134,7 +159,7 @@ class PromptManager:
                         versions.append({"hash": version_hash, **version_data})
 
             # Sort by creation date, newest first
-            versions.sort(key=lambda x: x["created_at"], reverse=True)
+            versions.sort(key=lambda x: x.get("created_at", ""), reverse=True)
             return versions
         except Exception as e:
             logger.error(f"Failed to get prompt versions: {str(e)}")
@@ -178,6 +203,43 @@ class PromptManager:
         except Exception as e:
             logger.error(f"Failed to restore prompt version: {str(e)}")
             raise PromptManagerError(f"Failed to restore prompt version: {str(e)}")
+
+    def split_user_prompt(self, user_prompt: str) -> Dict[str, str]:
+        """Split user_prompt into editable instructions and fixed output format.
+
+        Args:
+            user_prompt: The full user prompt string
+
+        Returns:
+            Dict with 'instructions' (editable) and 'output_format' (fixed) keys
+        """
+        if "REQUIRED OUTPUT FORMAT:" in user_prompt:
+            parts = user_prompt.split("REQUIRED OUTPUT FORMAT:", 1)
+            return {
+                "instructions": parts[0].rstrip(),
+                "output_format": "REQUIRED OUTPUT FORMAT:" + parts[1]
+            }
+        else:
+            # No separator found - everything is editable
+            return {
+                "instructions": user_prompt,
+                "output_format": ""
+            }
+
+    def join_user_prompt(self, instructions: str, output_format: str) -> str:
+        """Join editable instructions and fixed output format into full user_prompt.
+
+        Args:
+            instructions: Editable instructions section
+            output_format: Fixed output format section (includes "REQUIRED OUTPUT FORMAT:" marker)
+
+        Returns:
+            Complete user_prompt string
+        """
+        if output_format:
+            return instructions.rstrip() + "\n\n" + output_format
+        else:
+            return instructions
 
     def get_prompt_types(self) -> List[Dict]:
         return [

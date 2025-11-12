@@ -43,11 +43,36 @@
             </div>
 
             <div class="prompt-editor mt-4">
-                <h3>System Prompt</h3>
-                <textarea id="system-prompt" rows="5" class="form-control" placeholder="System prompt..."></textarea>
+                <h3>1. Role (Editable) - System Prompt</h3>
+                <textarea id="system-prompt" rows="5" class="form-control" placeholder="System prompt defining the AI's role..."></textarea>
 
-                <h3>User Prompt</h3>
-                <textarea id="user-prompt" rows="10" class="form-control" placeholder="User prompt..."></textarea>
+                <h3 class="mt-3">2. Instructions (Editable) - User Prompt</h3>
+                <p class="text-muted small">💡 Core instructions for the AI. Use variables like <code>{topic}</code>, <code>{article_count}</code>, <code>{org_context}</code> - see full list below</p>
+                <textarea id="user-prompt" rows="12" class="form-control" placeholder="User prompt with instructions..."></textarea>
+
+                <!-- Output Format Section (Read-Only, only shown for dashboard prompts) -->
+                <div id="output-format-section" style="display: none;">
+                    <h3 class="mt-3">3. Output Format (Read-Only)</h3>
+                    <p class="text-muted small">🔒 This defines the exact JSON structure the AI must return. Cannot be edited to ensure frontend compatibility.</p>
+                    <div class="card bg-light">
+                        <div class="card-body">
+                            <pre id="output-format" class="mb-0" style="max-height: 400px; overflow-y: auto; font-size: 0.85em;"></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Expected Output Schema (only shown for dashboard prompts) -->
+                <div id="schema-section" style="display: none;">
+                    <h3 class="mt-3">4. JSON Schema Reference (Documentation)</h3>
+                    <details>
+                        <summary class="btn btn-sm btn-outline-secondary">Show/Hide Schema</summary>
+                        <div class="card bg-light mt-2">
+                            <div class="card-body">
+                                <pre id="expected-schema" class="mb-0" style="max-height: 300px; overflow-y: auto; font-size: 0.75em;"></pre>
+                            </div>
+                        </div>
+                    </details>
+                </div>
 
                 <div class="prompt-actions mt-3">
                     <button id="save-prompt" class="btn btn-primary">Save New Version</button>
@@ -58,28 +83,9 @@
 
                 <div class="available-variables mt-4">
                     <h3>Available Variables</h3>
-                    <div class="card">
+                    <div id="variables-container" class="card">
                         <div class="card-body">
-                            <h5>Content Analysis Variables:</h5>
-                            <ul>
-                                <li><code>{article_text}</code> - Full article content</li>
-                                <li><code>{title}</code> - Article title</li>
-                                <li><code>{source}</code> - Article source</li>
-                                <li><code>{uri}</code> - Article URI</li>
-                                <li><code>{summary_length}</code> - Requested summary length</li>
-                                <li><code>{summary_voice}</code> - Summary voice style</li>
-                                <li><code>{summary_type}</code> - Type of summary</li>
-                                <li><code>{categories}</code> - Available categories</li>
-                                <li><code>{future_signals}</code> - Available future signals</li>
-                                <li><code>{sentiment_options}</code> - Available sentiment options</li>
-                                <li><code>{time_to_impact_options}</code> - Available time to impact options</li>
-                                <li><code>{driver_types}</code> - Available driver types</li>
-                            </ul>
-
-                            <h5>Date Extraction Variables:</h5>
-                            <ul>
-                                <li><code>{content}</code> - Article content (first 1000 chars)</li>
-                            </ul>
+                            <p class="text-muted small">Variables will be displayed based on the selected prompt type</p>
                         </div>
                     </div>
                 </div>
@@ -215,13 +221,57 @@
         }
     }
 
+    // Store full prompt data for saving later
+    let currentPromptData = {};
+
     function loadPromptContent(promptType, versionHash) {
         fetch(`/api/prompts/${promptType}/${versionHash}`)
             .then(response => response.json())
             .then(data => {
-                document.getElementById('system-prompt').value = data.system_prompt;
-                document.getElementById('user-prompt').value = data.user_prompt;
-                
+                // Store full data
+                currentPromptData = data;
+
+                // Set system prompt
+                document.getElementById('system-prompt').value = data.system_prompt || '';
+
+                // Check if this is a dashboard prompt (has "REQUIRED OUTPUT FORMAT:" marker)
+                const isDashboardPrompt = data.user_prompt && data.user_prompt.includes('REQUIRED OUTPUT FORMAT:');
+
+                if (isDashboardPrompt) {
+                    // Split user_prompt into instructions and output format
+                    const parts = data.user_prompt.split('REQUIRED OUTPUT FORMAT:', 2);
+                    const instructions = parts[0].trim();
+                    const outputFormat = 'REQUIRED OUTPUT FORMAT:' + (parts[1] || '');
+
+                    // Set instructions (editable)
+                    document.getElementById('user-prompt').value = instructions;
+
+                    // Show and set output format (read-only)
+                    document.getElementById('output-format-section').style.display = 'block';
+                    document.getElementById('output-format').textContent = outputFormat;
+
+                    // Show schema if available
+                    if (data.expected_output_schema) {
+                        document.getElementById('schema-section').style.display = 'block';
+                        document.getElementById('expected-schema').textContent = JSON.stringify(data.expected_output_schema, null, 2);
+                    } else {
+                        document.getElementById('schema-section').style.display = 'none';
+                    }
+
+                    // Display variables if available
+                    if (data.variables && Object.keys(data.variables).length > 0) {
+                        displayVariables(data.variables);
+                    } else {
+                        displayDefaultVariables();
+                    }
+                } else {
+                    // Regular prompt - no split
+                    document.getElementById('user-prompt').value = data.user_prompt || '';
+                    document.getElementById('output-format-section').style.display = 'none';
+                    document.getElementById('schema-section').style.display = 'none';
+                    displayDefaultVariables();
+                }
+
                 // Enable/disable buttons based on version
                 const isCurrent = versionHash === 'current';
                 document.getElementById('restore-version').disabled = isCurrent;
@@ -234,11 +284,86 @@
             });
     }
 
+    function displayVariables(variables) {
+        const container = document.getElementById('variables-container');
+        let html = '<div class="card-body">';
+        html += '<ul class="list-unstyled">';
+        for (const [key, description] of Object.entries(variables)) {
+            html += `<li class="mb-2"><code class="bg-light px-2 py-1 rounded">{${key}}</code> - ${description}</li>`;
+        }
+        html += '</ul></div>';
+        container.innerHTML = html;
+    }
+
+    function displayDefaultVariables() {
+        const container = document.getElementById('variables-container');
+        container.innerHTML = `
+            <div class="card-body">
+                <h5>Content Analysis Variables:</h5>
+                <ul>
+                    <li><code>{article_text}</code> - Full article content</li>
+                    <li><code>{title}</code> - Article title</li>
+                    <li><code>{source}</code> - Article source</li>
+                    <li><code>{uri}</code> - Article URI</li>
+                    <li><code>{summary_length}</code> - Requested summary length</li>
+                    <li><code>{summary_voice}</code> - Summary voice style</li>
+                    <li><code>{summary_type}</code> - Type of summary</li>
+                    <li><code>{categories}</code> - Available categories</li>
+                    <li><code>{future_signals}</code> - Available future signals</li>
+                    <li><code>{sentiment_options}</code> - Available sentiment options</li>
+                    <li><code>{time_to_impact_options}</code> - Available time to impact options</li>
+                    <li><code>{driver_types}</code> - Available driver types</li>
+                </ul>
+
+                <h5>Date Extraction Variables:</h5>
+                <ul>
+                    <li><code>{content}</code> - Article content (first 1000 chars)</li>
+                </ul>
+            </div>
+        `;
+    }
+
     function savePromptVersion(promptType) {
+        const systemPrompt = document.getElementById('system-prompt').value;
+        let userPrompt = document.getElementById('user-prompt').value;
+
+        // Check if output format section is visible (dashboard prompt)
+        const outputFormatSection = document.getElementById('output-format-section');
+        if (outputFormatSection.style.display !== 'none') {
+            // Get the fixed output format
+            const outputFormat = document.getElementById('output-format').textContent;
+            // Join instructions with output format
+            userPrompt = userPrompt.trim() + '\n\n' + outputFormat;
+        }
+
+        // Prepare prompt data with all fields
         const promptData = {
-            system_prompt: document.getElementById('system-prompt').value,
-            user_prompt: document.getElementById('user-prompt').value
+            system_prompt: systemPrompt,
+            user_prompt: userPrompt
         };
+
+        // Preserve additional fields for dashboard prompts
+        if (currentPromptData.expected_output_schema) {
+            promptData.expected_output_schema = currentPromptData.expected_output_schema;
+        }
+        if (currentPromptData.variables) {
+            promptData.variables = currentPromptData.variables;
+        }
+        if (currentPromptData.metadata) {
+            promptData.metadata = currentPromptData.metadata;
+        }
+        if (currentPromptData.prompt_name) {
+            promptData.prompt_name = currentPromptData.prompt_name;
+        }
+        if (currentPromptData.feature) {
+            promptData.feature = currentPromptData.feature;
+        }
+        if (currentPromptData.description) {
+            promptData.description = currentPromptData.description;
+        }
+        if (currentPromptData.author) {
+            promptData.author = currentPromptData.author;
+        }
 
         fetch(`/api/prompts/${promptType}`, {
             method: 'POST',
@@ -251,6 +376,8 @@
         .then(data => {
             alert('Prompt version saved successfully');
             loadPromptVersions(promptType);
+            // Reload the current version to update the display
+            loadPromptContent(promptType, 'current');
         })
         .catch(error => {
             console.error('Error saving prompt version:', error);
