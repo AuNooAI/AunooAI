@@ -34,6 +34,7 @@ export interface AnalysisConfig {
 export interface UseTrendConvergenceReturn {
   // Data (can be either TrendConvergenceData or MarketSignalsData depending on tab)
   data: TrendConvergenceData | MarketSignalsData | null;
+  setData: (data: TrendConvergenceData | MarketSignalsData | null) => void;
   topics: Topic[];
   profiles: OrganizationalProfile[];
   models: AIModel[];
@@ -312,6 +313,7 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
 
   return {
     data,
+    setData,
     topics,
     profiles,
     models,

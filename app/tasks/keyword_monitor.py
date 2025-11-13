@@ -649,6 +649,56 @@ class KeywordMonitor:
             except Exception as incidents_err:
                 logger.error(f"Incident tracking regeneration failed: {incidents_err}", exc_info=True)
 
+            # === 4. Auto-Save to Saved Dashboards (if enabled) ===
+            try:
+                # Get admin username for auto-generated dashboards
+                admin_user = self.db.facade.get_admin_user()
+                if admin_user:
+                    admin_username = admin_user.get('username')
+
+                    # Get articles from the past 24 hours for this topic
+                    articles = self.db.facade.get_articles_for_topic(
+                        topic=topic,
+                        limit=100,
+                        days_back=1
+                    )
+
+                    article_uris = [art.get('uri') for art in articles if art.get('uri')]
+
+                    if article_uris:
+                        # Create minimal tab_data structure
+                        # Note: Full trend convergence data would need to be generated separately
+                        # For now, we save with placeholder structure to enable dashboard creation
+                        tab_data = {
+                            'consensus': None,  # Would need full trend convergence analysis
+                            'strategic': None,
+                            'timeline': None,
+                            'signals': {'highlights': incidents.get('items', []) if 'incidents' in locals() else []},
+                            'horizons': None
+                        }
+
+                        config_data = {
+                            'topic': topic,
+                            'model': model,
+                            'timeframe_days': 1,
+                            'source_quality': 'all',
+                            'auto_regenerated': True
+                        }
+
+                        # Upsert auto-generated dashboard
+                        dashboard_id = self.db.facade.upsert_auto_generated_dashboard(
+                            topic=topic,
+                            username=admin_username,
+                            config=config_data,
+                            article_uris=article_uris,
+                            tab_data=tab_data,
+                            articles_analyzed=len(article_uris),
+                            model_used=model
+                        )
+                        logger.info(f"Auto-saved dashboard ID {dashboard_id} for topic '{topic}'")
+            except Exception as auto_save_err:
+                logger.error(f"Auto-save to dashboard failed (non-critical): {auto_save_err}", exc_info=True)
+
             # Create notification
             if username:
                 try:

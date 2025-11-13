@@ -1,4 +1,5 @@
 from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, Enum, Float, ForeignKey, Index, Integer, JSON, MetaData, REAL, String, TIMESTAMP, Table, Text, UniqueConstraint, text
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 
 metadata = MetaData()
 
@@ -68,6 +69,33 @@ t_future_horizons_runs = Table(
     Column('created_at', DateTime, server_default=text('CURRENT_TIMESTAMP'), nullable=False),
     Column('analysis_duration_seconds', Float),
     Index('idx_future_horizons_user_created', 'user_id', 'created_at')
+)
+
+t_saved_dashboards = Table(
+    'saved_dashboards', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('topic', String(255), nullable=False),
+    Column('username', Text, ForeignKey('users.username', ondelete='SET NULL')),
+    Column('name', String(255), nullable=False),
+    Column('description', Text),
+    Column('config', JSONB, nullable=False),
+    Column('article_uris', ARRAY(Text), nullable=False),
+    Column('consensus_data', JSONB),
+    Column('strategic_data', JSONB),
+    Column('timeline_data', JSONB),
+    Column('signals_data', JSONB),
+    Column('horizons_data', JSONB),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('last_accessed_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('profile_snapshot', JSONB),
+    Column('articles_analyzed', Integer),
+    Column('model_used', String(100)),
+    Column('auto_generated', Boolean, server_default=text('false'), nullable=False),
+    UniqueConstraint('topic', 'username', 'name', name='uq_saved_dashboards_topic_user_name'),
+    Index('idx_saved_dashboards_topic', 'topic'),
+    Index('idx_saved_dashboards_user', 'username'),
+    Index('idx_saved_dashboards_created', 'created_at')
 )
 
 t_analysis_versions = Table(

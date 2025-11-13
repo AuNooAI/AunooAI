@@ -13,14 +13,17 @@ import { ImpactTimelineCard } from './components/ImpactTimelineCard';
 import { FutureHorizons } from './components/FutureHorizons';
 import { OrganizationalProfileModal } from './components/OrganizationalProfileModal';
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
-import { Bell, Settings, Download, Image as ImageIcon, FileText, RefreshCw, Clock, TrendingUp, Target, Code } from 'lucide-react';
+import { Bell, Settings, Download, Image as ImageIcon, FileText, RefreshCw, Clock, TrendingUp, Target, Code, Save, Trash2, Plus, X, Zap } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from './components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from './components/ui/dialog';
+import { Input } from './components/ui/input';
+import { Textarea } from './components/ui/textarea';
+import { Label } from './components/ui/label';
 import { Loader2, AlertCircle } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from './components/ui/alert';
 import { calculateContextInfo, type ContextInfo } from './utils/contextCalculation';
-import { getMarketSignalsRaw, getImpactTimelineRaw, getStrategicRecommendationsRaw, getFutureHorizonsRaw, getConsensusAnalysisRaw } from './services/api';
+import { getMarketSignalsRaw, getImpactTimelineRaw, getStrategicRecommendationsRaw, getFutureHorizonsRaw, getConsensusAnalysisRaw, listDashboardsForTopic, loadDashboard, saveDashboard, deleteDashboard } from './services/api';
 import { ExportService } from './services/exportService';
 import { ArticleCitations } from './components/ArticleCitations';
 import { AIDisclosureFooter, dashboardFooterConfigs } from './components/AIDisclosureFooter';
@@ -29,6 +32,7 @@ import { renderCitationsAsLinks } from './utils/citationRenderer';
 function App() {
   const {
     data,
+    setData,
     topics,
     profiles,
     models,
@@ -57,6 +61,19 @@ function App() {
   const [templateOutputFormat, setTemplateOutputFormat] = useState('');
   const [showPreview, setShowPreview] = useState(false);
   const [templateVariables, setTemplateVariables] = useState<Record<string, string>>({});
+
+  // Saved Dashboards state
+  const [savedDashboards, setSavedDashboards] = useState<any[]>([]);
+  const [currentDashboardId, setCurrentDashboardId] = useState<number | null>(null);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [dashboardName, setDashboardName] = useState('');
+  const [dashboardDescription, setDashboardDescription] = useState('');
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [dashboardToDelete, setDashboardToDelete] = useState<{id: number, name: string} | null>(null);
+  const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
+
+  // All available topics
+  const [allTopics, setAllTopics] = useState<string[]>([]);
 
   // Fetch prompt preview when Tune modal opens
   useEffect(() => {
@@ -158,12 +175,13 @@ function App() {
       const cachedData = localStorage.getItem(tabKey);
 
       // If no cached data and we have a topic, auto-generate
-      if (!cachedData && config.topic && !loading) {
+      // BUT: Don't auto-generate if there's already an error (prevents infinite loop)
+      if (!cachedData && config.topic && !loading && !error) {
         console.log(`No cached data for ${backendTab} tab, auto-generating...`);
         generateAnalysis();
       }
     }
-  }, [activeTab, updateConfig, config.topic, loading, generateAnalysis]);
+  }, [activeTab, updateConfig, config.topic, loading, error, generateAnalysis]);
 
   // Calculate context info when model or sample size changes
   useEffect(() => {
@@ -210,6 +228,173 @@ function App() {
 
     fetchArticles();
   }, [activeTab, data?.analysis_id, config.topic]);
+
+  // Fetch all available topics on mount (only topics with articles)
+  useEffect(() => {
+    async function fetchTopics() {
+      try {
+        const response = await fetch('/api/topics?include_config=false&with_articles=true');
+        if (response.ok) {
+          const topics = await response.json();
+          setAllTopics(topics.map((t: any) => t.name));
+        }
+      } catch (err) {
+        console.error('Failed to load topics:', err);
+      }
+    }
+    fetchTopics();
+  }, []);
+
+  // Load saved dashboards when topic changes
+  useEffect(() => {
+    if (config.topic) {
+      loadSavedDashboardsForTopic(config.topic);
+    }
+  }, [config.topic]);
+
+  // Saved Dashboards handlers
+  async function loadSavedDashboardsForTopic(topic: string, autoLoad: boolean = false) {
+    try {
+      const dashboards = await listDashboardsForTopic(topic);
+      setSavedDashboards(dashboards);
+
+      // Auto-load most recent dashboard if requested and dashboards exist
+      if (autoLoad && dashboards.length > 0) {
+        // Dashboards are already sorted by last_accessed_at DESC from API
+        const mostRecent = dashboards[0];
+        await handleLoadDashboard(mostRecent.id);
+      } else if (autoLoad && dashboards.length === 0) {
+        // No saved dashboards, clear current data to show "New Analysis" state
+        setData(null);
+        setCurrentDashboardId(null);
+      }
+    } catch (err) {
+      console.error('Failed to load saved dashboards:', err);
+    }
+  }
+
+  async function handleSaveDashboard() {
+    if (!dashboardName.trim()) {
+      alert('Please enter a dashboard name');
+      return;
+    }
+
+    // Get article URIs from current data
+    const articleUris = data?.article_uris || [];
+
+    // Get current profile
+    const currentProfile = profiles.find(p => p.id === config.profile_id);
+
+    const request = {
+      topic: config.topic,
+      name: dashboardName,
+      description: dashboardDescription || undefined,
+      config: config,
+      article_uris: articleUris,
+      tab_data: {
+        [activeTab]: data
+      },
+      profile_snapshot: currentProfile,
+    };
+
+    try {
+      await saveDashboard(request);
+      setShowSaveDialog(false);
+      setDashboardName('');
+      setDashboardDescription('');
+
+      // Reload dashboard list
+      await loadSavedDashboardsForTopic(config.topic);
+
+      alert('Dashboard saved successfully!');
+    } catch (err) {
+      console.error('Failed to save dashboard:', err);
+      alert('Failed to save dashboard');
+    }
+  }
+
+  async function handleLoadDashboard(dashboardId: number) {
+    try {
+      setIsLoadingDashboard(true);
+      const dashboard = await loadDashboard(dashboardId);
+
+      // Restore configuration
+      updateConfig(dashboard.config);
+
+      // Map UI tab names to backend data keys
+      const tabDataMap: { [key: string]: string } = {
+        'consensus': 'consensus_data',
+        'strategic-recommendations': 'strategic_data',
+        'impact-timeline': 'timeline_data',
+        'market-signals': 'signals_data',
+        'future-horizons': 'horizons_data'
+      };
+
+      // Restore ALL tab data to localStorage
+      Object.entries(tabDataMap).forEach(([uiTab, backendKey]) => {
+        if (dashboard[backendKey]) {
+          const storageKey = `trendConvergence_data_${backendKey.replace('_data', '')}`;
+          localStorage.setItem(storageKey, JSON.stringify(dashboard[backendKey]));
+        }
+      });
+
+      // Get the data key for current active tab
+      const currentDataKey = tabDataMap[activeTab];
+
+      // Set the data for the current active tab
+      if (currentDataKey && dashboard[currentDataKey]) {
+        setData(dashboard[currentDataKey]);
+      }
+
+      // Set current dashboard ID
+      setCurrentDashboardId(dashboardId);
+
+      setIsLoadingDashboard(false);
+      alert(`Dashboard "${dashboard.name}" loaded successfully!`);
+    } catch (err) {
+      console.error('Failed to load dashboard:', err);
+      setIsLoadingDashboard(false);
+      alert('Failed to load dashboard');
+    }
+  }
+
+  function openDeleteConfirmation(dashboardId: number, dashboardName: string) {
+    setDashboardToDelete({ id: dashboardId, name: dashboardName });
+    setDeleteConfirmOpen(true);
+  }
+
+  async function confirmDeleteDashboard() {
+    if (!dashboardToDelete) return;
+
+    try {
+      await deleteDashboard(dashboardToDelete.id);
+      setCurrentDashboardId(null);
+      await loadSavedDashboardsForTopic(config.topic);
+      setDeleteConfirmOpen(false);
+      setDashboardToDelete(null);
+    } catch (err) {
+      console.error('Failed to delete dashboard:', err);
+      alert('Failed to delete dashboard');
+    }
+  }
+
+  async function handleTopicChange(newTopic: string) {
+    // Update config with new topic
+    updateConfig({ topic: newTopic });
+
+    // Clear current analysis data and dashboard selection
+    setData(null);
+    setCurrentDashboardId(null);
+
+    // Clear localStorage cache for all tabs
+    const tabKeys = ['consensus', 'strategic', 'timeline', 'signals', 'horizons'];
+    tabKeys.forEach(tab => {
+      localStorage.removeItem(`trendConvergence_data_${tab}`);
+    });
+
+    // Load saved dashboards for new topic and auto-load most recent
+    await loadSavedDashboardsForTopic(newTopic, true);
+  }
 
   const handleGenerate = async () => {
     await generateAnalysis();
@@ -374,13 +559,16 @@ function App() {
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top Header */}
         <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
-          {/* Breadcrumb */}
-          <div className="flex items-center gap-2 text-sm text-gray-700">
-            <span>Explore</span>
-            <span>/</span>
-            <span className="font-medium text-gray-950">Strategic Recommendations</span>
-            <span>•</span>
-            <span>Current indicators and potential disruption scenarios</span>
+          {/* Breadcrumb and Dashboard Selector */}
+          <div className="flex items-center gap-4 text-sm text-gray-700">
+            <div className="flex items-center gap-2">
+              <span>Explore</span>
+              <span>/</span>
+              <span className="font-medium text-gray-950">Strategic Recommendations</span>
+              <span>•</span>
+              <span>Current indicators and potential disruption scenarios</span>
+            </div>
+
           </div>
 
           {/* Right Icons */}
@@ -591,13 +779,96 @@ function App() {
         <div className="bg-white px-6 py-4 border-b border-gray-200">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <Clock className="w-5 h-5 text-gray-500" />
-              <div>
-                <span className="text-sm text-gray-600">Topic:</span>
-                <span className="ml-2 font-medium text-gray-950">{config.topic || 'Cloud Repatriation'}</span>
-              </div>
+              {/* Topic Selector */}
+              <Select
+                value={config.topic}
+                onValueChange={handleTopicChange}
+              >
+                <SelectTrigger className="w-64 h-9 text-sm">
+                  <SelectValue placeholder="Select Topic" />
+                </SelectTrigger>
+                <SelectContent>
+                  {allTopics.map((topic) => (
+                    <SelectItem key={topic} value={topic}>
+                      {topic}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {/* Saved Dashboards Dropdown */}
+              <Select
+                value={currentDashboardId?.toString() || 'new'}
+                onValueChange={(value) => {
+                  if (value === 'new') {
+                    setCurrentDashboardId(null);
+                  } else {
+                    handleLoadDashboard(parseInt(value));
+                  }
+                }}
+              >
+                <SelectTrigger className="w-80 h-9 text-sm">
+                  <SelectValue placeholder="New Analysis">
+                    {currentDashboardId ? (
+                      savedDashboards.find(d => d.id === currentDashboardId)?.name || 'Loading...'
+                    ) : (
+                      'New Analysis'
+                    )}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent className="w-80">
+                  <SelectItem value="new">
+                    <div className="flex items-center gap-2">
+                      <Plus className="h-4 w-4" />
+                      <span>New Analysis</span>
+                    </div>
+                  </SelectItem>
+
+                  {savedDashboards.length > 0 && (
+                    <>
+                      <div className="border-t my-1" />
+                      <div className="px-2 py-1.5 text-xs font-semibold text-gray-500">
+                        Saved Dashboards
+                      </div>
+
+                      {savedDashboards.map((dashboard) => (
+                        <SelectItem key={dashboard.id} value={dashboard.id.toString()}>
+                          <div className="flex items-center justify-between w-full gap-3">
+                            <div className="flex flex-col flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="truncate">{dashboard.name}</span>
+                                {dashboard.auto_generated && (
+                                  <Zap className="h-3 w-3 text-blue-500 flex-shrink-0" title="Auto-generated by keyword alerts" />
+                                )}
+                              </div>
+                              {dashboard.articles_analyzed !== undefined && (
+                                <div className="text-xs text-gray-500 mt-0.5">
+                                  {dashboard.articles_analyzed} articles · {dashboard.model_used || 'unknown'}
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                openDeleteConfirmation(dashboard.id, dashboard.name);
+                              }}
+                              className="p-1 hover:bg-red-100 rounded text-gray-400 hover:text-red-600 transition-colors flex-shrink-0"
+                              title="Delete dashboard"
+                              aria-label={`Delete ${dashboard.name}`}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </>
+                  )}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex items-center gap-2">
+              <Clock className="w-5 h-5 text-gray-500" />
               <span className="text-sm text-gray-600">Last Updated:</span>
               <span className="text-sm font-medium">
                 {data?._cache_info?.last_updated || new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '.')}
@@ -676,6 +947,32 @@ function App() {
                 />
               </div>
             )}
+
+            {/* Save Dashboard Button */}
+            <button
+              onClick={() => setShowSaveDialog(true)}
+              disabled={!data}
+              className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Save className="w-4 h-4" />
+              Save
+            </button>
+
+            {/* Delete Dashboard Button - Only shown when a dashboard is loaded */}
+            {currentDashboardId && (
+              <button
+                onClick={() => {
+                  const dashboard = savedDashboards.find(d => d.id === currentDashboardId);
+                  if (dashboard) {
+                    openDeleteConfirmation(currentDashboardId, dashboard.name);
+                  }
+                }}
+                className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-red-500"
+                title="Delete Dashboard"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -685,7 +982,11 @@ function App() {
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
                 <Loader2 className="w-12 h-12 animate-spin text-pink-500 mx-auto mb-4" />
-                <p className="text-gray-700">Analyzing trends and generating recommendations...</p>
+                <p className="text-gray-700">
+                  {isLoadingDashboard
+                    ? 'Loading saved dashboard...'
+                    : 'Analyzing trends and generating recommendations...'}
+                </p>
               </div>
             </div>
           ) : !data ? (
@@ -1711,6 +2012,86 @@ function App() {
                 </div>
               )}
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Save Dashboard Dialog */}
+      <Dialog open={showSaveDialog} onOpenChange={setShowSaveDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save Dashboard</DialogTitle>
+            <DialogDescription>
+              Save the current analysis configuration and results for later access.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="dashboard-name">Dashboard Name</Label>
+              <Input
+                id="dashboard-name"
+                placeholder="e.g., Q1 2025 Analysis"
+                value={dashboardName}
+                onChange={(e) => setDashboardName(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="dashboard-description">Description (optional)</Label>
+              <Textarea
+                id="dashboard-description"
+                placeholder="Add notes about this analysis..."
+                value={dashboardDescription}
+                onChange={(e) => setDashboardDescription(e.target.value)}
+                rows={3}
+              />
+            </div>
+
+            <div className="text-sm text-gray-500">
+              <div>Topic: <strong>{config.topic}</strong></div>
+              <div>Articles: <strong>{data?.articles_analyzed || 0}</strong></div>
+              <div>Model: <strong>{config.model}</strong></div>
+              <div>Timeframe: <strong>{config.timeframe_days} days</strong></div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowSaveDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveDashboard}>
+              Save Dashboard
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Dashboard?</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete <strong>"{dashboardToDelete?.name}"</strong>?
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-row justify-end gap-3 pt-4">
+            <button
+              type="button"
+              onClick={() => setDeleteConfirmOpen(false)}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={confirmDeleteDashboard}
+              className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700"
+            >
+              Delete
+            </button>
           </div>
         </DialogContent>
       </Dialog>

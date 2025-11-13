@@ -26,8 +26,7 @@ class DeleteTopicRequest(BaseModel):
 @router.get("/topics")
 async def get_topics_unified(
     with_articles: bool = False,
-    include_config: bool = True,
-    session=Depends(verify_session)
+    include_config: bool = True
 ) -> List[Dict[str, Any]]:
     """
     Unified topic endpoint that combines config.json and database information.

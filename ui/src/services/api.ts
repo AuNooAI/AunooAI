@@ -302,7 +302,10 @@ async function fetchWithAuth<T>(
 
     // Handle authentication errors
     if (response.status === 401 || response.status === 403) {
-      window.location.href = '/login';
+      // Don't redirect for saved-dashboards endpoints (they're optional features)
+      if (!url.includes('/api/saved-dashboards')) {
+        window.location.href = '/login';
+      }
       throw new Error('Authentication required');
     }
 
@@ -680,4 +683,132 @@ export async function getFutureHorizonsRaw(analysisId: string): Promise<any> {
 export async function getConsensusAnalysisRaw(analysisId: string): Promise<any> {
   const url = `${API_BASE_URL}/api/trend-convergence/consensus/${analysisId}/raw`;
   return fetchWithAuth(url);
+}
+
+// ==================== Saved Dashboards API ====================
+
+export interface SavedDashboardSummary {
+  id: number;
+  name: string;
+  description?: string;
+  created_at: string;
+  updated_at: string;
+  last_accessed_at: string;
+  articles_analyzed?: number;
+  model_used?: string;
+}
+
+export interface SavedDashboardFull extends SavedDashboardSummary {
+  topic: string;
+  config: AnalysisConfig;
+  article_uris: string[];
+  consensus_data?: TrendConvergenceData;
+  strategic_data?: TrendConvergenceData;
+  timeline_data?: TrendConvergenceData;
+  signals_data?: any;
+  horizons_data?: TrendConvergenceData;
+  profile_snapshot?: OrganizationalProfile;
+}
+
+export interface SaveDashboardRequest {
+  topic: string;
+  name: string;
+  description?: string;
+  config: AnalysisConfig;
+  article_uris: string[];
+  tab_data: {
+    consensus?: TrendConvergenceData;
+    strategic?: TrendConvergenceData;
+    timeline?: TrendConvergenceData;
+    signals?: any;
+    horizons?: TrendConvergenceData;
+  };
+  profile_snapshot?: OrganizationalProfile;
+}
+
+/**
+ * Save current dashboard state with all tab data
+ */
+export async function saveDashboard(request: SaveDashboardRequest): Promise<any> {
+  const url = `${API_BASE_URL}/api/saved-dashboards/save`;
+  return fetchWithAuth(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+}
+
+/**
+ * List all saved dashboards for a topic
+ */
+export async function listDashboardsForTopic(topic: string): Promise<SavedDashboardSummary[]> {
+  const url = `${API_BASE_URL}/api/saved-dashboards/topic/${encodeURIComponent(topic)}`;
+  return fetchWithAuth(url);
+}
+
+/**
+ * Load a specific saved dashboard with all data
+ */
+export async function loadDashboard(dashboardId: number): Promise<SavedDashboardFull> {
+  const url = `${API_BASE_URL}/api/saved-dashboards/${dashboardId}`;
+  return fetchWithAuth(url);
+}
+
+/**
+ * Update saved dashboard metadata or cached data
+ */
+export async function updateDashboard(
+  dashboardId: number,
+  updates: { name?: string; description?: string; tab_data?: any }
+): Promise<any> {
+  const url = `${API_BASE_URL}/api/saved-dashboards/${dashboardId}`;
+  return fetchWithAuth(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  });
+}
+
+/**
+ * Delete a saved dashboard
+ */
+export async function deleteDashboard(dashboardId: number): Promise<any> {
+  const url = `${API_BASE_URL}/api/saved-dashboards/${dashboardId}`;
+  return fetchWithAuth(url, {
+    method: 'DELETE',
+  });
+}
+
+/**
+ * Get recently accessed dashboards across all topics
+ */
+export async function getRecentDashboards(limit = 10): Promise<SavedDashboardSummary[]> {
+  const url = `${API_BASE_URL}/api/saved-dashboards/recent/list?limit=${limit}`;
+  return fetchWithAuth(url);
+}
+
+/**
+ * Search saved dashboards using full-text search
+ */
+export async function searchDashboards(query: string): Promise<SavedDashboardSummary[]> {
+  const url = `${API_BASE_URL}/api/saved-dashboards/search?q=${encodeURIComponent(query)}`;
+  return fetchWithAuth(url);
+}
+
+/**
+ * Get aggregate dashboard statistics for current user
+ */
+export async function getDashboardStats(): Promise<any> {
+  const url = `${API_BASE_URL}/api/saved-dashboards/stats`;
+  return fetchWithAuth(url);
+}
+
+/**
+ * Clone an existing dashboard with a new name
+ */
+export async function cloneDashboard(dashboardId: number, newName: string): Promise<any> {
+  const url = `${API_BASE_URL}/api/saved-dashboards/${dashboardId}/clone?new_name=${encodeURIComponent(newName)}`;
+  return fetchWithAuth(url, {
+    method: 'POST',
+  });
 }

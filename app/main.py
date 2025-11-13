@@ -66,6 +66,7 @@ from app.routes.saved_searches import router as saved_searches_router
 # Removed scenario routes - no longer needed
 # Removed topic_map routes - no longer needed
 from app.routes.auspex_routes import router as auspex_router
+from app.routes.saved_dashboard_routes import router as saved_dashboard_router
 # Removed newsletter routes - no longer needed
 from app.routes.dataset_routes import router as dataset_router
 from app.routes.keyword_monitor_api import router as keyword_monitor_api_router
@@ -127,6 +128,7 @@ app.include_router(user_management_router)  # User management API (Added 2025-10
 app.include_router(prompt_management_router)  # Prompt management API (Added 2025-01-06)
 app.include_router(market_signals_router)  # Market Signals & Strategic Risks (Added 2025-01-06)
 app.include_router(notification_router)  # Notification system (Added 2025-11-08)
+app.include_router(saved_dashboard_router)  # Saved Dashboards API (Added 2025-11-13)
 
 class ArticleData(BaseModel):
     title: str

@@ -1033,6 +1033,46 @@ class DatabaseQueryFacade:
 
         return self._execute_with_rollback(statement).mappings().fetchall()
 
+    def get_articles_for_topic(self, topic: str, limit: int = 100, days_back: int = 1):
+        """Get recent articles for a topic within a date range.
+
+        Args:
+            topic: Topic name
+            limit: Maximum number of articles to return
+            days_back: Number of days to look back from now
+
+        Returns:
+            List of article dictionaries with uri field
+        """
+        from datetime import datetime, timedelta
+
+        # Calculate cutoff date and format as ISO 8601 string (publication_date is TEXT)
+        cutoff_date = datetime.now() - timedelta(days=days_back)
+        cutoff_date_str = cutoff_date.strftime('%Y-%m-%dT%H:%M:%S')
+
+        statement = select(
+            articles.c.uri,
+            articles.c.title,
+            articles.c.summary,
+            articles.c.future_signal,
+            articles.c.sentiment,
+            articles.c.time_to_impact,
+            articles.c.driver_type,
+            articles.c.category,
+            articles.c.publication_date,
+            articles.c.news_source
+        ).where(
+            and_(
+                articles.c.topic == topic,
+                articles.c.analyzed == True,
+                articles.c.publication_date >= cutoff_date_str
+            )
+        ).order_by(
+            desc(articles.c.publication_date)
+        ).limit(limit)
+
+        return self._execute_with_rollback(statement).mappings().fetchall()
+
     def get_topic_filtered_future_signals_with_counts_for_market_signal_analysis(self, topic_name):
         # We need actual counts, not just the config list
         # Use ALL articles (including historical) as inputs for foresight analysis
@@ -7199,3 +7239,420 @@ class DatabaseQueryFacade:
         except Exception as e:
             self.logger.error(f"Error retrieving future horizon articles: {e}")
             return []
+
+    # ==================== Saved Dashboards Methods ====================
+
+    def create_saved_dashboard(
+        self,
+        topic: str,
+        username: str,
+        name: str,
+        config: dict,
+        article_uris: list,
+        tab_data: dict,
+        profile_snapshot: dict = None,
+        description: str = None,
+        articles_analyzed: int = None,
+        model_used: str = None,
+        auto_generated: bool = False
+    ) -> int:
+        """Create a new saved dashboard with PostgreSQL-native types.
+
+        Args:
+            topic: Topic name
+            username: Username
+            name: Dashboard name
+            config: Configuration dict (stored as JSONB)
+            article_uris: List of article URIs (stored as TEXT[])
+            tab_data: Dict with keys: consensus, strategic, timeline, signals, horizons
+            profile_snapshot: Organizational profile snapshot (stored as JSONB)
+            description: Optional description
+            articles_analyzed: Number of articles analyzed
+            model_used: AI model used
+
+        Returns:
+            Dashboard ID
+        """
+        try:
+            from app.database_models import t_saved_dashboards
+            from sqlalchemy import insert
+
+            statement = insert(t_saved_dashboards).values(
+                topic=topic,
+                username=username,
+                name=name,
+                description=description,
+                config=config,
+                article_uris=article_uris,
+                consensus_data=tab_data.get('consensus'),
+                strategic_data=tab_data.get('strategic'),
+                timeline_data=tab_data.get('timeline'),
+                signals_data=tab_data.get('signals'),
+                horizons_data=tab_data.get('horizons'),
+                profile_snapshot=profile_snapshot,
+                articles_analyzed=articles_analyzed,
+                model_used=model_used,
+                auto_generated=auto_generated
+            ).returning(t_saved_dashboards.c.id)
+
+            result = self._execute_with_rollback(statement)
+            dashboard_id = result.scalar()
+            self.logger.info(f"Created saved dashboard '{name}' (ID: {dashboard_id}) for user '{username}'")
+            return dashboard_id
+        except Exception as e:
+            self.logger.error(f"Error creating saved dashboard: {e}")
+            raise
+
+    def upsert_auto_generated_dashboard(
+        self,
+        topic: str,
+        username: str,
+        config: dict,
+        article_uris: list,
+        tab_data: dict,
+        profile_snapshot: dict = None,
+        articles_analyzed: int = None,
+        model_used: str = None
+    ) -> int:
+        """Create or update auto-generated dashboard for a topic.
+
+        Updates existing auto-generated dashboard if found, otherwise creates new one.
+        Auto-generated dashboards have fixed naming: "Auto-Generated: {topic}"
+
+        Args:
+            topic: Topic name
+            username: Username (typically admin)
+            config: Configuration dict
+            article_uris: List of article URIs
+            tab_data: Dict with keys: consensus, strategic, timeline, signals, horizons
+            profile_snapshot: Organizational profile snapshot
+            articles_analyzed: Number of articles analyzed
+            model_used: AI model used
+
+        Returns:
+            Dashboard ID
+        """
+        try:
+            from app.database_models import t_saved_dashboards
+            from sqlalchemy import select, update, text
+
+            dashboard_name = f"Auto-Generated: {topic}"
+
+            # Check if auto-generated dashboard already exists
+            stmt = select(t_saved_dashboards.c.id).where(
+                t_saved_dashboards.c.topic == topic,
+                t_saved_dashboards.c.username == username,
+                t_saved_dashboards.c.auto_generated == True
+            )
+
+            result = self._execute_with_rollback(stmt).fetchone()
+
+            if result:
+                # Update existing dashboard
+                dashboard_id = result[0]
+                update_stmt = update(t_saved_dashboards).where(
+                    t_saved_dashboards.c.id == dashboard_id
+                ).values(
+                    config=config,
+                    article_uris=article_uris,
+                    consensus_data=tab_data.get('consensus'),
+                    strategic_data=tab_data.get('strategic'),
+                    timeline_data=tab_data.get('timeline'),
+                    signals_data=tab_data.get('signals'),
+                    horizons_data=tab_data.get('horizons'),
+                    profile_snapshot=profile_snapshot,
+                    articles_analyzed=articles_analyzed,
+                    model_used=model_used,
+                    updated_at=text('NOW()')
+                )
+                self._execute_with_rollback(update_stmt)
+                self.logger.info(f"Updated auto-generated dashboard '{dashboard_name}' (ID: {dashboard_id})")
+                return dashboard_id
+            else:
+                # Create new auto-generated dashboard
+                return self.create_saved_dashboard(
+                    topic=topic,
+                    username=username,
+                    name=dashboard_name,
+                    config=config,
+                    article_uris=article_uris,
+                    tab_data=tab_data,
+                    profile_snapshot=profile_snapshot,
+                    description=f"Automatically generated by keyword alert auto-collect",
+                    articles_analyzed=articles_analyzed,
+                    model_used=model_used,
+                    auto_generated=True
+                )
+        except Exception as e:
+            self.logger.error(f"Error upserting auto-generated dashboard: {e}")
+            raise
+
+    def get_admin_user(self) -> Optional[dict]:
+        """Get first admin user from database.
+
+        Returns:
+            Dict with user info (username, role, etc.) or None if no admin found
+        """
+        try:
+            from app.database_models import t_users
+            from sqlalchemy import select
+
+            stmt = select(t_users).where(
+                t_users.c.role == 'admin'
+            ).limit(1)
+
+            result = self._execute_with_rollback(stmt).fetchone()
+            if result:
+                return dict(result._mapping) if hasattr(result, '_mapping') else dict(result)
+            return None
+        except Exception as e:
+            self.logger.error(f"Error getting admin user: {e}")
+            return None
+
+    def get_saved_dashboards_for_topic(
+        self,
+        topic: str,
+        username: str
+    ) -> list:
+        """Get all saved dashboards for a topic (user-scoped).
+
+        Returns list of dashboard summaries with metadata.
+        """
+        try:
+            from app.database_models import t_saved_dashboards
+            from sqlalchemy import select
+
+            statement = select(
+                t_saved_dashboards.c.id,
+                t_saved_dashboards.c.name,
+                t_saved_dashboards.c.description,
+                t_saved_dashboards.c.created_at,
+                t_saved_dashboards.c.updated_at,
+                t_saved_dashboards.c.last_accessed_at,
+                t_saved_dashboards.c.articles_analyzed,
+                t_saved_dashboards.c.model_used,
+                t_saved_dashboards.c.auto_generated
+            ).where(
+                (t_saved_dashboards.c.topic == topic) &
+                (t_saved_dashboards.c.username == username)
+            ).order_by(t_saved_dashboards.c.last_accessed_at.desc())
+
+            results = self._execute_with_rollback(statement).fetchall()
+            dashboards = [dict(row._mapping) for row in results]
+            return dashboards
+        except Exception as e:
+            self.logger.error(f"Error retrieving saved dashboards for topic '{topic}': {e}")
+            return []
+
+    def get_saved_dashboard_by_id(
+        self,
+        dashboard_id: int,
+        username: str
+    ) -> dict:
+        """Load a specific saved dashboard with all JSONB data."""
+        try:
+            from app.database_models import t_saved_dashboards
+            from sqlalchemy import select
+
+            statement = select(t_saved_dashboards).where(
+                (t_saved_dashboards.c.id == dashboard_id) &
+                (t_saved_dashboards.c.username == username)
+            )
+
+            result = self._execute_with_rollback(statement).fetchone()
+            if result:
+                return dict(result._mapping)
+            return None
+        except Exception as e:
+            self.logger.error(f"Error retrieving saved dashboard {dashboard_id}: {e}")
+            return None
+
+    def update_saved_dashboard(
+        self,
+        dashboard_id: int,
+        name: str = None,
+        description: str = None,
+        tab_data: dict = None
+    ) -> bool:
+        """Update saved dashboard metadata or cached data.
+        Note: updated_at is automatically updated by PostgreSQL trigger.
+        """
+        try:
+            from app.database_models import t_saved_dashboards
+            from sqlalchemy import update
+
+            update_values = {}
+            if name is not None:
+                update_values['name'] = name
+            if description is not None:
+                update_values['description'] = description
+            if tab_data:
+                if 'consensus' in tab_data:
+                    update_values['consensus_data'] = tab_data['consensus']
+                if 'strategic' in tab_data:
+                    update_values['strategic_data'] = tab_data['strategic']
+                if 'timeline' in tab_data:
+                    update_values['timeline_data'] = tab_data['timeline']
+                if 'signals' in tab_data:
+                    update_values['signals_data'] = tab_data['signals']
+                if 'horizons' in tab_data:
+                    update_values['horizons_data'] = tab_data['horizons']
+
+            if not update_values:
+                return True  # Nothing to update
+
+            statement = update(t_saved_dashboards).where(
+                t_saved_dashboards.c.id == dashboard_id
+            ).values(**update_values)
+
+            self._execute_with_rollback(statement)
+            self.logger.info(f"Updated saved dashboard {dashboard_id}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error updating saved dashboard {dashboard_id}: {e}")
+            return False
+
+    def delete_saved_dashboard(
+        self,
+        dashboard_id: int,
+        username: str
+    ) -> bool:
+        """Delete a saved dashboard (user-scoped)."""
+        try:
+            from app.database_models import t_saved_dashboards
+            from sqlalchemy import delete
+
+            statement = delete(t_saved_dashboards).where(
+                (t_saved_dashboards.c.id == dashboard_id) &
+                (t_saved_dashboards.c.username == username)
+            )
+
+            result = self._execute_with_rollback(statement)
+            deleted = result.rowcount > 0
+            if deleted:
+                self.logger.info(f"Deleted saved dashboard {dashboard_id} for user '{username}'")
+            return deleted
+        except Exception as e:
+            self.logger.error(f"Error deleting saved dashboard {dashboard_id}: {e}")
+            return False
+
+    def update_dashboard_access_time(
+        self,
+        dashboard_id: int
+    ) -> bool:
+        """Update last_accessed_at timestamp."""
+        try:
+            from app.database_models import t_saved_dashboards
+            from sqlalchemy import update, text
+
+            statement = update(t_saved_dashboards).where(
+                t_saved_dashboards.c.id == dashboard_id
+            ).values(last_accessed_at=text('NOW()'))
+
+            self._execute_with_rollback(statement)
+            return True
+        except Exception as e:
+            self.logger.error(f"Error updating dashboard access time {dashboard_id}: {e}")
+            return False
+
+    def get_recent_saved_dashboards(
+        self,
+        username: str,
+        limit: int = 10
+    ) -> list:
+        """Get recently accessed dashboards across all topics."""
+        try:
+            from app.database_models import t_saved_dashboards
+            from sqlalchemy import select
+
+            statement = select(
+                t_saved_dashboards.c.id,
+                t_saved_dashboards.c.topic,
+                t_saved_dashboards.c.name,
+                t_saved_dashboards.c.description,
+                t_saved_dashboards.c.created_at,
+                t_saved_dashboards.c.updated_at,
+                t_saved_dashboards.c.last_accessed_at,
+                t_saved_dashboards.c.articles_analyzed,
+                t_saved_dashboards.c.model_used
+            ).where(
+                t_saved_dashboards.c.username == username
+            ).order_by(
+                t_saved_dashboards.c.last_accessed_at.desc()
+            ).limit(limit)
+
+            results = self._execute_with_rollback(statement).fetchall()
+            dashboards = [dict(row._mapping) for row in results]
+            return dashboards
+        except Exception as e:
+            self.logger.error(f"Error retrieving recent saved dashboards: {e}")
+            return []
+
+    def search_saved_dashboards(
+        self,
+        username: str,
+        search_query: str
+    ) -> list:
+        """Search saved dashboards using PostgreSQL full-text search.
+        Leverages the GIN full-text index on name and description.
+        """
+        try:
+            from app.database_models import t_saved_dashboards
+            from sqlalchemy import select, func, text
+
+            statement = select(
+                t_saved_dashboards.c.id,
+                t_saved_dashboards.c.topic,
+                t_saved_dashboards.c.name,
+                t_saved_dashboards.c.description,
+                t_saved_dashboards.c.created_at,
+                t_saved_dashboards.c.updated_at,
+                t_saved_dashboards.c.last_accessed_at,
+                t_saved_dashboards.c.articles_analyzed,
+                t_saved_dashboards.c.model_used
+            ).where(
+                (t_saved_dashboards.c.username == username) &
+                (text("to_tsvector('english', coalesce(name, '') || ' ' || coalesce(description, ''))").op('@@')(
+                    func.plainto_tsquery('english', search_query)
+                ))
+            ).order_by(t_saved_dashboards.c.last_accessed_at.desc())
+
+            results = self._execute_with_rollback(statement).fetchall()
+            dashboards = [dict(row._mapping) for row in results]
+            return dashboards
+        except Exception as e:
+            self.logger.error(f"Error searching saved dashboards: {e}")
+            return []
+
+    def get_dashboard_stats(self, username: str) -> dict:
+        """Get aggregate statistics using PostgreSQL window functions.
+        Returns: {total_dashboards, unique_topics, total_articles, last_activity}
+        """
+        try:
+            from app.database_models import t_saved_dashboards
+            from sqlalchemy import select, func
+
+            statement = select(
+                func.count(t_saved_dashboards.c.id).label('total_dashboards'),
+                func.count(func.distinct(t_saved_dashboards.c.topic)).label('unique_topics'),
+                func.sum(t_saved_dashboards.c.articles_analyzed).label('total_articles'),
+                func.max(t_saved_dashboards.c.last_accessed_at).label('last_activity')
+            ).where(t_saved_dashboards.c.username == username)
+
+            result = self._execute_with_rollback(statement).fetchone()
+            if result:
+                return dict(result._mapping)
+            return {
+                'total_dashboards': 0,
+                'unique_topics': 0,
+                'total_articles': 0,
+                'last_activity': None
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting dashboard stats: {e}")
+            return {
+                'total_dashboards': 0,
+                'unique_topics': 0,
+                'total_articles': 0,
+                'last_activity': None
+            }
