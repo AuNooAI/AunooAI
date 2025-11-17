@@ -6,7 +6,8 @@
     "Threat Modeling": "\"Threat Modeling\"",
     "Embedded Systems": "\"Embedded Systems\"",
     "Competitor Analysis": "Disinformation",
-    "AI and Machine Learning": "\"AI and Machine Learning\""
+    "AI and Machine Learning": "\"AI and Machine Learning\"",
+    "Climate Change": "\"Climate Change\""
   },
   "paper_filters": {
     "Cloud Computing": "Distributed Systems",
@@ -15,6 +16,7 @@
     "Threat Modeling": "\"Threat Modeling\"",
     "Embedded Systems": "\"Embedded Systems\"",
     "Competitor Analysis": "Disinformation",
-    "AI and Machine Learning": "\"AI and Machine Learning\""
+    "AI and Machine Learning": "\"AI and Machine Learning\"",
+    "Climate Change": "\"Climate Change\""
   }
 }

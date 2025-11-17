@@ -93,8 +93,37 @@ class ModelBiasArenaService:
         except Exception as e:
             logger.error(f"Error sampling articles: {e}")
             return []
-    
-    def create_bias_evaluation_run(self, 
+
+    async def create_and_evaluate_run(self,
+                                      name: str,
+                                      description: str,
+                                      benchmark_model: str,
+                                      selected_models: List[str],
+                                      article_count: int = 25,
+                                      rounds: int = 1,
+                                      topic: Optional[str] = None,
+                                      username: Optional[str] = None):
+        """Create a new bias evaluation run and immediately start evaluation (runs in background)."""
+        try:
+            # Create the run first
+            run_id = self.create_bias_evaluation_run(
+                name=name,
+                description=description,
+                benchmark_model=benchmark_model,
+                selected_models=selected_models,
+                article_count=article_count,
+                rounds=rounds,
+                topic=topic
+            )
+
+            # Start evaluation immediately
+            await self.evaluate_model_ontology(run_id, username)
+
+        except Exception as e:
+            logger.error(f"Error in create_and_evaluate_run: {e}")
+            # Don't raise - this runs in background, just log the error
+
+    def create_bias_evaluation_run(self,
                                  name: str,
                                  description: str,
                                  benchmark_model: str,
@@ -116,12 +145,12 @@ class ModelBiasArenaService:
                 (DatabaseQueryFacade(self.db, logger)).add_articles_to_run((run_id, article["uri"], article["title"], article["summary"]))
 
             return run_id
-                
+
         except Exception as e:
             logger.error(f"Error creating bias evaluation run: {e}")
             raise
-    
-    async def evaluate_model_ontology(self, run_id: int) -> Dict[str, Any]:
+
+    async def evaluate_model_ontology(self, run_id: int, username: str = None) -> Dict[str, Any]:
         """Run ontological field evaluation for all models in a run using ArticleAnalyzer."""
         try:
             # Get run details
@@ -214,9 +243,12 @@ class ModelBiasArenaService:
                                     from urllib.parse import urlparse
                                     parsed_uri = urlparse(article["article_uri"])
                                     source = parsed_uri.netloc or "Unknown Source"
-                                
+
                                 # Use ArticleAnalyzer like in research.py
-                                parsed_analysis = article_analyzer.analyze_content(
+                                # Wrap in asyncio.to_thread to prevent blocking the event loop
+                                import asyncio
+                                parsed_analysis = await asyncio.to_thread(
+                                    article_analyzer.analyze_content,
                                     article_text=article["article_summary"],
                                     title=article["article_title"],
                                     source=source,
@@ -289,15 +321,15 @@ class ModelBiasArenaService:
                 all_results[f"round_{round_num}"] = round_results
                 logger.info(f"Completed Round {round_num} of {total_rounds}")
             
-            # Mark run as completed
-            self._update_run_status(run_id, "completed")
-            
+            # Mark run as completed and notify user
+            self._update_run_status(run_id, "completed", username)
+
             logger.info(f"All {total_rounds} rounds completed for run {run_id}")
             return all_results
-            
+
         except Exception as e:
             logger.error(f"Error running ontological evaluation: {e}")
-            self._update_run_status(run_id, "failed")
+            self._update_run_status(run_id, "failed", username)
             raise
     
     def _store_evaluation_result(self, 
@@ -347,10 +379,25 @@ class ModelBiasArenaService:
         except Exception as e:
             logger.error(f"Error storing ontological result: {e}")
     
-    def _update_run_status(self, run_id: int, status: str):
-        """Update run status."""
+    def _update_run_status(self, run_id: int, status: str, username: str = None):
+        """Update run status and create notification on completion."""
         try:
             (DatabaseQueryFacade(self.db, logger)).update_run_status((status, run_id))
+
+            # Create notification when evaluation completes
+            if status == "completed" and username:
+                try:
+                    facade = DatabaseQueryFacade(self.db, logger)
+                    facade.create_notification(
+                        username=username,
+                        type="evaluation_complete",
+                        title="Model Bias Evaluation Complete",
+                        message=f"Your bias evaluation (Run #{run_id}) has finished processing and results are ready to view.",
+                        link=f"/model-bias-arena?run_id={run_id}"
+                    )
+                    logger.info(f"Created completion notification for run {run_id}, user {username}")
+                except Exception as notif_error:
+                    logger.error(f"Error creating completion notification: {notif_error}")
         except Exception as e:
             logger.error(f"Error updating run status: {e}")
     

@@ -1,12 +1,13 @@
 from fastapi import APIRouter, Request, Depends, HTTPException, Body, Query
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
 from app.security.session import verify_session
 from app.database import Database, get_database_instance
 from app.database_query_facade import DatabaseQueryFacade
 import os
 import aiohttp
 import logging
-from typing import Dict
+from typing import Dict, Optional
 import json
 import yaml
 from dotenv import load_dotenv, set_key
@@ -15,6 +16,14 @@ from app.ai_models import ai_get_available_models  # Add this import at the top
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+# Templates instance will be set by the main app
+templates: Optional[Jinja2Templates] = None
+
+def set_templates(template_instance: Jinja2Templates):
+    """Set the templates instance for this router."""
+    global templates
+    templates = template_instance
 
 @router.post("/api/onboarding/validate-api-key")
 async def validate_api_key(request: Request, key_data: Dict = Body(...)):
@@ -472,58 +481,72 @@ async def onboarding_page(
     session=Depends(verify_session),
     redo: bool = Query(False)
 ):
-    """Show the onboarding wizard page."""
-    from app.main import templates  # Import here to avoid circular import
-    
+    """Display Bootstrap onboarding wizard (Community edition)."""
     # Check if user has completed onboarding
     db = Database()
     user = request.session.get("user")
     if not user:
         return RedirectResponse(url="/login")
-        
+
     user_data = db.get_user(user)
-    
+
     # Handle case where user_data is None (database schema issue)
     if user_data is None:
         # Redirect to login to recreate the user
         return RedirectResponse(url="/login?error=db_schema_updated")
-    
+
     # Allow access if redo=true or if onboarding not completed
     if user_data.get("completed_onboarding") and not redo:
         return RedirectResponse(url="/")
 
-    # Load example values from config.json
-    with open('app/config/config.json', 'r') as f:
-        config = json.load(f)
-    
-    # Extract unique values from all topics
-    example_categories = list(set(
-        cat for topic in config['topics'] 
-        for cat in topic.get('categories', [])
-    ))
-    example_signals = list(set(
-        signal for topic in config['topics'] 
-        for signal in topic.get('future_signals', [])
-    ))
-    example_sentiments = list(set(
-        sent for topic in config['topics'] 
-        for sent in topic.get('sentiment', [])
-    ))
-    example_time_to_impact = list(set(
-        time for topic in config['topics'] 
-        for time in topic.get('time_to_impact', [])
-    ))
-    example_driver_types = list(set(
-        driver for topic in config['topics'] 
-        for driver in topic.get('driver_types', [])
-    ))
-        
+    # Prepare example data for the wizard template
+    example_signals = [
+        "AI adoption accelerating",
+        "Regulatory pushback increasing",
+        "Market consolidation",
+        "Innovation stagnating",
+        "Democratization of technology"
+    ]
+
+    example_categories = [
+        "Product Launches",
+        "Market Trends",
+        "Regulatory Changes",
+        "Technology Breakthroughs",
+        "Competitive Analysis"
+    ]
+
+    example_sentiments = [
+        "Positive",
+        "Negative",
+        "Neutral",
+        "Critical",
+        "Optimistic",
+        "Skeptical"
+    ]
+
+    example_time_to_impact = [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+    ]
+
+    example_driver_types = [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+    ]
+
+    # Render Bootstrap wizard template
     return templates.TemplateResponse(
         "onboarding/wizard.html",
         {
             "request": request,
-            "example_categories": example_categories,
             "example_signals": example_signals,
+            "example_categories": example_categories,
             "example_sentiments": example_sentiments,
             "example_time_to_impact": example_time_to_impact,
             "example_driver_types": example_driver_types

@@ -1,0 +1,62 @@
+/* AI Disclosure Footer Styles - Compact Text Box */
+
+.ai-disclosure-footer {
+  margin-top: 32px;
+  padding: 24px 0;
+  border-top: 1px solid #e5e7eb;
+}
+
+.ai-disclosure-footer-box {
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 20px 24px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.ai-disclosure-footer-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0 0 12px 0;
+}
+
+.ai-disclosure-footer-text {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #374151;
+}
+
+.ai-disclosure-footer-text p {
+  margin: 0 0 8px 0;
+}
+
+.ai-disclosure-footer-text p:last-child {
+  margin-bottom: 0;
+}
+
+.ai-disclosure-footer-text strong {
+  color: #111827;
+  font-weight: 600;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .ai-disclosure-footer {
+    margin-top: 24px;
+    padding: 16px 0;
+  }
+
+  .ai-disclosure-footer-box {
+    padding: 16px 20px;
+  }
+
+  .ai-disclosure-footer-title {
+    font-size: 15px;
+  }
+
+  .ai-disclosure-footer-text {
+    font-size: 12px;
+  }
+}

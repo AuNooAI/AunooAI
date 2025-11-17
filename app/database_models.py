@@ -1,7 +1,102 @@
-from sqlalchemy import Boolean, CheckConstraint, Column, Enum, Float, ForeignKey, Index, Integer, MetaData, REAL, TIMESTAMP, Table, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, CheckConstraint, Column, DateTime, Enum, Float, ForeignKey, Index, Integer, JSON, MetaData, REAL, String, TIMESTAMP, Table, Text, UniqueConstraint, text
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 
 metadata = MetaData()
 
+
+t_consensus_analysis_runs = Table(
+    'consensus_analysis_runs', metadata,
+    Column('id', String(36), primary_key=True),
+    Column('user_id', Integer),
+    Column('topic', Text, nullable=False),
+    Column('timeframe', String(100)),
+    Column('selected_categories', JSON),
+    Column('raw_output', JSON, nullable=False),
+    Column('article_list', JSON),
+    Column('total_articles_analyzed', Integer),
+    Column('created_at', DateTime, server_default=text('CURRENT_TIMESTAMP'), nullable=False),
+    Column('analysis_duration_seconds', Float),
+    Index('idx_consensus_analysis_user_created', 'user_id', 'created_at')
+)
+
+t_market_signals_runs = Table(
+    'market_signals_runs', metadata,
+    Column('id', String(36), primary_key=True),
+    Column('user_id', Integer),
+    Column('topic', Text, nullable=False),
+    Column('model_used', String(100)),
+    Column('raw_output', JSON, nullable=False),
+    Column('total_articles_analyzed', Integer),
+    Column('created_at', DateTime, server_default=text('CURRENT_TIMESTAMP'), nullable=False),
+    Column('analysis_duration_seconds', Float),
+    Index('idx_market_signals_user_created', 'user_id', 'created_at')
+)
+
+t_impact_timeline_runs = Table(
+    'impact_timeline_runs', metadata,
+    Column('id', String(36), primary_key=True),
+    Column('user_id', Integer),
+    Column('topic', Text, nullable=False),
+    Column('model_used', String(100)),
+    Column('raw_output', JSON, nullable=False),
+    Column('total_articles_analyzed', Integer),
+    Column('created_at', DateTime, server_default=text('CURRENT_TIMESTAMP'), nullable=False),
+    Column('analysis_duration_seconds', Float),
+    Index('idx_impact_timeline_user_created', 'user_id', 'created_at')
+)
+
+t_strategic_recommendations_runs = Table(
+    'strategic_recommendations_runs', metadata,
+    Column('id', String(36), primary_key=True),
+    Column('user_id', Integer),
+    Column('topic', Text, nullable=False),
+    Column('model_used', String(100)),
+    Column('raw_output', JSON, nullable=False),
+    Column('total_articles_analyzed', Integer),
+    Column('created_at', DateTime, server_default=text('CURRENT_TIMESTAMP'), nullable=False),
+    Column('analysis_duration_seconds', Float),
+    Index('idx_strategic_recs_user_created', 'user_id', 'created_at')
+)
+
+t_future_horizons_runs = Table(
+    'future_horizons_runs', metadata,
+    Column('id', String(36), primary_key=True),
+    Column('user_id', Integer),
+    Column('topic', Text, nullable=False),
+    Column('model_used', String(100)),
+    Column('raw_output', JSON, nullable=False),
+    Column('total_articles_analyzed', Integer),
+    Column('created_at', DateTime, server_default=text('CURRENT_TIMESTAMP'), nullable=False),
+    Column('analysis_duration_seconds', Float),
+    Index('idx_future_horizons_user_created', 'user_id', 'created_at')
+)
+
+t_saved_dashboards = Table(
+    'saved_dashboards', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('topic', String(255), nullable=False),
+    Column('username', Text, ForeignKey('users.username', ondelete='SET NULL')),
+    Column('name', String(255), nullable=False),
+    Column('description', Text),
+    Column('config', JSONB, nullable=False),
+    Column('article_uris', ARRAY(Text), nullable=False),
+    Column('consensus_data', JSONB),
+    Column('strategic_data', JSONB),
+    Column('timeline_data', JSONB),
+    Column('signals_data', JSONB),
+    Column('horizons_data', JSONB),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('last_accessed_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('profile_snapshot', JSONB),
+    Column('articles_analyzed', Integer),
+    Column('model_used', String(100)),
+    Column('auto_generated', Boolean, server_default=text('false'), nullable=False),
+    UniqueConstraint('topic', 'username', 'name', name='uq_saved_dashboards_topic_user_name'),
+    Index('idx_saved_dashboards_topic', 'topic'),
+    Index('idx_saved_dashboards_user', 'username'),
+    Index('idx_saved_dashboards_created', 'created_at')
+)
 
 t_analysis_versions = Table(
     'analysis_versions', metadata,
@@ -25,6 +120,51 @@ t_analysis_versions_v2 = Table(
     Index('idx_accessed_at', 'accessed_at'),
     Index('idx_cache_key_created', 'cache_key', 'created_at'),
     Index('idx_topic_created', 'topic', 'created_at')
+)
+
+t_analysis_run_logs = Table(
+    'analysis_run_logs', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('run_id', Text, nullable=False, unique=True),
+    Column('analysis_type', Text, nullable=False),
+    Column('topic', Text, nullable=False),
+    Column('model_used', Text),
+    Column('sample_size', Integer),
+    Column('articles_analyzed', Integer),
+    Column('timeframe_days', Integer),
+    Column('consistency_mode', Text),
+    Column('profile_id', Integer),
+    Column('persona', Text),
+    Column('customer_type', Text),
+    Column('cache_key', Text),
+    Column('cache_hit', Boolean, default=False),
+    Column('started_at', TIMESTAMP, default=text('CURRENT_TIMESTAMP')),
+    Column('completed_at', TIMESTAMP),
+    Column('status', Text, default=text("'running'")),
+    Column('error_message', Text),
+    Column('metadata', Text),
+    Index('idx_analysis_run_logs_type', 'analysis_type'),
+    Index('idx_analysis_run_logs_topic', 'topic'),
+    Index('idx_analysis_run_logs_started', 'started_at'),
+    Index('idx_analysis_run_logs_run_id', 'run_id')
+)
+
+t_analysis_run_articles = Table(
+    'analysis_run_articles', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('run_id', Text, nullable=False),
+    Column('article_uri', Text, nullable=False),
+    Column('article_title', Text),
+    Column('article_source', Text),
+    Column('published_date', TIMESTAMP),
+    Column('sentiment', Text),
+    Column('relevance_score', REAL),
+    Column('included_in_prompt', Boolean, default=True),
+    Column('article_position', Integer),
+    Column('created_at', TIMESTAMP, default=text('CURRENT_TIMESTAMP')),
+    Index('idx_analysis_run_articles_run_id', 'run_id'),
+    Index('idx_analysis_run_articles_uri', 'article_uri'),
+    Index('idx_analysis_run_articles_created', 'created_at')
 )
 
 t_article_analysis_cache = Table(
@@ -158,7 +298,8 @@ t_keyword_monitor_settings = Table(
     Column('auto_save_approved_only', Boolean, nullable=False, default=text('FALSE')),
     Column('default_llm_model', Text, nullable=False, default=text('"gpt-4o-mini"')),
     Column('llm_temperature', REAL, nullable=False, default=text('0.1')),
-    Column('llm_max_tokens', Integer, nullable=False, default=text('1000'))
+    Column('llm_max_tokens', Integer, nullable=False, default=text('1000')),
+    Column('auto_regenerate_reports', Boolean, nullable=True, default=False)
 )
 
 t_keyword_monitor_status = Table(
@@ -570,4 +711,88 @@ t_keyword_alerts = Table(
     Column('detected_at', Text, default=text('CURRENT_TIMESTAMP')),
     Column('is_read', Integer, default=text('0')),
     UniqueConstraint('keyword_id', 'article_uri')
+)
+
+t_user_preferences = Table(
+    'user_preferences', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('username', ForeignKey('users.username', ondelete='CASCADE'), nullable=False),
+    Column('preference_key', String(255), nullable=False),
+    Column('config_value', JSON),
+    Column('created_at', DateTime, server_default=text('NOW()'), nullable=False),
+    Column('updated_at', DateTime, server_default=text('NOW()'), nullable=False),
+    UniqueConstraint('username', 'preference_key', name='uq_user_preference_key'),
+    Index('ix_user_preferences_username', 'username')
+)
+
+t_notifications = Table(
+    'notifications', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('username', Text, ForeignKey('users.username', ondelete='CASCADE'), nullable=True),
+    Column('type', String(50), nullable=False),
+    Column('title', String(255), nullable=False),
+    Column('message', Text, nullable=False),
+    Column('link', String(500), nullable=True),
+    Column('read', Boolean, nullable=False, server_default='false'),
+    Column('created_at', DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP')),
+    Index('ix_notifications_username', 'username'),
+    Index('ix_notifications_read', 'read'),
+    Index('ix_notifications_created_at', 'created_at'),
+    Index('ix_notifications_username_read', 'username', 'read')
+)
+
+# Trend Convergence Dashboard Reference Article Tables
+t_consensus_reference_articles = Table(
+    'consensus_reference_articles', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('consensus_id', String(36), nullable=False),
+    Column('article_uri', String, ForeignKey('articles.uri')),
+    Column('topic', String, nullable=False),
+    Column('retrieved_at', DateTime, server_default=text('CURRENT_TIMESTAMP')),
+    Index('ix_consensus_ref_articles_consensus_id', 'consensus_id'),
+    Index('ix_consensus_ref_articles_topic', 'topic')
+)
+
+t_strategic_recommendation_articles = Table(
+    'strategic_recommendation_articles', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('recommendation_id', String(36), nullable=False),
+    Column('article_uri', String, ForeignKey('articles.uri')),
+    Column('topic', String, nullable=False),
+    Column('retrieved_at', DateTime, server_default=text('CURRENT_TIMESTAMP')),
+    Index('ix_strategic_rec_articles_recommendation_id', 'recommendation_id'),
+    Index('ix_strategic_rec_articles_topic', 'topic')
+)
+
+t_market_signal_articles = Table(
+    'market_signal_articles', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('signal_id', String(36), nullable=False),
+    Column('article_uri', String, ForeignKey('articles.uri')),
+    Column('topic', String, nullable=False),
+    Column('retrieved_at', DateTime, server_default=text('CURRENT_TIMESTAMP')),
+    Index('ix_market_signal_articles_signal_id', 'signal_id'),
+    Index('ix_market_signal_articles_topic', 'topic')
+)
+
+t_impact_timeline_articles = Table(
+    'impact_timeline_articles', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('timeline_id', String(36), nullable=False),
+    Column('article_uri', String, ForeignKey('articles.uri')),
+    Column('topic', String, nullable=False),
+    Column('retrieved_at', DateTime, server_default=text('CURRENT_TIMESTAMP')),
+    Index('ix_impact_timeline_articles_timeline_id', 'timeline_id'),
+    Index('ix_impact_timeline_articles_topic', 'topic')
+)
+
+t_future_horizon_articles = Table(
+    'future_horizon_articles', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('horizon_id', String(36), nullable=False),
+    Column('article_uri', String, ForeignKey('articles.uri')),
+    Column('topic', String, nullable=False),
+    Column('retrieved_at', DateTime, server_default=text('CURRENT_TIMESTAMP')),
+    Index('ix_future_horizon_articles_horizon_id', 'horizon_id'),
+    Index('ix_future_horizon_articles_topic', 'topic')
 )

@@ -2,13 +2,14 @@
 API routes for auto-ingest functionality.
 Handles configuration, status, and manual triggering of auto-ingest pipeline.
 """
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException, BackgroundTasks, Depends
 from fastapi.responses import JSONResponse
 from typing import Dict, Optional
 import logging
 
 from app.services.auto_ingest_service import get_auto_ingest_service
 from app.ai_models import get_available_models
+from app.security.session import verify_session
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auto-ingest", tags=["auto-ingest"])
@@ -85,12 +86,15 @@ async def get_auto_ingest_status():
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/run")
-async def run_auto_ingest(background_tasks: BackgroundTasks):
+async def run_auto_ingest(background_tasks: BackgroundTasks, session=Depends(verify_session)):
     """Manually trigger auto-ingest pipeline with progress tracking"""
     try:
         from app.services.background_task_manager import get_task_manager, run_auto_ingest_task
 
         service = get_auto_ingest_service()
+
+        # Get username from session for notifications
+        username = session.get("user", {}).get("username")
 
         if not service.config.enabled:
             raise HTTPException(
@@ -113,11 +117,16 @@ async def run_auto_ingest(background_tasks: BackgroundTasks):
         task_id = task_manager.create_task(
             name="Auto-Ingest Pipeline",
             total_items=total_articles,
-            metadata={"type": "auto_ingest", "articles_count": total_articles}
+            metadata={"type": "auto_ingest", "articles_count": total_articles, "username": username}
         )
 
-        # Run auto-ingest as background task
-        background_tasks.add_task(task_manager.run_task, task_id, run_auto_ingest_task)
+        # Run auto-ingest as background task with username for notifications
+        background_tasks.add_task(
+            task_manager.run_task,
+            task_id,
+            run_auto_ingest_task,
+            username=username
+        )
 
         return JSONResponse({
             "success": True,

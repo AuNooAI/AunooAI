@@ -211,12 +211,16 @@ async def get_six_articles_report(
     starred_articles: Optional[str] = Query(None, description="Comma-separated URIs of starred articles"),
     persona: Optional[str] = Query("CEO", description="Target persona: CEO, CMO, CTO, CISO, or Custom"),
     article_count: int = Query(6, ge=1, le=8, description="Number of articles to select (1-8)"),
+    session=Depends(verify_session),
     db: Database = Depends(get_database_instance),
     force_regenerate: bool = Query(False, description="Bypass cache and regenerate fresh output")
 ):
     """Generate only the six articles detailed report"""
 
     try:
+        # Get user_id from session for loading custom config
+        user_id = session.get("user_id")
+
         # Parse date if provided
         target_date = None
         if date:
@@ -231,7 +235,7 @@ async def get_six_articles_report(
             starred_uris = [uri.strip() for uri in starred_articles.split(',') if uri.strip()]
             logger.info(f"Received {len(starred_uris)} starred articles for six articles generation")
 
-        # Create request
+        # Create request with user_id
         request = NewsFeedRequest(
             date=target_date,
             date_range=date_range,
@@ -241,7 +245,8 @@ async def get_six_articles_report(
             profile_id=profile_id,
             persona=persona,
             article_count=article_count,
-            starred_articles=starred_uris
+            starred_articles=starred_uris,
+            user_id=user_id
         )
         
         # Generate only six articles report
@@ -289,12 +294,13 @@ page_router = APIRouter(tags=["news-feed-pages"])
 
 @page_router.get("/news-feed", response_class=HTMLResponse)
 async def news_feed_page(request: Request, session=Depends(verify_session)):
-    """Render the main news feed page (Techmeme-style)"""
-    return templates.TemplateResponse("news_feed.html", {
+    """Render the main news feed page (modernized v2)"""
+    return templates.TemplateResponse("news_feed_new.html", {
         "request": request,
-        "page_title": "Daily News Feed",
+        "page_title": "News Narrator",
         "show_share_button": True,
-        "session": session
+        "session": session,
+        "current_page": "investigate"
     })
 
 
@@ -305,7 +311,8 @@ async def news_feed_v2_page(request: Request, session=Depends(verify_session)):
         "request": request,
         "page_title": "News Narrator v2 - Proof of Concept",
         "show_share_button": True,
-        "session": session
+        "session": session,
+        "current_page": "investigate"
     })
 
 
@@ -439,6 +446,134 @@ async def get_six_articles_markdown(
     except Exception as e:
         logger.error(f"Error generating markdown six articles: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/six-articles/config")
+async def get_six_articles_config(
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """
+    Get Six Articles configuration (system prompt, personas, format spec)
+    Returns user-specific config or defaults if none exists
+    """
+    try:
+        username = session.get("user")
+
+        # Try to load user-specific config from database
+        config = db.facade.get_six_articles_config(username)
+
+        if config:
+            return config
+
+        # Return defaults if no custom config exists
+        default_config = {
+            "systemPrompt": None,  # Will use hardcoded default in service
+            "personas": {
+                "CEO": {
+                    "priorities": "Regulation, enterprise adoption, scaling limits, market dynamics, security/safety, workforce impact, strategic partnerships",
+                    "riskAppetite": "moderate",
+                    "focus": "business strategy, market positioning, competitive advantage, and regulatory compliance"
+                },
+                "CMO": {
+                    "priorities": "Market trends, customer behavior, brand impact, advertising innovation, customer experience, competitive positioning",
+                    "riskAppetite": "high",
+                    "focus": "marketing strategies, customer engagement, brand differentiation, and market opportunities"
+                },
+                "CTO": {
+                    "priorities": "Technical breakthroughs, infrastructure, scalability, development tools, architecture patterns, security vulnerabilities",
+                    "riskAppetite": "high",
+                    "focus": "technical architecture, development practices, technology stack decisions, and engineering excellence"
+                },
+                "CISO": {
+                    "priorities": "Security threats, vulnerabilities, compliance requirements, risk management, data protection, incident response",
+                    "riskAppetite": "low",
+                    "focus": "security risks, compliance requirements, threat mitigation, and data protection"
+                }
+            },
+            "formatSpec": None  # Will use hardcoded default in service
+        }
+
+        return default_config
+
+    except Exception as e:
+        logger.error(f"Error retrieving Six Articles config: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve configuration")
+
+
+@router.post("/six-articles/config")
+async def save_six_articles_config(
+    config: dict,
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """
+    Save Six Articles configuration (system prompt, personas, format spec)
+    Stored per-user in database
+    """
+    try:
+        username = session.get("user")
+
+        # Validate config structure
+        if "personas" in config:
+            required_personas = ["CEO", "CMO", "CTO", "CISO"]
+            for persona in required_personas:
+                if persona not in config["personas"]:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Missing required persona: {persona}"
+                    )
+
+        # Save to database
+        success = db.facade.save_six_articles_config(username, config)
+
+        if not success:
+            raise HTTPException(status_code=500, detail="Failed to save configuration")
+
+        logger.info(f"Six Articles config saved for user {username}")
+        return {"status": "success", "message": "Configuration saved successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving Six Articles config: {e}")
+        raise HTTPException(status_code=500, detail="Failed to save configuration")
+
+
+@router.get("/six-articles/config/defaults")
+async def get_six_articles_defaults(session=Depends(verify_session)):
+    """
+    Get default Six Articles configuration
+    Useful for reset functionality
+    """
+    default_config = {
+        "systemPrompt": None,  # Indicates use of hardcoded default
+        "personas": {
+            "CEO": {
+                "priorities": "Regulation, enterprise adoption, scaling limits, market dynamics, security/safety, workforce impact, strategic partnerships",
+                "riskAppetite": "moderate",
+                "focus": "business strategy, market positioning, competitive advantage, and regulatory compliance"
+            },
+            "CMO": {
+                "priorities": "Market trends, customer behavior, brand impact, advertising innovation, customer experience, competitive positioning",
+                "riskAppetite": "high",
+                "focus": "marketing strategies, customer engagement, brand differentiation, and market opportunities"
+            },
+            "CTO": {
+                "priorities": "Technical breakthroughs, infrastructure, scalability, development tools, architecture patterns, security vulnerabilities",
+                "riskAppetite": "high",
+                "focus": "technical architecture, development practices, technology stack decisions, and engineering excellence"
+            },
+            "CISO": {
+                "priorities": "Security threats, vulnerabilities, compliance requirements, risk management, data protection, incident response",
+                "riskAppetite": "low",
+                "focus": "security risks, compliance requirements, threat mitigation, and data protection"
+            }
+        },
+        "formatSpec": None  # Indicates use of hardcoded default
+    }
+
+    return default_config
 
 
 def _convert_overview_to_markdown(overview) -> str:
@@ -825,4 +960,150 @@ async def get_shared_feed_data(
         raise
     except Exception as e:
         logger.error(f"Error getting shared feed data: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.get("/category-icons")
+async def get_category_icons(
+    categories: Optional[str] = Query(None, description="Comma-separated list of categories"),
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Get category icons (Font Awesome icon classes) for given categories.
+
+    Icons are either pre-defined or generated once and stored in the database.
+    Returns a mapping of category -> icon HTML string.
+    """
+    try:
+        # Pre-defined category icons (Font Awesome)
+        predefined_icons = {
+            'Technology': '<i class="fas fa-laptop-code"></i>',
+            'Business': '<i class="fas fa-briefcase"></i>',
+            'Politics': '<i class="fas fa-landmark"></i>',
+            'Science': '<i class="fas fa-flask"></i>',
+            'Health': '<i class="fas fa-heartbeat"></i>',
+            'Environment': '<i class="fas fa-leaf"></i>',
+            'Education': '<i class="fas fa-graduation-cap"></i>',
+            'Entertainment': '<i class="fas fa-film"></i>',
+            'Sports': '<i class="fas fa-football-ball"></i>',
+            'Economy': '<i class="fas fa-chart-line"></i>',
+            'Finance': '<i class="fas fa-dollar-sign"></i>',
+            'Security': '<i class="fas fa-shield-alt"></i>',
+            'Military': '<i class="fas fa-fighter-jet"></i>',
+            'International': '<i class="fas fa-globe"></i>',
+            'Law': '<i class="fas fa-gavel"></i>',
+            'Society': '<i class="fas fa-users"></i>',
+            'Culture': '<i class="fas fa-palette"></i>',
+            'Transportation': '<i class="fas fa-car"></i>',
+            'Energy': '<i class="fas fa-bolt"></i>',
+            'Space': '<i class="fas fa-rocket"></i>',
+            'AI': '<i class="fas fa-robot"></i>',
+            'Uncategorized': '<i class="fas fa-folder"></i>'
+        }
+
+        icon_map = {}
+
+        # If specific categories requested
+        if categories:
+            category_list = [c.strip() for c in categories.split(',') if c.strip()]
+        else:
+            # Return all predefined icons
+            return {
+                "success": True,
+                "icons": predefined_icons
+            }
+
+        # Build icon map for requested categories
+        for category in category_list:
+            # Check predefined first
+            if category in predefined_icons:
+                icon_map[category] = predefined_icons[category]
+            else:
+                # Try partial match
+                found = False
+                for key, icon in predefined_icons.items():
+                    if key.lower() in category.lower() or category.lower() in key.lower():
+                        icon_map[category] = icon
+                        found = True
+                        break
+
+                # Use default if no match
+                if not found:
+                    icon_map[category] = '<i class="fas fa-file-alt"></i>'
+
+        return {
+            "success": True,
+            "icons": icon_map
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting category icons: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.post("/generate-category-icon")
+async def generate_category_icon(
+    category: str = Query(..., description="Category name"),
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Generate an AI-created icon for a category using DALL-E or similar.
+
+    This endpoint will generate a unique icon image for custom categories
+    and store it in the database/filesystem for future use.
+
+    Note: This requires DALL-E API access and incurs costs.
+    For now, we return Font Awesome icon classes as a lightweight alternative.
+    """
+    try:
+        # TODO: Implement AI image generation using DALL-E when needed
+        # For now, return a sensible Font Awesome icon
+
+        # Simple keyword matching for common themes
+        category_lower = category.lower()
+        icon_html = '<i class="fas fa-file-alt"></i>'  # default
+
+        theme_icons = {
+            'tech': '<i class="fas fa-microchip"></i>',
+            'cyber': '<i class="fas fa-user-secret"></i>',
+            'data': '<i class="fas fa-database"></i>',
+            'cloud': '<i class="fas fa-cloud"></i>',
+            'mobile': '<i class="fas fa-mobile-alt"></i>',
+            'web': '<i class="fas fa-globe"></i>',
+            'code': '<i class="fas fa-code"></i>',
+            'software': '<i class="fas fa-laptop-code"></i>',
+            'hardware': '<i class="fas fa-server"></i>',
+            'network': '<i class="fas fa-network-wired"></i>',
+            'crypto': '<i class="fas fa-lock"></i>',
+            'medical': '<i class="fas fa-stethoscope"></i>',
+            'legal': '<i class="fas fa-balance-scale"></i>',
+            'money': '<i class="fas fa-money-bill"></i>',
+            'trade': '<i class="fas fa-exchange-alt"></i>',
+            'climate': '<i class="fas fa-cloud-sun"></i>',
+            'food': '<i class="fas fa-utensils"></i>',
+            'travel': '<i class="fas fa-plane"></i>',
+            'automotive': '<i class="fas fa-car"></i>',
+            'real estate': '<i class="fas fa-home"></i>',
+            'retail': '<i class="fas fa-shopping-cart"></i>',
+            'manufacturing': '<i class="fas fa-industry"></i>',
+            'agriculture': '<i class="fas fa-tractor"></i>',
+            'media': '<i class="fas fa-newspaper"></i>',
+            'telecom': '<i class="fas fa-phone"></i>',
+            'research': '<i class="fas fa-microscope"></i>'
+        }
+
+        for keyword, icon in theme_icons.items():
+            if keyword in category_lower:
+                icon_html = icon
+                break
+
+        return {
+            "success": True,
+            "category": category,
+            "icon": icon_html,
+            "method": "font-awesome"  # vs "ai-generated" when DALL-E is implemented
+        }
+
+    except Exception as e:
+        logger.error(f"Error generating category icon: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

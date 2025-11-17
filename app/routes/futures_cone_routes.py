@@ -45,16 +45,113 @@ logger = logging.getLogger(__name__)
 
 templates = Jinja2Templates(directory="templates")
 
+def filter_articles_by_source_quality(articles: List, source_quality: str) -> List:
+    """Filter articles based on source quality setting"""
+    if source_quality == 'all':
+        return articles
+
+    # High quality: both factual_reporting AND mbfc_credibility_rating must be High/Very High
+    high_quality_articles = []
+    for article in articles:
+        factual = (article.get('factual_reporting') or '').strip()
+        credibility = (article.get('mbfc_credibility_rating') or '').strip()
+
+        if (factual in ['High', 'Very High', 'high', 'very high']) and \
+           (credibility in ['High', 'Very High', 'high', 'very high']):
+            high_quality_articles.append(article)
+
+    return high_quality_articles
+
+def weight_articles_for_futures_cone(articles: List) -> List:
+    """Weight articles specifically for Future Horizons futures cone analysis"""
+    scored_articles = []
+    now = datetime.now()
+
+    for article in articles:
+        score = 0.0
+
+        # Convert RowMapping to dict if needed
+        if hasattr(article, '_mapping'):
+            article_dict = dict(article._mapping)
+        elif hasattr(article, '__dict__'):
+            article_dict = dict(article.__dict__)
+        else:
+            article_dict = dict(article)
+
+        # Parse publication date with timezone handling
+        pub_date_str = article_dict.get('publication_date', '')
+        try:
+            if pub_date_str:
+                pub_date = datetime.fromisoformat(pub_date_str.replace('Z', '+00:00'))
+                if pub_date.tzinfo is not None:
+                    pub_date = pub_date.replace(tzinfo=None)
+            else:
+                pub_date = now
+        except:
+            pub_date = now
+
+        days_old = (now - pub_date).days
+
+        # Future Horizons: Prioritize speculative content and long-term forecasts
+
+        # 1. Future signals are highly valuable
+        if article_dict.get('future_signal'):
+            score += 10
+
+        # 2. Long time-to-impact is preferred
+        time_to_impact = (article_dict.get('time_to_impact') or '').lower()
+        if time_to_impact in ['long-term', 'long term', 'very long-term']:
+            score += 8
+        elif time_to_impact in ['medium-term', 'medium term', 'mid-term']:
+            score += 5
+        elif time_to_impact in ['short-term', 'short term']:
+            score += 3
+
+        # 3. Speculative categories get bonus
+        category = (article_dict.get('category') or '').lower()
+        if any(keyword in category for keyword in ['future', 'forecast', 'prediction', 'trend', 'scenario', 'emerging']):
+            score += 6
+
+        # 4. Quality still matters but less than foresight
+        quality_score = article_dict.get('quality_score', 0) or 0
+        score += float(quality_score) * 1.5
+
+        # 5. Driver types related to innovation/change
+        driver_type = (article_dict.get('driver_type') or '').lower()
+        if any(keyword in driver_type for keyword in ['technology', 'innovation', 'disruption', 'breakthrough', 'paradigm']):
+            score += 5
+
+        # 6. Prefer mix of ages (recent for signals, older for patterns)
+        if days_old <= 90:
+            score += 4  # Recent signals
+        elif days_old <= 365:
+            score += 6  # Mid-range for patterns
+        elif days_old <= 730:
+            score += 3  # Historical context
+
+        # 7. Sentiment diversity is valuable for scenarios
+        sentiment = (article_dict.get('sentiment') or '').lower()
+        if sentiment in ['mixed', 'neutral']:
+            score += 2  # Nuanced perspectives
+
+        article_dict['dashboard_score'] = score
+        scored_articles.append((score, article_dict))
+
+    # Sort by score (highest first)
+    scored_articles.sort(key=lambda x: x[0], reverse=True)
+
+    return [article for (score, article) in scored_articles]
+
 def calculate_optimal_sample_size(model: str, sample_size_mode: str = 'auto', custom_limit: int = None) -> int:
     """Calculate optimal sample size based on model capabilities and mode"""
-    
+
     if sample_size_mode == 'custom' and custom_limit:
         return custom_limit
-    
+
     # Calculate based on mode and model capabilities
     context_limit = CONTEXT_LIMITS.get(model, CONTEXT_LIMITS['default'])
     is_mega_context = context_limit >= 1000000
-    
+
     if sample_size_mode == 'focused':
         base_sample_size = 50 if is_mega_context else 25
     elif sample_size_mode == 'balanced':
@@ -64,15 +161,15 @@ def calculate_optimal_sample_size(model: str, sample_size_mode: str = 'auto', cu
     else:  # auto or default
         # Auto-size based on context window
         base_size = 150 if is_mega_context else 75
-        
+
         # For futures cone analysis, we need good coverage for scenario diversity
         base_size = int(base_size * 1.3)  # Increase for better scenario coverage
         base_sample_size = base_size
-    
+
     # Ensure reasonable limits
     max_limit = 1000 if is_mega_context else 400
     min_limit = 20  # Minimum for good scenario diversity
-    
+
     return max(min_limit, min(base_sample_size, max_limit))
 
 def calculate_scenario_positions(scenario_type: str, scenario_index: int, total_of_type: int, timeframe: str = None) -> Dict[str, float]:
@@ -557,20 +654,22 @@ def generate_futures_cone(
     timeframe_days: int = Query(365),
     model: str = Query(...),
     future_horizon: int = Query(5),
-    analysis_depth: str = Query("standard"),
+    source_quality: str = Query("all"),
     sample_size_mode: str = Query("auto"),
     custom_limit: int = Query(None),
     db: Database = Depends(get_database_instance)
 ):
     """Generate a data-driven futures cone for a given topic"""
-    
+
     try:
-        logger.info(f"Generating futures cone for topic: {topic}, model: {model}")
-        
+        logger.info(f"Generating futures cone for topic: {topic}, model: {model}, source_quality: {source_quality}")
+
         # Calculate optimal sample size based on model and mode
+        # Fetch MORE articles initially so we have enough after filtering and weighting
         optimal_sample_size = calculate_optimal_sample_size(model, sample_size_mode, custom_limit)
-        logger.info(f"Using sample size: {optimal_sample_size} articles for model: {model}")
-        
+        fetch_size = optimal_sample_size * 3  # Fetch 3x to ensure enough after filtering
+        logger.info(f"Fetching {fetch_size} articles initially, will select top {optimal_sample_size} after weighting")
+
         # Calculate date range
         end_date = datetime.now()
         start_date = end_date - timedelta(days=timeframe_days)
@@ -586,8 +685,23 @@ def generate_futures_cone(
             pub_date_start=start_date_str,
             pub_date_end=end_date_str,
             page=1,
-            per_page=optimal_sample_size
+            per_page=fetch_size
         )
+
+        logger.info(f"Initial fetch: {len(articles_list)} articles")
+
+        # Apply source quality filter
+        if source_quality == 'high_quality':
+            articles_list = filter_articles_by_source_quality(articles_list, 'high_quality')
+            logger.info(f"After quality filter: {len(articles_list)} articles")
+
+        # Apply Future Horizons-specific weighting
+        articles_list = weight_articles_for_futures_cone(articles_list)
+        logger.info(f"Articles weighted for futures cone analysis")
+
+        # Select top N articles after weighting
+        articles_list = articles_list[:optimal_sample_size]
+        logger.info(f"Selected top {len(articles_list)} articles after weighting")
 
         # Convert to tuple format expected by prepare_analysis_summary
         # Expected format: (title, summary, uri, publication_date, sentiment, category, future_signal, driver_type, time_to_impact)

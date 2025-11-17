@@ -636,10 +636,14 @@ Return ONLY a JSON array starting with [ and ending with ]. No other text."""
     
     async def _generate_six_articles_report_cached(self, articles_data: List[Dict], date: datetime, request: NewsFeedRequest) -> List[Dict]:
         """Generate six articles report with caching and enhanced political analysis"""
-        
-        # Create cache key based on date and topic only (stable across varying article counts)
-        # Added v3 to invalidate cache after CEO Daily format enforcement
-        cache_key = f"six_articles_v3_{date.strftime('%Y-%m-%d')}_{request.topic or 'all'}"
+
+        # Create cache key including persona, article count, and user_id to ensure cache invalidation when these change
+        # v5: Added user_id to cache key to prevent cross-user cache pollution with custom configs
+        # v4: Fixed cache key to include persona and article_count (previous v3 had cache invalidation bug)
+        persona = getattr(request, 'persona', 'CEO') or 'CEO'
+        article_count = getattr(request, 'article_count', 6) or 6
+        user_id = getattr(request, 'user_id', None) or 'default'
+        cache_key = f"six_articles_v5_{date.strftime('%Y-%m-%d')}_{request.topic or 'all'}_{persona}_{article_count}_{user_id}"
         
         # Check database cache first (more persistent)
         try:
@@ -675,8 +679,12 @@ Return ONLY a JSON array starting with [ and ending with ]. No other text."""
             cache_metadata = {
                 "date": date.isoformat(),
                 "topic": request.topic,
-                "article_count": len(articles_data),
-                "format_version": "ceo_daily_v3"
+                "persona": persona,
+                "requested_article_count": article_count,
+                "returned_article_count": len(six_articles),
+                "source_article_count": len(articles_data),
+                "user_id": user_id,
+                "format_version": "ceo_daily_v5"
             }
             
             success = db.save_article_analysis_cache(
@@ -790,7 +798,8 @@ Return ONLY a JSON array starting with [ and ending with ]. No other text."""
             org_profile,
             persona=request.persona,
             article_count=request.article_count,
-            starred_articles=request.starred_articles
+            starred_articles=request.starred_articles,
+            user_id=request.user_id
         )
         
         try:
@@ -912,14 +921,24 @@ Focus on stories with:
 
 Return ONLY the JSON response."""
     
-    def _build_six_articles_analyst_prompt(self, articles_data: List[Dict], date: datetime, org_profile: Optional[Dict] = None, persona: str = "CEO", article_count: int = 6, starred_articles: Optional[List[str]] = None) -> str:
-        """Build AI prompt for six articles detailed analysis with organizational context"""
+    def _build_six_articles_analyst_prompt(self, articles_data: List[Dict], date: datetime, org_profile: Optional[Dict] = None, persona: str = "CEO", article_count: int = 6, starred_articles: Optional[List[str]] = None, user_id: Optional[int] = None) -> str:
+        """Build AI prompt for six articles detailed analysis with organizational context and custom config"""
 
         # Prepare all articles for comprehensive analysis
         articles_summary = self._prepare_articles_for_prompt(articles_data, max_articles=50)
 
-        # Define persona-specific contexts
-        persona_contexts = {
+        # Load custom configuration if user_id provided
+        custom_config = None
+        if user_id:
+            try:
+                custom_config = self.facade.get_six_articles_config(user_id)
+                if custom_config:
+                    logger.info(f"Loaded custom Six Articles config for user {user_id}")
+            except Exception as e:
+                logger.warning(f"Failed to load custom config for user {user_id}: {e}")
+
+        # Define default persona-specific contexts
+        default_persona_contexts = {
             "CEO": {
                 "title": "CEO",
                 "description": "executives (CEOs and senior decision-makers)",
@@ -957,12 +976,24 @@ Return ONLY the JSON response."""
             }
         }
 
+        # Merge custom persona definitions with defaults if available
+        persona_contexts = default_persona_contexts.copy()
+        if custom_config and 'personas' in custom_config:
+            for persona_key, custom_persona in custom_config['personas'].items():
+                if persona_key in persona_contexts:
+                    # Merge custom fields into default persona
+                    persona_contexts[persona_key].update({
+                        'priorities': custom_persona.get('priorities', persona_contexts[persona_key]['priorities']),
+                        'risk_appetite': custom_persona.get('riskAppetite', persona_contexts[persona_key]['risk_appetite']),
+                        'focus': custom_persona.get('focus', persona_contexts[persona_key]['focus'])
+                    })
+
         # Get persona context or default to CEO
         persona_info = persona_contexts.get(persona, persona_contexts["CEO"])
 
         # Build audience profile from organizational data or use persona defaults
         if org_profile:
-            audience_profile = self._build_audience_profile_from_org(org_profile)
+            audience_profile = self._build_audience_profile_from_org(org_profile, persona_info)
         else:
             audience_profile = f"""## Audience Defaults
 - **Risk appetite**: {persona_info['risk_appetite']}
@@ -977,6 +1008,21 @@ Return ONLY the JSON response."""
 ⭐ **CRITICAL INSTRUCTION - STARRED ARTICLES**:
 The user has pre-selected {len(starred_articles)} articles by starring them. You MUST analyze and include ALL of these starred articles in your output. These starred articles represent the user's explicit choices and should be prioritized. The article corpus provided contains ONLY the starred articles the user selected. Do not select any articles outside of this pre-selected set."""
 
+        # Use custom prompt template if provided, otherwise use default
+        if custom_config and custom_config.get('systemPrompt'):
+            # Replace placeholders in custom prompt
+            custom_prompt = custom_config['systemPrompt']
+            custom_prompt = custom_prompt.replace('{persona}', persona_info['title'])
+            custom_prompt = custom_prompt.replace('{article_count}', str(article_count))
+            custom_prompt = custom_prompt.replace('{persona_description}', persona_info['description'])
+            custom_prompt = custom_prompt.replace('{persona_focus}', persona_info['focus'])
+            custom_prompt = custom_prompt.replace('{starred_instruction}', starred_instruction)
+            custom_prompt = custom_prompt.replace('{audience_profile}', audience_profile)
+            custom_prompt = custom_prompt.replace('{articles_summary}', articles_summary)
+            logger.info(f"Using custom prompt template for user {user_id}")
+            return custom_prompt
+
+        # Default prompt template
         return f"""🎯 {persona_info['title']} Daily Top-{article_count} AI Articles — Analyst Prompt
 
 You are an analyst selecting the {article_count} most important articles published in the last 24 hours for {persona_info['description']} interested in AI's strategic, technical, and societal impacts, with specific focus on {persona_info['focus']}.
@@ -1092,57 +1138,74 @@ executive_takeaway, strategic_relevance, time_horizon, risk_opportunity, signal_
 
 START YOUR RESPONSE WITH [ AND END WITH ] - NOTHING ELSE."""
 
-    def _build_audience_profile_from_org(self, org_profile: Dict) -> str:
-        """Build audience profile section from organizational profile data"""
-        
+    def _build_audience_profile_from_org(self, org_profile: Dict, persona_info: Optional[Dict] = None) -> str:
+        """Build audience profile section from organizational profile data, optionally enhanced with persona context"""
+
         # Map risk tolerance
         risk_mapping = {
             'low': 'Conservative (prioritizes stability and proven solutions)',
             'medium': 'Moderate (balanced between innovation and caution)',
             'high': 'Aggressive (embraces high-risk, high-reward opportunities)'
         }
-        
+
         # Map innovation appetite
         innovation_mapping = {
             'conservative': 'Conservative (adopts proven technologies)',
             'moderate': 'Moderate (selective early adoption)',
             'aggressive': 'Aggressive (cutting-edge technology adoption)'
         }
-        
+
         # Build strategic interests from key concerns and priorities
         strategic_interests = []
         strategic_interests.extend(org_profile.get('key_concerns', []))
         strategic_interests.extend(org_profile.get('strategic_priorities', []))
-        
+
+        # Add persona-specific priorities if available
+        if persona_info and 'priorities' in persona_info:
+            persona_priorities = [p.strip() for p in persona_info['priorities'].split(',')]
+            strategic_interests.extend(persona_priorities)
+
         # Add default AI interests if none specified
         if not strategic_interests:
             strategic_interests = ['AI regulation', 'enterprise adoption', 'market shifts', 'workforce impact', 'security & safety']
-        
+
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_interests = []
+        for interest in strategic_interests:
+            if interest.lower() not in seen:
+                seen.add(interest.lower())
+                unique_interests.append(interest)
+
         profile_text = f"""## Audience Profile ({org_profile.get('name', 'Organization')})
 - **Organization**: {org_profile.get('name', 'Unknown')} ({org_profile.get('organization_type', 'General')})
 - **Industry**: {org_profile.get('industry', 'General')}
 - **Region**: {org_profile.get('region', 'Global')}
 - **Risk Appetite**: {risk_mapping.get(org_profile.get('risk_tolerance', 'medium'), 'Moderate')}
 - **Innovation Appetite**: {innovation_mapping.get(org_profile.get('innovation_appetite', 'moderate'), 'Moderate')}
-- **Strategic Interests**: {', '.join(strategic_interests)}
+- **Strategic Interests**: {', '.join(unique_interests)}
 - **Key Stakeholders**: {', '.join(org_profile.get('stakeholder_focus', ['General stakeholders']))}
 - **Decision Making**: {org_profile.get('decision_making_style', 'Collaborative')} approach"""
-        
+
+        # Add persona focus if available
+        if persona_info and 'focus' in persona_info:
+            profile_text += f"\n- **Persona Focus**: {persona_info['focus']}"
+
         # Add custom context if available
         if org_profile.get('custom_context'):
             profile_text += f"\n- **Additional Context**: {org_profile.get('custom_context')}"
-        
+
         # Add competitive and regulatory context
         if org_profile.get('competitive_landscape'):
             profile_text += f"\n- **Competitive Focus**: {', '.join(org_profile.get('competitive_landscape'))}"
-        
+
         if org_profile.get('regulatory_environment'):
             profile_text += f"\n- **Regulatory Concerns**: {', '.join(org_profile.get('regulatory_environment'))}"
-        
+
         return profile_text
 
-    def _build_enhanced_six_articles_analyst_prompt(self, articles_data: List[Dict], articles_with_bias: List[Dict], articles_by_source: Dict, date: datetime, org_profile: Optional[Dict] = None, persona: str = "CEO", article_count: int = 6, starred_articles: Optional[List[str]] = None) -> str:
-        """Build enhanced AI prompt that considers related articles and political leanings"""
+    def _build_enhanced_six_articles_analyst_prompt(self, articles_data: List[Dict], articles_with_bias: List[Dict], articles_by_source: Dict, date: datetime, org_profile: Optional[Dict] = None, persona: str = "CEO", article_count: int = 6, starred_articles: Optional[List[str]] = None, user_id: Optional[int] = None) -> str:
+        """Build enhanced AI prompt that considers related articles and political leanings with custom config"""
 
         # Prepare all articles for analysis
         articles_summary = self._prepare_articles_for_prompt(articles_data, max_articles=50)
@@ -1169,8 +1232,18 @@ START YOUR RESPONSE WITH [ AND END WITH ] - NOTHING ELSE."""
                 if len(source_articles) > 1:
                     source_context += f"- {source}: {len(source_articles)} articles\n"
 
-        # Define persona-specific contexts
-        persona_contexts = {
+        # Load custom configuration if user_id provided (same logic as simple prompt builder)
+        custom_config = None
+        if user_id:
+            try:
+                custom_config = self.facade.get_six_articles_config(user_id)
+                if custom_config:
+                    logger.info(f"Loaded custom Six Articles config for user {user_id} (enhanced prompt)")
+            except Exception as e:
+                logger.warning(f"Failed to load custom config for user {user_id}: {e}")
+
+        # Define default persona-specific contexts
+        default_persona_contexts = {
             "CEO": {
                 "title": "CEO",
                 "description": "executives (CEOs and senior decision-makers)",
@@ -1208,12 +1281,24 @@ START YOUR RESPONSE WITH [ AND END WITH ] - NOTHING ELSE."""
             }
         }
 
+        # Merge custom persona definitions with defaults if available
+        persona_contexts = default_persona_contexts.copy()
+        if custom_config and 'personas' in custom_config:
+            for persona_key, custom_persona in custom_config['personas'].items():
+                if persona_key in persona_contexts:
+                    # Merge custom fields into default persona
+                    persona_contexts[persona_key].update({
+                        'priorities': custom_persona.get('priorities', persona_contexts[persona_key]['priorities']),
+                        'risk_appetite': custom_persona.get('riskAppetite', persona_contexts[persona_key]['risk_appetite']),
+                        'focus': custom_persona.get('focus', persona_contexts[persona_key]['focus'])
+                    })
+
         # Get persona context or default to CEO
         persona_info = persona_contexts.get(persona, persona_contexts["CEO"])
 
         # Build audience profile from organizational data or use persona defaults
         if org_profile:
-            audience_profile = self._build_audience_profile_from_org(org_profile)
+            audience_profile = self._build_audience_profile_from_org(org_profile, persona_info)
         else:
             audience_profile = f"""## Audience Defaults
 - **Risk appetite**: {persona_info['risk_appetite']}
@@ -1228,6 +1313,23 @@ START YOUR RESPONSE WITH [ AND END WITH ] - NOTHING ELSE."""
 ⭐ **CRITICAL INSTRUCTION - STARRED ARTICLES**:
 The user has pre-selected {len(starred_articles)} articles by starring them. You MUST analyze and include ALL of these starred articles in your output. These starred articles represent the user's explicit choices and should be prioritized. The article corpus provided contains ONLY the starred articles the user selected. Do not select any articles outside of this pre-selected set."""
 
+        # Use custom prompt template if provided, otherwise use default
+        if custom_config and custom_config.get('systemPrompt'):
+            # Replace placeholders in custom prompt (including enhanced-specific context)
+            custom_prompt = custom_config['systemPrompt']
+            custom_prompt = custom_prompt.replace('{persona}', persona_info['title'])
+            custom_prompt = custom_prompt.replace('{article_count}', str(article_count))
+            custom_prompt = custom_prompt.replace('{persona_description}', persona_info['description'])
+            custom_prompt = custom_prompt.replace('{persona_focus}', persona_info['focus'])
+            custom_prompt = custom_prompt.replace('{starred_instruction}', starred_instruction)
+            custom_prompt = custom_prompt.replace('{audience_profile}', audience_profile)
+            custom_prompt = custom_prompt.replace('{articles_summary}', articles_summary)
+            custom_prompt = custom_prompt.replace('{bias_context}', bias_context)
+            custom_prompt = custom_prompt.replace('{source_context}', source_context)
+            logger.info(f"Using custom prompt template for user {user_id} (enhanced with bias/source context)")
+            return custom_prompt
+
+        # Default enhanced prompt template
         return f"""🎯 {persona_info['title']} Daily Top-{article_count} AI Articles — Analyst Prompt
 
 You are an analyst selecting the {article_count} most important articles published in the last 24 hours for {persona_info['description']} interested in AI's strategic, technical, and societal impacts, with specific focus on {persona_info['focus']}.

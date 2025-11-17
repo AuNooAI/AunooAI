@@ -28,12 +28,13 @@ async def config_page(request: Request, session=Depends(verify_session)):
 
 @router.get("/promptmanager", response_class=HTMLResponse)
 async def prompt_manager_page(
-    request: Request, 
+    request: Request,
     session=Depends(verify_session)
 ):
     return templates.TemplateResponse("promptmanager.html", {
         "request": request,
-        "session": request.session
+        "session": session,
+        "current_page": "settings"
     })
 
 
@@ -50,13 +51,14 @@ async def vector_analysis_page(
 
 @router.get("/vector-analysis-improved", response_class=HTMLResponse)
 async def vector_analysis_improved_page(
-    request: Request, 
+    request: Request,
     session=Depends(verify_session)
 ):
     """Enhanced vector analysis page with improved performance and UX."""
     return templates.TemplateResponse("vector_analysis_improved.html", {
         "request": request,
-        "session": request.session
+        "session": session,
+        "current_page": "gather"
     })
 
 
@@ -141,13 +143,15 @@ async def model_bias_arena_page(
         logger.info("Loading model bias arena")
         return templates.TemplateResponse("model_bias_arena.html", {
             "request": request,
-            "session": request.session
+            "session": session,
+            "current_page": "analyze"
         })
     except Exception as e:
         logger.error(f"Error loading model bias arena: {e}", exc_info=True)
         return templates.TemplateResponse("model_bias_arena.html", {
             "request": request,
-            "session": request.session,
+            "session": session,
+            "current_page": "analyze",
             "error": "Could not load model bias arena."
         })
 

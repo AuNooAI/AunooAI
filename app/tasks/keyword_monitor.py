@@ -289,13 +289,15 @@ class KeywordMonitor:
         except Exception as e:
             logger.error(f"Error checking/resetting API counter: {str(e)}")
 
-    async def check_keywords(self, group_id=None, progress_callback=None):
+    async def check_keywords(self, group_id=None, progress_callback=None, username=None):
         """Check all keywords for new matches
 
         Args:
             group_id: Optional group ID to filter keywords by specific group
             progress_callback: Optional callback function(processed, current) for progress updates
+            username: Optional username for notifications
         """
+        self.username = username  # Store for notification use
         if group_id:
             logger.info(f"Starting keyword check for group {group_id}...")
         else:
@@ -436,6 +438,26 @@ class KeywordMonitor:
 
                             auto_ingest_results = await self.auto_ingest_pipeline(articles, topic, topic_keywords)
                             logger.info(f"Auto-ingest pipeline completed. Results: {auto_ingest_results}")
+
+                            # Check if auto-regenerate reports is enabled
+                            if auto_ingest_results.get("saved", 0) > 0:
+                                try:
+                                    auto_regenerate = self.db.facade.get_auto_regenerate_reports_setting()
+
+                                    if auto_regenerate:
+                                        logger.info(f"Auto-regenerate enabled: regenerating Six Articles for topic '{topic}'")
+
+                                        # Run regeneration in background task to avoid blocking
+                                        asyncio.create_task(
+                                            self._regenerate_six_articles_background(topic)
+                                        )
+
+                                        logger.info(f"Six Articles regeneration task created for topic '{topic}'")
+
+                                except Exception as regen_err:
+                                    logger.error(f"Six Articles regeneration failed: {regen_err}", exc_info=True)
+                                    # Don't fail autocollect if regeneration fails
+
                         except Exception as e:
                             logger.error(f"Auto-ingest pipeline failed: {e}", exc_info=True)
 
@@ -473,6 +495,225 @@ class KeywordMonitor:
         # Final safety net - this should never be reached, but just in case
         logger.error("check_keywords reached end without returning - this should not happen!")
         return {"success": False, "error": "Unexpected end of method", "new_articles": new_articles_count}
+
+    async def _regenerate_six_articles_background(self, topic: str):
+        """Regenerate Six Articles, Insights, and Highlights for default/first user in background"""
+        try:
+            from datetime import datetime, timedelta
+
+            logger.info(f"Starting content regeneration (Six Articles + Insights + Highlights) for topic: {topic}")
+
+            # Get first user with Six Articles config, or just first user
+            first_user = self.db.facade.get_first_user_with_six_articles_config()
+
+            if not first_user:
+                # Fallback: get any user
+                all_users = self.db.facade.get_all_users()
+                if all_users and len(all_users) > 0:
+                    first_user = all_users[0]
+
+            if not first_user:
+                logger.warning("No users found for content regeneration")
+                return
+
+            username = first_user.get('username')
+            user_id = first_user.get('id') or first_user.get('user_id')
+            logger.info(f"Regenerating content for user: {username}")
+
+            # Invalidate old caches first
+            self.db.facade.invalidate_six_articles_cache_for_topic(topic)
+            self.db.facade.invalidate_insights_cache_for_topic(topic)
+
+            # Load user config
+            config = self.db.facade.get_six_articles_config(username) or {}
+            model = config.get('model', 'gpt-4o-mini')
+
+            # === 1. Regenerate Six Articles ===
+            try:
+                from app.services.news_feed_service import NewsFeedService
+                from app.schemas.news_feed import NewsFeedRequest
+
+                persona = config.get('persona', 'CEO')
+                article_count = config.get('article_count', 6)
+
+                news_feed_service = NewsFeedService(self.db)
+
+                request = NewsFeedRequest(
+                    date=None,  # Uses today
+                    date_range="24h",
+                    topic=topic,
+                    max_articles=50,
+                    model=model,
+                    persona=persona,
+                    article_count=article_count,
+                    user_id=user_id,
+                    force_regenerate=True
+                )
+
+                target_date = datetime.now()
+                articles_data = await news_feed_service._get_articles_for_date_range(
+                    "24h", 50, topic, target_date
+                )
+
+                if articles_data:
+                    six_articles = await news_feed_service._generate_six_articles_report_cached(
+                        articles_data, target_date, request
+                    )
+                    logger.info(f"Successfully regenerated {len(six_articles)} Six Articles for topic '{topic}'")
+                else:
+                    logger.warning(f"No articles found for Six Articles regeneration for topic '{topic}'")
+            except Exception as six_err:
+                logger.error(f"Six Articles regeneration failed: {six_err}", exc_info=True)
+
+            # === 2. Regenerate Article Insights (Narratives) ===
+            try:
+                from app.routes.dashboard_routes import get_article_insights, get_topic_articles
+
+                # Calculate date range (24 hours back)
+                end_date = datetime.now()
+                start_date = end_date - timedelta(days=1)
+                start_date_str = start_date.strftime('%Y-%m-%d')
+                end_date_str = end_date.strftime('%Y-%m-%d')
+
+                # Create a mock session for the dependency
+                mock_session = {'user': {'username': username}}
+
+                logger.info(f"Regenerating article insights for topic '{topic}'")
+                insights = await get_article_insights(
+                    topic_name=topic,
+                    db=self.db,
+                    start_date=start_date_str,
+                    end_date=end_date_str,
+                    days_limit=1,
+                    force_regenerate=True,
+                    model=model,
+                    session=mock_session
+                )
+                logger.info(f"Successfully regenerated {len(insights)} article insight themes for topic '{topic}'")
+            except Exception as insights_err:
+                logger.error(f"Article insights regeneration failed: {insights_err}", exc_info=True)
+
+            # === 3. Regenerate Incident Tracking (Highlights) ===
+            try:
+                from app.routes.vector_routes import analyze_incidents
+                from pydantic import BaseModel, Field
+                from typing import Optional, List
+
+                # Create request model inline to avoid import issues
+                class IncidentRequest(BaseModel):
+                    topic: Optional[str] = None
+                    topics: Optional[List[str]] = None
+                    days_limit: int = 1
+                    start_date: Optional[str] = None
+                    end_date: Optional[str] = None
+                    max_articles: int = 100
+                    model: str = 'gpt-4o-mini'
+                    force_regenerate: bool = True
+                    domain: Optional[str] = None
+                    profile_id: Optional[int] = None
+                    test_articles: Optional[List] = None
+
+                    def get_topics_list(self):
+                        if self.topics:
+                            return self.topics
+                        if self.topic:
+                            return [self.topic]
+                        return []
+
+                # Calculate date range (24 hours back)
+                end_date = datetime.now()
+                start_date = end_date - timedelta(days=1)
+                start_date_str = start_date.strftime('%Y-%m-%d')
+                end_date_str = end_date.strftime('%Y-%m-%d')
+
+                incident_req = IncidentRequest(
+                    topic=topic,
+                    days_limit=1,
+                    start_date=start_date_str,
+                    end_date=end_date_str,
+                    max_articles=100,
+                    model=model,
+                    force_regenerate=True
+                )
+
+                logger.info(f"Regenerating incident tracking (highlights) for topic '{topic}'")
+                incidents = await analyze_incidents(
+                    req=incident_req,
+                    session=mock_session
+                )
+
+                if incidents and 'items' in incidents:
+                    logger.info(f"Successfully regenerated {len(incidents['items'])} incident highlights for topic '{topic}'")
+                else:
+                    logger.info(f"Incident tracking regeneration completed for topic '{topic}'")
+            except Exception as incidents_err:
+                logger.error(f"Incident tracking regeneration failed: {incidents_err}", exc_info=True)
+
+            # === 4. Auto-Save to Saved Dashboards (if enabled) ===
+            try:
+                # Get admin username for auto-generated dashboards
+                admin_user = self.db.facade.get_admin_user()
+                if admin_user:
+                    admin_username = admin_user.get('username')
+
+                    # Get articles from the past 24 hours for this topic
+                    articles = self.db.facade.get_articles_for_topic(
+                        topic=topic,
+                        limit=100,
+                        days_back=1
+                    )
+
+                    article_uris = [art.get('uri') for art in articles if art.get('uri')]
+
+                    if article_uris:
+                        # Create minimal tab_data structure
+                        # Note: Full trend convergence data would need to be generated separately
+                        # For now, we save with placeholder structure to enable dashboard creation
+                        tab_data = {
+                            'consensus': None,  # Would need full trend convergence analysis
+                            'strategic': None,
+                            'timeline': None,
+                            'signals': {'highlights': incidents.get('items', []) if 'incidents' in locals() else []},
+                            'horizons': None
+                        }
+
+                        config_data = {
+                            'topic': topic,
+                            'model': model,
+                            'timeframe_days': 1,
+                            'source_quality': 'all',
+                            'auto_regenerated': True
+                        }
+
+                        # Upsert auto-generated dashboard
+                        dashboard_id = self.db.facade.upsert_auto_generated_dashboard(
+                            topic=topic,
+                            username=admin_username,
+                            config=config_data,
+                            article_uris=article_uris,
+                            tab_data=tab_data,
+                            articles_analyzed=len(article_uris),
+                            model_used=model
+                        )
+                        logger.info(f"Auto-saved dashboard ID {dashboard_id} for topic '{topic}'")
+            except Exception as auto_save_err:
+                logger.error(f"Auto-save to dashboard failed (non-critical): {auto_save_err}", exc_info=True)
+
+            # Create notification
+            if username:
+                try:
+                    self.db.facade.create_notification(
+                        username=username,
+                        type='reports_regenerated',
+                        title='Dashboard Content Updated',
+                        message=f'Fresh Six Articles, Insights, and Highlights generated for "{topic}" with new autocollected articles.',
+                        link='/news-feed'
+                    )
+                except Exception as notif_err:
+                    logger.error(f"Failed to create regeneration notification: {notif_err}")
+
+        except Exception as e:
+            logger.error(f"Content background regeneration failed: {e}", exc_info=True)
 
     def get_auto_ingest_settings(self) -> Dict[str, any]:
         """Get auto-ingest settings from database"""

@@ -1,0 +1,112 @@
+/* AI Disclosure Component Styles */
+
+.ai-disclosure-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: transparent;
+  color: #3b82f6;
+  border: 1px solid #3b82f6;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: help;
+  transition: all 0.2s ease;
+}
+
+.ai-disclosure-trigger:hover {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+.ai-disclosure-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.ai-disclosure-label {
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
+.ai-disclosure-content {
+  z-index: 2000;
+  max-width: 500px;
+  padding: 16px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  animation: fadeIn 0.2s ease-out;
+}
+
+.ai-disclosure-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.ai-disclosure-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #111827;
+  margin: 0;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.ai-disclosure-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #374151;
+}
+
+.ai-disclosure-intro {
+  margin: 0;
+}
+
+.ai-disclosure-section {
+  margin: 0;
+}
+
+.ai-disclosure-section strong {
+  color: #111827;
+  font-weight: 600;
+}
+
+.ai-disclosure-arrow {
+  fill: white;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .ai-disclosure-content {
+    max-width: 90vw;
+  }
+
+  .ai-disclosure-trigger {
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+
+  .ai-disclosure-icon {
+    width: 14px;
+    height: 14px;
+  }
+}

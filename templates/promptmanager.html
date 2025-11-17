@@ -1,10 +1,32 @@
-{% extends "base.html" %}
+{% extends "base_with_shared_nav.html" %}
 
-{% block title %}Prompt Manager{% endblock %}
+{% block title %}Prompt Manager - Aunoo{% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <h1 class="mb-4">Prompt Management</h1>
+<div class="prompt-manager-container">
+    <!-- Breadcrumb Header -->
+    <div class="page-breadcrumb-header">
+        <div class="breadcrumb-text">
+            <span>Settings</span>
+            <span>/</span>
+            <span class="font-medium">Prompt Engineering</span>
+            <span>•</span>
+            <span>Manage and version AI prompts</span>
+        </div>
+        <div class="page-header-actions">
+            <button type="button" class="btn btn-icon" title="Notifications">
+                <i class="far fa-bell"></i>
+            </button>
+            <button class="btn-topic-setup" onclick="window.location.href='/onboarding?redo=true'" title="Set up a new topic">
+                <span>Set up topic</span>
+                <i class="fas fa-plus"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Scrollable Content Area -->
+    <div class="prompt-manager-scrollable">
+        <div class="container mt-4">
 
     <div class="row">
         <div class="col-md-6">
@@ -21,11 +43,36 @@
             </div>
 
             <div class="prompt-editor mt-4">
-                <h3>System Prompt</h3>
-                <textarea id="system-prompt" rows="5" class="form-control" placeholder="System prompt..."></textarea>
+                <h3>1. Role (Editable) - System Prompt</h3>
+                <textarea id="system-prompt" rows="5" class="form-control" placeholder="System prompt defining the AI's role..."></textarea>
 
-                <h3>User Prompt</h3>
-                <textarea id="user-prompt" rows="10" class="form-control" placeholder="User prompt..."></textarea>
+                <h3 class="mt-3">2. Instructions (Editable) - User Prompt</h3>
+                <p class="text-muted small">💡 Core instructions for the AI. Use variables like <code>{topic}</code>, <code>{article_count}</code>, <code>{org_context}</code> - see full list below</p>
+                <textarea id="user-prompt" rows="12" class="form-control" placeholder="User prompt with instructions..."></textarea>
+
+                <!-- Output Format Section (Read-Only, only shown for dashboard prompts) -->
+                <div id="output-format-section" style="display: none;">
+                    <h3 class="mt-3">3. Output Format (Read-Only)</h3>
+                    <p class="text-muted small">🔒 This defines the exact JSON structure the AI must return. Cannot be edited to ensure frontend compatibility.</p>
+                    <div class="card bg-light">
+                        <div class="card-body">
+                            <pre id="output-format" class="mb-0" style="max-height: 400px; overflow-y: auto; font-size: 0.85em;"></pre>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Expected Output Schema (only shown for dashboard prompts) -->
+                <div id="schema-section" style="display: none;">
+                    <h3 class="mt-3">4. JSON Schema Reference (Documentation)</h3>
+                    <details>
+                        <summary class="btn btn-sm btn-outline-secondary">Show/Hide Schema</summary>
+                        <div class="card bg-light mt-2">
+                            <div class="card-body">
+                                <pre id="expected-schema" class="mb-0" style="max-height: 300px; overflow-y: auto; font-size: 0.75em;"></pre>
+                            </div>
+                        </div>
+                    </details>
+                </div>
 
                 <div class="prompt-actions mt-3">
                     <button id="save-prompt" class="btn btn-primary">Save New Version</button>
@@ -36,28 +83,9 @@
 
                 <div class="available-variables mt-4">
                     <h3>Available Variables</h3>
-                    <div class="card">
+                    <div id="variables-container" class="card">
                         <div class="card-body">
-                            <h5>Content Analysis Variables:</h5>
-                            <ul>
-                                <li><code>{article_text}</code> - Full article content</li>
-                                <li><code>{title}</code> - Article title</li>
-                                <li><code>{source}</code> - Article source</li>
-                                <li><code>{uri}</code> - Article URI</li>
-                                <li><code>{summary_length}</code> - Requested summary length</li>
-                                <li><code>{summary_voice}</code> - Summary voice style</li>
-                                <li><code>{summary_type}</code> - Type of summary</li>
-                                <li><code>{categories}</code> - Available categories</li>
-                                <li><code>{future_signals}</code> - Available future signals</li>
-                                <li><code>{sentiment_options}</code> - Available sentiment options</li>
-                                <li><code>{time_to_impact_options}</code> - Available time to impact options</li>
-                                <li><code>{driver_types}</code> - Available driver types</li>
-                            </ul>
-
-                            <h5>Date Extraction Variables:</h5>
-                            <ul>
-                                <li><code>{content}</code> - Article content (first 1000 chars)</li>
-                            </ul>
+                            <p class="text-muted small">Variables will be displayed based on the selected prompt type</p>
                         </div>
                     </div>
                 </div>
@@ -193,13 +221,57 @@
         }
     }
 
+    // Store full prompt data for saving later
+    let currentPromptData = {};
+
     function loadPromptContent(promptType, versionHash) {
         fetch(`/api/prompts/${promptType}/${versionHash}`)
             .then(response => response.json())
             .then(data => {
-                document.getElementById('system-prompt').value = data.system_prompt;
-                document.getElementById('user-prompt').value = data.user_prompt;
-                
+                // Store full data
+                currentPromptData = data;
+
+                // Set system prompt
+                document.getElementById('system-prompt').value = data.system_prompt || '';
+
+                // Check if this is a dashboard prompt (has "REQUIRED OUTPUT FORMAT:" marker)
+                const isDashboardPrompt = data.user_prompt && data.user_prompt.includes('REQUIRED OUTPUT FORMAT:');
+
+                if (isDashboardPrompt) {
+                    // Split user_prompt into instructions and output format
+                    const parts = data.user_prompt.split('REQUIRED OUTPUT FORMAT:', 2);
+                    const instructions = parts[0].trim();
+                    const outputFormat = 'REQUIRED OUTPUT FORMAT:' + (parts[1] || '');
+
+                    // Set instructions (editable)
+                    document.getElementById('user-prompt').value = instructions;
+
+                    // Show and set output format (read-only)
+                    document.getElementById('output-format-section').style.display = 'block';
+                    document.getElementById('output-format').textContent = outputFormat;
+
+                    // Show schema if available
+                    if (data.expected_output_schema) {
+                        document.getElementById('schema-section').style.display = 'block';
+                        document.getElementById('expected-schema').textContent = JSON.stringify(data.expected_output_schema, null, 2);
+                    } else {
+                        document.getElementById('schema-section').style.display = 'none';
+                    }
+
+                    // Display variables if available
+                    if (data.variables && Object.keys(data.variables).length > 0) {
+                        displayVariables(data.variables);
+                    } else {
+                        displayDefaultVariables();
+                    }
+                } else {
+                    // Regular prompt - no split
+                    document.getElementById('user-prompt').value = data.user_prompt || '';
+                    document.getElementById('output-format-section').style.display = 'none';
+                    document.getElementById('schema-section').style.display = 'none';
+                    displayDefaultVariables();
+                }
+
                 // Enable/disable buttons based on version
                 const isCurrent = versionHash === 'current';
                 document.getElementById('restore-version').disabled = isCurrent;
@@ -212,11 +284,86 @@
             });
     }
 
+    function displayVariables(variables) {
+        const container = document.getElementById('variables-container');
+        let html = '<div class="card-body">';
+        html += '<ul class="list-unstyled">';
+        for (const [key, description] of Object.entries(variables)) {
+            html += `<li class="mb-2"><code class="bg-light px-2 py-1 rounded">{${key}}</code> - ${description}</li>`;
+        }
+        html += '</ul></div>';
+        container.innerHTML = html;
+    }
+
+    function displayDefaultVariables() {
+        const container = document.getElementById('variables-container');
+        container.innerHTML = `
+            <div class="card-body">
+                <h5>Content Analysis Variables:</h5>
+                <ul>
+                    <li><code>{article_text}</code> - Full article content</li>
+                    <li><code>{title}</code> - Article title</li>
+                    <li><code>{source}</code> - Article source</li>
+                    <li><code>{uri}</code> - Article URI</li>
+                    <li><code>{summary_length}</code> - Requested summary length</li>
+                    <li><code>{summary_voice}</code> - Summary voice style</li>
+                    <li><code>{summary_type}</code> - Type of summary</li>
+                    <li><code>{categories}</code> - Available categories</li>
+                    <li><code>{future_signals}</code> - Available future signals</li>
+                    <li><code>{sentiment_options}</code> - Available sentiment options</li>
+                    <li><code>{time_to_impact_options}</code> - Available time to impact options</li>
+                    <li><code>{driver_types}</code> - Available driver types</li>
+                </ul>
+
+                <h5>Date Extraction Variables:</h5>
+                <ul>
+                    <li><code>{content}</code> - Article content (first 1000 chars)</li>
+                </ul>
+            </div>
+        `;
+    }
+
     function savePromptVersion(promptType) {
+        const systemPrompt = document.getElementById('system-prompt').value;
+        let userPrompt = document.getElementById('user-prompt').value;
+
+        // Check if output format section is visible (dashboard prompt)
+        const outputFormatSection = document.getElementById('output-format-section');
+        if (outputFormatSection.style.display !== 'none') {
+            // Get the fixed output format
+            const outputFormat = document.getElementById('output-format').textContent;
+            // Join instructions with output format
+            userPrompt = userPrompt.trim() + '\n\n' + outputFormat;
+        }
+
+        // Prepare prompt data with all fields
         const promptData = {
-            system_prompt: document.getElementById('system-prompt').value,
-            user_prompt: document.getElementById('user-prompt').value
+            system_prompt: systemPrompt,
+            user_prompt: userPrompt
         };
+
+        // Preserve additional fields for dashboard prompts
+        if (currentPromptData.expected_output_schema) {
+            promptData.expected_output_schema = currentPromptData.expected_output_schema;
+        }
+        if (currentPromptData.variables) {
+            promptData.variables = currentPromptData.variables;
+        }
+        if (currentPromptData.metadata) {
+            promptData.metadata = currentPromptData.metadata;
+        }
+        if (currentPromptData.prompt_name) {
+            promptData.prompt_name = currentPromptData.prompt_name;
+        }
+        if (currentPromptData.feature) {
+            promptData.feature = currentPromptData.feature;
+        }
+        if (currentPromptData.description) {
+            promptData.description = currentPromptData.description;
+        }
+        if (currentPromptData.author) {
+            promptData.author = currentPromptData.author;
+        }
 
         fetch(`/api/prompts/${promptType}`, {
             method: 'POST',
@@ -229,6 +376,8 @@
         .then(data => {
             alert('Prompt version saved successfully');
             loadPromptVersions(promptType);
+            // Reload the current version to update the display
+            loadPromptContent(promptType, 'current');
         })
         .catch(error => {
             console.error('Error saving prompt version:', error);
@@ -425,14 +574,14 @@
 
 <style>
     :root {
-        --primary-color: #FF69B4;  /* Hot Pink */
-        --primary-dark: #FF1493;   /* Deep Pink */
+        --primary-color: var(--colors-accent-7);  /* Hot Pink */
+        --primary-dark: var(--colors-accent-10);   /* Deep Pink */
         --secondary-color: #32CD32;  /* Lime Green */
         --secondary-dark: #228B22;   /* Forest Green */
-        --text-color: #333;
-        --light-gray: #f8f9fa;
-        --medium-gray: #e9ecef;
-        --dark-gray: #343a40;
+        --text-color: var(--colors-neutral-11);
+        --light-gray: var(--colors-neutral-2);
+        --medium-gray: var(--colors-neutral-4);
+        --dark-gray: var(--colors-neutral-10);
     }
 
     h1, h2, h3 {
@@ -507,7 +656,7 @@
     .prompt-editor textarea {
         width: 100%;
         padding: 10px;
-        border: 1px solid #e9ecef;
+        border: 1px solid var(--colors-neutral-4);
         border-radius: 5px;
         font-family: monospace;
         resize: vertical;
@@ -546,7 +695,7 @@
     }
 
     .version-content {
-        background-color: #f8f9fa;
+        background-color: var(--colors-neutral-2);
         border-radius: 5px;
         padding: 15px;
     }
@@ -559,7 +708,7 @@
         line-height: 1.5;
         padding: 10px;
         background: white;
-        border: 1px solid #dee2e6;
+        border: 1px solid var(--colors-neutral-5);
         border-radius: 4px;
     }
 
@@ -577,13 +726,13 @@
     }
 
     .available-variables {
-        background-color: #f8f9fa;
+        background-color: var(--colors-neutral-2);
         border-radius: 5px;
         padding: 15px;
     }
 
     .available-variables code {
-        background-color: #e9ecef;
+        background-color: var(--colors-neutral-4);
         padding: 2px 4px;
         border-radius: 3px;
         color: var(--primary-color);
@@ -599,7 +748,7 @@
     }
 
     .card {
-        border: 1px solid #dee2e6;
+        border: 1px solid var(--colors-neutral-5);
         box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
 
@@ -630,7 +779,7 @@
 
     .diff-removed::before {
         content: '-';
-        color: #dc3545;
+        color: var(--colors-error-9);
         position: absolute;
         left: -10px;
     }
@@ -662,5 +811,211 @@
         justify-content: space-between;
         align-items: center;
     }
+</style>
+
+        </div> <!-- End container -->
+    </div> <!-- End prompt-manager-scrollable -->
+</div> <!-- End prompt-manager-container -->
+
+<style>
+/* Prompt Manager container matching other pages */
+.prompt-manager-container {
+    max-width: 100%;
+    margin: 0 auto;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.prompt-manager-scrollable {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.5rem;
+}
+
+/* Breadcrumb Header */
+.page-breadcrumb-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    background: white;
+    border-bottom: 1px solid var(--colors-neutral-4);
+    flex-shrink: 0;
+}
+
+.breadcrumb-text {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--colors-neutral-8);
+}
+
+.breadcrumb-text .font-medium {
+    font-weight: 500;
+    color: var(--colors-neutral-12);
+}
+
+.page-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+/* Subtle button styling */
+.btn-icon {
+    background: white;
+    border: 1px solid var(--colors-neutral-4);
+    color: var(--colors-neutral-8);
+    padding: 0.5rem;
+    border-radius: 0.375rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+}
+
+.btn-icon:hover {
+    background: var(--colors-neutral-3);
+    border-color: #d1d5db;
+    color: var(--colors-neutral-12);
+}
+
+.btn-topic-setup {
+    background: var(--colors-neutral-3);
+    border: none;
+    color: var(--colors-neutral-12);
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+}
+
+.btn-topic-setup:hover {
+    background: var(--colors-neutral-4);
+    color: var(--colors-neutral-12);
+}
+
+/* Override bright pink buttons to subtle style */
+.btn-primary {
+    background: white !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-accent-8) !important;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.btn-primary:hover {
+    background: var(--colors-accent-1) !important;
+    border-color: var(--colors-accent-3) !important;
+    color: var(--colors-accent-8) !important;
+}
+
+.btn-success {
+    background: white !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-success-9) !important;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.btn-success:hover {
+    background: #f0fdf4 !important;
+    border-color: #d1fae5 !important;
+    color: var(--colors-success-9) !important;
+}
+
+.btn-secondary {
+    background: white !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-neutral-12) !important;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+    background: var(--colors-neutral-3) !important;
+    border-color: #d1d5db !important;
+    color: var(--colors-neutral-12) !important;
+}
+
+.btn-danger, .btn-outline-danger {
+    background: white !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-error-7) !important;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.btn-danger:hover, .btn-outline-danger:hover {
+    background: #fef2f2 !important;
+    border-color: #fecaca !important;
+    color: var(--colors-error-7) !important;
+}
+
+.btn-warning {
+    background: white !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-warning-6) !important;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.btn-warning:hover {
+    background: var(--colors-white)beb !important;
+    border-color: #fde68a !important;
+    color: var(--colors-warning-6) !important;
+}
+
+.btn-info {
+    background: white !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: #3b82f6 !important;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.btn-info:hover {
+    background: #eff6ff !important;
+    border-color: #bfdbfe !important;
+    color: #3b82f6 !important;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+    .page-breadcrumb-header {
+        padding: 0.5rem 1rem;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+    }
+
+    .breadcrumb-text {
+        font-size: 0.75rem;
+    }
+
+    .page-header-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .btn-topic-setup {
+        font-size: 0.75rem;
+        padding: 0.375rem 0.75rem;
+    }
+}
 </style>
 {% endblock %} 

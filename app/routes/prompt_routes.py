@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Request, Path, status, Depends
 from fastapi.responses import HTMLResponse
 from app.security.session import verify_session
 from pydantic import BaseModel
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from app.analyzers.prompt_manager import PromptManager, PromptManagerError
 from app.analyzers.prompt_templates import PromptTemplates
 from app.core.shared import templates
@@ -34,6 +34,16 @@ except Exception as e:
 class PromptData(BaseModel):
     system_prompt: str
     user_prompt: str
+    expected_output_schema: Optional[Dict] = None
+    variables: Optional[Dict] = None
+    metadata: Optional[Dict] = None
+    prompt_name: Optional[str] = None
+    feature: Optional[str] = None
+    description: Optional[str] = None
+    author: Optional[str] = None
+
+    class Config:
+        extra = "allow"  # Allow additional fields
 
 class VersionResponse(BaseModel):
     hash: str
@@ -41,6 +51,18 @@ class VersionResponse(BaseModel):
     system_prompt: str
     user_prompt: str
     created_at: str
+    expected_output_schema: Optional[Dict] = None
+    variables: Optional[Dict] = None
+    metadata: Optional[Dict] = None
+    prompt_name: Optional[str] = None
+    feature: Optional[str] = None
+    description: Optional[str] = None
+    author: Optional[str] = None
+    updated_at: Optional[str] = None
+    restored_from_default: Optional[bool] = None
+
+    class Config:
+        extra = "allow"  # Allow additional fields not defined in the model
 
 class VersionListResponse(BaseModel):
     versions: List[VersionResponse]
@@ -100,10 +122,28 @@ async def save_prompt_version(
         if not prompt_data:
             raise HTTPException(status_code=400, detail="Missing prompt data")
 
+        # Prepare additional fields for dashboard prompts
+        additional_fields = {}
+        if prompt_data.expected_output_schema:
+            additional_fields['expected_output_schema'] = prompt_data.expected_output_schema
+        if prompt_data.variables:
+            additional_fields['variables'] = prompt_data.variables
+        if prompt_data.metadata:
+            additional_fields['metadata'] = prompt_data.metadata
+        if prompt_data.prompt_name:
+            additional_fields['prompt_name'] = prompt_data.prompt_name
+        if prompt_data.feature:
+            additional_fields['feature'] = prompt_data.feature
+        if prompt_data.description:
+            additional_fields['description'] = prompt_data.description
+        if prompt_data.author:
+            additional_fields['author'] = prompt_data.author
+
         version = prompt_manager.save_version(
             prompt_type,
             prompt_data.system_prompt,
-            prompt_data.user_prompt
+            prompt_data.user_prompt,
+            additional_fields if additional_fields else None
         )
         return version
     except PromptManagerError as e:

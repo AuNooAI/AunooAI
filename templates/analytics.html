@@ -1,16 +1,39 @@
-{% extends "base.html" %}
-{% block title %}AuNoo AI - Analytics{% endblock %}
+{% extends "base_with_shared_nav.html" %}
+{% block title %}Analytics - Aunoo{% endblock %}
 {% block content %}
+<div class="analytics-container">
+    <!-- Breadcrumb Header -->
+    <div class="page-breadcrumb-header">
+        <div class="breadcrumb-text">
+            <span>Settings</span>
+            <span>/</span>
+            <span class="font-medium">Analytics</span>
+            <span>•</span>
+            <span>Data visualization and insights</span>
+        </div>
+        <div class="page-header-actions">
+            <button type="button" class="btn btn-icon" title="Notifications">
+                <i class="far fa-bell"></i>
+            </button>
+            <button class="btn-topic-setup" onclick="window.location.href='/onboarding?redo=true'" title="Set up a new topic">
+                <span>Set up topic</span>
+                <i class="fas fa-plus"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Scrollable Content Area -->
+    <div class="analytics-scrollable">
+
 <style>
     :root {
-        --primary-color: #FF69B4;  /* Hot Pink */
-        --primary-dark: #FF1493;   /* Deep Pink */
-        --secondary-color: #32CD32;  /* Lime Green */
-        --secondary-dark: #228B22;   /* Forest Green */
-        --text-color: #333;
-        --light-gray: #f8f9fa;
-        --medium-gray: #e9ecef;
-        --dark-gray: #343a40;
+        --text-color: var(--colors-neutral-12);
+        --text-secondary: var(--colors-neutral-10);
+        --light-gray: var(--colors-neutral-2);
+        --medium-gray: var(--colors-neutral-4);
+        --dark-gray: var(--colors-neutral-10);
+        --border-color: var(--colors-neutral-4);
+        --accent-subtle: var(--colors-accent-6);
     }
 
     body {
@@ -25,25 +48,46 @@
     }
 
     h1, h2, h5 {
-        color: var(--primary-color);
+        color: var(--colors-neutral-12);
         margin-bottom: 20px;
+        font-weight: 600;
+    }
+
+    h2 {
+        font-size: 1.5rem;
     }
 
     .card {
-        background-color: #fff;
+        background-color: white;
         border-radius: 8px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
         margin-bottom: 20px;
         padding: 20px;
-        border: 1px solid var(--primary-color);
+        border: 1px solid var(--border-color);
+        transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .card:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.12);
+    }
+
+    .card h5 {
+        font-size: 1rem;
+        font-weight: 600;
+        color: var(--colors-neutral-11);
+        margin-bottom: 15px;
     }
 
     .form-select {
         width: 100%;
-        padding: 8px;
+        padding: 8px 12px;
         margin-bottom: 15px;
-        border: 1px solid var(--primary-color);
+        border: 1px solid var(--border-color);
         border-radius: 4px;
+        background-color: white;
+        color: var(--text-color);
+        transition: all 0.2s ease;
     }
 
     /* Multiple select styling */
@@ -51,36 +95,63 @@
         height: auto;
         min-height: 100px;
     }
-    
+
     select[multiple] option {
         padding: 8px;
         margin: 2px 0;
         border-radius: 3px;
     }
-    
+
     select[multiple] option:checked {
-        background-color: var(--primary-color) !important;
+        background-color: var(--colors-accent-6) !important;
         color: white;
     }
 
     .form-select:focus {
-        border-color: var(--primary-dark);
-        box-shadow: 0 0 0 0.2rem rgba(255, 105, 180, 0.25);
+        outline: none;
+        border-color: var(--accent-subtle);
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    }
+
+    .form-select:hover {
+        border-color: var(--colors-neutral-5);
+    }
+
+    label {
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+        margin-bottom: 0.25rem;
+        display: block;
     }
 
     #articleCount {
-        color: var(--primary-color);
+        color: var(--colors-accent-7);
+        font-weight: 700;
     }
 
     /* Dropdown styling */
     .dropdown-menu {
         max-height: 300px;
         overflow-y: auto;
+        border: 1px solid var(--border-color);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        border-radius: 6px;
     }
 
-    .dropdown-item.active, 
+    .dropdown-item {
+        padding: 0.5rem 1rem;
+        transition: background-color 0.15s ease;
+    }
+
+    .dropdown-item:hover {
+        background-color: var(--colors-neutral-2);
+    }
+
+    .dropdown-item.active,
     .dropdown-item:active {
-        background-color: var(--primary-color);
+        background-color: var(--colors-accent-6);
+        color: white;
     }
 
     .multiselect-dropdown {
@@ -88,79 +159,176 @@
     }
 
     .multiselect-dropdown .selected-items {
-        margin-top: 5px;
+        margin-top: 8px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
     }
 
     .multiselect-dropdown .selected-items .badge {
-        margin-right: 3px;
-        margin-bottom: 3px;
-        background-color: var(--primary-color);
+        background-color: var(--colors-neutral-3);
+        color: var(--text-color);
+        border: 1px solid var(--border-color);
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-weight: 500;
+        font-size: 0.875rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
     }
 
-    /* Smaller summary cards */
+    .multiselect-dropdown .selected-items .badge:hover {
+        background-color: var(--colors-neutral-4);
+    }
+
+    /* Summary cards */
     .summary-card {
-        padding: 10px;
+        padding: 16px;
+        background-color: var(--colors-neutral-1);
+        border: 1px solid var(--border-color);
+    }
+
+    .summary-card .card-body {
+        padding: 0;
     }
 
     .summary-card .card-title {
-        font-size: 0.9rem;
-        margin-bottom: 5px;
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+        margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.025em;
     }
 
     .summary-card .display-4 {
-        font-size: 1.8rem;
-        font-weight: bold;
+        font-size: 2rem;
+        font-weight: 700;
+        color: var(--text-color);
+        margin-bottom: 4px;
     }
 
     .summary-card small {
         font-size: 0.75rem;
+        color: var(--text-secondary);
     }
-    
+
     /* Tab styling */
+    .nav-tabs {
+        border-bottom: 1px solid var(--border-color);
+    }
+
     .nav-tabs .nav-link {
-        color: var(--dark-gray);
+        color: var(--text-secondary);
         border: 1px solid transparent;
-        border-top-left-radius: 0.25rem;
-        border-top-right-radius: 0.25rem;
-        padding: 0.5rem 1rem;
+        border-top-left-radius: 6px;
+        border-top-right-radius: 6px;
+        padding: 0.75rem 1.25rem;
         margin-right: 0.25rem;
+        font-weight: 500;
+        transition: all 0.2s ease;
     }
-    
+
+    .nav-tabs .nav-link:hover {
+        border-color: transparent;
+        color: var(--text-color);
+        background-color: var(--colors-neutral-2);
+    }
+
     .nav-tabs .nav-link.active {
-        color: var(--primary-color);
-        background-color: #fff;
-        border-color: #dee2e6 #dee2e6 #fff;
-        font-weight: bold;
+        color: var(--colors-accent-7);
+        background-color: white;
+        border-color: var(--border-color) var(--border-color) white;
+        font-weight: 600;
     }
-    
+
     .tab-content {
-        padding-top: 1rem;
+        padding-top: 1.5rem;
     }
-    
+
     /* Flow chart specific styles */
     .controls {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.5rem;
-        margin-bottom: 1rem;
+        gap: 0.75rem;
+        margin-bottom: 1.5rem;
+        padding: 1rem;
+        background-color: white;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
     }
-    
+
     .filter-box {
         min-width: 160px;
+        flex: 1;
     }
-    
+
     .filter-panel {
-        background-color: var(--light-gray);
+        background-color: white;
+        border: 1px solid var(--border-color);
         border-radius: 8px;
         padding: 20px;
         margin-bottom: 20px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.04);
     }
-    
+
     .filter-row {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
         gap: 15px;
         margin-bottom: 0;
+    }
+
+    /* Form check styling */
+    .form-check {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .form-check-input {
+        width: 18px;
+        height: 18px;
+        border: 1px solid var(--border-color);
+        cursor: pointer;
+    }
+
+    .form-check-input:checked {
+        background-color: var(--colors-accent-7);
+        border-color: var(--colors-accent-7);
+    }
+
+    .form-check-label {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        cursor: pointer;
+        margin-bottom: 0;
+    }
+
+    /* Button group styling */
+    .btn-group-sm .btn {
+        padding: 0.375rem 0.75rem;
+        font-size: 0.875rem;
+        border-radius: 4px;
+    }
+
+    .btn-outline-secondary {
+        color: var(--text-secondary);
+        border-color: var(--border-color);
+        background-color: white;
+    }
+
+    .btn-outline-secondary:hover {
+        background-color: var(--colors-neutral-2);
+        border-color: var(--colors-neutral-5);
+        color: var(--text-color);
+    }
+
+    .btn-outline-secondary.active {
+        background-color: var(--colors-accent-6);
+        border-color: var(--colors-accent-6);
+        color: white;
     }
 </style>
 
@@ -412,33 +580,64 @@
         <!-- Flow Tab -->
         <div class="tab-pane fade" id="flow" role="tabpanel" aria-labelledby="flow-tab">
             <div class="controls">
-                <select id="flowTopicSelect" class="form-select" style="max-width:220px;"></select>
-                <select id="flowTimeframeSelect" class="form-select" style="max-width:160px;">
-                    <option value="all" selected>All time</option>
-                    <option value="7">Last 7 days</option>
-                    <option value="30">Last 30 days</option>
-                    <option value="90">Last 90 days</option>
-                </select>
-                <input id="topSourcesInput" type="number" value="12" min="3" max="50" class="form-control" title="Top sources count" style="width:120px;"/>
-                <select id="colorMode" class="form-select" style="width:180px;">
-                    <option value="stage" selected>Colour by stage</option>
-                    <option value="source">Colour by source</option>
-                    <option value="category">Colour by category</option>
-                </select>
-                <button id="refreshBtn" class="btn btn-primary">Refresh</button>
+                <div style="flex: 1; min-width: 200px;">
+                    <label for="flowTopicSelect" style="display: block; margin-bottom: 0.25rem;">Topic</label>
+                    <select id="flowTopicSelect" class="form-select"></select>
+                </div>
+                <div style="flex: 1; min-width: 150px;">
+                    <label for="flowTimeframeSelect" style="display: block; margin-bottom: 0.25rem;">Timeframe</label>
+                    <select id="flowTimeframeSelect" class="form-select">
+                        <option value="all" selected>All time</option>
+                        <option value="7">Last 7 days</option>
+                        <option value="30">Last 30 days</option>
+                        <option value="90">Last 90 days</option>
+                    </select>
+                </div>
+                <div style="flex: 0 0 auto; min-width: 110px;">
+                    <label for="topSourcesInput" style="display: block; margin-bottom: 0.25rem;">Top Sources</label>
+                    <input id="topSourcesInput" type="number" value="12" min="3" max="50" class="form-control" title="Top sources count"/>
+                </div>
+                <div style="flex: 1; min-width: 170px;">
+                    <label for="colorMode" style="display: block; margin-bottom: 0.25rem;">Color By</label>
+                    <select id="colorMode" class="form-select">
+                        <option value="stage" selected>Stage</option>
+                        <option value="source">Source</option>
+                        <option value="category">Category</option>
+                    </select>
+                </div>
+                <div style="flex: 0 0 auto; display: flex; gap: 0.5rem; align-items: flex-end;">
+                    <button id="refreshBtn" class="btn btn-primary" style="white-space: nowrap;">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                    <button id="resetFiltersBtn" class="btn btn-secondary" style="white-space: nowrap;">
+                        <i class="fas fa-undo"></i> Reset
+                    </button>
+                </div>
             </div>
             <div id="filtersContainer" class="filter-panel">
+                <h6 style="margin-bottom: 1rem; color: var(--colors-neutral-11); font-weight: 600;">Filters</h6>
                 <div class="filter-row">
-                    <select id="sourceFilter" class="form-select filter-box select2-multiple" multiple title="Filter by source"></select>
-                    <select id="categoryFilter" class="form-select filter-box select2-multiple" multiple title="Filter by category"></select>
-                    <select id="sentimentFilter" class="form-select filter-box select2-multiple" multiple title="Filter by sentiment"></select>
-                    <div class="form-check align-self-center">
-                        <input class="form-check-input me-1" type="checkbox" id="includeOtherCheckbox" checked>
-                        <label class="form-check-label" for="includeOtherCheckbox">Include "Other sources"</label>
+                    <div>
+                        <label for="sourceFilter" style="display: block; margin-bottom: 0.25rem;">Sources</label>
+                        <select id="sourceFilter" class="form-select filter-box select2-multiple" multiple title="Filter by source"></select>
                     </div>
-                    <div class="form-check align-self-center">
-                        <input class="form-check-input me-1" type="checkbox" id="showCategoryCheckbox" checked>
-                        <label class="form-check-label" for="showCategoryCheckbox">Show category stage</label>
+                    <div>
+                        <label for="categoryFilter" style="display: block; margin-bottom: 0.25rem;">Categories</label>
+                        <select id="categoryFilter" class="form-select filter-box select2-multiple" multiple title="Filter by category"></select>
+                    </div>
+                    <div>
+                        <label for="sentimentFilter" style="display: block; margin-bottom: 0.25rem;">Sentiments</label>
+                        <select id="sentimentFilter" class="form-select filter-box select2-multiple" multiple title="Filter by sentiment"></select>
+                    </div>
+                    <div class="d-flex flex-column gap-2 align-self-end">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="includeOtherCheckbox" checked>
+                            <label class="form-check-label" for="includeOtherCheckbox">Include "Other sources"</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="showCategoryCheckbox" checked>
+                            <label class="form-check-label" for="showCategoryCheckbox">Show category stage</label>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -495,9 +694,49 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('driverTypeDropdown').addEventListener('change', function() {
         updateCharts();
     });
-    
+
     // Initialize Flow Chart
     initFlowChart();
+
+    // Track if flow chart has been rendered
+    let flowChartInitialized = false;
+
+    // Add event listener for when the Flow tab is shown
+    const flowTab = document.getElementById('flow-tab');
+    if (flowTab) {
+        flowTab.addEventListener('shown.bs.tab', function() {
+            // Small delay to ensure container is fully visible
+            setTimeout(() => {
+                if (!flowChartInitialized) {
+                    // First time showing the tab - render the chart
+                    fetchAndRender();
+                    flowChartInitialized = true;
+                } else {
+                    // Already rendered - just resize it
+                    const container = document.getElementById('sankeyChart');
+                    if (container && container.querySelector('.plotly')) {
+                        Plotly.Plots.resize(container);
+                    }
+                }
+            }, 100);
+        });
+    }
+
+    // Add window resize handler for responsive chart sizing
+    let resizeTimeout;
+    window.addEventListener('resize', function() {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(() => {
+            // Only resize if the Flow tab is active
+            const flowPane = document.getElementById('flow');
+            if (flowPane && flowPane.classList.contains('active')) {
+                const container = document.getElementById('sankeyChart');
+                if (container && container.querySelector('.plotly')) {
+                    Plotly.Plots.resize(container);
+                }
+            }
+        }, 250);
+    });
 });
 
 let topicOptions = {
@@ -802,11 +1041,15 @@ async function fetchDataAndUpdateCharts(params) {
 
 function updateSentimentDistribution(data) {
     const colors = {
-        'Positive': '#32CD32',  // Lime Green
-        'Neutral': '#9782ad',   // Lilac
-        'Negative': '#f05b06',  // Red Orange
-        'Critical': '#ff0080',  // Fuchsia
-        'Mixed': '#432f70'      // Indigo
+        'Positive': '#10b981',  // Emerald (subtle green)
+        'Neutral': '#94a3b8',   // Slate (subtle gray)
+        'Negative': '#f59e0b',  // Amber (subtle orange)
+        'Critical': '#ef4444',  // Rose (soft red)
+        'Mixed': '#8b5cf6',     // Violet (soft purple)
+        'Cautious': '#f97316',  // Orange
+        'Optimistic': '#22c55e', // Green
+        'Concerned': '#eab308', // Yellow
+        'Pessimistic': '#dc2626' // Red
     };
 
     // Create ordered arrays for labels, values, and colors
@@ -1013,11 +1256,15 @@ function updateFutureSignalByCategory(data) {
 
 function updateArticlesBubbleChart(data) {
     const colors = {
-        'Positive': '#32CD32',  // Lime Green
-        'Neutral': '#9782ad',   // Lilac
-        'Negative': '#f05b06',  // Red Orange
-        'Critical': '#ff0080',  // Fuchsia
-        'Mixed': '#432f70'      // Indigo
+        'Positive': '#10b981',  // Emerald (subtle green)
+        'Neutral': '#94a3b8',   // Slate (subtle gray)
+        'Negative': '#f59e0b',  // Amber (subtle orange)
+        'Critical': '#ef4444',  // Rose (soft red)
+        'Mixed': '#8b5cf6',     // Violet (soft purple)
+        'Cautious': '#f97316',  // Orange
+        'Optimistic': '#22c55e', // Green
+        'Concerned': '#eab308', // Yellow
+        'Pessimistic': '#dc2626' // Red
     };
 
     const traces = topicOptions.sentiments.map(sentiment => ({
@@ -1053,10 +1300,10 @@ function updateArticlesBubbleChart(data) {
 
 function updateArticlesFutureTimeBubbleChart(data) {
     const colors = {
-        'Immediate': '#FF1493',  // Deep Pink
-        'Short-term': '#f05b06',  // Red Orange
-        'Mid-term': '#32CD32',   // Lime Green
-        'Long-term': '#9782ad'   // Lilac
+        'Immediate': '#ef4444',  // Rose (soft red)
+        'Short-term': '#f59e0b',  // Amber (subtle orange)
+        'Mid-term': '#22c55e',   // Green (subtle)
+        'Long-term': '#3b82f6'   // Blue (soft)
     };
 
     const traces = topicOptions.timeToImpacts.map(timeToImpact => ({
@@ -1092,12 +1339,16 @@ function updateArticlesFutureTimeBubbleChart(data) {
 
 function updateRadarChart(data) {
     const colors = {
-        'Positive': '#32CD32',  // Lime Green
-        'Neutral': '#9782ad',   // Lilac
-        'Negative': '#f05b06',  // Red Orange
-        'Critical': '#ff0080',  // Fuchsia
-        'Mixed': '#432f70',     // Indigo
-        'Hyperbolic': '#777777' // Gray
+        'Positive': '#10b981',  // Emerald (subtle green)
+        'Neutral': '#94a3b8',   // Slate (subtle gray)
+        'Negative': '#f59e0b',  // Amber (subtle orange)
+        'Critical': '#ef4444',  // Rose (soft red)
+        'Mixed': '#8b5cf6',     // Violet (soft purple)
+        'Cautious': '#f97316',  // Orange
+        'Optimistic': '#22c55e', // Green
+        'Concerned': '#eab308', // Yellow
+        'Pessimistic': '#dc2626', // Red
+        'Hyperbolic': '#6b7280' // Gray (subtle)
     };
 
     // Process data to group by future signal, sentiment, and time to impact
@@ -1127,8 +1378,9 @@ function updateRadarChart(data) {
             if (count > 0) {
                 r.push(count);
                 theta.push(signal);
-                sizes.push(Math.sqrt(count) * 2);
-                hoverTexts.push(`${signal}, ${sentiment}: ${count} articles`);
+                // Increased multiplier from 2 to 8 for much larger, more visible bubbles
+                sizes.push(Math.sqrt(count) * 8);
+                hoverTexts.push(`${signal}<br>${sentiment}: <b>${count} articles</b>`);
             }
         });
 
@@ -1141,14 +1393,23 @@ function updateRadarChart(data) {
             marker: {
                 color: colors[sentiment] || 'gray',
                 size: sizes,
-                opacity: 0.7,
+                opacity: 0.75,
                 line: {
-                    width: 1,
+                    width: 2,
                     color: 'white'
-                }
+                },
+                sizemode: 'diameter'
             },
             text: hoverTexts,
-            hoverinfo: 'text'
+            hoverinfo: 'text',
+            hoverlabel: {
+                bgcolor: 'white',
+                bordercolor: colors[sentiment] || 'gray',
+                font: {
+                    size: 13,
+                    color: '#374151'
+                }
+            }
         });
     });
 
@@ -1175,45 +1436,81 @@ function updateRadarChart(data) {
     });
 
     const layout = {
-        title: 'Radar Chart of Articles by Future Signal, Sentiment, and Time to Impact',
+        title: {
+            text: 'Article Distribution by Future Signal and Sentiment',
+            font: {
+                size: 16,
+                weight: 600,
+                color: '#1f2937'
+            }
+        },
         polar: {
             radialaxis: {
                 visible: true,
                 range: [0, Math.max(...visibleScales) * 1.1],
                 tickvals: visibleScales,
-                tickfont: { size: 10 },
-                gridcolor: 'lightgray',
-                gridwidth: 1
+                tickfont: {
+                    size: 11,
+                    color: '#6b7280'
+                },
+                gridcolor: '#e5e7eb',
+                gridwidth: 0.5,
+                linecolor: '#d1d5db'
             },
             angularaxis: {
-                tickfont: { size: 12 },
+                tickfont: {
+                    size: 13,
+                    weight: 500,
+                    color: '#374151'
+                },
                 rotation: 90,
                 direction: 'clockwise',
-                gridcolor: 'lightgray'
+                gridcolor: '#e5e7eb',
+                linecolor: '#d1d5db'
             },
             bgcolor: 'white'
         },
         showlegend: true,
-        legend: { 
+        legend: {
             orientation: 'v',
-            x: 1.1,
-            y: 0.5,
+            x: 1.05,
+            y: 1,
+            xanchor: 'left',
+            yanchor: 'top',
             title: {
-                text: 'Sentiment',
-                side: 'top'
-            }
+                text: '<b>Sentiment</b>',
+                side: 'top',
+                font: {
+                    size: 13,
+                    weight: 600
+                }
+            },
+            font: {
+                size: 12
+            },
+            bgcolor: 'rgba(255,255,255,0.9)',
+            bordercolor: '#e5e7eb',
+            borderwidth: 1
         },
         margin: {
-            l: 50,
-            r: 50,
-            t: 50,
-            b: 50
+            l: 80,
+            r: 180,
+            t: 80,
+            b: 80
         },
         paper_bgcolor: 'white',
-        plot_bgcolor: 'white'
+        plot_bgcolor: 'white',
+        hovermode: 'closest'
     };
 
-    Plotly.newPlot('radarChart', traces, layout);
+    const config = {
+        responsive: true,
+        displayModeBar: true,
+        displaylogo: false,
+        modeBarButtonsToRemove: ['lasso2d', 'select2d']
+    };
+
+    Plotly.newPlot('radarChart', traces, layout, config);
 }
 
 function updateArticleCount(count) {
@@ -1361,12 +1658,16 @@ function filterTimeSeriesData(data, periodFilter) {
     // Prepare data for each sentiment
     const traces = [];
     const colors = {
-        'Positive': '#32CD32',  // Lime Green
-        'Neutral': '#FFD700',   // Gold
-        'Negative': '#FF4500',  // Orange Red
-        'Critical': '#FF0000',  // Red
-        'Mixed': '#9370DB',     // Medium Purple
-        'Hyperbolic': '#A9A9A9' // Dark Gray
+        'Positive': '#10b981',  // Emerald (subtle green)
+        'Neutral': '#94a3b8',   // Slate (subtle gray)
+        'Negative': '#f59e0b',  // Amber (subtle orange)
+        'Critical': '#ef4444',  // Rose (soft red)
+        'Mixed': '#8b5cf6',     // Violet (soft purple)
+        'Cautious': '#f97316',  // Orange
+        'Optimistic': '#22c55e', // Green
+        'Concerned': '#eab308', // Yellow
+        'Pessimistic': '#dc2626', // Red
+        'Hyperbolic': '#6b7280' // Gray (subtle)
     };
 
     // Main sentiment lines
@@ -1597,7 +1898,7 @@ function filterCategoryTimeSeriesData(data, periodFilter) {
     
     // Assign color for "Other" category if needed
     if (categories.length > topCategories.length) {
-        categoryColors[otherCategory] = '#cccccc'; // Gray for "Other"
+        categoryColors[otherCategory] = 'var(--colors-neutral-6)ccc'; // Gray for "Other"
     }
 
     // Fill in missing dates to ensure smooth visualization
@@ -1768,11 +2069,11 @@ function filterCategoryTimeSeriesData(data, periodFilter) {
             t: 50,
             b: 120
         },
-        plot_bgcolor: '#ffffff',
-        paper_bgcolor: '#ffffff',
+        plot_bgcolor: 'var(--colors-white)',
+        paper_bgcolor: 'var(--colors-white)',
         hoverlabel: {
-            bgcolor: '#fff',
-            bordercolor: '#ccc',
+            bgcolor: 'var(--colors-white)',
+            bordercolor: 'var(--colors-neutral-6)',
             font: {size: 12}
         },
         bargap: 0.01, // Minimize the gap between bars for wider appearance
@@ -1826,14 +2127,36 @@ function initFlowChart() {
             allowClear: true,
             width: 'resolve'
         }).on('change', fetchAndRender);
-        
-        fetchAndRender();
+
+        // Don't call fetchAndRender() here - wait for tab to be shown
+        // This prevents rendering with incorrect container width
     });
-    
+
     // Add event listeners for Flow tab
     document.getElementById('refreshBtn').addEventListener('click', fetchAndRender);
-    
-    ['sourceFilter', 'categoryFilter', 'sentimentFilter', 'colorMode', 'topSourcesInput', 
+
+    // Reset filters button
+    document.getElementById('resetFiltersBtn').addEventListener('click', function() {
+        // Clear all Select2 selections
+        $('#sourceFilter').val(null).trigger('change');
+        $('#categoryFilter').val(null).trigger('change');
+        $('#sentimentFilter').val(null).trigger('change');
+
+        // Reset checkboxes
+        document.getElementById('includeOtherCheckbox').checked = true;
+        document.getElementById('showCategoryCheckbox').checked = true;
+
+        // Reset dropdowns to defaults
+        document.getElementById('flowTopicSelect').value = '';
+        document.getElementById('flowTimeframeSelect').value = 'all';
+        document.getElementById('topSourcesInput').value = '12';
+        document.getElementById('colorMode').value = 'stage';
+
+        // Refresh the chart
+        fetchAndRender();
+    });
+
+    ['sourceFilter', 'categoryFilter', 'sentimentFilter', 'colorMode', 'topSourcesInput',
      'includeOtherCheckbox', 'showCategoryCheckbox'].forEach(id => {
         document.getElementById(id).addEventListener('change', fetchAndRender);
     });
@@ -1857,10 +2180,10 @@ async function loadFlowTopics() {
 // Utility for fallback pastel hues when stage color not used
 function pastelColor(idx, total) {
     const hue = (idx * 360 / total) % 360;
-    return `hsl(${hue},60%,70%)`;
+    return `hsl(${hue},50%,65%)`;  // Slightly more subtle
 }
 
-const STAGE_COLORS = ['#4e79a7', '#f28e2c', '#59a14f']; // source, category, sentiment
+const STAGE_COLORS = ['#6366f1', '#8b5cf6', '#ec4899']; // source (indigo), category (violet), sentiment (pink) - subtle versions
 
 function buildSankeyData(articles, maxSources, includeOther=true, includeCategory=true) {
     const MAX_SOURCES = maxSources;
@@ -1944,32 +2267,81 @@ function buildSankeyData(articles, maxSources, includeOther=true, includeCategor
 }
 
 function renderSankey(data) {
+    // Make link colors more transparent for better readability
+    const linkColorsWithOpacity = data.linkColors.map(color => {
+        // Convert to rgba with 50% opacity
+        if (color.startsWith('hsl')) {
+            return color.replace('hsl', 'hsla').replace(')', ', 0.5)');
+        }
+        return color;
+    });
+
     const trace = {
         type: 'sankey',
         orientation: 'h',
         node: {
-            pad: 30,
-            thickness: 30,
+            pad: 35,
+            thickness: 35,
             label: data.nodes,
             color: data.nodeColors,
-            font: {size: 10, color: '#000'}
+            line: {
+                color: 'white',
+                width: 2
+            },
+            font: {
+                size: 12,
+                color: '#374151',
+                weight: 500
+            },
+            hovertemplate: '<b>%{label}</b><br>Total: %{value}<extra></extra>'
         },
         link: {
             source: data.sources,
             target: data.targets,
             value: data.values,
-            color: data.linkColors
+            color: linkColorsWithOpacity,
+            hovertemplate: 'From: %{source.label}<br>To: %{target.label}<br>Articles: %{value}<extra></extra>'
         }
     };
+
+    // Get the actual container width
+    const container = document.getElementById('sankeyChart');
+    const containerWidth = container.offsetWidth || container.parentElement.offsetWidth || 1200;
+
     const layout = {
-        title: 'Article Flow Across Stages',
-        font: {size: 12},
-        height: 650,
-        width: 1300,
-        margin: {l: 30, r: 30, t: 40, b: 10},
-        autosize: true
+        title: {
+            text: 'Article Flow: Source → Category → Sentiment',
+            font: {
+                size: 16,
+                weight: 600,
+                color: '#1f2937'
+            }
+        },
+        font: {
+            size: 12,
+            family: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
+        },
+        width: containerWidth,
+        height: 700,
+        margin: {l: 40, r: 40, t: 60, b: 20},
+        autosize: false,
+        paper_bgcolor: 'white',
+        plot_bgcolor: 'white'
     };
-    Plotly.react('sankeyChart', [trace], layout, {responsive: true});
+
+    const config = {
+        responsive: true,
+        displayModeBar: true,
+        displaylogo: false,
+        modeBarButtonsToRemove: ['lasso2d', 'select2d'],
+        toImageButtonOptions: {
+            format: 'png',
+            filename: 'article_flow_chart',
+            scale: 2
+        }
+    };
+
+    Plotly.react('sankeyChart', [trace], layout, config);
 }
 
 function applyFilters(records) {
@@ -2017,4 +2389,209 @@ async function fetchAndRender() {
     renderSankey(sankey);
 }
 </script>
+
+    </div> <!-- End analytics-scrollable -->
+</div> <!-- End analytics-container -->
+
+<style>
+/* Analytics container matching other pages */
+.analytics-container {
+    max-width: 100%;
+    margin: 0 auto;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.analytics-scrollable {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.5rem;
+}
+
+/* Breadcrumb Header */
+.page-breadcrumb-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.5rem;
+    background: white;
+    border-bottom: 1px solid var(--colors-neutral-4);
+    flex-shrink: 0;
+}
+
+.breadcrumb-text {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--colors-neutral-8);
+}
+
+.breadcrumb-text .font-medium {
+    font-weight: 500;
+    color: var(--colors-neutral-12);
+}
+
+.page-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+/* Subtle button styling */
+.btn-icon {
+    background: white;
+    border: 1px solid var(--colors-neutral-4);
+    color: var(--colors-neutral-8);
+    padding: 0.5rem;
+    border-radius: 0.375rem;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+}
+
+.btn-icon:hover {
+    background: var(--colors-neutral-3);
+    border-color: #d1d5db;
+    color: var(--colors-neutral-12);
+}
+
+.btn-topic-setup {
+    background: var(--colors-neutral-3);
+    border: none;
+    color: var(--colors-neutral-12);
+    padding: 0.5rem 1rem;
+    border-radius: 0.375rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+}
+
+.btn-topic-setup:hover {
+    background: var(--colors-neutral-4);
+    color: var(--colors-neutral-12);
+}
+
+/* Override bright pink buttons to subtle style */
+.btn-primary {
+    background: white !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-accent-8) !important;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.btn-primary:hover {
+    background: var(--colors-accent-1) !important;
+    border-color: var(--colors-accent-3) !important;
+    color: var(--colors-accent-8) !important;
+}
+
+.btn-success {
+    background: white !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-success-9) !important;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.btn-success:hover {
+    background: #f0fdf4 !important;
+    border-color: #d1fae5 !important;
+    color: var(--colors-success-9) !important;
+}
+
+.btn-secondary {
+    background: white !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-neutral-12) !important;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.btn-secondary:hover {
+    background: var(--colors-neutral-3) !important;
+    border-color: #d1d5db !important;
+    color: var(--colors-neutral-12) !important;
+}
+
+.btn-danger, .btn-outline-danger {
+    background: white !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-error-7) !important;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.btn-danger:hover, .btn-outline-danger:hover {
+    background: #fef2f2 !important;
+    border-color: #fecaca !important;
+    color: var(--colors-error-7) !important;
+}
+
+.btn-warning {
+    background: white !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: var(--colors-warning-6) !important;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.btn-warning:hover {
+    background: var(--colors-white)beb !important;
+    border-color: #fde68a !important;
+    color: var(--colors-warning-6) !important;
+}
+
+.btn-info {
+    background: white !important;
+    border: 1px solid var(--colors-neutral-4) !important;
+    color: #3b82f6 !important;
+    font-weight: 500;
+    transition: all 0.2s ease;
+}
+
+.btn-info:hover {
+    background: #eff6ff !important;
+    border-color: #bfdbfe !important;
+    color: #3b82f6 !important;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+    .page-breadcrumb-header {
+        padding: 0.5rem 1rem;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+    }
+
+    .breadcrumb-text {
+        font-size: 0.75rem;
+    }
+
+    .page-header-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .btn-topic-setup {
+        font-size: 0.75rem;
+        padding: 0.375rem 0.75rem;
+    }
+}
+</style>
 {% endblock %}

@@ -66,12 +66,16 @@ from app.routes.saved_searches import router as saved_searches_router
 # Removed scenario routes - no longer needed
 # Removed topic_map routes - no longer needed
 from app.routes.auspex_routes import router as auspex_router
+from app.routes.saved_dashboard_routes import router as saved_dashboard_router
 # Removed newsletter routes - no longer needed
 from app.routes.dataset_routes import router as dataset_router
 from app.routes.keyword_monitor_api import router as keyword_monitor_api_router
 from app.routes.oauth_routes import router as oauth_router
 from app.routes.websocket_routes import router as websocket_router
 from app.routes.user_management_routes import router as user_management_router  # Multi-user support (Added 2025-10-21)
+from app.routes.prompt_management_routes import router as prompt_management_router  # Prompt management API
+from app.routes.market_signals_routes import router as market_signals_router  # Market Signals & Strategic Risks
+from app.routes.notification_routes import router as notification_router  # Notification system (Added 2025-11-08)
 
 # ElevenLabs SDK imports used in podcast endpoints
 from elevenlabs import ElevenLabs, PodcastConversationModeData, PodcastTextSource
@@ -121,6 +125,10 @@ app.include_router(keyword_monitor_api_router, prefix="/api")
 app.include_router(keyword_alerts_router, prefix="/api")  # Bulk delete articles endpoint
 app.include_router(onboarding_router)
 app.include_router(user_management_router)  # User management API (Added 2025-10-21)
+app.include_router(prompt_management_router)  # Prompt management API (Added 2025-01-06)
+app.include_router(market_signals_router)  # Market Signals & Strategic Risks (Added 2025-01-06)
+app.include_router(notification_router)  # Notification system (Added 2025-11-08)
+app.include_router(saved_dashboard_router)  # Saved Dashboards API (Added 2025-11-13)
 
 class ArticleData(BaseModel):
     title: str
@@ -206,19 +214,18 @@ def get_template_context(request: Request, additional_context: dict = None) -> d
     # Get fresh app info
     app_info = get_app_info()
     logger.debug(f"Creating template context with app_info: {app_info}")
-    
+
     context = {
         "request": request,
-        "app_info": app_info,
-        "session": request.session if hasattr(request, "session") else {}
+        "app_info": app_info
     }
-    
+
     if additional_context:
-        # Don't allow overwriting of core context
+        # Allow overwriting of all keys - routes should provide enhanced session
         for key, value in additional_context.items():
-            if key not in ["request", "app_info", "session"]:
+            if key not in ["request", "app_info"]:  # Only protect request and app_info
                 context[key] = value
-    
+
     logger.debug(f"Final template context: {context}")
     return context
 
@@ -587,8 +594,11 @@ async def save_bulk_articles(
 @app.get("/analytics", response_class=HTMLResponse)
 async def analytics_route(request: Request, session=Depends(verify_session)):
     return templates.TemplateResponse(
-        "analytics.html", 
-        get_template_context(request)
+        "analytics.html",
+        get_template_context(request, {
+            "session": session,
+            "current_page": "settings"
+        })
     )
 
 @app.get("/api/analytics")
@@ -643,7 +653,8 @@ async def config_page(request: Request, session=Depends(verify_session)):
                 "models": models,
                 "providers": providers,
                 "session": session,
-                "bluesky_configured": bluesky_configured
+                "bluesky_configured": bluesky_configured,
+                "current_page": "settings"
             })
         )
     except Exception as e:
@@ -1546,7 +1557,8 @@ async def create_topic_page(request: Request, session=Depends(verify_session)):
     
     return templates.TemplateResponse("create_topic.html", {
         "request": request,
-        "session": request.session,
+        "session": session,
+        "current_page": "settings",
         "example_topics": example_topics,
         "example_categories": example_categories,
         "example_signals": example_signals,
@@ -1872,7 +1884,8 @@ async def database_editor_page(
             "request": request,
             "topics": topics,
             "selected_topic": topic,  # Pass the selected topic to the template
-            "session": session
+            "session": session,
+            "current_page": "settings"
         })
     except Exception as e:
         logger.error(f"Database editor error: {str(e)}")
@@ -2179,7 +2192,8 @@ async def keyword_monitor_page(request: Request, session=Depends(verify_session)
             get_template_context(request, {
                 "keyword_groups": list(groups.values()),
                 "topics": topics,
-                "session": session
+                "session": session,
+                "current_page": "gather"
             })
         )
     except Exception as e:
@@ -2862,11 +2876,11 @@ async def get_flow_data(
 
     data = [
         {
-            "source": row[0],
-            "category": row[1],
-            "sentiment": row[2],
-            "driver_type": row[3],
-            "submission_date": row[4],
+            "source": row['source'],
+            "category": row['category'],
+            "sentiment": row['sentiment'],
+            "driver_type": row['driver_type'],
+            "submission_date": row['submission_date'].isoformat() if hasattr(row['submission_date'], 'isoformat') else row['submission_date'],
         } for row in rows
     ]
     logger.info("Returning %d flow records", len(data))

@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trend Convergence Analysis - AuNoo AI</title>
+    <link rel="stylesheet" href="/static/figma-styles.css">
+</head>
+<body>
+    <div class="min-h-screen bg-[var(--colors-neutral-3)]">
+        <!-- Top Navigation Bar -->
+        <div class="bg-[rgba(255,255,255,0.8)] relative shrink-0 w-full" style="border-bottom: 1px solid rgba(20,0,53,0.15)">
+            <div class="flex flex-row items-center size-full">
+                <div class="box-border content-stretch flex items-center justify-between px-[16px] py-[24px] relative w-full">
+                    <!-- Breadcrumb -->
+                    <div class="content-stretch flex gap-[4px] items-center relative shrink-0">
+                        <p class="font-['Open_Sans:Regular',sans-serif] font-normal leading-[24px] text-[16px] text-[rgba(0,7,27,0.5)] text-nowrap whitespace-pre">Explore</p>
+                        <p class="font-['Open_Sans:Regular',sans-serif] font-normal leading-[24px] text-[16px] text-[rgba(0,7,27,0.5)] text-nowrap whitespace-pre">/</p>
+                        <p class="font-['Open_Sans:Regular',sans-serif] font-normal leading-[24px] text-[16px] text-[rgba(0,7,20,0.62)] text-nowrap whitespace-pre">Strategic Recommendations</p>
+                        <p class="font-['Open_Sans:Regular',sans-serif] font-normal leading-[24px] text-[16px] text-[rgba(0,7,27,0.5)] text-nowrap whitespace-pre">•</p>
+                        <p class="font-['Inter:Regular',sans-serif] font-normal leading-[24px] text-[var(--colors-neutral-12)] text-[16px] text-nowrap whitespace-pre">Current indicators and potential disruption scenarios</p>
+                    </div>
+
+                    <!-- Action Button -->
+                    <a href="/trend-convergence" class="box-border content-stretch flex gap-[8px] h-[32px] items-center justify-center px-[12px] py-0 relative rounded-[4px] shrink-0 transition" style="border: 1px solid rgba(0,6,46,0.2); text-decoration: none; cursor: pointer;">
+                        <p class="font-['Inter:Medium',sans-serif] font-medium leading-[20px] text-[#60646c] text-[14px] text-nowrap whitespace-pre">{% if result %}New Analysis{% else %}Configure Analysis{% endif %}</p>
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Tabs -->
+        <div class="bg-[rgba(255,255,255,0.8)] relative rounded-tl-[16px] rounded-tr-[16px] w-full" style="border: 1px 1px 0px solid rgba(0,0,47,0.15); margin-top: 48px;">
+            <div class="box-border content-stretch flex flex-col gap-[24px] items-center justify-center pt-[32px] px-0 pb-0">
+                <div class="bg-[rgba(255,255,255,0)] content-stretch flex h-[40px] items-start justify-center overflow-clip relative shrink-0" style="border-bottom: 1px solid rgba(0,0,47,0.15); width: 100%;">
+                    <div class="content-stretch flex h-full items-center relative shrink-0">
+                        <div class="bg-[rgba(255,255,255,0)] box-border flex h-full items-center justify-center px-[8px] py-0 relative">
+                            <p class="font-['Open_Sans:Regular',sans-serif] font-normal leading-[20px] text-[14px] text-[rgba(0,7,20,0.62)] text-nowrap whitespace-pre">AI Impact Timeline</p>
+                        </div>
+                        <div class="bg-[rgba(255,255,255,0)] box-border flex h-full items-center justify-center px-[8px] py-0 relative">
+                            <p class="font-['Inter:Regular',sans-serif] font-normal leading-[20px] text-[14px] text-[rgba(0,7,20,0.62)] text-nowrap whitespace-pre">Trends Convergence</p>
+                        </div>
+                        <div class="bg-[rgba(255,255,255,0)] box-border flex h-full items-center justify-center px-[8px] py-0 relative">
+                            <p class="font-['Inter:Regular',sans-serif] font-normal leading-[20px] text-[14px] text-[rgba(0,7,20,0.62)] text-nowrap whitespace-pre">Market Signals & Strategic Risks</p>
+                        </div>
+                        <div class="bg-[rgba(255,255,255,0)] box-border flex h-full items-center justify-center px-[8px] py-0 relative" style="border-bottom: 2px solid #3358d4;">
+                            <p class="font-['Open_Sans:Medium',sans-serif] leading-[20px] text-[var(--colors-neutral-12)] text-[14px] text-nowrap whitespace-pre">Strategic Recommendations</p>
+                        </div>
+                        <div class="bg-[rgba(255,255,255,0)] box-border flex h-full items-center justify-center px-[8px] py-0 relative">
+                            <p class="font-['Inter:Regular',sans-serif] font-normal leading-[20px] text-[14px] text-[rgba(0,7,20,0.62)] text-nowrap whitespace-pre">Future Horizons</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="relative shrink-0 w-full">
+            <div class="box-border content-stretch flex flex-col gap-[48px] items-start p-[32px] relative w-full">
+
+                {% if result %}
+                <!-- Topic Header -->
+                <div class="bg-[rgba(255,255,255,0.8)] rounded-[16px] p-[32px] w-full" style="border: 1px solid rgba(0,0,47,0.15);">
+                    <div class="content-stretch flex items-center justify-between w-full">
+                        <div class="flex gap-[4px] items-center">
+                            <p class="font-['Open_Sans:Regular',sans-serif] font-normal leading-[24px] text-[16px] text-[rgba(0,5,29,0.45)] text-nowrap whitespace-pre">Topic:</p>
+                            <p class="font-['Open_Sans:Medium',sans-serif] leading-[24px] text-[var(--colors-neutral-12)] text-[16px] text-nowrap whitespace-pre">{{ result.topic }}</p>
+                        </div>
+                        <div class="flex gap-[4px] items-center">
+                            <p class="font-['Open_Sans:Regular',sans-serif] font-normal leading-[24px] text-[16px] text-[rgba(0,5,29,0.45)] text-nowrap whitespace-pre">Last Updated:</p>
+                            <p class="font-['Open_Sans:Medium',sans-serif] leading-[24px] text-[var(--colors-neutral-12)] text-[16px] text-nowrap whitespace-pre">{{ result.timestamp.strftime('%d.%m.%Y') if result.timestamp else 'N/A' }}</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Strategic Recommendations Cards -->
+                {% if result.strategic_recommendations %}
+                <div class="bg-[rgba(255,255,255,0.8)] rounded-[16px] p-[32px] w-full" style="border: 1px solid rgba(0,0,47,0.15);">
+                    <h2 class="font-['Open_Sans:Bold',sans-serif] font-bold text-[24px] text-[var(--colors-neutral-12)] mb-[24px]">Strategic Recommendations</h2>
+
+                    <div class="grid grid-cols-[repeat(3,_minmax(0px,_1fr))] gap-[24px]">
+                        <!-- NEAR-TERM -->
+                        <div class="bg-[#d6f1df] rounded-[12px] p-[24px]">
+                            <h3 class="font-['Inter:Bold',sans-serif] font-bold text-[16px] leading-[26px] text-[var(--colors-neutral-12)] mb-[16px]">NEAR-TERM (2025-2027)</h3>
+                            <div class="flex flex-col gap-[12px]">
+                                {% for trend in result.strategic_recommendations.near_term.trends[:5] %}
+                                <div class="flex gap-[8px] items-start">
+                                    <span class="text-[14px]">•</span>
+                                    <p class="font-['Open_Sans:Regular',sans-serif] font-normal text-[14px] leading-[20px] text-[var(--colors-neutral-12)]">
+                                        {% if trend is string %}
+                                            {{ trend }}
+                                        {% else %}
+                                            {{ trend.name or trend.description or trend }}
+                                        {% endif %}
+                                    </p>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+
+                        <!-- MID-TERM -->
+                        <div class="bg-[#ffdfb5] rounded-[12px] p-[24px]">
+                            <h3 class="font-['Inter:Bold',sans-serif] font-bold text-[16px] leading-[26px] text-[var(--colors-neutral-12)] mb-[16px]">MID-TERM (2027-2032)</h3>
+                            <div class="flex flex-col gap-[12px]">
+                                {% for trend in result.strategic_recommendations.mid_term.trends[:5] %}
+                                <div class="flex gap-[8px] items-start">
+                                    <span class="text-[14px]">•</span>
+                                    <p class="font-['Open_Sans:Regular',sans-serif] font-normal text-[14px] leading-[20px] text-[var(--colors-neutral-12)]">
+                                        {% if trend is string %}
+                                            {{ trend }}
+                                        {% else %}
+                                            {{ trend.name or trend.description or trend }}
+                                        {% endif %}
+                                    </p>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+
+                        <!-- LONG-TERM -->
+                        <div class="bg-[#ffdbdc] rounded-[12px] p-[24px]">
+                            <h3 class="font-['Inter:Bold',sans-serif] font-bold text-[16px] leading-[26px] text-[var(--colors-neutral-12)] mb-[16px]">LONG-TERM (2032+)</h3>
+                            <div class="flex flex-col gap-[12px]">
+                                {% for trend in result.strategic_recommendations.long_term.trends[:5] %}
+                                <div class="flex gap-[8px] items-start">
+                                    <span class="text-[14px]">•</span>
+                                    <p class="font-['Open_Sans:Regular',sans-serif] font-normal text-[14px] leading-[20px] text-[var(--colors-neutral-12)]">
+                                        {% if trend is string %}
+                                            {{ trend }}
+                                        {% else %}
+                                            {{ trend.name or trend.description or trend }}
+                                        {% endif %}
+                                    </p>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Executive Decision Framework -->
+                {% if result.executive_decision_framework and result.executive_decision_framework.principles %}
+                <div class="bg-[rgba(255,255,255,0.8)] rounded-[16px] p-[32px] w-full" style="border: 1px solid rgba(0,0,47,0.15);">
+                    <h2 class="font-['Open_Sans:Bold',sans-serif] font-bold text-[24px] text-[var(--colors-neutral-12)] mb-[24px]">Executive Decision Framework</h2>
+
+                    <div class="grid grid-cols-[repeat(3,_minmax(0px,_1fr))] gap-[16px]">
+                        {% for principle in result.executive_decision_framework.principles %}
+                        <div class="bg-[rgba(0,71,241,0.07)] rounded-[8px] p-[16px]" style="border-left: 4px solid #3358d4;">
+                            <h3 class="font-['Inter:Medium',sans-serif] font-medium text-[14px] text-[var(--colors-neutral-12)] mb-[8px]">
+                                {{ principle.title or principle.name or 'Principle' }}
+                            </h3>
+                            <p class="font-['Open_Sans:Regular',sans-serif] text-[12px] text-[rgba(0,7,20,0.62)]">
+                                {{ principle.description or principle.content or '' }}
+                            </p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Next Steps -->
+                {% if result.next_steps %}
+                <div class="bg-[rgba(255,255,255,0.8)] rounded-[16px] p-[32px] w-full" style="border: 1px solid rgba(0,0,47,0.15);">
+                    <h2 class="font-['Open_Sans:Bold',sans-serif] font-bold text-[24px] text-[var(--colors-neutral-12)] mb-[24px]">Next Steps</h2>
+
+                    <div class="flex flex-col gap-[12px]">
+                        {% for step in result.next_steps %}
+                        <div class="flex gap-[12px] items-start p-[16px] bg-[rgba(0,0,85,0.02)] rounded-[8px]" style="border: 1px solid rgba(0,0,47,0.15);">
+                            <div class="flex items-center justify-center shrink-0 w-[32px] h-[32px] rounded-[16px] bg-[#3358d4] text-white font-bold text-[14px]">
+                                {{ loop.index }}
+                            </div>
+                            <p class="font-['Open_Sans:Regular',sans-serif] text-[14px] leading-[20px] text-[var(--colors-neutral-12)]">
+                                {% if step is string %}
+                                    {{ step }}
+                                {% else %}
+                                    {{ step.action or step.description or step.priority or step }}
+                                {% endif %}
+                            </p>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% else %}
+                <!-- Configuration Form -->
+                <div class="bg-[rgba(255,255,255,0.8)] rounded-[16px] p-[32px] w-full" style="border: 1px solid rgba(0,0,47,0.15);">
+                    <h2 class="font-['Open_Sans:Bold',sans-serif] font-bold text-[24px] text-[var(--colors-neutral-12)] mb-[24px]">Configure Trend Convergence Analysis</h2>
+
+                    <form method="get" action="/trend-convergence">
+                        <div class="grid grid-cols-[repeat(2,_minmax(0px,_1fr))] gap-[24px] mb-[32px]">
+                            <!-- Topic Input -->
+                            <div>
+                                <label class="font-['Inter:Medium',sans-serif] font-medium text-[14px] text-[var(--colors-neutral-12)] mb-[8px] block">
+                                    Topic *
+                                </label>
+                                <input
+                                    type="text"
+                                    name="topic"
+                                    required
+                                    placeholder="e.g., Artificial Intelligence, Cloud Computing"
+                                    class="w-full px-[12px] py-[8px] rounded-[6px] font-['Open_Sans:Regular',sans-serif] text-[14px]"
+                                    style="border: 1px solid rgba(0,6,46,0.2);"
+                                />
+                            </div>
+
+                            <!-- Model Selection (hidden, uses default) -->
+                            <input type="hidden" name="model" value="claude-3-5-sonnet-20241022" />
+
+                            <div>
+                                <label class="font-['Inter:Medium',sans-serif] font-medium text-[14px] text-[var(--colors-neutral-12)] mb-[8px] block">
+                                    Quick Start
+                                </label>
+                                <p class="font-['Open_Sans:Regular',sans-serif] text-[12px] text-[rgba(0,7,20,0.62)]">
+                                    Enter a topic above and click Generate to create your strategic analysis
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="flex justify-end">
+                            <button
+                                type="submit"
+                                class="inline-flex gap-[8px] h-[40px] items-center justify-center px-[24px] py-0 rounded-[6px] bg-[#3358d4] text-white font-['Inter:Medium',sans-serif] font-medium text-[14px] transition"
+                                style="border: none; cursor: pointer;"
+                            >
+                                🚀 Generate Analysis
+                            </button>
+                        </div>
+                    </form>
+                </div>
+                {% endif %}
+
+            </div>
+        </div>
+    </div>
+</body>
+</html>

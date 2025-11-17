@@ -1,0 +1,94 @@
+{
+  "prompt_name": "Impact Timeline Analysis",
+  "feature": "impact_timeline",
+  "version": "1.1.0",
+  "created_at": "2025-01-06T12:00:00Z",
+  "updated_at": "2025-11-11T12:00:00Z",
+  "author": "System",
+  "description": "Analyzes temporal progression of impacts across multiple dimensions with evidence-based forecasting (v1.1: Multiple citations per insight)",
+
+  "system_prompt": "You are an expert strategic analyst specializing in temporal impact analysis and evidence-based forecasting. Your analysis focuses on:\n\n1. Impact Timeline: Identify key impact areas and their temporal progression\n2. Timeline Visualization: Map specific milestones and transition points across years\n3. Evidence Synthesis: Synthesize insights from multiple research sources\n4. Forecast Credibility: Distinguish between consensus views, outliers, and credible forecasts\n\nYour output must be in valid JSON format following the specified schema.",
+
+  "user_prompt": "Analyze {article_count} articles about {topic}.{org_context}\n\n{articles}\n\n**CRITICAL INSTRUCTIONS:**\n\n1. **Impact Timeline:**\n   - Create 4-6 distinct impact areas that show temporal progression\n   - Each area should have:\n     - **title**: Clear, concise impact area name (e.g., \"Market Correction/Bubble\", \"Infrastructure Scaling\")\n     - **description**: Brief description of the impact trajectory (1-2 sentences)\n     - **timeline_start**: Starting year (typically current year or recent past)\n     - **timeline_end**: Ending year (typically 5-10 years out)\n     - **tooltip_positions**: Array of 2-4 milestone markers with specific years and labels\n     - **citations** (optional but strongly encouraged): Array of 2-3 article references from the provided dataset with actual titles and URLs that support this impact area\n   - Focus on diverse impact dimensions: market dynamics, infrastructure, regulation, productivity, workforce, technology maturity\n   - Use evidence from articles to determine realistic timelines\n   - **BEST PRACTICE**: Include citations array with real article titles and URLs from the dataset when possible\n\n2. **Key Insights from Evidence Synthesis:**\n   - Create exactly 5 insights, one for each category:\n     - **consensus_bands**: What do most sources agree on regarding timing and outcomes?\n     - **optimistic_outliers**: What are the most ambitious/positive forecasts that have credibility?\n     - **pessimistic_outliers**: What are the cautionary views about barriers or delays?\n     - **strategic_planning**: What should organizations prepare for based on the evidence?\n     - **most_credible_forecasts**: What timeline claims are most supported by evidence?\n   - Each insight should have:\n     - **category**: One of the five categories above\n     - **insight**: The key finding or recommendation (1-2 sentences)\n     - **relevance**: Why this matters for strategic planning\n     - **citations** (strongly encouraged): Array of 2-3 article references from the dataset with actual titles and URLs that support this insight through evidence synthesis\n   - **BEST PRACTICE**: Include citations array with 2-3 real article references from the dataset to demonstrate evidence synthesis (not just single-source claims)\n\n3. **Timeline Realism:**\n   - Use specific years from article data when available\n   - Ground forecasts in evidence, not speculation\n   - Identify when sources disagree on timing\n   - Note if consensus is forming around certain milestones\n\n4. **Data Quality:**\n   - Extract specific years, dates, and timeframes from articles\n   - Identify key events, milestones, or transition points mentioned\n   - Synthesize patterns across multiple sources\n   - Distinguish between short-term (1-2 years), medium-term (3-5 years), and long-term (5+ years) impacts\n\n5. **Organizational Context:**\n   - If organizational context is provided, tailor insights to that perspective\n   - Consider both opportunities and risks from the organization's viewpoint\n\nREQUIRED OUTPUT FORMAT:\n\nReturn ONLY valid JSON with this structure:\n\n```json\n{\n  \"impact_timeline\": [\n    {\n      \"title\": \"Market Correction/Bubble\",\n      \"description\": \"High investment, risk of short-term correction, followed by stabilization\",\n      \"timeline_start\": 2024,\n      \"timeline_end\": 2030,\n      \"tooltip_positions\": [\n        {\"year\": 2025, \"label\": \"Peak investment\"},\n        {\"year\": 2027, \"label\": \"Market stabilization\"}\n      ],\n      \"citations\": [\n        {\"title\": \"Article title from dataset\", \"url\": \"https://actual-article-url.com\"},\n        {\"title\": \"Another article title\", \"url\": \"https://another-url.com\"}\n      ]\n    }\n  ],\n  \"key_insights\": [\n    {\n      \"category\": \"consensus_bands\",\n      \"insight\": \"Show agreed timing and sentiment from 300+ research sources\",\n      \"relevance\": \"Represents majority view on timeline expectations\",\n      \"citations\": [\n        {\"title\": \"First supporting article\", \"url\": \"https://article-url-1.com\"},\n        {\"title\": \"Second supporting article\", \"url\": \"https://article-url-2.com\"}\n      ]\n    },\n    {\n      \"category\": \"optimistic_outliers\",\n      \"insight\": \"Represent credible dissenting views and potential black swan events\",\n      \"relevance\": \"Important for scenario planning and upside opportunities\",\n      \"citations\": [\n        {\"title\": \"Article with optimistic forecast\", \"url\": \"https://article-url.com\"},\n        {\"title\": \"Another optimistic view\", \"url\": \"https://another-url.com\"}\n      ]\n    },\n    {\n      \"category\": \"pessimistic_outliers\",\n      \"insight\": \"Highlight potential barriers and delayed timelines\",\n      \"relevance\": \"Critical for risk assessment and contingency planning\",\n      \"citations\": [\n        {\"title\": \"Article discussing barriers\", \"url\": \"https://article-url.com\"},\n        {\"title\": \"Risk assessment article\", \"url\": \"https://risk-article.com\"}\n      ]\n    },\n    {\n      \"category\": \"strategic_planning\",\n      \"insight\": \"Show agreed timebound prepare for both consensus scenarios and outlier possibilities\",\n      \"relevance\": \"Actionable for strategic decision-making\",\n      \"citations\": [\n        {\"title\": \"Strategic planning article\", \"url\": \"https://article-url.com\"},\n        {\"title\": \"Strategic framework article\", \"url\": \"https://framework-url.com\"}\n      ]\n    },\n    {\n      \"category\": \"most_credible_forecasts\",\n      \"insight\": \"Reject 2025-2030 AGI claims; focus on gradual evolution\",\n      \"relevance\": \"Based on evidence strength and expert consensus\",\n      \"citations\": [\n        {\"title\": \"Credible forecast article\", \"url\": \"https://article-url.com\"},\n        {\"title\": \"Expert consensus article\", \"url\": \"https://expert-url.com\"},\n        {\"title\": \"Timeline analysis\", \"url\": \"https://timeline-url.com\"}\n      ]\n    }\n  ]\n}\n```",
+
+  "expected_output_schema": {
+    "type": "object",
+    "properties": {
+      "impact_timeline": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "title": { "type": "string" },
+            "description": { "type": "string" },
+            "timeline_start": { "type": "number" },
+            "timeline_end": { "type": "number" },
+            "tooltip_positions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "year": { "type": "number" },
+                  "label": { "type": "string" }
+                },
+                "required": ["year", "label"]
+              }
+            },
+            "citations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "title": { "type": "string" },
+                  "url": { "type": "string" }
+                },
+                "required": ["title", "url"]
+              }
+            }
+          },
+          "required": ["title", "description", "timeline_start", "timeline_end", "tooltip_positions"]
+        }
+      },
+      "key_insights": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "category": {
+              "type": "string",
+              "enum": ["consensus_bands", "optimistic_outliers", "pessimistic_outliers", "strategic_planning", "most_credible_forecasts"]
+            },
+            "insight": { "type": "string" },
+            "relevance": { "type": "string" },
+            "citations": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "title": { "type": "string" },
+                  "url": { "type": "string" }
+                },
+                "required": ["title", "url"]
+              }
+            }
+          },
+          "required": ["category", "insight", "relevance"]
+        }
+      }
+    },
+    "required": ["impact_timeline", "key_insights"]
+  },
+
+  "variables": {
+    "article_count": "Number of articles analyzed",
+    "topic": "Research topic name",
+    "articles": "Formatted article analysis summary",
+    "org_context": "Optional organizational context (blank if not provided)"
+  },
+
+  "metadata": {
+    "model": "gpt-4o",
+    "temperature": 0.7,
+    "max_tokens": 2500
+  }
+}

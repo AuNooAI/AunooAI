@@ -6,9 +6,9 @@
 <style>
     /* Pink styling to match AuNoo AI theme */
     :root {
-        --primary-color: #FF69B4;
-        --primary-dark: #FF1493;
-        --text-color: #333;
+        --primary-color: var(--colors-accent-7);
+        --primary-dark: var(--colors-accent-10);
+        --text-color: var(--colors-neutral-11);
         --container-width: 1200px;
         --spacing-md: 1rem;
     }
@@ -41,7 +41,7 @@
     
     .header p {
         font-size: 1.1rem;
-        color: #6c757d;
+        color: var(--colors-neutral-8);
         max-width: 700px;
         margin: 0 auto;
     }
@@ -49,7 +49,7 @@
     /* Form styling matching base.html patterns */
     .form-control, .form-select {
         border-radius: 8px;
-        border: 1px solid #ddd;
+        border: 1px solid var(--colors-neutral-5);
         padding: 0.5rem 0.75rem;
         transition: all 0.2s ease;
     }
@@ -142,7 +142,7 @@
     
     .analyst-quote {
         background: linear-gradient(135deg, #e3f2fd, #f3e5f5);
-        border-left: 4px solid #FF69B4;
+        border-left: 4px solid var(--colors-accent-7);
         border-radius: 8px;
         padding: 20px;
         margin-bottom: 20px;
@@ -152,7 +152,7 @@
     .analyst-quote::before {
         content: '"';
         font-size: 4rem;
-        color: #FF69B4;
+        color: var(--colors-accent-7);
         position: absolute;
         top: -10px;
         left: 15px;
@@ -165,7 +165,7 @@
     }
     
     .spinner-border {
-        color: #FF69B4;
+        color: var(--colors-accent-7);
     }
 
     /* Alert styling */
@@ -191,13 +191,13 @@
     .market-signals-table td {
         padding: 12px;
         text-align: left;
-        border-bottom: 1px solid #dee2e6;
+        border-bottom: 1px solid var(--colors-neutral-5);
     }
 
     .market-signals-table th {
-        background-color: #f8f9fa;
+        background-color: var(--colors-neutral-2);
         font-weight: 600;
-        color: #333;
+        color: var(--colors-neutral-11);
     }
 
     /* Risk and Opportunity Cards */
@@ -214,11 +214,11 @@
     }
 
     .risk-icon {
-        color: #dc3545;
+        color: var(--colors-error-9);
     }
 
     .opportunity-icon {
-        color: #28a745;
+        color: var(--colors-success-9);
     }
 
     .card-title {
@@ -230,7 +230,7 @@
     }
 
     .card-description {
-        color: #666;
+        color: var(--colors-neutral-8);
         line-height: 1.5;
         margin-bottom: 10px;
     }
@@ -251,7 +251,7 @@
 
     .quote-text {
         font-style: italic;
-        color: #333;
+        color: var(--colors-neutral-11);
         line-height: 1.6;
         font-size: 1.05rem;
     }
@@ -320,18 +320,18 @@
         cursor: help;
         text-decoration: underline;
         text-decoration-style: dotted;
-        text-decoration-color: #6c757d;
+        text-decoration-color: var(--colors-neutral-8);
     }
     
     .info-icon {
-        color: #6c757d;
+        color: var(--colors-neutral-8);
         font-size: 0.875rem;
         margin-left: 5px;
         cursor: help;
     }
     
     .info-icon:hover {
-        color: #495057;
+        color: var(--colors-neutral-9);
     }
 
     /* Square button styling */
@@ -361,7 +361,7 @@
     .btn-divider {
         width: 1px;
         height: 24px;
-        background: #dee2e6;
+        background: var(--colors-neutral-5);
         margin: 0 4px;
         align-self: center;
     }
@@ -808,7 +808,7 @@ async function downloadAsPDF() {
         // Add title
         const title = document.createElement('h1');
         title.style.cssText = `
-            color: #FF69B4;
+            color: var(--colors-accent-7);
             font-size: 28px;
             font-weight: bold;
             margin-bottom: 10px;
@@ -820,7 +820,7 @@ async function downloadAsPDF() {
         // Add subtitle
         const subtitle = document.createElement('p');
         subtitle.style.cssText = `
-            color: #666;
+            color: var(--colors-neutral-8);
             font-size: 16px;
             text-align: center;
             margin-bottom: 30px;
@@ -854,7 +854,7 @@ async function downloadAsPDF() {
             scale: 1.2,
             logging: false,
             allowTaint: true,
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--colors-white)',
             removeContainer: true
         });
 
@@ -935,7 +935,7 @@ async function downloadAsImage() {
         // Add title
         const title = document.createElement('h1');
         title.style.cssText = `
-            color: #FF69B4;
+            color: var(--colors-accent-7);
             font-size: 32px;
             font-weight: bold;
             margin-bottom: 10px;
@@ -947,7 +947,7 @@ async function downloadAsImage() {
         // Add subtitle
         const subtitle = document.createElement('p');
         subtitle.style.cssText = `
-            color: #666;
+            color: var(--colors-neutral-8);
             font-size: 18px;
             text-align: center;
             margin-bottom: 40px;
@@ -981,7 +981,7 @@ async function downloadAsImage() {
             scale: 2,
             logging: false,
             allowTaint: true,
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--colors-white)',
             removeContainer: true
         });
 

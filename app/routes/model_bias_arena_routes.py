@@ -83,20 +83,6 @@ async def get_available_models(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/topics")
-async def get_topics(
-    session=Depends(verify_session),
-    db: Database = Depends(get_database_instance)
-):
-    """Get list of available topics."""
-    try:
-        topics = db.get_topics()
-        return JSONResponse(content={"topics": topics})
-    except Exception as e:
-        logger.error(f"Error getting topics: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.post("/runs")
 async def create_run(
     request: CreateRunRequest,
@@ -123,20 +109,25 @@ async def create_run(
                     detail=f"Model '{model}' not available"
                 )
         
-        # Create the run
-        run_id = service.create_bias_evaluation_run(
+        # Get username for notification
+        username = session.get("user", {}).get("username")
+
+        # Create the run and start evaluation in background (non-blocking)
+        background_tasks.add_task(
+            service.create_and_evaluate_run,
             name=request.name,
             description=request.description,
             benchmark_model=request.benchmark_model,
             selected_models=request.selected_models,
             article_count=request.article_count,
             topic=request.topic,
-            rounds=request.rounds
+            rounds=request.rounds,
+            username=username
         )
-        
-        # Start ontological evaluation in background
-        background_tasks.add_task(service.evaluate_model_ontology, run_id)
-        
+
+        # Return immediately without waiting for article sampling or evaluation
+        run_id = -1  # Placeholder - actual ID will be created in background
+
         return JSONResponse(content={"run_id": run_id, "status": "started"})
         
     except HTTPException:

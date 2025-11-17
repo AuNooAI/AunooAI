@@ -312,9 +312,10 @@ async def run_bulk_save_task(articles: List[Dict]):
             "error": str(e)
         }
 
-async def run_auto_ingest_task(progress_callback=None):
+async def run_auto_ingest_task(progress_callback=None, username=None):
     """Background task wrapper for auto-ingest pipeline with progress tracking"""
     from app.services.auto_ingest_service import get_auto_ingest_service
+    from app.database import get_database_instance
 
     try:
         service = get_auto_ingest_service()
@@ -333,6 +334,36 @@ async def run_auto_ingest_task(progress_callback=None):
             # Run without progress tracking
             results = await service.run_auto_ingest()
 
+        # Create notification for completion
+        if username:
+            db = get_database_instance()
+            try:
+                # Determine success/failure
+                success = results.get("success", False)
+                if success:
+                    ingested = results.get("results", {}).get("ingested", 0) if isinstance(results.get("results"), dict) else 0
+                    errors = results.get("results", {}).get("errors", 0) if isinstance(results.get("results"), dict) else 0
+                    processed = results.get("results", {}).get("processed", 0) if isinstance(results.get("results"), dict) else 0
+
+                    db.facade.create_notification(
+                        username=username,
+                        type='auto_ingest_complete',
+                        title='Auto-Collect Complete',
+                        message=f'Processed {processed} articles. Approved: {ingested}, Failed: {errors}',
+                        link='/keyword-alerts'
+                    )
+                else:
+                    error_msg = results.get("error", "Unknown error")
+                    db.facade.create_notification(
+                        username=username,
+                        type='auto_ingest_error',
+                        title='Auto-Collect Failed',
+                        message=f'Error during auto-collect: {error_msg}',
+                        link='/keyword-alerts'
+                    )
+            except Exception as notif_err:
+                logger.error(f"Failed to create auto-ingest notification: {notif_err}")
+
         return {
             "success": True,
             "results": results
@@ -340,6 +371,21 @@ async def run_auto_ingest_task(progress_callback=None):
 
     except Exception as e:
         logger.error(f"Auto-ingest task failed: {e}")
+
+        # Create error notification
+        if username:
+            try:
+                db = get_database_instance()
+                db.facade.create_notification(
+                    username=username,
+                    type='auto_ingest_error',
+                    title='Auto-Collect Failed',
+                    message=f'Error: {str(e)}',
+                    link='/keyword-alerts'
+                )
+            except Exception as notif_err:
+                logger.error(f"Failed to create error notification: {notif_err}")
+
         return {
             "success": False,
             "error": str(e)

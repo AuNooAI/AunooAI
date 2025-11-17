@@ -131,106 +131,56 @@
       ]
     },
     {
-      "name": "Religion, Magic and Occultism",
-      "description": "Tracking news and research into and about Religion, Magic and Occultism",
+      "name": "Climate Change",
+      "description": "Climate Change is a scientific and societal topic focused on the causes, effects, mitigation, adaptation, policy, and technological responses to global climate change and its impacts on the environment, economies, and societies worldwide.",
       "categories": [
-        "Major World Religions",
-        "New Religious Movements",
-        "Esoteric and Occult Traditions",
-        "Magic Practices and Rituals",
-        "Religious and Occult Research",
-        "Cultural and Historical Contexts",
-        "Religion and Society",
-        "Occultism in Popular Culture",
-        "Religious Conflicts and Cooperation",
-        "Regulation and Legal Issues",
-        "Spirituality and Mysticism",
-        "Paranormal Phenomena",
-        "Religious Technology and Media",
-        "Skepticism and Criticism",
-        "Other"
+        "Greenhouse Gas Emissions",
+        "Climate Science and Research",
+        "Renewable Energy",
+        "Carbon Capture and Storage",
+        "Climate Policy and Regulation",
+        "Climate Adaptation and Resilience",
+        "Environmental Impact and Biodiversity",
+        "Climate Finance and Investment",
+        "Sustainable Agriculture and Land Use",
+        "Climate Activism and Public Awareness",
+        "Technological Innovations",
+        "Climate-related Disasters",
+        "International Climate Agreements",
+        "Energy Transition",
+        "Climate Justice and Equity",
+        "Corporate Sustainability",
+        "Climate Modeling and Forecasting",
+        "Ocean and Ice Dynamics",
+        "Air Quality and Pollution",
+        "Climate Education"
       ],
       "future_signals": [
-        "Resurgence of occult practices",
-        "Decline in traditional religious adherence",
-        "Mainstream acceptance of alternative spirituality",
-        "Increased regulation of occult activities",
-        "Rise of digital religion and magic"
+        "Climate Change Accelerates",
+        "Climate Equilibrium",
+        "Climate Change Mitigated"
       ],
       "sentiment": [
-        "Positive",
-        "Negative",
-        "Neutral"
+        "Optimistic",
+        "Cautious",
+        "Neutral",
+        "Concerned",
+        "Pessimistic"
       ],
       "time_to_impact": [
-        "Immediate (0-6 months)",
-        "Short-term (6-18 months)",
-        "Mid-term (18-60 months)",
-        "Long-term (60+ months)"
+        "Immediate",
+        "Short-term",
+        "Mid-term",
+        "Long-term"
       ],
       "driver_types": [
-        "Initiator",
-        "Accelerator",
         "Catalyst",
-        "Inhibitor",
-        "Blocker"
-      ],
-      "keywords": [
-        "religion",
-        "magic",
-        "occultism"
-      ]
-    },
-    {
-      "name": "Disinformation Tools and Research",
-      "description": "Disinformation Tools and Research covers the study and development of methods, technologies, and strategies used to create, detect, and counteract disinformation campaigns. It includes analysis of social media manipulation, deepfakes, misinformation spread, fact-checking technologies, and the societal and political impacts of disinformation.\n\n\n",
-      "categories": [
-        "Disinformation Detection Technologies",
-        "Deepfake and Synthetic Media",
-        "Social Media Manipulation",
-        "Fact-Checking and Verification Tools",
-        "Psychological and Sociological Research",
-        "Political and Election Interference",
-        "Cybersecurity and Information Integrity",
-        "Regulatory and Legal Frameworks",
-        "Public Awareness and Education",
-        "AI in Disinformation",
-        "Disinformation Campaign Case Studies",
-        "Counter-Disinformation Strategies",
-        "Emerging Threats and Trends",
-        "Ethical Considerations",
-        "Other"
-      ],
-      "future_signals": [
-        "Disinformation tools become more sophisticated",
-        "Effective automated detection widely adopted",
-        "Disinformation campaigns decline due to regulation",
-        "Disinformation spreads faster than detection",
-        "Public becomes largely skeptical of online content"
-      ],
-      "sentiment": [
-        "Positive",
-        "Negative",
-        "Neutral"
-      ],
-      "time_to_impact": [
-        "Immediate (0-6 months)",
-        "Short-term (6-18 months)",
-        "Mid-term (18-60 months)",
-        "Long-term (60+ months)"
-      ],
-      "driver_types": [
-        "Initiator",
         "Accelerator",
-        "Catalyst",
-        "Inhibitor",
-        "Blocker"
-      ],
-      "keywords": [
-        "Deepfake",
-        "disinformation",
-        "misinformation",
-        "fake news"
+        "Delayer",
+        "Blocker",
+        "Initiator",
+        "Terminator",
+        "Unknown"
       ]
     }
   ],

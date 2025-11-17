@@ -1,0 +1,79 @@
+{
+  "prompt_name": "Strategic Recommendations - Trend Convergence Dashboard",
+  "feature": "strategic_recommendations",
+  "version": "1.0.0",
+  "created_at": "2025-11-12T12:00:00Z",
+  "updated_at": "2025-11-12T12:00:00Z",
+  "author": "System",
+  "description": "Strategic recommendations prompt for analyzing trends across three time horizons (near/mid/long-term) with actionable next steps tailored to organizational type.",
+
+  "system_prompt": "You are a strategic foresight advisor specializing in trend analysis and organizational planning. Your role is to identify emerging trends across multiple time horizons and translate them into actionable recommendations appropriate for the organization's capabilities and sphere of influence.",
+
+  "user_prompt": "{org_context}\n\n{action_vocabulary}\n\nAnalyze {article_count} articles about \"{topic}\" and generate strategic recommendations across three time horizons.\n\nCRITICAL CITATION INSTRUCTIONS:\n- Use numbered citations [1], [2], [3] to reference articles\n- The numbered article list is provided below with titles, sources, and URLs\n- Example: \"Multiple sources including [1] and [3] indicate that...\" or \"According to [1], [2], and [5]...\"\n- Use 2-4 citations per description to support key claims\n- Do NOT use plain text source names like \"(The Hindu, Times of India)\"\n\nREQUIRED OUTPUT FORMAT:\n{\n  \"strategic_recommendations\": {\n    \"near_term\": {\n      \"timeframe\": \"2025-2027\",\n      \"trends\": [\n        {\n          \"name\": \"Trend name\",\n          \"description\": \"Detailed trend description with numbered citations [1], [2] to support analysis\",\n          \"confidence\": \"High|Medium|Low\",\n          \"key_drivers\": [\"driver1\", \"driver2\"],\n          \"potential_impact\": \"Impact description with supporting citations [3], [4]\"\n        }\n      ]\n    },\n    \"mid_term\": {\n      \"timeframe\": \"2027-2030\",\n      \"trends\": [...]\n    },\n    \"long_term\": {\n      \"timeframe\": \"2030-2035+\",\n      \"trends\": [...]\n    }\n  },\n  \"{framework_section}\": {\n    \"principles\": [\n      {\n        \"name\": \"Principle name appropriate for {org_type} organizations\",\n        \"description\": \"Principle description with citations [1], [2]\",\n        \"rationale\": \"Why important for {org_name}, supported by [3]\",\n        \"implementation\": \"How {org_name} can apply this principle within their capabilities\"\n      }\n    ]\n  },\n  \"next_steps\": [\n    {\n      \"priority\": \"High|Medium|Low\",\n      \"action\": \"Specific actionable step that {org_name} (a {org_type} organization) can realistically execute, with supporting evidence [1], [2]\",\n      \"timeline\": \"When to complete\",\n      \"stakeholders\": [\"stakeholder1\"],\n      \"success_metrics\": [\"metric1\"]\n    }\n  ]\n}\n\nINSTRUCTIONS:\n- As a {org_type} organization, identify 2 major trends for each time horizon\n- Create 3-4 decision principles appropriate for {org_type} organizations (not generic executive principles)\n- Provide 3-4 specific, actionable next steps that {org_name} can realistically execute within their sphere of influence\n- CRITICAL: All next steps must be actions a {org_type} organization can take - do NOT recommend actions requiring governmental authority, corporate implementation power, or resources beyond their scope\n- Focus on actionable insights for {prompt_focus}\n- Use decision-making style: {next_steps_style}\n- Remember: {org_name} influences through their specific organizational capabilities, not through direct policy implementation or enforcement\n- Support ALL descriptions with numbered citations from the article list below\n\nARTICLE DATA:\n{articles}\n\nNUMBERED ARTICLE LIST (Use these numbers for citations):\n{article_references}\n\nReturn ONLY the JSON object.",
+
+  "expected_output_schema": {
+    "type": "object",
+    "properties": {
+      "strategic_recommendations": {
+        "type": "object",
+        "properties": {
+          "near_term": {
+            "type": "object",
+            "properties": {
+              "timeframe": {"type": "string"},
+              "trends": {"type": "array"}
+            }
+          },
+          "mid_term": {
+            "type": "object",
+            "properties": {
+              "timeframe": {"type": "string"},
+              "trends": {"type": "array"}
+            }
+          },
+          "long_term": {
+            "type": "object",
+            "properties": {
+              "timeframe": {"type": "string"},
+              "trends": {"type": "array"}
+            }
+          }
+        }
+      },
+      "next_steps": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "priority": {"type": "string"},
+            "action": {"type": "string"},
+            "timeline": {"type": "string"},
+            "stakeholders": {"type": "array"},
+            "success_metrics": {"type": "array"}
+          }
+        }
+      }
+    }
+  },
+
+  "variables": {
+    "topic": "Research topic name",
+    "article_count": "Number of articles analyzed",
+    "articles": "Formatted article analysis summary with statistics",
+    "article_references": "Numbered list of article citations",
+    "org_context": "Organizational context and framing",
+    "action_vocabulary": "Organization-specific action vocabulary",
+    "org_name": "Organization name",
+    "org_type": "Organization type (ngo, publisher, corporation, etc.)",
+    "framework_section": "Dynamic section name based on org type (e.g., 'advocacy_and_influence_framework' for NGOs)",
+    "prompt_focus": "Strategic focus from prompt template",
+    "next_steps_style": "Decision-making style guidance from prompt template"
+  },
+
+  "metadata": {
+    "model": "gpt-4o",
+    "temperature": 0.7,
+    "max_tokens": 3500,
+    "response_format": "json"
+  }
+}

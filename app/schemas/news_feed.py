@@ -104,6 +104,7 @@ class NewsFeedRequest(BaseModel):
     article_count: int = Field(default=6, ge=1, le=8, description="Number of articles to select (1-8)")
     bias_filter: Optional[str] = Field(default=None, description="Filter by bias: 'no_bias' for articles without bias data, or specific bias value")
     starred_articles: Optional[List[str]] = Field(default=None, description="List of article URIs that user starred for inclusion in Six Articles")
+    user_id: Optional[int] = Field(default=None, description="User ID for loading custom Six Articles configuration")
     
     
 class NewsFeedResponse(BaseModel):

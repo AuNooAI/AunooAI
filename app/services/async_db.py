@@ -244,14 +244,16 @@ class AsyncDatabase:
                 future_signal_explanation = ?,
                 sentiment_explanation = ?,
                 time_to_impact = ?,
+                time_to_impact_explanation = ?,
                 driver_type = ?,
+                driver_type_explanation = ?,
                 tags = ?,
                 analyzed = ?,
                 confidence_score = ?,
                 overall_match_explanation = ?
             WHERE uri = ?
         """
-        
+
         params = (
             article_data.get("title"),
             article_data.get("summary"),
@@ -271,10 +273,12 @@ class AsyncDatabase:
             article_data.get("topic_alignment_score"),
             article_data.get("keyword_relevance_score"),
             article_data.get("future_signal"),
-            article_data.get("future_signal_explanation"),  
+            article_data.get("future_signal_explanation"),
             article_data.get("sentiment_explanation"),
             article_data.get("time_to_impact"),
+            article_data.get("time_to_impact_explanation"),
             article_data.get("driver_type"),
+            article_data.get("driver_type_explanation"),
             article_data.get("tags"),
             article_data.get("analyzed", True),
             article_data.get("confidence_score"),

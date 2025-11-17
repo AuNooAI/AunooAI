@@ -1,18 +1,18 @@
-{% extends "base.html" %}
+{% extends "base_with_shared_nav.html" %}
 
 {% block title %}AuNoo AI - Home{% endblock %}
 
 {% block extra_css %}
 <style>
     :root {
-        --primary-color: #FF69B4;  /* Hot Pink */
-        --primary-dark: #FF1493;   /* Deep Pink */
-        --secondary-color: #32CD32;  /* Lime Green */
-        --secondary-dark: #228B22;   /* Forest Green */
-        --text-color: #333;
-        --light-gray: #f8f9fa;
-        --medium-gray: #e9ecef;
-        --dark-gray: #343a40;
+        --primary-color: var(--colors-accent-7);  /* Hot Pink */
+        --primary-dark: var(--colors-accent-10);   /* Deep Pink */
+        --secondary-color: var(--colors-success-7);  /* Design system green */
+        --secondary-dark: var(--colors-success-9);   /* Design system dark green */
+        --text-color: var(--colors-neutral-11);
+        --light-gray: var(--colors-neutral-2);
+        --medium-gray: var(--colors-neutral-4);
+        --dark-gray: var(--colors-neutral-10);
     }
 
     body {
@@ -21,7 +21,7 @@
     }
 
     .container {
-        max-width: 1200px;
+        width: 100%;
         margin: 0 auto;
         padding: 0 20px;
     }
@@ -36,7 +36,7 @@
     }
 
     .card {
-        background-color: #fff;
+        background-color: var(--colors-white);
         border-radius: 8px;
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
         margin-bottom: 20px;
@@ -49,7 +49,7 @@
     }
 
     .card-header {
-        background-color: #fff;
+        background-color: var(--colors-white);
         border-bottom: 1px solid var(--medium-gray);
         padding: 1rem 1.25rem;
     }
@@ -80,7 +80,7 @@
     .btn-primary {
         background-color: var(--primary-color);
         border-color: var(--primary-color);
-        color: #fff;
+        color: var(--colors-white);
         transition: all 0.2s ease;
         display: flex;
         align-items: center;
@@ -114,7 +114,7 @@
     }
 
     #articleForm {
-        background-color: #fff;
+        background-color: var(--colors-white);
         padding: 20px;
         border-radius: 8px;
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
@@ -130,7 +130,7 @@
     .btn-success {
         background-color: var(--secondary-color);
         border-color: var(--secondary-color);
-        color: #fff;
+        color: var(--colors-white);
     }
 
     .btn-success:hover {
@@ -147,7 +147,7 @@
     .btn-secondary:hover {
         background-color: var(--dark-gray);
         border-color: var(--dark-gray);
-        color: #fff;
+        color: var(--colors-white);
     }
 
     .world-clock {
@@ -378,7 +378,7 @@
 
     /* Pink gradient header - matching news_feed_new.html */
     .news-header {
-        border-bottom: 3px solid #FF69B4;
+        border-bottom: 3px solid var(--colors-accent-7);
         margin-bottom: 24px;
         padding-bottom: 16px;
         display: flex;
@@ -392,7 +392,7 @@
         font-size: 2rem;
         font-weight: 700;
         margin: 0;
-        background: linear-gradient(135deg, #FF69B4, #FF1493);
+        background: linear-gradient(135deg, var(--colors-accent-7), var(--colors-accent-10));
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
@@ -402,8 +402,8 @@
     }
 
     .news-title-icon {
-        color: #FF69B4;
-        -webkit-text-fill-color: #FF69B4;
+        color: var(--colors-accent-7);
+        -webkit-text-fill-color: var(--colors-accent-7);
     }
 
     .panel {
@@ -535,19 +535,19 @@
 
     .badge.bg-info {
         background-color: rgba(23, 162, 184, 0.1) !important;
-        color: #17a2b8 !important;
+        color: var(--colors-info-9) !important;
         border: 1px solid rgba(23, 162, 184, 0.2) !important;
     }
 
     .badge.bg-secondary {
         background-color: rgba(108, 117, 125, 0.1) !important;
-        color: #6c757d !important;
+        color: var(--colors-neutral-8) !important;
         border: 1px solid rgba(108, 117, 125, 0.2) !important;
     }
 
     .badge.bg-success {
         background-color: rgba(40, 167, 69, 0.1) !important;
-        color: #28a745 !important;
+        color: var(--colors-success-9) !important;
         border: 1px solid rgba(40, 167, 69, 0.2) !important;
     }
 
@@ -559,14 +559,14 @@
 
     .badge.bg-danger {
         background-color: rgba(220, 53, 69, 0.1) !important;
-        color: #dc3545 !important;
+        color: var(--colors-error-9) !important;
         border: 1px solid rgba(220, 53, 69, 0.2) !important;
     }
 
     /* Update the success/warning/danger classes to match */
     .badge.success {
         background-color: rgba(40, 167, 69, 0.1) !important;
-        color: #28a745 !important;
+        color: var(--colors-success-9) !important;
         border: 1px solid rgba(40, 167, 69, 0.2) !important;
     }
 
@@ -578,7 +578,7 @@
 
     .badge.danger {
         background-color: rgba(220, 53, 69, 0.1) !important;
-        color: #dc3545 !important;
+        color: var(--colors-error-9) !important;
         border: 1px solid rgba(220, 53, 69, 0.2) !important;
     }
 
@@ -602,13 +602,14 @@
         left: 50%;
         transform: translateX(-50%);
         padding: 8px 12px;
-        background-color: rgba(0, 0, 0, 0.8);
+        background-color: rgba(0, 0, 0, 0.9);
         color: white;
         font-size: 0.8rem;
         border-radius: 6px;
         white-space: nowrap;
-        z-index: 1000;
-        margin-bottom: 5px;
+        z-index: 10000;
+        margin-bottom: 8px;
+        pointer-events: none;
     }
 
     [data-tooltip]:hover::after {
@@ -618,8 +619,22 @@
         left: 50%;
         transform: translateX(-50%);
         border: 6px solid transparent;
-        border-top-color: rgba(0, 0, 0, 0.8);
-        margin-bottom: -6px;
+        border-top-color: rgba(0, 0, 0, 0.9);
+        margin-bottom: 2px;
+        z-index: 10000;
+    }
+
+    /* Ensure table and card don't clip tooltips */
+    .table-responsive {
+        overflow: visible !important;
+    }
+
+    .card-body {
+        overflow: visible !important;
+    }
+
+    .card {
+        overflow: visible !important;
     }
 
     /* Enhanced stat card styles */
@@ -776,18 +791,46 @@
         cursor: pointer;
     }
 
+    .btn {
+        padding: 0.5rem 1rem;
+        font-size: 0.875rem;
+        border-radius: 0.375rem;
+        border: 1px solid transparent;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        text-decoration: none;
+    }
+
+    .btn-sm {
+        padding: 0.375rem 0.75rem;
+        font-size: 0.8125rem;
+    }
+
     .btn-soft-primary {
-        background-color: rgba(13, 110, 253, 0.1);
-        border: 1px solid rgba(13, 110, 253, 0.2);
-        color: var(--primary-color);
+        background-color: white;
+        border: 1px solid var(--accent-pink);
+        color: var(--accent-pink);
         transition: all 0.2s ease;
     }
 
     .btn-soft-primary:hover {
-        background-color: var(--primary-color);
-        border-color: var(--primary-color);
+        background-color: var(--accent-pink);
+        border-color: var(--accent-pink);
         color: white;
         transform: translateY(-1px);
+    }
+
+    .btn-group {
+        display: inline-flex;
+        gap: 0.25rem;
+    }
+
+    .btn-group .btn {
+        margin: 0;
     }
 
     .bg-soft-primary {
@@ -855,21 +898,573 @@
     /* ensure tooltips visible outside cards */
     .card{overflow:visible;}
     [data-tooltip]:hover::before{z-index:2000;}
+
+    /* ========================================
+       OPERATIONS HQ MODERN STYLING
+       ======================================== */
+
+    /* Breadcrumb Header - matching news_feed_new.html */
+    .page-breadcrumb-header {
+        background-color: white;
+        border-bottom: 1px solid var(--colors-neutral-4);
+        padding: 0.75rem 1.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-shrink: 0;
+        position: relative;
+    }
+
+    .breadcrumb-text {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.875rem;
+        color: var(--colors-neutral-8);
+    }
+
+    .breadcrumb-text span {
+        color: var(--colors-neutral-8);
+    }
+
+    .breadcrumb-text span.font-medium {
+        color: var(--colors-neutral-12);
+        font-weight: 500;
+    }
+
+    .page-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    /* Soft gray button matching React Operations HQ */
+    .btn-topic-setup {
+        background: var(--colors-neutral-3);
+        border: none;
+        color: var(--colors-neutral-12);
+        font-size: 0.875rem;
+        font-weight: 500;
+        padding: 0.5rem 1rem;
+        border-radius: 0.375rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+
+    .btn-topic-setup:hover {
+        background: var(--colors-neutral-4);
+        color: var(--colors-neutral-12);
+    }
+
+    .btn-icon {
+        padding: 0.5rem;
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border: none;
+        color: var(--colors-neutral-8);
+        cursor: pointer;
+        border-radius: 0.375rem;
+        transition: all 0.2s ease;
+    }
+
+    .btn-icon:hover {
+        background: var(--colors-neutral-3);
+        color: var(--colors-neutral-12);
+    }
+
+    .text-gray-500 {
+        color: var(--colors-neutral-8);
+    }
+
+    /* Main Content Container */
+    .operations-content {
+        padding: 24px 48px;
+        background: linear-gradient(135deg,
+            var(--colors-neutral-1) 0%,
+            var(--colors-neutral-2) 50%,
+            var(--colors-accent-alpha-5) 100%);
+        min-height: 100vh;
+        width: 100%;
+        margin: 0 auto;
+    }
+
+    @media (max-width: 768px) {
+        .operations-content {
+            padding: 16px;
+        }
+    }
+
+    /* Health Status Banner - matching React version */
+    .health-status-banner {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        padding: 24px;
+        text-align: center;
+        margin-bottom: 24px;
+    }
+
+    .health-status-indicator {
+        display: inline-block;
+        padding: 12px 24px;
+        border-radius: 9999px;
+        color: white;
+        font-weight: bold;
+        font-size: 1.125rem;
+    }
+
+    .health-status-indicator.healthy {
+        background-color: #10b981;
+    }
+
+    .health-status-indicator.degraded {
+        background-color: #eab308;
+    }
+
+    .health-status-indicator.critical {
+        background-color: #ef4444;
+    }
+
+    .health-uptime {
+        color: var(--colors-neutral-8);
+        margin-top: 8px;
+        font-size: 0.875rem;
+    }
+
+    .health-warnings {
+        margin-top: 16px;
+        background: #fef3c7;
+        border: 1px solid #fde047;
+        border-radius: 8px;
+        padding: 16px;
+        text-align: left;
+    }
+
+    .health-warnings p {
+        font-weight: 600;
+        color: #92400e;
+        margin-bottom: 8px;
+    }
+
+    .health-warnings ul {
+        list-style: disc;
+        list-style-position: inside;
+        color: #a16207;
+        font-size: 0.875rem;
+    }
+
+    /* Stats Grid - matching React layout */
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 24px;
+        margin-bottom: 24px;
+    }
+
+    @media (min-width: 768px) {
+        .stats-grid {
+            grid-template-columns: repeat(4, 1fr);
+        }
+    }
+
+    /* Modern Stat Cards */
+    .stat-card-modern {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        padding: 24px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .stat-card-modern:hover {
+        box-shadow: 0 8px 16px rgba(0,0,0,0.12);
+        transform: translateY(-2px);
+    }
+
+    .stat-card-content {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
+    .stat-info {
+        flex: 1;
+    }
+
+    .stat-label-modern {
+        color: var(--colors-neutral-8);
+        font-size: 0.875rem;
+        margin: 0 0 4px 0;
+    }
+
+    .stat-value-modern {
+        font-size: 2rem;
+        font-weight: bold;
+        color: var(--colors-accent-7);
+        margin: 0;
+    }
+
+    .stat-icon-large {
+        font-size: 3rem;
+        color: var(--colors-accent-2);
+        opacity: 0.6;
+    }
+
+    /* Section Title */
+    .section-title {
+        font-size: 1.25rem;
+        font-weight: bold;
+        color: var(--colors-neutral-11);
+        margin-bottom: 16px;
+    }
+
+    /* Metrics Grid */
+    .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 24px;
+        margin-bottom: 24px;
+    }
+
+    @media (min-width: 992px) {
+        .metrics-grid {
+            grid-template-columns: repeat(4, 1fr);
+        }
+    }
+
+    /* Metric Cards */
+    .metric-card {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        padding: 24px;
+    }
+
+    .metric-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 16px;
+        padding-bottom: 12px;
+        border-bottom: 2px solid var(--colors-accent-7);
+    }
+
+    .metric-icon {
+        font-size: 1.5rem;
+        color: var(--colors-accent-7);
+    }
+
+    .metric-title {
+        font-size: 1.125rem;
+        font-weight: 600;
+        margin: 0;
+    }
+
+    .metric-body {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .metric-row {
+        display: flex;
+        justify-content: space-between;
+        font-size: 0.875rem;
+    }
+
+    .metric-label {
+        color: var(--colors-neutral-8);
+    }
+
+    .metric-value {
+        font-weight: 600;
+        color: var(--colors-neutral-11);
+    }
+
+    .metric-value-sm {
+        font-size: 0.75rem;
+    }
+
+    /* Progress Bars */
+    .metric-progress {
+        width: 100%;
+        background-color: var(--colors-neutral-3);
+        border-radius: 9999px;
+        height: 16px;
+        overflow: hidden;
+        margin-top: 12px;
+        position: relative;
+    }
+
+    .metric-progress-bar {
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-size: 0.75rem;
+        font-weight: 600;
+        transition: width 0.3s ease;
+    }
+
+    .metric-progress-bar.bg-green {
+        background-color: #10b981;
+    }
+
+    .metric-progress-bar.bg-yellow {
+        background-color: #eab308;
+    }
+
+    .metric-progress-bar.bg-red {
+        background-color: #ef4444;
+    }
+
+    /* ============================================
+       NEWS TICKER
+       ============================================ */
+    .news-ticker-container {
+        background: var(--light-gray, #f5f5f7);
+        border: 1px solid var(--border-light, #e5e5e5);
+        border-left: 4px solid var(--colors-info-6);
+        padding: 0;
+        margin: 0;
+        position: relative;
+        overflow: hidden;
+        height: 44px;
+        display: none;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        will-change: transform;
+    }
+
+    .news-ticker-container.visible {
+        display: block;
+    }
+
+    .ticker-header {
+        background: linear-gradient(135deg, #4A90E2, #357ABD);
+        color: white;
+        padding: 0 16px;
+        font-weight: 700;
+        font-size: 0.75rem;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        z-index: 12;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 100px;
+        border-right: 1px solid var(--border-light, #e5e5e5);
+    }
+
+    .ticker-controls {
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 11;
+        display: flex;
+        gap: 4px;
+    }
+
+    .ticker-controls .btn {
+        padding: 3px 8px;
+        font-size: 0.7rem;
+        border: 1px solid var(--colors-neutral-5);
+        background: var(--colors-white);
+        color: var(--colors-neutral-8);
+        transition: all 0.2s ease;
+        border-radius: 3px;
+    }
+
+    .ticker-controls .btn:hover {
+        background: var(--colors-neutral-4);
+        color: var(--colors-info-5);
+        border-color: var(--colors-info-5);
+    }
+
+    .ticker-content-wrapper {
+        position: absolute;
+        left: 100px;
+        right: 140px;
+        top: 0;
+        bottom: 0;
+        overflow: hidden;
+    }
+
+    .ticker-content {
+        display: inline-flex;
+        white-space: nowrap;
+        align-items: center;
+        height: 100%;
+        animation: scroll-left 120s linear infinite;
+        transform: translateZ(0);
+    }
+
+    .ticker-content.paused {
+        animation-play-state: paused !important;
+    }
+
+    @keyframes scroll-left {
+        0% { transform: translateX(0) translateZ(0); }
+        100% { transform: translateX(-50%) translateZ(0); }
+    }
+
+    .ticker-item {
+        display: inline-flex;
+        align-items: center;
+        padding: 0 20px;
+        border-right: 1px solid var(--colors-neutral-5);
+        font-size: 0.85rem;
+        line-height: 1.3;
+        height: 100%;
+    }
+
+    .ticker-item a {
+        color: var(--colors-neutral-11);
+        text-decoration: none;
+        transition: color 0.2s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 500;
+    }
+
+    .ticker-item a:hover {
+        color: var(--colors-info-5);
+    }
+
+    .ticker-time {
+        color: var(--colors-neutral-7);
+        font-size: 0.7rem;
+        margin-right: 8px;
+    }
+
+    .ticker-loading, .ticker-empty {
+        position: absolute;
+        left: 105px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: var(--colors-neutral-8);
+        font-size: 0.8rem;
+    }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <div class="news-header">
-        <h1 class="news-title">
-            <i class="fas fa-tachometer-alt news-title-icon"></i>
-            <span>Operations Dashboard</span>
-        </h1>
-        <p class="text-muted mb-0">What is going on in the world?</p>
+<!-- Breadcrumb Header - matching React Operations HQ and news_feed_new.html -->
+<div class="page-breadcrumb-header">
+    <div class="breadcrumb-text">
+        <span>Operations</span>
+        <span>/</span>
+        <span class="font-medium">System Health</span>
+        <span>•</span>
+        <span>Monitor system status and world operations</span>
+    </div>
+    <div class="page-header-actions">
+        <button id="show-ticker-btn"
+                class="btn btn-sm btn-outline-primary"
+                onclick="showTicker()"
+                style="display: none;"
+                title="Show news ticker">
+            <i class="fas fa-newspaper me-1"></i>Show Ticker
+        </button>
+        <button type="button" class="btn-icon" data-notification-trigger title="Notifications" style="position: relative;">
+            <i class="far fa-bell"></i>
+            <span class="notification-badge"></span>
+        </button>
+        <button class="btn-topic-setup" onclick="window.location.href='/onboarding?redo=true'">
+            <span>Set up topic</span>
+            <span class="text-gray-500">+</span>
+        </button>
+    </div>
+</div>
+
+<!-- ============================================
+     NEWS TICKER COMPONENT
+     ============================================ -->
+<div class="news-ticker-container" id="news-ticker"
+     role="marquee"
+     aria-live="polite"
+     aria-atomic="false"
+     aria-label="Latest news ticker">
+
+    <!-- Breaking News Label -->
+    <div class="ticker-header" aria-hidden="true">
+        <i class="fas fa-bolt"></i>
+        <span>LATEST</span>
     </div>
 
+    <!-- Control Buttons -->
+    <div class="ticker-controls">
+        <button type="button"
+                class="btn btn-sm"
+                id="ticker-pause-btn"
+                onclick="pauseResumeTicker()"
+                aria-label="Pause ticker"
+                title="Pause/Resume">
+            <i class="fas fa-pause" id="ticker-pause-icon"></i>
+        </button>
+        <button type="button"
+                class="btn btn-sm"
+                onclick="showTickerSettings()"
+                aria-label="Ticker settings"
+                title="Settings">
+            <i class="fas fa-cog"></i>
+        </button>
+        <button type="button"
+                class="btn btn-sm"
+                onclick="refreshTicker()"
+                aria-label="Refresh ticker"
+                title="Refresh">
+            <i class="fas fa-sync-alt"></i>
+        </button>
+        <button type="button"
+                class="btn btn-sm"
+                onclick="toggleTicker()"
+                aria-label="Hide ticker"
+                title="Hide">
+            <i class="fas fa-times"></i>
+        </button>
+    </div>
+
+    <!-- Scrolling Content Wrapper -->
+    <div class="ticker-content-wrapper">
+        <!-- Loading State -->
+        <div class="ticker-loading" id="ticker-loading" style="display: none;">
+            <i class="fas fa-spinner fa-spin"></i> Loading articles...
+        </div>
+
+        <!-- Empty State -->
+        <div class="ticker-empty" id="ticker-empty" style="display: none;">
+            No recent articles available
+        </div>
+
+        <!-- Scrolling Content -->
+        <div class="ticker-content"
+             id="ticker-content"
+             role="region"
+             aria-label="Scrolling news headlines">
+            <!-- Ticker items dynamically loaded -->
+        </div>
+    </div>
+</div>
+
+<!-- Main Content Container -->
+<div class="operations-content">
     <!-- World Clock Section -->
-    <div class="card mb-4">
+    <div class="card mb-4" data-tooltip="Current time in major cities around the world">
         <div class="card-header">
             <div class="d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">
@@ -927,152 +1522,164 @@
         </div>
     </div>
 
-    <!-- Update the quick stats section -->
-    <div class="row mb-4">
-        <div class="col-md-3">
-            <div class="stat-card" data-tooltip="Total number of articles in the database" onclick="window.location.href='/database-editor'" style="cursor:pointer;">
-                <div class="stat-icon">
-                    <i class="fas fa-newspaper"></i>
+    <!-- System Health Status Banner -->
+    <div class="health-status-banner" id="healthStatusBanner" data-tooltip="System health overview and last article collection time">
+        <div class="health-status-indicator" id="healthStatusIndicator">
+            <i class="fas fa-spinner fa-spin"></i> Loading...
+        </div>
+        <p class="health-uptime">
+            {% if last_check_time %}
+                Last article collection: {{ last_check_time|timeago }}
+            {% else %}
+                No recent article collection
+            {% endif %}
+        </p>
+        <div class="health-warnings" id="healthWarnings" style="display: none;"></div>
+    </div>
+
+    <!-- Stats Cards - Clickable with modern styling -->
+    <div class="stats-grid">
+        <div class="stat-card-modern" onclick="window.location.href='/news-feed'" data-tooltip="View and manage all articles in the database">
+            <div class="stat-card-content">
+                <div class="stat-info">
+                    <p class="stat-label-modern">Total Articles</p>
+                    <p class="stat-value-modern">{{ stats.total_articles|default(0) }}</p>
                 </div>
-                <div class="stat-content">
-                    <div class="stat-value">{{ stats.total_articles|default(0) }}</div>
-                    <div class="stat-label">Total Articles</div>
-                </div>
+                <i class="fas fa-newspaper stat-icon-large"></i>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="stat-card" data-tooltip="Articles collected in the last 24 hours" onclick="window.location.href='/keyword-alerts'" style="cursor:pointer;">
-                <div class="stat-icon">
-                    <i class="fas fa-clock"></i>
+
+        <div class="stat-card-modern" onclick="window.location.href='/keyword-alerts'" data-tooltip="View articles collected today">
+            <div class="stat-card-content">
+                <div class="stat-info">
+                    <p class="stat-label-modern">Articles Today</p>
+                    <p class="stat-value-modern">{{ stats.articles_today|default(0) }}</p>
                 </div>
-                <div class="stat-content">
-                    <div class="stat-value">{{ stats.articles_today|default(0) }}</div>
-                    <div class="stat-label">Articles Today</div>
-                </div>
+                <i class="fas fa-clock stat-icon-large"></i>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="stat-card" data-tooltip="Number of active keyword groups" onclick="window.location.href='/keyword-monitor'" style="cursor:pointer;">
-                <div class="stat-icon">
-                    <i class="fas fa-tags"></i>
+
+        <div class="stat-card-modern" onclick="window.location.href='/keyword-monitor'" data-tooltip="Manage keyword groups and alerts">
+            <div class="stat-card-content">
+                <div class="stat-info">
+                    <p class="stat-label-modern">Keyword Groups</p>
+                    <p class="stat-value-modern">{{ stats.keyword_groups|default(0) }}</p>
                 </div>
-                <div class="stat-content">
-                    <div class="stat-value">{{ stats.keyword_groups|default(0) }}</div>
-                    <div class="stat-label">Keyword Groups</div>
-                </div>
+                <i class="fas fa-tags stat-icon-large"></i>
             </div>
         </div>
-        <div class="col-md-3">
-            <div class="stat-card" data-tooltip="Total topics being monitored" onclick="window.location.href='/create_topic'" style="cursor:pointer;">
-                <div class="stat-icon">
-                    <i class="fas fa-folder"></i>
+
+        <div class="stat-card-modern" onclick="window.location.href='/create_topic'" data-tooltip="View and create research topics">
+            <div class="stat-card-content">
+                <div class="stat-info">
+                    <p class="stat-label-modern">Topics</p>
+                    <p class="stat-value-modern">{{ active_topics|length }}</p>
                 </div>
-                <div class="stat-content">
-                    <div class="stat-value">{{ active_topics|length }}</div>
-                    <div class="stat-label">Topics</div>
-                </div>
+                <i class="fas fa-folder stat-icon-large"></i>
             </div>
         </div>
     </div>
 
-    <!-- After the stats cards, before the world clock -->
-    <div class="row mb-4">
-        <!-- Quick Links Panel -->
-        <div class="col-md-6">
-            <div class="card h-100" data-tooltip="Quick access to key features">
-                <div class="card-header">
-                    <h5 class="mb-0">
-                        <i class="fas fa-link"></i> What do you want to do today?
-                    </h5>
+    <!-- System Health Detailed Metrics -->
+    <div id="detailedMetrics">
+        <h2 class="section-title">Detailed Metrics</h2>
+        <div class="metrics-grid">
+            <!-- CPU Metric Card -->
+            <div class="metric-card" data-tooltip="CPU usage statistics for the application process and system">
+                <div class="metric-header">
+                    <i class="fas fa-microchip metric-icon"></i>
+                    <h3 class="metric-title">CPU</h3>
                 </div>
-                <div class="card-body">
-                    <div class="list-group">
-                        <a href="/" class="list-group-item list-group-item-action"
-                           data-tooltip="View system status and overview">
-                            <i class="fas fa-home me-2"></i> Status
-                        </a>
-                        <a href="/keyword-alerts" class="list-group-item list-group-item-action"
-                           data-tooltip="Explore news trends and alerts">
-                            <i class="fas fa-fire me-2"></i> Explore News
-                        </a>
-                        <a href="/collect" class="list-group-item list-group-item-action"
-                            data-tooltip="Search and collect news articles">
-                            <i class="fas fa-newspaper me-2"></i> Collect News
-                        </a>
-                        <a href="/submit-article" class="list-group-item list-group-item-action"
-                           data-tooltip="Submit an article for analysis">
-                            <i class="fas fa-plus-circle me-2"></i> Submit an Article
-                        </a>
-                        <a href="/create_topic" class="list-group-item list-group-item-action"
-                           data-tooltip="Create a new topic to monitor">
-                            <i class="fas fa-folder-plus me-2"></i> New Topic
-                        </a>
-                        <a href="/vector-analysis-improved" class="list-group-item list-group-item-action"
-                           data-tooltip="Advanced vector search and analysis">
-                            <i class="fas fa-brain me-2"></i> Nerd Mode
-                        </a>
+                <div class="metric-body">
+                    <div class="metric-row">
+                        <span class="metric-label">Process:</span>
+                        <span class="metric-value" id="cpuProcessPercent">--</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">System:</span>
+                        <span class="metric-value" id="cpuSystemPercent">--</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Cores:</span>
+                        <span class="metric-value" id="cpuCores">--</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Load:</span>
+                        <span class="metric-value metric-value-sm" id="cpuLoadAvg">--</span>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <!-- System Status Panel -->
-        <div class="col-md-6">
-            <div class="card h-100" data-tooltip="System health and status information">
-                <div class="card-header">
-                    <h5 class="mb-0">
-                        <i class="fas fa-heartbeat"></i> System Status
-                    </h5>
+            <!-- Memory Metric Card -->
+            <div class="metric-card" data-tooltip="Memory usage for the application process and system">
+                <div class="metric-header">
+                    <i class="fas fa-memory metric-icon"></i>
+                    <h3 class="metric-title">Memory</h3>
                 </div>
-                <div class="card-body">
-                    <ul class="list-group">
-                        <li class="list-group-item d-flex justify-content-between align-items-center"
-                            data-tooltip="Current API operational status">
-                            <span>API Status</span>
-                            <span class="badge {{ api_status.status }}" id="apiStatus">
-                                <i class="fas fa-{{ 'check-circle' if api_status.status == 'success' 
-                                                else 'exclamation-triangle' if api_status.status == 'warning'
-                                                else 'times-circle' }}"></i> 
-                                {{ api_status.message }}
-                            </span>
-                        </li>
-                        <li class="list-group-item d-flex justify-content-between align-items-center"
-                            data-tooltip="Auto-polling status">
-                            <span>Auto-polling</span>
-                            <span class="badge" id="pollingStatus">
-                                <i class="fas fa-circle"></i> Loading...
-                            </span>
-                        </li>
-                        <li class="list-group-item d-flex justify-content-between align-items-center"
-                            data-tooltip="API request usage">
-                            <span>API Requests</span>
-                            <span class="badge bg-primary" id="requestStatus">
-                                <i class="fas fa-chart-line"></i> 
-                                <span id="requestCount">...</span>/<span id="requestLimit">...</span>
-                            </span>
-                        </li>
-                        <li class="list-group-item d-flex justify-content-between align-items-center"
-                            data-tooltip="Database connection status">
-                            <span>Database</span>
-                            <span class="badge {{ db_status.status }}" id="dbStatus">
-                                <i class="fas fa-database"></i> {{ db_status.message }}
-                            </span>
-                        </li>
-                        <li class="list-group-item d-flex justify-content-between align-items-center"
-                            data-tooltip="Time since last system update">
-                            <span>Last Update</span>
-                            <span class="text-muted small" id="lastUpdate"
-                                  data-last-check="{{ last_check_time }}"
-                                  data-tooltip="Time since last system update">
-                                {{ last_check_time|timeago if last_check_time else 'Never' }}
-                            </span>
-                        </li>
-                    </ul>
-                    <div class="mt-3">
-                        <a href="/health/dashboard" class="btn btn-outline-primary btn-sm w-100">
-                            <i class="fas fa-chart-line me-2"></i>View Detailed Health Dashboard
-                        </a>
+                <div class="metric-body">
+                    <div class="metric-row">
+                        <span class="metric-label">Process RSS:</span>
+                        <span class="metric-value" id="memRss">--</span>
                     </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Process %:</span>
+                        <span class="metric-value" id="memPercent">--</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Threads:</span>
+                        <span class="metric-value" id="memThreads">--</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">System:</span>
+                        <span class="metric-value" id="memSystemUsed">--</span> / <span class="metric-value" id="memSystemTotal">--</span>
+                    </div>
+                    <div class="metric-progress" id="memProgress"></div>
+                </div>
+            </div>
+
+            <!-- API Keys Metric Card -->
+            <div class="metric-card" data-tooltip="Status of configured API keys for collectors, AI providers, and Firecrawl">
+                <div class="metric-header">
+                    <i class="fas fa-key metric-icon" style="color: var(--primary-color);"></i>
+                    <h3 class="metric-title">API Keys</h3>
+                </div>
+                <div class="metric-body" id="apiKeysBody">
+                    <div class="metric-row">
+                        <span class="metric-label">Status:</span>
+                        <span class="metric-value" id="apiStatus">--</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Configured:</span>
+                        <span class="metric-value" id="apiConfigured">--</span>
+                    </div>
+                    <div id="apiDetails"></div>
+                </div>
+            </div>
+
+            <!-- Auto-polling Metric Card -->
+            <div class="metric-card" data-tooltip="Automatic article collection status and usage statistics">
+                <div class="metric-header">
+                    <i class="fas fa-sync-alt metric-icon" style="color: var(--secondary-color);"></i>
+                    <h3 class="metric-title">Auto-polling</h3>
+                </div>
+                <div class="metric-body" id="autopollingBody">
+                    <div class="metric-row">
+                        <span class="metric-label">Status:</span>
+                        <span class="metric-value" id="pollingStatus">--</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Requests Today:</span>
+                        <span class="metric-value" id="pollingRequests">--</span>
+                    </div>
+                    <div class="metric-row">
+                        <span class="metric-label">Usage:</span>
+                        <span class="metric-value" id="pollingUsage">--</span>
+                    </div>
+                    <div class="metric-row" id="lastPollRow" style="display: none;">
+                        <span class="metric-label">Last Poll:</span>
+                        <span class="metric-value metric-value-sm" id="pollingLastPoll">--</span>
+                    </div>
+                    <div class="metric-progress" id="pollingProgress"></div>
                 </div>
             </div>
         </div>
@@ -1153,6 +1760,171 @@
                 </p>
             </div>
             {% endif %}
+        </div>
+    </div>
+</div> <!-- End operations-content -->
+
+<!-- ============================================
+     TICKER SETTINGS MODAL
+     ============================================ -->
+<div class="modal fade"
+     id="tickerSettingsModal"
+     tabindex="-1"
+     aria-labelledby="tickerSettingsModalLabel"
+     aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="tickerSettingsModalLabel">
+                    <i class="fas fa-cog me-2"></i>News Ticker Settings
+                </h5>
+                <button type="button"
+                        class="btn-close"
+                        data-bs-dismiss="modal"
+                        aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <form id="ticker-settings-form">
+                    <!-- Article Count -->
+                    <div class="mb-3">
+                        <label for="ticker-article-count" class="form-label">
+                            <i class="fas fa-list-ol me-1"></i>Number of Articles:
+                        </label>
+                        <select id="ticker-article-count" class="form-select" required>
+                            <option value="5">5 articles</option>
+                            <option value="10" selected>10 articles</option>
+                            <option value="15">15 articles</option>
+                            <option value="20">20 articles</option>
+                            <option value="25">25 articles</option>
+                        </select>
+                        <div class="form-text">
+                            More articles = longer scroll cycle
+                        </div>
+                    </div>
+
+                    <!-- Time Range -->
+                    <div class="mb-3">
+                        <label for="ticker-time-range" class="form-label">
+                            <i class="fas fa-clock me-1"></i>Time Range:
+                        </label>
+                        <select id="ticker-time-range" class="form-select" required>
+                            <option value="1h">Last Hour</option>
+                            <option value="6h">Last 6 Hours</option>
+                            <option value="24h" selected>Last 24 Hours</option>
+                            <option value="72h">Last 3 Days</option>
+                            <option value="7d">Last 7 Days</option>
+                        </select>
+                    </div>
+
+                    <!-- Topic Filter -->
+                    <div class="mb-3">
+                        <label for="ticker-topic-filter" class="form-label">
+                            <i class="fas fa-filter me-1"></i>Topic Filter:
+                        </label>
+                        <select id="ticker-topic-filter" class="form-select">
+                            <option value="">All Topics</option>
+                            <!-- Topics loaded dynamically -->
+                        </select>
+                        <div class="form-text">
+                            Leave blank to show all topics
+                        </div>
+                    </div>
+
+                    <!-- Scroll Speed -->
+                    <div class="mb-3">
+                        <label for="ticker-speed" class="form-label">
+                            <i class="fas fa-tachometer-alt me-1"></i>Scroll Speed:
+                        </label>
+                        <select id="ticker-speed" class="form-select" required>
+                            <option value="lazy" selected>Lazy (120 seconds)</option>
+                            <option value="slow">Slow (90 seconds)</option>
+                            <option value="medium">Medium (60 seconds)</option>
+                            <option value="fast">Fast (30 seconds)</option>
+                        </select>
+                        <div class="form-text">
+                            Slower speeds are easier to read
+                        </div>
+                    </div>
+
+                    <!-- Auto-Refresh -->
+                    <div class="mb-3">
+                        <label for="ticker-refresh-interval" class="form-label">
+                            <i class="fas fa-sync-alt me-1"></i>Auto-Refresh:
+                        </label>
+                        <select id="ticker-refresh-interval" class="form-select" required>
+                            <option value="0">Disabled</option>
+                            <option value="60">Every 1 minute</option>
+                            <option value="300" selected>Every 5 minutes</option>
+                            <option value="600">Every 10 minutes</option>
+                            <option value="1800">Every 30 minutes</option>
+                        </select>
+                        <div class="form-text">
+                            Automatically load new articles
+                        </div>
+                    </div>
+
+                    <!-- Display Options -->
+                    <div class="mb-3">
+                        <label class="form-label">Display Options:</label>
+                        <div class="form-check">
+                            <input class="form-check-input"
+                                   type="checkbox"
+                                   id="ticker-show-source"
+                                   checked>
+                            <label class="form-check-label" for="ticker-show-source">
+                                Show article source
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input"
+                                   type="checkbox"
+                                   id="ticker-show-time"
+                                   checked>
+                            <label class="form-check-label" for="ticker-show-time">
+                                Show publish time
+                            </label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input"
+                                   type="checkbox"
+                                   id="ticker-show-topic">
+                            <label class="form-check-label" for="ticker-show-topic">
+                                Show topic tags
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Enable on Load -->
+                    <div class="mb-3">
+                        <div class="form-check form-switch">
+                            <input class="form-check-input"
+                                   type="checkbox"
+                                   id="ticker-enabled"
+                                   checked>
+                            <label class="form-check-label" for="ticker-enabled">
+                                <strong>Enable ticker on page load</strong>
+                            </label>
+                        </div>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button"
+                        class="btn btn-secondary"
+                        data-bs-dismiss="modal">
+                    Cancel
+                </button>
+                <button type="button"
+                        class="btn btn-outline-danger"
+                        onclick="resetTickerSettings()">
+                    <i class="fas fa-undo me-1"></i>Reset to Defaults
+                </button>
+                <button type="button"
+                        class="btn btn-primary"
+                        onclick="saveTickerSettings()">
+                    <i class="fas fa-save me-1"></i>Save Settings
+                </button>
+            </div>
         </div>
     </div>
 </div>
@@ -1447,6 +2219,1080 @@
             dl.appendChild(opt);
         });
     })();
+
+    // ==================== Health Data Fetching ====================
+
+    /**
+     * Fetch health data from API and update the UI
+     */
+    async function fetchHealthData() {
+        try {
+            const response = await fetch('/health/detailed');
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+            updateHealthStatus(data);
+            updateMetrics(data);
+        } catch (error) {
+            console.error('Failed to fetch health data:', error);
+            showHealthError(error.message);
+        }
+    }
+
+    /**
+     * Update the health status banner
+     */
+    function updateHealthStatus(data) {
+        const indicator = document.getElementById('healthStatusIndicator');
+        const warnings = document.getElementById('healthWarnings');
+
+        if (!indicator || !warnings) return;
+
+        // Update status indicator
+        const status = data.status || 'unknown';
+        let statusHtml = '';
+        let statusClass = '';
+
+        if (status === 'healthy') {
+            statusHtml = '<i class="fas fa-check-circle"></i> System Healthy';
+            statusClass = 'text-success';
+        } else if (status === 'degraded') {
+            statusHtml = '<i class="fas fa-exclamation-triangle"></i> System Degraded';
+            statusClass = 'text-warning';
+        } else if (status === 'unhealthy') {
+            statusHtml = '<i class="fas fa-times-circle"></i> System Unhealthy';
+            statusClass = 'text-danger';
+        } else {
+            statusHtml = '<i class="fas fa-question-circle"></i> Status Unknown';
+            statusClass = 'text-muted';
+        }
+
+        indicator.innerHTML = statusHtml;
+        indicator.className = `health-status-indicator ${statusClass}`;
+
+        // Note: Article collection time is displayed server-side via Jinja template
+        // No need to update dynamically as it doesn't change frequently
+
+        // Update warnings
+        if (data.warnings && data.warnings.length > 0) {
+            warnings.innerHTML = data.warnings.map(w =>
+                `<div class="health-warning-item"><i class="fas fa-exclamation-triangle"></i> ${w}</div>`
+            ).join('');
+            warnings.style.display = 'block';
+        } else {
+            warnings.style.display = 'none';
+        }
+    }
+
+    /**
+     * Format uptime seconds into human-readable string
+     */
+    function formatUptime(seconds) {
+        const days = Math.floor(seconds / 86400);
+        const hours = Math.floor((seconds % 86400) / 3600);
+        const minutes = Math.floor((seconds % 3600) / 60);
+
+        const parts = [];
+        if (days > 0) parts.push(`${days}d`);
+        if (hours > 0) parts.push(`${hours}h`);
+        if (minutes > 0 || parts.length === 0) parts.push(`${minutes}m`);
+
+        return parts.join(' ');
+    }
+
+    /**
+     * Update the detailed metrics cards
+     */
+    function updateMetrics(data) {
+        updateCpuMetrics(data.cpu);
+        updateMemoryMetrics(data.memory);
+        updateApiKeysMetrics(data.api_health);
+        updateAutopollingMetrics(data.autopolling);
+    }
+
+    /**
+     * Update CPU metrics card
+     */
+    function updateCpuMetrics(cpu) {
+        if (!cpu) return;
+
+        const processPercent = document.getElementById('cpuProcessPercent');
+        const systemPercent = document.getElementById('cpuSystemPercent');
+        const cores = document.getElementById('cpuCores');
+        const loadAvg = document.getElementById('cpuLoadAvg');
+
+        if (processPercent) processPercent.textContent = cpu.process_percent?.toFixed(1) + '%' || '--';
+        if (systemPercent) systemPercent.textContent = cpu.system_percent?.toFixed(1) + '%' || '--';
+        if (cores) cores.textContent = cpu.cores || '--';
+        if (loadAvg) {
+            const load = cpu.load_average;
+            if (load && load.length >= 3) {
+                loadAvg.textContent = `${load[0].toFixed(2)}, ${load[1].toFixed(2)}, ${load[2].toFixed(2)}`;
+            } else {
+                loadAvg.textContent = '--';
+            }
+        }
+    }
+
+    /**
+     * Update Memory metrics card with progress bar
+     */
+    function updateMemoryMetrics(memory) {
+        if (!memory) return;
+
+        const rss = document.getElementById('memRss');
+        const percent = document.getElementById('memPercent');
+        const threads = document.getElementById('memThreads');
+        const systemUsed = document.getElementById('memSystemUsed');
+        const systemTotal = document.getElementById('memSystemTotal');
+        const progressContainer = document.getElementById('memProgress');
+
+        // Access nested process data
+        if (rss && memory.process) {
+            rss.textContent = memory.process.rss_mb ? memory.process.rss_mb.toFixed(0) + ' MB' : '--';
+        }
+        if (percent && memory.process) {
+            percent.textContent = memory.process.percent != null ? memory.process.percent.toFixed(1) + '%' : '--';
+        }
+        if (threads && memory.process) {
+            threads.textContent = memory.process.num_threads || '--';
+        }
+
+        // Access nested system data
+        if (systemUsed && memory.system) {
+            systemUsed.textContent = memory.system.used_gb ? memory.system.used_gb.toFixed(2) + ' GB' : '--';
+        }
+        if (systemTotal && memory.system) {
+            systemTotal.textContent = memory.system.total_gb ? memory.system.total_gb.toFixed(2) + ' GB' : '--';
+        }
+
+        // Update progress bar using system percent
+        if (progressContainer && memory.system && memory.system.percent != null) {
+            const systemPercent = memory.system.percent;
+            const colorClass = getProgressColor(systemPercent);
+            progressContainer.innerHTML = `
+                <div class="metric-progress-bar ${colorClass}" style="width: ${systemPercent}%">
+                    ${systemPercent.toFixed(0)}%
+                </div>
+            `;
+        }
+    }
+
+    /**
+     * Update API Keys metrics card
+     */
+    function updateApiKeysMetrics(apiHealth) {
+        if (!apiHealth) return;
+
+        const status = document.getElementById('apiStatus');
+        const configured = document.getElementById('apiConfigured');
+        const details = document.getElementById('apiDetails');
+
+        // Update status with icon and color
+        if (status) {
+            let statusIcon = 'fa-times-circle';
+            let statusColor = 'var(--colors-error-7)';
+            let statusText = 'Error';
+
+            if (apiHealth.status === 'healthy') {
+                statusIcon = 'fa-check-circle';
+                statusColor = 'var(--colors-success-9)';
+                statusText = 'Healthy';
+            } else if (apiHealth.status === 'degraded') {
+                statusIcon = 'fa-exclamation-triangle';
+                statusColor = 'var(--colors-warning-9)';
+                statusText = 'Degraded';
+            }
+
+            status.innerHTML = `<i class="fas ${statusIcon}" style="color: ${statusColor};"></i> ${statusText}`;
+        }
+
+        // Update configured count
+        if (configured) {
+            configured.textContent = `${apiHealth.configured_count || 0} / ${apiHealth.total_checked || 0}`;
+        }
+
+        // Update API details
+        if (details && apiHealth.apis) {
+            let detailsHtml = '';
+
+            // Map API keys to user-friendly display names
+            const displayNameMap = {
+                'ai_provider': 'AI Provider',
+                'collector': 'News API',
+                'firecrawl': 'Firecrawl'
+            };
+
+            for (const [api, apiStatus] of Object.entries(apiHealth.apis)) {
+                const isConfigured = apiStatus === 'configured';
+                const icon = isConfigured ? 'fa-check' : 'fa-times';
+                const color = isConfigured ? 'var(--colors-success-9)' : 'var(--colors-error-7)';
+                const displayName = displayNameMap[api] || api.charAt(0).toUpperCase() + api.slice(1);
+                const displayStatus = apiStatus.charAt(0).toUpperCase() + apiStatus.slice(1);
+
+                detailsHtml += `
+                    <div class="metric-row">
+                        <span class="metric-label">${displayName}:</span>
+                        <span class="metric-value" style="color: ${color};">
+                            <i class="fas ${icon}"></i> ${displayStatus}
+                        </span>
+                    </div>
+                `;
+            }
+            details.innerHTML = detailsHtml;
+        }
+    }
+
+    /**
+     * Update Auto-polling metrics card with progress bar
+     */
+    function updateAutopollingMetrics(autopolling) {
+        if (!autopolling) return;
+
+        const status = document.getElementById('pollingStatus');
+        const requests = document.getElementById('pollingRequests');
+        const usage = document.getElementById('pollingUsage');
+        const lastPoll = document.getElementById('pollingLastPoll');
+        const lastPollRow = document.getElementById('lastPollRow');
+        const progressContainer = document.getElementById('pollingProgress');
+
+        // Update status with icon and color
+        if (status) {
+            if (autopolling.status === 'enabled' || autopolling.status === 'disabled') {
+                const isEnabled = autopolling.is_enabled || autopolling.status === 'enabled';
+                const statusIcon = isEnabled ? 'fa-check-circle' : 'fa-pause-circle';
+                const statusColor = isEnabled ? 'var(--colors-success-9)' : 'var(--colors-warning-9)';
+                const statusText = autopolling.status.charAt(0).toUpperCase() + autopolling.status.slice(1);
+                status.innerHTML = `<i class="fas ${statusIcon}" style="color: ${statusColor};"></i> ${statusText}`;
+            } else if (autopolling.status === 'unknown') {
+                const statusIcon = 'fa-question-circle';
+                const statusColor = 'var(--colors-warning-9)';
+                const statusText = autopolling.message || 'Unknown';
+                status.innerHTML = `<i class="fas ${statusIcon}" style="color: ${statusColor};"></i> ${statusText}`;
+            } else if (autopolling.status === 'error') {
+                const statusIcon = 'fa-times-circle';
+                const statusColor = 'var(--colors-error-7)';
+                const statusText = autopolling.error || 'Error';
+                status.innerHTML = `<i class="fas ${statusIcon}" style="color: ${statusColor};"></i> ${statusText}`;
+            } else {
+                status.innerHTML = `<i class="fas fa-question-circle" style="color: var(--colors-warning-9);"></i> ${autopolling.status}`;
+            }
+        }
+
+        // Update requests count - only if data is available
+        if (requests) {
+            if (autopolling.requests_today != null && autopolling.daily_request_limit != null) {
+                requests.textContent = `${autopolling.requests_today} / ${autopolling.daily_request_limit}`;
+            } else {
+                requests.textContent = 'N/A';
+            }
+        }
+
+        // Update usage percentage - only if data is available
+        if (usage) {
+            if (autopolling.usage_percent != null) {
+                usage.textContent = `${autopolling.usage_percent}%`;
+            } else {
+                usage.textContent = 'N/A';
+            }
+        }
+
+        // Update last poll time (if available)
+        if (lastPoll && lastPollRow && autopolling.last_poll_time) {
+            lastPoll.textContent = autopolling.last_poll_time;
+            lastPollRow.style.display = '';
+        } else if (lastPollRow) {
+            lastPollRow.style.display = 'none';
+        }
+
+        // Update progress bar - only if usage data is available
+        if (progressContainer) {
+            if (autopolling.usage_percent != null) {
+                const pollPercent = autopolling.usage_percent;
+                let colorClass = 'bg-green';
+                if (pollPercent >= 100) {
+                    colorClass = 'bg-red';
+                } else if (pollPercent >= 80) {
+                    colorClass = 'bg-yellow';
+                }
+
+                progressContainer.innerHTML = `
+                    <div class="metric-progress-bar ${colorClass}" style="width: ${Math.min(pollPercent, 100)}%">
+                        ${pollPercent}%
+                    </div>
+                `;
+            } else {
+                // Hide progress bar when no data available
+                progressContainer.innerHTML = '';
+            }
+        }
+    }
+
+    /**
+     * Get progress bar color class based on percentage
+     * Green: < 75%, Yellow: 75-90%, Red: >= 90%
+     */
+    function getProgressColor(percent) {
+        if (percent >= 90) return 'bg-red';
+        if (percent >= 75) return 'bg-yellow';
+        return 'bg-green';
+    }
+
+    /**
+     * Format bytes into human-readable string
+     */
+    function formatBytes(bytes) {
+        if (bytes == null || isNaN(bytes)) return null;
+
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        if (bytes === 0) return '0 B';
+
+        const i = Math.floor(Math.log(bytes) / Math.log(1024));
+        const value = bytes / Math.pow(1024, i);
+
+        return value.toFixed(1) + ' ' + sizes[i];
+    }
+
+    /**
+     * Show error in health status banner
+     */
+    function showHealthError(message) {
+        const indicator = document.getElementById('healthStatusIndicator');
+        const uptime = document.getElementById('healthUptime');
+
+        if (indicator) {
+            indicator.innerHTML = '<i class="fas fa-exclamation-circle"></i> Error Loading Health Data';
+            indicator.className = 'health-status-indicator text-danger';
+        }
+
+        if (uptime) {
+            uptime.textContent = `Error: ${message}`;
+        }
+    }
+
+    // Initialize health data fetching on page load
+    document.addEventListener('DOMContentLoaded', function() {
+        // Fetch immediately
+        fetchHealthData();
+
+        // Refresh every 30 seconds (matching React version)
+        setInterval(fetchHealthData, 30000);
+
+        // Initialize news ticker
+        NewsTicker.init();
+    });
+
+    // ============================================
+    // NEWS TICKER MODULE
+    // ============================================
+
+    /**
+     * News Ticker Module
+     * Provides horizontally scrolling news ticker with full configurability
+     */
+    const NewsTicker = (function() {
+        'use strict';
+
+        // ============================================
+        // CONSTANTS
+        // ============================================
+
+        const DEFAULTS = {
+            count: 10,
+            timeRange: '24h',
+            topic: '',
+            speed: 'lazy',
+            refreshInterval: 300, // seconds
+            showSource: true,
+            showTime: true,
+            showTopic: false,
+            enabled: true
+        };
+
+        const SPEED_MAP = {
+            'lazy': 120,   // 120 seconds per cycle
+            'slow': 90,    // 90 seconds per cycle
+            'medium': 60,  // 60 seconds per cycle
+            'fast': 30     // 30 seconds per cycle
+        };
+
+        const API_ENDPOINT = '/api/news-feed/articles';
+        const STORAGE_KEY = 'newsFeedTickerSettings';
+        const CACHE_KEY = 'tickerArticlesCache';
+        const CACHE_DURATION = 60000; // 1 minute in milliseconds
+
+        // ============================================
+        // STATE
+        // ============================================
+
+        const state = {
+            articles: [],
+            isPaused: false,
+            isVisible: false,
+            refreshTimer: null,
+            settings: { ...DEFAULTS },
+            cache: {
+                data: null,
+                timestamp: 0
+            }
+        };
+
+        // DOM references (cached for performance)
+        const dom = {
+            container: null,
+            content: null,
+            loading: null,
+            empty: null,
+            pauseBtn: null,
+            pauseIcon: null
+        };
+
+        // ============================================
+        // INITIALIZATION
+        // ============================================
+
+        function init() {
+            console.log('[Ticker] Initializing...');
+
+            // Cache DOM references
+            if (!cacheDOMReferences()) {
+                console.error('[Ticker] Failed to cache DOM references');
+                return;
+            }
+
+            // Load saved settings
+            loadSettings();
+
+            // Load topics for filter dropdown
+            loadTopics();
+
+            // Set up event listeners
+            setupEventListeners();
+
+            // Initialize ticker if enabled
+            if (state.settings.enabled) {
+                show();
+                loadArticles();
+                setupAutoRefresh();
+            } else {
+                // Ticker is disabled, show the "Show Ticker" button
+                const showBtn = document.getElementById('show-ticker-btn');
+                if (showBtn) showBtn.style.display = 'block';
+            }
+
+            console.log('[Ticker] Initialization complete');
+        }
+
+        function cacheDOMReferences() {
+            dom.container = document.getElementById('news-ticker');
+            dom.content = document.getElementById('ticker-content');
+            dom.loading = document.getElementById('ticker-loading');
+            dom.empty = document.getElementById('ticker-empty');
+            dom.pauseBtn = document.getElementById('ticker-pause-btn');
+            dom.pauseIcon = document.getElementById('ticker-pause-icon');
+
+            return !!(dom.container && dom.content);
+        }
+
+        function setupEventListeners() {
+            // Keyboard shortcuts
+            document.addEventListener('keydown', handleKeyboard);
+
+            // Visibility change (pause when tab hidden)
+            document.addEventListener('visibilitychange', handleVisibilityChange);
+
+            // Cleanup on page unload
+            window.addEventListener('beforeunload', cleanup);
+
+            // Hover pause/resume
+            if (dom.content) {
+                dom.content.addEventListener('mouseenter', () => {
+                    if (!state.isPaused) {
+                        dom.content.style.animationPlayState = 'paused';
+                    }
+                });
+
+                dom.content.addEventListener('mouseleave', () => {
+                    if (!state.isPaused) {
+                        dom.content.style.animationPlayState = 'running';
+                    }
+                });
+            }
+        }
+
+        // ============================================
+        // ARTICLE LOADING
+        // ============================================
+
+        async function loadArticles() {
+            console.log('[Ticker] Loading articles...', state.settings);
+
+            // Check cache first
+            if (isCacheValid()) {
+                console.log('[Ticker] Using cached articles');
+                state.articles = state.cache.data;
+                render();
+                return;
+            }
+
+            showLoading();
+
+            try {
+                const params = new URLSearchParams({
+                    per_page: state.settings.count,
+                    page: '1'
+                });
+
+                // Add time range filter using the date_range parameter
+                if (state.settings.timeRange) {
+                    params.append('date_range', state.settings.timeRange);
+                } else {
+                    params.append('date_range', '7d');  // Default to 7 days
+                }
+
+                // Add topic filter
+                if (state.settings.topic) {
+                    params.append('topic', state.settings.topic);
+                }
+
+                const url = `${API_ENDPOINT}?${params}`;
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                // Handle news-feed API response structure
+                state.articles = data.articles?.items || data.articles || [];
+
+                // Update cache
+                state.cache.data = state.articles;
+                state.cache.timestamp = Date.now();
+
+                // Persist cache to sessionStorage for page reloads
+                try {
+                    sessionStorage.setItem(CACHE_KEY, JSON.stringify({
+                        data: state.articles,
+                        timestamp: state.cache.timestamp
+                    }));
+                } catch (e) {
+                    console.warn('[Ticker] Failed to cache articles:', e);
+                }
+
+                console.log(`[Ticker] Loaded ${state.articles.length} articles`);
+                render();
+
+            } catch (error) {
+                console.error('[Ticker] Failed to load articles:', error);
+                handleError(error);
+            } finally {
+                hideLoading();
+            }
+        }
+
+        function isCacheValid() {
+            if (!state.cache.data || !state.cache.timestamp) {
+                return false;
+            }
+
+            const age = Date.now() - state.cache.timestamp;
+            return age < CACHE_DURATION;
+        }
+
+        // ============================================
+        // RENDERING
+        // ============================================
+
+        function render() {
+            if (!dom.content) return;
+
+            if (!state.articles || state.articles.length === 0) {
+                showEmpty();
+                return;
+            }
+
+            hideEmpty();
+
+            // Build HTML for ticker items
+            const items = state.articles.map(article => renderArticle(article)).join('');
+
+            // Duplicate for seamless loop
+            dom.content.innerHTML = items + items;
+
+            // Update animation speed
+            updateSpeed();
+
+            // Announce to screen readers (first article only, to avoid spam)
+            if (state.articles[0]) {
+                announceNewArticles(state.articles[0]);
+            }
+        }
+
+        function renderArticle(article) {
+            const time = state.settings.showTime ?
+                `<span class="ticker-time">${formatTime(article.publication_date)}</span>` : '';
+
+            const source = state.settings.showSource && article.news_source ?
+                `<span class="ticker-source">${escapeHtml(article.news_source)}</span>` : '';
+
+            const topic = state.settings.showTopic && article.topic ?
+                `<span class="ticker-topic">${escapeHtml(article.topic)}</span>` : '';
+
+            const url = article.uri || article.url || '#';
+            const title = escapeHtml(article.title || 'Untitled');
+
+            return `
+                <div class="ticker-item">
+                    <a href="${escapeHtml(url)}"
+                       target="_blank"
+                       rel="noopener noreferrer"
+                       aria-label="Read article: ${title}">
+                        ${time}
+                        <span>${title}</span>
+                        ${source}
+                        ${topic}
+                    </a>
+                </div>
+            `;
+        }
+
+        function updateSpeed() {
+            if (!dom.content) return;
+
+            const duration = SPEED_MAP[state.settings.speed] || 60;
+            dom.content.style.animationDuration = `${duration}s`;
+        }
+
+        // ============================================
+        // UI STATE MANAGEMENT
+        // ============================================
+
+        function show() {
+            if (dom.container) {
+                dom.container.classList.add('visible');
+                state.isVisible = true;
+                state.settings.enabled = true;
+                saveSettings();
+                // Hide the show button
+                const showBtn = document.getElementById('show-ticker-btn');
+                if (showBtn) showBtn.style.display = 'none';
+            }
+        }
+
+        function hide() {
+            if (dom.container) {
+                dom.container.classList.remove('visible');
+                state.isVisible = false;
+                // Show the show button
+                const showBtn = document.getElementById('show-ticker-btn');
+                if (showBtn) showBtn.style.display = 'block';
+            }
+        }
+
+        function showLoading() {
+            if (dom.loading) dom.loading.style.display = 'block';
+            if (dom.empty) dom.empty.style.display = 'none';
+            if (dom.content) dom.content.style.display = 'none';
+        }
+
+        function hideLoading() {
+            if (dom.loading) dom.loading.style.display = 'none';
+            if (dom.content) dom.content.style.display = 'inline-flex';
+        }
+
+        function showEmpty() {
+            if (dom.empty) dom.empty.style.display = 'block';
+            if (dom.content) dom.content.style.display = 'none';
+        }
+
+        function hideEmpty() {
+            if (dom.empty) dom.empty.style.display = 'none';
+        }
+
+        // ============================================
+        // CONTROLS
+        // ============================================
+
+        function pauseResume() {
+            if (!dom.content || !dom.pauseIcon) return;
+
+            state.isPaused = !state.isPaused;
+
+            if (state.isPaused) {
+                dom.content.classList.add('paused');
+                dom.pauseIcon.classList.remove('fa-pause');
+                dom.pauseIcon.classList.add('fa-play');
+                if (dom.pauseBtn) dom.pauseBtn.setAttribute('aria-label', 'Resume ticker');
+            } else {
+                dom.content.classList.remove('paused');
+                dom.pauseIcon.classList.remove('fa-play');
+                dom.pauseIcon.classList.add('fa-pause');
+                if (dom.pauseBtn) dom.pauseBtn.setAttribute('aria-label', 'Pause ticker');
+            }
+        }
+
+        function toggle() {
+            if (state.isVisible) {
+                hide();
+                state.settings.enabled = false;
+            } else {
+                show();
+                state.settings.enabled = true;
+            }
+            saveSettings();
+        }
+
+        function refresh() {
+            // Invalidate cache
+            state.cache.data = null;
+            state.cache.timestamp = 0;
+
+            // Reload
+            loadArticles();
+        }
+
+        // ============================================
+        // SETTINGS
+        // ============================================
+
+        function loadSettings() {
+            try {
+                const saved = localStorage.getItem(STORAGE_KEY);
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    state.settings = { ...DEFAULTS, ...parsed };
+                    console.log('[Ticker] Settings loaded:', state.settings);
+                }
+            } catch (error) {
+                console.error('[Ticker] Failed to load settings:', error);
+            }
+        }
+
+        function saveSettings() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(state.settings));
+                console.log('[Ticker] Settings saved');
+            } catch (error) {
+                console.error('[Ticker] Failed to save settings:', error);
+            }
+        }
+
+        function showSettings() {
+            // Populate form with current settings
+            const form = {
+                count: document.getElementById('ticker-article-count'),
+                timeRange: document.getElementById('ticker-time-range'),
+                topic: document.getElementById('ticker-topic-filter'),
+                speed: document.getElementById('ticker-speed'),
+                refresh: document.getElementById('ticker-refresh-interval'),
+                showSource: document.getElementById('ticker-show-source'),
+                showTime: document.getElementById('ticker-show-time'),
+                showTopic: document.getElementById('ticker-show-topic'),
+                enabled: document.getElementById('ticker-enabled')
+            };
+
+            if (form.count) form.count.value = state.settings.count;
+            if (form.timeRange) form.timeRange.value = state.settings.timeRange;
+            if (form.topic) form.topic.value = state.settings.topic;
+            if (form.speed) form.speed.value = state.settings.speed;
+            if (form.refresh) form.refresh.value = state.settings.refreshInterval;
+            if (form.showSource) form.showSource.checked = state.settings.showSource;
+            if (form.showTime) form.showTime.checked = state.settings.showTime;
+            if (form.showTopic) form.showTopic.checked = state.settings.showTopic;
+            if (form.enabled) form.enabled.checked = state.settings.enabled;
+
+            // Show modal
+            const modalEl = document.getElementById('tickerSettingsModal');
+            if (modalEl && typeof bootstrap !== 'undefined') {
+                const modal = new bootstrap.Modal(modalEl);
+                modal.show();
+            }
+        }
+
+        function saveSettingsFromModal() {
+            // Get values from form
+            const form = {
+                count: document.getElementById('ticker-article-count'),
+                timeRange: document.getElementById('ticker-time-range'),
+                topic: document.getElementById('ticker-topic-filter'),
+                speed: document.getElementById('ticker-speed'),
+                refresh: document.getElementById('ticker-refresh-interval'),
+                showSource: document.getElementById('ticker-show-source'),
+                showTime: document.getElementById('ticker-show-time'),
+                showTopic: document.getElementById('ticker-show-topic'),
+                enabled: document.getElementById('ticker-enabled')
+            };
+
+            state.settings.count = parseInt(form.count?.value || DEFAULTS.count);
+            state.settings.timeRange = form.timeRange?.value || DEFAULTS.timeRange;
+            state.settings.topic = form.topic?.value || '';
+            state.settings.speed = form.speed?.value || DEFAULTS.speed;
+            state.settings.refreshInterval = parseInt(form.refresh?.value || DEFAULTS.refreshInterval);
+            state.settings.showSource = form.showSource?.checked ?? DEFAULTS.showSource;
+            state.settings.showTime = form.showTime?.checked ?? DEFAULTS.showTime;
+            state.settings.showTopic = form.showTopic?.checked ?? DEFAULTS.showTopic;
+            state.settings.enabled = form.enabled?.checked ?? DEFAULTS.enabled;
+
+            // Save to storage
+            saveSettings();
+
+            // Apply changes
+            if (state.settings.enabled && !state.isVisible) {
+                show();
+            } else if (!state.settings.enabled && state.isVisible) {
+                hide();
+            }
+
+            // Reload articles with new settings
+            refresh();
+
+            // Update auto-refresh
+            setupAutoRefresh();
+
+            // Close modal
+            const modalEl = document.getElementById('tickerSettingsModal');
+            if (modalEl && typeof bootstrap !== 'undefined') {
+                const modal = bootstrap.Modal.getInstance(modalEl);
+                if (modal) modal.hide();
+            }
+
+            // Show notification
+            if (typeof showNotification === 'function') {
+                showNotification('Ticker settings saved', 'success');
+            }
+        }
+
+        function resetSettings() {
+            if (!confirm('Reset all ticker settings to defaults?')) {
+                return;
+            }
+
+            state.settings = { ...DEFAULTS };
+            saveSettings();
+
+            // Reload modal if open
+            showSettings();
+
+            // Reload ticker
+            refresh();
+            setupAutoRefresh();
+        }
+
+        // ============================================
+        // AUTO-REFRESH
+        // ============================================
+
+        function setupAutoRefresh() {
+            // Clear existing timer
+            if (state.refreshTimer) {
+                clearInterval(state.refreshTimer);
+                state.refreshTimer = null;
+            }
+
+            // Set up new timer if enabled
+            if (state.settings.refreshInterval > 0) {
+                state.refreshTimer = setInterval(
+                    loadArticles,
+                    state.settings.refreshInterval * 1000
+                );
+                console.log(`[Ticker] Auto-refresh enabled: ${state.settings.refreshInterval}s`);
+            }
+        }
+
+        // ============================================
+        // TOPICS
+        // ============================================
+
+        async function loadTopics() {
+            try {
+                const response = await fetch('/api/topics');
+                if (!response.ok) return;
+
+                const topics = await response.json();
+                const select = document.getElementById('ticker-topic-filter');
+
+                if (!select) return;
+
+                // Clear existing options (except "All Topics")
+                while (select.options.length > 1) {
+                    select.remove(1);
+                }
+
+                // Add topic options
+                topics.forEach(topic => {
+                    const option = document.createElement('option');
+                    option.value = topic.name;
+                    option.textContent = topic.name;
+                    select.appendChild(option);
+                });
+
+                console.log(`[Ticker] Loaded ${topics.length} topics`);
+
+            } catch (error) {
+                console.error('[Ticker] Failed to load topics:', error);
+            }
+        }
+
+        // ============================================
+        // EVENT HANDLERS
+        // ============================================
+
+        function handleKeyboard(event) {
+            // Only handle when ticker is visible
+            if (!state.isVisible) return;
+
+            // Ignore if user is typing in input
+            if (event.target.matches('input, textarea, select')) {
+                return;
+            }
+
+            switch (event.key) {
+                case ' ':  // Space = pause/resume
+                    event.preventDefault();
+                    pauseResume();
+                    break;
+                case 'Escape':  // Esc = hide
+                    event.preventDefault();
+                    hide();
+                    break;
+            }
+        }
+
+        function handleVisibilityChange() {
+            if (document.hidden) {
+                if (dom.content && !state.isPaused) {
+                    dom.content.style.animationPlayState = 'paused';
+                }
+            } else {
+                if (dom.content && !state.isPaused) {
+                    dom.content.style.animationPlayState = 'running';
+                }
+            }
+        }
+
+        function handleError(error) {
+            console.error('[Ticker] Error:', error);
+
+            // Show error in ticker
+            if (dom.content) {
+                dom.content.innerHTML = `
+                    <div class="ticker-item">
+                        <span style="color: #ff6b6b;">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            Failed to load articles. Click Refresh to try again.
+                        </span>
+                    </div>
+                `;
+            }
+        }
+
+        // ============================================
+        // UTILITIES
+        // ============================================
+
+        function formatTime(timestamp) {
+            if (!timestamp) return '';
+
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+
+            if (diffMins < 1) return 'just now';
+            if (diffMins === 1) return '1m ago';
+            if (diffMins < 60) return `${diffMins}m ago`;
+
+            const diffHours = Math.floor(diffMins / 60);
+            if (diffHours === 1) return '1h ago';
+            if (diffHours < 24) return `${diffHours}h ago`;
+
+            const diffDays = Math.floor(diffHours / 24);
+            if (diffDays === 1) return '1d ago';
+            if (diffDays < 7) return `${diffDays}d ago`;
+
+            return date.toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric'
+            });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function announceNewArticles(firstArticle) {
+            if (!firstArticle || !dom.container) return;
+
+            const liveRegion = dom.container.querySelector('[aria-live]');
+            if (liveRegion) {
+                // Update aria-label to announce new content
+                const announcement = `Latest article: ${firstArticle.title}`;
+                liveRegion.setAttribute('aria-label', announcement);
+            }
+        }
+
+        function cleanup() {
+            if (state.refreshTimer) {
+                clearInterval(state.refreshTimer);
+            }
+        }
+
+        // ============================================
+        // PUBLIC API
+        // ============================================
+
+        return {
+            init,
+            show,
+            hide,
+            toggle,
+            pauseResume,
+            refresh,
+            showSettings,
+            saveSettings: saveSettingsFromModal,
+            resetSettings,
+            loadArticles
+        };
+
+    })();
+
+    // ============================================
+    // GLOBAL FUNCTIONS (for onclick handlers)
+    // ============================================
+
+    function pauseResumeTicker() {
+        NewsTicker.pauseResume();
+    }
+
+    function toggleTicker() {
+        NewsTicker.toggle();
+    }
+
+    function refreshTicker() {
+        NewsTicker.refresh();
+    }
+
+    function showTickerSettings() {
+        NewsTicker.showSettings();
+    }
+
+    function saveTickerSettings() {
+        NewsTicker.saveSettings();
+    }
+
+    function resetTickerSettings() {
+        NewsTicker.resetSettings();
+    }
 </script>
 
 <!-- Add Font Awesome for the clock icon -->

@@ -6,14 +6,14 @@
 <style>
     /* Light theme styling to match base.html */
     :root {
-        --primary-color: #FF69B4;
-        --primary-dark: #FF1493;
-        --text-color: #333;
+        --primary-color: var(--colors-accent-7);
+        --primary-dark: var(--colors-accent-10);
+        --text-color: var(--colors-neutral-11);
         --container-width: 1200px;
         --spacing-md: 1rem;
-        --bg-light: #f8f9fa;
-        --bg-white: #ffffff;
-        --border-color: #dee2e6;
+        --bg-light: var(--colors-neutral-2);
+        --bg-white: var(--colors-white);
+        --border-color: var(--colors-neutral-5);
     }
 
     body {
@@ -51,7 +51,7 @@
     
     .header p {
         font-size: 1.1rem;
-        color: #6c757d;
+        color: var(--colors-neutral-8);
         max-width: 700px;
         margin: 0 auto;
     }
@@ -119,7 +119,7 @@
     .timeline-marker {
         text-align: center;
         font-size: 0.9rem;
-        color: #6c757d;
+        color: var(--colors-neutral-8);
         position: relative;
     }
     
@@ -131,7 +131,7 @@
         transform: translateX(-50%);
         width: 2px;
         height: 10px;
-        background: #6c757d;
+        background: var(--colors-neutral-8);
     }
     
     .now-marker {
@@ -182,13 +182,13 @@
     
     .scenario.plausible {
         background: rgba(255, 193, 7, 0.1);
-        border-color: #ffc107;
+        border-color: var(--colors-warning-9);
         color: #856404;
     }
     
     .scenario.possible {
         background: rgba(220, 53, 69, 0.1);
-        border-color: #dc3545;
+        border-color: var(--colors-error-9);
         color: #721c24;
     }
     
@@ -290,7 +290,7 @@
         right: 10px;
         top: 20%;
         font-size: 0.8rem;
-        color: #6c757d;
+        color: var(--colors-neutral-8);
     }
     
     .cone-label {
@@ -307,7 +307,7 @@
     }
     
     .spinner-border {
-        color: #FF69B4;
+        color: var(--colors-accent-7);
     }
 
     .modal-content {
@@ -377,13 +377,13 @@
     }
 
     .btn-outline-secondary {
-        color: #6c757d;
-        border-color: #6c757d;
+        color: var(--colors-neutral-8);
+        border-color: var(--colors-neutral-8);
     }
 
     .btn-outline-secondary:hover {
-        background-color: #6c757d;
-        border-color: #6c757d;
+        background-color: var(--colors-neutral-8);
+        border-color: var(--colors-neutral-8);
         color: white;
     }
 
@@ -437,7 +437,7 @@
     .btn-divider {
         width: 1px;
         height: 24px;
-        background: #dee2e6;
+        background: var(--colors-neutral-5);
         margin: 0 4px;
         align-self: center;
     }
@@ -527,7 +527,7 @@
     
     .explanation-content p {
         margin: 0;
-        color: #666;
+        color: var(--colors-neutral-8);
     }
     
     .scenario-detail-card {
@@ -603,7 +603,7 @@
     .scenario-detail-list li {
         margin-bottom: 5px;
         line-height: 1.5;
-        color: #666;
+        color: var(--colors-neutral-8);
     }
 
     /* Key Themes Grid */
@@ -673,7 +673,7 @@
     
     .legend-content {
         font-size: 0.9rem;
-        color: #6c757d;
+        color: var(--colors-neutral-8);
         line-height: 1.5;
     }
 
@@ -820,7 +820,7 @@
             <!-- Cone labels -->
             <div class="cone-labels">
                 <div class="cone-label" style="color: #ff6b6b;">Possible</div>
-                <div class="cone-label" style="color: #ffc107;">Plausible</div>
+                <div class="cone-label" style="color: var(--colors-warning-9);">Plausible</div>
                 <div class="cone-label" style="color: #00d4ff;">Probable</div>
                 <div class="cone-label" style="color: #4ecdc4;">Preferable</div>
                 <div class="cone-label" style="color: #8a2be2;">⚡ Wildcard</div>
@@ -919,12 +919,12 @@
                         </div>
                         
                         <div class="mb-3">
-                            <label for="analysisDepth" class="form-label">Analysis Depth</label>
-                            <select class="form-select" id="analysisDepth">
-                                <option value="standard" selected>Standard Analysis</option>
-                                <option value="detailed">Detailed Analysis</option>
-                                <option value="comprehensive">Comprehensive Analysis</option>
+                            <label for="sourceQuality" class="form-label">Source Quality</label>
+                            <select class="form-select" id="sourceQuality">
+                                <option value="all" selected>All Sources</option>
+                                <option value="high_quality">High Quality Only</option>
                             </select>
+                            <small class="text-muted">High Quality = High factual reporting AND high credibility rating</small>
                         </div>
                         
                         <div class="mb-3">
@@ -1101,7 +1101,7 @@ async function downloadAsPDF() {
         // Add title
         const title = document.createElement('h1');
         title.style.cssText = `
-            color: #FF69B4;
+            color: var(--colors-accent-7);
             font-size: 32px;
             font-weight: bold;
             margin-bottom: 10px;
@@ -1113,7 +1113,7 @@ async function downloadAsPDF() {
         // Add subtitle
         const subtitle = document.createElement('p');
         subtitle.style.cssText = `
-            color: #666;
+            color: var(--colors-neutral-8);
             font-size: 18px;
             text-align: center;
             margin-bottom: 40px;
@@ -1155,7 +1155,7 @@ async function downloadAsPDF() {
             scale: 1.0,
             logging: false,
             allowTaint: true,
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--colors-white)',
             width: 1400,
             height: exportContainer.scrollHeight,
             removeContainer: false
@@ -1237,7 +1237,7 @@ async function downloadAsImage() {
         // Add title
         const title = document.createElement('h1');
         title.style.cssText = `
-            color: #FF69B4;
+            color: var(--colors-accent-7);
             font-size: 36px;
             font-weight: bold;
             margin-bottom: 15px;
@@ -1249,7 +1249,7 @@ async function downloadAsImage() {
         // Add subtitle
         const subtitle = document.createElement('p');
         subtitle.style.cssText = `
-            color: #666;
+            color: var(--colors-neutral-8);
             font-size: 20px;
             text-align: center;
             margin-bottom: 50px;
@@ -1291,7 +1291,7 @@ async function downloadAsImage() {
             scale: 1.5,
             logging: false,
             allowTaint: true,
-            backgroundColor: '#ffffff',
+            backgroundColor: 'var(--colors-white)',
             width: 1400,
             height: exportContainer.scrollHeight,
             removeContainer: false
@@ -1325,22 +1325,22 @@ async function loadFuturesConeAnalysis() {
     const timeframeElement = document.getElementById('timeframe');
     const modelElement = document.getElementById('model');
     const futureHorizonElement = document.getElementById('futureHorizon');
-    const analysisDepthElement = document.getElementById('analysisDepth');
+    const sourceQualityElement = document.getElementById('sourceQuality');
     const scenarioCountElement = document.getElementById('scenarioCount');
-    
+
     const loadingSpinner = document.getElementById('loadingSpinner');
     const futuresConeContainer = document.getElementById('futuresConeContainer');
-    
+
     if (!topicElement || !timeframeElement || !modelElement) {
         showError('Required form elements not found. Please refresh the page.');
         return;
     }
-    
+
     const topic = topicElement.value;
     const timeframe = timeframeElement.value;
     const model = modelElement.value;
     const futureHorizon = futureHorizonElement ? futureHorizonElement.value : '5';
-    const analysisDepth = analysisDepthElement ? analysisDepthElement.value : 'standard';
+    const sourceQuality = sourceQualityElement ? sourceQualityElement.value : 'all';
     const scenarioCount = scenarioCountElement ? scenarioCountElement.value : 'standard';
     
     if (!topic) {
@@ -1394,7 +1394,7 @@ async function loadFuturesConeAnalysis() {
             timeframe_days: actualTimeframe,
             model: model,
             future_horizon: futureHorizon,
-            analysis_depth: analysisDepth,
+            source_quality: sourceQuality,
             sample_size_mode: sampleSizeMode
         });
         
@@ -1988,13 +1988,13 @@ function updateContextInfo() {
     
     // Color coding
     if (contextUsage > 90) {
-        contextStats.style.color = '#dc3545'; // Red
+        contextStats.style.color = 'var(--colors-error-9)'; // Red
         contextStats.style.fontWeight = 'bold';
     } else if (contextUsage > 70) {
         contextStats.style.color = '#fd7e14'; // Orange
         contextStats.style.fontWeight = '600';
     } else if (contextUsage > 50) {
-        contextStats.style.color = '#28a745'; // Green
+        contextStats.style.color = 'var(--colors-success-9)'; // Green
         contextStats.style.fontWeight = '500';
     } else {
         contextStats.style.color = '#007bff'; // Blue
@@ -2046,26 +2046,26 @@ function saveConfigurationAndClose() {
     const model = document.getElementById('model').value;
     const timeframe = document.getElementById('timeframe').value;
     const futureHorizon = document.getElementById('futureHorizon').value;
-    const analysisDepth = document.getElementById('analysisDepth').value;
+    const sourceQuality = document.getElementById('sourceQuality').value;
     const sampleSizeMode = document.getElementById('sampleSizeMode').value;
     const customLimit = document.getElementById('customLimit').value;
-    
+
     if (!topic) {
         alert('Please select a topic');
         return;
     }
-    
+
     if (!model) {
         alert('Please select a model');
         return;
     }
-    
+
     const config = {
         topic,
         model,
         timeframe,
         futureHorizon,
-        analysisDepth,
+        sourceQuality,
         sampleSizeMode,
         customLimit,
         timestamp: new Date().toISOString()
@@ -2111,7 +2111,7 @@ function generateCacheKey(config) {
         customDays: config.customDays,
         model: config.model,
         futureHorizon: config.futureHorizon,
-        analysisDepth: config.analysisDepth,
+        sourceQuality: config.sourceQuality,
         sampleSizeMode: config.sampleSizeMode,
         customLimit: config.customLimit
     };
@@ -2131,18 +2131,18 @@ function generateCacheKey(config) {
 function getCurrentConfiguration() {
     const timeframe = document.getElementById('timeframe')?.value || '';
     let customDays = null;
-    
+
     if (timeframe === 'custom') {
         customDays = document.getElementById('customDays')?.value || null;
     }
-    
+
     return {
         topic: document.getElementById('topic')?.value || '',
         timeframe: timeframe,
         customDays: customDays,
         model: document.getElementById('model')?.value || '',
         futureHorizon: document.getElementById('futureHorizon')?.value || '5',
-        analysisDepth: document.getElementById('analysisDepth')?.value || 'standard',
+        sourceQuality: document.getElementById('sourceQuality')?.value || 'all',
         sampleSizeMode: document.getElementById('sampleSizeMode')?.value || 'auto',
         customLimit: document.getElementById('customLimit')?.value || null
     };
@@ -2233,7 +2233,7 @@ async function loadSavedConfiguration() {
                 }
             }
             if (config.futureHorizon) document.getElementById('futureHorizon').value = config.futureHorizon;
-            if (config.analysisDepth) document.getElementById('analysisDepth').value = config.analysisDepth;
+            if (config.sourceQuality) document.getElementById('sourceQuality').value = config.sourceQuality;
             if (config.sampleSizeMode) {
                 document.getElementById('sampleSizeMode').value = config.sampleSizeMode;
                 handleSampleSizeModeChange();
@@ -2268,7 +2268,7 @@ function clearSavedConfiguration() {
         document.getElementById('model').value = '';
         document.getElementById('timeframe').value = '365d';
         document.getElementById('futureHorizon').value = '5';
-        document.getElementById('analysisDepth').value = 'standard';
+        document.getElementById('sourceQuality').value = 'all';
         document.getElementById('sampleSizeMode').value = 'auto';
         document.getElementById('customLimit').value = '50';
         document.getElementById('customDays').style.display = 'none';

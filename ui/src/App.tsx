@@ -1,0 +1,2102 @@
+/**
+ * Trend Convergence Dashboard - Figma Design Implementation
+ */
+
+import { useState, useEffect } from 'react';
+import { useTrendConvergence } from './hooks/useTrendConvergence';
+import { SharedNavigation } from './components/SharedNavigation';
+import { TabNavigation } from './components/TabNavigation';
+import { TimelineBar } from './components/TimelineBar';
+import { ConvergenceCard } from './components/ConvergenceCard';
+import ConsensusCategoryCard from './components/ConsensusCategoryCard';
+import { ImpactTimelineCard } from './components/ImpactTimelineCard';
+import { FutureHorizons } from './components/FutureHorizons';
+import { OrganizationalProfileModal } from './components/OrganizationalProfileModal';
+import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
+import { Bell, Settings, Download, Image as ImageIcon, FileText, RefreshCw, Clock, TrendingUp, Target, Code, Save, Trash2, Plus, X, Zap } from 'lucide-react';
+import { Button } from './components/ui/button';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from './components/ui/dialog';
+import { Input } from './components/ui/input';
+import { Textarea } from './components/ui/textarea';
+import { Label } from './components/ui/label';
+import { Loader2, AlertCircle } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from './components/ui/alert';
+import { calculateContextInfo, type ContextInfo } from './utils/contextCalculation';
+import { getMarketSignalsRaw, getImpactTimelineRaw, getStrategicRecommendationsRaw, getFutureHorizonsRaw, getConsensusAnalysisRaw, listDashboardsForTopic, loadDashboard, saveDashboard, deleteDashboard } from './services/api';
+import { ExportService } from './services/exportService';
+import { ArticleCitations } from './components/ArticleCitations';
+import { AIDisclosureFooter, dashboardFooterConfigs } from './components/AIDisclosureFooter';
+import { renderCitationsAsLinks } from './utils/citationRenderer';
+
+function App() {
+  const {
+    data,
+    setData,
+    topics,
+    profiles,
+    models,
+    config,
+    loading,
+    error,
+    generateAnalysis,
+    updateConfig,
+    clearError,
+  } = useTrendConvergence();
+
+  const [activeTab, setActiveTab] = useState('strategic-recommendations');
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  const [contextInfo, setContextInfo] = useState<ContextInfo | null>(null);
+  const [showRawModal, setShowRawModal] = useState(false);
+  const [rawAnalysisData, setRawAnalysisData] = useState<any>(null);
+  const [loadingRaw, setLoadingRaw] = useState(false);
+  const [articleList, setArticleList] = useState<any[]>([]);
+  const [isPromptEditorOpen, setIsPromptEditorOpen] = useState(false);
+  const [currentPrompt, setCurrentPrompt] = useState('');
+  const [customPrompt, setCustomPrompt] = useState<string | null>(null);
+  const [templateSystemPrompt, setTemplateSystemPrompt] = useState('');
+  const [templateUserPrompt, setTemplateUserPrompt] = useState('');
+  const [templateOutputFormat, setTemplateOutputFormat] = useState('');
+  const [showPreview, setShowPreview] = useState(false);
+  const [templateVariables, setTemplateVariables] = useState<Record<string, string>>({});
+
+  // Saved Dashboards state
+  const [savedDashboards, setSavedDashboards] = useState<any[]>([]);
+  const [currentDashboardId, setCurrentDashboardId] = useState<number | null>(null);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [dashboardName, setDashboardName] = useState('');
+  const [dashboardDescription, setDashboardDescription] = useState('');
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [dashboardToDelete, setDashboardToDelete] = useState<{id: number, name: string} | null>(null);
+  const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
+
+  // All available topics
+  const [allTopics, setAllTopics] = useState<string[]>([]);
+
+  // Fetch prompt preview when Tune modal opens
+  useEffect(() => {
+    if (!isPromptEditorOpen) return;
+
+    console.log('🔧 Tune modal opened, preparing to fetch prompt...');
+    console.log('🔧 Config:', { topic: config.topic, profile_id: config.profile_id, activeTab });
+
+    // Validate required data
+    if (!config.topic) {
+      console.error('❌ Cannot fetch prompt: config.topic is missing');
+      setCustomPrompt('Error: No topic selected. Please configure a topic first.');
+      return;
+    }
+
+    if (!activeTab) {
+      console.error('❌ Cannot fetch prompt: activeTab is missing');
+      setCustomPrompt('Error: No active tab selected.');
+      return;
+    }
+
+    // Reset states and fetch prompt
+    setCustomPrompt("Loading prompt preview...");
+    setCurrentPrompt("");
+
+    const fetchPrompt = async () => {
+      try {
+        const params = new URLSearchParams({
+          topic: config.topic
+        });
+        if (config.profile_id) {
+          params.append('profile_id', config.profile_id.toString());
+        }
+
+        console.log(`🔧 Fetching prompt preview for tab: ${activeTab}, topic: ${config.topic}`);
+        const response = await fetch(`/api/trend-convergence/prompt-preview/${activeTab}?${params}`, {
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        });
+
+        console.log(`🔧 Prompt preview response status: ${response.status}`);
+        if (response.ok) {
+          const result = await response.json();
+          console.log(`✅ Prompt loaded successfully, length: ${result.prompt?.length || 0} characters`);
+          // Store the fully rendered preview
+          setCurrentPrompt(result.prompt);
+          setCustomPrompt(result.prompt);
+          // Store the editable templates
+          setTemplateSystemPrompt(result.template?.system_prompt || '');
+          setTemplateUserPrompt(result.template?.user_prompt || '');
+          setTemplateOutputFormat(result.template?.output_format || '');
+          // Store variables
+          setTemplateVariables(result.template?.variables || {});
+        } else {
+          const errorText = await response.text();
+          console.error(`❌ Failed to load prompt (${response.status}):`, errorText);
+          setCurrentPrompt(`Failed to load prompt preview (${response.status}). Please try again.`);
+          setCustomPrompt(`Failed to load prompt preview (${response.status}). Please try again.`);
+        }
+      } catch (error) {
+        console.error("❌ Error fetching prompt:", error);
+        setCurrentPrompt("Error loading prompt preview. Check console for details.");
+        setCustomPrompt("Error loading prompt preview. Check console for details.");
+      }
+    };
+
+    fetchPrompt();
+  }, [isPromptEditorOpen, activeTab, config.topic, config.profile_id]);
+
+  // Check URL parameters for auto-opening onboarding wizard
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('onboarding') === 'true') {
+      setIsOnboardingOpen(true);
+      // Remove the parameter from URL without reloading
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
+  // Sync active tab to config and auto-load data if not cached
+  useEffect(() => {
+    // Map UI tab names to backend tab parameter values
+    const tabMap: { [key: string]: string } = {
+      'consensus': 'consensus',
+      'strategic-recommendations': 'strategic',
+      'impact-timeline': 'timeline',
+      'market-signals': 'signals',
+      'future-horizons': 'horizons'
+    };
+
+    const backendTab = tabMap[activeTab];
+    if (backendTab) {
+      updateConfig({ tab: backendTab });
+
+      // Check if we have cached data for this tab
+      const tabKey = `trendConvergence_data_${backendTab}`;
+      const cachedData = localStorage.getItem(tabKey);
+
+      // If no cached data and we have a topic, auto-generate
+      // BUT: Don't auto-generate if there's already an error (prevents infinite loop)
+      if (!cachedData && config.topic && !loading && !error) {
+        console.log(`No cached data for ${backendTab} tab, auto-generating...`);
+        generateAnalysis();
+      }
+    }
+  }, [activeTab, updateConfig, config.topic, loading, error, generateAnalysis]);
+
+  // Calculate context info when model or sample size changes
+  useEffect(() => {
+    if (config.model) {
+      const sampleSizeMode = config.custom_limit ? 'custom' : 'auto';
+      const info = calculateContextInfo(config.model, sampleSizeMode, config.custom_limit);
+      setContextInfo(info);
+    }
+  }, [config.model, config.custom_limit]);
+
+  // Fetch articles for tabs that need inline citation links
+  useEffect(() => {
+    const fetchArticles = async () => {
+      if (!data?.analysis_id || !config.topic) {
+        setArticleList([]);
+        return;
+      }
+
+      const tabEndpoints: Record<string, string> = {
+        'future-horizons': 'horizons',
+        'strategic-recommendations': 'strategic',
+        'market-signals': 'market-signals'
+      };
+
+      const endpointKey = tabEndpoints[activeTab];
+      if (endpointKey) {
+        try {
+          const endpoint = `/api/trend-convergence/${endpointKey}/${data.analysis_id}/articles?topic=${encodeURIComponent(config.topic)}`;
+          const response = await fetch(endpoint);
+
+          if (response.ok) {
+            const result = await response.json();
+            setArticleList(result.articles || []);
+            console.log(`Fetched ${result.articles?.length || 0} articles for ${activeTab}`);
+          }
+        } catch (error) {
+          console.error(`Failed to fetch articles for ${activeTab}:`, error);
+          setArticleList([]);
+        }
+      } else {
+        setArticleList([]);
+      }
+    };
+
+    fetchArticles();
+  }, [activeTab, data?.analysis_id, config.topic]);
+
+  // Fetch all available topics on mount (only topics with articles)
+  useEffect(() => {
+    async function fetchTopics() {
+      try {
+        const response = await fetch('/api/topics?include_config=false&with_articles=true');
+        if (response.ok) {
+          const topics = await response.json();
+          setAllTopics(topics.map((t: any) => t.name));
+        }
+      } catch (err) {
+        console.error('Failed to load topics:', err);
+      }
+    }
+    fetchTopics();
+  }, []);
+
+  // Load saved dashboards when topic changes
+  useEffect(() => {
+    if (config.topic) {
+      loadSavedDashboardsForTopic(config.topic);
+    }
+  }, [config.topic]);
+
+  // Saved Dashboards handlers
+  async function loadSavedDashboardsForTopic(topic: string, autoLoad: boolean = false) {
+    try {
+      const dashboards = await listDashboardsForTopic(topic);
+      setSavedDashboards(dashboards);
+
+      // Auto-load most recent dashboard if requested and dashboards exist
+      if (autoLoad && dashboards.length > 0) {
+        // Dashboards are already sorted by last_accessed_at DESC from API
+        const mostRecent = dashboards[0];
+        await handleLoadDashboard(mostRecent.id);
+      } else if (autoLoad && dashboards.length === 0) {
+        // No saved dashboards, clear current data to show "New Analysis" state
+        setData(null);
+        setCurrentDashboardId(null);
+      }
+    } catch (err) {
+      console.error('Failed to load saved dashboards:', err);
+    }
+  }
+
+  async function handleSaveDashboard() {
+    if (!dashboardName.trim()) {
+      alert('Please enter a dashboard name');
+      return;
+    }
+
+    // Get article URIs from current data
+    const articleUris = data?.article_uris || [];
+
+    // Get current profile
+    const currentProfile = profiles.find(p => p.id === config.profile_id);
+
+    const request = {
+      topic: config.topic,
+      name: dashboardName,
+      description: dashboardDescription || undefined,
+      config: config,
+      article_uris: articleUris,
+      tab_data: {
+        [activeTab]: data
+      },
+      profile_snapshot: currentProfile,
+    };
+
+    try {
+      await saveDashboard(request);
+      setShowSaveDialog(false);
+      setDashboardName('');
+      setDashboardDescription('');
+
+      // Reload dashboard list
+      await loadSavedDashboardsForTopic(config.topic);
+
+      alert('Dashboard saved successfully!');
+    } catch (err) {
+      console.error('Failed to save dashboard:', err);
+      alert('Failed to save dashboard');
+    }
+  }
+
+  async function handleLoadDashboard(dashboardId: number) {
+    try {
+      setIsLoadingDashboard(true);
+      const dashboard = await loadDashboard(dashboardId);
+
+      // Restore configuration
+      updateConfig(dashboard.config);
+
+      // Map UI tab names to backend data keys
+      const tabDataMap: { [key: string]: string } = {
+        'consensus': 'consensus_data',
+        'strategic-recommendations': 'strategic_data',
+        'impact-timeline': 'timeline_data',
+        'market-signals': 'signals_data',
+        'future-horizons': 'horizons_data'
+      };
+
+      // Restore ALL tab data to localStorage
+      Object.entries(tabDataMap).forEach(([uiTab, backendKey]) => {
+        if (dashboard[backendKey]) {
+          const storageKey = `trendConvergence_data_${backendKey.replace('_data', '')}`;
+          localStorage.setItem(storageKey, JSON.stringify(dashboard[backendKey]));
+        }
+      });
+
+      // Get the data key for current active tab
+      const currentDataKey = tabDataMap[activeTab];
+
+      // Set the data for the current active tab
+      if (currentDataKey && dashboard[currentDataKey]) {
+        setData(dashboard[currentDataKey]);
+      }
+
+      // Set current dashboard ID
+      setCurrentDashboardId(dashboardId);
+
+      setIsLoadingDashboard(false);
+      alert(`Dashboard "${dashboard.name}" loaded successfully!`);
+    } catch (err) {
+      console.error('Failed to load dashboard:', err);
+      setIsLoadingDashboard(false);
+      alert('Failed to load dashboard');
+    }
+  }
+
+  function openDeleteConfirmation(dashboardId: number, dashboardName: string) {
+    setDashboardToDelete({ id: dashboardId, name: dashboardName });
+    setDeleteConfirmOpen(true);
+  }
+
+  async function confirmDeleteDashboard() {
+    if (!dashboardToDelete) return;
+
+    try {
+      await deleteDashboard(dashboardToDelete.id);
+      setCurrentDashboardId(null);
+      await loadSavedDashboardsForTopic(config.topic);
+      setDeleteConfirmOpen(false);
+      setDashboardToDelete(null);
+    } catch (err) {
+      console.error('Failed to delete dashboard:', err);
+      alert('Failed to delete dashboard');
+    }
+  }
+
+  async function handleTopicChange(newTopic: string) {
+    // Update config with new topic
+    updateConfig({ topic: newTopic });
+
+    // Clear current analysis data and dashboard selection
+    setData(null);
+    setCurrentDashboardId(null);
+
+    // Clear localStorage cache for all tabs
+    const tabKeys = ['consensus', 'strategic', 'timeline', 'signals', 'horizons'];
+    tabKeys.forEach(tab => {
+      localStorage.removeItem(`trendConvergence_data_${tab}`);
+    });
+
+    // Load saved dashboards for new topic and auto-load most recent
+    await loadSavedDashboardsForTopic(newTopic, true);
+  }
+
+  const handleGenerate = async () => {
+    await generateAnalysis();
+    setIsConfigOpen(false);
+  };
+
+  const handleViewRaw = async () => {
+    // Get analysis_id from data
+    const analysisId = data?.analysis_id;
+    if (!analysisId) {
+      alert('No analysis ID found. Please generate an analysis first.');
+      return;
+    }
+
+    setLoadingRaw(true);
+    try {
+      let result;
+      // Determine which API to call based on active tab
+      switch (activeTab) {
+        case 'consensus':
+          result = await getConsensusAnalysisRaw(analysisId);
+          break;
+        case 'market-signals':
+          result = await getMarketSignalsRaw(analysisId);
+          break;
+        case 'impact-timeline':
+          result = await getImpactTimelineRaw(analysisId);
+          break;
+        case 'strategic-recommendations':
+          result = await getStrategicRecommendationsRaw(analysisId);
+          break;
+        case 'future-horizons':
+          result = await getFutureHorizonsRaw(analysisId);
+          break;
+        default:
+          alert('View Raw is not supported for this tab');
+          return;
+      }
+
+      setRawAnalysisData(result);
+      setShowRawModal(true);
+    } catch (err) {
+      console.error('Failed to load raw analysis:', err);
+      alert('Failed to load stored analysis');
+    } finally {
+      setLoadingRaw(false);
+    }
+  };
+
+  const handleExport = async (format: 'json' | 'markdown' | 'pdf' | 'image') => {
+    if (!data) {
+      alert('No data available to export');
+      return;
+    }
+
+    const timestamp = Date.now();
+    const dashboardName = getTitleForTab(activeTab);
+    const baseFilename = `${activeTab}-${config.topic.toLowerCase().replace(/\s+/g, '-')}-${timestamp}`;
+    const elementId = 'dashboard-content'; // Main dashboard container ID
+
+    try {
+      switch (format) {
+        case 'json':
+          // Extract tab-specific data based on activeTab
+          let exportData: any = data;
+
+          switch (activeTab) {
+            case 'consensus-analysis':
+              exportData = {
+                categories: data.categories || data.convergences,
+                article_count: data.article_count,
+                topic: data.topic,
+                model_used: data.model_used
+              };
+              break;
+            case 'strategic-recommendations':
+              // Find the framework section dynamically
+              const frameworkKey = Object.keys(data).find(key =>
+                key.endsWith('_framework') || key === 'executive_decision_framework'
+              );
+              exportData = {
+                strategic_recommendations: data.strategic_recommendations,
+                [frameworkKey || 'executive_decision_framework']: data[frameworkKey || 'executive_decision_framework'],
+                next_steps: data.next_steps,
+                article_count: data.article_count,
+                topic: data.topic,
+                model_used: data.model_used
+              };
+              break;
+            case 'impact-timeline':
+              exportData = {
+                impact_timeline: data.impact_timeline,
+                key_insights: data.key_insights,
+                article_count: data.article_count,
+                topic: data.topic,
+                model_used: data.model_used
+              };
+              break;
+            case 'market-signals':
+              exportData = {
+                future_signals: data.future_signals,
+                risk_cards: data.risk_cards,
+                opportunity_cards: data.opportunity_cards,
+                quotes: data.quotes,
+                article_count: data.article_count,
+                topic: data.topic,
+                model_used: data.model_used
+              };
+              break;
+            case 'future-horizons':
+              exportData = {
+                scenarios: data.scenarios,
+                article_count: data.article_count,
+                topic: data.topic,
+                model_used: data.model_used
+              };
+              break;
+          }
+
+          ExportService.exportJSON(exportData, baseFilename);
+          break;
+        case 'markdown':
+          ExportService.exportMarkdown(data, dashboardName, config.topic);
+          break;
+        case 'pdf':
+          await ExportService.exportPDF(elementId, baseFilename);
+          break;
+        case 'image':
+          await ExportService.exportImage(elementId, baseFilename);
+          break;
+      }
+    } catch (error) {
+      console.error(`Export failed for ${format}:`, error);
+      alert(`Failed to export as ${format}. Please try again.`);
+    }
+  };
+
+  const getTitleForTab = (tab: string): string => {
+    const titles: Record<string, string> = {
+      'consensus': 'Consensus Analysis',
+      'strategic-recommendations': 'Strategic Recommendations',
+      'market-signals': 'Market Signals',
+      'impact-timeline': 'Impact Timeline',
+      'future-horizons': 'Future Horizons'
+    };
+    return titles[tab] || tab;
+  };
+
+  const copyToClipboard = () => {
+    if (rawAnalysisData) {
+      navigator.clipboard.writeText(JSON.stringify(rawAnalysisData, null, 2));
+      alert('Copied to clipboard!');
+    }
+  };
+
+  return (
+    <div className="flex h-screen bg-gray-50">
+      {/* Shared Navigation */}
+      <SharedNavigation currentPage="anticipate" />
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Top Header */}
+        <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
+          {/* Breadcrumb and Dashboard Selector */}
+          <div className="flex items-center gap-4 text-sm text-gray-700">
+            <div className="flex items-center gap-2">
+              <span>Explore</span>
+              <span>/</span>
+              <span className="font-medium text-gray-950">Strategic Recommendations</span>
+              <span>•</span>
+              <span>Current indicators and potential disruption scenarios</span>
+            </div>
+
+          </div>
+
+          {/* Right Icons */}
+          <div className="flex items-center gap-2">
+            <button className="p-2 hover:bg-gray-100 rounded-md">
+              <Bell className="w-5 h-5 text-gray-700" />
+            </button>
+            <button
+              onClick={() => setIsOnboardingOpen(true)}
+              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-md text-sm font-medium flex items-center gap-2 text-gray-950"
+            >
+              Set up topic
+              <span className="text-gray-500">+</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Configuration Dialog - now only triggered from tab buttons */}
+        <Dialog open={isConfigOpen} onOpenChange={setIsConfigOpen}>
+          <DialogContent className="max-w-4xl">
+            <DialogHeader>
+              <DialogTitle className="text-2xl font-bold">Configure Future Narratives</DialogTitle>
+              <DialogDescription className="sr-only">
+                    Configure your analysis settings
+                  </DialogDescription>
+                </DialogHeader>
+
+                <div className="grid grid-cols-2 gap-x-6 gap-y-6 mt-6">
+                  {/* Left Column */}
+                  <div className="space-y-6">
+                    {/* Topic Selection */}
+                    <div>
+                      <label className="text-sm font-semibold mb-2 block">Topic</label>
+                      <Select value={config.topic} onValueChange={(value) => updateConfig({ topic: value })}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Cloud Repatriation" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {topics.map((topic) => (
+                            <SelectItem key={topic.name} value={topic.name}>
+                              {topic.display_name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Analysis Timeframe */}
+                    <div>
+                      <label className="text-sm font-semibold mb-2 block">Analysis Timeframe</label>
+                      <Select
+                        value={config.timeframe_days.toString()}
+                        onValueChange={(value) => updateConfig({ timeframe_days: parseInt(value) })}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="All Time" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="0">All Time</SelectItem>
+                          <SelectItem value="30">Last 30 days</SelectItem>
+                          <SelectItem value="90">Last 90 days</SelectItem>
+                          <SelectItem value="180">Last 180 days</SelectItem>
+                          <SelectItem value="365">Last year</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* AI Model */}
+                    <div>
+                      <label className="text-sm font-semibold mb-2 block">AI Model</label>
+                      <Select value={config.model} onValueChange={(value) => updateConfig({ model: value })}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="gpt-4.1-mini" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {models.map((model) => (
+                            <SelectItem key={model.id} value={model.id}>
+                              {model.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+
+                  {/* Right Column */}
+                  <div className="space-y-6">
+                    {/* Source Quality Filter */}
+                    <div>
+                      <label className="text-sm font-semibold mb-2 block">Source Quality</label>
+                      <Select value={config.source_quality} onValueChange={(value) => updateConfig({ source_quality: value })}>
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="All sources" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Sources</SelectItem>
+                          <SelectItem value="high_quality">High Quality Only (High Factuality & Credibility)</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    {/* Organizational Profile */}
+                    <div className="overflow-hidden">
+                      <label className="text-sm font-semibold mb-2 block">Organizational Profile</label>
+                      <div className="flex gap-2 mr-1">
+                        <Select
+                          value={config.profile_id?.toString() || ''}
+                          onValueChange={(value) => updateConfig({ profile_id: value ? parseInt(value) : undefined })}
+                        >
+                          <SelectTrigger className="flex-1">
+                            <SelectValue placeholder="Select Profile" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {profiles.map((profile) => (
+                              <SelectItem key={profile.id} value={profile.id!.toString()}>
+                                {profile.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="shrink-0 bg-pink-500 hover:bg-pink-600 text-white border-0"
+                          onClick={() => setIsProfileModalOpen(true)}
+                        >
+                          <Settings className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    {/* Article Sample Size */}
+                    <div>
+                      <label className="text-sm font-semibold mb-2 block">Article Sample Size</label>
+                      <Select
+                        value={config.custom_limit?.toString() || 'auto'}
+                        onValueChange={(value) => {
+                          if (value === 'auto') {
+                            updateConfig({ custom_limit: undefined, sample_size_mode: 'auto' });
+                          } else {
+                            updateConfig({ custom_limit: parseInt(value), sample_size_mode: 'custom' });
+                          }
+                        }}
+                      >
+                        <SelectTrigger className="w-full">
+                          <SelectValue placeholder="Auto Size" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="auto">Auto Size</SelectItem>
+                          <SelectItem value="50">50 articles</SelectItem>
+                          <SelectItem value="100">100 articles</SelectItem>
+                          <SelectItem value="200">200 articles</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {/* Context info */}
+                      {contextInfo && (
+                        <div className="mt-2 p-3 bg-cyan-50 rounded-lg flex items-start gap-2">
+                          <AlertCircle className="w-4 h-4 text-cyan-600 mt-0.5 shrink-0" />
+                          <div className="text-xs">
+                            <span className={`font-medium ${contextInfo.colorClass}`}>
+                              {contextInfo.displayText}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Error Display */}
+                {error && (
+                  <Alert variant="destructive" className="mt-6">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Error</AlertTitle>
+                    <AlertDescription>{error}</AlertDescription>
+                  </Alert>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex justify-end gap-3 mt-8">
+                  <Button
+                    onClick={handleGenerate}
+                    disabled={loading || !config.topic}
+                    className="px-6 bg-pink-500 hover:bg-pink-600"
+                  >
+                    {loading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Loading...
+                      </>
+                    ) : (
+                      <>
+                        Load analysis
+                        <span className="ml-2">▶</span>
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
+
+        {/* Sub-header with tabs */}
+        <div className="bg-white px-6 py-4">
+          <TabNavigation activeTab={activeTab} onTabChange={setActiveTab} />
+        </div>
+
+        {/* Topic and Controls */}
+        <div className="bg-white px-6 py-4 border-b border-gray-200">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {/* Topic Selector */}
+              <Select
+                value={config.topic}
+                onValueChange={handleTopicChange}
+              >
+                <SelectTrigger className="w-64 h-9 text-sm">
+                  <SelectValue placeholder="Select Topic" />
+                </SelectTrigger>
+                <SelectContent>
+                  {allTopics.map((topic) => (
+                    <SelectItem key={topic} value={topic}>
+                      {topic}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+
+              {/* Saved Dashboards Dropdown */}
+              <Select
+                value={currentDashboardId?.toString() || 'new'}
+                onValueChange={(value) => {
+                  if (value === 'new') {
+                    setCurrentDashboardId(null);
+                  } else {
+                    handleLoadDashboard(parseInt(value));
+                  }
+                }}
+              >
+                <SelectTrigger className="w-80 h-9 text-sm">
+                  <SelectValue placeholder="New Analysis">
+                    {currentDashboardId ? (
+                      savedDashboards.find(d => d.id === currentDashboardId)?.name || 'Loading...'
+                    ) : (
+                      'New Analysis'
+                    )}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent className="w-80">
+                  <SelectItem value="new">
+                    <div className="flex items-center gap-2">
+                      <Plus className="h-4 w-4" />
+                      <span>New Analysis</span>
+                    </div>
+                  </SelectItem>
+
+                  {savedDashboards.length > 0 && (
+                    <>
+                      <div className="border-t my-1" />
+                      <div className="px-2 py-1.5 text-xs font-semibold text-gray-500">
+                        Saved Dashboards
+                      </div>
+
+                      {savedDashboards.map((dashboard) => (
+                        <SelectItem key={dashboard.id} value={dashboard.id.toString()}>
+                          <div className="flex items-center justify-between w-full gap-3">
+                            <div className="flex flex-col flex-1 min-w-0">
+                              <div className="flex items-center gap-2">
+                                <span className="truncate">{dashboard.name}</span>
+                                {dashboard.auto_generated && (
+                                  <Zap className="h-3 w-3 text-blue-500 flex-shrink-0" title="Auto-generated by keyword alerts" />
+                                )}
+                              </div>
+                              {dashboard.articles_analyzed !== undefined && (
+                                <div className="text-xs text-gray-500 mt-0.5">
+                                  {dashboard.articles_analyzed} articles · {dashboard.model_used || 'unknown'}
+                                </div>
+                              )}
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                e.preventDefault();
+                                openDeleteConfirmation(dashboard.id, dashboard.name);
+                              }}
+                              className="p-1 hover:bg-red-100 rounded text-gray-400 hover:text-red-600 transition-colors flex-shrink-0"
+                              title="Delete dashboard"
+                              aria-label={`Delete ${dashboard.name}`}
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </>
+                  )}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2">
+              <Clock className="w-5 h-5 text-gray-500" />
+              <span className="text-sm text-gray-600">Last Updated:</span>
+              <span className="text-sm font-medium">
+                {data?._cache_info?.last_updated || new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '.')}
+              </span>
+              <button
+                onClick={() => generateAnalysis(true)}
+                disabled={loading}
+                className="p-2 hover:bg-gray-100 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Refresh analysis (bypass cache)"
+              >
+                <RefreshCw className={`w-4 h-4 text-gray-700 ${loading ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="bg-white px-6 py-3 border-b border-gray-200 flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsConfigOpen(true)}
+              className="px-4 py-2 text-pink-500 hover:bg-pink-50 rounded-md text-sm font-medium flex items-center gap-2"
+            >
+              <Settings className="w-4 h-4" />
+              Configure
+            </button>
+            <button
+              onClick={() => {
+                console.log('🔧 Tune button clicked');
+                setIsPromptEditorOpen(true);
+              }}
+              className="px-4 py-2 text-pink-500 hover:bg-pink-50 rounded-md text-sm font-medium flex items-center gap-2"
+            >
+              <FileText className="w-4 h-4" />
+              Tune
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => handleExport('pdf')}
+              disabled={!data}
+              className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Download className="w-4 h-4" />
+              PDF
+            </button>
+            <button
+              onClick={() => handleExport('image')}
+              disabled={!data}
+              className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <ImageIcon className="w-4 h-4" />
+              PNG
+            </button>
+            <button
+              onClick={handleViewRaw}
+              disabled={!data?.analysis_id || loadingRaw}
+              className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Code className="w-4 h-4" />
+              {loadingRaw ? 'Loading...' : 'Raw'}
+            </button>
+            {data?.analysis_id && (
+              <div className="reference-articles-button-wrapper">
+                <ArticleCitations
+                  dashboardType={
+                    activeTab === 'consensus' ? 'consensus' :
+                    activeTab === 'strategic-recommendations' ? 'strategic' :
+                    activeTab === 'market-signals' ? 'market-signals' :
+                    activeTab === 'impact-timeline' ? 'timeline' :
+                    activeTab === 'future-horizons' ? 'horizons' :
+                    'consensus'
+                  }
+                  analysisId={data.analysis_id}
+                  topic={config.topic}
+                />
+              </div>
+            )}
+
+            {/* Save Dashboard Button */}
+            <button
+              onClick={() => setShowSaveDialog(true)}
+              disabled={!data}
+              className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Save className="w-4 h-4" />
+              Save
+            </button>
+
+            {/* Delete Dashboard Button - Only shown when a dashboard is loaded */}
+            {currentDashboardId && (
+              <button
+                onClick={() => {
+                  const dashboard = savedDashboards.find(d => d.id === currentDashboardId);
+                  if (dashboard) {
+                    openDeleteConfirmation(currentDashboardId, dashboard.name);
+                  }
+                }}
+                className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-red-500"
+                title="Delete Dashboard"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Main Scrollable Content */}
+        <div id="dashboard-content" className="flex-1 overflow-y-auto px-6 py-6">
+          {loading ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="text-center">
+                <Loader2 className="w-12 h-12 animate-spin text-pink-500 mx-auto mb-4" />
+                <p className="text-gray-700">
+                  {isLoadingDashboard
+                    ? 'Loading saved dashboard...'
+                    : 'Analyzing trends and generating recommendations...'}
+                </p>
+              </div>
+            </div>
+          ) : !data ? (
+            <div className="flex items-center justify-center h-64">
+              <div className="text-center">
+                <Target className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-gray-950 mb-2">Ready to Analyze Trends</h3>
+                <p className="text-gray-600 mb-4">Configure your analysis settings to get started</p>
+                <Button onClick={() => setIsConfigOpen(true)}>
+                  <Settings className="w-4 h-4 mr-2" />
+                  Configure Analysis
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-6 max-w-6xl">
+              {/* Impact Timeline Tab */}
+              {activeTab === 'impact-timeline' && (
+                <>
+                  {/* Dashboard Description */}
+                  <div className="mb-6 p-4 bg-blue-50 border-l-4 border-blue-500 rounded-r-lg">
+                    <p className="text-sm text-gray-700">
+                      <strong>Impact Timeline:</strong> Visualize key impacts and developments over time to understand when changes will occur.
+                    </p>
+                  </div>
+
+                  {/* Impact Timeline Cards */}
+                  <div className="space-y-4">
+                    {(data.impact_timeline || []).map((item, idx) => {
+                      const colors = ['orange', 'purple', 'green', 'blue', 'pink', 'lime'];
+                      const color = colors[idx % colors.length] as any;
+
+                      return (
+                        <ImpactTimelineCard
+                          key={idx}
+                          title={typeof item === 'string' ? item : item.title || item.name}
+                          description={typeof item === 'string' ? '' : item.description || ''}
+                          timelineStart={typeof item === 'string' ? 2024 : item.timeline_start || 2024}
+                          timelineEnd={typeof item === 'string' ? 2030 : item.timeline_end || 2030}
+                          tooltipPositions={typeof item === 'string' ? [] : item.tooltip_positions || []}
+                          color={color}
+                          citations={typeof item === 'string' ? [] : item.citations || []}
+                        />
+                      );
+                    })}
+                  </div>
+
+                  {/* Key Insights from Evidence Synthesis */}
+                  {data.key_insights && data.key_insights.length > 0 && (
+                    <div className="mt-8 bg-cyan-50 border border-cyan-200 rounded-xl p-6">
+                      <div className="flex items-center gap-2 mb-4">
+                        <FileText className="w-5 h-5 text-cyan-600" />
+                        <h2 className="text-xl font-bold">Key Insights from Evidence Synthesis</h2>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        {data.key_insights.map((insight, idx) => {
+                          const dotColors = ['bg-blue-500', 'bg-green-500', 'bg-red-500', 'bg-orange-500'];
+                          const dotColor = dotColors[idx % dotColors.length];
+
+                          return (
+                            <div key={idx} className="flex gap-3">
+                              <div className={`w-3 h-3 ${dotColor} rounded-full mt-1 shrink-0`}></div>
+                              <div className="flex-1">
+                                <div className="text-sm font-semibold text-gray-950 mb-1">
+                                  {typeof insight === 'string' ? insight : insight.quote || insight.insight}
+                                </div>
+                                <div className="text-xs text-gray-700 mb-2">
+                                  {typeof insight === 'string' ? '' : insight.relevance || insight.source || ''}
+                                </div>
+                                {/* Article Citations for Key Insight (supports both single and multiple citations) */}
+                                {typeof insight !== 'string' && (() => {
+                                  // Handle both new format (citations array) and old format (citation object)
+                                  const citationList = insight.citations && Array.isArray(insight.citations)
+                                    ? insight.citations
+                                    : insight.citation
+                                    ? [insight.citation]
+                                    : [];
+
+                                  if (citationList.length === 0) return null;
+
+                                  return (
+                                    <div className="text-xs mt-1 pt-1 border-t border-gray-300">
+                                      <div className="space-y-1">
+                                        {citationList.map((citation: any, idx: number) => (
+                                          <a
+                                            key={idx}
+                                            href={citation.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-cyan-700 hover:underline flex items-center gap-1"
+                                          >
+                                            <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                                            </svg>
+                                            <span>
+                                              {citation.title.substring(0, 50)}{citation.title.length > 50 ? '...' : ''}
+                                            </span>
+                                          </a>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* AI Disclosure Footer */}
+                  <AIDisclosureFooter
+                    {...dashboardFooterConfigs.timeline}
+                    modelUsed={data.model_used}
+                  />
+
+                  {/* Print-only: Organized References by Category */}
+                  {(() => {
+                    // Organize citations by category
+                    const categoryReferences: Record<string, Array<{ title: string; url: string }>> = {};
+                    const seenUrls = new Set<string>();
+
+                    // Collect citations from impact_timeline items (organized by category title)
+                    if (data.impact_timeline && Array.isArray(data.impact_timeline)) {
+                      data.impact_timeline.forEach((item: any) => {
+                        const categoryName = item.title || 'Uncategorized';
+
+                        if (!categoryReferences[categoryName]) {
+                          categoryReferences[categoryName] = [];
+                        }
+
+                        if (item.citations && Array.isArray(item.citations)) {
+                          item.citations.forEach((citation: any) => {
+                            if (citation.url && !seenUrls.has(citation.url)) {
+                              seenUrls.add(citation.url);
+                              categoryReferences[categoryName].push({
+                                title: citation.title || 'Untitled',
+                                url: citation.url
+                              });
+                            }
+                          });
+                        }
+                      });
+                    }
+
+                    // Collect citations from key_insights (separate section)
+                    const insightCitations: Array<{ title: string; url: string }> = [];
+                    if (data.key_insights && Array.isArray(data.key_insights)) {
+                      data.key_insights.forEach((insight: any) => {
+                        // Handle both new format (citations array) and old format (citation object)
+                        const citationList = insight.citations && Array.isArray(insight.citations)
+                          ? insight.citations
+                          : insight.citation
+                          ? [insight.citation]
+                          : [];
+
+                        citationList.forEach((citation: any) => {
+                          if (citation.url && !seenUrls.has(citation.url)) {
+                            seenUrls.add(citation.url);
+                            insightCitations.push({
+                              title: citation.title || 'Untitled',
+                              url: citation.url
+                            });
+                          }
+                        });
+                      });
+                    }
+
+                    // Check if we have any citations at all
+                    const hasTimlineCitations = Object.keys(categoryReferences).some(
+                      cat => categoryReferences[cat].length > 0
+                    );
+                    const hasInsightCitations = insightCitations.length > 0;
+
+                    if (!hasTimlineCitations && !hasInsightCitations) return null;
+
+                    return (
+                      <div className="hidden print:block mt-8 pt-6 border-t-2 border-gray-300 page-break-before">
+                        <h3 className="text-lg font-bold mb-4 text-gray-900">References</h3>
+
+                        {/* Timeline Category References */}
+                        {hasTimlineCitations && (
+                          <div className="mb-6">
+                            <h4 className="text-md font-semibold mb-3 text-gray-800">Impact Timeline Sources</h4>
+                            {Object.entries(categoryReferences).map(([category, citations]) => {
+                              if (citations.length === 0) return null;
+
+                              return (
+                                <div key={category} className="mb-4">
+                                  <h5 className="text-sm font-semibold text-gray-700 mb-2">{category}</h5>
+                                  <div className="space-y-2 ml-4">
+                                    {citations.map((citation, idx) => (
+                                      <div key={idx} className="text-xs leading-relaxed text-gray-800">
+                                        <span className="font-semibold">[{idx + 1}]</span> {citation.title}
+                                        <div className="text-[10px] text-gray-600 ml-6 break-all">{citation.url}</div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+
+                        {/* Key Insights References */}
+                        {hasInsightCitations && (
+                          <div>
+                            <h4 className="text-md font-semibold mb-3 text-gray-800">Key Insights Sources</h4>
+                            <div className="space-y-2 ml-4">
+                              {insightCitations.map((citation, idx) => (
+                                <div key={idx} className="text-xs leading-relaxed text-gray-800">
+                                  <span className="font-semibold">[{idx + 1}]</span> {citation.title}
+                                  <div className="text-[10px] text-gray-600 ml-6 break-all">{citation.url}</div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
+                </>
+              )}
+
+              {/* Market Signals & Strategic Risks Tab */}
+              {activeTab === 'market-signals' && (
+                <>
+                  {/* Dashboard Description */}
+                  <div className="mb-6 p-4 bg-purple-50 border-l-4 border-purple-500 rounded-r-lg">
+                    <p className="text-sm text-gray-700">
+                      <strong>Market Signals & Strategic Risks:</strong> Identify emerging trends, disruption scenarios, and strategic opportunities to stay ahead of market changes.
+                    </p>
+                  </div>
+
+                  {/* Future Signal Table */}
+                  <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                    <table className="w-full">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800">Future Signal</th>
+                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800">Impact</th>
+                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800">Timeline</th>
+                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800">Confidence</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {('future_signals' in data ? data.future_signals : []).map((signal: any, idx: number) => {
+                          const html = renderCitationsAsLinks(signal.description || '', articleList);
+                          return (
+                            <tr key={idx} className="hover:bg-gray-50">
+                              <td className="px-6 py-4">
+                                <div className="text-sm font-medium text-gray-950">{signal.signal}</div>
+                                <div className="text-xs text-gray-600 mt-1" dangerouslySetInnerHTML={{ __html: html }} />
+                              </td>
+                            <td className="px-6 py-4">
+                              <span className={`inline-block px-3 py-1 text-xs font-medium rounded ${
+                                signal.impact === 'High' ? 'bg-red-100 text-red-700' :
+                                signal.impact === 'Medium' ? 'bg-yellow-100 text-yellow-700' :
+                                'bg-blue-100 text-blue-700'
+                              }`}>
+                                {signal.impact}
+                              </span>
+                            </td>
+                              <td className="px-6 py-4 text-sm text-gray-700">
+                                {signal.timeline}
+                              </td>
+                              <td className="px-6 py-4 text-sm text-gray-700">
+                                {signal.confidence}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {/* Risk Cards and Opportunity Cards */}
+                  <div className="grid grid-cols-2 gap-6">
+                    {/* Risk Cards - Left Column */}
+                    <div className="space-y-4">
+                      {('risk_cards' in data ? data.risk_cards : []).map((risk: any, idx: number) => {
+                        const html = renderCitationsAsLinks(risk.description || '', articleList);
+                        return (
+                          <div key={idx} className="bg-white border border-gray-200 rounded-xl p-5">
+                            <div className="flex items-start gap-3">
+                              <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${
+                                risk.severity === 'High' || risk.severity === 'Critical' ? 'bg-red-100' :
+                                risk.severity === 'Medium' ? 'bg-yellow-100' : 'bg-orange-100'
+                              }`}>
+                                <AlertCircle className={`w-5 h-5 ${
+                                  risk.severity === 'High' || risk.severity === 'Critical' ? 'text-red-600' :
+                                  risk.severity === 'Medium' ? 'text-yellow-600' : 'text-orange-600'
+                                }`} />
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center justify-between mb-2">
+                                  <h3 className="font-semibold text-gray-950">{risk.title}</h3>
+                                  <span className="text-xs text-gray-500">{risk.timeframe}</span>
+                                </div>
+                                <p className="text-sm text-gray-700 mb-3" dangerouslySetInnerHTML={{ __html: html }} />
+                              {risk.mitigation_strategies && risk.mitigation_strategies.length > 0 && (
+                                <div className="text-xs">
+                                  <p className="font-medium text-gray-600 mb-1">Mitigation:</p>
+                                  <ul className="list-disc list-inside space-y-1 text-gray-600">
+                                    {risk.mitigation_strategies.slice(0, 2).map((strategy: string, sidx: number) => (
+                                      <li key={sidx}>{strategy}</li>
+                                    ))}
+                                  </ul>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Opportunity Cards - Right Column */}
+                    <div className="space-y-4">
+                      {('opportunity_cards' in data ? data.opportunity_cards : []).map((opportunity: any, idx: number) => {
+                        const html = renderCitationsAsLinks(opportunity.description || '', articleList);
+                        return (
+                          <div key={idx} className="bg-white border border-gray-200 rounded-xl p-5">
+                            <div className="flex items-start gap-3">
+                              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+                                <Target className="w-5 h-5 text-green-600" />
+                              </div>
+                              <div className="flex-1">
+                                <div className="flex items-center justify-between mb-2">
+                                  <h3 className="font-semibold text-gray-950">{opportunity.title}</h3>
+                                  <span className="text-xs text-gray-500">{opportunity.timeframe}</span>
+                                </div>
+                                <p className="text-sm text-gray-700 mb-3" dangerouslySetInnerHTML={{ __html: html }} />
+                              {opportunity.potential_value && (
+                                <p className="text-xs font-medium text-green-600 mb-2">
+                                  Value: {opportunity.potential_value}
+                                </p>
+                              )}
+                              {opportunity.action_steps && opportunity.action_steps.length > 0 && (
+                                <div className="text-xs">
+                                  <p className="font-medium text-gray-600 mb-1">Actions:</p>
+                                  <ul className="list-disc list-inside space-y-1 text-gray-600">
+                                    {opportunity.action_steps.slice(0, 2).map((step: string, sidx: number) => (
+                                      <li key={sidx}>{step}</li>
+                                    ))}
+                                  </ul>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Quotes/Excerpts Section */}
+                  <div className="space-y-4">
+                    {('quotes' in data ? data.quotes : []).slice(0, 3).map((quote: any, idx: number) => {
+                      // Determine if this is a direct quote or Auspex commentary
+                      const isDirectQuote = quote.quote_type === 'direct_quote';
+                      const labelText = isDirectQuote ? 'Source Quote' : 'Auspex Commentary';
+                      const bgColor = isDirectQuote ? 'bg-cyan-50 border-cyan-200' : 'bg-amber-50 border-amber-200';
+                      const accentColor = isDirectQuote ? 'text-cyan-400' : 'text-amber-400';
+                      const linkColor = isDirectQuote ? 'text-cyan-600 hover:text-cyan-700' : 'text-amber-600 hover:text-amber-700';
+                      const borderColor = isDirectQuote ? 'border-cyan-200' : 'border-amber-200';
+
+                      return (
+                        <div key={idx} className={`border rounded-xl p-6 ${bgColor}`}>
+                          {/* Quote Type Badge */}
+                          <div className="flex justify-between items-start mb-3">
+                            <span
+                              className={`inline-flex items-center gap-1.5 px-2 py-1 text-xs font-semibold rounded ${isDirectQuote ? 'bg-cyan-100 text-cyan-700' : 'bg-amber-100 text-amber-700'}`}
+                              title={isDirectQuote ? 'Direct quote extracted from full article text' : 'AI-generated analysis based on article summary'}
+                            >
+                              {!isDirectQuote && (
+                                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                                  <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                                </svg>
+                              )}
+                              {labelText}
+                            </span>
+                          </div>
+
+                          <div className="flex gap-4">
+                            <div className={`text-4xl font-serif leading-none ${accentColor}`}>"</div>
+                            <div className="flex-1">
+                              <p className="text-gray-800 mb-2 italic">
+                                {quote.text}
+                              </p>
+                              <div className="flex justify-between items-end">
+                                <div className="text-xs text-gray-600">
+                                  {quote.context}
+                                </div>
+                                <p className="text-sm text-gray-700">
+                                  — <a href={quote.url} target="_blank" rel="noopener noreferrer" className={`${linkColor} hover:underline`}>
+                                    {quote.source}
+                                  </a>
+                                </p>
+                              </div>
+                              {quote.relevance && (
+                                <div className={`mt-2 text-xs text-gray-600 border-t pt-2 ${borderColor}`}>
+                                  <span className="font-medium">Relevance:</span> {quote.relevance}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* AI Disclosure Footer */}
+                  <AIDisclosureFooter
+                    {...dashboardFooterConfigs.signals}
+                    modelUsed={data.model_used}
+                  />
+                </>
+              )}
+
+              {/* Consensus Analysis Tab */}
+              {activeTab === 'consensus' && (
+                <>
+                  {/* Dashboard Description */}
+                  <div className="mb-6 p-4 bg-green-50 border-l-4 border-green-500 rounded-r-lg">
+                    <p className="text-sm text-gray-700">
+                      <strong>Consensus Analysis:</strong> Analyze convergent themes across multiple sources and identify areas of agreement, emerging consensus, and divergent viewpoints.
+                    </p>
+                  </div>
+
+                  {/* Consensus Category Cards (New Auspex Structure) */}
+                  <div className="space-y-4">
+                    {(data.categories || []).map((category, idx) => (
+                      <ConsensusCategoryCard
+                        key={idx}
+                        category={category}
+                        articleList={data.article_list || []}
+                        index={idx}
+                      />
+                    ))}
+
+                    {/* Fallback to legacy convergence structure if categories not present */}
+                    {(!data.categories || data.categories.length === 0) && (data.convergences || []).map((convergence, idx) => {
+                      const colors = ['purple', 'orange', 'blue', 'green', 'pink', 'indigo'];
+                      const color = colors[idx % colors.length];
+
+                      return (
+                        <ConvergenceCard
+                          key={idx}
+                          name={convergence.name || 'Unnamed Convergence'}
+                          description={convergence.description || ''}
+                          consensusPercentage={convergence.consensus_percentage || 80}
+                          timelineStartYear={convergence.timeline_start_year || 2024}
+                          timelineEndYear={convergence.timeline_end_year || 2050}
+                          optimisticOutlier={convergence.optimistic_outlier || {
+                            year: 2024,
+                            description: 'Optimistic scenario',
+                            source_percentage: 25
+                          }}
+                          pessimisticOutlier={convergence.pessimistic_outlier || {
+                            year: 2040,
+                            description: 'Pessimistic scenario',
+                            source_percentage: 35
+                          }}
+                          strategicImplication={convergence.strategic_implication || 'Strategic planning required'}
+                          keyArticles={convergence.key_articles || []}
+                          color={color}
+                          consensusType={convergence.consensus_type}
+                          sentimentDistribution={convergence.sentiment_distribution}
+                          timelineConsensus={convergence.timeline_consensus}
+                          articlesAnalyzed={convergence.articles_analyzed}
+                          actionItems={convergence.action_items}
+                          timeframeAnalysis={convergence.timeframe_analysis}
+                        />
+                      );
+                    })}
+                  </div>
+
+                  {/* Key Insights from Evidence Synthesis */}
+                  {data.key_insights && data.key_insights.length > 0 && (
+                    <div className="mt-8 bg-cyan-50 border border-cyan-200 rounded-xl p-6">
+                      <div className="flex items-center gap-2 mb-4">
+                        <FileText className="w-5 h-5 text-cyan-600" />
+                        <h2 className="text-xl font-bold">Key Insights from Evidence Synthesis</h2>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        {data.key_insights.map((insight, idx) => {
+                          const dotColors = ['bg-blue-500', 'bg-green-500', 'bg-red-500', 'bg-orange-500'];
+                          const dotColor = dotColors[idx % dotColors.length];
+
+                          return (
+                            <div key={idx} className="flex gap-3">
+                              <div className={`w-3 h-3 ${dotColor} rounded-full mt-1 shrink-0`}></div>
+                              <div>
+                                <div className="text-sm font-semibold text-gray-950 mb-1">
+                                  {typeof insight === 'string' ? insight : insight.quote || insight.insight}
+                                </div>
+                                <div className="text-xs text-gray-700">
+                                  {typeof insight === 'string' ? '' : insight.relevance || insight.source || ''}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* AI Disclosure Footer */}
+                  <AIDisclosureFooter
+                    {...dashboardFooterConfigs.consensus}
+                    modelUsed={data.model_used}
+                  />
+                </>
+              )}
+
+              {/* Strategic Recommendations Tab */}
+              {activeTab === 'strategic-recommendations' && (
+              <>
+                {/* Dashboard Description */}
+                <div className="mb-6 p-4 bg-pink-50 border-l-4 border-pink-500 rounded-r-lg">
+                  <p className="text-sm text-gray-700">
+                    <strong>Strategic Recommendations:</strong> Actionable strategic insights across near, mid, and long-term horizons to guide decision-making.
+                  </p>
+                </div>
+
+                {/* Strategic Recommendations */}
+                <div>
+                <div className="grid grid-cols-3 gap-6">
+                  {/* Near-term */}
+                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                    <div className="bg-green-50 p-6 border-b border-green-100">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+                          <Clock className="w-4 h-4 text-green-700" />
+                        </div>
+                        <h3 className="font-bold text-sm text-gray-900">NEAR-TERM</h3>
+                      </div>
+                      <div className="text-sm font-medium text-gray-700">
+                        {data.strategic_recommendations?.near_term?.timeframe || '2025-2027'}
+                      </div>
+                    </div>
+                    <div className="p-6">
+                      <ul className="space-y-3">
+                        {(data.strategic_recommendations?.near_term?.trends || []).slice(0, 4).map((trend, idx) => {
+                          const text = typeof trend === 'string' ? trend : trend.name || trend.description;
+                          const html = renderCitationsAsLinks(text, articleList);
+                          return (
+                            <li key={idx} className="text-sm text-gray-700 leading-relaxed flex gap-2">
+                              <span className="text-green-600 font-bold">•</span>
+                              <span dangerouslySetInnerHTML={{ __html: html }} />
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                    <div className="px-6 pb-6">
+                      <TimelineBar startYear={2024} endYear={2030} color="green" />
+                    </div>
+                  </div>
+
+                  {/* Mid-term */}
+                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                    <div className="bg-amber-50 p-6 border-b border-amber-100">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center">
+                          <TrendingUp className="w-4 h-4 text-amber-700" />
+                        </div>
+                        <h3 className="font-bold text-sm text-gray-900">MID-TERM</h3>
+                      </div>
+                      <div className="text-sm font-medium text-gray-700">
+                        {data.strategic_recommendations?.mid_term?.timeframe || '2027-2032'}
+                      </div>
+                    </div>
+                    <div className="p-6">
+                      <ul className="space-y-3">
+                        {(data.strategic_recommendations?.mid_term?.trends || []).slice(0, 4).map((trend, idx) => {
+                          const text = typeof trend === 'string' ? trend : trend.name || trend.description;
+                          const html = renderCitationsAsLinks(text, articleList);
+                          return (
+                            <li key={idx} className="text-sm text-gray-700 leading-relaxed flex gap-2">
+                              <span className="text-amber-600 font-bold">•</span>
+                              <span dangerouslySetInnerHTML={{ __html: html }} />
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                    <div className="px-6 pb-6">
+                      <TimelineBar startYear={2027} endYear={2033} color="yellow" />
+                    </div>
+                  </div>
+
+                  {/* Long-term */}
+                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                    <div className="bg-rose-50 p-6 border-b border-rose-100">
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center">
+                          <Target className="w-4 h-4 text-rose-700" />
+                        </div>
+                        <h3 className="font-bold text-sm text-gray-900">LONG-TERM (2032+)</h3>
+                      </div>
+                      <div className="text-sm font-medium text-gray-700">
+                        {data.strategic_recommendations?.long_term?.timeframe || '2032+'}
+                      </div>
+                    </div>
+                    <div className="p-6">
+                      <ul className="space-y-3">
+                        {(data.strategic_recommendations?.long_term?.trends || []).slice(0, 4).map((trend, idx) => {
+                          const text = typeof trend === 'string' ? trend : trend.name || trend.description;
+                          const html = renderCitationsAsLinks(text, articleList);
+                          return (
+                            <li key={idx} className="text-sm text-gray-700 leading-relaxed flex gap-2">
+                              <span className="text-rose-600 font-bold">•</span>
+                              <span dangerouslySetInnerHTML={{ __html: html }} />
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                    <div className="px-6 pb-6">
+                      <TimelineBar startYear={2032} endYear={2040} color="red" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Framework Section (dynamic based on org type) */}
+              {(() => {
+                // Find the framework section dynamically
+                const frameworkKey = Object.keys(data).find(key =>
+                  key.endsWith('_framework') || key === 'executive_decision_framework'
+                );
+                const frameworkData = frameworkKey ? data[frameworkKey] : null;
+
+                // Generate human-readable title from key
+                const getFrameworkTitle = (key: string) => {
+                  if (!key) return 'Decision Framework';
+                  return key
+                    .split('_')
+                    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                    .join(' ');
+                };
+
+                return frameworkData?.principles ? (
+                  <div className="bg-orange-50 border border-orange-200 rounded-xl p-6">
+                    <div className="flex items-center gap-2 mb-4">
+                      <Target className="w-5 h-5 text-orange-600" />
+                      <h2 className="text-xl font-bold">{getFrameworkTitle(frameworkKey)}</h2>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      {(frameworkData.principles || []).map((principle, idx) => {
+                        const text = principle.description || principle.content || principle.rationale;
+                        const html = renderCitationsAsLinks(text, articleList);
+                        return (
+                          <div key={idx} className="bg-white rounded-lg p-4 border border-orange-200">
+                            <h3 className="font-semibold text-sm mb-2">
+                              {principle.title || principle.name}
+                            </h3>
+                            <p className="text-sm text-gray-800" dangerouslySetInnerHTML={{ __html: html }} />
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null;
+              })()}
+
+              {/* Next Steps */}
+              <div className="bg-white border border-gray-200 rounded-xl p-6">
+                <div className="flex items-center gap-2 mb-4">
+                  <FileText className="w-5 h-5 text-gray-700" />
+                  <h2 className="text-xl font-bold">Next Steps:</h2>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  {(data.next_steps || []).map((step, idx) => {
+                    const text = typeof step === 'string' ? step : step.action || step.description || JSON.stringify(step);
+                    const html = renderCitationsAsLinks(text, articleList);
+                    return (
+                      <div key={idx} className="flex gap-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                        <div className="flex-shrink-0 w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-sm font-medium text-gray-800">
+                          {idx + 1}
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm text-gray-800" dangerouslySetInnerHTML={{ __html: html }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* AI Disclosure Footer */}
+              <AIDisclosureFooter
+                {...dashboardFooterConfigs.strategic}
+                modelUsed={data.model_used}
+              />
+              </>
+              )}
+
+              {/* Future Horizons Tab */}
+              {activeTab === 'future-horizons' && (
+                <>
+                  {/* Dashboard Description */}
+                  <div className="mb-6 p-4 bg-indigo-50 border-l-4 border-indigo-500 rounded-r-lg">
+                    <p className="text-sm text-gray-700">
+                      <strong>Future Horizons:</strong> Explore long-term scenarios and future possibilities to prepare for what's ahead.
+                    </p>
+                  </div>
+
+                  <FutureHorizons scenarios={data.scenarios || []} articleList={articleList} />
+
+                  {/* AI Disclosure Footer */}
+                  <AIDisclosureFooter
+                    {...dashboardFooterConfigs.horizons}
+                    modelUsed={data.model_used}
+                  />
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Organizational Profile Modal */}
+      <OrganizationalProfileModal
+        open={isProfileModalOpen}
+        onOpenChange={setIsProfileModalOpen}
+        profiles={profiles}
+        onSave={async (profile) => {
+          // TODO: Implement save profile API call
+          console.log('Saving profile:', profile);
+        }}
+      />
+
+      {/* Onboarding Wizard */}
+      <OnboardingWizard
+        open={isOnboardingOpen}
+        onOpenChange={setIsOnboardingOpen}
+        onComplete={() => {
+          // Reload topics after onboarding
+          window.location.reload();
+        }}
+      />
+
+      {/* Raw Analysis Modal */}
+      {showRawModal && (
+        <Dialog open={showRawModal} onOpenChange={setShowRawModal}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Raw Analysis Output</DialogTitle>
+              <DialogDescription>
+                Stored analysis data from database
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4">
+              {rawAnalysisData && (
+                <>
+                  <div className="mb-4 text-sm text-gray-600">
+                    <p><strong>Analysis ID:</strong> {rawAnalysisData.analysis_id}</p>
+                    <p><strong>Topic:</strong> {rawAnalysisData.topic}</p>
+                    <p><strong>Model:</strong> {rawAnalysisData.model_used}</p>
+                    <p><strong>Created:</strong> {rawAnalysisData.created_at}</p>
+                    <p><strong>Articles Analyzed:</strong> {rawAnalysisData.total_articles_analyzed}</p>
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <pre className="text-xs overflow-y-auto whitespace-pre-wrap break-all">
+                      {JSON.stringify(rawAnalysisData.raw_output, null, 2)}
+                    </pre>
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                    <Button onClick={copyToClipboard} variant="outline" size="sm">
+                      Copy to Clipboard
+                    </Button>
+                    <Button onClick={() => setShowRawModal(false)} variant="outline" size="sm">
+                      Close
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Tune Prompt Dialog */}
+      <Dialog open={isPromptEditorOpen} onOpenChange={setIsPromptEditorOpen}>
+        <DialogContent className="max-w-[95vw] w-[95vw] h-[95vh] max-h-[95vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle className="text-2xl font-bold">Tune: {activeTab.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}</DialogTitle>
+            <DialogDescription>
+              Customize how the AI analyzes your content
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto space-y-6 mt-4 pr-2">
+            {/* Organization Section */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-3">
+                <label className="text-sm font-semibold text-gray-700">Organization</label>
+                {config.profile_id && profiles.find(p => p.id === config.profile_id) ? (
+                  <button
+                    onClick={() => {
+                      setIsPromptEditorOpen(false);
+                      setIsProfileModalOpen(true);
+                    }}
+                    className="px-3 py-1 text-xs bg-white hover:bg-gray-50 text-gray-700 rounded border border-gray-300 font-medium"
+                  >
+                    Configure
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setIsPromptEditorOpen(false);
+                      setIsProfileModalOpen(true);
+                    }}
+                    className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded font-medium"
+                  >
+                    Set Profile
+                  </button>
+                )}
+              </div>
+
+              {config.profile_id && profiles.find(p => p.id === config.profile_id) ? (
+                <div className="bg-white border rounded-lg p-3 space-y-2">
+                  <div>
+                    <div className="font-semibold text-gray-800">{profiles.find(p => p.id === config.profile_id)?.name}</div>
+                    <div className="text-xs text-gray-600 capitalize">{profiles.find(p => p.id === config.profile_id)?.organization_type}</div>
+                  </div>
+                  {(() => {
+                    const profile = profiles.find(p => p.id === config.profile_id);
+                    if (!profile) return null;
+
+                    return (
+                      <div className="text-xs text-gray-700 space-y-1 border-t pt-2 max-h-32 overflow-y-auto">
+                        {profile.industry && <div><span className="font-medium">Industry:</span> {profile.industry}</div>}
+                        {profile.region && <div><span className="font-medium">Region:</span> {profile.region}</div>}
+                        {profile.key_concerns && <div><span className="font-medium">Key Concerns:</span> {profile.key_concerns}</div>}
+                        {profile.strategic_priorities && <div><span className="font-medium">Strategic Priorities:</span> {profile.strategic_priorities}</div>}
+                      </div>
+                    );
+                  })()}
+                </div>
+              ) : (
+                <p className="text-xs text-gray-600 italic">No organization profile selected. Click "Set Profile" to configure your organization's context.</p>
+              )}
+            </div>
+
+            {/* Editable Template - Role */}
+            <div>
+              <label className="text-sm font-semibold mb-2 block text-gray-700">1. Role (Editable Template)</label>
+              <p className="text-xs text-gray-500 mb-2">Define the AI's expertise and perspective</p>
+              <textarea
+                value={templateSystemPrompt}
+                onChange={(e) => setTemplateSystemPrompt(e.target.value)}
+                className="w-full h-24 p-4 border rounded-lg font-mono text-sm"
+                placeholder="You are an expert analyst..."
+              />
+            </div>
+
+            {/* Editable Template - Instructions */}
+            <div>
+              <label className="text-sm font-semibold mb-2 block text-gray-700">2. Instructions (Editable)</label>
+              <p className="text-xs text-gray-500 mb-2">
+                💡 Core instructions for the AI. Use variables like <code className="bg-gray-100 px-1 rounded">{'{topic}'}</code>, <code className="bg-gray-100 px-1 rounded">{'{article_count}'}</code>, <code className="bg-gray-100 px-1 rounded">{'{org_context}'}</code> - see full list below
+              </p>
+              <textarea
+                value={templateUserPrompt}
+                onChange={(e) => setTemplateUserPrompt(e.target.value)}
+                className="w-full h-[400px] p-4 border rounded-lg font-mono text-xs leading-relaxed resize-y"
+                placeholder="{org_context}\n\n{action_vocabulary}\n\nAnalyze {article_count} articles about {topic}..."
+              />
+            </div>
+
+            {/* Output Format (Read-Only) */}
+            {templateOutputFormat && (
+              <div>
+                <label className="text-sm font-semibold mb-2 block text-gray-700">3. Output Format (Read-Only)</label>
+                <p className="text-xs text-gray-500 mb-2">
+                  🔒 This defines the exact JSON structure the AI must return. Cannot be edited to ensure frontend compatibility.
+                </p>
+                <div className="bg-gray-50 border rounded-lg p-4 max-h-[400px] overflow-y-auto">
+                  <pre className="text-xs font-mono whitespace-pre-wrap text-gray-700">{templateOutputFormat}</pre>
+                </div>
+              </div>
+            )}
+
+            {/* Preview Section */}
+            <div className="border-t pt-4">
+              <button
+                onClick={() => setShowPreview(!showPreview)}
+                className="flex items-center gap-2 text-sm font-semibold text-gray-700 hover:text-gray-900 mb-2"
+              >
+                <span>{showPreview ? '▼' : '▶'}</span>
+                <span>📄 Preview - Final Rendered Prompt</span>
+              </button>
+              <p className="text-xs text-gray-500 mb-2">See how your template will look with current topic and organization</p>
+
+              {showPreview && (
+                <div className="bg-gray-50 border rounded-lg p-4 max-h-96 overflow-y-auto">
+                  <pre className="text-xs font-mono whitespace-pre-wrap text-gray-800">{currentPrompt || 'Loading preview...'}</pre>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-between items-center pt-4 border-t">
+              <button
+                onClick={async () => {
+                  console.log('🔄 Restoring default prompt...');
+                  try {
+                    const response = await fetch(`/api/trend-convergence/prompts/${activeTab}/restore-default`, {
+                      method: 'POST',
+                      credentials: 'include',
+                      headers: { 'Content-Type': 'application/json' }
+                    });
+
+                    if (!response.ok) {
+                      const error = await response.json();
+                      throw new Error(error.detail || 'Failed to restore default');
+                    }
+
+                    const result = await response.json();
+                    console.log('✅ Default restored:', result);
+
+                    // Reload prompt preview to show the restored default
+                    const previewParams = new URLSearchParams({ topic: config.topic });
+                    if (config.profile_id) {
+                      previewParams.append('profile_id', config.profile_id.toString());
+                    }
+
+                    const previewResponse = await fetch(`/api/trend-convergence/prompt-preview/${activeTab}?${previewParams}`, {
+                      credentials: 'include',
+                      headers: { 'Content-Type': 'application/json' }
+                    });
+
+                    if (previewResponse.ok) {
+                      const previewResult = await previewResponse.json();
+                      setCurrentPrompt(previewResult.prompt);
+                      setCustomPrompt(previewResult.prompt);
+                      // Update template state
+                      setTemplateSystemPrompt(previewResult.template?.system_prompt || '');
+                      setTemplateUserPrompt(previewResult.template?.user_prompt || '');
+                      setTemplateOutputFormat(previewResult.template?.output_format || '');
+                      // Update variables
+                      setTemplateVariables(previewResult.template?.variables || {});
+                      alert(`✅ ${result.message}`);
+                    }
+                  } catch (error) {
+                    console.error('❌ Error restoring default:', error);
+                    alert(`Failed to restore default: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                  }
+                }}
+                className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md text-sm font-medium"
+              >
+                Reset to Default
+              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setIsPromptEditorOpen(false)}
+                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md text-sm font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    console.log('💾 Saving custom prompt template...');
+                    try {
+                      // Save the editable templates (with {variables})
+                      const response = await fetch(`/api/trend-convergence/prompts/${activeTab}`, {
+                        method: 'POST',
+                        credentials: 'include',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          system_prompt: templateSystemPrompt,
+                          user_prompt: templateUserPrompt
+                        })
+                      });
+
+                      if (!response.ok) {
+                        const error = await response.json();
+                        throw new Error(error.detail || 'Failed to save prompt');
+                      }
+
+                      const result = await response.json();
+                      console.log('✅ Prompt saved:', result);
+                      alert(`✅ ${result.message}`);
+
+                      // Close modal and regenerate analysis with new prompt
+                      setIsPromptEditorOpen(false);
+                      await generateAnalysis(true);  // Force refresh to use new prompt
+                    } catch (error) {
+                      console.error('❌ Error saving prompt:', error);
+                      alert(`Failed to save prompt: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                    }
+                  }}
+                  disabled={!templateUserPrompt || !templateSystemPrompt}
+                  className="px-4 py-2 bg-pink-500 text-white hover:bg-pink-600 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+
+            {/* Variable Documentation - Dynamically loaded from template */}
+            <div className="border-t pt-4 mt-4">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Available Variables</h3>
+              <p className="text-xs text-gray-600 mb-3">Use these variables in your instructions to insert dynamic content</p>
+              {Object.keys(templateVariables).length > 0 ? (
+                <div className="bg-gray-50 rounded-lg p-4 text-xs max-h-64 overflow-y-auto">
+                  <ul className="space-y-2 text-gray-700">
+                    {Object.entries(templateVariables).map(([key, description]) => (
+                      <li key={key} className="flex gap-2">
+                        <code className="bg-white px-2 py-1 rounded border font-mono text-xs whitespace-nowrap">{`{${key}}`}</code>
+                        <span className="text-gray-600">- {description}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <div className="bg-gray-50 rounded-lg p-4 text-xs text-gray-500 italic">
+                  Loading variable documentation...
+                </div>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Save Dashboard Dialog */}
+      <Dialog open={showSaveDialog} onOpenChange={setShowSaveDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save Dashboard</DialogTitle>
+            <DialogDescription>
+              Save the current analysis configuration and results for later access.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="dashboard-name">Dashboard Name</Label>
+              <Input
+                id="dashboard-name"
+                placeholder="e.g., Q1 2025 Analysis"
+                value={dashboardName}
+                onChange={(e) => setDashboardName(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="dashboard-description">Description (optional)</Label>
+              <Textarea
+                id="dashboard-description"
+                placeholder="Add notes about this analysis..."
+                value={dashboardDescription}
+                onChange={(e) => setDashboardDescription(e.target.value)}
+                rows={3}
+              />
+            </div>
+
+            <div className="text-sm text-gray-500">
+              <div>Topic: <strong>{config.topic}</strong></div>
+              <div>Articles: <strong>{data?.articles_analyzed || 0}</strong></div>
+              <div>Model: <strong>{config.model}</strong></div>
+              <div>Timeframe: <strong>{config.timeframe_days} days</strong></div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowSaveDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveDashboard}>
+              Save Dashboard
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Dashboard?</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete <strong>"{dashboardToDelete?.name}"</strong>?
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-row justify-end gap-3 pt-4">
+            <button
+              type="button"
+              onClick={() => setDeleteConfirmOpen(false)}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={confirmDeleteDashboard}
+              className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-md hover:bg-red-700"
+            >
+              Delete
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+export default App;

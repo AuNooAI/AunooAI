@@ -1,6 +1,6 @@
-{% extends "base.html" %}
+{% extends "base_with_shared_nav.html" %}
 
-{% block title %}AuNoo AI - News Firehose{% endblock %}
+{% block title %}Gather Data - AuNoo AI{% endblock %}
 
 {% block extra_css %}
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
@@ -139,86 +139,86 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
 
     /* Bias color coding */
     .bias-left {
-        background-color: #3373CC;
+        background-color: var(--colors-bias-left);
         color: white;
     }
 
     .bias-left-center {
-        background-color: #6699EE;
+        background-color: var(--colors-bias-left-center);
         color: white;
     }
 
-    .bias-least-biased, 
+    .bias-least-biased,
     .bias-center {
-        background-color: #88CC88;
+        background-color: var(--colors-bias-center);
         color: black;
     }
 
     .bias-right-center {
-        background-color: #FF9966;
+        background-color: var(--colors-bias-right-center);
         color: black;
     }
 
     .bias-right {
-        background-color: #CC3333;
+        background-color: var(--colors-bias-right);
         color: white;
     }
 
     .bias-pro-science {
-        background-color: #9966CC;
+        background-color: var(--colors-bias-science);
         color: white;
     }
 
     .bias-conspiracy-pseudoscience {
-        background-color: #666666;
+        background-color: var(--colors-bias-conspiracy);
         color: white;
     }
 
     .bias-questionable {
-        background-color: #222222;
+        background-color: var(--colors-bias-questionable);
         color: white;
     }
 
     .bias-satire {
-        background-color: #CCBB33;
+        background-color: var(--colors-bias-satire);
         color: black;
     }
 
     /* Factual reporting color coding */
     .factual-very-high {
-        background-color: #006600;
+        background-color: var(--colors-factual-very-high);
         color: white;
     }
 
-    .factual-high, 
+    .factual-high,
     .factual-mostly-factual {
-        background-color: #339933;
+        background-color: var(--colors-factual-high);
         color: white;
     }
 
     .factual-mixed {
-        background-color: #CCCC00;
+        background-color: var(--colors-factual-mixed);
         color: black;
     }
 
-    .factual-low, 
+    .factual-low,
     .factual-very-low {
-        background-color: #CC0000;
+        background-color: var(--colors-factual-low);
         color: white;
     }
 
     :root {
-        --primary-color: #FF69B4;  /* Hot Pink */
-        --primary-dark: #FF1493;   /* Deep Pink */
-        --secondary-color: #32CD32;  /* Lime Green */
-        --secondary-dark: #228B22;   /* Forest Green */
-        --electric-blue: #00D9FF;   /* Electric Blue */
-        --text-color: #333;
-        --light-gray: #f8f9fa;
-        --medium-gray: #e9ecef;
-        --dark-gray: #343a40;
-        --border-color: #dee2e6;
-        --box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15);
+        --primary-color: var(--colors-accent-7);  /* Hot Pink */
+        --primary-dark: var(--colors-accent-10);   /* Deep Pink */
+        --secondary-color: var(--colors-success-7);  /* Lime Green - mapped to design system */
+        --secondary-dark: var(--colors-success-9);   /* Forest Green - mapped to design system */
+        --electric-blue: var(--colors-info-7);   /* Electric Blue - mapped to design system */
+        --text-color: var(--colors-neutral-11);
+        --light-gray: var(--colors-neutral-2);
+        --medium-gray: var(--colors-neutral-4);
+        --dark-gray: var(--colors-neutral-10);
+        --border-color: var(--colors-neutral-5);
+        --box-shadow: var(--box-shadow);
     }
 
     h2, h5, h6 {
@@ -268,15 +268,15 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
 .table th {
     white-space: nowrap;
     font-weight: 600;
-    background-color: #f8f9fa;
-    border-bottom: 2px solid #dee2e6;
+    background-color: var(--colors-neutral-2);
+    border-bottom: 2px solid var(--colors-neutral-5);
     position: sticky;
     top: 0;
     z-index: 10; /* Higher z-index for sticky headers */
 }
 
 .table td {
-    border-top: 1px solid #dee2e6;
+    border-top: 1px solid var(--colors-neutral-5);
     position: relative;
 }
 
@@ -300,12 +300,12 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
     -webkit-box-orient: vertical;
     overflow: hidden;
     text-decoration: none;
-    color: #0d6efd;
+    color: var(--colors-info-9);
 }
 
 .article-title:hover {
     text-decoration: underline;
-    color: #0a58ca;
+    color: var(--colors-info-10);
 }
 
 .article-summary {
@@ -369,12 +369,12 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
 }
 
 /* Improved badge colors for better variety with white text */
-.badge.bg-info:nth-child(1) { background-color: #0dcaf0 !important; color: white !important; }
-.badge.bg-info:nth-child(2) { background-color: #6f42c1 !important; color: white !important; }
-.badge.bg-info:nth-child(3) { background-color: #fd7e14 !important; color: white !important; }
-.badge.bg-info:nth-child(4) { background-color: #20c997 !important; color: white !important; }
-.badge.bg-info:nth-child(5) { background-color: #e83e8c !important; color: white !important; }
-.badge.bg-info:nth-child(6) { background-color: #6610f2 !important; color: white !important; }
+.badge.bg-info:nth-child(1) { background-color: var(--colors-info-7) !important; color: white !important; }
+.badge.bg-info:nth-child(2) { background-color: var(--colors-accent-10) !important; color: white !important; }
+.badge.bg-info:nth-child(3) { background-color: var(--colors-warning-8) !important; color: white !important; }
+.badge.bg-info:nth-child(4) { background-color: var(--colors-success-7) !important; color: white !important; }
+.badge.bg-info:nth-child(5) { background-color: var(--colors-accent-8) !important; color: white !important; }
+.badge.bg-info:nth-child(6) { background-color: var(--colors-accent-11) !important; color: white !important; }
 
 /* Ensure all badges have white text for better readability */
 .badge {
@@ -408,7 +408,7 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
     background: white;
     z-index: 15;
     padding: 10px 0;
-    border-bottom: 1px solid #dee2e6;
+    border-bottom: 1px solid var(--colors-neutral-5);
     margin-bottom: 10px;
 }
 
@@ -416,7 +416,7 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
 .sparkline-container {
     position: relative;
     margin-right: 10px;
-    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    background: linear-gradient(135deg, var(--colors-neutral-2) 0%, var(--colors-neutral-4) 100%);
     border: 1px solid var(--border-color);
     border-radius: 6px;
     width: 140px;
@@ -456,7 +456,7 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
 }
 
 .trend-link:hover {
-    background-color: rgba(255, 105, 180, 0.1);
+    background-color: var(--colors-accent-alpha-10);
     color: var(--primary-color);
     text-decoration: none;
 }
@@ -771,8 +771,8 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
 
 /* Pagination controls styling */
 .pagination-controls {
-    background-color: #f8f9fa;
-    border: 1px solid #dee2e6;
+    background-color: var(--colors-neutral-2);
+    border: 1px solid var(--colors-neutral-5);
     border-radius: 0.375rem;
     margin-top: 1rem;
 }
@@ -783,11 +783,11 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
 
 .pagination-controls .page-link {
     color: var(--primary-color);
-    border-color: #dee2e6;
+    border-color: var(--colors-neutral-5);
 }
 
 .pagination-controls .page-link:hover {
-    background-color: rgba(255, 105, 180, 0.1);
+    background-color: var(--colors-accent-alpha-10);
     border-color: var(--primary-color);
 }
 
@@ -797,7 +797,7 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
 }
 
 .pagination-controls .page-item.disabled .page-link {
-    color: #6c757d;
+    color: var(--colors-neutral-8);
     background-color: transparent;
 }
 
@@ -834,16 +834,16 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
     bottom: 125%;
     left: 0;
     width: 300px;
-    background-color: #f9f9f9;
-    color: #333;
+    background-color: var(--colors-neutral-1);
+    color: var(--colors-neutral-11);
     text-align: left;
     border-radius: 6px;
     padding: 10px;
-    box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    box-shadow: var(--box-shadow-lg);
     opacity: 0;
     transition: opacity 0.3s;
     pointer-events: none;
-    border: 1px solid #ddd;
+    border: 1px solid var(--colors-neutral-5);
 }
 
 .bias-details p {
@@ -890,8 +890,8 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
 
 /* Relevance slider styling */
 .relevance-filters {
-    background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
-    border: 1px solid #e3e6ea;
+    background: linear-gradient(135deg, var(--colors-white) 0%, var(--colors-neutral-2) 100%);
+    border: 1px solid var(--colors-neutral-4);
     border-radius: 0.5rem;
     padding: 1rem;
     margin-bottom: 1rem;
@@ -905,7 +905,7 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
 
 .filter-label {
     font-weight: 600;
-    color: #495057;
+    color: var(--colors-neutral-9);
     font-size: 0.875rem;
     white-space: nowrap;
 }
@@ -930,54 +930,54 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
     border-right: none;
     transition: all 0.2s ease;
     position: relative;
-    background-color: #f8f9fa;
-    border: 1px solid #dee2e6;
-    color: #495057;
+    background-color: var(--colors-neutral-2);
+    border: 1px solid var(--colors-neutral-5);
+    color: var(--colors-neutral-9);
 }
 
 .status-btn:last-child {
-    border-right: 1px solid #dee2e6;
+    border-right: 1px solid var(--colors-neutral-5);
 }
 
 .status-btn:hover {
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(0,0,0,0.12);
     z-index: 2;
-    background-color: #e9ecef;
-    border-color: #adb5bd;
+    background-color: var(--colors-neutral-4);
+    border-color: var(--colors-neutral-7);
 }
 
 .status-filter-group input[type="radio"]:checked + .status-btn {
     transform: none;
     box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
     font-weight: 600;
-    background-color: #ffffff;
-    border-color: #0d6efd;
-    color: #0d6efd;
+    background-color: var(--colors-white);
+    border-color: var(--colors-info-9);
+    color: var(--colors-info-9);
 }
 
 .status-filter-group input[type="radio"]:checked + .btn-outline-primary {
-    background-color: #0d6efd;
-    border-color: #0d6efd;
-    color: #ffffff;
+    background-color: var(--colors-info-9);
+    border-color: var(--colors-info-9);
+    color: var(--colors-white);
 }
 
 .status-filter-group input[type="radio"]:checked + .btn-outline-warning {
-    background-color: #ffc107;
-    border-color: #ffc107;
-    color: #000000;
+    background-color: var(--colors-warning-9);
+    border-color: var(--colors-warning-9);
+    color: var(--colors-black);
 }
 
 .status-filter-group input[type="radio"]:checked + .btn-outline-success {
-    background-color: #198754;
-    border-color: #198754;
-    color: #ffffff;
+    background-color: var(--colors-success-9);
+    border-color: var(--colors-success-9);
+    color: var(--colors-white);
 }
 
 /* Active button styling with pink gradient */
 .btn-outline-primary.active {
-    background: linear-gradient(135deg, #FF69B4, #FF1493);
-    border-color: #FF69B4;
+    background: linear-gradient(135deg, var(--colors-accent-7), var(--colors-accent-10));
+    border-color: var(--colors-accent-7);
     color: white !important;
 }
 
@@ -996,39 +996,39 @@ window.createMediaBiasDisplay = createMediaBiasDisplay;
     font-weight: 500;
     border-radius: 0.375rem !important;
     transition: all 0.2s ease;
-    background-color: #f8f9fa;
-    border: 1px solid #dc3545;
-    color: #dc3545;
+    background-color: var(--colors-neutral-2);
+    border: 1px solid var(--colors-error-9);
+    color: var(--colors-error-9);
 }
 
 .detoxify-btn:hover {
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(220, 53, 69, 0.2);
-    background-color: #f5c2c7;
-    border-color: #bb2d3b;
-    color: #bb2d3b;
+    background-color: var(--colors-error-3);
+    border-color: var(--colors-error-10);
+    color: var(--colors-error-10);
 }
 
 input[type="checkbox"]:checked + .detoxify-btn {
-    background-color: #dc3545;
-    border-color: #dc3545;
-    color: #ffffff;
+    background-color: var(--colors-error-9);
+    border-color: var(--colors-error-9);
+    color: var(--colors-white);
     font-weight: 600;
     box-shadow: inset 0 2px 4px rgba(0,0,0,0.2);
     transform: none;
 }
 
 input[type="checkbox"]:checked + .detoxify-btn:hover {
-    background-color: #bb2d3b;
-    border-color: #bb2d3b;
+    background-color: var(--colors-error-10);
+    border-color: var(--colors-error-10);
 }
 
 /* Analysis modal summary styling */
 .summary-section {
-    border: 1px solid #e9ecef;
+    border: 1px solid var(--colors-neutral-4);
     border-radius: 0.375rem;
     padding: 0.75rem;
-    background-color: #f8f9fa;
+    background-color: var(--colors-neutral-2);
 }
 
 .summary-badge {
@@ -1042,7 +1042,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 
 .ai-summary {
     font-weight: 500;
-    color: #212529;
+    color: var(--colors-neutral-11);
 }
 
 .original-summary {
@@ -1069,7 +1069,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     width: 100%;
     height: 6px;
     border-radius: 3px;
-    background: linear-gradient(to right, #dc3545 0%, #ffc107 33%, #28a745 66%, #007bff 100%);
+    background: linear-gradient(to right, var(--colors-error-9) 0%, var(--colors-warning-9) 33%, var(--colors-success-9) 66%, var(--colors-info-9) 100%);
     outline: none;
     opacity: 0.9;
     transition: opacity 0.3s;
@@ -1086,8 +1086,8 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     width: 20px;
     height: 20px;
     border-radius: 50%;
-    background: #ffffff;
-    border: 3px solid #007bff;
+    background: var(--colors-white);
+    border: 3px solid var(--colors-info-9);
     cursor: pointer;
     box-shadow: 0 2px 6px rgba(0,0,0,0.2);
     transition: all 0.2s ease;
@@ -1102,8 +1102,8 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     width: 20px;
     height: 20px;
     border-radius: 50%;
-    background: #ffffff;
-    border: 3px solid #007bff;
+    background: var(--colors-white);
+    border: 3px solid var(--colors-info-9);
     cursor: pointer;
     box-shadow: 0 2px 6px rgba(0,0,0,0.2);
 }
@@ -1112,7 +1112,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     display: flex;
     justify-content: space-between;
     font-size: 0.7rem;
-    color: #6c757d;
+    color: var(--colors-neutral-8);
     margin-top: 0.25rem;
     padding: 0 0.5rem;
 }
@@ -1125,10 +1125,10 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     min-width: 60px;
     text-align: center;
     font-weight: 600;
-    color: #007bff;
+    color: var(--colors-info-9);
     font-size: 0.875rem;
     padding: 0.25rem 0.5rem;
-    background-color: rgba(0,123,255,0.1);
+    background-color: var(--colors-info-2);
     border-radius: 0.25rem;
 }
 
@@ -1148,21 +1148,21 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     border-radius: 0 !important;
     border-right: none;
     transition: all 0.2s ease;
-    background-color: #f8f9fa;
-    border: 1px solid #dee2e6;
-    color: #495057;
+    background-color: var(--colors-neutral-2);
+    border: 1px solid var(--colors-neutral-5);
+    color: var(--colors-neutral-9);
 }
 
 .btn-control:last-child {
-    border-right: 1px solid #dee2e6;
+    border-right: 1px solid var(--colors-neutral-5);
 }
 
 .btn-control:hover {
     transform: translateY(-1px);
     box-shadow: 0 4px 8px rgba(0,0,0,0.12);
     z-index: 2;
-    background-color: #e9ecef;
-    border-color: #adb5bd;
+    background-color: var(--colors-neutral-4);
+    border-color: var(--colors-neutral-7);
 }
 
 /* Filter summary styling */
@@ -1175,8 +1175,8 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 /* Legacy slider container - now handled by modern design */
 
 .advanced-filters {
-    background-color: #f7f8fc;
-    border: 1px solid #d6d8db;
+    background-color: var(--colors-neutral-1);
+    border: 1px solid var(--colors-neutral-5);
     border-radius: 0.375rem;
     padding: 1rem;
     margin-top: 1rem;
@@ -1207,7 +1207,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     flex: 1;
     height: 6px;
     border-radius: 3px;
-    background: linear-gradient(to right, #dc3545 0%, #ffc107 33%, #28a745 66%, #007bff 100%);
+    background: linear-gradient(to right, var(--colors-error-9) 0%, var(--colors-warning-9) 33%, var(--colors-success-9) 66%, var(--colors-info-9) 100%);
     outline: none;
     opacity: 0.8;
     transition: opacity 0.3s;
@@ -1222,8 +1222,8 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     width: 20px;
     height: 20px;
     border-radius: 50%;
-    background: #fff;
-    border: 2px solid #007bff;
+    background: var(--colors-white);
+    border: 2px solid var(--colors-info-9);
     cursor: pointer;
     box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
@@ -1232,8 +1232,8 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     width: 20px;
     height: 20px;
     border-radius: 50%;
-    background: #fff;
-    border: 2px solid #007bff;
+    background: var(--colors-white);
+    border: 2px solid var(--colors-info-9);
     cursor: pointer;
     box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
@@ -1242,14 +1242,14 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     display: flex;
     justify-content: space-between;
     font-size: 0.65rem;
-    color: #6c757d;
+    color: var(--colors-neutral-8);
     margin-top: 0.25rem;
 }
 
 .relevance-value {
     text-align: center;
     font-weight: 600;
-    color: #007bff;
+    color: var(--colors-info-9);
     font-size: 0.75rem;
     margin: 0.25rem 0;
 }
@@ -1263,7 +1263,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 }
 
 .sortable-header:hover {
-    background-color: rgba(0, 123, 255, 0.1);
+    background-color: var(--colors-info-alpha-10);
 }
 
 .sort-icon {
@@ -1291,7 +1291,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 /* Filter summary styling */
 .filter-summary {
     font-size: 0.875rem;
-    color: #6c757d;
+    color: var(--colors-neutral-8);
     margin-top: 0.5rem;
 }
 
@@ -1305,17 +1305,17 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 }
 
 .analysis-config {
-    background-color: #f8f9fa;
+    background-color: var(--colors-neutral-2);
     border-radius: 0.375rem;
     padding: 1rem;
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--colors-neutral-5);
 }
 
 .selected-articles-preview {
-    background-color: #fff;
+    background-color: var(--colors-white);
     border-radius: 0.375rem;
     padding: 1rem;
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--colors-neutral-5);
 }
 
 .selected-articles-preview h6 {
@@ -1324,10 +1324,10 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 }
 
 .processing-options {
-    background-color: #f8f9fa;
+    background-color: var(--colors-neutral-2);
     border-radius: 0.375rem;
     padding: 1rem;
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--colors-neutral-5);
 }
 
 .processing-options h6 {
@@ -1336,14 +1336,14 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 }
 
 #selectedArticlesList {
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--colors-neutral-5);
     border-radius: 0.375rem;
 }
 
 #selectedArticlesList .list-group-item {
     border-left: none;
     border-right: none;
-    border-top: 1px solid #dee2e6;
+    border-top: 1px solid var(--colors-neutral-5);
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -1376,17 +1376,17 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 }
 
 #analysisProgressContainer {
-    background-color: #f8f9fa;
+    background-color: var(--colors-neutral-2);
     border-radius: 0.375rem;
     padding: 1rem;
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--colors-neutral-5);
 }
 
 #analysisResults {
-    background-color: #fff;
+    background-color: var(--colors-white);
     border-radius: 0.375rem;
     padding: 1rem;
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--colors-neutral-5);
     max-height: 400px;
     overflow-y: auto;
 }
@@ -1513,7 +1513,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 
 #reviewIssuesList li {
     margin-bottom: 0.5rem;
-    color: #856404;
+    color: var(--colors-warning-10);
     font-weight: 500;
 }
 
@@ -1556,34 +1556,34 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 
 /* Auto-ingest specific styling */
 .auto-ingest-config .slider-container-modern {
-    background: #f8f9fa;
-    border: 1px solid #dee2e6;
+    background: var(--colors-neutral-2);
+    border: 1px solid var(--colors-neutral-5);
     border-radius: 8px;
     padding: 15px;
 }
 
 .auto-ingest-status {
-    background: #f8f9fa;
-    border: 1px solid #dee2e6;
+    background: var(--colors-neutral-2);
+    border: 1px solid var(--colors-neutral-5);
     border-radius: 8px;
     padding: 20px;
 }
 
 .bulk-process-config {
-    background: #f8f9fa;
-    border: 1px solid #dee2e6;
+    background: var(--colors-neutral-2);
+    border: 1px solid var(--colors-neutral-5);
     border-radius: 8px;
     padding: 20px;
 }
 
 /* Auto-ingest status badges */
 .badge.bg-primary {
-    background-color: #0d6efd !important;
+    background-color: var(--colors-accent-8) !important;
     color: white !important;
 }
 
 .badge.bg-success {
-    background-color: var(--secondary-color) !important; /* Lime Green */
+    background-color: var(--colors-success-9) !important;
     color: white !important;
 }
 
@@ -1601,28 +1601,28 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 }
 
 .badge.bg-danger {
-    background-color: #dc3545 !important;
+    background-color: var(--colors-error-9) !important;
     color: white !important;
 }
 
 .badge.bg-dark {
-    background-color: #212529 !important;
+    background-color: var(--colors-neutral-11) !important;
     color: white !important;
 }
 
 .badge.bg-info {
-    background-color: #0dcaf0 !important;
+    background-color: var(--colors-info-9) !important;
     color: white !important;
 }
 
 .badge.bg-secondary {
-    background-color: #6c757d !important;
+    background-color: var(--colors-neutral-8) !important;
     color: white !important;
 }
 
 .badge.bg-warning {
-    background-color: #ffc107 !important;
-    color: #212529 !important;
+    background-color: var(--colors-warning-9) !important;
+    color: var(--colors-neutral-11) !important;
 }
 
 /* Ensure proper spacing for status badges */
@@ -1635,28 +1635,28 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 /* Progress bar styling for bulk processing */
 #bulkProcessProgress .progress {
     height: 20px;
-    background-color: #e9ecef;
+    background-color: var(--colors-neutral-4);
     border-radius: 10px;
 }
 
 #bulkProcessProgress .progress-bar {
-    background: linear-gradient(90deg, #007bff, #28a745);
+    background: linear-gradient(90deg, var(--colors-accent-8), var(--colors-success-9));
     border-radius: 10px;
 }
 
 /* Modal sections styling */
 .modal-body .alert {
     border-left: 4px solid;
-    border-left-color: #0dcaf0;
-    background-color: #f8f9fa;
+    border-left-color: var(--colors-info-9);
+    background-color: var(--colors-neutral-2);
 }
 
 .modal-body .alert.alert-info {
-    border-left-color: #0dcaf0;
+    border-left-color: var(--colors-info-9);
 }
 
 .modal-body h6 {
-    color: #495057;
+    color: var(--colors-neutral-9);
     font-weight: 600;
     margin-bottom: 15px;
 }
@@ -1681,13 +1681,13 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 }
 
 #processingStatusBadge.bg-warning {
-    background-color: #f0ad4e !important;
-    color: #fff;
+    background-color: var(--colors-warning-8);
+    color: var(--colors-white);
 }
 
 #processingStatusBadge.bg-success {
-    background-color: #28a745 !important;
-    color: #fff;
+    background-color: var(--colors-success-9) !important;
+    color: var(--colors-white);
 }
 
 @keyframes spin {
@@ -1697,11 +1697,12 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 
 /* Status Ticker Bar - Matching news ticker height */
 .status-ticker-container {
-    background: var(--light-gray);
-    border: 1px solid #dee2e6;
-    border-left: 4px solid var(--accent-blue);
+    background: white;
+    border: 1px solid var(--colors-neutral-5);
+    border-left: 4px solid var(--colors-info-5);
+    border-radius: 8px;
     padding: 0 16px;
-    margin: -24px 0 24px 0;
+    margin: 0 0 24px 0;
     position: relative;
     overflow: hidden;
     height: 44px;
@@ -1712,34 +1713,184 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     font-size: 0.9rem;
 }
 
-/* Page Header - Matching news_feed_new.html */
+/* Hide old page header */
 .news-header {
-    border-bottom: 3px solid #FF69B4;
-    margin-bottom: 24px;
-    padding-bottom: 16px;
+    display: none;
+}
+
+/* New breadcrumb header matching Anticipate/Operations HQ */
+.page-breadcrumb-header {
+    background-color: white;
+    border-bottom: 1px solid var(--colors-neutral-4);
+    padding: 0.75rem 1.5rem;
     display: flex;
+    align-items: center;
     justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 12px;
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    margin: 0;
 }
 
-.news-title {
-    font-size: 2rem;
-    font-weight: 700;
-    margin: 0;
-    background: linear-gradient(135deg, #FF69B4, #FF1493);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+.breadcrumb-text {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--colors-neutral-8);
 }
 
-.news-title-icon {
-    color: #FF69B4;
-    -webkit-text-fill-color: #FF69B4;
+.breadcrumb-text span {
+    color: var(--colors-neutral-8);
+}
+
+.breadcrumb-text span.font-medium {
+    color: var(--colors-neutral-12);
+    font-weight: 500;
+}
+
+.page-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.page-header-actions .btn {
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    border-radius: 0.375rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s ease;
+    font-weight: 500;
+    border: 1px solid transparent;
+}
+
+.page-header-actions .btn i {
+    font-size: 0.875rem;
+}
+
+/* Primary button - Pink gradient matching news feed */
+.page-header-actions .btn-primary {
+    background: linear-gradient(135deg, var(--colors-accent-7), var(--colors-accent-10));
+    border-color: var(--colors-accent-7);
+    color: white;
+}
+
+.page-header-actions .btn-primary:hover {
+    background: linear-gradient(135deg, var(--colors-accent-10), var(--colors-accent-7));
+    border-color: var(--colors-accent-10);
+    color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px var(--colors-accent-alpha-30);
+}
+
+/* Success button - Green */
+.page-header-actions .btn-success {
+    background: var(--colors-success-9);
+    border-color: var(--colors-success-9);
+    color: white;
+}
+
+.page-header-actions .btn-success:hover {
+    background: var(--colors-success-10);
+    border-color: var(--colors-success-11);
+    color: white;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+}
+
+/* Topic setup button - matching React trend-convergence */
+.btn-topic-setup {
+    background: var(--colors-neutral-3);
+    border: none;
+    color: var(--colors-neutral-12);
+    font-size: 14px;
+    font-weight: 500;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.25rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s ease;
+}
+
+.btn-topic-setup:hover {
+    background: var(--colors-neutral-4);
+    color: var(--colors-neutral-12);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+/* Action buttons - subtle pink styling matching React Trend Convergence */
+.btn-action-pink {
+    background: white;
+    border: 1px solid var(--colors-neutral-4);
+    color: var(--colors-accent-8); /* text-pink-500 */
+    font-size: 0.875rem; /* text-sm */
+    font-weight: 500; /* font-medium */
+    padding: 0.5rem 0.75rem; /* px-3 py-2 */
+    border-radius: 0.375rem; /* rounded-md */
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.btn-action-pink:hover {
+    background: var(--colors-accent-1); /* hover:bg-pink-50 */
+    color: var(--colors-accent-8);
+    border-color: var(--colors-accent-3); /* pink-200 border on hover */
+}
+
+.btn-action-pink i {
+    color: var(--colors-accent-8);
+}
+
+.btn-action-blue {
+    background: white;
+    border: 1px solid var(--colors-neutral-4);
+    color: #3b82f6; /* Blue text */
+    font-size: 0.875rem; /* text-sm */
+    font-weight: 500; /* font-medium */
+    padding: 0.5rem 0.75rem; /* px-3 py-2 */
+    border-radius: 0.375rem; /* rounded-md */
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.btn-action-blue:hover {
+    background: #eff6ff; /* Light blue background on hover */
+    color: #2563eb; /* Darker blue on hover */
+    border-color: #93c5fd; /* Blue border on hover */
+}
+
+.btn-action-blue i {
+    color: #3b82f6;
+}
+
+/* Icon-only button for bell */
+.page-header-actions .btn-icon {
+    padding: 0.5rem;
+    width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: none;
+    color: var(--colors-neutral-8);
+}
+
+.page-header-actions .btn-icon:hover {
+    background: var(--colors-neutral-3);
+    color: var(--colors-neutral-12);
 }
 
 .status-bar {
@@ -1750,21 +1901,13 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     font-size: 0.9rem;
 }
 
-/* Left Sidebar Navigation - Matching news_feed_new.html */
+/* Hide old sidebar navigation */
 .page-layout-container {
-    display: flex;
-    gap: 0;
-    align-items: flex-start;
+    display: block;
 }
 
 .sidebar-nav {
-    width: 220px;
-    background: #fff;
-    border-right: 1px solid #dee2e6;
-    padding: 12px;
-    flex-shrink: 0;
-    min-height: 500px;
-    box-sizing: border-box;
+    display: none;
 }
 
 .sidebar-nav .nav {
@@ -1782,9 +1925,9 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 }
 
 .sidebar-nav .nav-link {
-    color: #495057;
+    color: var(--colors-neutral-9);
     padding: 10px 12px;
-    border: 1px solid #dee2e6;
+    border: 1px solid var(--colors-neutral-5);
     border-radius: 6px;
     transition: all 0.2s ease;
     font-size: 0.9rem;
@@ -1792,7 +1935,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     align-items: center;
     justify-content: center;
     gap: 8px;
-    background: #fff;
+    background: var(--colors-white);
     text-decoration: none;
     white-space: nowrap;
     overflow: hidden;
@@ -1815,28 +1958,27 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 }
 
 .sidebar-nav .nav-link:hover {
-    background: rgba(255, 105, 180, 0.1);
-    border-color: #FF69B4;
-    color: #FF69B4;
+    background: var(--colors-accent-alpha-10);
+    border-color: var(--colors-accent-7);
+    color: var(--colors-accent-7);
 }
 
 .sidebar-nav .nav-link.active {
-    background: linear-gradient(135deg, #FF69B4, #FF1493);
-    border-color: #FF69B4;
-    color: #fff;
+    background: linear-gradient(135deg, var(--colors-accent-7), var(--colors-accent-10));
+    border-color: var(--colors-accent-7);
+    color: var(--colors-white);
     font-weight: 500;
 }
 
 .main-content-area {
-    flex-grow: 1;
-    min-width: 0;
-    padding-left: 24px;
+    width: 100%;
+    padding-left: 0;
 }
 
 /* Baby Blue Button Classes */
 .btn-baby-blue {
-    background: #5dade2;
-    border-color: #5dade2;
+    background: var(--colors-info-5);
+    border-color: var(--colors-info-5);
     color: white;
     padding: 14px 20px;
     font-weight: 500;
@@ -1845,41 +1987,41 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 }
 
 .btn-baby-blue:hover {
-    background: #3498db;
-    border-color: #3498db;
+    background: var(--colors-info-8);
+    border-color: var(--colors-info-8);
     color: white;
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(93, 173, 226, 0.3);
 }
 
 .btn-baby-blue:active {
-    background: #2980b9;
-    border-color: #2980b9;
+    background: var(--colors-info-9);
+    border-color: var(--colors-info-9);
     transform: translateY(0);
 }
 
 /* Sidebar nav button colors - need higher specificity */
 .sidebar-nav .nav-link.btn-baby-blue {
-    background: #5dade2 !important;
-    border-color: #5dade2 !important;
+    background: var(--colors-info-5) !important;
+    border-color: var(--colors-info-5) !important;
     color: white !important;
 }
 
 .sidebar-nav .nav-link.btn-baby-blue:hover {
-    background: #3498db !important;
-    border-color: #3498db !important;
+    background: var(--colors-info-8) !important;
+    border-color: var(--colors-info-8) !important;
     color: white !important;
 }
 
 .sidebar-nav .nav-link.btn-baby-blue:active {
-    background: #2980b9 !important;
-    border-color: #2980b9 !important;
+    background: var(--colors-info-9) !important;
+    border-color: var(--colors-info-9) !important;
 }
 
 /* Green button style */
 .btn-green {
-    background: #28a745;
-    border-color: #28a745;
+    background: var(--colors-success-9);
+    border-color: var(--colors-success-9);
     color: white;
     padding: 14px 20px;
     font-weight: 500;
@@ -1887,34 +2029,34 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 }
 
 .btn-green:hover {
-    background: #218838;
-    border-color: #1e7e34;
+    background: var(--colors-success-10);
+    border-color: var(--colors-success-11);
     color: white;
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
 }
 
 .btn-green:active {
-    background: #1e7e34;
-    border-color: #1c7430;
+    background: var(--colors-success-11);
+    border-color: var(--colors-success-12);
     transform: translateY(0);
 }
 
 .sidebar-nav .nav-link.btn-green {
-    background: #28a745 !important;
-    border-color: #28a745 !important;
+    background: var(--colors-success-9) !important;
+    border-color: var(--colors-success-9) !important;
     color: white !important;
 }
 
 .sidebar-nav .nav-link.btn-green:hover {
-    background: #218838 !important;
-    border-color: #1e7e34 !important;
+    background: var(--colors-success-10) !important;
+    border-color: var(--colors-success-11) !important;
     color: white !important;
 }
 
 .sidebar-nav .nav-link.btn-green:active {
-    background: #1e7e34 !important;
-    border-color: #1c7430 !important;
+    background: var(--colors-success-11) !important;
+    border-color: var(--colors-success-12) !important;
 }
 
 /* Mobile responsiveness */
@@ -1927,7 +2069,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
         width: 100%;
         min-height: auto;
         border-right: none;
-        border-bottom: 1px solid #dee2e6;
+        border-bottom: 1px solid var(--colors-neutral-5);
     }
 
     .sidebar-nav .nav {
@@ -1947,7 +2089,7 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 
     .sidebar-nav .nav-link.active {
         border-left: none;
-        border-bottom-color: #FF69B4;
+        border-bottom-color: var(--colors-accent-7);
     }
 
     .main-content-area {
@@ -1956,11 +2098,52 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     }
 
     .status-ticker-container {
-        height: 38px;
-        margin: -15px -15px 15px -15px;
+        height: auto;
+        min-height: 38px;
+        margin: 0 0 15px 0;
         font-size: 0.85rem;
         gap: 12px;
         flex-wrap: wrap;
+        padding: 12px 16px;
+    }
+
+    /* Breadcrumb header responsive */
+    .page-breadcrumb-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.75rem;
+        padding: 1rem;
+    }
+
+    .breadcrumb-text {
+        font-size: 0.75rem;
+        flex-wrap: wrap;
+    }
+
+    .page-header-actions {
+        width: 100%;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .page-header-actions .btn {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.75rem;
+        flex: 1 1 calc(50% - 0.25rem);
+        justify-content: center;
+        white-space: nowrap;
+    }
+
+    /* Show icons only on very small screens */
+    @media (max-width: 480px) {
+        .page-header-actions .btn span {
+            display: none;
+        }
+
+        .page-header-actions .btn {
+            flex: 1 1 auto;
+            min-width: 44px;
+        }
     }
 }
 </style>
@@ -1970,31 +2153,74 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 <!-- Import the media bias macros -->
 {% from "components/media_bias_display.html" import media_bias_badge, media_bias_icon %}
 
-<div class="container-fluid">
-    <div style="max-width: 1400px; margin: 0 auto; padding: 24px 48px;">
-        <!-- Status Ticker Bar -->
-        <div class="status-ticker-container">
-            <span class="text-muted">
-                <i class="fas fa-clock"></i> Last search: <span id="lastCheckTime">{{ last_check_time|default('Never', true) }}</span>
-            </span>
-            <!-- Auto-Processing Toggle -->
-            <div class="form-check form-switch mb-0">
-                <input class="form-check-input" type="checkbox" id="autoProcessToggle"
-                       {% if is_enabled %}checked{% endif %}
-                       onchange="toggleAutoProcessing(this.checked)">
-                <label class="form-check-label" for="autoProcessToggle">
-                    <strong>Auto-Processing {{ 'ON' if is_enabled else 'OFF' }}</strong>
-                </label>
+<!-- Breadcrumb Header matching React trend-convergence -->
+<div class="page-breadcrumb-header">
+            <div class="breadcrumb-text">
+                <span>Gather</span>
+                <span>/</span>
+                <span class="font-medium">Keyword Alerts</span>
+                <span>•</span>
+                <span>Monitor and gather keyword-based content</span>
             </div>
-            <!-- Processing Status Badge -->
-            <span id="processingStatusBadge" class="badge bg-success" style="display: none;">
-                <i class="fas fa-spinner fa-spin me-1"></i> Processing <span id="processingCount">0</span> jobs
-            </span>
-            {% if last_error %}
-                <span class="text-danger">
-                    <i class="fas fa-exclamation-circle"></i> {{ last_error }}
+            <div class="page-header-actions">
+                <button type="button" class="btn btn-icon" data-notification-trigger title="Notifications" style="position: relative;">
+                    <i class="far fa-bell"></i>
+                    <span class="notification-badge"></span>
+                </button>
+                <button class="btn-topic-setup" onclick="window.location.href='/onboarding?redo=true'">
+                    <span>Set up topic</span>
+                    <i class="fas fa-plus"></i>
+                </button>
+            </div>
+</div>
+
+<!-- Main Content Area -->
+<div class="container-fluid" style="background-color: var(--colors-neutral-3);">
+    <div style="width: 100%; padding: 24px 48px;">
+
+        <!-- Action Buttons Row with Status Ticker -->
+        <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+            <!-- Action Buttons (left side) -->
+            <div class="d-flex gap-2 flex-wrap">
+                <button class="btn-action-blue" onclick="window.location.href='/submit-article'">
+                    <i class="fas fa-plus-circle"></i> Submit Articles
+                </button>
+                <button class="btn-action-pink" onclick="checkKeywords(event)">
+                    <i class="fas fa-sync"></i> Update Now
+                </button>
+                <button class="btn-action-pink" onclick="showAutoIngestSettings()">
+                    <i class="fas fa-cog"></i> Auto-Collect
+                </button>
+                <button class="btn-action-pink" id="cancelBackgroundTaskLink" onclick="cancelBackgroundTask()" style="display: none;">
+                    <i class="fas fa-stop"></i> Cancel Task
+                </button>
+                <button class="btn-action-pink" onclick="window.location.href='/keyword-monitor'">
+                    <i class="fas fa-tags"></i> Manage Keywords
+                </button>
+            </div>
+
+            <!-- Status Ticker (right side) -->
+            <div class="d-flex align-items-center gap-3">
+                <span class="text-muted small">
+                    <i class="fas fa-clock"></i> Last search: <span id="lastCheckTime">{{ last_check_time|default('Never', true) }}</span>
                 </span>
-            {% endif %}
+                <div class="form-check form-switch mb-0">
+                    <input class="form-check-input" type="checkbox" id="autoProcessToggle"
+                           {% if is_enabled %}checked{% endif %}
+                           onchange="toggleAutoProcessing(this.checked)">
+                    <label class="form-check-label small" for="autoProcessToggle">
+                        <strong>Auto-Processing {{ 'ON' if is_enabled else 'OFF' }}</strong>
+                    </label>
+                </div>
+                <span id="processingStatusBadge" class="badge bg-success" style="display: none;">
+                    <i class="fas fa-spinner fa-spin me-1"></i> Processing <span id="processingCount">0</span> jobs
+                </span>
+                {% if last_error %}
+                    <span class="text-danger small">
+                        <i class="fas fa-exclamation-circle"></i> {{ last_error }}
+                    </span>
+                {% endif %}
+            </div>
         </div>
 
         <!-- Page Header -->
@@ -2007,39 +2233,9 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
 
         <!-- Two-Column Layout: Sidebar + Content -->
         <div class="page-layout-container">
-        <!-- Left Sidebar Navigation -->
+        <!-- Left Sidebar Navigation (hidden) -->
         <div class="sidebar-nav">
             <ul class="nav" id="sidebar-menu">
-                <li class="nav-item">
-                    <a class="nav-link btn-baby-blue" href="/submit-article">
-                        <i class="fas fa-plus-circle"></i>
-                        <span>Submit Articles</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link btn-green" href="javascript:void(0)" onclick="checkKeywords(event)">
-                        <i class="fas fa-sync"></i>
-                        <span>Update Now</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="javascript:void(0)" id="cancelBackgroundTaskLink" onclick="cancelBackgroundTask()" style="display: none;">
-                        <i class="fas fa-stop"></i>
-                        <span>Cancel Task</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="javascript:void(0)" onclick="showAutoIngestSettings()">
-                        <i class="fas fa-cog"></i>
-                        <span>Auto-Processing</span>
-                    </a>
-                </li>
-                <li class="nav-item">
-                    <a class="nav-link" href="/keyword-monitor">
-                        <i class="fas fa-tags"></i>
-                        <span>Manage Keywords</span>
-                    </a>
-                </li>
             </ul>
         </div>
 
@@ -2050,12 +2246,12 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
     <div class="card mb-4">
         <div class="card-header">
             <div class="d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">EMERGING TRENDS OVERVIEW</h5>
-                <div>
-                    <button class="btn btn-outline-danger btn-sm me-2" id="bulkDeleteBtn" style="display: none;">
+                <h5 class="mb-0" style="color: var(--colors-accent-7); font-weight: 600;">EMERGING TRENDS OVERVIEW</h5>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-danger btn-sm" id="bulkDeleteBtn" style="display: none;">
                         <i class="fas fa-trash"></i> Delete Selected (<span id="deleteCount">0</span>)
                     </button>
-                    <button class="btn btn-outline-primary btn-sm me-2" id="bulkAnalyzeBtn" style="display: none;">
+                    <button class="btn btn-outline-primary btn-sm" id="bulkAnalyzeBtn" style="display: none;">
                         <i class="fas fa-microscope"></i> Analyze Selected (<span id="selectedCount">0</span>)
                     </button>
                 </div>
@@ -2467,12 +2663,6 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                                 </span>
                                                 {% endif %}
                                             {% endif %}
-                                            
-                                            {% if alert.article.quality_score is not none and alert.article.quality_score is defined %}
-                                            <span class="badge bg-secondary" title="Quality score: {{ '%.2f'|format(alert.article.quality_score) }}">
-                                                <i class="fas fa-star me-1"></i>{{ '%.0f'|format(alert.article.quality_score * 100) }}%
-                                            </span>
-                                            {% endif %}
 
                                             {% if alert.article.below_threshold %}
                                             <span class="badge bg-warning text-dark" title="Article relevance score is below threshold">
@@ -2559,16 +2749,16 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                             <div class="relevance-scores" 
                                                  title="Topic: {{ '%.2f'|format(alert.article.topic_alignment_score) }} | Keywords: {{ '%.2f'|format(alert.article.keyword_relevance_score|default(0, true)) }} | Confidence: {{ '%.2f'|format(alert.article.confidence_score|default(0, true)) }}{% if alert.article.overall_match_explanation %} | {{ alert.article.overall_match_explanation }}{% endif %}">
                                                 <div class="score-item">
-                                                    <i class="fas fa-bullseye" style="color: #0dcaf0;"></i>
+                                                    <i class="fas fa-bullseye" style="color: var(--colors-info-7);"></i>
                                                     <span>{{ '%.2f'|format(alert.article.topic_alignment_score) }}</span>
                                                 </div>
                                                 <div class="score-item">
-                                                    <i class="fas fa-key" style="color: #198754;"></i>
+                                                    <i class="fas fa-key" style="color: var(--colors-success-9);"></i>
                                                     <span>{{ '%.2f'|format(alert.article.keyword_relevance_score|default(0, true)) }}</span>
                                                 </div>
                                                 {% if alert.article.confidence_score is not none and alert.article.confidence_score is defined %}
                                                 <div class="score-item">
-                                                    <i class="fas fa-chart-line" style="color: #fd7e14;"></i>
+                                                    <i class="fas fa-chart-line" style="color: var(--colors-warning-8);"></i>
                                                     <span>{{ '%.2f'|format(alert.article.confidence_score) }}</span>
                                                 </div>
                                                 {% endif %}
@@ -3072,9 +3262,23 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                 <label for="maxArticlesPerRun" class="form-label">
                                     <i class="fas fa-list-ol me-1"></i>Max Articles Per Run
                                 </label>
-                                <input type="number" class="form-control" id="maxArticlesPerRun" 
+                                <input type="number" class="form-control" id="maxArticlesPerRun"
                                        min="1" max="200" step="1" value="50">
                                 <div class="form-text">Limit articles processed in each batch</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-12">
+                            <div class="mb-3">
+                                <label for="autoRegenerateReports" class="form-label">
+                                    <i class="fas fa-sync-alt me-1"></i>Auto-Regenerate Reports
+                                </label>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="autoRegenerateReports">
+                                </div>
+                                <div class="form-text">Automatically update Six Articles report and Dashboard when autocollect completes</div>
                             </div>
                         </div>
                     </div>
@@ -3678,8 +3882,8 @@ function drawSparkline(canvas, data) {
     
     // Draw background gradient
     const gradient = ctx.createLinearGradient(0, 0, 0, height);
-    gradient.addColorStop(0, 'rgba(255, 105, 180, 0.1)');
-    gradient.addColorStop(1, 'rgba(255, 105, 180, 0.05)');
+    gradient.addColorStop(0, 'rgba(236, 72, 153, 0.1)'); // --colors-accent-alpha-10
+    gradient.addColorStop(1, 'rgba(236, 72, 153, 0.05)');
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, width, height);
     
@@ -3713,13 +3917,13 @@ function drawSparkline(canvas, data) {
         ctx.closePath();
         
         const areaGradient = ctx.createLinearGradient(0, 0, 0, height);
-        areaGradient.addColorStop(0, 'rgba(255, 105, 180, 0.3)');
-        areaGradient.addColorStop(1, 'rgba(255, 105, 180, 0.05)');
+        areaGradient.addColorStop(0, 'rgba(236, 72, 153, 0.3)'); // --colors-accent-alpha-30
+        areaGradient.addColorStop(1, 'rgba(236, 72, 153, 0.05)');
         ctx.fillStyle = areaGradient;
         ctx.fill();
         
         // Draw the main line
-        ctx.strokeStyle = '#FF69B4';
+        ctx.strokeStyle = '#f769b7'; // --colors-accent-7 (pink-7)
         ctx.lineWidth = 2;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
@@ -3739,9 +3943,9 @@ function drawSparkline(canvas, data) {
     ctx.stroke();
     
         // Draw points with glow effect
-        ctx.shadowColor = '#FF69B4';
+        ctx.shadowColor = '#f769b7'; // --colors-accent-7 (pink-7)
         ctx.shadowBlur = 4;
-        ctx.fillStyle = '#FF69B4';
+        ctx.fillStyle = '#f769b7'; // --colors-accent-7 (pink-7)
         
     data.counts.forEach((value, i) => {
             const x = i * xScale + padding;
@@ -3754,11 +3958,11 @@ function drawSparkline(canvas, data) {
             // Add value labels for significant points
             if (value > 0 && (i === 0 || i === data.counts.length - 1 || value === maxValue)) {
                 ctx.shadowBlur = 0;
-                ctx.fillStyle = '#333';
+                ctx.fillStyle = '#212529'; // --colors-neutral-11 (slate-11)
                 ctx.font = 'bold 10px Arial';
                 ctx.textAlign = 'center';
                 ctx.fillText(value.toString(), x, y - 8);
-                ctx.fillStyle = '#FF69B4';
+                ctx.fillStyle = '#f769b7'; // --colors-accent-7 (pink-7)
                 ctx.shadowBlur = 4;
             }
         });
@@ -3766,12 +3970,12 @@ function drawSparkline(canvas, data) {
         ctx.shadowBlur = 0;
     } else {
         // Single data point
-        ctx.fillStyle = '#FF69B4';
+        ctx.fillStyle = '#f769b7'; // --colors-accent-7 (pink-7)
         ctx.beginPath();
         ctx.arc(width / 2, height / 2, 4, 0, 2 * Math.PI);
         ctx.fill();
-        
-        ctx.fillStyle = '#333';
+
+        ctx.fillStyle = '#212529'; // --colors-neutral-11 (slate-11)
         ctx.font = 'bold 12px Arial';
     ctx.textAlign = 'center';
         ctx.fillText(data.counts[0].toString(), width / 2, height / 2 - 10);
@@ -4213,15 +4417,15 @@ function updateRelevanceDisplay(articleUri, relevanceData) {
     relevanceColumn.innerHTML = `
         <div class="relevance-scores" title="${tooltipText}">
             <div class="score-item">
-                <i class="fas fa-bullseye" style="color: #0dcaf0;"></i>
+                <i class="fas fa-bullseye" style="color: var(--colors-info-7);"></i>
                 <span>${topicScore.toFixed(2)}</span>
             </div>
             <div class="score-item">
-                <i class="fas fa-key" style="color: #198754;"></i>
+                <i class="fas fa-key" style="color: var(--colors-success-9);"></i>
                 <span>${keywordScore.toFixed(2)}</span>
             </div>
             <div class="score-item">
-                <i class="fas fa-chart-line" style="color: #fd7e14;"></i>
+                <i class="fas fa-chart-line" style="color: var(--colors-warning-8);"></i>
                 <span>${confidence.toFixed(2)}</span>
             </div>
         </div>
@@ -4552,6 +4756,18 @@ async function checkKeywords(event) {
 // Update the DOMContentLoaded event listener to be simpler
 document.addEventListener('DOMContentLoaded', function() {
     console.log('🚀 DOMContentLoaded event fired');
+
+    // Fix modal backdrop issue - ensure all modals clean up properly
+    document.querySelectorAll('.modal').forEach(modal => {
+        modal.addEventListener('hidden.bs.modal', function () {
+            // Remove any lingering backdrops
+            document.body.classList.remove('modal-open');
+            document.body.style.overflow = '';
+            document.body.style.paddingRight = '';
+            const backdrops = document.querySelectorAll('.modal-backdrop');
+            backdrops.forEach(backdrop => backdrop.remove());
+        });
+    });
 
     // Load models and trend chart
     console.log('📊 Loading charts and models...');
@@ -6255,12 +6471,6 @@ function updateGroupAlerts(card, data, groupId) {
                                 badges += '<span class="badge bg-info" title="Processing in progress"><i class="fas fa-clock me-1"></i>Processing</span>';
                             }
 
-                            // Quality score badge
-                            if (alert.article.quality_score != null && alert.article.quality_score !== undefined) {
-                                const scorePercent = Math.round(alert.article.quality_score * 100);
-                                badges += `<span class="badge bg-secondary" title="Quality score: ${alert.article.quality_score.toFixed(2)}"><i class="fas fa-star me-1"></i>${scorePercent}%</span>`;
-                            }
-
                             // Below threshold badge
                             if (alert.article.below_threshold) {
                                 badges += '<span class="badge bg-warning text-dark" title="Article relevance score is below threshold"><i class="fas fa-filter me-1"></i>Below Threshold</span>';
@@ -6321,17 +6531,17 @@ function updateGroupAlerts(card, data, groupId) {
                                 
                                 let html = `<div class="relevance-scores" title="${title}">
                                     <div class="score-item">
-                                        <i class="fas fa-bullseye" style="color: #0dcaf0;"></i>
+                                        <i class="fas fa-bullseye" style="color: var(--colors-info-7);"></i>
                                         <span>${topicScore}</span>
                                     </div>
                                     <div class="score-item">
-                                        <i class="fas fa-key" style="color: #198754;"></i>
+                                        <i class="fas fa-key" style="color: var(--colors-success-9);"></i>
                                         <span>${keywordScore}</span>
                                     </div>`;
                                 
                                 if (alert.article.confidence_score !== null && alert.article.confidence_score !== undefined) {
                                     html += `<div class="score-item">
-                                        <i class="fas fa-chart-line" style="color: #fd7e14;"></i>
+                                        <i class="fas fa-chart-line" style="color: var(--colors-warning-8);"></i>
                                         <span>${confidenceScore}</span>
                                     </div>`;
                                 }
@@ -6732,7 +6942,7 @@ document.addEventListener('DOMContentLoaded', function() {
             setTimeout(() => {
                 groupElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 // Add a highlight effect
-                groupElement.style.boxShadow = '0 0 20px rgba(255, 105, 180, 0.5)';
+                groupElement.style.boxShadow = '0 0 20px var(--colors-accent-alpha-50)';
                 setTimeout(() => {
                     groupElement.style.boxShadow = '';
                 }, 3000);
@@ -6823,10 +7033,10 @@ function getMainRelevanceLabel(value) {
 }
 
 function getRelevanceColor(value) {
-    if (value <= 0.25) return '#dc3545'; // Red
-    if (value <= 0.5) return '#ffc107';  // Yellow
-    if (value <= 0.75) return '#28a745'; // Green
-    return '#007bff'; // Blue
+    if (value <= 0.25) return 'var(--colors-error-9)'; // Red
+    if (value <= 0.5) return 'var(--colors-warning-9)';  // Yellow
+    if (value <= 0.75) return 'var(--colors-success-9)'; // Green
+    return 'var(--colors-info-9)'; // Blue
 }
 
 // Toggle advanced filters visibility
@@ -8493,10 +8703,20 @@ async function runAutoIngestNow() {
                             'success'
                         );
 
+                        // Refresh notification bell badge
+                        if (window.updateUnreadCount) {
+                            window.updateUnreadCount();
+                        }
+
                         // Refresh the page to show new articles
                         setTimeout(() => window.location.reload(), 2000);
                     } else {
                         showAlert('Auto-ingest completed with errors', 'warning');
+
+                        // Still refresh notification bell for error notifications
+                        if (window.updateUnreadCount) {
+                            window.updateUnreadCount();
+                        }
                     }
                 },
                 (error) => {
@@ -8786,6 +9006,7 @@ async function loadAutoIngestStatus() {
         document.getElementById('llmTemperature').value = settings.llm_temperature || 0.1;
         document.getElementById('llmMaxTokens').value = settings.llm_max_tokens || 1000;
         document.getElementById('maxArticlesPerRun').value = settings.max_articles_per_run || 50;
+        document.getElementById('autoRegenerateReports').checked = settings.auto_regenerate_reports || false;
 
         // Update threshold slider
         const threshold = settings.min_relevance_threshold || 0.3;
@@ -8881,7 +9102,8 @@ async function saveAutoIngestSettings() {
             default_llm_model: document.getElementById('defaultLlmModel').value,
             llm_temperature: parseFloat(document.getElementById('llmTemperature').value),
             llm_max_tokens: parseInt(document.getElementById('llmMaxTokens').value),
-            max_articles_per_run: parseInt(document.getElementById('maxArticlesPerRun').value)
+            max_articles_per_run: parseInt(document.getElementById('maxArticlesPerRun').value),
+            auto_regenerate_reports: document.getElementById('autoRegenerateReports').checked
         };
 
         const response = await fetch('/api/keyword-monitor/settings', {
@@ -8901,9 +9123,11 @@ async function saveAutoIngestSettings() {
         if (result.success) {
             showAlert('Auto-processing settings saved successfully!', 'success');
 
-            // Close modal
+            // Close modal (backdrop cleanup handled by global listener)
             const modal = bootstrap.Modal.getInstance(document.getElementById('autoIngestSettingsModal'));
-            if (modal) modal.hide();
+            if (modal) {
+                modal.hide();
+            }
 
             // Refresh status to update toggle state
             fetchMonitorStatus();

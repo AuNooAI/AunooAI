@@ -5,14 +5,14 @@
 {% include "components/media_bias_display.html" %}
 <style>
     :root {
-        --primary-color: #FF69B4;  /* Hot Pink */
-        --primary-dark: #FF1493;   /* Deep Pink */
+        --primary-color: var(--colors-accent-7);  /* Hot Pink */
+        --primary-dark: var(--colors-accent-10);   /* Deep Pink */
         --secondary-color: #32CD32;  /* Lime Green */
         --secondary-dark: #228B22;   /* Forest Green */
-        --text-color: #333;
-        --light-gray: #f8f9fa;
-        --medium-gray: #e9ecef;
-        --dark-gray: #343a40;
+        --text-color: var(--colors-neutral-11);
+        --light-gray: var(--colors-neutral-2);
+        --medium-gray: var(--colors-neutral-4);
+        --dark-gray: var(--colors-neutral-10);
     }
 
     body {
@@ -33,7 +33,7 @@
 
     .research-form, .analysis-result {
         margin-bottom: 20px;
-        background-color: #fff;
+        background-color: var(--colors-white);
         padding: 20px;
         border-radius: 8px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
@@ -74,7 +74,7 @@
 
     .btn-primary {
         background-color: var(--primary-color);
-        color: #fff;
+        color: var(--colors-white);
     }
 
     .btn-primary:hover {
@@ -83,7 +83,7 @@
 
     .btn-secondary {
         background-color: var(--secondary-color);
-        color: #fff;
+        color: var(--colors-white);
     }
 
     .btn-secondary:hover {
@@ -154,7 +154,7 @@
         padding: 15px;
         margin-bottom: 15px;
         border-radius: 5px;
-        background-color: #fff;
+        background-color: var(--colors-white);
         box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
     }
 
@@ -187,7 +187,7 @@
         padding: 15px;
         border: 1px solid var(--medium-gray);
         border-radius: 5px;
-        background-color: #fff;
+        background-color: var(--colors-white);
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     }
 
@@ -196,7 +196,7 @@
         top: 50%;
         left: 50%;
         transform: translate(-50%, -50%);
-        background-color: #fff;
+        background-color: var(--colors-white);
         padding: 20px;
         border-radius: 8px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
@@ -228,7 +228,7 @@
         padding: 30px;
         margin: 20px 0;
         text-align: center;
-        background-color: #f8f9fa;
+        background-color: var(--colors-neutral-2);
         border-radius: 8px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
     }

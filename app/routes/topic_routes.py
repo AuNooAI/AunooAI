@@ -26,8 +26,7 @@ class DeleteTopicRequest(BaseModel):
 @router.get("/topics")
 async def get_topics_unified(
     with_articles: bool = False,
-    include_config: bool = True,
-    session=Depends(verify_session)
+    include_config: bool = True
 ) -> List[Dict[str, Any]]:
     """
     Unified topic endpoint that combines config.json and database information.
@@ -48,7 +47,7 @@ async def get_topics_unified(
         # If filtering to topics with articles, get database topics
         if with_articles:
             db = Database()
-            facade = DatabaseQueryFacade(db)
+            facade = DatabaseQueryFacade(db, logger)
             db_topics_info = facade.get_topics_with_article_counts()
             db_topic_names = set(db_topics_info.keys())
 

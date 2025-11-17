@@ -1,0 +1,33 @@
+/* Citation link styles for inline references */
+.citation-link {
+  color: #3b82f6;
+  text-decoration: none;
+  font-weight: 600;
+  padding: 0 2px;
+  border-radius: 2px;
+  transition: all 0.2s ease;
+  display: inline-block;
+  position: relative;
+}
+
+.citation-link:hover {
+  background-color: #eff6ff;
+  color: #2563eb;
+  transform: translateY(-1px);
+}
+
+.citation-link:active {
+  transform: translateY(0);
+}
+
+/* Tooltip effect on hover (browser default) */
+.citation-link[title] {
+  cursor: help;
+}
+
+/* Ensure citations don't break layout */
+.citation-link:before {
+  content: '';
+  display: inline-block;
+  width: 0;
+}

@@ -4,9 +4,9 @@
 {% block content %}
 <style>
   :root {
-      --primary-color: #FF69B4;  /* Hot Pink */
-      --primary-dark: #FF1493;   /* Deep Pink */
-      --light-gray: #f8f9fa;
+      --primary-color: var(--colors-accent-7);  /* Hot Pink */
+      --primary-dark: var(--colors-accent-10);   /* Deep Pink */
+      --light-gray: var(--colors-neutral-2);
   }
   .controls {
       display:flex;
@@ -184,7 +184,7 @@ function renderSankey(data) {
             thickness: 30,
             label: data.nodes,
             color: data.nodeColors,
-            font: {size: 10, color: '#000'}
+            font: {size: 10, color: 'var(--colors-black)'}
         },
         link: {
             source: data.sources,

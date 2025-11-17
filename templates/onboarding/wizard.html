@@ -1,8 +1,22 @@
-{% extends "base.html" %}
+{% extends "base_with_shared_nav.html" %}
 {% block title %}Topic Wizard - AuNoo AI{% endblock %}
 
 {% block extra_css %}
 <style>
+    /* Wizard container styling for sidebar layout */
+    .wizard-container {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 2rem 1rem;
+    }
+
+    .wizard-card {
+        background: white;
+        border-radius: 12px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        padding: 2rem;
+    }
+
     .step {
         display: none;
     }
@@ -69,7 +83,7 @@
         transform: translateY(-1px);
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
-    
+
     .example-value:hover::after {
         content: "Click to add";
         position: absolute;
@@ -126,16 +140,134 @@
         flex-grow: 1;
         min-width: 150px;
     }
+
+    /* Ensure modals appear above sidebar */
+    .modal {
+        z-index: 10000;
+    }
+    .modal-backdrop {
+        z-index: 9999;
+    }
+
+    /* Breadcrumb header styling - matching news_feed_new.html */
+    .page-breadcrumb-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1rem 1.5rem;
+        background: white;
+        border-bottom: 1px solid var(--colors-neutral-4);
+        flex-shrink: 0;
+    }
+
+    .breadcrumb-text {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.875rem;
+        color: var(--colors-neutral-8);
+    }
+
+    .breadcrumb-text span {
+        color: var(--colors-neutral-8);
+    }
+
+    .breadcrumb-text span.font-medium {
+        color: var(--colors-neutral-12);
+        font-weight: 500;
+    }
+
+    /* Page header actions */
+    .page-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .page-header-actions .btn {
+        padding: 0.5rem 1rem;
+        font-size: 0.875rem;
+        border-radius: 0.375rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        transition: all 0.2s ease;
+        font-weight: 500;
+        border: 1px solid transparent;
+    }
+
+    .page-header-actions .btn i {
+        font-size: 0.875rem;
+    }
+
+    /* Icon-only button for bell */
+    .page-header-actions .btn-icon {
+        padding: 0.5rem;
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: transparent;
+        border: none;
+        color: var(--colors-neutral-8);
+        cursor: pointer;
+        border-radius: 0.375rem;
+        transition: all 0.2s ease;
+    }
+
+    .page-header-actions .btn-icon:hover {
+        background: var(--colors-neutral-3);
+        color: var(--colors-neutral-12);
+    }
+
+    /* Topic setup button - matching React trend-convergence */
+    .btn-topic-setup {
+        background: var(--colors-neutral-3);
+        border: none;
+        color: var(--colors-neutral-12);
+        font-size: 0.875rem;
+        font-weight: 500;
+        padding: 0.5rem 1rem;
+        border-radius: 0.375rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        transition: all 0.2s ease;
+        cursor: pointer;
+    }
+
+    .btn-topic-setup:hover {
+        background: var(--colors-neutral-4);
+        color: var(--colors-neutral-12);
+    }
 </style>
 {% endblock %}
 
 {% block content %}
-<div class="container mt-5">
-    <div class="row justify-content-center">
-        <div class="col-md-8">
-            <div class="card">
-                <div class="card-body">
-                    <h2 class="text-center mb-4">Welcome to AuNoo AI</h2>
+<!-- Breadcrumb Header -->
+<div class="page-breadcrumb-header">
+    <div class="breadcrumb-text">
+        <span>Setup</span>
+        <span>/</span>
+        <span class="font-medium">Topic Wizard</span>
+        <span>•</span>
+        <span>AI-guided topic configuration</span>
+    </div>
+    <div class="page-header-actions">
+        <button type="button" class="btn btn-icon" title="Notifications">
+            <i class="far fa-bell"></i>
+        </button>
+        <button class="btn-topic-setup" onclick="window.location.href='/onboarding?redo=true'">
+            <span>Set up topic</span>
+            <i class="fas fa-plus"></i>
+        </button>
+    </div>
+</div>
+
+<div class="wizard-container">
+    <div class="wizard-card">
+        <h2 class="text-center mb-4">Welcome to AuNoo AI</h2>
                     
                     <!-- Step Indicators -->
                     <div class="step-indicator mb-4">
@@ -247,9 +379,17 @@
                         </div>
 
                         <div class="mb-3">
-                            <button class="btn btn-outline-primary" type="button" onclick="suggestAttributes()">
+                            <button id="suggest-btn" class="btn btn-outline-primary" type="button" onclick="suggestAttributes()">
                                 <i class="fas fa-magic"></i> Suggest Categories
                             </button>
+                            <div id="suggest-spinner" class="mt-2" style="display: none;">
+                                <div class="d-flex align-items-center">
+                                    <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
+                                        <span class="visually-hidden">Loading...</span>
+                                    </div>
+                                    <span class="text-muted">Generating suggestions with AI...</span>
+                                </div>
+                            </div>
                         </div>
 
                         <div id="topic-suggestions" class="topic-suggestions">
@@ -398,8 +538,6 @@
                         </button>
                     </div>
                 </div>
-            </div>
-        </div>
     </div>
 </div>
 {% endblock %}
@@ -905,6 +1043,14 @@ async function suggestAttributes() {
         return;
     }
 
+    // Show spinner and disable button
+    const suggestBtn = document.getElementById('suggest-btn');
+    const suggestSpinner = document.getElementById('suggest-spinner');
+    const originalBtnContent = suggestBtn.innerHTML;
+    suggestBtn.disabled = true;
+    suggestBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Generating...';
+    suggestSpinner.style.display = 'block';
+
     try {
         const response = await fetch('/api/onboarding/suggest-topic-attributes', {
             method: 'POST',
@@ -1015,6 +1161,13 @@ async function suggestAttributes() {
     } catch (error) {
         console.error("Error in suggestAttributes:", error);
         alert(`Error: ${error.message}`);
+    } finally {
+        // Hide spinner and re-enable button
+        const suggestBtn = document.getElementById('suggest-btn');
+        const suggestSpinner = document.getElementById('suggest-spinner');
+        suggestBtn.disabled = false;
+        suggestBtn.innerHTML = '<i class="fas fa-magic"></i> Suggest Categories';
+        suggestSpinner.style.display = 'none';
     }
 }
 
@@ -1600,12 +1753,17 @@ function showSuccessMessage(message) {
         <i class="fas fa-check-circle"></i>
         ${message}
     `;
-    document.querySelector('.card-body').appendChild(successMsg);
-    
-    // Remove message after 3 seconds
-    setTimeout(() => {
-        successMsg.remove();
-    }, 3000);
+
+    // Find the appropriate container (wizard-card or fall back to body)
+    const container = document.querySelector('.wizard-card') || document.querySelector('.card-body') || document.body;
+    if (container) {
+        container.appendChild(successMsg);
+
+        // Remove message after 3 seconds
+        setTimeout(() => {
+            successMsg.remove();
+        }, 3000);
+    }
 }
 
 function showErrorMessage(message) {
@@ -1615,12 +1773,17 @@ function showErrorMessage(message) {
         <i class="fas fa-exclamation-circle"></i>
         ${message}
     `;
-    document.querySelector('.card-body').appendChild(errorMsg);
-    
-    // Remove message after 5 seconds
-    setTimeout(() => {
-        errorMsg.remove();
-    }, 5000);
+
+    // Find the appropriate container (wizard-card or fall back to body)
+    const container = document.querySelector('.wizard-card') || document.querySelector('.card-body') || document.body;
+    if (container) {
+        container.appendChild(errorMsg);
+
+        // Remove message after 5 seconds
+        setTimeout(() => {
+            errorMsg.remove();
+        }, 5000);
+    }
 }
 
 // Helper functions for getting tags

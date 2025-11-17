@@ -384,7 +384,7 @@ class AnalyzeDB:
             results = cursor.fetchall()
 
         return [{
-            'date': row[0],
+            'date': row[0].isoformat() if row[0] else None,
             'sentiment': row[1],
             'count': row[2]
         } for row in results]
@@ -408,7 +408,7 @@ class AnalyzeDB:
             results = cursor.fetchall()
 
         return [{
-            'date': row[0],
+            'date': row[0].isoformat() if row[0] else None,
             'category': row[1],
             'count': row[2]
         } for row in results]
