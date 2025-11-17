@@ -676,6 +676,26 @@
     font-style: italic;
 }
 
+.floating-message-content a {
+    color: #0066cc;
+    text-decoration: underline;
+    cursor: pointer;
+    transition: color 0.2s ease;
+}
+
+.floating-message-content a:hover {
+    color: #0052a3;
+    text-decoration: underline;
+}
+
+.floating-message-content a:visited {
+    color: #551a8b;
+}
+
+.floating-message-content a:active {
+    color: #FF69B4;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
     .chat-modal .modal-dialog {
