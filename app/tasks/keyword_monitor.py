@@ -305,6 +305,13 @@ class KeywordMonitor:
         new_articles_count = 0
         processed_keywords = 0
 
+        # Track auto-ingest stats across all keywords
+        total_auto_ingest_processed = 0
+        total_auto_ingest_saved = 0
+        total_auto_ingest_errors = 0
+        auto_ingest_ran = False
+        detected_group_name = None  # Track the group name from keywords
+
         # CRITICAL FIX: Clean up any poisoned connections before heavy processing
         # This prevents "Can't reconnect until invalid transaction is rolled back" errors
         try:
@@ -342,6 +349,11 @@ class KeywordMonitor:
                 keyword_text = keyword['keyword']
                 last_checked = keyword['last_checked']
                 topic = keyword['topic']
+
+                # Capture group name from first keyword (all keywords in same group)
+                if detected_group_name is None and 'group_name' in keyword:
+                    detected_group_name = keyword['group_name']
+
                 processed_keywords += 1
 
                 # Report progress if callback provided
@@ -436,8 +448,17 @@ class KeywordMonitor:
                             topic_keywords = self.db.facade.get_monitored_keywords_for_topic((topic,))
                             logger.info(f"Starting auto-ingest pipeline for {len(articles)} articles with {len(topic_keywords)} keywords")
 
-                            auto_ingest_results = await self.auto_ingest_pipeline(articles, topic, topic_keywords)
+                            # Pass suppress_notifications=True to prevent per-keyword notifications
+                            auto_ingest_results = await self.auto_ingest_pipeline(
+                                articles, topic, topic_keywords, suppress_notifications=True
+                            )
                             logger.info(f"Auto-ingest pipeline completed. Results: {auto_ingest_results}")
+
+                            # Track cumulative stats
+                            auto_ingest_ran = True
+                            total_auto_ingest_processed += auto_ingest_results.get("processed", 0)
+                            total_auto_ingest_saved += auto_ingest_results.get("saved", 0)
+                            total_auto_ingest_errors += len(auto_ingest_results.get("errors", []))
 
                             # Check if auto-regenerate reports is enabled
                             if auto_ingest_results.get("saved", 0) > 0:
@@ -480,6 +501,31 @@ class KeywordMonitor:
                     return {"success": False, "error": str(e), "new_articles": new_articles_count}
 
                 # Continue to next keyword (don't return here)
+
+            # Create consolidated notification after all keywords processed
+            if auto_ingest_ran:
+                try:
+                    # Get keyword group name for notification
+                    group_name = "Unknown"
+                    if group_id:
+                        # Use group_id if provided
+                        group_info = self.db.facade.get_keyword_group_by_id(group_id)
+                        if group_info:
+                            group_name = group_info.get('name', 'Unknown')
+                    elif detected_group_name:
+                        # Use detected group name from keywords
+                        group_name = detected_group_name
+
+                    # Create completion notification
+                    self.db.facade.create_notification(
+                        username=None,  # System-wide notification
+                        type='auto_ingest_complete',
+                        title='Auto-Collect Complete',
+                        message=f'Processed {total_auto_ingest_processed} articles across {processed_keywords} keywords in "{group_name}". Saved: {total_auto_ingest_saved}, Errors: {total_auto_ingest_errors}',
+                        link='/keyword-alerts'
+                    )
+                except Exception as notif_err:
+                    logger.error(f"Failed to create auto-ingest completion notification: {notif_err}")
 
             # Return summary results after processing all keywords
             return {
@@ -726,7 +772,7 @@ class KeywordMonitor:
         settings = self.get_auto_ingest_settings()
         return settings.get("auto_ingest_enabled", False)
 
-    async def auto_ingest_pipeline(self, articles: List[Dict[str, any]], topic: str, keywords: List[str]) -> Dict[str, any]:
+    async def auto_ingest_pipeline(self, articles: List[Dict[str, any]], topic: str, keywords: List[str], suppress_notifications: bool = False) -> Dict[str, any]:
         """
         Run the auto-ingest pipeline on a batch of articles
 
@@ -734,6 +780,7 @@ class KeywordMonitor:
             articles: List of article dictionaries
             topic: Topic name for context
             keywords: List of keywords for relevance scoring
+            suppress_notifications: If True, skip creating notifications (used when called per-keyword)
 
         Returns:
             Processing results dictionary

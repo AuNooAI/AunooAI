@@ -90,27 +90,34 @@ async def run_auto_ingest(background_tasks: BackgroundTasks, session=Depends(ver
     """Manually trigger auto-ingest pipeline with progress tracking"""
     try:
         from app.services.background_task_manager import get_task_manager, run_auto_ingest_task
-
-        service = get_auto_ingest_service()
+        from app.database import get_database_instance
 
         # Get username from session for notifications
         username = session.get("user", {}).get("username")
 
-        if not service.config.enabled:
-            raise HTTPException(
-                status_code=400,
-                detail="Auto-ingest is disabled. Enable it in configuration first."
-            )
-
-        if service.is_running():
-            raise HTTPException(
-                status_code=409,
-                detail="Auto-ingest is already running"
-            )
-
         # Get pending articles count for progress tracking
-        pending_articles = await service.get_pending_articles(limit=100)
+        db = get_database_instance()
+        pending_articles = db.facade.get_unread_alerts()
         total_articles = len(pending_articles)
+
+        if total_articles == 0:
+            return JSONResponse({
+                "success": True,
+                "message": "No pending articles to process",
+                "total_articles": 0
+            })
+
+        # Create notification for manual auto-ingest start
+        try:
+            db.facade.create_notification(
+                username=username,
+                type='auto_ingest_started',
+                title='Auto-Collect Started',
+                message=f'Processing {total_articles} pending articles...',
+                link='/keyword-alerts'
+            )
+        except Exception as notif_err:
+            logger.error(f"Failed to create auto-ingest start notification: {notif_err}")
 
         # Create background task with progress tracking
         task_manager = get_task_manager()
@@ -130,9 +137,10 @@ async def run_auto_ingest(background_tasks: BackgroundTasks, session=Depends(ver
 
         return JSONResponse({
             "success": True,
-            "message": "Auto-ingest pipeline started with progress tracking",
+            "message": "Auto-ingest pipeline started with database progress tracking",
             "task_id": task_id,
-            "total_articles": total_articles
+            "total_articles": total_articles,
+            "status_url": f"/api/background-tasks/task/{task_id}"
         })
 
     except HTTPException:

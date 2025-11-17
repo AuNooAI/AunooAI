@@ -601,7 +601,52 @@ class AutomatedIngestService:
             self.logger.debug(f"🔄 Processing article: {article_title}")
             self.logger.debug(f"📝 Original title: {original_title[:100]}")
 
-            # Step 1: Concurrent bias enrichment and content scraping
+            # Step 1: QUICK relevance check FIRST (before expensive operations)
+            # Use only title and existing summary to save costs
+            try:
+                # Do a quick relevance check with just title + summary (no scraping/LLM yet)
+                quick_relevance_result = await self._score_article_relevance_async(
+                    article, topic, keywords
+                )
+                quick_relevance_score = quick_relevance_result.get("relevance_score", 0)
+                relevance_threshold = self.get_relevance_threshold()
+
+                self.logger.debug(f"🎯 Quick relevance check: {quick_relevance_score} (threshold: {relevance_threshold})")
+
+                # If article fails relevance threshold, stop processing immediately
+                if quick_relevance_score < relevance_threshold:
+                    self.logger.info(f"⚡ Article {article_uri} filtered early (score: {quick_relevance_score} < {relevance_threshold}) - saving costs")
+
+                    # Save with minimal data to database
+                    try:
+                        article.update({
+                            "topic": topic,
+                            "ingest_status": "filtered_relevance",
+                            "keyword_relevance_score": quick_relevance_score,
+                            "overall_match_explanation": quick_relevance_result.get("explanation", "")
+                        })
+                        await self.async_db.save_below_threshold_article(article)
+                        self.db.facade.mark_article_as_below_threshold(article_uri)
+                    except Exception as e:
+                        self.logger.warning(f"Failed to save below-threshold article: {e}")
+
+                    return {
+                        "status": "filtered",
+                        "uri": article_uri,
+                        "relevance_score": quick_relevance_score,
+                        "reason": "relevance_threshold",
+                        "threshold": relevance_threshold
+                    }
+
+            except Exception as e:
+                self.logger.error(f"Quick relevance check failed for {article_uri}: {e}")
+                # On error, continue with full processing as fallback
+                quick_relevance_score = 0.0
+
+            # Step 2: Article PASSED quick check - now do expensive operations
+            self.logger.info(f"✅ Article {article_uri} passed quick check (score: {quick_relevance_score}) - proceeding with enrichment")
+
+            # Concurrent bias enrichment and content scraping
             bias_task = asyncio.create_task(
                 self._enrich_article_with_bias_async(article)
             )
@@ -647,7 +692,7 @@ class AutomatedIngestService:
             # enriched_article['summary'] = enriched_article.get('summary') or original_summary  # REMOVED - prevents overwriting AI summaries
             enriched_article['news_source'] = enriched_article.get('news_source') or original_source
             enriched_article['publication_date'] = enriched_article.get('publication_date') or original_pub_date
-            
+
             # Save raw content if available
             if raw_content:
                 try:
@@ -655,8 +700,8 @@ class AutomatedIngestService:
                     self.logger.debug(f"📄 Raw content saved for {article_uri}")
                 except Exception as e:
                     self.logger.warning(f"Failed to save raw content for {article_uri}: {e}")
-            
-            # Step 2: LLM analysis with timeout
+
+            # Step 3: LLM analysis with timeout (only for relevant articles)
             try:
                 enriched_article = await asyncio.wait_for(
                     self._analyze_article_content_async(enriched_article, topic),
@@ -677,21 +722,21 @@ class AutomatedIngestService:
             except Exception as e:
                 self.logger.error(f"LLM analysis failed for {article_uri}: {e}")
                 enriched_article["analysis_error"] = str(e)
-            
-            # Step 3: Async relevance scoring
+
+            # Step 4: Final relevance scoring with full content
             try:
                 relevance_result = await self._score_article_relevance_async(
                     enriched_article, topic, keywords
                 )
                 enriched_article.update(relevance_result)
-                self.logger.debug(f"🎯 Relevance scoring completed for {article_uri}")
+                self.logger.debug(f"🎯 Final relevance scoring completed for {article_uri}")
             except Exception as e:
-                self.logger.error(f"Relevance scoring failed for {article_uri}: {e}")
-                relevance_result = {"relevance_score": 0.0, "explanation": f"Scoring failed: {str(e)}"}
+                self.logger.error(f"Final relevance scoring failed for {article_uri}: {e}")
+                relevance_result = {"relevance_score": quick_relevance_score, "explanation": f"Final scoring failed, using quick score: {str(e)}"}
                 enriched_article.update(relevance_result)
-            
-            # Step 4: Check relevance threshold
-            relevance_score = relevance_result.get("relevance_score", 0)
+
+            # Step 5: Check final relevance threshold (double-check after full analysis)
+            relevance_score = relevance_result.get("relevance_score", quick_relevance_score)
             relevance_threshold = self.get_relevance_threshold()
             
             if relevance_score >= relevance_threshold:

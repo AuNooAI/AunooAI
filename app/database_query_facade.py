@@ -303,7 +303,9 @@ class DatabaseQueryFacade:
                 monitored_keywords.c.id,
                 monitored_keywords.c.keyword,
                 monitored_keywords.c.last_checked,
-                keyword_groups.c.topic
+                monitored_keywords.c.group_id,
+                keyword_groups.c.topic,
+                keyword_groups.c.name.label('group_name')
             ).select_from(
                 monitored_keywords
                 .join(keyword_groups, monitored_keywords.c.group_id == keyword_groups.c.id)
@@ -3347,6 +3349,19 @@ class DatabaseQueryFacade:
 
         return self._execute_with_rollback(statement).fetchone()
 
+    def get_keyword_group_by_id(self, group_id):
+        """Get keyword group details by ID"""
+        statement = select(
+            keyword_groups.c.id,
+            keyword_groups.c.name,
+            keyword_groups.c.topic
+        ).where(
+            keyword_groups.c.id == group_id
+        )
+
+        result = self._execute_with_rollback(statement).mappings().fetchone()
+        return dict(result) if result else None
+
     def toggle_polling(self, toggle):
         statement = select(
             keyword_monitor_settings.c.id
@@ -4838,21 +4853,11 @@ class DatabaseQueryFacade:
 
         # Add topic filter if specified
         if topic:
-            # Handle comma-separated multiple topics
-            topics = [t.strip() for t in topic.split(',') if t.strip()]
-
-            if len(topics) == 1:
-                # Single topic - use existing logic
-                topic_pattern = f"%{topics[0]}%"
-                where_conditions.append(
-                    or_(
-                        articles.c.topic == topics[0],
-                        articles.c.title.like(topic_pattern),
-                        articles.c.summary.like(topic_pattern)
-                    )
-                )
-            elif len(topics) > 1:
-                # Multiple topics - create OR condition for each topic
+            # IMPORTANT: Topic names can contain commas (e.g., "Religion, Magic and Occultism")
+            # Only split on " | " delimiter for multiple topics, NOT on commas
+            if ' | ' in topic:
+                # Multiple topics separated by " | "
+                topics = [t.strip() for t in topic.split(' | ') if t.strip()]
                 topic_conditions = []
                 for t in topics:
                     topic_pattern = f"%{t}%"
@@ -4865,6 +4870,16 @@ class DatabaseQueryFacade:
                     )
                 # Combine all topic conditions with OR
                 where_conditions.append(or_(*topic_conditions))
+            else:
+                # Single topic - treat entire string as one topic
+                topic_pattern = f"%{topic}%"
+                where_conditions.append(
+                    or_(
+                        articles.c.topic == topic,
+                        articles.c.title.like(topic_pattern),
+                        articles.c.summary.like(topic_pattern)
+                    )
+                )
 
         # Add spam/promotional content filters
         where_conditions.extend([
@@ -6747,7 +6762,19 @@ class DatabaseQueryFacade:
         ).limit(limit)
 
         result = self._execute_with_rollback(statement)
-        return [dict(row._mapping) for row in result]
+        notifications = []
+        for row in result:
+            notif = dict(row._mapping)
+            # Ensure created_at is serialized as ISO format with timezone
+            if 'created_at' in notif and notif['created_at']:
+                from datetime import timezone
+                dt = notif['created_at']
+                # If datetime is naive (no timezone), assume it's in UTC and add timezone info
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                notif['created_at'] = dt.isoformat()
+            notifications.append(notif)
+        return notifications
 
     def get_unread_count(self, username: str) -> int:
         """Get count of unread notifications for a user.
@@ -6862,7 +6889,10 @@ class DatabaseQueryFacade:
 
         statement = delete(t_notifications).where(
             and_(
-                t_notifications.c.username == username,
+                or_(
+                    t_notifications.c.username == username,
+                    t_notifications.c.username.is_(None)
+                ),
                 t_notifications.c.read == True
             )
         )
@@ -6894,6 +6924,72 @@ class DatabaseQueryFacade:
         count = result.rowcount
         self.logger.info(f"Deleted {count} notifications older than {days} days")
         return count
+
+    # =============================================================================
+    # Background Tasks - Database persistence for task tracking
+    # =============================================================================
+
+    def save_background_task(self, task_id: str, name: str, status: str, created_at, started_at,
+                            completed_at, progress: float, total_items: int, processed_items: int,
+                            current_item: str, result: str, error: str, metadata: str):
+        """Save or update a background task in the database"""
+        from sqlalchemy import text
+
+        query = text("""
+            INSERT INTO background_tasks (
+                id, name, status, created_at, started_at, completed_at,
+                progress, total_items, processed_items, current_item,
+                result, error, metadata
+            ) VALUES (
+                :id, :name, :status, :created_at, :started_at, :completed_at,
+                :progress, :total_items, :processed_items, :current_item,
+                :result, :error, :metadata
+            )
+            ON CONFLICT (id) DO UPDATE SET
+                name = EXCLUDED.name,
+                status = EXCLUDED.status,
+                started_at = EXCLUDED.started_at,
+                completed_at = EXCLUDED.completed_at,
+                progress = EXCLUDED.progress,
+                total_items = EXCLUDED.total_items,
+                processed_items = EXCLUDED.processed_items,
+                current_item = EXCLUDED.current_item,
+                result = EXCLUDED.result,
+                error = EXCLUDED.error,
+                metadata = EXCLUDED.metadata
+        """)
+
+        self._execute_with_rollback(query, {
+            'id': task_id,
+            'name': name,
+            'status': status,
+            'created_at': created_at,
+            'started_at': started_at,
+            'completed_at': completed_at,
+            'progress': progress,
+            'total_items': total_items,
+            'processed_items': processed_items,
+            'current_item': current_item,
+            'result': result,
+            'error': error,
+            'metadata': metadata
+        })
+        self.connection.commit()
+
+    def get_background_task(self, task_id: str):
+        """Retrieve a background task from the database"""
+        from sqlalchemy import text
+
+        query = text("""
+            SELECT id, name, status, created_at, started_at, completed_at,
+                   progress, total_items, processed_items, current_item,
+                   result, error, metadata
+            FROM background_tasks
+            WHERE id = :task_id
+        """)
+
+        result = self._execute_with_rollback(query, {'task_id': task_id})
+        return result.fetchone()
 
     # =============================================================================
     # Trend Convergence Dashboard Reference Articles

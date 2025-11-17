@@ -734,7 +734,7 @@ t_notifications = Table(
     Column('message', Text, nullable=False),
     Column('link', String(500), nullable=True),
     Column('read', Boolean, nullable=False, server_default='false'),
-    Column('created_at', DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP')),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=text('CURRENT_TIMESTAMP')),
     Index('ix_notifications_username', 'username'),
     Index('ix_notifications_read', 'read'),
     Index('ix_notifications_created_at', 'created_at'),

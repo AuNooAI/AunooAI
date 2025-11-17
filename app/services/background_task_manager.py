@@ -48,13 +48,72 @@ class TaskInfo:
         return data
 
 class BackgroundTaskManager:
-    """Manages background tasks for bulk operations"""
+    """Manages background tasks for bulk operations with database persistence"""
 
-    def __init__(self):
+    def __init__(self, db=None):
         self._tasks: Dict[str, TaskInfo] = {}
         self._running_tasks: Dict[str, asyncio.Task] = {}
         self._max_concurrent_tasks = 3
         self._task_cleanup_interval = 3600  # 1 hour
+        self._db = db  # Database instance for persistence
+
+    def _get_db(self):
+        """Lazy load database instance"""
+        if self._db is None:
+            from app.database import get_database_instance
+            self._db = get_database_instance()
+        return self._db
+
+    def _persist_task(self, task_info: TaskInfo):
+        """Save task to database"""
+        try:
+            db = self._get_db()
+            db.facade.save_background_task(
+                task_id=task_info.id,
+                name=task_info.name,
+                status=task_info.status.value,
+                created_at=task_info.created_at,
+                started_at=task_info.started_at,
+                completed_at=task_info.completed_at,
+                progress=task_info.progress,
+                total_items=task_info.total_items,
+                processed_items=task_info.processed_items,
+                current_item=task_info.current_item,
+                result=json.dumps(task_info.result) if task_info.result else None,
+                error=task_info.error,
+                metadata=json.dumps(task_info.metadata) if task_info.metadata else None
+            )
+            logger.debug(f"Persisted task {task_info.id} to database")
+        except Exception as e:
+            logger.error(f"Failed to persist task {task_info.id}: {e}", exc_info=True)
+
+    def _load_task_from_db(self, task_id: str) -> Optional[TaskInfo]:
+        """Load task from database"""
+        try:
+            db = self._get_db()
+            row = db.facade.get_background_task(task_id)
+
+            if not row:
+                return None
+
+            return TaskInfo(
+                id=row[0],
+                name=row[1],
+                status=TaskStatus(row[2]),
+                created_at=row[3],
+                started_at=row[4],
+                completed_at=row[5],
+                progress=row[6] or 0.0,
+                total_items=row[7] or 0,
+                processed_items=row[8] or 0,
+                current_item=row[9],
+                result=json.loads(row[10]) if row[10] else None,
+                error=row[11],
+                metadata=json.loads(row[12]) if row[12] else {}
+            )
+        except Exception as e:
+            logger.error(f"Failed to load task {task_id} from database: {e}")
+            return None
 
     def create_task(self, name: str, total_items: int = 0, metadata: Optional[Dict] = None) -> str:
         """Create a new background task and return its ID"""
@@ -70,6 +129,7 @@ class BackgroundTaskManager:
         )
 
         self._tasks[task_id] = task_info
+        self._persist_task(task_info)  # Persist to database
         logger.info(f"Created background task: {name} (ID: {task_id})")
         return task_id
 
@@ -87,14 +147,16 @@ class BackgroundTaskManager:
 
         task_info.status = TaskStatus.RUNNING
         task_info.started_at = datetime.now()
+        self._persist_task(task_info)  # Persist status change
 
         try:
-            # Create progress callback
+            # Create progress callback that persists to database
             def update_progress(processed: int, current: str = None):
                 task_info.processed_items = processed
                 task_info.current_item = current
                 if task_info.total_items > 0:
                     task_info.progress = (processed / task_info.total_items) * 100
+                self._persist_task(task_info)  # Persist progress updates
                 logger.debug(f"Task {task_id} progress: {task_info.progress:.1f}%")
 
             # Add progress callback to kwargs
@@ -114,18 +176,21 @@ class BackgroundTaskManager:
             task_info.status = TaskStatus.COMPLETED
             task_info.completed_at = datetime.now()
             task_info.progress = 100.0
+            self._persist_task(task_info)  # Persist completion
 
             logger.info(f"Task {task_id} completed successfully")
 
         except asyncio.CancelledError:
             task_info.status = TaskStatus.CANCELLED
             task_info.completed_at = datetime.now()
+            self._persist_task(task_info)  # Persist cancellation
             logger.info(f"Task {task_id} was cancelled")
 
         except Exception as e:
             task_info.status = TaskStatus.FAILED
             task_info.error = str(e)
             task_info.completed_at = datetime.now()
+            self._persist_task(task_info)  # Persist failure
             logger.error(f"Task {task_id} failed: {e}")
 
         finally:
@@ -134,8 +199,17 @@ class BackgroundTaskManager:
                 del self._running_tasks[task_id]
 
     def get_task(self, task_id: str) -> Optional[TaskInfo]:
-        """Get task information by ID"""
-        return self._tasks.get(task_id)
+        """Get task information by ID (checks memory first, then database)"""
+        # Check memory first
+        task = self._tasks.get(task_id)
+        if task:
+            return task
+
+        # Fallback to database
+        task = self._load_task_from_db(task_id)
+        if task:
+            self._tasks[task_id] = task  # Cache in memory
+        return task
 
     def get_task_status(self, task_id: str) -> Optional[Dict]:
         """Get task status as dictionary"""
@@ -313,54 +387,71 @@ async def run_bulk_save_task(articles: List[Dict]):
         }
 
 async def run_auto_ingest_task(progress_callback=None, username=None):
-    """Background task wrapper for auto-ingest pipeline with progress tracking"""
-    from app.services.auto_ingest_service import get_auto_ingest_service
+    """Background task wrapper for auto-ingest pipeline using AutomatedIngestService"""
+    from app.services.automated_ingest_service import AutomatedIngestService
     from app.database import get_database_instance
 
     try:
-        service = get_auto_ingest_service()
+        db = get_database_instance()
+        service = AutomatedIngestService(db)
 
-        # Override the service's internal progress to use our callback
+        # Get pending articles from keyword alerts
+        articles = db.facade.get_unread_alerts()
+
+        if not articles:
+            if progress_callback:
+                progress_callback(0, "No pending articles found")
+            logger.info("No pending articles for auto-ingest")
+            return {
+                "success": True,
+                "results": {"processed": 0, "saved": 0, "message": "No pending articles"}
+            }
+
+        total_articles = len(articles)
         if progress_callback:
-            # Get pending articles for accurate progress tracking
-            pending_articles = await service.get_pending_articles(limit=100)
-            total_articles = len(pending_articles)
-
             progress_callback(0, f"Starting auto-ingest for {total_articles} articles")
 
-            # Create a modified version of the auto-ingest that reports progress
-            results = await _run_auto_ingest_with_progress(service, progress_callback, total_articles)
-        else:
-            # Run without progress tracking
-            results = await service.run_auto_ingest()
+        logger.info(f"Starting auto-ingest for {total_articles} articles")
+
+        # Convert format for AutomatedIngestService
+        formatted_articles = []
+        for article in articles:
+            # get_unread_alerts returns: uri, url, source, publication_date, summary, title
+            article_uri = article.get('uri') or article.get('url', '')
+            formatted_articles.append({
+                'uri': article_uri,
+                'title': article.get('title', ''),
+                'news_source': article.get('source', ''),
+                'publication_date': article.get('publication_date', ''),
+                'summary': article.get('summary', ''),
+                'topic': 'general',  # TODO: get topic from keyword group
+                'analyzed': False
+            })
+
+        # Run through AutomatedIngestService batch processor
+        results = await service.process_articles_batch(
+            articles=formatted_articles,
+            topic=None,  # Each article has its own topic
+            keywords=[]
+        )
+
+        if progress_callback:
+            progress_callback(total_articles, f"Completed: {results.get('saved', 0)} saved")
 
         # Create notification for completion
         if username:
-            db = get_database_instance()
             try:
-                # Determine success/failure
-                success = results.get("success", False)
-                if success:
-                    ingested = results.get("results", {}).get("ingested", 0) if isinstance(results.get("results"), dict) else 0
-                    errors = results.get("results", {}).get("errors", 0) if isinstance(results.get("results"), dict) else 0
-                    processed = results.get("results", {}).get("processed", 0) if isinstance(results.get("results"), dict) else 0
+                processed = results.get("processed", 0)
+                saved = results.get("saved", 0)
+                errors_count = len(results.get("errors", []))
 
-                    db.facade.create_notification(
-                        username=username,
-                        type='auto_ingest_complete',
-                        title='Auto-Collect Complete',
-                        message=f'Processed {processed} articles. Approved: {ingested}, Failed: {errors}',
-                        link='/keyword-alerts'
-                    )
-                else:
-                    error_msg = results.get("error", "Unknown error")
-                    db.facade.create_notification(
-                        username=username,
-                        type='auto_ingest_error',
-                        title='Auto-Collect Failed',
-                        message=f'Error during auto-collect: {error_msg}',
-                        link='/keyword-alerts'
-                    )
+                db.facade.create_notification(
+                    username=username,
+                    type='auto_ingest_complete',
+                    title='Auto-Collect Complete',
+                    message=f'Processed {processed} articles. Saved: {saved}, Errors: {errors_count}',
+                    link='/keyword-alerts'
+                )
             except Exception as notif_err:
                 logger.error(f"Failed to create auto-ingest notification: {notif_err}")
 
@@ -390,98 +481,6 @@ async def run_auto_ingest_task(progress_callback=None, username=None):
             "success": False,
             "error": str(e)
         }
-
-async def _run_auto_ingest_with_progress(service, progress_callback, total_articles):
-    """Run auto-ingest pipeline with progress updates"""
-    if not service.config.enabled:
-        return {"success": False, "message": "Auto-ingest is disabled"}
-
-    if service._running:
-        return {"success": False, "message": "Auto-ingest is already running"}
-
-    service._running = True
-    start_time = datetime.now()
-
-    try:
-        logger.info("Starting auto-ingest pipeline with progress tracking")
-
-        # Get pending articles
-        pending_articles = await service.get_pending_articles(limit=50)
-
-        if not pending_articles:
-            progress_callback(total_articles, "No pending articles found")
-            return {
-                "success": True,
-                "message": "No pending articles",
-                "processed": 0,
-                "ingested": 0
-            }
-
-        # Process in batches with progress updates
-        total_results = {
-            'processed': 0,
-            'ingested': 0,
-            'rejected_relevance': 0,
-            'rejected_quality': 0,
-            'errors': 0,
-            'details': []
-        }
-
-        processed_count = 0
-        for i in range(0, len(pending_articles), service.config.batch_size):
-            batch = pending_articles[i:i + service.config.batch_size]
-            batch_num = i // service.config.batch_size + 1
-
-            progress_callback(
-                processed_count,
-                f"Processing batch {batch_num} ({len(batch)} articles)"
-            )
-
-            batch_results = await service.process_articles_batch(batch)
-
-            # Aggregate results
-            for key in ['processed', 'ingested', 'rejected_relevance', 'rejected_quality', 'errors']:
-                total_results[key] += batch_results[key]
-            total_results['details'].extend(batch_results['details'])
-
-            # Update progress
-            processed_count += len(batch)
-            progress_callback(
-                processed_count,
-                f"Completed batch {batch_num}: {batch_results['ingested']} ingested, {batch_results['errors']} errors"
-            )
-
-            # Brief pause between batches
-            await asyncio.sleep(0.5)
-
-        duration = (datetime.now() - start_time).total_seconds()
-
-        progress_callback(
-            total_articles,
-            f"Auto-ingest completed: {total_results['ingested']} ingested, {total_results['errors']} errors"
-        )
-
-        logger.info(f"Auto-ingest completed in {duration:.1f}s: "
-                   f"{total_results['ingested']} ingested, "
-                   f"{total_results['rejected_relevance']} rejected (relevance), "
-                   f"{total_results['rejected_quality']} rejected (quality), "
-                   f"{total_results['errors']} errors")
-
-        return {
-            "success": True,
-            "duration_seconds": duration,
-            **total_results
-        }
-
-    except Exception as e:
-        logger.error(f"Auto-ingest pipeline failed: {e}")
-        return {
-            "success": False,
-            "error": str(e),
-            "duration_seconds": (datetime.now() - start_time).total_seconds()
-        }
-    finally:
-        service._running = False
 
 async def run_keyword_check_task(progress_callback=None, group_id=None):
     """Background task wrapper for keyword checking with progress tracking
