@@ -51,6 +51,8 @@ from app.database_models import (t_keyword_monitor_settings as keyword_monitor_s
                                  t_auspex_messages as auspex_messages,
                                  t_auspex_prompts as auspex_prompts,
                                  t_dashboard_cache as dashboard_cache,
+                                 t_signal_instructions as signal_instructions,
+                                 t_signal_alerts as signal_alerts,
                                  # t_keyword_monitor_checks as keyword_monitor_checks,  # Table doesn't exist
                                  t_raw_articles as raw_articles)
                                  # t_paper_search_results as paper_search_results,  # Table doesn't exist
@@ -395,7 +397,7 @@ class DatabaseQueryFacade:
                 uri=alert['url'],
                 title=alert['title'],
                 summary=alert['summary'],
-                source=alert['source'],
+                news_source=alert['source'],
                 topic=alert['topic'],
                 analyzed=False
             )
@@ -814,8 +816,8 @@ class DatabaseQueryFacade:
                 keyword_groups.c.topic == topic_id,
                 keyword_article_matches.c.is_read == 0,
                 or_(
-                    keyword_article_matches.c.auto_ingested == 0,
-                    keyword_article_matches.c.auto_ingested == None
+                    articles.c.auto_ingested == False,
+                    articles.c.auto_ingested == None
                 )
             )
         ).distinct().order_by(
@@ -840,8 +842,8 @@ class DatabaseQueryFacade:
                 keyword_groups.c.topic == topic_id,
                 keyword_alerts.c.is_read == 0,
                 or_(
-                    keyword_alerts.c.auto_ingested == 0,
-                    keyword_alerts.c.auto_ingested == None
+                    articles.c.auto_ingested == False,
+                    articles.c.auto_ingested == None
                 )
             )
         ).distinct().order_by(
@@ -954,7 +956,7 @@ class DatabaseQueryFacade:
         )
         rows = self._execute_with_rollback(statement).mappings().fetchall()
 
-        return [row[0] for row in rows] 
+        return [row['topic'] for row in rows] 
 
 
     def get_unique_categories(self):
@@ -969,7 +971,7 @@ class DatabaseQueryFacade:
             articles.c.category.asc()
         )
         rows = self._execute_with_rollback(statement).mappings().fetchall()
-        return [row[0] for row in rows] 
+        return [row['category'] for row in rows] 
 
 
     #### OAUTH USERS ####
@@ -1478,7 +1480,7 @@ class DatabaseQueryFacade:
                 is_active = is_active
             )
         statement = statement.values(
-            updated_at = datetime.now().isoformat()
+            updated_at = datetime.now()
         )
         self._execute_with_rollback(statement)
         self.connection.commit() 
@@ -1600,7 +1602,7 @@ class DatabaseQueryFacade:
 
     def get_article_id_by_url(self, url):
         statement = select(
-            articles.c.id
+            articles.c.uri
         ).where(
             articles.c.uri == url
         )
@@ -1610,7 +1612,7 @@ class DatabaseQueryFacade:
 
     def check_if_article_exists_with_enrichment(self, url):
         statement = select(
-            articles.c.id
+            articles.c.uri
         ).where(
             articles.c.uri == url,
             articles.c.analyzed == True
@@ -1655,8 +1657,7 @@ class DatabaseQueryFacade:
         ).where(
             feed_items.c.id == params[1]
         ).values(
-            tags = params[0],
-            updated_at = func.now()
+            tags = params[0]
         )
         self._execute_with_rollback(statement)
         self.connection.commit() 
@@ -1669,11 +1670,11 @@ class DatabaseQueryFacade:
             feed_keyword_groups.join(
                 feed_group_sources,
                 feed_keyword_groups.c.id == feed_group_sources.c.group_id
-            ).where(
-                feed_keyword_groups.c.is_active == 1,
-                feed_group_sources.c.source_type == source_type,
-                feed_group_sources.c.enabled == 1
             )
+        ).where(
+            feed_keyword_groups.c.is_active == 1,
+            feed_group_sources.c.source_type == source_type,
+            feed_group_sources.c.enabled == 1
         ).distinct()
 
         return self._execute_with_rollback(statement).mappings().fetchall() 
@@ -1699,7 +1700,8 @@ class DatabaseQueryFacade:
         ).group_by(
             feed_items.c.source_type
         )
-        source_counts = dict(self.connection.execute(statement).mappings().fetchall())
+        rows = self._execute_with_rollback(statement).mappings().fetchall()
+        source_counts = {row['source_type']: row['count'] for row in rows}
 
         # Get recent items count (last 7 days)
         # Calculate 7 days ago in Python (portable across dialects)
@@ -1732,13 +1734,10 @@ class DatabaseQueryFacade:
     def get_unread_alerts(self):
         statement = select(
             keyword_alerts.c.id,
-            keyword_alerts.c.group_id,
             keyword_alerts.c.detected_at,
-            keyword_alerts.c.matched_keyword,
             articles.c.uri,
             articles.c.title,
-            articles.c.url,
-            articles.c.source,
+            articles.c.news_source,
             articles.c.publication_date,
             articles.c.summary,
             articles.c.category,
@@ -1757,9 +1756,9 @@ class DatabaseQueryFacade:
             keyword_alerts.join(
                 articles,
                 keyword_alerts.c.article_uri == articles.c.uri
-            ).where(
-                keyword_alerts.c.is_read == 0
             )
+        ).where(
+            keyword_alerts.c.is_read == 0
         ).order_by(
             keyword_alerts.c.detected_at.desc()
         )
@@ -2275,14 +2274,14 @@ class DatabaseQueryFacade:
             articles.c.topic
         )
         
-        db_topics = {row[0]: {"article_count": row[1], "last_article_date": row[2]}
+        db_topics = {row["topic"]: {"article_count": row["article_count"], "last_article_date": row["last_article_date"]}
                         for row in self._execute_with_rollback(statement).mappings().fetchall()}
         return db_topics
 
     def debug_articles(self):
         statement = select(articles)
-        articles = self._execute_with_rollback(statement).mappings().fetchall()
-        return articles
+        articles_list = self._execute_with_rollback(statement).mappings().fetchall()
+        return articles_list
 
     def get_rate_limit_status(self):
         statement = select(
@@ -2339,7 +2338,7 @@ class DatabaseQueryFacade:
         
         # Subquery for keywords
         keywords_subq = select(
-            func.group_concat(monitored_keywords.c.keyword, literal_column('||'))
+            func.group_concat(monitored_keywords.c.keyword, literal('||'))
         ).where(
             monitored_keywords.c.group_id == keyword_groups.c.id
         ).scalar_subquery()
@@ -2366,31 +2365,27 @@ class DatabaseQueryFacade:
         return inspector.has_table('keyword_article_matches')
 
     def get_keywords_and_articles_for_keywords_alert_page_using_new_structure(self, group_id):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                           SELECT kam.id,
-                                  kam.detected_at,
-                                  kam.article_uri,
-                                  a.title,
-                                  a.uri                                                                            as url,
-                                  a.news_source,
-                                  a.publication_date,
-                                  a.summary,
-                                  kam.keyword_ids,
-                                  (SELECT GROUP_CONCAT(keyword, '||')
-                                   FROM monitored_keywords
-                                   WHERE id IN (SELECT value
-                                                FROM json_each('[' || REPLACE(kam.keyword_ids, ',', ',') || ']'))) as matched_keywords
-                           FROM keyword_article_matches kam
-                                    JOIN articles a ON kam.article_uri = a.uri
-                           WHERE kam.group_id = ?
-                             AND kam.is_read = 0
-                           ORDER BY kam.detected_at DESC
-                           """, (group_id,))
-
-            return cursor.fetchall()
+        statement = select(
+            keyword_article_matches.c.id,
+            keyword_article_matches.c.detected_at,
+            keyword_article_matches.c.article_uri,
+            articles.c.title,
+            articles.c.uri.label('url'),
+            articles.c.news_source,
+            articles.c.publication_date,
+            articles.c.summary,
+            keyword_article_matches.c.keyword_ids,
+        ).select_from(
+            keyword_article_matches.join(
+                articles, keyword_article_matches.c.article_uri == articles.c.uri
+            )
+        ).where(
+            keyword_article_matches.c.group_id == group_id,
+            keyword_article_matches.c.is_read == False
+        ).order_by(
+            keyword_article_matches.c.detected_at.desc()
+        )
+        return self._execute_with_rollback(statement).fetchall()
 
     def get_keywords_and_articles_for_keywords_alert_page_using_old_structure(self, group_id):
         statement = select(
@@ -2435,9 +2430,7 @@ class DatabaseQueryFacade:
             id=params[0],
             title=params[1],
             created_at=func.current_timestamp(),
-            status= 'processing',
-            config=params[2],
-            article_uris=params[3]
+            status= 'processing'
         )
         self._execute_with_rollback(statement)
         self.connection.commit()
@@ -2688,89 +2681,141 @@ class DatabaseQueryFacade:
         Uses PostgreSQL connection to query keyword_article_matches table.
         Returns list of tuples: (id, name, topic, unread_count, total_count, growth_status)
         """
-        query = text("""
-            WITH alert_counts AS (
-                SELECT kg.id as group_id,
-                       COUNT(DISTINCT CASE WHEN ka.is_read = 0 AND a.uri IS NOT NULL THEN ka.id END) as unread_count,
-                       COUNT(DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) as total_count
-                FROM keyword_groups kg
-                LEFT JOIN keyword_article_matches ka ON kg.id = ka.group_id
-                LEFT JOIN articles a ON ka.article_uri = a.uri
-                GROUP BY kg.id
-            ),
-            growth_data AS (
-                SELECT kg.id as group_id,
-                       CASE
-                           WHEN COUNT(CASE WHEN a.uri IS NOT NULL THEN ka.id END) = 0 THEN 'No data'
-                           WHEN MAX(ka.detected_at) < (CURRENT_DATE - INTERVAL '7 days')::text THEN 'Inactive'
-                           WHEN COUNT(DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) > 20 THEN 'High growth'
-                           WHEN COUNT(DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) > 10 THEN 'Growing'
-                           ELSE 'Stable'
-                       END as growth_status
-                FROM keyword_groups kg
-                LEFT JOIN keyword_article_matches ka ON kg.id = ka.group_id
-                LEFT JOIN articles a ON ka.article_uri = a.uri
-                GROUP BY kg.id
+        # Subquery: alert_counts per group
+        unread_count_case = case(
+            (and_(keyword_article_matches.c.is_read == 0, articles.c.uri.isnot(None)), keyword_article_matches.c.id),
+            else_=literal(None)
+        )
+        total_count_case = case(
+            (articles.c.uri.isnot(None), keyword_article_matches.c.id),
+            else_=literal(None)
+        )
+        alert_counts_subq = select(
+            keyword_groups.c.id.label('group_id'),
+            func.count(func.distinct(unread_count_case)).label('unread_count'),
+            func.count(func.distinct(total_count_case)).label('total_count')
+        ).select_from(
+            keyword_groups.outerjoin(
+                keyword_article_matches,
+                keyword_groups.c.id == keyword_article_matches.c.group_id
+            ).outerjoin(
+                articles,
+                keyword_article_matches.c.article_uri == articles.c.uri
             )
-            SELECT kg.id,
-                   kg.name,
-                   kg.topic,
-                   COALESCE(ac.unread_count, 0) as unread_count,
-                   COALESCE(ac.total_count, 0) as total_count,
-                   COALESCE(gd.growth_status, 'No data') as growth_status
-            FROM keyword_groups kg
-            LEFT JOIN alert_counts ac ON kg.id = ac.group_id
-            LEFT JOIN growth_data gd ON kg.id = gd.group_id
-            ORDER BY ac.unread_count DESC, kg.name
-        """)
+        ).group_by(
+            keyword_groups.c.id
+        ).cte('alert_counts')
 
-        result = self._execute_with_rollback(query)
-        return result.fetchall()
+        # Subquery: growth_data per group
+        counts_distinct = func.count(func.distinct(total_count_case))
+        max_detected = func.max(keyword_article_matches.c.detected_at)
+        seven_days_ago_str = (datetime.utcnow() - timedelta(days=7)).date().isoformat()
+        growth_status = case(
+            (counts_distinct == 0, literal('No data')),
+            (max_detected < literal(seven_days_ago_str), literal('Inactive')),
+            (counts_distinct > 20, literal('High growth')),
+            (counts_distinct > 10, literal('Growing')),
+            else_=literal('Stable')
+        ).label('growth_status')
+        growth_data_subq = select(
+            keyword_groups.c.id.label('group_id'),
+            growth_status
+        ).select_from(
+            keyword_groups.outerjoin(
+                keyword_article_matches,
+                keyword_groups.c.id == keyword_article_matches.c.group_id
+            ).outerjoin(
+                articles,
+                keyword_article_matches.c.article_uri == articles.c.uri
+            )
+        ).group_by(
+            keyword_groups.c.id
+        ).cte('growth_data')
 
-    def get_all_groups_with_alerts_and_status_old_table_structure(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        # Final statement joining subqueries
+        statement = select(
+            keyword_groups.c.id,
+            keyword_groups.c.name,
+            keyword_groups.c.topic,
+            func.coalesce(alert_counts_subq.c.unread_count, 0).label('unread_count'),
+            func.coalesce(alert_counts_subq.c.total_count, 0).label('total_count'),
+            func.coalesce(growth_data_subq.c.growth_status, literal('No data')).label('growth_status')
+        ).select_from(
+            keyword_groups.outerjoin(alert_counts_subq, keyword_groups.c.id == alert_counts_subq.c.group_id)
+                         .outerjoin(growth_data_subq, keyword_groups.c.id == growth_data_subq.c.group_id)
+        ).order_by(
+            alert_counts_subq.c.unread_count.desc(), keyword_groups.c.name.asc()
+        )
 
-            cursor.execute("""
-                           WITH alert_counts AS (SELECT kg.id                                                      as group_id,
-                                                        COUNT(DISTINCT CASE
-                                                                           WHEN ka.read = 0 AND a.uri IS NOT NULL
-                                                                               THEN ka.id END)                     as unread_count,
-                                                        COUNT(DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) as total_count
-                                                 FROM keyword_groups kg
-                                                          LEFT JOIN monitored_keywords mk ON kg.id = mk.group_id
-                                                          LEFT JOIN keyword_alerts ka ON mk.id = ka.keyword_id
-                                                          LEFT JOIN articles a ON ka.article_uri = a.uri
-                                                 GROUP BY kg.id),
-                                growth_data AS (SELECT kg.id as group_id,
-                                                       CASE
-                                                           WHEN COUNT(CASE WHEN a.uri IS NOT NULL THEN ka.id END) = 0
-                                                               THEN 'No data'
-                                                           WHEN MAX(ka.detected_at) < date ('now', '-7 days') THEN 'Inactive'
-                               WHEN COUNT (DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) > 20 THEN 'High growth'
-                               WHEN COUNT (DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) > 10 THEN 'Growing'
-                               ELSE 'Stable'
-                           END
-                           as growth_status
-                                    FROM keyword_groups kg
-                                    LEFT JOIN monitored_keywords mk ON kg.id = mk.group_id
-                                    LEFT JOIN keyword_alerts ka ON mk.id = ka.keyword_id
-                                    LEFT JOIN articles a ON ka.article_uri = a.uri
-                                    GROUP BY kg.id
-                                )
-                           SELECT kg.id,
-                                  kg.name,
-                                  kg.topic,
-                                  COALESCE(ac.unread_count, 0)          as unread_count,
-                                  COALESCE(ac.total_count, 0)           as total_count,
-                                  COALESCE(gd.growth_status, 'No data') as growth_status
-                           FROM keyword_groups kg
-                                    LEFT JOIN alert_counts ac ON kg.id = ac.group_id
-                                    LEFT JOIN growth_data gd ON kg.id = gd.group_id
-                           ORDER BY ac.unread_count DESC, kg.name
-                           """)
+        return self._execute_with_rollback(statement).fetchall()
 
-            return cursor.fetchall()
+    def get_all_groups_with_alerts_and_status_old_table_structure(self): # TODO: Convert to SQLAlchemy.
+        # Subquery: alert_counts per group (old structure joins through monitored_keywords -> keyword_alerts)
+        unread_count_case = case(
+            (and_(keyword_alerts.c.is_read == 0, articles.c.uri.isnot(None)), keyword_alerts.c.id),
+            else_=literal(None)
+        )
+        total_count_case = case(
+            (articles.c.uri.isnot(None), keyword_alerts.c.id),
+            else_=literal(None)
+        )
+        alert_counts_subq = select(
+            keyword_groups.c.id.label('group_id'),
+            func.count(func.distinct(unread_count_case)).label('unread_count'),
+            func.count(func.distinct(total_count_case)).label('total_count')
+        ).select_from(
+            keyword_groups.outerjoin(
+                monitored_keywords, keyword_groups.c.id == monitored_keywords.c.group_id
+            ).outerjoin(
+                keyword_alerts, monitored_keywords.c.id == keyword_alerts.c.keyword_id
+            ).outerjoin(
+                articles, keyword_alerts.c.article_uri == articles.c.uri
+            )
+        ).group_by(
+            keyword_groups.c.id
+        ).cte('alert_counts')
+
+        # Subquery: growth_data per group
+        counts_distinct = func.count(func.distinct(total_count_case))
+        max_detected = func.max(keyword_alerts.c.detected_at)
+        seven_days_ago_str = (datetime.utcnow() - timedelta(days=7)).date().isoformat()
+        growth_status = case(
+            (counts_distinct == 0, literal('No data')),
+            (max_detected < literal(seven_days_ago_str), literal('Inactive')),
+            (counts_distinct > 20, literal('High growth')),
+            (counts_distinct > 10, literal('Growing')),
+            else_=literal('Stable')
+        ).label('growth_status')
+        growth_data_subq = select(
+            keyword_groups.c.id.label('group_id'),
+            growth_status
+        ).select_from(
+            keyword_groups.outerjoin(
+                monitored_keywords, keyword_groups.c.id == monitored_keywords.c.group_id
+            ).outerjoin(
+                keyword_alerts, monitored_keywords.c.id == keyword_alerts.c.keyword_id
+            ).outerjoin(
+                articles, keyword_alerts.c.article_uri == articles.c.uri
+            )
+        ).group_by(
+            keyword_groups.c.id
+        ).cte('growth_data')
+
+        statement = select(
+            keyword_groups.c.id,
+            keyword_groups.c.name,
+            keyword_groups.c.topic,
+            func.coalesce(alert_counts_subq.c.unread_count, 0).label('unread_count'),
+            func.coalesce(alert_counts_subq.c.total_count, 0).label('total_count'),
+            func.coalesce(growth_data_subq.c.growth_status, literal('No data')).label('growth_status')
+        ).select_from(
+            keyword_groups.outerjoin(alert_counts_subq, keyword_groups.c.id == alert_counts_subq.c.group_id)
+                         .outerjoin(growth_data_subq, keyword_groups.c.id == growth_data_subq.c.group_id)
+        ).order_by(
+            alert_counts_subq.c.unread_count.desc(), keyword_groups.c.name.asc()
+        )
+
+        return self._execute_with_rollback(statement).fetchall()
 
     def get_most_recent_unread_alerts_for_group_id_new_table_structure(self, group_id):
         statement = select(
@@ -2889,6 +2934,8 @@ class DatabaseQueryFacade:
             keyword_alerts.c.is_read == 0
         )
 
+        return self._execute_with_rollback(statement).scalar()
+
     def get_all_matched_keywords_for_article_and_group(self, placeholders, keyword_id_list_and_group_id):
         statement = select(
             monitored_keywords.c.keyword
@@ -2947,10 +2994,10 @@ class DatabaseQueryFacade:
 
     def check_keyword_monitor_status_and_settings_tables(self):
         status_data_stmt = select(keyword_monitor_status).where(keyword_monitor_status.c.id == 1)
-        status_data = self._execute_with_rollback(status_data_stmt).fetchone()
+        status_data = self._execute_with_rollback(status_data_stmt).mappings().fetchone()
 
         settings_data_stmt = select(keyword_monitor_settings).where(keyword_monitor_settings.c.id == 1)
-        settings_data = self._execute_with_rollback(settings_data_stmt).fetchone()
+        settings_data = self._execute_with_rollback(settings_data_stmt).mappings().fetchone()
 
         return status_data, settings_data
 
@@ -3179,28 +3226,72 @@ class DatabaseQueryFacade:
         self.connection.commit()
 
     def get_all_alerts_for_export_new_table_structure(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        # Aliases for readability
+        kam = keyword_article_matches
+        kg = keyword_groups
+        a = articles
+        mk = monitored_keywords
 
-            cursor.execute("""
-                           SELECT kg.name                                                                          as group_name,
-                                  kg.topic,
-                                  a.title,
-                                  a.news_source,
-                                  a.uri,
-                                  a.publication_date,
-                                  (SELECT GROUP_CONCAT(keyword, ', ')
-                                   FROM monitored_keywords
-                                   WHERE id IN (SELECT value
-                                                FROM json_each('[' || REPLACE(kam.keyword_ids, ',', ',') || ']'))) as matched_keywords,
-                                  kam.detected_at
-                           FROM keyword_article_matches kam
-                                    JOIN keyword_groups kg ON kam.group_id = kg.id
-                                    JOIN articles a ON kam.article_uri = a.uri
-                           ORDER BY kam.detected_at DESC
-                           """)
+        # Step 1: Base join (main alert query, without matched_keywords)
+        base_stmt = (
+            select(
+                kg.c.name.label("group_name"),
+                kg.c.topic,
+                a.c.title,
+                a.c.news_source,
+                a.c.uri,
+                a.c.publication_date,
+                kam.c.keyword_ids,
+                kam.c.detected_at
+            )
+            .select_from(
+                kam.join(kg, kam.c.group_id == kg.c.id)
+                .join(a, kam.c.article_uri == a.c.uri)
+            )
+            .order_by(kam.c.detected_at.desc())
+        )
 
-            return cursor.fetchall()
+        # Step 2: Execute the base query first
+        result = self._execute_with_rollback(base_stmt)
+        rows = result.fetchall()
+
+        # Step 3: Post-process matched keywords (since GROUP_CONCAT/json_each isn't cross-DB)
+        final_rows = []
+        for row in rows:
+            keyword_ids = row.keyword_ids
+            if not keyword_ids:
+                matched_keywords = None
+            else:
+                # Safely split the comma-separated keyword IDs
+                try:
+                    id_list = [int(i) for i in keyword_ids.split(",") if i.strip()]
+                except ValueError:
+                    id_list = []
+
+                if id_list:
+                    # SQLAlchemy query to fetch keyword names
+                    kw_stmt = (
+                        select(func.group_concat(mk.c.keyword, text("', '")))
+                        .where(mk.c.id.in_(id_list))
+                    )
+                    kw_result = self._execute_with_rollback(kw_stmt).scalar()
+                    matched_keywords = kw_result
+                else:
+                    matched_keywords = None
+
+            # Rebuild tuple in same order as original query output
+            final_rows.append((
+                row.group_name,
+                row.topic,
+                row.title,
+                row.news_source,
+                row.uri,
+                row.publication_date,
+                matched_keywords,
+                row.detected_at
+            ))
+
+        return final_rows
 
     def get_all_alerts_for_export_old_table_structure(self):
         statement = select(
@@ -3230,31 +3321,78 @@ class DatabaseQueryFacade:
         return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_all_group_and_topic_alerts_for_export_new_table_structure(self, group_id, topic):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
+        """Fetch alerts filtered by group_id and topic, compatible with both SQLite and PostgreSQL."""
+        # Aliases for readability
+        kam = keyword_article_matches
+        kg = keyword_groups
+        a = articles
+        mk = monitored_keywords
 
-            cursor.execute("""
-                           SELECT kg.name                                                                          as group_name,
-                                  kg.topic,
-                                  a.title,
-                                  a.news_source,
-                                  a.uri,
-                                  a.publication_date,
-                                  (SELECT GROUP_CONCAT(keyword, ', ')
-                                   FROM monitored_keywords
-                                   WHERE id IN (SELECT value
-                                                FROM json_each('[' || REPLACE(kam.keyword_ids, ',', ',') || ']'))) as matched_keywords,
-                                  kam.detected_at,
-                                  kam.is_read
-                           FROM keyword_article_matches kam
-                                    JOIN keyword_groups kg ON kam.group_id = kg.id
-                                    JOIN articles a ON kam.article_uri = a.uri
-                           WHERE kg.id = ?
-                             AND kg.topic = ?
-                           ORDER BY kam.detected_at DESC
-                           """, (group_id, topic))
+        # Step 1: Base join query (main data without matched_keywords)
+        base_stmt = (
+            select(
+                kg.c.name.label("group_name"),
+                kg.c.topic,
+                a.c.title,
+                a.c.news_source,
+                a.c.uri,
+                a.c.publication_date,
+                kam.c.keyword_ids,
+                kam.c.detected_at,
+                kam.c.is_read
+            )
+            .select_from(
+                kam.join(kg, kam.c.group_id == kg.c.id)
+                .join(a, kam.c.article_uri == a.c.uri)
+            )
+            .where(
+                kg.c.id == group_id,
+                kg.c.topic == topic
+            )
+            .order_by(kam.c.detected_at.desc())
+        )
 
-            return cursor.fetchall()
+        # Step 2: Execute base query
+        result = self._execute_with_rollback(base_stmt)
+        rows = result.fetchall()
+
+        # Step 3: Post-process keyword IDs into readable matched keywords
+        final_rows = []
+        for row in rows:
+            keyword_ids = row.keyword_ids
+            if not keyword_ids:
+                matched_keywords = None
+            else:
+                try:
+                    id_list = [int(i) for i in keyword_ids.split(",") if i.strip()]
+                except ValueError:
+                    id_list = []
+
+                if id_list:
+                    kw_stmt = (
+                        select(func.group_concat(mk.c.keyword, text("', '")))
+                        .where(mk.c.id.in_(id_list))
+                    )
+                    kw_result = self._execute_with_rollback(kw_stmt).scalar()
+                    matched_keywords = kw_result
+                else:
+                    matched_keywords = None
+
+            # Maintain output order matching the original raw SQL
+            final_rows.append((
+                row.group_name,
+                row.topic,
+                row.title,
+                row.news_source,
+                row.uri,
+                row.publication_date,
+                matched_keywords,
+                row.detected_at,
+                row.is_read
+            ))
+
+        return final_rows
+
 
     def get_all_group_and_topic_alerts_for_export_old_table_structure(self, group_id, topic):
         statement = select(
@@ -3650,10 +3788,8 @@ class DatabaseQueryFacade:
         return result.rowcount
 
     def check_if_keyword_groups_table_exists(self):
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-
-            return cursor.fetchone()
+        inspector = inspect(self.connection)
+        return inspector.has_table('keyword_groups')
 
     def get_all_topics_referenced_in_keyword_groups(self):
         statement = select(
@@ -3661,7 +3797,7 @@ class DatabaseQueryFacade:
         ).distinct()
         topics = self._execute_with_rollback(statement).mappings().fetchall()
 
-        return [row[0] for row in topics]
+        return [row["topic"] for row in topics]
 
     def check_if_articles_table_exists(self):
         inspector = inspect(self.connection)
@@ -3705,10 +3841,9 @@ class DatabaseQueryFacade:
         return self._execute_with_rollback(statement).mappings().fetchall()
 
     def check_if_articles_table_has_topic_column(self):
-        statement = select(articles)
-        columns = self._execute_with_rollback(statement).mappings().fetchone().keys()
-
-        return 'topic' in columns
+        inspector = inspect(self.connection)
+        column_names = [col['name'] for col in inspector.get_columns('articles')]
+        return 'topic' in column_names
 
     def check_if_paper_search_results_table_exists(self):
         inspector = inspect(self.connection)
@@ -3834,20 +3969,20 @@ class DatabaseQueryFacade:
     def get_podcasts_for_newsletter_inclusion(self, column_names):
         # Build a query that works with the available columns
         # Base columns we need
-        select_columns = ["id", "title", "created_at"]
+        select_columns = [podcasts.c.id, podcasts.c.title, podcasts.c.created_at]
         if "audio_url" in column_names:
-            select_columns.append("audio_url")
+            select_columns.append(podcasts.c.audio_url)
         if "topic" in column_names:
-            select_columns.append("topic")
+            select_columns.append(podcasts.c.topic)
 
         # Execute query to get recent podcasts
         statement = select(*select_columns).select_from(podcasts).order_by(podcasts.c.created_at.desc()).limit(20)
 
-        podcasts = self._execute_with_rollback(statement).mappings().fetchall()
+        rows = self._execute_with_rollback(statement).fetchall()
 
         # Format results
         result = []
-        for podcast in podcasts:
+        for podcast in rows:
             podcast_dict = {}
             for i, col in enumerate(select_columns):
                 podcast_dict[col] = podcast[i]
@@ -4236,7 +4371,7 @@ class DatabaseQueryFacade:
             return result.inserted_primary_key[0]
 
     def update_media_bias_source(self, params):
-        statement = update(mediabias).where(mediabias.c.id == params[9]).values(
+        statement = update(mediabias).where(mediabias.c.source == params[0]).values(
             source = params[0],
             country = params[1],
             bias = params[2],
@@ -4288,15 +4423,15 @@ class DatabaseQueryFacade:
 
         return self._execute_with_rollback(statement).fetchone()
 
-    def get_media_bias_source(self, source_id):
+    def get_media_bias_source(self, source):
         statement = select(
-            mediabias.c.id
-        ).where(mediabias.c.id == source_id)
+            mediabias.c.source
+        ).where(mediabias.c.source == source)
 
         return self._execute_with_rollback(statement).fetchone()
 
-    def delete_media_bias_source(self, source_id):
-        statement = delete(mediabias).where(mediabias.c.id == source_id)
+    def delete_media_bias_source(self, source):
+        statement = delete(mediabias).where(mediabias.c.source == source)
         self._execute_with_rollback(statement)
         self.connection.commit()
 
@@ -4374,14 +4509,13 @@ class DatabaseQueryFacade:
 
         return total_count, self._execute_with_rollback(paginated_stmt).mappings().fetchall()
 
-    def delete_media_bias_source(self, source_id):
-        statement = delete(mediabias).where(mediabias.c.id == source_id)
+    def delete_media_bias_source(self, source):
+        statement = delete(mediabias).where(mediabias.c.source == source)
         self._execute_with_rollback(statement)
         self.connection.commit()
 
-    def get_media_bias_source_by_id(self, source_id):
+    def get_media_bias_source_by_id(self, source):
         statement = select(
-            mediabias.c.id,
             mediabias.c.source,
             mediabias.c.country,
             mediabias.c.bias,
@@ -4390,7 +4524,7 @@ class DatabaseQueryFacade:
             mediabias.c.media_type,
             mediabias.c.popularity,
             mediabias.c.mbfc_credibility_rating
-        ).where(mediabias.c.id == source_id)
+        ).where(mediabias.c.source == source)
 
         return self._execute_with_rollback(statement).mappings().fetchone()
 
@@ -4973,53 +5107,51 @@ class DatabaseQueryFacade:
 
     def get_signal_alerts(self, topic: str = None, instruction_id: int = None,
                          acknowledged: bool = None, limit: int = 100) -> List[Dict]:
-        """Get signal alerts with optional filters.
-
-        Args:
-            topic: Filter by topic name
-            instruction_id: Filter by instruction ID
-            acknowledged: Filter by acknowledgment status (True/False/None for all)
-            limit: Maximum number of alerts to return
-
-        Returns:
-            List of signal alert dictionaries with article details
-        """
-        from sqlalchemy import and_, or_
-
-        # Build the base query with LEFT JOIN to articles
-        query = """
-        SELECT sa.id, sa.article_uri, sa.instruction_id, sa.instruction_name,
-               sa.confidence, sa.threat_level, sa.summary, sa.detected_at,
-               sa.is_acknowledged, sa.acknowledged_at,
-               a.title as article_title, a.news_source as article_source,
-               a.publication_date as article_publication_date
-        FROM signal_alerts sa
-        LEFT JOIN articles a ON sa.article_uri = a.uri
-        WHERE 1=1
-        """
-
-        params = {}
-
-        if instruction_id is not None:
-            query += " AND sa.instruction_id = :instruction_id"
-            params['instruction_id'] = instruction_id
-
-        if acknowledged is not None:
-            query += " AND sa.is_acknowledged = :acknowledged"
-            params['acknowledged'] = acknowledged
-
-        if topic:
-            query += " AND (a.topic = :topic OR a.title LIKE :topic_pattern OR a.summary LIKE :topic_pattern)"
-            params['topic'] = topic
-            params['topic_pattern'] = f"%{topic}%"
-
-        query += " ORDER BY sa.detected_at DESC LIMIT :limit"
-        params['limit'] = limit
-
+        """Get signal alerts with optional filters using SQLAlchemy Core."""
         try:
-            result = self._execute_with_rollback(text(query), params)
+            # Base select with LEFT JOIN to articles and explicit labels
+            stmt = select(
+                signal_alerts.c.id,
+                signal_alerts.c.article_uri,
+                signal_alerts.c.instruction_id,
+                signal_alerts.c.instruction_name,
+                signal_alerts.c.confidence,
+                signal_alerts.c.threat_level,
+                signal_alerts.c.summary,
+                signal_alerts.c.detected_at,
+                signal_alerts.c.is_acknowledged,
+                signal_alerts.c.acknowledged_at,
+                articles.c.title.label('article_title'),
+                articles.c.news_source.label('article_source'),
+                articles.c.publication_date.label('article_publication_date'),
+            ).select_from(
+                signal_alerts.outerjoin(articles, signal_alerts.c.article_uri == articles.c.uri)
+            )
+
+            # Apply filters
+            conditions = []
+            if instruction_id is not None:
+                conditions.append(signal_alerts.c.instruction_id == instruction_id)
+            if acknowledged is not None:
+                conditions.append(signal_alerts.c.is_acknowledged == acknowledged)
+            if topic:
+                conditions.append(
+                    or_(
+                        articles.c.topic == topic,
+                        articles.c.title.like(f"%{topic}%"),
+                        articles.c.summary.like(f"%{topic}%"),
+                    )
+                )
+            if conditions:
+                stmt = stmt.where(and_(*conditions))
+
+            # Order and limit
+            stmt = stmt.order_by(desc(signal_alerts.c.detected_at)).limit(limit)
+
+            # Execute and normalize result to list[dict] with same keys as before
+            rows = self._execute_with_rollback(stmt).mappings().fetchall()
             alerts = []
-            for row in result.mappings():
+            for row in rows:
                 alerts.append({
                     'id': row['id'],
                     'article_uri': row['article_uri'],
@@ -5050,13 +5182,15 @@ class DatabaseQueryFacade:
             True if successfully acknowledged, False otherwise
         """
         try:
-            query = """
-            UPDATE signal_alerts
-            SET is_acknowledged = true, acknowledged_at = CURRENT_TIMESTAMP
-            WHERE id = :alert_id
-            """
-            result = self._execute_with_rollback(text(query), {'alert_id': alert_id})
-            self.connection.commit()
+            stmt = (
+                update(signal_alerts)
+                .where(signal_alerts.c.id == alert_id)
+                .values(
+                    is_acknowledged=True,
+                    acknowledged_at=func.current_timestamp()
+                )
+            )
+            result = self._execute_with_rollback(stmt)
             return result.rowcount > 0
         except Exception as e:
             self.logger.error(f"Error acknowledging signal alert {alert_id}: {e}")
@@ -5072,34 +5206,34 @@ class DatabaseQueryFacade:
         Returns:
             List of signal instruction dictionaries
         """
-        query = "SELECT * FROM signal_instructions WHERE 1=1"
-        params = {}
-
-        # Treat empty string as None (no topic filter)
-        if topic is not None and topic != "":
-            query += " AND (topic = :topic OR topic IS NULL)"
-            params['topic'] = topic
-
-        if active_only:
-            query += " AND is_active = true"
-
-        query += " ORDER BY updated_at DESC"
-
         try:
-            result = self._execute_with_rollback(text(query), params)
-            instructions = []
-            for row in result.mappings():
-                instructions.append({
-                    'id': row['id'],
-                    'name': row['name'],
-                    'description': row['description'],
-                    'instruction': row['instruction'],
-                    'topic': row['topic'],
-                    'is_active': bool(row['is_active']),
-                    'created_at': row['created_at'],
-                    'updated_at': row['updated_at']
-                })
-            return instructions
+            conditions = []
+
+            # Treat empty string as None (no topic filter)
+            if topic is not None and topic != "":
+                conditions.append(or_(signal_instructions.c.topic == topic,
+                                      signal_instructions.c.topic.is_(None)))
+
+            if active_only:
+                conditions.append(signal_instructions.c.is_active == True)
+
+            stmt = select(signal_instructions)
+            if conditions:
+                stmt = stmt.where(and_(*conditions))
+
+            stmt = stmt.order_by(desc(signal_instructions.c.updated_at))
+
+            rows = self._execute_with_rollback(stmt).mappings().fetchall()
+            return [{
+                'id': row['id'],
+                'name': row['name'],
+                'description': row['description'],
+                'instruction': row['instruction'],
+                'topic': row['topic'],
+                'is_active': bool(row['is_active']),
+                'created_at': row['created_at'],
+                'updated_at': row['updated_at']
+            } for row in rows]
         except Exception as e:
             self.logger.error(f"Error getting signal instructions: {e}")
             return []
@@ -5119,25 +5253,56 @@ class DatabaseQueryFacade:
             True if successfully saved, False otherwise
         """
         try:
-            # PostgreSQL uses INSERT ... ON CONFLICT instead of INSERT OR REPLACE
-            query = """
-            INSERT INTO signal_instructions (name, description, instruction, topic, is_active, updated_at)
-            VALUES (:name, :description, :instruction, :topic, :is_active, CURRENT_TIMESTAMP)
-            ON CONFLICT (name) DO UPDATE SET
-                description = :description,
-                instruction = :instruction,
-                topic = :topic,
-                is_active = :is_active,
-                updated_at = CURRENT_TIMESTAMP
-            """
-            self._execute_with_rollback(text(query), {
-                'name': name,
-                'description': description,
-                'instruction': instruction,
-                'topic': topic,
-                'is_active': is_active
-            })
-            self.connection.commit()
+            # Prefer PostgreSQL upsert; fallback to manual upsert if dialect doesn't support it
+            try:
+                from sqlalchemy.dialects.postgresql import insert as pg_insert
+                stmt = pg_insert(signal_instructions).values(
+                    name=name,
+                    description=description,
+                    instruction=instruction,
+                    topic=topic,
+                    is_active=is_active,
+                    updated_at=func.current_timestamp()
+                ).on_conflict_do_update(
+                    index_elements=['name'],
+                    set_={
+                        'description': description,
+                        'instruction': instruction,
+                        'topic': topic,
+                        'is_active': is_active,
+                        'updated_at': func.current_timestamp()
+                    }
+                )
+                self._execute_with_rollback(stmt)
+            except Exception:
+                # Manual upsert (non-PostgreSQL fallback)
+                existing = self._execute_with_rollback(
+                    select(signal_instructions.c.id).where(signal_instructions.c.name == name)
+                ).fetchone()
+                if existing:
+                    upd = (
+                        update(signal_instructions)
+                        .where(signal_instructions.c.name == name)
+                        .values(
+                            description=description,
+                            instruction=instruction,
+                            topic=topic,
+                            is_active=is_active,
+                            updated_at=func.current_timestamp()
+                        )
+                    )
+                    self._execute_with_rollback(upd)
+                else:
+                    ins = insert(signal_instructions).values(
+                        name=name,
+                        description=description,
+                        instruction=instruction,
+                        topic=topic,
+                        is_active=is_active,
+                        updated_at=func.current_timestamp()
+                    )
+                    self._execute_with_rollback(ins)
+
             self.logger.info(f"Saved signal instruction: {name}")
             return True
         except Exception as e:
@@ -5154,9 +5319,8 @@ class DatabaseQueryFacade:
             True if successfully deleted, False otherwise
         """
         try:
-            query = "DELETE FROM signal_instructions WHERE id = :instruction_id"
-            result = self._execute_with_rollback(text(query), {'instruction_id': instruction_id})
-            self.connection.commit()
+            stmt = delete(signal_instructions).where(signal_instructions.c.id == instruction_id)
+            result = self._execute_with_rollback(stmt)
             deleted = result.rowcount > 0
             if deleted:
                 self.logger.info(f"Deleted signal instruction ID: {instruction_id}")
@@ -5181,32 +5345,72 @@ class DatabaseQueryFacade:
         Returns:
             ID of the created alert, or None if failed
         """
+        # Approach: try INSERT first; if row already exists (unique constraint),
+        # fall back to UPDATE. This works across SQLite and PostgreSQL and keeps
+        # logic aligned with an upsert.
         try:
-            query = """
-            INSERT INTO signal_alerts
-            (article_uri, instruction_id, instruction_name, confidence, threat_level, summary)
-            VALUES (:article_uri, :instruction_id, :instruction_name, :confidence, :threat_level, :summary)
-            ON CONFLICT (article_uri, instruction_id) DO UPDATE SET
-                confidence = :confidence,
-                threat_level = :threat_level,
-                summary = :summary,
-                detected_at = CURRENT_TIMESTAMP
-            RETURNING id
-            """
-            result = self._execute_with_rollback(text(query), {
-                'article_uri': article_uri,
-                'instruction_id': instruction_id,
-                'instruction_name': instruction_name,
-                'confidence': confidence,
-                'threat_level': threat_level,
-                'summary': summary
-            })
-            self.connection.commit()
-            row = result.fetchone()
+            insert_stmt = insert(signal_alerts).values(
+                article_uri=article_uri,
+                instruction_id=instruction_id,
+                instruction_name=instruction_name,
+                confidence=confidence,
+                threat_level=threat_level,
+                summary=summary
+            )
+            result = self._execute_with_rollback(insert_stmt)
+            # Attempt to obtain inserted id in a dialect-agnostic way
+            if hasattr(result, "inserted_primary_key") and result.inserted_primary_key:
+                return result.inserted_primary_key[0]
+            # Fallback: select the row's id
+            sel = select(signal_alerts.c.id).where(
+                and_(
+                    signal_alerts.c.article_uri == article_uri,
+                    signal_alerts.c.instruction_id == instruction_id
+                )
+            )
+            row = self._execute_with_rollback(sel).fetchone()
             return row[0] if row else None
         except Exception as e:
-            self.logger.error(f"Error saving signal alert: {e}")
-            return None
+            # On unique constraint violation, perform update instead of failing
+            try:
+                from sqlalchemy.exc import IntegrityError
+                if not isinstance(e, IntegrityError):
+                    raise
+            except Exception:
+                # If we cannot import IntegrityError (unlikely), re-raise original
+                self.logger.error(f"Error saving signal alert: {e}")
+                return None
+
+            try:
+                update_stmt = (
+                    update(signal_alerts)
+                    .where(
+                        and_(
+                            signal_alerts.c.article_uri == article_uri,
+                            signal_alerts.c.instruction_id == instruction_id
+                        )
+                    )
+                    .values(
+                        instruction_name=instruction_name,
+                        confidence=confidence,
+                        threat_level=threat_level,
+                        summary=summary,
+                        detected_at=func.current_timestamp()
+                    )
+                )
+                self._execute_with_rollback(update_stmt)
+                # Return the existing id
+                sel = select(signal_alerts.c.id).where(
+                    and_(
+                        signal_alerts.c.article_uri == article_uri,
+                        signal_alerts.c.instruction_id == instruction_id
+                    )
+                )
+                row = self._execute_with_rollback(sel).fetchone()
+                return row[0] if row else None
+            except Exception as upd_err:
+                self.logger.error(f"Error saving signal alert: {upd_err}")
+                return None
 
     #### AUSPEX CHAT QUERIES ####
     def create_auspex_chat(self, topic: str, title: str = None, user_id: str = None, profile_id: int = None, metadata: dict = None) -> int:

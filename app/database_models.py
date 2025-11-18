@@ -571,3 +571,39 @@ t_keyword_alerts = Table(
     Column('is_read', Integer, default=text('0')),
     UniqueConstraint('keyword_id', 'article_uri')
 )
+
+# Signal Instructions store user-defined detection instructions
+t_signal_instructions = Table(
+    'signal_instructions', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('name', Text, nullable=False, unique=True),
+    Column('description', Text, nullable=False),
+    Column('instruction', Text, nullable=False),
+    Column('topic', Text),
+    Column('is_active', Boolean, nullable=False, default=text('TRUE')),
+    Column('created_at', TIMESTAMP, default=text('CURRENT_TIMESTAMP')),
+    Column('updated_at', TIMESTAMP, default=text('CURRENT_TIMESTAMP')),
+    Index('idx_signal_instructions_name', 'name'),
+    Index('idx_signal_instructions_topic', 'topic'),
+    Index('idx_signal_instructions_is_active', 'is_active')
+)
+
+# Signal Alerts store matches between articles and instructions
+t_signal_alerts = Table(
+    'signal_alerts', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('article_uri', ForeignKey('articles.uri', ondelete='CASCADE'), nullable=False),
+    Column('instruction_id', ForeignKey('signal_instructions.id', ondelete='CASCADE'), nullable=False),
+    Column('instruction_name', Text, nullable=False),
+    Column('confidence', REAL),
+    Column('threat_level', Text),
+    Column('summary', Text),
+    Column('detected_at', TIMESTAMP, default=text('CURRENT_TIMESTAMP')),
+    Column('is_acknowledged', Boolean, default=text('FALSE')),
+    Column('acknowledged_at', TIMESTAMP),
+    UniqueConstraint('article_uri', 'instruction_id'),
+    Index('idx_signal_alerts_instruction', 'instruction_id'),
+    Index('idx_signal_alerts_article', 'article_uri'),
+    Index('idx_signal_alerts_detected', 'detected_at'),
+    Index('idx_signal_alerts_ack', 'is_acknowledged')
+)
