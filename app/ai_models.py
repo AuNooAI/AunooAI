@@ -662,7 +662,20 @@ class LiteLLMModel(AIModel):
             logger.warning(f"🚦 Rate limit error for {model_name}")
             return f"⚠️ Rate limit exceeded for {model_name}. " \
                    f"Please try again later or use a different model."
-        
+
+        # Quota/billing errors (OpenAI credits exhausted)
+        elif any(phrase in error_message.lower() for phrase in [
+            "exceeded your current quota",
+            "insufficient_quota",
+            "billing",
+            "quota exceeded",
+            "insufficient quota"
+        ]):
+            logger.error(f"💳 Quota/billing error for {model_name}")
+            return f"⚠️ API quota exceeded for {model_name}. " \
+                   f"Your API credits may be exhausted or billing may need attention. " \
+                   f"Please check your API provider's billing dashboard."
+
         # Model not available
         elif "model" in error_message.lower() and ("not found" in error_message.lower() or 
                                                  "unavailable" in error_message.lower() or

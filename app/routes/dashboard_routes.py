@@ -1035,12 +1035,14 @@ async def get_article_insights(
         # Only flag if it looks like an actual error message
         if "⚠️" in llm_response_str or "unavailable" in llm_response_str.lower():
             logger.error(f"LLM returned error message for article insights: {llm_response_str}")
-            return []
+            # Raise HTTPException so frontend can display the error properly
+            raise HTTPException(status_code=500, detail=llm_response_str)
 
         # Check for error at the start of response (like "Error: ..."), not in article content
         if llm_response_str.strip().lower().startswith("error"):
             logger.error(f"LLM returned error message for article insights: {llm_response_str}")
-            return []
+            # Raise HTTPException so frontend can display the error properly
+            raise HTTPException(status_code=500, detail=llm_response_str)
             
         try:
             # Attempt to extract JSON from the response - handle both clean JSON and markdown code blocks
@@ -1175,7 +1177,14 @@ async def get_article_insights(
         raise
     except Exception as e:
         logger.error(f"Error generating article insights for {topic_name}: {e}", exc_info=True)
-        return []  # Return empty list on error for graceful frontend handling
+        # Propagate user-friendly error messages from AI models
+        error_detail = str(e)
+        if "⚠️" in error_detail:
+            # User-friendly error from ai_models.py - raise as HTTPException
+            raise HTTPException(status_code=500, detail=error_detail)
+        else:
+            # For other errors, return empty list for graceful frontend handling
+            return []
 
 @router.get("/latest-podcast/{topic_name}", response_model=Optional[DashboardPodcastSchema])
 async def get_latest_podcast_for_topic(

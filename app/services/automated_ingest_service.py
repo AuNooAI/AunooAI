@@ -27,6 +27,7 @@ from app.analyzers.article_analyzer import ArticleAnalyzer
 from app.ai_models import LiteLLMModel
 import asyncio
 import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor
 import requests
 from app.config.config import load_config, get_topic_description
 import time
@@ -40,7 +41,7 @@ class AutomatedIngestService:
     def __init__(self, db: Database, config: Dict[str, Any] = None):
         """
         Initialize the automated ingest service
-        
+
         Args:
             db: Database instance for data operations
             config: Optional configuration dictionary
@@ -51,10 +52,17 @@ class AutomatedIngestService:
         self.relevance_calculator = None
         self.media_bias = MediaBias(db)
         self.article_analyzer = None
-        
+
+        # Dedicated executor for blocking I/O operations (e.g., Firecrawl scraping)
+        # Using 3 workers allows parallel scraping of multiple keyword groups
+        self._blocking_executor = ThreadPoolExecutor(
+            max_workers=3,
+            thread_name_prefix="blocking_io_"
+        )
+
         # Configure logging
         self.logger = logger
-        self.logger.info("AutomatedIngestService initialized with async capabilities")
+        self.logger.info("AutomatedIngestService initialized with async capabilities and dedicated blocking I/O executor (3 workers)")
     
     def get_llm_client(self, model_override: str = None) -> str:
         """
@@ -1369,17 +1377,19 @@ class AutomatedIngestService:
             Dictionary mapping URIs to scraped content
         """
         try:
-            self.logger.info(f"Submitting batch scrape request for {len(uris)} URLs")
+            self.logger.info(f"Starting Firecrawl batch scrape for {len(uris)} URLs")
+            start_time = time.time()
 
             # Use Firecrawl SDK's built-in polling method instead of manual polling
             # Documentation: https://docs.firecrawl.dev/features/batch-scrape
             # batch_scrape() handles submission + polling automatically
             # IMPORTANT: Firecrawl SDK is synchronous, so we must use run_in_executor to avoid blocking the event loop
+            # PERFORMANCE FIX: Use dedicated executor instead of default (None) to prevent blocking other operations
             loop = asyncio.get_event_loop()
 
-            self.logger.info(f"Starting Firecrawl batch_scrape with poll_interval=5, wait_timeout=300")
+            self.logger.info(f"Submitting to dedicated blocking I/O executor (poll_interval=5, wait_timeout=300)")
             batch_job = await loop.run_in_executor(
-                None,
+                self._blocking_executor,  # Use dedicated executor instead of None
                 lambda: firecrawl_app.batch_scrape(
                     uris,
                     formats=['markdown'],
@@ -1434,14 +1444,18 @@ class AutomatedIngestService:
                     else:
                         self.logger.warning(f"⚠️ Item {idx} has no URL in metadata")
 
-            self.logger.info(f"Batch scrape completed: {len([r for r in processed_results.values() if r])}/{len(processed_results)} successful")
+            duration = time.time() - start_time
+            successful_count = len([r for r in processed_results.values() if r])
+            self.logger.info(f"✅ Firecrawl batch scrape completed: {successful_count}/{len(processed_results)} successful in {duration:.1f}s ({duration/60:.1f} min)")
             return processed_results
 
         except asyncio.TimeoutError:
-            self.logger.error(f"Firecrawl batch scrape timed out")
+            duration = time.time() - start_time
+            self.logger.error(f"❌ Firecrawl batch scrape timed out after {duration:.1f}s")
             return {}
         except Exception as e:
-            self.logger.error(f"Error in Firecrawl batch scraping: {e}")
+            duration = time.time() - start_time
+            self.logger.error(f"❌ Error in Firecrawl batch scraping after {duration:.1f}s: {e}")
             import traceback
             self.logger.error(traceback.format_exc())
             return {}
@@ -1596,15 +1610,15 @@ class AutomatedIngestService:
     async def _fallback_individual_scraping(self, uris: List[str]) -> Dict[str, Optional[str]]:
         """
         Fallback to individual scraping if batch fails
-        
+
         Args:
             uris: List of URIs to scrape
-            
+
         Returns:
             Dictionary mapping URIs to scraped content
         """
         results = {}
-        
+
         for uri in uris:
             try:
                 content = await self.scrape_article_content(uri)
@@ -1612,5 +1626,22 @@ class AutomatedIngestService:
             except Exception as e:
                 self.logger.error(f"Individual scraping failed for {uri}: {e}")
                 results[uri] = None
-        
-        return results 
+
+        return results
+
+    async def close(self):
+        """
+        Cleanup resources on shutdown
+
+        Gracefully shuts down the dedicated blocking I/O executor
+        """
+        self.logger.info("Shutting down AutomatedIngestService...")
+
+        try:
+            # Shutdown executor gracefully (wait for current tasks to complete)
+            self._blocking_executor.shutdown(wait=True)
+            self.logger.info("✅ Blocking I/O executor shutdown complete")
+        except Exception as e:
+            self.logger.error(f"❌ Error during executor shutdown: {e}")
+
+        self.logger.info("AutomatedIngestService shutdown complete") 
