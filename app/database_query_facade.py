@@ -1007,15 +1007,17 @@ class DatabaseQueryFacade:
         return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_articles_by_topic(self, topic: str, limit: int = 100):
-        """Get recent articles for a topic.
+        """Get recent articles for a topic, including raw markdown content.
 
         Args:
             topic: Topic name
             limit: Maximum number of articles to return
 
         Returns:
-            List of article dictionaries
+            List of article dictionaries with raw_markdown field
         """
+        from app.database_models import t_raw_articles
+
         statement = select(
             articles.c.uri,
             articles.c.title,
@@ -1026,7 +1028,13 @@ class DatabaseQueryFacade:
             articles.c.driver_type,
             articles.c.category,
             articles.c.publication_date,
-            articles.c.news_source
+            articles.c.news_source,
+            t_raw_articles.c.raw_markdown
+        ).select_from(
+            articles.outerjoin(
+                t_raw_articles,
+                articles.c.uri == t_raw_articles.c.uri
+            )
         ).where(
             and_(
                 articles.c.topic == topic,
