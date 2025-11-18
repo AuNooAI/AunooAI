@@ -554,7 +554,7 @@ class KeywordMonitor:
 
             if not first_user:
                 # Fallback: get any user
-                all_users = self.db.facade.get_all_users()
+                all_users = self.db.facade.list_all_users()
                 if all_users and len(all_users) > 0:
                     first_user = all_users[0]
 
