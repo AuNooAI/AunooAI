@@ -52,7 +52,10 @@ from app.database_models import (t_keyword_monitor_settings as keyword_monitor_s
                                  t_auspex_prompts as auspex_prompts,
                                  t_dashboard_cache as dashboard_cache,
                                  # t_keyword_monitor_checks as keyword_monitor_checks,  # Table doesn't exist
-                                 t_raw_articles as raw_articles)
+                                 t_raw_articles as raw_articles,
+                                 t_llm_retry_state as llm_retry_state,
+                                 t_llm_processing_errors as llm_processing_errors,
+                                 t_processing_jobs as processing_jobs)
                                  # t_paper_search_results as paper_search_results,  # Table doesn't exist
                                  # t_news_search_results as news_search_results,  # Table doesn't exist
                              # t_keyword_alert_articles as keyword_alert_articles)  # Table doesn't exist
@@ -7752,3 +7755,216 @@ class DatabaseQueryFacade:
                 'total_articles': 0,
                 'last_activity': None
             }
+
+    # ============================================================================
+    # LLM Error Handling and Circuit Breaker Methods
+    # ============================================================================
+
+    def log_llm_processing_error(self, params: dict) -> Optional[int]:
+        """
+        Log LLM processing errors to database for monitoring and debugging.
+
+        Args:
+            params: dict containing:
+                - article_id: ID of article being processed (optional)
+                - error_type: Exception class name (e.g., "RateLimitError")
+                - error_message: Error message string
+                - severity: Error severity ("fatal", "recoverable", "skippable", "degraded")
+                - model_name: LLM model that generated the error
+                - retry_count: Number of retry attempts made
+                - will_retry: Boolean indicating if retry will be attempted
+                - context: dict with additional context (will be converted to JSON)
+                - timestamp: datetime object or ISO format timestamp string
+
+        Returns:
+            int: The ID of the inserted error log, or None if logging failed
+        """
+        # Validate required fields
+        required_fields = ['error_type', 'error_message', 'severity', 'model_name', 'timestamp']
+        missing_fields = [f for f in required_fields if f not in params]
+        if missing_fields:
+            self.logger.error(f"Missing required fields for error logging: {missing_fields}")
+            return None
+
+        try:
+            # Build insert values
+            insert_values = {
+                'article_id': params.get('article_id'),
+                'error_type': params['error_type'],
+                'error_message': params['error_message'],
+                'severity': params['severity'],
+                'model_name': params['model_name'],
+                'retry_count': params.get('retry_count', 0),
+                'will_retry': params.get('will_retry', False),
+                'context': params.get('context', {}),
+                'timestamp': params['timestamp']
+            }
+
+            # Insert error log and get ID
+            statement = insert(llm_processing_errors).values(**insert_values).returning(llm_processing_errors.c.id)
+            result = self._execute_with_rollback(statement)
+            row = result.fetchone()
+
+            if row:
+                return row[0]
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Failed to log LLM processing error: {e}")
+            return None
+
+    def update_article_llm_status(self, params: dict) -> bool:
+        """
+        Update article status when LLM processing completes or fails.
+
+        Args:
+            params: dict containing:
+                - article_id: ID of article (required)
+                - llm_status: Status string ("processing", "completed", "error", "skipped") (required)
+                - error_type: Error type if status is "error" (optional)
+                - error_message: Error message if status is "error" (optional)
+                - processing_metadata: dict with processing details (optional)
+
+        Returns:
+            bool: True if update successful, False otherwise
+        """
+        # Validate required fields
+        if 'article_id' not in params or 'llm_status' not in params:
+            self.logger.error("Missing required fields: article_id and llm_status are required")
+            return False
+
+        # Validate status value
+        valid_statuses = ['processing', 'completed', 'error', 'skipped']
+        if params['llm_status'] not in valid_statuses:
+            self.logger.error(f"Invalid llm_status: {params['llm_status']}. Must be one of {valid_statuses}")
+            return False
+
+        try:
+            # Build update values
+            update_values = {
+                'llm_status': params['llm_status'],
+                'llm_status_updated_at': datetime.utcnow()
+            }
+
+            if 'error_type' in params and params['error_type']:
+                update_values['llm_error_type'] = params['error_type']
+
+            if 'error_message' in params and params['error_message']:
+                update_values['llm_error_message'] = params['error_message']
+
+            if 'processing_metadata' in params and params['processing_metadata']:
+                update_values['llm_processing_metadata'] = params['processing_metadata']
+
+            # Execute update
+            statement = update(articles).where(
+                articles.c.id == params['article_id']
+            ).values(**update_values)
+
+            self._execute_with_rollback(statement)
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to update article LLM status: {e}")
+            return False
+
+    def get_llm_retry_state(self, model_name: str) -> Optional[dict]:
+        """
+        Get current retry/failure state for a model.
+
+        Args:
+            model_name: Name of the LLM model
+
+        Returns:
+            dict: Retry state data, or None if no state exists
+        """
+        try:
+            statement = select(llm_retry_state).where(
+                llm_retry_state.c.model_name == model_name
+            )
+
+            result = self._execute_with_rollback(statement)
+            row = result.fetchone()
+
+            if row:
+                return dict(row._mapping)
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Failed to get LLM retry state for {model_name}: {e}")
+            return None
+
+    def update_llm_retry_state(self, params: dict) -> bool:
+        """
+        Update retry/failure state for a model (for circuit breaker pattern).
+
+        Args:
+            params: dict with keys:
+                - model_name: str (required)
+                - consecutive_failures: int (optional)
+                - last_failure_time: datetime (optional)
+                - last_success_time: datetime (optional)
+                - circuit_state: str ('closed', 'open', 'half_open') (optional)
+                - circuit_opened_at: datetime (optional)
+                - failure_rate: float (optional)
+                - metadata: dict (optional)
+
+        Returns:
+            bool: True if update successful, False otherwise
+        """
+        if 'model_name' not in params:
+            self.logger.error("model_name is required for update_llm_retry_state")
+            return False
+
+        try:
+            # Check if state exists first
+            existing = self.get_llm_retry_state(params['model_name'])
+
+            # Build update values
+            update_values = {
+                'last_updated': datetime.utcnow()
+            }
+
+            # Add optional fields if provided
+            optional_fields = [
+                'consecutive_failures', 'last_failure_time', 'last_success_time',
+                'circuit_state', 'circuit_opened_at', 'failure_rate', 'metadata'
+            ]
+            for field in optional_fields:
+                if field in params:
+                    update_values[field] = params[field]
+
+            if existing:
+                # Update existing record
+                statement = update(llm_retry_state).where(
+                    llm_retry_state.c.model_name == params['model_name']
+                ).values(**update_values)
+            else:
+                # Insert new record
+                update_values['model_name'] = params['model_name']
+                statement = insert(llm_retry_state).values(**update_values)
+
+            self._execute_with_rollback(statement)
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to update LLM retry state: {e}")
+            return False
+
+    def reset_llm_retry_state(self, model_name: str) -> bool:
+        """
+        Reset retry state for a model (after successful recovery).
+
+        Args:
+            model_name: Name of the LLM model
+
+        Returns:
+            bool: True if reset successful, False otherwise
+        """
+        return self.update_llm_retry_state({
+            'model_name': model_name,
+            'consecutive_failures': 0,
+            'last_success_time': datetime.utcnow(),
+            'circuit_state': 'closed',
+            'circuit_opened_at': None,
+            'failure_rate': 0.0
+        })

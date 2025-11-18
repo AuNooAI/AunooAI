@@ -12886,16 +12886,11 @@ async function smartGenerateInsights(forceRegenerate = false, isAutoLoad = false
 }
 
 function showInsightsWelcomeMessage() {
-    console.log('[showInsightsWelcomeMessage] Function called');
     // Show welcome messages in each panel if they're empty
     const articleContainer = document.getElementById('article-insights-container');
     const categoryContainer = document.getElementById('category-insights-container');
     const thematicContainer = document.getElementById('thematic-insights-container');
     const incidentContainer = document.getElementById('incident-tracking-container');
-
-    console.log('[showInsightsWelcomeMessage] incidentContainer found:', !!incidentContainer);
-    console.log('[showInsightsWelcomeMessage] incidentContainer has cards:', incidentContainer ? !!incidentContainer.querySelector('.insight-item-card') : 'N/A');
-    console.log('[showInsightsWelcomeMessage] incidentContainer innerHTML before:', incidentContainer ? incidentContainer.innerHTML.substring(0, 100) : 'N/A');
 
     // Show welcome message in Highlights (Incident Tracking) tab
     if (incidentContainer && !incidentContainer.querySelector('.insight-item-card')) {
@@ -12910,10 +12905,6 @@ function showInsightsWelcomeMessage() {
                 </button>
             </div>
         `;
-        console.log('[showInsightsWelcomeMessage] Highlights welcome message SET');
-        console.log('[showInsightsWelcomeMessage] incidentContainer innerHTML after:', incidentContainer.innerHTML.substring(0, 100));
-    } else {
-        console.log('[showInsightsWelcomeMessage] Skipping Highlights welcome message - container missing or has cards');
     }
 
     if (articleContainer && !articleContainer.querySelector('.insight-item-card')) {

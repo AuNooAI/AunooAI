@@ -314,7 +314,13 @@ class AutomatedIngestService:
 
         except Exception as e:
             self.logger.error(f"Error scoring article relevance: {e}")
-            return {"relevance_score": 0.0, "explanation": f"Error calculating relevance: {str(e)}"}
+            return {
+                "relevance_score": 0.0,
+                "topic_alignment_score": 0.0,
+                "keyword_relevance_score": 0.0,
+                "confidence_score": 0.0,
+                "overall_match_explanation": f"Error calculating relevance: {str(e)}"
+            }
     
     def quality_check_article(self, article_data: Dict[str, Any], content: str = None) -> Dict[str, Any]:
         """
@@ -630,8 +636,11 @@ class AutomatedIngestService:
                         article.update({
                             "topic": topic,
                             "ingest_status": "filtered_relevance",
-                            "keyword_relevance_score": quick_relevance_score,
-                            "overall_match_explanation": quick_relevance_result.get("explanation", "")
+                            # Populate ALL three score fields from relevance result
+                            "keyword_relevance_score": quick_relevance_result.get("keyword_relevance_score", quick_relevance_score),
+                            "topic_alignment_score": quick_relevance_result.get("topic_alignment_score", quick_relevance_score),
+                            "confidence_score": quick_relevance_result.get("confidence_score", quick_relevance_score),
+                            "overall_match_explanation": quick_relevance_result.get("overall_match_explanation", "")
                         })
                         await self.async_db.save_below_threshold_article(article)
                         self.db.facade.mark_article_as_below_threshold(article_uri)
@@ -648,8 +657,24 @@ class AutomatedIngestService:
 
             except Exception as e:
                 self.logger.error(f"Quick relevance check failed for {article_uri}: {e}")
-                # On error, continue with full processing as fallback
-                quick_relevance_score = 0.0
+                # Save article with error status but preserve attempt record
+                article.update({
+                    "topic": topic,
+                    "ingest_status": "relevance_check_failed",
+                    "keyword_relevance_score": 0.0,
+                    "topic_alignment_score": 0.0,
+                    "confidence_score": 0.0,
+                    "overall_match_explanation": f"Relevance check failed: {str(e)}"
+                })
+                await self.async_db.save_below_threshold_article(article)
+                self.logger.info(f"Saved article {article_uri} with relevance_check_failed status")
+                # Return early - skip enrichment for this article
+                return {
+                    "status": "error",
+                    "uri": article_uri,
+                    "error": str(e),
+                    "reason": "relevance_check_failed"
+                }
 
             # Step 2: Article PASSED quick check - now do expensive operations
             self.logger.info(f"✅ Article {article_uri} passed quick check (score: {quick_relevance_score}) - proceeding with enrichment")
@@ -740,7 +765,13 @@ class AutomatedIngestService:
                 self.logger.debug(f"🎯 Final relevance scoring completed for {article_uri}")
             except Exception as e:
                 self.logger.error(f"Final relevance scoring failed for {article_uri}: {e}")
-                relevance_result = {"relevance_score": quick_relevance_score, "explanation": f"Final scoring failed, using quick score: {str(e)}"}
+                relevance_result = {
+                    "relevance_score": quick_relevance_score,
+                    "topic_alignment_score": quick_relevance_score,
+                    "keyword_relevance_score": quick_relevance_score,
+                    "confidence_score": quick_relevance_score,
+                    "overall_match_explanation": f"Final scoring failed, using quick score: {str(e)}"
+                }
                 enriched_article.update(relevance_result)
 
             # Step 5: Check final relevance threshold (double-check after full analysis)

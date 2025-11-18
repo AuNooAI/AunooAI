@@ -3,6 +3,8 @@ import logging
 from typing import Dict, List, Optional, Tuple
 from app.analyzers.prompt_templates import PromptTemplates, PromptTemplateError
 from app.ai_models import get_ai_model, LiteLLMModel
+from app.exceptions import PipelineError, ErrorSeverity, LLMErrorClassifier
+import litellm
 
 logger = logging.getLogger(__name__)
 
@@ -244,9 +246,17 @@ class RelevanceCalculator:
                     "extracted_article_keywords": [],
                     "relevance_score": 0.0
                 }
-                
+
+        # Handle PipelineError (fatal errors from LLM)
+        except PipelineError as e:
+            logger.error(f"🚨 FATAL error during relevance analysis: {e}")
+            # Re-raise PipelineError to allow pipeline to handle it (e.g., stop processing)
+            raise
+
+        # Handle other exceptions
         except Exception as e:
             logger.error(f"Error during relevance analysis: {str(e)}")
+            # For non-fatal errors, wrap in RelevanceCalculatorError
             raise RelevanceCalculatorError(f"Relevance analysis failed: {str(e)}")
 
     def analyze_articles_batch(self, articles: List[Dict], topic: str, keywords: str) -> List[Dict]:
