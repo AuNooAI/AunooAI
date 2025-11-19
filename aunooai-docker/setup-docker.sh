@@ -27,13 +27,13 @@ echo ""
 echo -e "${YELLOW}Checking prerequisites...${NC}"
 
 if ! command -v docker &> /dev/null; then
-    echo -e "${RED}❌ Docker is not installed${NC}"
+    echo -e "${RED}ERROR Docker is not installed${NC}"
     echo "Please install Docker Desktop: https://www.docker.com/products/docker-desktop"
     exit 1
 fi
 
 if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null 2>&1; then
-    echo -e "${RED}❌ Docker Compose is not installed${NC}"
+    echo -e "${RED}ERROR Docker Compose is not installed${NC}"
     echo "Please install Docker Compose or update Docker Desktop"
     exit 1
 fi
@@ -45,8 +45,8 @@ else
     DOCKER_COMPOSE="docker compose"
 fi
 
-echo -e "${GREEN}✓ Docker is installed${NC}"
-echo -e "${GREEN}✓ Docker Compose is available${NC}"
+echo -e "${GREEN}OK Docker is installed${NC}"
+echo -e "${GREEN}OK Docker Compose is available${NC}"
 echo ""
 
 # Download deployment files
@@ -58,12 +58,12 @@ curl -fsSL -o .env.hub https://raw.githubusercontent.com/orochford/AunooAI/main/
 COMPOSE_FILE="docker-compose.hub.yml"
 ENV_TEMPLATE=".env.hub"
 
-echo -e "${GREEN}✓ Downloaded deployment files${NC}"
+echo -e "${GREEN}OK Downloaded deployment files${NC}"
 echo ""
 
 # Check if .env exists
 if [ -f ".env" ]; then
-    echo -e "${YELLOW}⚠️  Existing .env file found${NC}"
+    echo -e "${YELLOW}WARNING  Existing .env file found${NC}"
     read -p "Do you want to reconfigure? (y/N): " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -78,136 +78,28 @@ else
     SKIP_CONFIG=false
 fi
 
-# Interactive configuration
+# Setup configuration with defaults
 if [ "$SKIP_CONFIG" = false ]; then
-    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${BLUE}  Configuration Setup${NC}"
-    echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "Setting up configuration with defaults..."
     echo ""
 
     cp "$ENV_TEMPLATE" .env
 
-    # Database Password
-    echo -e "${YELLOW}1. Database Password${NC}"
-    echo "   This secures your PostgreSQL database"
-    while true; do
-        read -sp "   Enter password (min 8 chars): " DB_PASSWORD
-        echo
-        if [ ${#DB_PASSWORD} -ge 8 ]; then
-            break
-        else
-            echo -e "${RED}   Password must be at least 8 characters${NC}"
-        fi
-    done
-
-    # Use different sed syntax for macOS vs Linux
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        sed -i '' "s|POSTGRES_PASSWORD=changeme|POSTGRES_PASSWORD=$DB_PASSWORD|g" .env
-    else
-        sed -i "s|POSTGRES_PASSWORD=changeme|POSTGRES_PASSWORD=$DB_PASSWORD|g" .env
-    fi
-
-    echo -e "${GREEN}   ✓ Database password set${NC}"
+    echo -e "${GREEN}Configuration ready!${NC}"
     echo ""
-
-    # Admin Password
-    echo -e "${YELLOW}2. Admin Password${NC}"
-    echo "   Login password for the admin user"
-    read -sp "   Enter admin password (press Enter for default 'admin'): " ADMIN_PASSWORD
-    echo
-    if [ -n "$ADMIN_PASSWORD" ]; then
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' "s|ADMIN_PASSWORD=admin|ADMIN_PASSWORD=$ADMIN_PASSWORD|g" .env
-        else
-            sed -i "s|ADMIN_PASSWORD=admin|ADMIN_PASSWORD=$ADMIN_PASSWORD|g" .env
-        fi
-        echo -e "${GREEN}   ✓ Admin password set${NC}"
-    else
-        echo -e "${YELLOW}   ℹ Using default password 'admin'${NC}"
-    fi
+    echo "Login credentials:"
+    echo "  Username: admin"
+    echo "  Password: admin123"
     echo ""
-
-    # OpenAI API Key
-    echo -e "${YELLOW}3. OpenAI API Key ${RED}(Required)${NC}"
-    echo "   Get your key at: https://platform.openai.com/api-keys"
-    while true; do
-        read -p "   Enter OpenAI API key: " OPENAI_KEY
-        if [[ $OPENAI_KEY =~ ^sk- ]]; then
-            if [[ "$OSTYPE" == "darwin"* ]]; then
-                sed -i '' "s|OPENAI_API_KEY=|OPENAI_API_KEY=$OPENAI_KEY|g" .env
-            else
-                sed -i "s|OPENAI_API_KEY=|OPENAI_API_KEY=$OPENAI_KEY|g" .env
-            fi
-            echo -e "${GREEN}   ✓ OpenAI API key configured${NC}"
-            break
-        elif [ -z "$OPENAI_KEY" ]; then
-            echo -e "${RED}   OpenAI API key is required${NC}"
-        else
-            echo -e "${RED}   Invalid key format (should start with 'sk-')${NC}"
-        fi
-    done
-    echo ""
-
-    # Anthropic API Key
-    echo -e "${YELLOW}4. Anthropic API Key ${BLUE}(Optional but recommended)${NC}"
-    echo "   Get your key at: https://console.anthropic.com/"
-    read -p "   Enter Anthropic API key (or press Enter to skip): " ANTHROPIC_KEY
-    if [ -n "$ANTHROPIC_KEY" ]; then
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' "s|ANTHROPIC_API_KEY=|ANTHROPIC_API_KEY=$ANTHROPIC_KEY|g" .env
-        else
-            sed -i "s|ANTHROPIC_API_KEY=|ANTHROPIC_API_KEY=$ANTHROPIC_KEY|g" .env
-        fi
-        echo -e "${GREEN}   ✓ Anthropic API key configured${NC}"
-    else
-        echo -e "${YELLOW}   ℹ Skipped (can add later via web UI)${NC}"
-    fi
-    echo ""
-
-    # NewsAPI Key
-    echo -e "${YELLOW}5. NewsAPI Key ${BLUE}(Optional for news features)${NC}"
-    echo "   Get your key at: https://newsapi.org/register"
-    read -p "   Enter NewsAPI key (or press Enter to skip): " NEWS_KEY
-    if [ -n "$NEWS_KEY" ]; then
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' "s|NEWSAPI_KEY=|NEWSAPI_KEY=$NEWS_KEY|g" .env
-            sed -i '' "s|PROVIDER_NEWSAPI_KEY=|PROVIDER_NEWSAPI_KEY=$NEWS_KEY|g" .env
-        else
-            sed -i "s|NEWSAPI_KEY=|NEWSAPI_KEY=$NEWS_KEY|g" .env
-            sed -i "s|PROVIDER_NEWSAPI_KEY=|PROVIDER_NEWSAPI_KEY=$NEWS_KEY|g" .env
-        fi
-        echo -e "${GREEN}   ✓ NewsAPI key configured${NC}"
-    else
-        echo -e "${YELLOW}   ℹ Skipped (can add later via web UI)${NC}"
-    fi
-    echo ""
-
-    # Firecrawl API Key
-    echo -e "${YELLOW}6. Firecrawl API Key ${BLUE}(Optional for web scraping)${NC}"
-    echo "   Get your key at: https://www.firecrawl.dev/"
-    read -p "   Enter Firecrawl API key (or press Enter to skip): " FIRECRAWL_KEY
-    if [ -n "$FIRECRAWL_KEY" ]; then
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            sed -i '' "s|FIRECRAWL_API_KEY=|FIRECRAWL_API_KEY=$FIRECRAWL_KEY|g" .env
-            sed -i '' "s|PROVIDER_FIRECRAWL_KEY=|PROVIDER_FIRECRAWL_KEY=$FIRECRAWL_KEY|g" .env
-        else
-            sed -i "s|FIRECRAWL_API_KEY=|FIRECRAWL_API_KEY=$FIRECRAWL_KEY|g" .env
-            sed -i "s|PROVIDER_FIRECRAWL_KEY=|PROVIDER_FIRECRAWL_KEY=$FIRECRAWL_KEY|g" .env
-        fi
-        echo -e "${GREEN}   ✓ Firecrawl API key configured${NC}"
-    else
-        echo -e "${YELLOW}   ℹ Skipped (can add later via web UI)${NC}"
-    fi
-    echo ""
-
-    echo -e "${GREEN}✓ Configuration complete!${NC}"
+    echo -e "${YELLOW}IMPORTANT: Change your password after first login!${NC}"
     echo ""
 fi
 
 # Choose deployment profile
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}-----------------------------------------${NC}"
 echo -e "${BLUE}  Deployment Options${NC}"
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}-----------------------------------------${NC}"
 echo ""
 echo "1. Development (port 6005) - recommended for testing"
 echo "2. Production (port 5008) - for live deployments"
@@ -238,20 +130,20 @@ esac
 echo ""
 
 # Pull images
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}-----------------------------------------${NC}"
 echo -e "${BLUE}  Pulling Images${NC}"
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}-----------------------------------------${NC}"
 echo ""
 
 $DOCKER_COMPOSE -f "$COMPOSE_FILE" pull
 
-echo -e "${GREEN}✓ Images ready${NC}"
+echo -e "${GREEN}OK Images ready${NC}"
 echo ""
 
 # Start services
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}-----------------------------------------${NC}"
 echo -e "${BLUE}  Starting Services${NC}"
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}-----------------------------------------${NC}"
 echo ""
 
 $DOCKER_COMPOSE -f "$COMPOSE_FILE" $PROFILE up -d
@@ -274,16 +166,16 @@ echo ""
 
 # Check status
 if $DOCKER_COMPOSE -f "$COMPOSE_FILE" ps | grep -q "Up"; then
-    echo -e "${GREEN}✓ Services started successfully!${NC}"
+    echo -e "${GREEN}OK Services started successfully!${NC}"
 else
-    echo -e "${RED}⚠️  Services may not be fully ready. Check logs with:${NC}"
+    echo -e "${RED}WARNING  Services may not be fully ready. Check logs with:${NC}"
     echo "   $DOCKER_COMPOSE -f $COMPOSE_FILE logs -f"
 fi
 
 echo ""
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}  🎉 Setup Complete!${NC}"
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}-----------------------------------------${NC}"
+echo -e "${GREEN}   Setup Complete!${NC}"
+echo -e "${BLUE}-----------------------------------------${NC}"
 echo ""
 echo "Your Aunoo AI instance is running!"
 echo ""
@@ -294,7 +186,7 @@ echo -e "${GREEN}Login credentials:${NC}"
 echo "   Username: admin"
 echo "   Password: (the admin password you set)"
 echo ""
-echo -e "${YELLOW}⚠️  Remember to change your admin password after first login!${NC}"
+echo -e "${YELLOW}WARNING  Remember to change your admin password after first login!${NC}"
 echo ""
 echo -e "${BLUE}Useful commands:${NC}"
 echo "   View logs:    $DOCKER_COMPOSE -f $COMPOSE_FILE logs -f"

@@ -78,105 +78,22 @@ if (Test-Path ".env") {
     }
 }
 
-# Interactive configuration
+# Setup configuration with defaults
 if (-not $SkipConfig) {
     Write-Host ""
-    Write-Host -ForegroundColor Blue "-----------------------------------------"
-    Write-Host -ForegroundColor Blue "  Configuration Setup"
-    Write-Host -ForegroundColor Blue "-----------------------------------------"
+    Write-Host "Setting up configuration with defaults..."
     Write-Host ""
 
-    # Copy template
+    # Copy template with pre-populated defaults
     Copy-Item $EnvTemplate .env
 
-    # Database Password
-    Write-Host -ForegroundColor Yellow "1. Database Password"
-    Write-Host "   This secures your PostgreSQL database"
-    do {
-        $DbPassword = Read-Host "   Enter password (min 8 chars)" -AsSecureString
-        $DbPasswordPlain = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($DbPassword))
-        if ($DbPasswordPlain.Length -lt 8) {
-            Write-Host -ForegroundColor Red "   Password must be at least 8 characters"
-        }
-    } while ($DbPasswordPlain.Length -lt 8)
-
-    (Get-Content .env) -replace 'POSTGRES_PASSWORD=changeme', "POSTGRES_PASSWORD=$DbPasswordPlain" | Set-Content .env
-    Write-Host -ForegroundColor Green "   OK Database password set"
+    Write-Host -ForegroundColor Green "Configuration ready!"
     Write-Host ""
-
-    # Admin Password
-    Write-Host -ForegroundColor Yellow "2. Admin Password"
-    Write-Host "   Login password for the admin user"
-    $AdminPassword = Read-Host "   Enter admin password (press Enter for default 'admin')"
-    if ($AdminPassword) {
-        (Get-Content .env) -replace 'ADMIN_PASSWORD=admin', "ADMIN_PASSWORD=$AdminPassword" | Set-Content .env
-        Write-Host -ForegroundColor Green "   OK Admin password set"
-    } else {
-        Write-Host -ForegroundColor Yellow "   INFO Using default password 'admin'"
-    }
+    Write-Host "Login credentials:"
+    Write-Host "  Username: admin"
+    Write-Host "  Password: admin123"
     Write-Host ""
-
-    # OpenAI API Key
-    Write-Host -ForegroundColor Yellow "3. OpenAI API Key " -NoNewline
-    Write-Host -ForegroundColor Red "(Required)"
-    Write-Host "   Get your key at: https://platform.openai.com/api-keys"
-    do {
-        $OpenAIKey = Read-Host "   Enter OpenAI API key"
-        if ($OpenAIKey -notmatch '^sk-') {
-            if ([string]::IsNullOrEmpty($OpenAIKey)) {
-                Write-Host -ForegroundColor Red "   OpenAI API key is required"
-            } else {
-                Write-Host -ForegroundColor Red "   Invalid key format (should start with 'sk-')"
-            }
-        }
-    } while ($OpenAIKey -notmatch '^sk-')
-
-    (Get-Content .env) -replace 'OPENAI_API_KEY=', "OPENAI_API_KEY=$OpenAIKey" | Set-Content .env
-    Write-Host -ForegroundColor Green "   OK OpenAI API key configured"
-    Write-Host ""
-
-    # Anthropic API Key (Optional)
-    Write-Host -ForegroundColor Yellow "4. Anthropic API Key " -NoNewline
-    Write-Host -ForegroundColor Blue "(Optional but recommended)"
-    Write-Host "   Get your key at: https://console.anthropic.com/"
-    $AnthropicKey = Read-Host "   Enter Anthropic API key (or press Enter to skip)"
-    if ($AnthropicKey) {
-        (Get-Content .env) -replace 'ANTHROPIC_API_KEY=', "ANTHROPIC_API_KEY=$AnthropicKey" | Set-Content .env
-        Write-Host -ForegroundColor Green "   OK Anthropic API key configured"
-    } else {
-        Write-Host -ForegroundColor Yellow "   INFO Skipped (can add later via web UI)"
-    }
-    Write-Host ""
-
-    # NewsAPI Key (Optional)
-    Write-Host -ForegroundColor Yellow "5. NewsAPI Key " -NoNewline
-    Write-Host -ForegroundColor Blue "(Optional for news features)"
-    Write-Host "   Get your key at: https://newsapi.org/register"
-    $NewsKey = Read-Host "   Enter NewsAPI key (or press Enter to skip)"
-    if ($NewsKey) {
-        (Get-Content .env) -replace 'NEWSAPI_KEY=', "NEWSAPI_KEY=$NewsKey" | Set-Content .env
-        (Get-Content .env) -replace 'PROVIDER_NEWSAPI_KEY=', "PROVIDER_NEWSAPI_KEY=$NewsKey" | Set-Content .env
-        Write-Host -ForegroundColor Green "   OK NewsAPI key configured"
-    } else {
-        Write-Host -ForegroundColor Yellow "   INFO Skipped (can add later via web UI)"
-    }
-    Write-Host ""
-
-    # Firecrawl API Key (Optional)
-    Write-Host -ForegroundColor Yellow "6. Firecrawl API Key " -NoNewline
-    Write-Host -ForegroundColor Blue "(Optional for web scraping)"
-    Write-Host "   Get your key at: https://www.firecrawl.dev/"
-    $FirecrawlKey = Read-Host "   Enter Firecrawl API key (or press Enter to skip)"
-    if ($FirecrawlKey) {
-        (Get-Content .env) -replace 'FIRECRAWL_API_KEY=', "FIRECRAWL_API_KEY=$FirecrawlKey" | Set-Content .env
-        (Get-Content .env) -replace 'PROVIDER_FIRECRAWL_KEY=', "PROVIDER_FIRECRAWL_KEY=$FirecrawlKey" | Set-Content .env
-        Write-Host -ForegroundColor Green "   OK Firecrawl API key configured"
-    } else {
-        Write-Host -ForegroundColor Yellow "   INFO Skipped (can add later via web UI)"
-    }
-    Write-Host ""
-
-    Write-Host -ForegroundColor Green "OK Configuration complete!"
+    Write-Host -ForegroundColor Yellow "IMPORTANT: Change your password after first login!"
     Write-Host ""
 }
 
