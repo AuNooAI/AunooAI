@@ -72,14 +72,17 @@ cp .env.hub .env
 
 ### Step 2: Configure
 
-Edit `.env` file and set:
-- `POSTGRES_PASSWORD` - Your database password
-- `OPENAI_API_KEY` - Your OpenAI API key ([Get one here](https://platform.openai.com/api-keys))
+**Optional:** Edit `.env` file to customize passwords (works with defaults!)
 
-Optional but recommended:
-- `ANTHROPIC_API_KEY` - For Claude AI features
-- `NEWSAPI_KEY` - For news aggregation
-- `ADMIN_PASSWORD` - Change from default 'admin'
+The application uses these defaults:
+- Admin login: `admin` / `admin123`
+- Database password: `aunoo_secure_2025`
+
+**Recommended for production:**
+- Change `ADMIN_PASSWORD` to a secure password
+- Change `POSTGRES_PASSWORD` to a secure password
+
+**Note:** API keys are configured via onboarding wizard after first login!
 
 ### Step 3: Start
 

@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-aunoo_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-aunoo_secure_2025}
       POSTGRES_DB: ${POSTGRES_DB:-aunoo_db}
       POSTGRES_INITDB_ARGS: "-E UTF8"
     volumes:
@@ -37,6 +37,7 @@ services:
       - PORT=${APP_PORT:-8080}
       - INSTANCE=${INSTANCE:-community}
       - ENVIRONMENT=${ENVIRONMENT:-production}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
 
       # PostgreSQL Configuration (Required)
       - DB_TYPE=postgresql
@@ -44,7 +45,7 @@ services:
       - DB_PORT=5432
       - DB_NAME=${POSTGRES_DB:-aunoo_db}
       - DB_USER=${POSTGRES_USER:-aunoo_user}
-      - DB_PASSWORD=${POSTGRES_PASSWORD:-changeme}
+      - DB_PASSWORD=${POSTGRES_PASSWORD:-aunoo_secure_2025}
 
       # Connection Pooling
       - DB_POOL_SIZE=${DB_POOL_SIZE:-20}

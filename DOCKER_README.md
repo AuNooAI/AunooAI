@@ -57,48 +57,43 @@ Run AunooAI with Docker in under 5 minutes!
 
 If you prefer manual setup:
 
-### Step 1: Create Environment File
+### Step 1: Create Environment File (Optional)
+
+The application works out of the box with default settings! You can optionally customize:
 
 ```bash
 # Copy the example file
 cp .env.hub .env
 
-# Edit the file
+# Edit if you want to customize
 nano .env  # or use your preferred editor
 ```
 
-**Required settings in `.env`:**
+**Default settings (works without changes):**
+- Admin username: `admin`
+- Admin password: `admin123` (change after first login!)
+- PostgreSQL password: `aunoo_secure_2025`
+- Port: `8080`
+
+**Optional customizations:**
 ```bash
-# Change this to a secure password
-POSTGRES_PASSWORD=your_secure_password_here
+# Change admin password (recommended for production)
+ADMIN_PASSWORD=your_secure_password
 
-# Get your OpenAI API key from https://platform.openai.com/api-keys
-OPENAI_API_KEY=sk-your-key-here
-
-# Change the default admin password
-ADMIN_PASSWORD=your_admin_password
-```
-
-**Optional settings:**
-```bash
-# Anthropic (for Claude models)
-ANTHROPIC_API_KEY=sk-ant-your-key-here
-
-# NewsAPI (for news features)
-NEWSAPI_KEY=your-newsapi-key
-
-# Firecrawl (for web scraping)
-FIRECRAWL_API_KEY=your-firecrawl-key
+# Change database password (recommended for production)
+POSTGRES_PASSWORD=your_secure_db_password
 
 # Change ports if needed
 APP_PORT=8080
 POSTGRES_PORT=5432
 ```
 
+**Note:** API keys (OpenAI, Anthropic, etc.) are configured through the onboarding wizard after first login. You don't need to set them in `.env`!
+
 ### Step 2: Start the Services
 
 ```bash
-# Start AunooAI and PostgreSQL
+# Start AunooAI and PostgreSQL (uses defaults, no .env needed!)
 docker-compose up -d
 
 # Check that services are running
@@ -108,15 +103,19 @@ docker-compose ps
 docker-compose logs -f
 ```
 
+**That's it!** The application is ready to use with default settings.
+
 ### Step 3: Access the Application
 
 Open your browser to: **http://localhost:8080**
 
 **Default login:**
 - Username: `admin`
-- Password: (what you set in `ADMIN_PASSWORD`)
+- Password: `admin123`
 
-**⚠️ Important:** Change your admin password after first login!
+**⚠️ Important:**
+1. Change your admin password after first login!
+2. Configure your API keys through the onboarding wizard (OpenAI, Anthropic, etc.)
 
 ---
 
@@ -127,7 +126,6 @@ Before you start, make sure you have:
 - **Docker Desktop** installed ([Download here](https://www.docker.com/products/docker-desktop))
 - **8GB RAM** minimum (16GB recommended)
 - **10GB disk space** available
-- **OpenAI API key** ([Get one here](https://platform.openai.com/api-keys))
 
 Verify Docker is running:
 ```bash
@@ -135,17 +133,21 @@ docker --version
 # Should show version 20.x or higher
 ```
 
+**Note:** API keys (OpenAI, Anthropic, etc.) will be configured through the web interface after first login!
+
 ---
 
 ## 🔧 Configuration
 
-### Required Configuration
+### Default Configuration (Works Out of the Box!)
 
-| Setting | Description | Where to get it |
-|---------|-------------|-----------------|
-| `POSTGRES_PASSWORD` | Database password | Choose a secure password (min 8 chars) |
-| `OPENAI_API_KEY` | OpenAI API access | https://platform.openai.com/api-keys |
-| `ADMIN_PASSWORD` | Admin user password | Choose a secure password |
+| Setting | Default Value | Description |
+|---------|--------------|-------------|
+| `ADMIN_PASSWORD` | `admin123` | Admin password (change after first login) |
+| `POSTGRES_PASSWORD` | `aunoo_secure_2025` | Database password |
+| `APP_PORT` | `8080` | Application port |
+
+**API keys are configured via the onboarding wizard** - no need to set them in `.env`!
 
 ### Optional Configuration
 
