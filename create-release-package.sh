@@ -22,9 +22,7 @@ cp setup-docker.ps1 "$RELEASE_DIR/"
 cp DOCKER_README.md "$RELEASE_DIR/README.md"
 cp DOCKER_QUICKSTART.md "$RELEASE_DIR/"
 
-# Convert PowerShell script to Windows line endings (CRLF) for compatibility
-echo "Converting PowerShell script to Windows format..."
-unix2dos "$RELEASE_DIR/setup-docker.ps1" 2>/dev/null || sed -i 's/$/\r/' "$RELEASE_DIR/setup-docker.ps1"
+# PowerShell works fine with Unix (LF) line endings, no conversion needed
 
 # Make scripts executable
 chmod +x "$RELEASE_DIR/setup-docker.sh"
