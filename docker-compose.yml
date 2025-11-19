@@ -24,13 +24,7 @@ services:
 
   # AunooAI Community Edition (PostgreSQL Only)
   aunooai:
-    image: aunooai:latest
-    build:
-      context: .
-      args:
-        APP_VERSION: ${APP_VERSION:-community}
-        APP_GIT_BRANCH: ${GIT_BRANCH:-main}
-        APP_BUILD_DATE: ${BUILD_DATE:-unknown}
+    image: aunooai/aunoo-community:latest
     ports:
       - "${APP_PORT:-8080}:${APP_PORT:-8080}"
     volumes:

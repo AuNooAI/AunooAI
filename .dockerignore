@@ -21,6 +21,7 @@ venv.bak/
 .env.local
 .env.*.local
 .env.example
+.env.hub
 
 # Database files
 *.db
@@ -56,8 +57,9 @@ coverage.xml
 *.log
 logs/
 
-# Documentation
+# Documentation (exclude from image to save space)
 *.md
+!README.md
 docs/
 *.rst
 *.txt.bak
@@ -79,13 +81,24 @@ reports/*
 !reports/.gitkeep
 tmp/*
 
-# Static build artifacts that change
-static/trend-convergence/
-static/news-feed-v2/
+# UI/React Development Files
+ui/node_modules/
+ui/build/
+ui/dist/
+ui/.vite/
+ui/.cache/
+ui/.eslintcache
+ui/.parcel-cache/
+
+# Static build artifacts (Docker will build fresh)
+# Keep the directories but not the built assets
+static/trend-convergence/assets/
+static/news-feed-v2/assets/
 
 # Unnecessary for Docker
 docker-compose.override.yml
-.dockerignore
+docker-compose.hub.yml
+DOCKER_HUB_DEPLOYMENT.md
 
 # CI/CD
 .github/
