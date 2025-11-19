@@ -1,16 +1,99 @@
+# Python
 __pycache__
 *.pyc
 *.pyo
 *.pyd
 .Python
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
 env/
 venv/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment files
+.env
+.env.local
+.env.*.local
 .env.example
+
+# Database files
 *.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Git
 .git
 .gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
 .pytest_cache/
 .coverage
 htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Logs
 *.log
-.DS_Store 
+logs/
+
+# Documentation
+*.md
+docs/
+*.rst
+*.txt.bak
+
+# Development files
+Makefile
+.editorconfig
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Data directories (will be mounted as volumes)
+app/data/*
+!app/data/.gitkeep
+reports/*
+!reports/.gitkeep
+tmp/*
+
+# Static build artifacts that change
+static/trend-convergence/
+static/news-feed-v2/
+
+# Unnecessary for Docker
+docker-compose.override.yml
+.dockerignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Misc
+*.bak
+*.tmp
+*.temp
+.cache/
