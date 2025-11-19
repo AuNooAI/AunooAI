@@ -96,38 +96,8 @@ if [ "$SKIP_CONFIG" = false ]; then
     echo ""
 fi
 
-# Choose deployment profile
-echo -e "${BLUE}-----------------------------------------${NC}"
-echo -e "${BLUE}  Deployment Options${NC}"
-echo -e "${BLUE}-----------------------------------------${NC}"
-echo ""
-echo "1. Development (port 6005) - recommended for testing"
-echo "2. Production (port 5008) - for live deployments"
-echo "3. Staging (port 5009) - for pre-production testing"
-echo ""
-read -p "Select deployment type [1]: " DEPLOY_TYPE
-DEPLOY_TYPE=${DEPLOY_TYPE:-1}
-
-case $DEPLOY_TYPE in
-    1)
-        PROFILE=""
-        PORT="6005"
-        ;;
-    2)
-        PROFILE="--profile prod"
-        PORT="5008"
-        ;;
-    3)
-        PROFILE="--profile staging"
-        PORT="5009"
-        ;;
-    *)
-        echo -e "${RED}Invalid selection, using development${NC}"
-        PROFILE=""
-        PORT="6005"
-        ;;
-esac
-echo ""
+# Docker Hub deployment uses default port 8080
+PORT="8080"
 
 # Pull images
 echo -e "${BLUE}-----------------------------------------${NC}"
@@ -146,7 +116,7 @@ echo -e "${BLUE}  Starting Services${NC}"
 echo -e "${BLUE}-----------------------------------------${NC}"
 echo ""
 
-$DOCKER_COMPOSE -f "$COMPOSE_FILE" $PROFILE up -d
+$DOCKER_COMPOSE -f "$COMPOSE_FILE" up -d
 
 echo ""
 echo "Waiting for services to be healthy..."

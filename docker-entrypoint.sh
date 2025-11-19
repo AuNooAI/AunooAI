@@ -112,7 +112,7 @@ echo "✅ Database migrations completed successfully"
 
 # Initialize media bias data
 echo "Initializing media bias data..."
-if python scripts/init_media_bias.py; then
+if PYTHONPATH=/app python scripts/init_media_bias.py; then
   echo "✅ Media bias data initialized"
 else
   echo "⚠️  Media bias initialization failed (non-fatal)"

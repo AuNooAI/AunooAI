@@ -97,43 +97,8 @@ if (-not $SkipConfig) {
     Write-Host ""
 }
 
-# Choose deployment profile
-Write-Host ""
-Write-Host -ForegroundColor Blue "-----------------------------------------"
-Write-Host -ForegroundColor Blue "  Deployment Options"
-Write-Host -ForegroundColor Blue "-----------------------------------------"
-Write-Host ""
-Write-Host "1. Development (port 6005) - recommended for testing"
-Write-Host "2. Production (port 5008) - for live deployments"
-Write-Host "3. Staging (port 5009) - for pre-production testing"
-Write-Host ""
-$DeployType = Read-Host "Select deployment type [1]"
-if ([string]::IsNullOrEmpty($DeployType)) { $DeployType = "1" }
-
-switch ($DeployType) {
-    "1" {
-        $Profile = ""
-        $Port = "6005"
-        $EnvType = "development"
-    }
-    "2" {
-        $Profile = "--profile prod"
-        $Port = "5008"
-        $EnvType = "production"
-    }
-    "3" {
-        $Profile = "--profile staging"
-        $Port = "5009"
-        $EnvType = "staging"
-    }
-    default {
-        Write-Host -ForegroundColor Red "Invalid selection, using development"
-        $Profile = ""
-        $Port = "6005"
-        $EnvType = "development"
-    }
-}
-Write-Host ""
+# Docker Hub deployment uses default port 8080
+$Port = "8080"
 
 # Build or pull images
 Write-Host ""
@@ -160,11 +125,7 @@ Write-Host -ForegroundColor Blue "  Starting Services"
 Write-Host -ForegroundColor Blue "-----------------------------------------"
 Write-Host ""
 
-if ($Profile) {
-    docker-compose -f $ComposeFile $Profile.Split() up -d
-} else {
-    docker-compose -f $ComposeFile up -d
-}
+docker-compose -f $ComposeFile up -d
 
 Write-Host ""
 Write-Host "Waiting for services to be healthy..."
