@@ -30,6 +30,8 @@ services:
     volumes:
       - aunooai_data:/app/app/data
       - aunooai_reports:/app/reports
+      - aunooai_env:/app/.env_volume
+      - aunooai_config:/app/app/config
     environment:
       # Application Settings
       - PORT=${APP_PORT:-8080}
@@ -73,6 +75,8 @@ volumes:
   postgres_data:
   aunooai_data:
   aunooai_reports:
+  aunooai_env:
+  aunooai_config:
 
 networks:
   aunooai:

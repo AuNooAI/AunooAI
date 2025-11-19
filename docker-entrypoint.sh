@@ -1,25 +1,30 @@
 #!/bin/bash
 set -e
 
-# Create instance directory
-mkdir -p /app/app/data/${INSTANCE}
+echo "Starting Aunoo AI application..."
+echo "Instance: ${INSTANCE:-unknown}"
+echo "Environment: ${ENVIRONMENT:-unknown}"
+echo "Port: ${PORT:-5000}"
+echo "Database Type: ${DB_TYPE:-postgresql}"
 
-# Setup .env file
-if [ ! -f /app/app/data/${INSTANCE}/.env ]; then
-  echo "Creating new .env file for instance: ${INSTANCE}"
-  touch /app/app/data/${INSTANCE}/.env
-  chmod 666 /app/app/data/${INSTANCE}/.env
-
-  # Set default environment variables
-  cat > /app/app/data/${INSTANCE}/.env <<EOF
-PORT=${PORT:-10000}
-ENVIRONMENT=${ENVIRONMENT:-development}
-DISABLE_SSL=true
-EOF
+# Set up persistent .env file using volume
+if [ ! -f "/app/.env_volume/.env" ]; then
+    echo "Initializing .env file in volume..."
+    # Create initial .env from template if it exists, or create empty
+    if [ -f "/app/.env.template" ]; then
+        cp /app/.env.template /app/.env_volume/.env
+        echo "Copied .env.template to persistent volume"
+    else
+        touch /app/.env_volume/.env
+        echo "Created empty .env in persistent volume"
+    fi
+    chmod 666 /app/.env_volume/.env
 fi
 
-# Link .env file
-ln -sf /app/app/data/${INSTANCE}/.env /app/.env
+# Create symlink from /app/.env to volume
+rm -f /app/.env
+ln -sf /app/.env_volume/.env /app/.env
+echo ".env file linked to persistent volume"
 
 # Community Edition: PostgreSQL Only
 # SQLite is not supported in containerized deployments
@@ -104,23 +109,41 @@ else
   echo "⚠️  Media bias initialization failed (non-fatal)"
 fi
 
-# Display startup info
-echo "================================================"
-echo "AunooAI Server Starting"
-echo "================================================"
-echo "Instance:    ${INSTANCE}"
-echo "Port:        ${PORT}"
-echo "Database:    ${DB_TYPE:-sqlite}"
-if [ "$DB_TYPE" = "postgresql" ]; then
-  echo "DB Host:     ${DB_HOST}:${DB_PORT}"
-  echo "DB Name:     ${DB_NAME}"
-  echo "Pool Size:   ${DB_POOL_SIZE:-20}"
+# Update admin password from environment variable
+if [ -n "$ADMIN_PASSWORD" ]; then
+    echo "Setting up admin user with password from ADMIN_PASSWORD..."
+    python3 /app/app/utils/update_admin.py || echo "Warning: Admin password setup failed"
 fi
-echo "Environment: ${ENVIRONMENT:-development}"
-echo "Version:     ${APP_VERSION}"
-echo "Branch:      ${APP_GIT_BRANCH}"
-echo "Build Date:  ${APP_BUILD_DATE}"
-echo "================================================"
+
+# Create necessary directories if they don't exist
+mkdir -p /app/app/data
+mkdir -p /app/reports
+mkdir -p /app/static/audio
+mkdir -p /app/tmp/aunoo_audio
+
+# Set permissions
+chmod -R 777 /app/app/data /app/reports /app/static/audio /app/tmp 2>/dev/null || true
+
+# Display startup info
+echo ""
+echo "========================================================================"
+echo "  🚀 AunooAI Container Ready"
+echo "========================================================================"
+echo "  Instance:     ${INSTANCE}"
+echo "  Port:         ${PORT}"
+echo "  Database:     ${DB_TYPE}"
+if [ "$DB_TYPE" = "postgresql" ]; then
+  echo "  DB Host:      ${DB_HOST}:${DB_PORT}"
+  echo "  DB Name:      ${DB_NAME}"
+fi
+echo ""
+echo "  🔐 DEFAULT LOGIN CREDENTIALS:"
+echo "     Username: admin"
+echo "     Password: ${ADMIN_PASSWORD:-admin123}"
+echo ""
+echo "  ⚠️  IMPORTANT: Change the admin password after first login!"
+echo "========================================================================"
+echo ""
 
 # Start application
 exec python app/run.py
