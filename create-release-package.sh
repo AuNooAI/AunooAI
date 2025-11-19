@@ -15,7 +15,7 @@ mkdir -p "$RELEASE_DIR"
 
 # Copy deployment files
 echo "Copying deployment files..."
-cp docker-compose.yml "$RELEASE_DIR/"
+cp docker-compose.yml "$RELEASE_DIR/docker-compose.hub.yml"
 cp .env.hub "$RELEASE_DIR/"
 cp setup-docker.sh "$RELEASE_DIR/"
 cp setup-docker.ps1 "$RELEASE_DIR/"
