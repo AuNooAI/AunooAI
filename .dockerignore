@@ -77,6 +77,7 @@ dist/
 # Data directories (will be mounted as volumes)
 app/data/*
 !app/data/.gitkeep
+!app/data/mbfc_raw.csv
 reports/*
 !reports/.gitkeep
 tmp/*
