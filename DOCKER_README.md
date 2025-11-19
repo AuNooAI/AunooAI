@@ -34,7 +34,7 @@ Run AunooAI with Docker in under 5 minutes!
    - Optionally add other API keys (Anthropic, NewsAPI, etc.)
 
 3. **Access your instance:**
-   - Open browser to: **http://localhost:8080**
+   - Open browser to: **http://localhost:10001**
    - Username: `admin`
    - Password: (the one you set)
 
@@ -70,7 +70,7 @@ Run AunooAI with Docker in under 5 minutes!
    - Optionally add other API keys
 
 3. **Access your instance:**
-   - Open browser to: **http://localhost:8080**
+   - Open browser to: **http://localhost:10001**
    - Username: `admin`
    - Password: (the one you set)
 
@@ -96,7 +96,7 @@ nano .env  # or use your preferred editor
 - Admin username: `admin`
 - Admin password: `admin123` (change after first login!)
 - PostgreSQL password: `aunoo_secure_2025`
-- Port: `8080`
+- Port: `10001`
 
 **Optional customizations:**
 ```bash
@@ -107,7 +107,7 @@ ADMIN_PASSWORD=your_secure_password
 POSTGRES_PASSWORD=your_secure_db_password
 
 # Change ports if needed
-APP_PORT=8080
+APP_PORT=10001
 POSTGRES_PORT=5432
 ```
 
@@ -130,7 +130,7 @@ docker-compose logs -f
 
 ### Step 3: Access the Application
 
-Open your browser to: **http://localhost:8080**
+Open your browser to: **http://localhost:10001**
 
 **Default login:**
 - Username: `admin`
@@ -168,7 +168,7 @@ docker --version
 |---------|--------------|-------------|
 | `ADMIN_PASSWORD` | `admin123` | Admin password (change after first login) |
 | `POSTGRES_PASSWORD` | `aunoo_secure_2025` | Database password |
-| `APP_PORT` | `8080` | Application port |
+| `APP_PORT` | `10001` | Application port |
 
 **API keys are configured via the onboarding wizard** - no need to set them in `.env`!
 
@@ -188,7 +188,7 @@ If the default ports are already in use on your system:
 
 ```bash
 # In .env file, change:
-APP_PORT=8080        # Change to any available port (e.g., 9000)
+APP_PORT=10001        # Change to any available port (e.g., 9000)
 POSTGRES_PORT=5432   # Change if PostgreSQL is already running (e.g., 5433)
 ```
 
@@ -236,7 +236,7 @@ docker-compose logs -f postgres
 
 ```bash
 # Health check endpoint
-curl http://localhost:8080/health
+curl http://localhost:10001/health
 
 # Should return: {"status": "ok"}
 ```
@@ -319,7 +319,7 @@ docker-compose logs -f aunooai
 - Missing API keys → Check `.env` file has `OPENAI_API_KEY` set
 - Port conflict → Change `APP_PORT` in `.env` to different port
 
-### Can't Access http://localhost:8080
+### Can't Access http://localhost:10001
 
 **Verify containers are running:**
 ```bash
@@ -331,7 +331,7 @@ docker-compose ps
 docker-compose ps aunooai
 ```
 
-Look for the port mapping (e.g., `0.0.0.0:8080->8080/tcp`)
+Look for the port mapping (e.g., `0.0.0.0:10001->10001/tcp`)
 
 **Try accessing by IP:**
 ```bash
@@ -339,7 +339,7 @@ Look for the port mapping (e.g., `0.0.0.0:8080->8080/tcp`)
 docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(docker-compose ps -q aunooai)
 
 # Access directly
-curl http://<container-ip>:8080/health
+curl http://<container-ip>:10001/health
 ```
 
 ### Database Connection Failed
@@ -443,7 +443,7 @@ server {
     server_name aunoo.example.com;
 
     location / {
-        proxy_pass http://localhost:8080;
+        proxy_pass http://localhost:10001;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -471,7 +471,7 @@ sudo certbot --nginx -d aunoo.example.com
 ## 📚 Additional Resources
 
 - **Full Documentation:** See main README.md
-- **API Documentation:** http://localhost:8080/docs (after starting)
+- **API Documentation:** http://localhost:10001/docs (after starting)
 - **GitHub Repository:** https://github.com/orochford/AunooAI
 - **Docker Hub:** https://hub.docker.com/r/aunooai/aunoo-community
 
@@ -490,7 +490,7 @@ sudo certbot --nginx -d aunoo.example.com
 
 - **GitHub Issues:** https://github.com/orochford/AunooAI/issues
 - **Documentation:** Check this file and DOCKER_QUICKSTART.md
-- **Health Check:** http://localhost:8080/health
+- **Health Check:** http://localhost:10001/health
 
 ---
 
@@ -500,7 +500,7 @@ After your AunooAI instance is running:
 
 1. **Change your admin password** (Settings → Account)
 2. **Configure additional API keys** (Settings → API Keys)
-3. **Try the Trend Convergence dashboard** (http://localhost:8080/trend-convergence)
+3. **Try the Trend Convergence dashboard** (http://localhost:10001/trend-convergence)
 4. **Add keywords to monitor** (Keywords page)
 5. **Analyze your first article** (Paste URL or text)
 

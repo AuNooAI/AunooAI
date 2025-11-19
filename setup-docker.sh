@@ -96,8 +96,8 @@ if [ "$SKIP_CONFIG" = false ]; then
     echo ""
 fi
 
-# Docker Hub deployment uses default port 8080
-PORT="8080"
+# Docker Hub deployment uses default port 10001
+PORT="10001"
 
 # Pull images
 echo -e "${BLUE}-----------------------------------------${NC}"

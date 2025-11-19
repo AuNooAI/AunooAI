@@ -109,7 +109,7 @@ Look for **"Up (healthy)"** status.
 
 ### Login & Configure
 
-Open browser: **http://localhost:8080**
+Open browser: **http://localhost:10001**
 
 **Login:**
 - Username: `admin`
@@ -127,7 +127,7 @@ Open browser: **http://localhost:8080**
 
 Your Aunoo AI instance is now running at:
 ```
-http://localhost:8080
+http://localhost:10001
 ```
 
 ### What's Next?
@@ -141,7 +141,7 @@ http://localhost:8080
 
 ## Something Not Working?
 
-### Can't access http://localhost:8080?
+### Can't access http://localhost:10001?
 
 **Check containers are running:**
 ```bash
@@ -159,7 +159,7 @@ docker-compose logs -f
 
 ### Login not working?
 
-- Use port **8080**
+- Use port **10001**
 - Username: `admin` (lowercase)
 - Password: (the one you set in ADMIN_PASSWORD)
 

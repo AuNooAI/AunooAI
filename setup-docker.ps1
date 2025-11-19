@@ -97,8 +97,8 @@ if (-not $SkipConfig) {
     Write-Host ""
 }
 
-# Docker Hub deployment uses default port 8080
-$Port = "8080"
+# Docker Hub deployment uses default port 10001
+$Port = "10001"
 
 # Build or pull images
 Write-Host ""
