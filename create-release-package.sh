@@ -19,6 +19,7 @@ cp docker-compose.yml "$RELEASE_DIR/docker-compose.hub.yml"
 cp .env.hub "$RELEASE_DIR/"
 cp setup-docker.sh "$RELEASE_DIR/"
 cp setup-docker.ps1 "$RELEASE_DIR/"
+cp INSTALL.md "$RELEASE_DIR/"
 cp DOCKER_README.md "$RELEASE_DIR/README.md"
 cp DOCKER_QUICKSTART.md "$RELEASE_DIR/"
 
@@ -44,17 +45,20 @@ Linux/Mac Users:
 3. Follow the wizard prompts
 
 Manual Setup (No Wizard):
-1. Run: docker-compose up -d
-2. Open browser to: http://localhost:8080
+1. Run: docker-compose -f docker-compose.hub.yml up -d
+2. Open browser to: http://localhost:10001
 3. Login: admin / admin123
 4. Configure API keys in onboarding wizard
 
-For full documentation, see README.md
+Documentation:
+- INSTALL.md - Quick installation guide
+- README.md - Full documentation
+- DOCKER_QUICKSTART.md - Quick reference
 
 Default Settings:
 - Admin: admin / admin123
 - PostgreSQL password: aunoo_secure_2025
-- Port: 8080
+- Port: 10001
 
 IMPORTANT: Change admin password after first login!
 EOF
