@@ -80,6 +80,7 @@ RUN mkdir -p \
 
 # Copy application code (use .dockerignore to exclude unnecessary files)
 COPY app/ app/
+COPY config.docker.json app/data/config.json
 COPY templates/ templates/
 COPY static/ static/
 COPY scripts/ scripts/

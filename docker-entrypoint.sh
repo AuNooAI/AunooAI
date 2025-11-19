@@ -42,6 +42,15 @@ fi
 
 echo "Configuring PostgreSQL database..."
 
+# Create config.json if it doesn't exist (required by database.py)
+if [ ! -f "/app/app/data/config.json" ]; then
+    echo "Creating default config.json..."
+    mkdir -p /app/app/data
+    echo '{"active_database": "postgresql"}' > /app/app/data/config.json
+    chmod 666 /app/app/data/config.json
+    echo "Created config.json with PostgreSQL as active database"
+fi
+
 # Remove old DB config lines
 sed -i "/^DB_TYPE=/d" /app/.env
 sed -i "/^DB_HOST=/d" /app/.env
