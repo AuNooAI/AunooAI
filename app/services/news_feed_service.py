@@ -86,30 +86,34 @@ class NewsFeedService:
             end_date = now
             date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
         elif date_range == '7d':
+            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=7)
             end_date = now
-            date_params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
         elif date_range == '30d':
+            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=30)
             end_date = now
-            date_params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
         elif date_range == '3m':
+            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=90)
             end_date = now
-            date_params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
         elif date_range == '1y':
+            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=365)
             end_date = now
-            date_params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
         elif date_range == 'all':
             date_params = []
             start_date = None
             end_date = now
         else:
-            # Default to last 24 hours
+            # Default to last 24 hours - use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=1)
             end_date = now
-            date_params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
 
         logger.info(f"Getting articles for date range: {start_date.isoformat() if start_date else 'all time'} to {end_date.isoformat()}")
 
@@ -197,28 +201,32 @@ class NewsFeedService:
             end_date = now
             date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
         elif date_range == '7d':
+            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=7)
             end_date = now
-            date_params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
         elif date_range == '30d':
+            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=30)
             end_date = now
-            date_params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
         elif date_range == '3m':
+            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=90)
             end_date = now
-            date_params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
         elif date_range == '1y':
+            # Use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=365)
             end_date = now
-            date_params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
         elif date_range == 'all':
             date_params = []
         else:
-            # Default to last 24 hours
+            # Default to last 24 hours - use date-only comparison since publication_date is stored as TEXT 'YYYY-MM-DD'
             start_date = now - timedelta(days=1)
             end_date = now
-            date_params = [start_date.isoformat(), end_date.isoformat()]
+            date_params = [start_date.strftime('%Y-%m-%d'), end_date.strftime('%Y-%m-%d')]
 
         try:
             # Use database_query_facade method for PostgreSQL compatibility

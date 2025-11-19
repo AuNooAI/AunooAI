@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # PostgreSQL Database Service with pgvector extension
   postgres:
-    image: ankane/pgvector:v0.6.0
+    image: pgvector/pgvector:pg17
     restart: unless-stopped
     environment:
       POSTGRES_USER: aunoo_user
@@ -13,7 +13,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U aunoo_user -d aunoo_db"]
       interval: 10s
