@@ -802,6 +802,10 @@
                     if (data.notifications && data.notifications.length > 0) {
                         content.innerHTML = data.notifications.map(notif => {
                             const date = new Date(notif.created_at);
+                            // Validate date parsing
+                            if (isNaN(date.getTime())) {
+                                console.error('Invalid date for notification:', notif.id, 'created_at:', notif.created_at);
+                            }
                             const timeAgo = getTimeAgo(date);
                             const unreadClass = notif.read ? '' : 'unread';
 

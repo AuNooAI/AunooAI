@@ -52,7 +52,10 @@ from app.database_models import (t_keyword_monitor_settings as keyword_monitor_s
                                  t_auspex_prompts as auspex_prompts,
                                  t_dashboard_cache as dashboard_cache,
                                  # t_keyword_monitor_checks as keyword_monitor_checks,  # Table doesn't exist
-                                 t_raw_articles as raw_articles)
+                                 t_raw_articles as raw_articles,
+                                 t_llm_retry_state as llm_retry_state,
+                                 t_llm_processing_errors as llm_processing_errors,
+                                 t_processing_jobs as processing_jobs)
                                  # t_paper_search_results as paper_search_results,  # Table doesn't exist
                                  # t_news_search_results as news_search_results,  # Table doesn't exist
                              # t_keyword_alert_articles as keyword_alert_articles)  # Table doesn't exist
@@ -303,7 +306,9 @@ class DatabaseQueryFacade:
                 monitored_keywords.c.id,
                 monitored_keywords.c.keyword,
                 monitored_keywords.c.last_checked,
-                keyword_groups.c.topic
+                monitored_keywords.c.group_id,
+                keyword_groups.c.topic,
+                keyword_groups.c.name.label('group_name')
             ).select_from(
                 monitored_keywords
                 .join(keyword_groups, monitored_keywords.c.group_id == keyword_groups.c.id)
@@ -1002,15 +1007,17 @@ class DatabaseQueryFacade:
         return self._execute_with_rollback(statement).mappings().fetchall()
 
     def get_articles_by_topic(self, topic: str, limit: int = 100):
-        """Get recent articles for a topic.
+        """Get recent articles for a topic, including raw markdown content.
 
         Args:
             topic: Topic name
             limit: Maximum number of articles to return
 
         Returns:
-            List of article dictionaries
+            List of article dictionaries with raw_markdown field
         """
+        from app.database_models import t_raw_articles
+
         statement = select(
             articles.c.uri,
             articles.c.title,
@@ -1021,7 +1028,13 @@ class DatabaseQueryFacade:
             articles.c.driver_type,
             articles.c.category,
             articles.c.publication_date,
-            articles.c.news_source
+            articles.c.news_source,
+            t_raw_articles.c.raw_markdown
+        ).select_from(
+            articles.outerjoin(
+                t_raw_articles,
+                articles.c.uri == t_raw_articles.c.uri
+            )
         ).where(
             and_(
                 articles.c.topic == topic,
@@ -3347,6 +3360,19 @@ class DatabaseQueryFacade:
 
         return self._execute_with_rollback(statement).fetchone()
 
+    def get_keyword_group_by_id(self, group_id):
+        """Get keyword group details by ID"""
+        statement = select(
+            keyword_groups.c.id,
+            keyword_groups.c.name,
+            keyword_groups.c.topic
+        ).where(
+            keyword_groups.c.id == group_id
+        )
+
+        result = self._execute_with_rollback(statement).mappings().fetchone()
+        return dict(result) if result else None
+
     def toggle_polling(self, toggle):
         statement = select(
             keyword_monitor_settings.c.id
@@ -4838,21 +4864,11 @@ class DatabaseQueryFacade:
 
         # Add topic filter if specified
         if topic:
-            # Handle comma-separated multiple topics
-            topics = [t.strip() for t in topic.split(',') if t.strip()]
-
-            if len(topics) == 1:
-                # Single topic - use existing logic
-                topic_pattern = f"%{topics[0]}%"
-                where_conditions.append(
-                    or_(
-                        articles.c.topic == topics[0],
-                        articles.c.title.like(topic_pattern),
-                        articles.c.summary.like(topic_pattern)
-                    )
-                )
-            elif len(topics) > 1:
-                # Multiple topics - create OR condition for each topic
+            # IMPORTANT: Topic names can contain commas (e.g., "Religion, Magic and Occultism")
+            # Only split on " | " delimiter for multiple topics, NOT on commas
+            if ' | ' in topic:
+                # Multiple topics separated by " | "
+                topics = [t.strip() for t in topic.split(' | ') if t.strip()]
                 topic_conditions = []
                 for t in topics:
                     topic_pattern = f"%{t}%"
@@ -4865,6 +4881,16 @@ class DatabaseQueryFacade:
                     )
                 # Combine all topic conditions with OR
                 where_conditions.append(or_(*topic_conditions))
+            else:
+                # Single topic - treat entire string as one topic
+                topic_pattern = f"%{topic}%"
+                where_conditions.append(
+                    or_(
+                        articles.c.topic == topic,
+                        articles.c.title.like(topic_pattern),
+                        articles.c.summary.like(topic_pattern)
+                    )
+                )
 
         # Add spam/promotional content filters
         where_conditions.extend([
@@ -5958,7 +5984,7 @@ class DatabaseQueryFacade:
         """Get first user who has a Six Articles configuration saved"""
         try:
             query = text("""
-                SELECT DISTINCT u.username, u.id
+                SELECT DISTINCT u.username
                 FROM users u
                 INNER JOIN user_preferences up ON u.username = up.username
                 WHERE up.preference_key = 'six_articles_config'
@@ -5970,8 +5996,7 @@ class DatabaseQueryFacade:
             if result:
                 return {
                     'username': result[0],
-                    'id': result[1],
-                    'user_id': result[1]
+                    'user_id': result[0]  # username is the user_id in this schema
                 }
 
             return None
@@ -6747,7 +6772,19 @@ class DatabaseQueryFacade:
         ).limit(limit)
 
         result = self._execute_with_rollback(statement)
-        return [dict(row._mapping) for row in result]
+        notifications = []
+        for row in result:
+            notif = dict(row._mapping)
+            # Ensure created_at is serialized as ISO format with timezone
+            if 'created_at' in notif and notif['created_at']:
+                from datetime import timezone
+                dt = notif['created_at']
+                # If datetime is naive (no timezone), assume it's in UTC and add timezone info
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                notif['created_at'] = dt.isoformat()
+            notifications.append(notif)
+        return notifications
 
     def get_unread_count(self, username: str) -> int:
         """Get count of unread notifications for a user.
@@ -6862,7 +6899,10 @@ class DatabaseQueryFacade:
 
         statement = delete(t_notifications).where(
             and_(
-                t_notifications.c.username == username,
+                or_(
+                    t_notifications.c.username == username,
+                    t_notifications.c.username.is_(None)
+                ),
                 t_notifications.c.read == True
             )
         )
@@ -6894,6 +6934,72 @@ class DatabaseQueryFacade:
         count = result.rowcount
         self.logger.info(f"Deleted {count} notifications older than {days} days")
         return count
+
+    # =============================================================================
+    # Background Tasks - Database persistence for task tracking
+    # =============================================================================
+
+    def save_background_task(self, task_id: str, name: str, status: str, created_at, started_at,
+                            completed_at, progress: float, total_items: int, processed_items: int,
+                            current_item: str, result: str, error: str, metadata: str):
+        """Save or update a background task in the database"""
+        from sqlalchemy import text
+
+        query = text("""
+            INSERT INTO background_tasks (
+                id, name, status, created_at, started_at, completed_at,
+                progress, total_items, processed_items, current_item,
+                result, error, metadata
+            ) VALUES (
+                :id, :name, :status, :created_at, :started_at, :completed_at,
+                :progress, :total_items, :processed_items, :current_item,
+                :result, :error, :metadata
+            )
+            ON CONFLICT (id) DO UPDATE SET
+                name = EXCLUDED.name,
+                status = EXCLUDED.status,
+                started_at = EXCLUDED.started_at,
+                completed_at = EXCLUDED.completed_at,
+                progress = EXCLUDED.progress,
+                total_items = EXCLUDED.total_items,
+                processed_items = EXCLUDED.processed_items,
+                current_item = EXCLUDED.current_item,
+                result = EXCLUDED.result,
+                error = EXCLUDED.error,
+                metadata = EXCLUDED.metadata
+        """)
+
+        self._execute_with_rollback(query, {
+            'id': task_id,
+            'name': name,
+            'status': status,
+            'created_at': created_at,
+            'started_at': started_at,
+            'completed_at': completed_at,
+            'progress': progress,
+            'total_items': total_items,
+            'processed_items': processed_items,
+            'current_item': current_item,
+            'result': result,
+            'error': error,
+            'metadata': metadata
+        })
+        self.connection.commit()
+
+    def get_background_task(self, task_id: str):
+        """Retrieve a background task from the database"""
+        from sqlalchemy import text
+
+        query = text("""
+            SELECT id, name, status, created_at, started_at, completed_at,
+                   progress, total_items, processed_items, current_item,
+                   result, error, metadata
+            FROM background_tasks
+            WHERE id = :task_id
+        """)
+
+        result = self._execute_with_rollback(query, {'task_id': task_id})
+        return result.fetchone()
 
     # =============================================================================
     # Trend Convergence Dashboard Reference Articles
@@ -7656,3 +7762,216 @@ class DatabaseQueryFacade:
                 'total_articles': 0,
                 'last_activity': None
             }
+
+    # ============================================================================
+    # LLM Error Handling and Circuit Breaker Methods
+    # ============================================================================
+
+    def log_llm_processing_error(self, params: dict) -> Optional[int]:
+        """
+        Log LLM processing errors to database for monitoring and debugging.
+
+        Args:
+            params: dict containing:
+                - article_id: ID of article being processed (optional)
+                - error_type: Exception class name (e.g., "RateLimitError")
+                - error_message: Error message string
+                - severity: Error severity ("fatal", "recoverable", "skippable", "degraded")
+                - model_name: LLM model that generated the error
+                - retry_count: Number of retry attempts made
+                - will_retry: Boolean indicating if retry will be attempted
+                - context: dict with additional context (will be converted to JSON)
+                - timestamp: datetime object or ISO format timestamp string
+
+        Returns:
+            int: The ID of the inserted error log, or None if logging failed
+        """
+        # Validate required fields
+        required_fields = ['error_type', 'error_message', 'severity', 'model_name', 'timestamp']
+        missing_fields = [f for f in required_fields if f not in params]
+        if missing_fields:
+            self.logger.error(f"Missing required fields for error logging: {missing_fields}")
+            return None
+
+        try:
+            # Build insert values
+            insert_values = {
+                'article_id': params.get('article_id'),
+                'error_type': params['error_type'],
+                'error_message': params['error_message'],
+                'severity': params['severity'],
+                'model_name': params['model_name'],
+                'retry_count': params.get('retry_count', 0),
+                'will_retry': params.get('will_retry', False),
+                'context': params.get('context', {}),
+                'timestamp': params['timestamp']
+            }
+
+            # Insert error log and get ID
+            statement = insert(llm_processing_errors).values(**insert_values).returning(llm_processing_errors.c.id)
+            result = self._execute_with_rollback(statement)
+            row = result.fetchone()
+
+            if row:
+                return row[0]
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Failed to log LLM processing error: {e}")
+            return None
+
+    def update_article_llm_status(self, params: dict) -> bool:
+        """
+        Update article status when LLM processing completes or fails.
+
+        Args:
+            params: dict containing:
+                - article_id: ID of article (required)
+                - llm_status: Status string ("processing", "completed", "error", "skipped") (required)
+                - error_type: Error type if status is "error" (optional)
+                - error_message: Error message if status is "error" (optional)
+                - processing_metadata: dict with processing details (optional)
+
+        Returns:
+            bool: True if update successful, False otherwise
+        """
+        # Validate required fields
+        if 'article_id' not in params or 'llm_status' not in params:
+            self.logger.error("Missing required fields: article_id and llm_status are required")
+            return False
+
+        # Validate status value
+        valid_statuses = ['processing', 'completed', 'error', 'skipped']
+        if params['llm_status'] not in valid_statuses:
+            self.logger.error(f"Invalid llm_status: {params['llm_status']}. Must be one of {valid_statuses}")
+            return False
+
+        try:
+            # Build update values
+            update_values = {
+                'llm_status': params['llm_status'],
+                'llm_status_updated_at': datetime.utcnow()
+            }
+
+            if 'error_type' in params and params['error_type']:
+                update_values['llm_error_type'] = params['error_type']
+
+            if 'error_message' in params and params['error_message']:
+                update_values['llm_error_message'] = params['error_message']
+
+            if 'processing_metadata' in params and params['processing_metadata']:
+                update_values['llm_processing_metadata'] = params['processing_metadata']
+
+            # Execute update
+            statement = update(articles).where(
+                articles.c.id == params['article_id']
+            ).values(**update_values)
+
+            self._execute_with_rollback(statement)
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to update article LLM status: {e}")
+            return False
+
+    def get_llm_retry_state(self, model_name: str) -> Optional[dict]:
+        """
+        Get current retry/failure state for a model.
+
+        Args:
+            model_name: Name of the LLM model
+
+        Returns:
+            dict: Retry state data, or None if no state exists
+        """
+        try:
+            statement = select(llm_retry_state).where(
+                llm_retry_state.c.model_name == model_name
+            )
+
+            result = self._execute_with_rollback(statement)
+            row = result.fetchone()
+
+            if row:
+                return dict(row._mapping)
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Failed to get LLM retry state for {model_name}: {e}")
+            return None
+
+    def update_llm_retry_state(self, params: dict) -> bool:
+        """
+        Update retry/failure state for a model (for circuit breaker pattern).
+
+        Args:
+            params: dict with keys:
+                - model_name: str (required)
+                - consecutive_failures: int (optional)
+                - last_failure_time: datetime (optional)
+                - last_success_time: datetime (optional)
+                - circuit_state: str ('closed', 'open', 'half_open') (optional)
+                - circuit_opened_at: datetime (optional)
+                - failure_rate: float (optional)
+                - metadata: dict (optional)
+
+        Returns:
+            bool: True if update successful, False otherwise
+        """
+        if 'model_name' not in params:
+            self.logger.error("model_name is required for update_llm_retry_state")
+            return False
+
+        try:
+            # Check if state exists first
+            existing = self.get_llm_retry_state(params['model_name'])
+
+            # Build update values
+            update_values = {
+                'last_updated': datetime.utcnow()
+            }
+
+            # Add optional fields if provided
+            optional_fields = [
+                'consecutive_failures', 'last_failure_time', 'last_success_time',
+                'circuit_state', 'circuit_opened_at', 'failure_rate', 'metadata'
+            ]
+            for field in optional_fields:
+                if field in params:
+                    update_values[field] = params[field]
+
+            if existing:
+                # Update existing record
+                statement = update(llm_retry_state).where(
+                    llm_retry_state.c.model_name == params['model_name']
+                ).values(**update_values)
+            else:
+                # Insert new record
+                update_values['model_name'] = params['model_name']
+                statement = insert(llm_retry_state).values(**update_values)
+
+            self._execute_with_rollback(statement)
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to update LLM retry state: {e}")
+            return False
+
+    def reset_llm_retry_state(self, model_name: str) -> bool:
+        """
+        Reset retry state for a model (after successful recovery).
+
+        Args:
+            model_name: Name of the LLM model
+
+        Returns:
+            bool: True if reset successful, False otherwise
+        """
+        return self.update_llm_retry_state({
+            'model_name': model_name,
+            'consecutive_failures': 0,
+            'last_success_time': datetime.utcnow(),
+            'circuit_state': 'closed',
+            'circuit_opened_at': None,
+            'failure_rate': 0.0
+        })

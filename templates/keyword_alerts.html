@@ -2625,14 +2625,13 @@ input[type="checkbox"]:checked + .detoxify-btn:hover {
                                     </td>
                                     <td>
                                         <div class="d-flex align-items-center flex-wrap gap-1">
-                                            <!-- DEBUG: alert_id={{ alert.id }}, category={{ alert.article.get('category', 'MISSING') }}, has_key={{ 'category' in alert.article }} -->
-                                            {% set has_enrichment = alert.article.get('category', '')|trim %}
-                                            {% if has_enrichment %}
-                                            <span class="badge bg-success" title="Article has been analyzed">
+                                            <!-- Added badge: Only show for articles that passed threshold and were fully enriched -->
+                                            {% if alert.article.ingest_status == 'approved' %}
+                                            <span class="badge bg-success" title="Article passed relevance threshold and was fully enriched">
                                                 <i class="fas fa-check-circle me-1"></i>Added
                                             </span>
                                             {% else %}
-                                            <span class="badge bg-new" title="Article needs analysis">
+                                            <span class="badge bg-new" title="Article needs processing or was filtered out">
                                                 <i class="fas fa-plus-circle me-1"></i>New
                                             </span>
                                             {% endif %}
@@ -4629,7 +4628,7 @@ async function checkKeywords(event) {
             button.innerHTML = originalHtml;
 
             // Show progress modal with task ID for cancellation
-            showProgressModal('Keyword Check', `Checking keywords across ${result.total_keywords || 'all'} groups`, result.task_id);
+            showProgressModal('Keyword Check', `Checking ${result.total_keywords || 'all'} keywords`, result.task_id);
 
             // Add timeout protection for stuck tasks
             const taskTimeout = setTimeout(() => {

@@ -182,6 +182,111 @@
         "Terminator",
         "Unknown"
       ]
+    },
+    {
+      "name": "Peak Oil",
+      "description": "How close are we to Peak Oil?",
+      "categories": [
+        "Global Oil Production Trends",
+        "Oil Reserves and Discoveries",
+        "Alternative Energy Impact",
+        "Geopolitical Influences on Oil",
+        "Economic Effects of Peak Oil",
+        "Technological Advances in Oil Extraction",
+        "Environmental Impact of Oil Production",
+        "Energy Policy and Regulation",
+        "Oil Demand and Consumption Patterns",
+        "Oil Market Dynamics",
+        "Oil Price Volatility",
+        "Oil Supply Chain and Infrastructure",
+        "Renewable Energy Transition",
+        "Fossil Fuel Subsidies",
+        "Energy Security",
+        "Climate Change and Fossil Fuels",
+        "Oil Industry Investments",
+        "Public Awareness and Activism",
+        "Peak Oil Theories and Models",
+        "Energy Efficiency Trends"
+      ],
+      "future_signals": [
+        "Peak Oil Has Been Reached",
+        "Peak Oil Is Decades Away",
+        "Technological Advances Delay Peak Oil",
+        "Renewables Cause Demand Peak Before Supply",
+        "Oil Production Declines Rapidly Post-Peak"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "keywords": [
+        "Peak Oil",
+        "Oil Reserves",
+        "Fossil Fuels"
+      ]
+    },
+    {
+      "name": "Religion, Magic and Occultism",
+      "description": "Religion, Magic and Occultism",
+      "categories": [
+        "Christian Theology",
+        "Catholic Church",
+        "Protestant Churches",
+        "Orthodox Christianity",
+        "Interfaith Relations",
+        "Religious Studies",
+        "Spirituality and Mysticism",
+        "Occultism and Esoteric Practices",
+        "Religious Ethics and Philosophy",
+        "Religious Education",
+        "Religious Freedom and Rights",
+        "Religious Extremism",
+        "Other"
+      ],
+      "future_signals": [
+        "Religious Revival",
+        "Secularization Accelerating",
+        "Interfaith Cooperation Growing",
+        "Religious Conflict Intensifying",
+        "Spiritual Practices Evolving"
+      ],
+      "sentiment": [
+        "Positive",
+        "Neutral",
+        "Negative",
+        "Critical",
+        "Optimistic"
+      ],
+      "time_to_impact": [
+        "Immediate",
+        "Short-term",
+        "Mid-term",
+        "Long-term"
+      ],
+      "driver_types": [
+        "Catalyst",
+        "Accelerator",
+        "Delayer",
+        "Blocker",
+        "Initiator",
+        "Terminator",
+        "Unknown"
+      ],
+      "keywords": []
     }
   ],
   "ai_models": [

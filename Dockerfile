@@ -1,7 +1,46 @@
-# Use Python 3.12 slim image as base
+# ==============================================================================
+# Stage 1: Node.js Builder - Build React UI Components
+# ==============================================================================
+FROM node:20-slim AS node-builder
+
+WORKDIR /ui-build
+
+# Copy UI source files
+COPY ui/package.json ui/package-lock.json* ./
+
+# Install Node.js dependencies
+RUN npm ci --prefer-offline --no-audit
+
+# Copy UI source code
+COPY ui/ ./
+
+# Build React UI (outputs to build/ directory)
+RUN npm run build
+
+# ==============================================================================
+# Stage 2: Python Builder - Install Python dependencies
+# ==============================================================================
+FROM python:3.12-slim AS python-builder
+
+WORKDIR /app
+
+# Install build dependencies for Python packages
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy and install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# ==============================================================================
+# Stage 3: Runtime - Final minimal image
+# ==============================================================================
 FROM python:3.12-slim
 
-# Set working directory
 WORKDIR /app
 
 # Build arguments for app info
@@ -16,47 +55,53 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     APP_GIT_BRANCH=${APP_GIT_BRANCH} \
     APP_BUILD_DATE=${APP_BUILD_DATE}
 
-# Install system dependencies including PostgreSQL client
+# Install only runtime dependencies (no build tools)
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        build-essential \
         curl \
         postgresql-client \
-        libpq-dev \
+        libpq5 \
     && rm -rf /var/lib/apt/lists/*
 
+# Copy Python packages from python-builder
+COPY --from=python-builder /install /usr/local
+
 # Create necessary directories
-RUN mkdir -p app/data \
+RUN mkdir -p \
+    app/data \
     app/config \
     templates \
     static \
     static/audio \
-    tmp \
+    static/trend-convergence \
+    static/news-feed-v2 \
     tmp/aunoo_audio \
     reports
 
-# Copy requirements first for better layer caching
-COPY requirements.txt .
-
-# Install Python dependencies
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
-
-# Copy application code and other necessary files
+# Copy application code (use .dockerignore to exclude unnecessary files)
 COPY app/ app/
+COPY config.docker.json app/data/config.json
+COPY data/ data/
 COPY templates/ templates/
 COPY static/ static/
+COPY scripts/ scripts/
 COPY alembic/ alembic/
 COPY alembic.ini .
-
-# Copy setup and entrypoint scripts
 COPY setup.py .
+COPY .env.template .
 COPY docker-entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+
+# Copy built React UI from node-builder
+COPY --from=node-builder /ui-build/build/ /app/static/trend-convergence/
+
+# Fix line endings if built on Windows and make executable
+RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh
 
 # Create named volumes for persistent data
 VOLUME /app/app/data
 VOLUME /app/reports
+VOLUME /app/.env_volume
+VOLUME /app/app/config
 
 # Set permissions for persistent directories
 RUN chmod -R 777 /app/app/data /app/reports /app/static/audio /app/tmp

@@ -1,0 +1,31 @@
+AunooAI Community Edition - Docker Deployment Package
+
+QUICK START:
+
+Windows Users:
+1. Open PowerShell in this folder
+2. Run: .\setup-docker.ps1
+3. Follow the wizard prompts
+
+Linux/Mac Users:
+1. Open terminal in this folder
+2. Run: ./setup-docker.sh
+3. Follow the wizard prompts
+
+Manual Setup (No Wizard):
+1. Run: docker-compose -f docker-compose.hub.yml up -d
+2. Open browser to: http://localhost:10001
+3. Login: admin / admin123
+4. Configure API keys in onboarding wizard
+
+Documentation:
+- INSTALL.md - Quick installation guide
+- README.md - Full documentation
+- DOCKER_QUICKSTART.md - Quick reference
+
+Default Settings:
+- Admin: admin / admin123
+- PostgreSQL password: aunoo_secure_2025
+- Port: 10001
+
+IMPORTANT: Change admin password after first login!

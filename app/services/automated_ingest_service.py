@@ -27,6 +27,7 @@ from app.analyzers.article_analyzer import ArticleAnalyzer
 from app.ai_models import LiteLLMModel
 import asyncio
 import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor
 import requests
 from app.config.config import load_config, get_topic_description
 import time
@@ -40,7 +41,7 @@ class AutomatedIngestService:
     def __init__(self, db: Database, config: Dict[str, Any] = None):
         """
         Initialize the automated ingest service
-        
+
         Args:
             db: Database instance for data operations
             config: Optional configuration dictionary
@@ -51,10 +52,17 @@ class AutomatedIngestService:
         self.relevance_calculator = None
         self.media_bias = MediaBias(db)
         self.article_analyzer = None
-        
+
+        # Dedicated executor for blocking I/O operations (e.g., Firecrawl scraping)
+        # Using 3 workers allows parallel scraping of multiple keyword groups
+        self._blocking_executor = ThreadPoolExecutor(
+            max_workers=3,
+            thread_name_prefix="blocking_io_"
+        )
+
         # Configure logging
         self.logger = logger
-        self.logger.info("AutomatedIngestService initialized with async capabilities")
+        self.logger.info("AutomatedIngestService initialized with async capabilities and dedicated blocking I/O executor (3 workers)")
     
     def get_llm_client(self, model_override: str = None) -> str:
         """
@@ -306,7 +314,13 @@ class AutomatedIngestService:
 
         except Exception as e:
             self.logger.error(f"Error scoring article relevance: {e}")
-            return {"relevance_score": 0.0, "explanation": f"Error calculating relevance: {str(e)}"}
+            return {
+                "relevance_score": 0.0,
+                "topic_alignment_score": 0.0,
+                "keyword_relevance_score": 0.0,
+                "confidence_score": 0.0,
+                "overall_match_explanation": f"Error calculating relevance: {str(e)}"
+            }
     
     def quality_check_article(self, article_data: Dict[str, Any], content: str = None) -> Dict[str, Any]:
         """
@@ -601,7 +615,71 @@ class AutomatedIngestService:
             self.logger.debug(f"🔄 Processing article: {article_title}")
             self.logger.debug(f"📝 Original title: {original_title[:100]}")
 
-            # Step 1: Concurrent bias enrichment and content scraping
+            # Step 1: QUICK relevance check FIRST (before expensive operations)
+            # Use only title and existing summary to save costs
+            try:
+                # Do a quick relevance check with just title + summary (no scraping/LLM yet)
+                quick_relevance_result = await self._score_article_relevance_async(
+                    article, topic, keywords
+                )
+                quick_relevance_score = quick_relevance_result.get("relevance_score", 0)
+                relevance_threshold = self.get_relevance_threshold()
+
+                self.logger.debug(f"🎯 Quick relevance check: {quick_relevance_score} (threshold: {relevance_threshold})")
+
+                # If article fails relevance threshold, stop processing immediately
+                if quick_relevance_score < relevance_threshold:
+                    self.logger.info(f"⚡ Article {article_uri} filtered early (score: {quick_relevance_score} < {relevance_threshold}) - saving costs")
+
+                    # Save with minimal data to database
+                    try:
+                        article.update({
+                            "topic": topic,
+                            "ingest_status": "filtered_relevance",
+                            # Populate ALL three score fields from relevance result
+                            "keyword_relevance_score": quick_relevance_result.get("keyword_relevance_score", quick_relevance_score),
+                            "topic_alignment_score": quick_relevance_result.get("topic_alignment_score", quick_relevance_score),
+                            "confidence_score": quick_relevance_result.get("confidence_score", quick_relevance_score),
+                            "overall_match_explanation": quick_relevance_result.get("overall_match_explanation", "")
+                        })
+                        await self.async_db.save_below_threshold_article(article)
+                        self.db.facade.mark_article_as_below_threshold(article_uri)
+                    except Exception as e:
+                        self.logger.warning(f"Failed to save below-threshold article: {e}")
+
+                    return {
+                        "status": "filtered",
+                        "uri": article_uri,
+                        "relevance_score": quick_relevance_score,
+                        "reason": "relevance_threshold",
+                        "threshold": relevance_threshold
+                    }
+
+            except Exception as e:
+                self.logger.error(f"Quick relevance check failed for {article_uri}: {e}")
+                # Save article with error status but preserve attempt record
+                article.update({
+                    "topic": topic,
+                    "ingest_status": "relevance_check_failed",
+                    "keyword_relevance_score": 0.0,
+                    "topic_alignment_score": 0.0,
+                    "confidence_score": 0.0,
+                    "overall_match_explanation": f"Relevance check failed: {str(e)}"
+                })
+                await self.async_db.save_below_threshold_article(article)
+                self.logger.info(f"Saved article {article_uri} with relevance_check_failed status")
+                # Return early - skip enrichment for this article
+                return {
+                    "status": "error",
+                    "uri": article_uri,
+                    "error": str(e),
+                    "reason": "relevance_check_failed"
+                }
+
+            # Step 2: Article PASSED quick check - now do expensive operations
+            self.logger.info(f"✅ Article {article_uri} passed quick check (score: {quick_relevance_score}) - proceeding with enrichment")
+
+            # Concurrent bias enrichment and content scraping
             bias_task = asyncio.create_task(
                 self._enrich_article_with_bias_async(article)
             )
@@ -647,7 +725,7 @@ class AutomatedIngestService:
             # enriched_article['summary'] = enriched_article.get('summary') or original_summary  # REMOVED - prevents overwriting AI summaries
             enriched_article['news_source'] = enriched_article.get('news_source') or original_source
             enriched_article['publication_date'] = enriched_article.get('publication_date') or original_pub_date
-            
+
             # Save raw content if available
             if raw_content:
                 try:
@@ -655,8 +733,8 @@ class AutomatedIngestService:
                     self.logger.debug(f"📄 Raw content saved for {article_uri}")
                 except Exception as e:
                     self.logger.warning(f"Failed to save raw content for {article_uri}: {e}")
-            
-            # Step 2: LLM analysis with timeout
+
+            # Step 3: LLM analysis with timeout (only for relevant articles)
             try:
                 enriched_article = await asyncio.wait_for(
                     self._analyze_article_content_async(enriched_article, topic),
@@ -677,21 +755,27 @@ class AutomatedIngestService:
             except Exception as e:
                 self.logger.error(f"LLM analysis failed for {article_uri}: {e}")
                 enriched_article["analysis_error"] = str(e)
-            
-            # Step 3: Async relevance scoring
+
+            # Step 4: Final relevance scoring with full content
             try:
                 relevance_result = await self._score_article_relevance_async(
                     enriched_article, topic, keywords
                 )
                 enriched_article.update(relevance_result)
-                self.logger.debug(f"🎯 Relevance scoring completed for {article_uri}")
+                self.logger.debug(f"🎯 Final relevance scoring completed for {article_uri}")
             except Exception as e:
-                self.logger.error(f"Relevance scoring failed for {article_uri}: {e}")
-                relevance_result = {"relevance_score": 0.0, "explanation": f"Scoring failed: {str(e)}"}
+                self.logger.error(f"Final relevance scoring failed for {article_uri}: {e}")
+                relevance_result = {
+                    "relevance_score": quick_relevance_score,
+                    "topic_alignment_score": quick_relevance_score,
+                    "keyword_relevance_score": quick_relevance_score,
+                    "confidence_score": quick_relevance_score,
+                    "overall_match_explanation": f"Final scoring failed, using quick score: {str(e)}"
+                }
                 enriched_article.update(relevance_result)
-            
-            # Step 4: Check relevance threshold
-            relevance_score = relevance_result.get("relevance_score", 0)
+
+            # Step 5: Check final relevance threshold (double-check after full analysis)
+            relevance_score = relevance_result.get("relevance_score", quick_relevance_score)
             relevance_threshold = self.get_relevance_threshold()
             
             if relevance_score >= relevance_threshold:
@@ -706,6 +790,19 @@ class AutomatedIngestService:
                     enriched_article.update(quality_result)
                 
                 if quality_result.get("approved", False):
+                    # CRITICAL: Validate enrichment succeeded before approving
+                    if not enriched_article.get("analyzed", False):
+                        self.logger.error(
+                            f"❌ Enrichment validation failed for {article_uri}: "
+                            f"Article passed quality check but 'analyzed' flag is False. "
+                            f"This indicates enrichment failed silently. Marking as enrichment_failed."
+                        )
+                        return {
+                            "status": "error",
+                            "uri": article_uri,
+                            "error": "Enrichment failed - analyzed=False after quality check"
+                        }
+
                     # Step 6: Async database update
                     try:
                         enriched_article.update({
@@ -1324,17 +1421,19 @@ class AutomatedIngestService:
             Dictionary mapping URIs to scraped content
         """
         try:
-            self.logger.info(f"Submitting batch scrape request for {len(uris)} URLs")
+            self.logger.info(f"Starting Firecrawl batch scrape for {len(uris)} URLs")
+            start_time = time.time()
 
             # Use Firecrawl SDK's built-in polling method instead of manual polling
             # Documentation: https://docs.firecrawl.dev/features/batch-scrape
             # batch_scrape() handles submission + polling automatically
             # IMPORTANT: Firecrawl SDK is synchronous, so we must use run_in_executor to avoid blocking the event loop
+            # PERFORMANCE FIX: Use dedicated executor instead of default (None) to prevent blocking other operations
             loop = asyncio.get_event_loop()
 
-            self.logger.info(f"Starting Firecrawl batch_scrape with poll_interval=5, wait_timeout=300")
+            self.logger.info(f"Submitting to dedicated blocking I/O executor (poll_interval=5, wait_timeout=300)")
             batch_job = await loop.run_in_executor(
-                None,
+                self._blocking_executor,  # Use dedicated executor instead of None
                 lambda: firecrawl_app.batch_scrape(
                     uris,
                     formats=['markdown'],
@@ -1389,14 +1488,18 @@ class AutomatedIngestService:
                     else:
                         self.logger.warning(f"⚠️ Item {idx} has no URL in metadata")
 
-            self.logger.info(f"Batch scrape completed: {len([r for r in processed_results.values() if r])}/{len(processed_results)} successful")
+            duration = time.time() - start_time
+            successful_count = len([r for r in processed_results.values() if r])
+            self.logger.info(f"✅ Firecrawl batch scrape completed: {successful_count}/{len(processed_results)} successful in {duration:.1f}s ({duration/60:.1f} min)")
             return processed_results
 
         except asyncio.TimeoutError:
-            self.logger.error(f"Firecrawl batch scrape timed out")
+            duration = time.time() - start_time
+            self.logger.error(f"❌ Firecrawl batch scrape timed out after {duration:.1f}s")
             return {}
         except Exception as e:
-            self.logger.error(f"Error in Firecrawl batch scraping: {e}")
+            duration = time.time() - start_time
+            self.logger.error(f"❌ Error in Firecrawl batch scraping after {duration:.1f}s: {e}")
             import traceback
             self.logger.error(traceback.format_exc())
             return {}
@@ -1551,15 +1654,15 @@ class AutomatedIngestService:
     async def _fallback_individual_scraping(self, uris: List[str]) -> Dict[str, Optional[str]]:
         """
         Fallback to individual scraping if batch fails
-        
+
         Args:
             uris: List of URIs to scrape
-            
+
         Returns:
             Dictionary mapping URIs to scraped content
         """
         results = {}
-        
+
         for uri in uris:
             try:
                 content = await self.scrape_article_content(uri)
@@ -1567,5 +1670,22 @@ class AutomatedIngestService:
             except Exception as e:
                 self.logger.error(f"Individual scraping failed for {uri}: {e}")
                 results[uri] = None
-        
-        return results 
+
+        return results
+
+    async def close(self):
+        """
+        Cleanup resources on shutdown
+
+        Gracefully shuts down the dedicated blocking I/O executor
+        """
+        self.logger.info("Shutting down AutomatedIngestService...")
+
+        try:
+            # Shutdown executor gracefully (wait for current tasks to complete)
+            self._blocking_executor.shutdown(wait=True)
+            self.logger.info("✅ Blocking I/O executor shutdown complete")
+        except Exception as e:
+            self.logger.error(f"❌ Error during executor shutdown: {e}")
+
+        self.logger.info("AutomatedIngestService shutdown complete") 

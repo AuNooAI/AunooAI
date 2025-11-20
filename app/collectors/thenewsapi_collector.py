@@ -118,20 +118,64 @@ class TheNewsAPICollector(ArticleCollector):
 
             async with aiohttp.ClientSession() as session:
                 async with session.get(f"{self.base_url}/all", params=params) as response:
+                    response_status = response.status
+                    response_content_type = response.content_type
+
                     if response.status != 200:
-                        error_data = await response.json()
-                        logger.error(f"TheNewsAPI error: {error_data}")
+                        logger.error(f"❌ TheNewsAPI HTTP ERROR")
+                        logger.error(f"❌ Status Code: {response_status}")
+                        logger.error(f"❌ Content-Type: {response_content_type}")
+                        logger.error(f"❌ URL: {response.url}")
+
+                        # Try to get response body for debugging
+                        try:
+                            if 'json' in response_content_type:
+                                error_data = await response.json()
+                                logger.error(f"❌ Error Response (JSON): {error_data}")
+                            else:
+                                error_text = await response.text()
+                                # Log first 500 chars of HTML/text response
+                                logger.error(f"❌ Error Response (Text): {error_text[:500]}...")
+                        except Exception as parse_error:
+                            logger.error(f"❌ Could not parse error response: {parse_error}")
+
                         return []
-                    
+
                     self._increment_request_count()
-                    data = await response.json()
+
+                    # Try to parse JSON response
+                    try:
+                        data = await response.json()
+                    except Exception as json_error:
+                        logger.error(f"❌ TheNewsAPI JSON PARSE ERROR")
+                        logger.error(f"❌ Status Code: {response_status}")
+                        logger.error(f"❌ Content-Type: {response_content_type}")
+                        logger.error(f"❌ Parse Error: {json_error}")
+                        # Get the actual response body
+                        try:
+                            response_text = await response.text()
+                            logger.error(f"❌ Response Body (first 500 chars): {response_text[:500]}...")
+                        except Exception as text_error:
+                            logger.error(f"❌ Could not read response text: {text_error}")
+                        return []
+
                     articles = data.get("data", [])
-                    logger.info(f"TheNewsAPI returned {len(articles)} articles")
-                    
+                    logger.info(f"✅ TheNewsAPI returned {len(articles)} articles for query '{query}'")
+
                     return [self._format_article(article, topic) for article in articles]
 
+        except aiohttp.ClientError as e:
+            logger.error(f"❌ TheNewsAPI NETWORK ERROR")
+            logger.error(f"❌ Error Type: {type(e).__name__}")
+            logger.error(f"❌ Error Details: {e}")
+            logger.error(f"❌ Query: {query}")
+            return []
         except Exception as e:
-            logger.error(f"Error searching TheNewsAPI: {str(e)}")
+            logger.error(f"❌ TheNewsAPI UNEXPECTED ERROR")
+            logger.error(f"❌ Error Type: {type(e).__name__}")
+            logger.error(f"❌ Error Details: {e}")
+            logger.error(f"❌ Query: {query}")
+            logger.error(f"❌ Params: {params}")
             return []
 
     async def fetch_article_content(self, url: str) -> Optional[Dict]:
@@ -141,19 +185,54 @@ class TheNewsAPICollector(ArticleCollector):
                 'api_token': self.api_key,
                 'url': url
             }
-            
+
             async with aiohttp.ClientSession() as session:
                 async with session.get(f"{self.base_url}/all", params=params) as response:
+                    response_status = response.status
+                    response_content_type = response.content_type
+
                     if response.status != 200:
+                        logger.error(f"❌ TheNewsAPI fetch_article_content HTTP ERROR")
+                        logger.error(f"❌ Status Code: {response_status}")
+                        logger.error(f"❌ Content-Type: {response_content_type}")
+                        logger.error(f"❌ Article URL: {url}")
+
+                        # Try to get response body for debugging
+                        try:
+                            if 'json' in response_content_type:
+                                error_data = await response.json()
+                                logger.error(f"❌ Error Response (JSON): {error_data}")
+                            else:
+                                error_text = await response.text()
+                                logger.error(f"❌ Error Response (Text): {error_text[:500]}...")
+                        except Exception as parse_error:
+                            logger.error(f"❌ Could not parse error response: {parse_error}")
+
                         return None
-                    
-                    data = await response.json()
+
+                    # Try to parse JSON response
+                    try:
+                        data = await response.json()
+                    except Exception as json_error:
+                        logger.error(f"❌ TheNewsAPI fetch_article_content JSON PARSE ERROR")
+                        logger.error(f"❌ Status Code: {response_status}")
+                        logger.error(f"❌ Content-Type: {response_content_type}")
+                        logger.error(f"❌ Parse Error: {json_error}")
+                        logger.error(f"❌ Article URL: {url}")
+                        try:
+                            response_text = await response.text()
+                            logger.error(f"❌ Response Body (first 500 chars): {response_text[:500]}...")
+                        except Exception as text_error:
+                            logger.error(f"❌ Could not read response text: {text_error}")
+                        return None
+
                     articles = data.get("data", [])
                     if not articles:
+                        logger.warning(f"⚠️ TheNewsAPI returned no articles for URL: {url}")
                         return None
-                    
+
                     article = articles[0]
-                    
+
                     # Extract source name using the same logic as _format_article
                     source = article.get('source', {})
                     # ALWAYS extract domain from URL first (full domain with TLD)
@@ -166,7 +245,7 @@ class TheNewsAPICollector(ArticleCollector):
                     # Only use API source name as fallback if URL parsing failed
                     if not source_name:
                         source_name = source.get('name', '') if isinstance(source, dict) else str(source)
-                    
+
                     # Handle keywords - TheNewsAPI can return them as strings or arrays
                     keywords = article.get('keywords', [])
                     if isinstance(keywords, str):
@@ -192,8 +271,17 @@ class TheNewsAPICollector(ArticleCollector):
                         }
                     }
 
+        except aiohttp.ClientError as e:
+            logger.error(f"❌ TheNewsAPI fetch_article_content NETWORK ERROR")
+            logger.error(f"❌ Error Type: {type(e).__name__}")
+            logger.error(f"❌ Error Details: {e}")
+            logger.error(f"❌ Article URL: {url}")
+            return None
         except Exception as e:
-            logger.error(f"Error fetching article from TheNewsAPI: {str(e)}")
+            logger.error(f"❌ TheNewsAPI fetch_article_content UNEXPECTED ERROR")
+            logger.error(f"❌ Error Type: {type(e).__name__}")
+            logger.error(f"❌ Error Details: {e}")
+            logger.error(f"❌ Article URL: {url}")
             return None
 
     def _format_article(self, article: Dict, topic: str) -> Dict:

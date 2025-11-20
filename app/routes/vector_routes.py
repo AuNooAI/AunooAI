@@ -2046,10 +2046,15 @@ Extraordinary Claims Protocol:
         ]
         
         response_str = await run_in_threadpool(ai_model.generate_response, messages)
-        
+
+        # Check for error messages from AI model
+        if response_str and ("⚠️" in response_str or "unavailable" in response_str.lower()):
+            logger.error(f"LLM returned error message for incident tracking: {response_str}")
+            raise HTTPException(status_code=500, detail=response_str)
+
         # Parse response
         incidents = []
-        if response_str and not ("⚠️" in response_str or "unavailable" in response_str.lower()):
+        if response_str:
             try:
                 import re
                 import json as json_module
@@ -2318,8 +2323,15 @@ Extraordinary Claims Protocol:
         return result
         
     except Exception as exc:
-        logger.error("Error in incident tracking: %s", exc)
-        raise HTTPException(status_code=500, detail="Incident tracking error")
+        logger.error("Error in incident tracking: %s", exc, exc_info=True)
+        # Propagate user-friendly error messages from AI models
+        error_detail = str(exc)
+        if "⚠️" in error_detail:
+            # User-friendly error from ai_models.py
+            raise HTTPException(status_code=500, detail=error_detail)
+        else:
+            # Generic error
+            raise HTTPException(status_code=500, detail=f"Incident tracking error: {error_detail}")
 
 @router.post("/incident-status/{incident_name}")
 async def update_incident_status(
