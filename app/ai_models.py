@@ -49,7 +49,12 @@ litellm.drop_params = True  # Drop unsupported params instead of erroring
 # 2. Connection manager with periodic cleanup (in main.py startup)
 # 3. Automatic cleanup via connection manager monitoring
 
-# Load environment variables and ensure they're properly set for models
+# CRITICAL: Load .env file FIRST before calling ensure_model_env_vars()
+# This ensures Docker Compose's empty env vars are overridden with actual values from .env
+from app.env_loader import load_environment
+load_environment()
+
+# Now ensure model-specific environment variables are set
 ensure_model_env_vars()
 
 def get_litellm_config_path():

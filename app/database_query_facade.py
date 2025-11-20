@@ -5984,7 +5984,7 @@ class DatabaseQueryFacade:
         """Get first user who has a Six Articles configuration saved"""
         try:
             query = text("""
-                SELECT DISTINCT u.username, u.id
+                SELECT DISTINCT u.username
                 FROM users u
                 INNER JOIN user_preferences up ON u.username = up.username
                 WHERE up.preference_key = 'six_articles_config'
@@ -5996,8 +5996,7 @@ class DatabaseQueryFacade:
             if result:
                 return {
                     'username': result[0],
-                    'id': result[1],
-                    'user_id': result[1]
+                    'user_id': result[0]  # username is the user_id in this schema
                 }
 
             return None

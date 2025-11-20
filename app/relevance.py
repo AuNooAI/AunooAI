@@ -170,9 +170,14 @@ class RelevanceCalculator:
                 keywords=keywords or "No keywords specified",
                 topic_description=topic_description or ""
             )
-            
+
             logger.info(f"Analyzing relevance for article: {title[:50]}... using model: {self.model_name}")
-            
+
+            # Debug logging at appropriate level
+            logger.debug(f"Messages: type={type(messages)}, len={len(messages) if isinstance(messages, list) else 'N/A'}")
+            if isinstance(messages, list) and len(messages) > 0:
+                logger.debug(f"First message: {messages[0]}")
+
             # Generate response using the AI model
             if hasattr(self.ai_model, 'generate_response'):
                 response_text = self.ai_model.generate_response(messages)

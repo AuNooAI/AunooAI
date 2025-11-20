@@ -52,12 +52,14 @@ services:
       - DB_POOL_TIMEOUT=${DB_POOL_TIMEOUT:-30}
       - DB_POOL_RECYCLE=${DB_POOL_RECYCLE:-3600}
 
-      # API Keys (Required - set in .env file)
+      # API Keys (Optional - configured via onboarding wizard inside container)
+      # These will be loaded from /app/.env by the application
+      # Only set these if you want to override the container's .env file
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
-      - NEWSAPI_KEY=${NEWSAPI_KEY}
-      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-}
+      - NEWSAPI_KEY=${NEWSAPI_KEY:-}
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy

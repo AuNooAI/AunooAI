@@ -790,6 +790,19 @@ class AutomatedIngestService:
                     enriched_article.update(quality_result)
                 
                 if quality_result.get("approved", False):
+                    # CRITICAL: Validate enrichment succeeded before approving
+                    if not enriched_article.get("analyzed", False):
+                        self.logger.error(
+                            f"❌ Enrichment validation failed for {article_uri}: "
+                            f"Article passed quality check but 'analyzed' flag is False. "
+                            f"This indicates enrichment failed silently. Marking as enrichment_failed."
+                        )
+                        return {
+                            "status": "error",
+                            "uri": article_uri,
+                            "error": "Enrichment failed - analyzed=False after quality check"
+                        }
+
                     # Step 6: Async database update
                     try:
                         enriched_article.update({

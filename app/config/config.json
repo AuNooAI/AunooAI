@@ -242,11 +242,50 @@
     {
       "name": "Religion, Magic and Occultism",
       "description": "Religion, Magic and Occultism",
-      "categories": [],
-      "future_signals": [],
-      "sentiment": [],
-      "time_to_impact": [],
-      "driver_types": [],
+      "categories": [
+        "Christian Theology",
+        "Catholic Church",
+        "Protestant Churches",
+        "Orthodox Christianity",
+        "Interfaith Relations",
+        "Religious Studies",
+        "Spirituality and Mysticism",
+        "Occultism and Esoteric Practices",
+        "Religious Ethics and Philosophy",
+        "Religious Education",
+        "Religious Freedom and Rights",
+        "Religious Extremism",
+        "Other"
+      ],
+      "future_signals": [
+        "Religious Revival",
+        "Secularization Accelerating",
+        "Interfaith Cooperation Growing",
+        "Religious Conflict Intensifying",
+        "Spiritual Practices Evolving"
+      ],
+      "sentiment": [
+        "Positive",
+        "Neutral",
+        "Negative",
+        "Critical",
+        "Optimistic"
+      ],
+      "time_to_impact": [
+        "Immediate",
+        "Short-term",
+        "Mid-term",
+        "Long-term"
+      ],
+      "driver_types": [
+        "Catalyst",
+        "Accelerator",
+        "Delayer",
+        "Blocker",
+        "Initiator",
+        "Terminator",
+        "Unknown"
+      ],
       "keywords": []
     }
   ],
