@@ -79,6 +79,8 @@ dist/
 app/data/*
 !app/data/.gitkeep
 !app/data/mbfc_raw.csv
+!app/data/prompts/
+!app/data/prompts/**
 reports/*
 !reports/.gitkeep
 tmp/*
