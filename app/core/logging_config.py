@@ -29,6 +29,7 @@ def configure_logging():
     root_logger.addHandler(console_handler)
     
     # Suppress verbose loggers (but allow numba to work for UMAP)
+    # IMPORTANT: For Docker debugging, we need to see automated_ingest_service, env_loader, and relevance logs
     suppress_loggers = [
         # 'numba',  # ← Allow numba logging for UMAP debugging
         # 'numba.core',  # ← Allow numba.core logging
@@ -47,8 +48,8 @@ def configure_logging():
         'LiteLLM',
         'app.analyzers.prompt_manager',
         'app.routes.prompt_routes',
-        'app.env_loader',
-        'app.relevance',
+        # 'app.env_loader',  # ← DO NOT SUPPRESS - needed for Docker debugging
+        # 'app.relevance',  # ← DO NOT SUPPRESS - needed for Docker debugging
         'app.utils.audio',
         'uvicorn.access',
         'uvicorn.error',
@@ -79,6 +80,9 @@ def configure_logging():
         'app.routes.vector_routes': logging.INFO,  # Explicitly enable vector routes logging
         'app.database': logging.INFO,
         'app.startup': logging.INFO,
+        'app.services.automated_ingest_service': logging.INFO,  # Enable automated ingest logging for Docker debugging
+        'app.env_loader': logging.INFO,  # Enable environment loading logs for Docker debugging
+        'app.relevance': logging.INFO,  # Enable relevance calculator logs for Docker debugging
         'numba': logging.DEBUG,  # Enable numba debug logging like working version
         'numba.core': logging.DEBUG,  # Enable numba.core debug logging
         'numba.core.ssa': logging.DEBUG,  # Enable SSA debug logging like working version

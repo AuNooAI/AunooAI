@@ -48,7 +48,7 @@ if [ "$DB_TYPE" = "postgresql" ]; then
 
     # Initialize media bias data
     echo "Initializing media bias data..."
-    PYTHONPATH=/app python3 /app/scripts/init_media_bias.py || echo "Warning: Media bias initialization failed or already complete"
+    python3 /app/scripts/init_media_bias.py || echo "Warning: Media bias initialization failed or already complete"
 fi
 
 # Create necessary directories if they don't exist

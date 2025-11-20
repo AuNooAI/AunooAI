@@ -22,6 +22,13 @@ services:
 
   # AunooAI Community Edition (PostgreSQL Only)
   aunooai:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-local}
+        APP_GIT_BRANCH: ${GIT_BRANCH:-emergencybugfix2}
+        APP_BUILD_DATE: ${BUILD_DATE:-unknown}
     image: aunooai/aunoo-community:latest
     ports:
       - "${APP_PORT:-10001}:${APP_PORT:-10001}"
@@ -52,14 +59,11 @@ services:
       - DB_POOL_TIMEOUT=${DB_POOL_TIMEOUT:-30}
       - DB_POOL_RECYCLE=${DB_POOL_RECYCLE:-3600}
 
-      # API Keys (Optional - configured via onboarding wizard inside container)
-      # These will be loaded from /app/.env by the application
-      # Only set these if you want to override the container's .env file
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-}
-      - NEWSAPI_KEY=${NEWSAPI_KEY:-}
-      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
+      # API Keys (configured via onboarding wizard inside container)
+      # These are loaded from /app/.env by the application
+      # DO NOT set environment variables here - they override the .env file!
+      # The .env file is persisted in the aunooai_env volume
+      # To pre-configure API keys, mount a .env file or use the onboarding wizard
     depends_on:
       postgres:
         condition: service_healthy

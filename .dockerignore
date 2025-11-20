@@ -20,7 +20,8 @@ venv.bak/
 .env
 .env.local
 .env.*.local
-.env.example
+# .env.template is needed for Docker initialization - DO NOT ignore it!
+# .env.example
 .env.hub
 
 # Database files

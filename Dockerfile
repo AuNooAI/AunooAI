@@ -87,6 +87,7 @@ COPY scripts/ scripts/
 COPY alembic/ alembic/
 COPY alembic.ini .
 COPY setup.py .
+COPY .env.template .
 COPY docker-entrypoint.sh /entrypoint.sh
 
 # Copy built React UI from node-builder
