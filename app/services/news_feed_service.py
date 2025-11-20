@@ -559,11 +559,10 @@ class NewsFeedService:
             system_message = """You are a CEO-focused news analyst. You MUST return articles in the new CEO Daily format.
 
 CRITICAL: Use ONLY these field names in your JSON response:
-- uri (string - REQUIRED: the exact URI from the Article Corpus)
+- uri (string - REQUIRED: the exact URI from the Article Corpus - THIS IS THE ARTICLE'S UNIQUE IDENTIFIER - COPY IT EXACTLY)
 - title (string)
 - source (string)
 - date (string YYYY-MM-DD)
-- url (string)
 - executive_takeaway (string, max 20 words)
 - summary (string)
 - strategic_relevance (string)
@@ -575,6 +574,19 @@ CRITICAL: Use ONLY these field names in your JSON response:
 - scores (object with relevance, novelty, credibility, representativeness numbers 0-5)
 
 FORBIDDEN: Do NOT use these old field names: why_interesting, devils_advocate, perspectives
+
+EXAMPLE - If the Article Corpus contains:
+  URI: https://techcrunch.com/2025/11/20/ai-startup-raises-100m
+  Title: AI Startup Raises $100M Series B
+
+Then your response MUST include the EXACT URI:
+  {
+    "uri": "https://techcrunch.com/2025/11/20/ai-startup-raises-100m",
+    "title": "AI Startup Raises $100M Series B",
+    ...
+  }
+
+DO NOT create new URIs. DO NOT modify URIs. DO NOT summarize URIs. COPY THEM EXACTLY.
 
 Return ONLY a JSON array starting with [ and ending with ]. No other text."""
 
@@ -593,7 +605,7 @@ Return ONLY a JSON array starting with [ and ending with ]. No other text."""
             )
             
             response_text = response.choices[0].message.content
-            
+
             # Parse AI response - now returns array directly
             logger.info(f"=== SIX ARTICLES GENERATION DEBUG ===")
             logger.info(f"Model used: {request.model}")
@@ -605,13 +617,110 @@ Return ONLY a JSON array starting with [ and ending with ]. No other text."""
             logger.info(f"Response contains 'executive_takeaway': {'executive_takeaway' in response_text}")
             logger.info(f"Response contains 'why_interesting': {'why_interesting' in response_text}")
             logger.info(f"=== END DEBUG ===")
-            
+
             articles_data_parsed = self._parse_six_articles_response(response_text)
-            
+
             # If parsing failed (empty array), use fallback
             if not articles_data_parsed:
                 logger.warning("JSON parsing returned empty array, using fallback articles")
                 logger.debug(f"Failed response text: {response_text}")
+                return await self._create_fallback_six_articles(articles_data, date)
+
+            # Validate URIs exist in the input articles
+            valid_uris = {article.get('uri') for article in articles_data if article.get('uri')}
+            # Also create a mapping for fuzzy matching (LLM often strips query params)
+            uri_base_map = {}
+            for uri in valid_uris:
+                # Store both full URI and base URI (without query params)
+                base_uri = uri.split('?')[0] if '?' in uri else uri
+                uri_base_map[base_uri] = uri
+
+            invalid_articles = []
+            valid_articles = []
+
+            for article in articles_data_parsed:
+                # LLM sometimes returns 'url' instead of 'uri' - accept both
+                article_uri = article.get('uri', '') or article.get('url', '')
+                # If we got url instead of uri, copy it to uri field
+                if not article.get('uri') and article.get('url'):
+                    article['uri'] = article.get('url')
+                    logger.info(f"LLM returned 'url' instead of 'uri', using url: {article_uri}")
+
+                matched_uri = None
+                if article_uri:
+                    # Try exact match first
+                    if article_uri in valid_uris:
+                        matched_uri = article_uri
+                    else:
+                        # Try fuzzy match (LLM may have stripped query params)
+                        base_uri = article_uri.split('?')[0] if '?' in article_uri else article_uri
+                        if base_uri in uri_base_map:
+                            matched_uri = uri_base_map[base_uri]
+                            # Update article with full URI including query params
+                            article['uri'] = matched_uri
+                            logger.info(f"Fuzzy matched URI: {article_uri} -> {matched_uri}")
+
+                if matched_uri:
+                    valid_articles.append(article)
+                else:
+                    invalid_articles.append(article)
+                    logger.warning(f"Invalid URI returned by LLM: {article_uri} (title: {article.get('title', 'Unknown')})")
+
+            # If more than half the articles have invalid URIs, retry once with stronger instructions
+            if len(invalid_articles) > len(articles_data_parsed) / 2 and not getattr(self, '_six_articles_retry_attempted', False):
+                logger.error(f"LLM returned {len(invalid_articles)}/{len(articles_data_parsed)} articles with invalid URIs. Retrying with stronger prompt.")
+                self._six_articles_retry_attempted = True
+
+                # Add stronger warning to the prompt
+                retry_messages = [
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": prompt},
+                    {"role": "assistant", "content": response_text},
+                    {"role": "user", "content": f"""ERROR: You returned {len(invalid_articles)} articles with URIs that don't exist in the Article Corpus.
+
+CRITICAL: You MUST copy URIs EXACTLY from the Article Corpus. Do NOT create or modify URIs.
+
+The valid URIs from the Article Corpus are:
+{chr(10).join([f"- {uri}" for uri in list(valid_uris)[:20]])}
+
+Please try again and return ONLY articles with URIs from this list."""}
+                ]
+
+                retry_response = await litellm.acompletion(
+                    model=request.model,
+                    messages=retry_messages,
+                    temperature=0.1,  # Even lower temperature for retry
+                    max_tokens=4000,
+                )
+
+                retry_text = retry_response.choices[0].message.content
+                logger.info(f"Retry response first 500 chars: {retry_text[:500]}")
+
+                retry_parsed = self._parse_six_articles_response(retry_text)
+                if retry_parsed:
+                    # Validate retry response
+                    retry_valid = [a for a in retry_parsed if a.get('uri') in valid_uris]
+                    if len(retry_valid) > len(valid_articles):
+                        logger.info(f"Retry successful: {len(retry_valid)} valid articles (was {len(valid_articles)})")
+                        articles_data_parsed = retry_valid
+                    else:
+                        logger.warning(f"Retry didn't improve results: {len(retry_valid)} valid (was {len(valid_articles)})")
+                        articles_data_parsed = valid_articles if valid_articles else retry_valid
+                else:
+                    logger.error("Retry parsing failed, using original valid articles")
+                    articles_data_parsed = valid_articles
+
+                # Reset retry flag
+                self._six_articles_retry_attempted = False
+            else:
+                # Use only valid articles
+                articles_data_parsed = valid_articles
+                if invalid_articles:
+                    logger.info(f"Using {len(valid_articles)} valid articles, discarded {len(invalid_articles)} with invalid URIs")
+
+            # If no valid articles after validation, use fallback
+            if not articles_data_parsed:
+                logger.warning("No valid articles after URI validation, using fallback articles")
                 return await self._create_fallback_six_articles(articles_data, date)
             
             # Convert to structured data using new format
@@ -818,11 +927,10 @@ Return ONLY a JSON array starting with [ and ending with ]. No other text."""
             system_message = """You are a CEO-focused news analyst. You MUST return articles in the new CEO Daily format.
 
 CRITICAL: Use ONLY these field names in your JSON response:
-- uri (string - REQUIRED: the exact URI from the Article Corpus)
+- uri (string - REQUIRED: the exact URI from the Article Corpus - THIS IS THE ARTICLE'S UNIQUE IDENTIFIER - COPY IT EXACTLY)
 - title (string)
 - source (string)
 - date (string YYYY-MM-DD)
-- url (string)
 - executive_takeaway (string, max 20 words)
 - summary (string)
 - strategic_relevance (string)
@@ -834,6 +942,19 @@ CRITICAL: Use ONLY these field names in your JSON response:
 - scores (object with relevance, novelty, credibility, representativeness numbers 0-5)
 
 FORBIDDEN: Do NOT use these old field names: why_interesting, devils_advocate, perspectives
+
+EXAMPLE - If the Article Corpus contains:
+  URI: https://techcrunch.com/2025/11/20/ai-startup-raises-100m
+  Title: AI Startup Raises $100M Series B
+
+Then your response MUST include the EXACT URI:
+  {
+    "uri": "https://techcrunch.com/2025/11/20/ai-startup-raises-100m",
+    "title": "AI Startup Raises $100M Series B",
+    ...
+  }
+
+DO NOT create new URIs. DO NOT modify URIs. DO NOT summarize URIs. COPY THEM EXACTLY.
 
 Return ONLY a JSON array starting with [ and ending with ]. No other text."""
             
@@ -857,13 +978,106 @@ Return ONLY a JSON array starting with [ and ending with ]. No other text."""
             logger.info(f"Response contains 'executive_takeaway': {'executive_takeaway' in content}")
             logger.info(f"Response contains 'why_interesting': {'why_interesting' in content}")
             logger.info(f"=== END ENHANCED DEBUG ===")
-            
+
             # Parse response
             articles = self._parse_six_articles_response(content)
-            
+
             # If parsing failed (empty array), use fallback
             if not articles:
                 logger.info("JSON parsing returned empty array in cached version, using fallback articles")
+                return await self._create_fallback_six_articles(articles_data, date)
+
+            # Validate URIs exist in the input articles (same validation as non-cached version)
+            valid_uris = {article.get('uri') for article in articles_data if article.get('uri')}
+            # Also create a mapping for fuzzy matching (LLM often strips query params)
+            uri_base_map = {}
+            for uri in valid_uris:
+                # Store both full URI and base URI (without query params)
+                base_uri = uri.split('?')[0] if '?' in uri else uri
+                uri_base_map[base_uri] = uri
+
+            invalid_articles = []
+            valid_articles = []
+
+            for article in articles:
+                # LLM sometimes returns 'url' instead of 'uri' - accept both
+                article_uri = article.get('uri', '') or article.get('url', '')
+                # If we got url instead of uri, copy it to uri field
+                if not article.get('uri') and article.get('url'):
+                    article['uri'] = article.get('url')
+                    logger.info(f"LLM returned 'url' instead of 'uri', using url: {article_uri}")
+
+                matched_uri = None
+                if article_uri:
+                    # Try exact match first
+                    if article_uri in valid_uris:
+                        matched_uri = article_uri
+                    else:
+                        # Try fuzzy match (LLM may have stripped query params)
+                        base_uri = article_uri.split('?')[0] if '?' in article_uri else article_uri
+                        if base_uri in uri_base_map:
+                            matched_uri = uri_base_map[base_uri]
+                            # Update article with full URI including query params
+                            article['uri'] = matched_uri
+                            logger.info(f"Fuzzy matched URI: {article_uri} -> {matched_uri}")
+
+                if matched_uri:
+                    valid_articles.append(article)
+                else:
+                    invalid_articles.append(article)
+                    logger.warning(f"Invalid URI in cached version: {article_uri} (title: {article.get('title', 'Unknown')})")
+
+            # If more than half the articles have invalid URIs, retry once
+            if len(invalid_articles) > len(articles) / 2 and not getattr(self, '_six_articles_cached_retry_attempted', False):
+                logger.error(f"Enhanced: LLM returned {len(invalid_articles)}/{len(articles)} articles with invalid URIs. Retrying.")
+                self._six_articles_cached_retry_attempted = True
+
+                retry_messages = [
+                    {"role": "system", "content": system_message},
+                    {"role": "user", "content": prompt},
+                    {"role": "assistant", "content": content},
+                    {"role": "user", "content": f"""ERROR: You returned {len(invalid_articles)} articles with URIs that don't exist in the Article Corpus.
+
+CRITICAL: You MUST copy URIs EXACTLY from the Article Corpus. Do NOT create or modify URIs.
+
+The valid URIs from the Article Corpus are:
+{chr(10).join([f"- {uri}" for uri in list(valid_uris)[:20]])}
+
+Please try again and return ONLY articles with URIs from this list."""}
+                ]
+
+                retry_response = await litellm.acompletion(
+                    model=request.model,
+                    messages=retry_messages,
+                    temperature=0.1,
+                    max_tokens=4000,
+                )
+
+                retry_content = retry_response.choices[0].message.content
+                logger.info(f"Enhanced retry response first 500 chars: {retry_content[:500]}")
+
+                retry_parsed = self._parse_six_articles_response(retry_content)
+                if retry_parsed:
+                    retry_valid = [a for a in retry_parsed if a.get('uri') in valid_uris]
+                    if len(retry_valid) > len(valid_articles):
+                        logger.info(f"Enhanced retry successful: {len(retry_valid)} valid articles")
+                        articles = retry_valid
+                    else:
+                        logger.warning(f"Enhanced retry didn't improve: {len(retry_valid)} valid")
+                        articles = valid_articles if valid_articles else retry_valid
+                else:
+                    logger.error("Enhanced retry parsing failed")
+                    articles = valid_articles
+
+                self._six_articles_cached_retry_attempted = False
+            else:
+                articles = valid_articles
+                if invalid_articles:
+                    logger.info(f"Enhanced: Using {len(valid_articles)} valid, discarded {len(invalid_articles)} invalid")
+
+            # If no valid articles after validation, use fallback
+            if not articles:
+                logger.warning("Enhanced: No valid articles after URI validation, using fallback")
                 return await self._create_fallback_six_articles(articles_data, date)
             
             # Store current articles data for URI matching in related articles
