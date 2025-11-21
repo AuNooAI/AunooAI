@@ -19,9 +19,7 @@ Manual Setup (No Wizard):
 4. Configure API keys in onboarding wizard
 
 Documentation:
-- INSTALL.md - Quick installation guide
-- README.md - Full documentation
-- DOCKER_QUICKSTART.md - Quick reference
+- README.md - Complete deployment guide
 
 Default Settings:
 - Admin: admin / admin123
