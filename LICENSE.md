@@ -59,13 +59,13 @@ You MAY use the Licensed Work for:
 
 ### Examples
 
-**❌ NOT ALLOWED:**
+**NOT ALLOWED:**
 - Running a SaaS platform that offers AI news analysis as a service
 - Hosting Aunoo AI for multiple clients as a managed service
 - Creating a competing AI content intelligence platform using this code
 - White-labeling Aunoo AI and selling it as "YourCompany AI News"
 
-**✅ ALLOWED:**
+**ALLOWED:**
 - Using Aunoo AI internally for your company's own news monitoring
 - Integrating Aunoo AI into your non-competing product (e.g., a project management tool that includes news monitoring)
 - Running Aunoo AI for academic research on AI and news analysis
