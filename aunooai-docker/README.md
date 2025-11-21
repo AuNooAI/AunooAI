@@ -489,7 +489,7 @@ sudo certbot --nginx -d aunoo.example.com
 ### Where to Get Help
 
 - **GitHub Issues:** https://github.com/orochford/AunooAI/issues
-- **Documentation:** Check this file and DOCKER_QUICKSTART.md
+- **Documentation:** Check this file for complete deployment guide
 - **Health Check:** http://localhost:10001/health
 
 ---

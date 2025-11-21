@@ -19,9 +19,7 @@ cp docker-compose.yml "$RELEASE_DIR/docker-compose.hub.yml"
 cp .env.hub "$RELEASE_DIR/"
 cp setup-docker.sh "$RELEASE_DIR/"
 cp setup-docker.ps1 "$RELEASE_DIR/"
-cp INSTALL.md "$RELEASE_DIR/"
-cp DOCKER_README.md "$RELEASE_DIR/README.md"
-cp DOCKER_QUICKSTART.md "$RELEASE_DIR/"
+cp DOCKER_DEPLOYMENT.md "$RELEASE_DIR/README.md"
 
 # PowerShell works fine with Unix (LF) line endings, no conversion needed
 
@@ -51,9 +49,7 @@ Manual Setup (No Wizard):
 4. Configure API keys in onboarding wizard
 
 Documentation:
-- INSTALL.md - Quick installation guide
-- README.md - Full documentation
-- DOCKER_QUICKSTART.md - Quick reference
+- README.md - Complete deployment guide
 
 Default Settings:
 - Admin: admin / admin123
