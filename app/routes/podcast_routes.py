@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 # Get API keys from environment with defaults and backward compatibility
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 ELEVENLABS_API_KEY = os.getenv('PROVIDER_ELEVENLABS_API_KEY') or os.getenv('ELEVENLABS_API_KEY')
-DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM"  # Rachel's voice ID
+DEFAULT_VOICE_ID = "2qfp6zPuviqeCOZIE9RZ"  # Updated voice ID
 
 # Default podcast script prompt template
 PODCAST_CONVERSATION_PROMPT = """
@@ -246,6 +246,10 @@ class TTSPodcastRequest(BaseModel):
     duration: str = "medium"  # short | medium | long
     length_per_article: int = 90  # Target seconds per article (45-150)
     article_count: Optional[int] = None  # Number of articles
+
+    # Organizational context
+    profile_id: Optional[str] = None  # Organizational profile ID
+    persona: Optional[str] = None  # Persona type (e.g., CEO, CMO)
 
     # Speaker / voices
     host_name: Optional[str] = "Aunoo"
@@ -471,10 +475,13 @@ async def generate_tts_podcast(request: TTSPodcastRequest, session=Depends(verif
                     json.dumps({}),
                 ))
 
+        # Get username from session for notifications
+        username = session.get("user", {}).get("username")
+
         # Launch background processing task in a separate thread so that the
         # current ASGI worker is freed immediately.
         threading.Thread(
-            target=lambda: asyncio.run(_run_tts_podcast_worker(podcast_id, request)),
+            target=lambda: asyncio.run(_run_tts_podcast_worker(podcast_id, request, username)),
             daemon=True,
         ).start()
 
@@ -491,9 +498,9 @@ async def generate_tts_podcast(request: TTSPodcastRequest, session=Depends(verif
 # ---------------------------------------------------------------------------
 
 
-async def _run_tts_podcast_worker(podcast_id: str, request: TTSPodcastRequest):
+async def _run_tts_podcast_worker(podcast_id: str, request: TTSPodcastRequest, username: Optional[str] = None):
     """Perform the full TTS generation flow. Runs in the background."""
-    logger.info("[Worker] Starting podcast generation %s", podcast_id)
+    logger.info("[Worker] Starting podcast generation %s for user %s", podcast_id, username)
     try:
         # --- RE‑RUN previous synchronous logic ----------------------------
         # Note: this block is essentially the previous implementation of the
@@ -517,6 +524,30 @@ async def _run_tts_podcast_worker(podcast_id: str, request: TTSPodcastRequest):
             if not records:
                 raise ValueError("No articles found for provided URIs")
 
+            # Load organizational profile if profile_id is provided
+            org_profile = None
+            if request.profile_id:
+                try:
+                    facade = DatabaseQueryFacade(db, logger)
+                    profile_row = facade.get_organizational_profile_for_ui(int(request.profile_id))
+                    if profile_row:
+                        org_profile = {
+                            'id': profile_row[0],
+                            'name': profile_row[1],
+                            'organization_type': profile_row[2],
+                            'industry': profile_row[3],
+                            'region': profile_row[4],
+                            'risk_tolerance': profile_row[5],
+                            'innovation_appetite': profile_row[6],
+                            'key_concerns': json.loads(profile_row[7]) if profile_row[7] else [],
+                            'strategic_priorities': json.loads(profile_row[8]) if profile_row[8] else [],
+                            'stakeholder_focus': json.loads(profile_row[9]) if profile_row[9] else []
+                        }
+                        logger.info(f"Loaded organizational profile: {org_profile['name']}")
+                except Exception as e:
+                    logger.error(f"Error loading organizational profile: {e}")
+                    org_profile = None
+
             request.script = _generate_script_from_articles(
                 podcast_name=request.podcast_name,
                 episode_title=request.episode_title,
@@ -527,6 +558,8 @@ async def _run_tts_podcast_worker(podcast_id: str, request: TTSPodcastRequest):
                 mode=request.mode,
                 articles=records,
                 llm_model=request.model,
+                org_profile=org_profile,
+                persona=request.persona,
             )
 
         # ------------------------------------------------------------------
@@ -691,13 +724,29 @@ async def _run_tts_podcast_worker(podcast_id: str, request: TTSPodcastRequest):
             meta["guest_title"] = request.guest_title
 
         db = get_database_instance()
+        audio_url = f"/static/audio/{output_filename}"
         (DatabaseQueryFacade(db, logger)).mark_podcast_generation_as_complete((
-            f"/static/audio/{output_filename}",
+            audio_url,
             json.dumps(meta),
             podcast_id,
         ))
 
         logger.info(f"[Worker] Podcast {podcast_id} completed successfully")
+
+        # Create notification for user
+        if username:
+            try:
+                title = f"{request.podcast_name} - {request.episode_title}"
+                db.facade.create_notification(
+                    username=username,
+                    type="success",
+                    title="Podcast Generated Successfully",
+                    message=f'Your podcast "{title}" has been generated and is ready to download.',
+                    link=audio_url
+                )
+                logger.info(f"[Worker] Created success notification for user {username}")
+            except Exception as notif_err:
+                logger.error(f"[Worker] Failed to create success notification: {notif_err}")
 
     except Exception as err:
         logger.error("[Worker] Error generating TTS podcast %s: %s", podcast_id, err, exc_info=True)
@@ -705,6 +754,26 @@ async def _run_tts_podcast_worker(podcast_id: str, request: TTSPodcastRequest):
             db = get_database_instance()
             (DatabaseQueryFacade(db, logger)).log_error_generating_podcast((str(err), podcast_id))
             logger.info(f"[Worker] Successfully saved error to database for podcast {podcast_id}")
+
+            # Create failure notification for user
+            if username:
+                try:
+                    title = f"{request.podcast_name} - {request.episode_title}"
+                    error_message = str(err)
+                    # Truncate error message if too long
+                    if len(error_message) > 200:
+                        error_message = error_message[:197] + "..."
+
+                    db.facade.create_notification(
+                        username=username,
+                        type="error",
+                        title="Podcast Generation Failed",
+                        message=f'Failed to generate podcast "{title}". Error: {error_message}',
+                        link=None
+                    )
+                    logger.info(f"[Worker] Created failure notification for user {username}")
+                except Exception as notif_err:
+                    logger.error(f"[Worker] Failed to create failure notification: {notif_err}")
         except Exception as db_err:
             logger.error("[Worker] Failed updating error status for %s: %s", podcast_id, db_err)
 
@@ -1083,6 +1152,54 @@ async def delete_podcast(podcast_id: str, session=Depends(verify_session)):
         )
 
 # ---------------------------------------------------------------------------
+# Helper – build organizational context for podcast script
+# ---------------------------------------------------------------------------
+
+def _build_org_context_for_podcast(org_profile: dict, persona: str) -> str:
+    """Build organizational context section for podcast script generation"""
+
+    # Map risk tolerance
+    risk_mapping = {
+        'low': 'Conservative (prioritizes stability and proven solutions)',
+        'medium': 'Moderate (balanced between innovation and caution)',
+        'high': 'Aggressive (embraces high-risk, high-reward opportunities)'
+    }
+
+    # Map innovation appetite
+    innovation_mapping = {
+        'conservative': 'Conservative (adopts proven technologies)',
+        'moderate': 'Moderate (selective early adoption)',
+        'aggressive': 'Aggressive (cutting-edge technology adoption)'
+    }
+
+    # Build strategic interests from key concerns and priorities
+    strategic_interests = []
+    strategic_interests.extend(org_profile.get('key_concerns', []))
+    strategic_interests.extend(org_profile.get('strategic_priorities', []))
+
+    if not strategic_interests:
+        strategic_interests = ['AI regulation', 'enterprise adoption', 'market shifts', 'workforce impact', 'security & safety']
+
+    # Remove duplicates
+    strategic_interests = list(dict.fromkeys(strategic_interests))
+
+    org_context = f"""
+### Target Audience Context
+This podcast is tailored for a {persona} at {org_profile.get('name', 'an organization')}:
+- **Organization**: {org_profile.get('name', 'Unknown')} ({org_profile.get('organization_type', 'General')})
+- **Industry**: {org_profile.get('industry', 'General')}
+- **Region**: {org_profile.get('region', 'Global')}
+- **Risk Appetite**: {risk_mapping.get(org_profile.get('risk_tolerance', 'medium'), 'Moderate')}
+- **Innovation Appetite**: {innovation_mapping.get(org_profile.get('innovation_appetite', 'moderate'), 'Moderate')}
+- **Strategic Interests**: {', '.join(strategic_interests)}
+- **Key Stakeholders**: {', '.join(org_profile.get('stakeholder_focus', ['General stakeholders']))}
+
+When crafting the podcast dialogue, ensure the discussion emphasizes aspects most relevant to this audience profile, particularly focusing on their strategic interests and risk/innovation preferences.
+"""
+
+    return org_context
+
+# ---------------------------------------------------------------------------
 # Helper – generate a podcast script from article records
 # ---------------------------------------------------------------------------
 
@@ -1098,6 +1215,8 @@ def _generate_script_from_articles(
     mode: str,
     articles: List[dict],
     llm_model: str,
+    org_profile: Optional[dict] = None,
+    persona: Optional[str] = None,
 ) -> str:
     """Call the LLM (via LiteLLMModel) to create a podcast script for the
     given set of articles. This mirrors the logic in the /generate_podcast_script
@@ -1154,6 +1273,11 @@ def _generate_script_from_articles(
     )
 
     system_prompt = f"{system_prompt}\n\n{guidelines}"
+
+    # Add organizational profile context if available
+    if org_profile and persona:
+        org_context = _build_org_context_for_podcast(org_profile, persona)
+        system_prompt = f"{system_prompt}\n\n{org_context}"
 
     # Get model and generate
     model_instance = LiteLLMModel.get_instance(llm_model)
@@ -1369,9 +1493,12 @@ async def dia_generate_podcast(request: DiaPodcastRequest, session=Depends(verif
                     json.dumps({}),
                 ),)
 
+        # Get username from session for notifications
+        username = session.get("user", {}).get("username")
+
         # Run heavy generation in background thread so HTTP returns fast
         threading.Thread(
-            target=lambda: asyncio.run(_run_dia_podcast_worker(podcast_id, request)),
+            target=lambda: asyncio.run(_run_dia_podcast_worker(podcast_id, request, username)),
             daemon=True,
         ).start()
 
@@ -1382,10 +1509,10 @@ async def dia_generate_podcast(request: DiaPodcastRequest, session=Depends(verif
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-async def _run_dia_podcast_worker(podcast_id: str, req: DiaPodcastRequest):
+async def _run_dia_podcast_worker(podcast_id: str, req: DiaPodcastRequest, username: Optional[str] = None):
     """Background job that generates a Dia TTS podcast and stores result."""
 
-    logger.info("[DiaWorker] Start podcast %s", podcast_id)
+    logger.info("[DiaWorker] Start podcast %s for user %s", podcast_id, username)
     try:
         # Step 1 – ensure script text
         script_text = (req.text or "").strip()
@@ -1407,6 +1534,8 @@ async def _run_dia_podcast_worker(podcast_id: str, req: DiaPodcastRequest):
                 mode=req.mode,
                 articles=articles,
                 llm_model=req.model,
+                org_profile=None,
+                persona=None,
             )
 
         if not script_text:
@@ -1456,19 +1585,55 @@ async def _run_dia_podcast_worker(podcast_id: str, req: DiaPodcastRequest):
         }
 
         db = get_database_instance()
+        audio_url = f"/static/audio/{output_filename}"
         (DatabaseQueryFacade(db, logger)).mark_podcast_generation_as_complete((
-                    f"/static/audio/{output_filename}",
+                    audio_url,
                     json.dumps(meta),
                     podcast_id,
                 ),)
 
         logger.info("[DiaWorker] Podcast %s completed", podcast_id)
 
+        # Create notification for user
+        if username:
+            try:
+                title = f"{req.podcast_name} - {req.episode_title}"
+                db.facade.create_notification(
+                    username=username,
+                    type="success",
+                    title="Podcast Generated Successfully",
+                    message=f'Your podcast "{title}" has been generated and is ready to download.',
+                    link=audio_url
+                )
+                logger.info(f"[DiaWorker] Created success notification for user {username}")
+            except Exception as notif_err:
+                logger.error(f"[DiaWorker] Failed to create success notification: {notif_err}")
+
     except Exception as err:
         logger.error("[DiaWorker] Error %s: %s", podcast_id, err, exc_info=True)
         try:
             db = get_database_instance()
             (DatabaseQueryFacade(db, logger)).log_error_generating_podcast((str(err), podcast_id),)
+
+            # Create failure notification for user
+            if username:
+                try:
+                    title = f"{req.podcast_name} - {req.episode_title}"
+                    error_message = str(err)
+                    # Truncate error message if too long
+                    if len(error_message) > 200:
+                        error_message = error_message[:197] + "..."
+
+                    db.facade.create_notification(
+                        username=username,
+                        type="error",
+                        title="Podcast Generation Failed",
+                        message=f'Failed to generate podcast "{title}". Error: {error_message}',
+                        link=None
+                    )
+                    logger.info(f"[DiaWorker] Created failure notification for user {username}")
+                except Exception as notif_err:
+                    logger.error(f"[DiaWorker] Failed to create failure notification: {notif_err}")
         except Exception as db_err:
             logger.error("[DiaWorker] DB update fail %s: %s", podcast_id, db_err)
 
