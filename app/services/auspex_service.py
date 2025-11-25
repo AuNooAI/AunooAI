@@ -13,6 +13,8 @@ from mcp.client.stdio import stdio_client
 
 from app.database import get_database_instance
 from app.services.auspex_tools import get_auspex_tools_service
+from app.services.search_router import get_search_router, SearchSource
+from app.services.chart_service import ChartService
 from app.analyze_db import AnalyzeDB
 from app.vector_store import search_articles as vector_search_articles
 from app.ai_models import get_ai_model
@@ -574,15 +576,17 @@ class OptimizedContextManager:
 
 class AuspexService:
     """Enhanced Auspex service with MCP integration and chat persistence."""
-    
+
     def __init__(self):
         self.db = get_database_instance()
         self.tools = get_auspex_tools_service()
-        
+        self.search_router = get_search_router()
+        self.chart_service = ChartService()
+
         # Initialize context optimization manager with a reasonable default
         # This will be updated dynamically based on the actual model used
         self.context_manager = OptimizedContextManager(model_context_limit=128000)  # Default to GPT-4o limit
-        
+
         self._ensure_default_prompt()
     
     def _ensure_default_prompt(self):

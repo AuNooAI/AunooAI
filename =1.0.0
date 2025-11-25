@@ -1,0 +1,2 @@
+Requirement already satisfied: python-frontmatter in ./.venv/lib/python3.12/site-packages (1.1.0)
+Requirement already satisfied: PyYAML in ./.venv/lib/python3.12/site-packages (from python-frontmatter) (6.0.3)

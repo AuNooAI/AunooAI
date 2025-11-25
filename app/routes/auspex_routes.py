@@ -7,6 +7,7 @@ import logging
 from datetime import datetime
 
 from app.services.auspex_service import get_auspex_service
+from app.services.deep_research_service import get_deep_research_service, ResearchConfig
 from app.security.session import verify_session
 
 logger = logging.getLogger(__name__)
@@ -1178,4 +1179,162 @@ async def test_auspex_tools(session=Depends(verify_session)):
         "status": "test_completed",
         "timestamp": datetime.now().isoformat(),
         "results": results
-    } 
+    }
+
+
+# =============================================================================
+# DEEP RESEARCH ENDPOINTS
+# =============================================================================
+
+class DeepResearchRequest(BaseModel):
+    """Request model for deep research."""
+    query: str = Field(..., description="Research question or topic to investigate")
+    topic: str = Field(..., description="Topic area for the research")
+    chat_id: int | None = Field(None, description="Optional chat ID to associate with research")
+    config: Dict | None = Field(None, description="Optional research configuration overrides")
+
+    @field_validator('query')
+    @classmethod
+    def validate_query(cls, v: str) -> str:
+        """Ensure query is not empty."""
+        if not v or len(v.strip()) < 10:
+            raise ValueError("Research query must be at least 10 characters")
+        return v.strip()
+
+    @field_validator('topic')
+    @classmethod
+    def sanitize_topic(cls, v: str) -> str:
+        """Sanitize topic name."""
+        if v:
+            import re
+            return re.sub(r'\s+', ' ', v.strip())
+        return v
+
+
+@router.post("/research", status_code=status.HTTP_200_OK)
+async def start_deep_research(req: DeepResearchRequest, session=Depends(verify_session)):
+    """
+    Start a deep research session with streaming progress updates.
+
+    This endpoint conducts a 4-stage autonomous research workflow:
+    1. Planning - Analyze query, create objectives and search strategy
+    2. Searching - Execute searches with diversity and credibility filtering
+    3. Synthesis - Analyze findings, resolve contradictions, assess confidence
+    4. Writing - Produce professional research report with citations
+
+    The response is a Server-Sent Events (SSE) stream with progress updates.
+    """
+    username = session.get('user')
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User authentication required for deep research"
+        )
+
+    logger.info(f"Starting deep research: query='{req.query[:50]}...', topic='{req.topic}', user={username}")
+
+    research_service = get_deep_research_service()
+
+    # Build config from request if provided
+    config = None
+    if req.config:
+        config = ResearchConfig()
+        if "max_articles" in req.config:
+            config.max_articles = req.config["max_articles"]
+        if "credibility_threshold" in req.config:
+            config.credibility_threshold = req.config["credibility_threshold"]
+        if "allow_external_search" in req.config:
+            config.allow_external_search = req.config["allow_external_search"]
+        if "writing_model" in req.config:
+            config.writing_model = req.config["writing_model"]
+
+    async def generate_sse():
+        """Generate SSE events for research progress."""
+        try:
+            async for update in research_service.conduct_research(
+                query=req.query,
+                topic=req.topic,
+                username=username,
+                chat_id=req.chat_id,
+                config=config
+            ):
+                yield f"data: {json.dumps(update)}\n\n"
+
+            # Send completion signal
+            yield f"data: {json.dumps({'done': True})}\n\n"
+
+        except Exception as e:
+            logger.error(f"Deep research error: {e}", exc_info=True)
+            yield f"data: {json.dumps({'error': str(e), 'stage': 'error'})}\n\n"
+
+    return StreamingResponse(
+        generate_sse(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+@router.get("/research/config", status_code=status.HTTP_200_OK)
+async def get_research_config(session=Depends(verify_session)):
+    """Get the default research configuration and available options."""
+    from app.services.tool_loader import get_tool_loader
+
+    tool_loader = get_tool_loader()
+    workflow = tool_loader.get_workflow("deep_research_workflow")
+
+    default_config = ResearchConfig()
+
+    response = {
+        "default_config": {
+            "max_total_tokens": default_config.max_total_tokens,
+            "max_articles": default_config.max_articles,
+            "articles_per_query": default_config.articles_per_query,
+            "credibility_threshold": default_config.credibility_threshold,
+            "source_diversity_min": default_config.source_diversity_min,
+            "allow_external_search": default_config.allow_external_search,
+            "models": {
+                "planning": default_config.planning_model,
+                "synthesis": default_config.synthesis_model,
+                "writing": default_config.writing_model
+            },
+            "timeouts": {
+                "planning": default_config.planning_timeout,
+                "searching": default_config.searching_timeout,
+                "synthesis": default_config.synthesis_timeout,
+                "writing": default_config.writing_timeout
+            }
+        },
+        "workflow_loaded": workflow is not None,
+        "stages": ["planning", "searching", "synthesis", "writing"],
+        "presets": {
+            "quick": {
+                "max_articles": 30,
+                "articles_per_query": 10,
+                "description": "Fast research with fewer sources"
+            },
+            "standard": {
+                "max_articles": 100,
+                "articles_per_query": 20,
+                "description": "Balanced research (default)"
+            },
+            "comprehensive": {
+                "max_articles": 200,
+                "articles_per_query": 30,
+                "description": "Deep research with extensive sources"
+            }
+        }
+    }
+
+    if workflow:
+        response["workflow_config"] = {
+            "name": workflow.name,
+            "version": workflow.version,
+            "sampling": workflow.get_sampling_config(),
+            "filtering": workflow.get_filtering_config()
+        }
+
+    return response

@@ -55,7 +55,10 @@ from app.database_models import (t_keyword_monitor_settings as keyword_monitor_s
                                  t_raw_articles as raw_articles,
                                  t_llm_retry_state as llm_retry_state,
                                  t_llm_processing_errors as llm_processing_errors,
-                                 t_processing_jobs as processing_jobs)
+                                 t_processing_jobs as processing_jobs,
+                                 t_auspex_research_sessions as auspex_research_sessions,
+                                 t_auspex_tool_usage as auspex_tool_usage,
+                                 t_auspex_search_routing as auspex_search_routing)
                                  # t_paper_search_results as paper_search_results,  # Table doesn't exist
                                  # t_news_search_results as news_search_results,  # Table doesn't exist
                              # t_keyword_alert_articles as keyword_alert_articles)  # Table doesn't exist
@@ -7975,3 +7978,355 @@ class DatabaseQueryFacade:
             'circuit_opened_at': None,
             'failure_rate': 0.0
         })
+
+    # ==================== AUSPEX RESEARCH SESSIONS ====================
+
+    def create_research_session(self, params: Dict) -> Optional[int]:
+        """
+        Create a new research session.
+
+        Args:
+            params: Dict with keys:
+                - username (required): Username of the user
+                - query (required): Research query text
+                - topic (required): Topic for the research
+                - chat_id (optional): Associated chat ID
+                - status (optional): Initial status (default: 'pending')
+                - objectives (optional): JSONB objectives
+                - metadata (optional): JSONB metadata
+
+        Returns:
+            int: ID of created session, or None on failure
+        """
+        required_fields = ['username', 'query', 'topic']
+        for field in required_fields:
+            if field not in params:
+                self.logger.error(f"Missing required field '{field}' for create_research_session")
+                return None
+
+        try:
+            values = {
+                'username': params['username'],
+                'query': params['query'],
+                'topic': params['topic'],
+                'status': params.get('status', 'pending'),
+            }
+
+            if 'chat_id' in params:
+                values['chat_id'] = params['chat_id']
+            if 'objectives' in params:
+                values['objectives'] = json.dumps(params['objectives']) if isinstance(params['objectives'], dict) else params['objectives']
+            if 'metadata' in params:
+                values['metadata'] = json.dumps(params['metadata']) if isinstance(params['metadata'], dict) else params['metadata']
+
+            result = self._execute_with_rollback(
+                insert(auspex_research_sessions).values(**values).returning(auspex_research_sessions.c.id),
+                operation_name="create_research_session"
+            )
+            row = result.fetchone()
+            return row[0] if row else None
+
+        except Exception as e:
+            self.logger.error(f"Failed to create research session: {e}")
+            return None
+
+    def get_research_session(self, session_id: int) -> Optional[Dict]:
+        """
+        Get a research session by ID.
+
+        Args:
+            session_id: ID of the research session
+
+        Returns:
+            Dict with session data, or None if not found
+        """
+        try:
+            result = self._execute_with_rollback(
+                select(auspex_research_sessions).where(
+                    auspex_research_sessions.c.id == session_id
+                ),
+                operation_name="get_research_session"
+            )
+            row = result.mappings().fetchone()
+            return dict(row) if row else None
+
+        except Exception as e:
+            self.logger.error(f"Failed to get research session {session_id}: {e}")
+            return None
+
+    def get_research_sessions_by_user(self, username: str, limit: int = 50) -> List[Dict]:
+        """
+        Get research sessions for a user.
+
+        Args:
+            username: Username to filter by
+            limit: Maximum number of sessions to return
+
+        Returns:
+            List of session dicts
+        """
+        try:
+            result = self._execute_with_rollback(
+                select(auspex_research_sessions).where(
+                    auspex_research_sessions.c.username == username
+                ).order_by(
+                    desc(auspex_research_sessions.c.created_at)
+                ).limit(limit),
+                operation_name="get_research_sessions_by_user"
+            )
+            return [dict(row) for row in result.mappings().fetchall()]
+
+        except Exception as e:
+            self.logger.error(f"Failed to get research sessions for user {username}: {e}")
+            return []
+
+    def update_research_session(self, session_id: int, params: Dict) -> bool:
+        """
+        Update a research session.
+
+        Args:
+            session_id: ID of the session to update
+            params: Dict with fields to update (status, objectives, findings, report, metadata, completed_at)
+
+        Returns:
+            bool: True if update successful
+        """
+        try:
+            update_values = {}
+
+            allowed_fields = ['status', 'objectives', 'findings', 'report', 'metadata', 'completed_at']
+            for field in allowed_fields:
+                if field in params:
+                    value = params[field]
+                    # Convert dicts to JSON strings for JSONB fields
+                    if field in ['objectives', 'findings', 'metadata'] and isinstance(value, dict):
+                        value = json.dumps(value)
+                    update_values[field] = value
+
+            if not update_values:
+                self.logger.warning("No valid fields to update for research session")
+                return False
+
+            self._execute_with_rollback(
+                update(auspex_research_sessions).where(
+                    auspex_research_sessions.c.id == session_id
+                ).values(**update_values),
+                operation_name="update_research_session"
+            )
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to update research session {session_id}: {e}")
+            return False
+
+    def delete_research_session(self, session_id: int) -> bool:
+        """
+        Delete a research session.
+
+        Args:
+            session_id: ID of the session to delete
+
+        Returns:
+            bool: True if deletion successful
+        """
+        try:
+            self._execute_with_rollback(
+                delete(auspex_research_sessions).where(
+                    auspex_research_sessions.c.id == session_id
+                ),
+                operation_name="delete_research_session"
+            )
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to delete research session {session_id}: {e}")
+            return False
+
+    # ==================== AUSPEX TOOL USAGE ====================
+
+    def log_tool_usage(self, params: Dict) -> Optional[int]:
+        """
+        Log a tool usage event.
+
+        Args:
+            params: Dict with keys:
+                - tool_name (required): Name of the tool used
+                - chat_id (optional): Associated chat ID
+                - tool_version (optional): Version of the tool
+                - parameters (optional): JSONB parameters passed to the tool
+                - result_summary (optional): JSONB summary of results
+                - execution_ms (optional): Execution time in milliseconds
+
+        Returns:
+            int: ID of created log entry, or None on failure
+        """
+        if 'tool_name' not in params:
+            self.logger.error("tool_name is required for log_tool_usage")
+            return None
+
+        try:
+            values = {'tool_name': params['tool_name']}
+
+            optional_fields = ['chat_id', 'tool_version', 'execution_ms']
+            for field in optional_fields:
+                if field in params:
+                    values[field] = params[field]
+
+            # Handle JSONB fields
+            for field in ['parameters', 'result_summary']:
+                if field in params:
+                    value = params[field]
+                    values[field] = json.dumps(value) if isinstance(value, dict) else value
+
+            result = self._execute_with_rollback(
+                insert(auspex_tool_usage).values(**values).returning(auspex_tool_usage.c.id),
+                operation_name="log_tool_usage"
+            )
+            row = result.fetchone()
+            return row[0] if row else None
+
+        except Exception as e:
+            self.logger.error(f"Failed to log tool usage: {e}")
+            return None
+
+    def get_tool_usage_stats(self, tool_name: Optional[str] = None, days: int = 30) -> Dict:
+        """
+        Get tool usage statistics.
+
+        Args:
+            tool_name: Optional specific tool to filter by
+            days: Number of days to look back (default: 30)
+
+        Returns:
+            Dict with usage statistics
+        """
+        try:
+            since = datetime.utcnow() - timedelta(days=days)
+
+            query = select(
+                auspex_tool_usage.c.tool_name,
+                func.count(auspex_tool_usage.c.id).label('usage_count'),
+                func.avg(auspex_tool_usage.c.execution_ms).label('avg_execution_ms'),
+                func.max(auspex_tool_usage.c.execution_ms).label('max_execution_ms'),
+                func.min(auspex_tool_usage.c.execution_ms).label('min_execution_ms')
+            ).where(
+                auspex_tool_usage.c.created_at >= since
+            ).group_by(
+                auspex_tool_usage.c.tool_name
+            )
+
+            if tool_name:
+                query = query.where(auspex_tool_usage.c.tool_name == tool_name)
+
+            result = self._execute_with_rollback(query, operation_name="get_tool_usage_stats")
+            rows = result.mappings().fetchall()
+
+            return {
+                "period_days": days,
+                "tools": [dict(row) for row in rows]
+            }
+
+        except Exception as e:
+            self.logger.error(f"Failed to get tool usage stats: {e}")
+            return {"period_days": days, "tools": []}
+
+    # ==================== AUSPEX SEARCH ROUTING ====================
+
+    def log_search_routing(self, params: Dict) -> Optional[int]:
+        """
+        Log a search routing decision.
+
+        Args:
+            params: Dict with keys:
+                - query (required): The search query
+                - recommended_source (required): Source recommended by router
+                - actual_source (required): Source actually used
+                - topic (optional): Topic context
+                - confidence (optional): Router confidence score
+                - signals (optional): JSONB signals used in decision
+                - result_quality (optional): Quality score for feedback
+
+        Returns:
+            int: ID of created log entry, or None on failure
+        """
+        required_fields = ['query', 'recommended_source', 'actual_source']
+        for field in required_fields:
+            if field not in params:
+                self.logger.error(f"Missing required field '{field}' for log_search_routing")
+                return None
+
+        try:
+            values = {
+                'query': params['query'],
+                'recommended_source': params['recommended_source'],
+                'actual_source': params['actual_source']
+            }
+
+            optional_fields = ['topic', 'confidence', 'result_quality']
+            for field in optional_fields:
+                if field in params:
+                    values[field] = params[field]
+
+            if 'signals' in params:
+                value = params['signals']
+                values['signals'] = json.dumps(value) if isinstance(value, dict) else value
+
+            result = self._execute_with_rollback(
+                insert(auspex_search_routing).values(**values).returning(auspex_search_routing.c.id),
+                operation_name="log_search_routing"
+            )
+            row = result.fetchone()
+            return row[0] if row else None
+
+        except Exception as e:
+            self.logger.error(f"Failed to log search routing: {e}")
+            return None
+
+    def get_search_routing_accuracy(self, days: int = 30) -> Dict:
+        """
+        Get search routing accuracy statistics.
+
+        Args:
+            days: Number of days to look back
+
+        Returns:
+            Dict with routing accuracy stats
+        """
+        try:
+            since = datetime.utcnow() - timedelta(days=days)
+
+            # Count total and matches
+            result = self._execute_with_rollback(
+                select(
+                    func.count(auspex_search_routing.c.id).label('total'),
+                    func.count(
+                        case(
+                            (auspex_search_routing.c.recommended_source == auspex_search_routing.c.actual_source, 1),
+                            else_=None
+                        )
+                    ).label('matches'),
+                    func.avg(auspex_search_routing.c.confidence).label('avg_confidence'),
+                    func.avg(auspex_search_routing.c.result_quality).label('avg_quality')
+                ).where(
+                    auspex_search_routing.c.created_at >= since
+                ),
+                operation_name="get_search_routing_accuracy"
+            )
+            row = result.mappings().fetchone()
+
+            total = row['total'] or 0
+            matches = row['matches'] or 0
+            accuracy = (matches / total * 100) if total > 0 else 0.0
+
+            return {
+                "period_days": days,
+                "total_queries": total,
+                "matches": matches,
+                "accuracy_pct": round(accuracy, 2),
+                "avg_confidence": round(float(row['avg_confidence'] or 0), 3),
+                "avg_quality": round(float(row['avg_quality'] or 0), 3)
+            }
+
+        except Exception as e:
+            self.logger.error(f"Failed to get search routing accuracy: {e}")
+            return {"period_days": days, "total_queries": 0, "accuracy_pct": 0.0}
