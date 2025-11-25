@@ -23,7 +23,7 @@ Aunoo AI is **source-available** now and will become **fully open source** (Apac
 
 ## Use Cases
 
-### ✅ What CAN I do with Aunoo AI?
+### What CAN I do with Aunoo AI?
 
 **Internal Business Use**
 - Deploy Aunoo AI within your company for internal news monitoring
@@ -41,13 +41,13 @@ Aunoo AI is **source-available** now and will become **fully open source** (Apac
 - Use as a component in a larger system that doesn't compete with Aunoo's core business
 - Build custom features on top for your specific industry
 
-### ❌ What CANNOT I do with Aunoo AI?
+### What CANNOT I do with Aunoo AI?
 
 **Competing Services**
-- ❌ Offer Aunoo AI as a hosted SaaS platform that competes with Aunoo
-- ❌ Provide managed AI news intelligence services using Aunoo AI
-- ❌ White-label Aunoo AI and sell it as your own product
-- ❌ Run Aunoo AI as a multi-tenant service for paying customers
+- Offer Aunoo AI as a hosted SaaS platform that competes with Aunoo
+- Provide managed AI news intelligence services using Aunoo AI
+- White-label Aunoo AI and sell it as your own product
+- Run Aunoo AI as a multi-tenant service for paying customers
 
 **Examples of prohibited use:**
 - Creating "YourCompany AI News Platform" powered by Aunoo
@@ -61,9 +61,9 @@ Aunoo AI is **source-available** now and will become **fully open source** (Apac
 
 ### Q: Can I use Aunoo AI for my consulting business?
 
-**Internal use**: ✅ Yes - Use it internally to monitor news for your consulting projects
+**Internal use**: Yes - Use it internally to monitor news for your consulting projects
 
-**Client service**: ❌ No - Don't host it as a service for multiple clients
+**Client service**: No - Don't host it as a service for multiple clients
 
 **Recommendation**: Each client should deploy their own instance, or contact us for a commercial license.
 
@@ -71,12 +71,12 @@ Aunoo AI is **source-available** now and will become **fully open source** (Apac
 
 **Depends on your product:**
 
-✅ **Yes, if your product isn't competing:**
+**Yes, if your product isn't competing:**
 - A project management tool that includes news monitoring
 - A CRM with AI-powered market intelligence features
 - An industry-specific platform (e.g., legal tech) with news analysis
 
-❌ **No, if your product competes:**
+**No, if your product competes:**
 - An AI-powered news aggregation platform
 - A content intelligence SaaS
 - A media monitoring service
@@ -85,7 +85,7 @@ Aunoo AI is **source-available** now and will become **fully open source** (Apac
 
 ### Q: Can I modify Aunoo AI and contribute changes?
 
-✅ **Yes!** We encourage contributions:
+**Yes!** We encourage contributions:
 - Fork the repository
 - Make improvements
 - Submit pull requests
@@ -93,19 +93,19 @@ Aunoo AI is **source-available** now and will become **fully open source** (Apac
 
 ### Q: Can I use Aunoo AI for my startup?
 
-**Internal use**: ✅ Yes - Use it internally for your startup's needs
+**Internal use**:  Yes - Use it internally for your startup's needs
 
-**Product offering**: ❌ No - If AI news intelligence IS your product, you need a commercial license
+**Product offering**:  No - If AI news intelligence IS your product, you need a commercial license
 
-**Embedded feature**: ✅ Probably yes - If it's just one feature in a non-competing product
+**Embedded feature**:  Probably yes - If it's just one feature in a non-competing product
 
 ### Q: What happens after the Change Date (2028-11-21)?
 
 After **November 21, 2028**, Aunoo AI automatically converts to **Apache License 2.0**, which means:
-- ✅ Fully open source
-- ✅ No restrictions on commercial use
-- ✅ Can offer as a service
-- ✅ Can compete freely
+- Fully open source
+- No restrictions on commercial use
+- Can offer as a service
+- Can compete freely
 
 ---
 
@@ -146,14 +146,14 @@ Contact us for a quote: licensing@aunoo.ai
 
 ### Can I fork the repository?
 
-✅ **Yes!** You can fork and modify Aunoo AI. Your fork must:
+**Yes!** You can fork and modify Aunoo AI. Your fork must:
 - Maintain the BSL license
 - Include the original license and copyright notices
 - Disclose the source code if you distribute it
 
 ### Can I contribute to Aunoo AI?
 
-✅ **Yes!** We welcome contributions:
+**Yes!** We welcome contributions:
 1. Fork the repository
 2. Make your changes
 3. Submit a pull request
@@ -199,9 +199,9 @@ Other successful companies using BSL:
 
 ## Still Have Questions?
 
-📧 **Email**: licensing@aunoo.ai
-🌐 **Website**: https://aunoo.ai
-📄 **Full License**: [LICENSE.md](LICENSE.md)
+**Email**: licensing@aunoo.ai
+**Website**: https://aunoo.ai
+**Full License**: [LICENSE.md](LICENSE.md)
 
 ---
 
