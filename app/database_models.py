@@ -734,7 +734,7 @@ t_notifications = Table(
     Column('message', Text, nullable=False),
     Column('link', String(500), nullable=True),
     Column('read', Boolean, nullable=False, server_default='false'),
-    Column('created_at', DateTime, nullable=False, server_default=text('CURRENT_TIMESTAMP')),
+    Column('created_at', DateTime(timezone=True), nullable=False, server_default=text('CURRENT_TIMESTAMP')),
     Index('ix_notifications_username', 'username'),
     Index('ix_notifications_read', 'read'),
     Index('ix_notifications_created_at', 'created_at'),
@@ -795,4 +795,59 @@ t_future_horizon_articles = Table(
     Column('retrieved_at', DateTime, server_default=text('CURRENT_TIMESTAMP')),
     Index('ix_future_horizon_articles_horizon_id', 'horizon_id'),
     Index('ix_future_horizon_articles_topic', 'topic')
+)
+
+# LLM Error Handling and Circuit Breaker Tables
+
+t_llm_retry_state = Table(
+    'llm_retry_state', metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('model_name', String(255), nullable=False, unique=True),
+    Column('consecutive_failures', Integer, server_default=text('0')),
+    Column('last_failure_time', TIMESTAMP),
+    Column('last_success_time', TIMESTAMP),
+    Column('circuit_state', String(50), server_default=text("'closed'")),  # 'closed', 'open', 'half_open'
+    Column('circuit_opened_at', TIMESTAMP),
+    Column('failure_rate', Float, server_default=text('0.0')),
+    Column('last_updated', TIMESTAMP, server_default=text('CURRENT_TIMESTAMP')),
+    Column('metadata', JSONB),
+    Index('idx_llm_retry_model_name', 'model_name'),
+    Index('idx_llm_retry_circuit_state', 'circuit_state')
+)
+
+t_llm_processing_errors = Table(
+    'llm_processing_errors', metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('article_id', Integer, ForeignKey('articles.id', ondelete='CASCADE')),
+    Column('error_type', String(255), nullable=False),
+    Column('error_message', Text, nullable=False),
+    Column('severity', String(50), nullable=False),  # 'fatal', 'recoverable', 'skippable', 'degraded'
+    Column('model_name', String(255), nullable=False),
+    Column('retry_count', Integer, server_default=text('0')),
+    Column('will_retry', Boolean, server_default=text('false')),
+    Column('context', JSONB),
+    Column('timestamp', TIMESTAMP, nullable=False),
+    Column('created_at', TIMESTAMP, server_default=text('CURRENT_TIMESTAMP')),
+    Index('idx_llm_errors_article_id', 'article_id'),
+    Index('idx_llm_errors_model_name', 'model_name'),
+    Index('idx_llm_errors_severity', 'severity'),
+    Index('idx_llm_errors_timestamp', 'timestamp')
+)
+
+t_processing_jobs = Table(
+    'processing_jobs', metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('job_id', String(255), nullable=False, unique=True),
+    Column('job_type', String(50), nullable=False),  # 'batch_ingest', 'analysis', 'bulk_research'
+    Column('status', String(50), nullable=False),  # 'running', 'completed', 'error', 'partial'
+    Column('total_items', Integer, server_default=text('0')),
+    Column('processed_items', Integer, server_default=text('0')),
+    Column('failed_items', Integer, server_default=text('0')),
+    Column('error_summary', JSONB),
+    Column('started_at', TIMESTAMP, server_default=text('CURRENT_TIMESTAMP')),
+    Column('completed_at', TIMESTAMP),
+    Column('metadata', JSONB),
+    Index('idx_processing_jobs_job_id', 'job_id'),
+    Index('idx_processing_jobs_status', 'status'),
+    Index('idx_processing_jobs_job_type', 'job_type')
 )

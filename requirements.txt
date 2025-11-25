@@ -11,6 +11,10 @@ email-validator>=2.0.0  # Required for Pydantic EmailStr validation
 aiosqlite
 firecrawl-py
 sqlalchemy>=1.4.23
+# PostgreSQL support
+asyncpg>=0.27.0
+psycopg2-binary>=2.9.0
+alembic>=1.8.0
 python-multipart>=0.0.5
 anthropic
 arxiv
@@ -22,7 +26,7 @@ litellm
 matplotlib
 # Added packages for SSL and auth
 python-jose[cryptography]
-bcrypt==4.0.1 
+bcrypt==4.0.1
 passlib[bcrypt]==1.7.4
 starlette
 # For SSL support
@@ -38,24 +42,13 @@ elevenlabs>=0.2.24
 aiofiles>=0.7.0
 pydub>=0.25.1
 ffprobe
-chromadb>=0.4.14
+# Vector store: Using PostgreSQL pgvector (chromadb removed - not needed with PostgreSQL)
 numpy>=1.24.0
-umap-learn>=0.5.4
-scikit-learn>=1.7.0
 nltk>=3.6.5
 plotly==5.18.0
 kaleido==0.2.1  # For static image export
 pandas==2.2.0
 atproto
-# BERTopic and dependencies for proper topic modeling
-bertopic>=0.15.0
-sentence-transformers>=2.2.0
-hdbscan>=0.8.29
-transformers>=4.21.0
-bertopic
-beautifulsoup4==4.12.3
-spacy==3.7.2
-en-core-web-sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl
 # System monitoring
 psutil>=5.8.0
 # MCP integration

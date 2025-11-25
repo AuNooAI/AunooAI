@@ -1,5 +1,9 @@
 # AunooAI - Intelligence Platform
 
+[![License](https://img.shields.io/badge/License-BSL%201.1-blue.svg)](LICENSE)
+[![Converts to Apache 2.0](https://img.shields.io/badge/Converts%20to-Apache%202.0-green.svg)](LICENSE.md)
+[![Change Date](https://img.shields.io/badge/Change%20Date-2028--11--21-orange.svg)](LICENSE.md)
+
 A FastAPI-based intelligence analysis platform for research, monitoring, and strategic insights.
 
 ---
@@ -425,5 +429,25 @@ python scripts/reindex_chromadb.py
 
 ---
 
+## License
+
+Aunoo AI Platform is licensed under the **Business Source License 1.1**.
+
+### What does this mean?
+
+- ✅ **Free to use** for internal business purposes, development, testing, and research
+- ✅ **Free to modify** and contribute improvements back to the project
+- ✅ **Free to integrate** into non-competing products
+- ❌ **Cannot** offer as a competing hosted/managed AI news intelligence service
+- ❌ **Cannot** white-label and resell as your own product
+- 🔄 **Converts to Apache 2.0** on 2028-11-21 (fully open source after 4 years)
+
+For commercial licensing or to use Aunoo AI in a competing service, contact: licensing@aunoo.ai
+
+See [LICENSE.md](LICENSE.md) for full terms.
+
+---
+
 **Version**: 1.0.0
-**Last Updated**: 2025-10-08
+**Last Updated**: 2024-11-21
+**Copyright**: © 2024-present Aunoo Ltd. All rights reserved.

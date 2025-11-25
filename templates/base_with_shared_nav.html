@@ -777,6 +777,9 @@
                 }
             }
 
+            // Expose updateUnreadCount globally so other scripts can call it
+            window.updateUnreadCount = updateUnreadCount;
+
             // Toggle notification panel
             async function toggleNotificationPanel() {
                 const panel = document.getElementById('notificationPanel');
@@ -802,6 +805,10 @@
                     if (data.notifications && data.notifications.length > 0) {
                         content.innerHTML = data.notifications.map(notif => {
                             const date = new Date(notif.created_at);
+                            // Validate date parsing
+                            if (isNaN(date.getTime())) {
+                                console.error('Invalid date for notification:', notif.id, 'created_at:', notif.created_at);
+                            }
                             const timeAgo = getTimeAgo(date);
                             const unreadClass = notif.read ? '' : 'unread';
 
@@ -815,7 +822,7 @@
                                     <div class="notification-item-message">${notif.message}</div>
                                     <div class="notification-item-actions">
                                         ${notif.link ? `<button class="notification-action-btn notification-view-btn" onclick="handleNotificationView(event, ${notif.id}, '${notif.link}')">
-                                            <i class="fas fa-external-link-alt"></i> View
+                                            <i class="fas ${notif.link.match(/\.(mp3|wav|ogg|m4a)$/i) ? 'fa-download' : 'fa-external-link-alt'}"></i> ${notif.link.match(/\.(mp3|wav|ogg|m4a)$/i) ? 'Download' : 'View'}
                                         </button>` : ''}
                                         <button class="notification-action-btn notification-mark-read-btn" onclick="handleNotificationMarkRead(event, ${notif.id})" ${notif.read ? 'disabled' : ''}>
                                             <i class="fas fa-check"></i> Mark as Read
@@ -848,9 +855,20 @@
                     await updateUnreadCount();
                     await loadNotifications();
 
-                    // Navigate to link
+                    // Handle link
                     if (link) {
-                        window.location.href = link;
+                        // If it's an audio file, trigger download
+                        if (link.match(/\.(mp3|wav|ogg|m4a)$/i)) {
+                            const a = document.createElement('a');
+                            a.href = link;
+                            a.download = link.split('/').pop(); // Get filename from URL
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                        } else {
+                            // Otherwise navigate to the link
+                            window.location.href = link;
+                        }
                     }
                 } catch (error) {
                     console.error('Error viewing notification:', error);

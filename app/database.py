@@ -221,7 +221,7 @@ class Database:
                 logger.info(f"Creating PostgreSQL connection: {db_settings.DB_NAME}")
                 engine = create_engine(
                     database_url,
-                    echo=True,
+                    echo=False,  # Disable SQL query logging for production
                     pool_pre_ping=True,  # Check connection health on checkout
                     pool_recycle=3600,    # Recycle connections after 1 hour (before they go stale)
                     pool_size=20,         # Increased from 10 to support background processing
@@ -233,7 +233,7 @@ class Database:
                 logger.debug(f"Creating SQLite connection: {self.db_path}")
                 engine = create_engine(
                     f"sqlite:///{self.db_path}",
-                    echo=True,
+                    echo=False,  # Disable SQL query logging for production
                     connect_args={"check_same_thread": False}
                 )
 
@@ -2753,7 +2753,7 @@ Remember to cite your sources and provide actionable insights where possible."""
         decoded_uris = [unquote_plus(unquote_plus(uri)) for uri in uris]
 
         try:
-            from sqlalchemy import delete
+            from sqlalchemy import delete, Table, MetaData
             from app.database_models import (
                 t_articles, t_raw_articles, t_keyword_article_matches,
                 t_article_annotations
@@ -2779,6 +2779,42 @@ Remember to cite your sources and provide actionable insights where possible."""
 
             try:
                 deleted_count = 0
+
+                # Get metadata for dynamic table loading
+                metadata = MetaData()
+
+                # Delete from consensus_reference_articles
+                try:
+                    t_consensus_ref = Table('consensus_reference_articles', metadata, autoload_with=conn.engine)
+                    stmt = delete(t_consensus_ref).where(
+                        t_consensus_ref.c.article_uri.in_(decoded_uris)
+                    )
+                    result = conn.execute(stmt)
+                    logger.debug(f"Deleted {result.rowcount} consensus reference articles")
+                except Exception as e:
+                    logger.debug(f"No consensus_reference_articles deleted: {e}")
+
+                # Delete from strategic_recommendation_articles
+                try:
+                    t_strategic_rec = Table('strategic_recommendation_articles', metadata, autoload_with=conn.engine)
+                    stmt = delete(t_strategic_rec).where(
+                        t_strategic_rec.c.article_uri.in_(decoded_uris)
+                    )
+                    result = conn.execute(stmt)
+                    logger.debug(f"Deleted {result.rowcount} strategic recommendation articles")
+                except Exception as e:
+                    logger.debug(f"No strategic_recommendation_articles deleted: {e}")
+
+                # Delete from market_signal_articles
+                try:
+                    t_market_signal = Table('market_signal_articles', metadata, autoload_with=conn.engine)
+                    stmt = delete(t_market_signal).where(
+                        t_market_signal.c.article_uri.in_(decoded_uris)
+                    )
+                    result = conn.execute(stmt)
+                    logger.debug(f"Deleted {result.rowcount} market signal articles")
+                except Exception as e:
+                    logger.debug(f"No market_signal_articles deleted: {e}")
 
                 # Delete from keyword_article_matches (new keyword alerts table)
                 try:

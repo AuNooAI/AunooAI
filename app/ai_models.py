@@ -1,11 +1,29 @@
 import os
 import yaml
+import time
+from datetime import datetime
 from litellm import Router
 import logging
 from app.env_loader import ensure_model_env_vars
 from typing import Optional, Dict, Any
 from litellm import completion
 import litellm
+from litellm import (
+    RateLimitError,
+    AuthenticationError,
+    BadRequestError,
+    InvalidRequestError,
+    BudgetExceededError,
+    JSONSchemaValidationError,
+    ContextWindowExceededError,
+    ServiceUnavailableError,
+    Timeout,
+    APIConnectionError,
+    APIError
+)
+from app.exceptions import LLMErrorClassifier, ErrorSeverity, PipelineError
+from app.utils.retry import retry_sync_with_backoff, RetryConfig
+from app.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpen
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)  # Set the default logging level
@@ -31,7 +49,12 @@ litellm.drop_params = True  # Drop unsupported params instead of erroring
 # 2. Connection manager with periodic cleanup (in main.py startup)
 # 3. Automatic cleanup via connection manager monitoring
 
-# Load environment variables and ensure they're properly set for models
+# CRITICAL: Load .env file FIRST before calling ensure_model_env_vars()
+# This ensures Docker Compose's empty env vars are overridden with actual values from .env
+from app.env_loader import load_environment
+load_environment()
+
+# Now ensure model-specific environment variables are set
 ensure_model_env_vars()
 
 def get_litellm_config_path():
@@ -293,7 +316,10 @@ class LiteLLMModel(AIModel):
         logger.debug(f"✅ AIModel base class initialized for {model_name}")
         self.router = None
         self.model_name_to_path = {}  # Map model names to their full paths
-        
+
+        # Initialize circuit breaker for this model
+        self.circuit_breaker = CircuitBreaker(model_name)
+
         # Initialize router with detailed logging
         try:
             self.init_router()
@@ -301,7 +327,7 @@ class LiteLLMModel(AIModel):
         except Exception as e:
             logger.error(f"❌ Failed to initialize LiteLLMModel for {model_name}: {str(e)}")
             raise
-        
+
         # Store this instance
         LiteLLMModel._instances[model_name] = self
         logger.debug(f"📝 Stored instance for {model_name}, current instances: {list(LiteLLMModel._instances.keys())}")
@@ -473,160 +499,365 @@ class LiteLLMModel(AIModel):
             logger.error(f"❌ Failed to create router: {str(e)}")
             raise
 
+    def _retry_sync(self, func, *args, retryable_exceptions=None, config=None, **kwargs):
+        """
+        Synchronous retry helper to avoid event loop conflicts.
+
+        Args:
+            func: Function to retry
+            *args: Positional arguments for func
+            retryable_exceptions: Tuple of exception types to retry on
+            config: RetryConfig instance
+            **kwargs: Keyword arguments for func
+
+        Returns:
+            Result of successful function call
+
+        Raises:
+            Last exception if all retries exhausted
+        """
+        if retryable_exceptions is None:
+            retryable_exceptions = (Exception,)
+
+        return retry_sync_with_backoff(
+            func,
+            *args,
+            retryable_exceptions=retryable_exceptions,
+            config=config,
+            **kwargs
+        )
+
+    def _generate_with_retry(self, messages):
+        """Helper method for retry logic - makes actual LLM call"""
+        response = self.router.completion(
+            model=self.model_name,
+            messages=messages,
+            metadata={"model_name": self.model_name},
+            caching=False
+        )
+
+        # Extract content
+        if hasattr(response, 'choices') and len(response.choices) > 0:
+            if hasattr(response.choices[0], 'message') and hasattr(response.choices[0].message, 'content'):
+                return response.choices[0].message.content
+
+        return str(response)
+
+    def _try_fallback_model(self, messages, attempted_models, reason):
+        """
+        Try fallback models when primary model fails.
+
+        Args:
+            messages: Messages to send
+            attempted_models: Set of already attempted model names
+            reason: Reason for fallback
+
+        Returns:
+            Response from fallback model, or None if all fallbacks exhausted
+        """
+        logger.info(f"🔄 Attempting fallback for {self.model_name}: {reason}")
+
+        # Get fallbacks configuration
+        config_dir = os.path.join(os.path.dirname(__file__), 'config')
+        local_config_path = os.path.join(config_dir, 'litellm_config.yaml.local')
+        default_config_path = os.path.join(config_dir, 'litellm_config.yaml')
+
+        config_path = local_config_path if os.path.exists(local_config_path) else default_config_path
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+
+        fallbacks_config = config.get("fallbacks", [])
+
+        # Find fallbacks for the current model
+        for fallback_dict in fallbacks_config:
+            if self.model_name in fallback_dict:
+                fallback_models = fallback_dict[self.model_name]
+                logger.info(f"🎯 Found {len(fallback_models)} fallback models: {fallback_models}")
+
+                # Try each fallback model that hasn't been attempted yet
+                for fallback_model_name in fallback_models:
+                    if fallback_model_name in attempted_models:
+                        logger.debug(f"⏭️ Skipping already attempted fallback: {fallback_model_name}")
+                        continue
+
+                    logger.info(f"🔄 Attempting fallback to {fallback_model_name}")
+                    try:
+                        # Get or create the fallback model instance
+                        fallback_model = LiteLLMModel.get_instance(fallback_model_name)
+                        # Call generate_response on the fallback model
+                        result = fallback_model.generate_response(
+                            messages,
+                            _is_fallback=True,
+                            _attempted_models=attempted_models
+                        )
+                        logger.info(f"✅ Fallback to {fallback_model_name} succeeded")
+                        return result
+                    except Exception as fallback_error:
+                        logger.warning(f"❌ Fallback to {fallback_model_name} failed: {str(fallback_error)}")
+                        continue
+
+        logger.warning(f"⚠️ All fallback options exhausted for {self.model_name}")
+        return None
+
     def generate_response(self, messages, _is_fallback=False, _attempted_models=None):
         """
-        Generate a response using the LLM.
-        
+        Generate a response using the LLM with proper exception handling.
+
         Args:
             messages: The messages to send to the LLM
             _is_fallback: Internal parameter to track if this is a fallback call
             _attempted_models: Internal parameter to track which models have been attempted
-            
+
         Returns:
             The generated response text or error message
+
+        Raises:
+            PipelineError: For FATAL errors that should stop pipeline processing
         """
         # Initialize tracking of attempted models if this is the first call
         if _attempted_models is None:
             _attempted_models = set()
-        
+
         # Add current model to attempted models
         _attempted_models.add(self.model_name)
-        
+
         logger.info(f"🤖 Starting response generation with {self.model_name} (fallback: {_is_fallback})")
         logger.debug(f"📊 Request details - Messages: {len(messages)}, Attempted models: {list(_attempted_models)}")
-        
-        # Log message details (be careful with sensitive content)
-        for i, msg in enumerate(messages):
-            content_preview = (msg.get('content', '')[:100] + '...') if len(msg.get('content', '')) > 100 else msg.get('content', '')
-            logger.debug(f"📝 Message {i+1} ({msg.get('role', 'unknown')}): {content_preview}")
-        
+
         try:
-            # Note: Removed global model delegation logic as it was causing issues
-            # with auto-ingest service where specific models need to be used
-            # Each model instance should handle its own requests
+            # Check circuit breaker before making request
+            try:
+                self.circuit_breaker.check_circuit()
+            except CircuitBreakerOpen as e:
+                logger.error(f"🔴 CIRCUIT BREAKER: Circuit is OPEN for {self.model_name}")
+                logger.error(f"🔴 Reason: {e}")
+                logger.error(f"🔴 ACTION: Blocking request, attempting fallback model")
+                # Try fallback if available
+                if not _is_fallback:
+                    logger.info(f"🔄 Attempting fallback model for {self.model_name}")
+                    fallback_result = self._try_fallback_model(messages, _attempted_models, "Circuit breaker open")
+                    if fallback_result:
+                        logger.info(f"✅ Fallback model succeeded")
+                        return fallback_result
+                    logger.warning(f"⚠️ No fallback available - returning error message to user")
+                return f"⚠️ {self.model_name} is temporarily unavailable due to repeated failures. Please try again later or use a different model."
 
             logger.debug(f"🎯 Using router with model: {self.model_name}")
-            logger.debug(f"📋 Router model list: {[m.get('model_name', 'unknown') for m in self.router.model_list]}")
-            
-            # Let LiteLLM handle fallbacks automatically
-            # The router already has the correct model names from init_router
             logger.info(f"🚀 Sending request to LiteLLM router for {self.model_name}")
-            
+
             response = self.router.completion(
-                model=self.model_name,  # Use the model name directly - router has correct config
+                model=self.model_name,
                 messages=messages,
                 metadata={"model_name": self.model_name},
                 caching=False
             )
-            
+
             logger.info(f"✅ Received response from {self.model_name}")
-            logger.debug(f"📦 Response type: {type(response)}")
-            
-            # Extract content from response - handle different model formats
+
+            # Record success in circuit breaker
+            self.circuit_breaker.record_success()
+
+            # Extract content from response
+            if hasattr(response, 'choices') and len(response.choices) > 0:
+                if hasattr(response.choices[0], 'message') and hasattr(response.choices[0].message, 'content'):
+                    content = response.choices[0].message.content
+                    logger.info(f"✅ Successfully extracted content from {self.model_name} (length: {len(content) if content else 0})")
+                    return content
+
+            # Fallback content extraction
+            return str(response)
+
+        # ========= FATAL ERRORS - Must stop processing =========
+        except AuthenticationError as e:
+            logger.error(f"🚨 ERROR CLASSIFICATION: FATAL - AuthenticationError")
+            logger.error(f"🚨 Model: {self.model_name}")
+            logger.error(f"🚨 Error: {e}")
+            logger.error(f"🚨 ACTION: Stopping pipeline - Check API key configuration and restart service")
+            logger.error(f"🚨 Circuit breaker: Recording failure")
+            self.circuit_breaker.record_failure(e)
+            raise PipelineError(
+                f"Authentication failed - invalid API key for {self.model_name}",
+                severity=ErrorSeverity.FATAL,
+                original_exception=e
+            )
+
+        except BudgetExceededError as e:
+            logger.error(f"🚨 ERROR CLASSIFICATION: FATAL - BudgetExceededError")
+            logger.error(f"🚨 Model: {self.model_name}")
+            logger.error(f"🚨 Error: {e}")
+            logger.error(f"🚨 ACTION: Stopping pipeline - API budget or quota limit reached")
+            logger.error(f"🚨 Circuit breaker: Recording failure")
+            self.circuit_breaker.record_failure(e)
+            raise PipelineError(
+                f"Budget exceeded for {self.model_name} - check account limits",
+                severity=ErrorSeverity.FATAL,
+                original_exception=e
+            )
+
+        # ========= RECOVERABLE ERRORS - Retry with backoff =========
+        except RateLimitError as e:
+            logger.warning(f"⚠️ ERROR CLASSIFICATION: RECOVERABLE - RateLimitError")
+            logger.warning(f"⚠️ Model: {self.model_name}")
+            logger.warning(f"⚠️ Error: {e}")
+            logger.warning(f"⚠️ ACTION: Attempting retry with exponential backoff (max 3 attempts, base delay 2.0s)")
+            logger.warning(f"⚠️ Circuit breaker: Recording failure")
+            self.circuit_breaker.record_failure(e)
+
+            # Try retry with exponential backoff
             try:
-                # Standard format
-                if hasattr(response, 'choices') and len(response.choices) > 0:
-                    if hasattr(response.choices[0], 'message') and hasattr(response.choices[0].message, 'content'):
-                        content = response.choices[0].message.content
-                        logger.info(f"✅ Successfully extracted content from {self.model_name} (length: {len(content) if content else 0})")
-                        return content
-                
-                # If we couldn't extract content using the expected structure, try to get the raw response
-                # This is needed because different models might return different response structures
-                logger.warning(f"⚠️ Using alternative content extraction for {self.model_name}")
-                
-                # Try to access the raw response content
-                if hasattr(response, 'model_dump'):
-                    # For Pydantic models
-                    dump = response.model_dump()
-                    if 'choices' in dump and dump['choices'] and 'message' in dump['choices'][0]:
-                        if 'content' in dump['choices'][0]['message']:
-                            content = dump['choices'][0]['message']['content']
-                            logger.debug(f"✅ Extracted content via model_dump for {self.model_name}")
-                            return content
-                
-                # Last resort: convert to string and extract the content
-                response_str = str(response)
-                if "content='" in response_str:
-                    # Extract content from the string representation
-                    content_start = response_str.find("content='") + 9
-                    content_end = response_str.find("'", content_start)
-                    if content_start > 9 and content_end > content_start:
-                        content = response_str[content_start:content_end]
-                        logger.debug(f"✅ Extracted content via string parsing for {self.model_name}")
-                        return content
-                
-                # If all else fails, return the string representation
-                logger.warning(f"⚠️ Falling back to string representation for {self.model_name}")
-                return str(response)
-                
-            except Exception as extract_error:
-                logger.error(f"❌ Error extracting content from {self.model_name} response: {str(extract_error)}")
-                # Return the string representation as a last resort
-                return str(response)
-            
+                config = RetryConfig(max_attempts=3, base_delay=2.0)
+                logger.info(f"🔄 Starting retry sequence for {self.model_name} - RateLimitError")
+                result = self._retry_sync(
+                    self._generate_with_retry,
+                    messages,
+                    retryable_exceptions=(RateLimitError,),
+                    config=config
+                )
+                # Record success after successful retry
+                logger.info(f"✅ Retry succeeded for {self.model_name}")
+                logger.info(f"✅ Circuit breaker: Recording success")
+                self.circuit_breaker.record_success()
+                return result
+            except Exception as retry_error:
+                # All retries exhausted - try fallback model
+                logger.error(f"❌ All retry attempts exhausted for {self.model_name}")
+                logger.error(f"❌ ACTION: Attempting fallback model")
+                if not _is_fallback:
+                    fallback_result = self._try_fallback_model(messages, _attempted_models, "Rate limit exceeded")
+                    if fallback_result:
+                        logger.info(f"✅ Fallback model succeeded")
+                        return fallback_result
+                    logger.warning(f"⚠️ No fallback available - returning error message to user")
+                return f"⚠️ Rate limit exceeded for {self.model_name}. Please try again later or use a different model."
+
+        except (Timeout, APIConnectionError) as e:
+            error_type = type(e).__name__
+            logger.warning(f"⚠️ ERROR CLASSIFICATION: RECOVERABLE - {error_type}")
+            logger.warning(f"⚠️ Model: {self.model_name}")
+            logger.warning(f"⚠️ Error: {e}")
+            logger.warning(f"⚠️ ACTION: Attempting retry with exponential backoff (max 2 attempts, base delay 1.0s)")
+            logger.warning(f"⚠️ Circuit breaker: Recording failure")
+            self.circuit_breaker.record_failure(e)
+
+            # Try retry once
+            try:
+                config = RetryConfig(max_attempts=2, base_delay=1.0)
+                logger.info(f"🔄 Starting retry sequence for {self.model_name} - {error_type}")
+                result = self._retry_sync(
+                    self._generate_with_retry,
+                    messages,
+                    retryable_exceptions=(Timeout, APIConnectionError),
+                    config=config
+                )
+                # Record success after successful retry
+                logger.info(f"✅ Retry succeeded for {self.model_name}")
+                logger.info(f"✅ Circuit breaker: Recording success")
+                self.circuit_breaker.record_success()
+                return result
+            except (Timeout, APIConnectionError):
+                # Retry failed - try fallback
+                logger.error(f"❌ All retry attempts exhausted for {self.model_name}")
+                logger.error(f"❌ ACTION: Attempting fallback model")
+                if not _is_fallback:
+                    fallback_result = self._try_fallback_model(messages, _attempted_models, f"Network error: {str(e)}")
+                    if fallback_result:
+                        logger.info(f"✅ Fallback model succeeded")
+                        return fallback_result
+                    logger.warning(f"⚠️ No fallback available - returning error message to user")
+                return f"⚠️ Connection error while accessing {self.model_name}. Please check your internet connection and try again."
+
+        # ========= SKIPPABLE ERRORS - Skip this request =========
+        except ContextWindowExceededError as e:
+            logger.warning(f"⚠️ ERROR CLASSIFICATION: SKIPPABLE - ContextWindowExceededError")
+            logger.warning(f"⚠️ Model: {self.model_name}")
+            logger.warning(f"⚠️ Error: {e}")
+            logger.warning(f"⚠️ ACTION: Skipping this request, attempting fallback model")
+            logger.warning(f"⚠️ Circuit breaker: Recording failure")
+            self.circuit_breaker.record_failure(e)
+
+            # Try fallback with smaller context window
+            if not _is_fallback:
+                logger.info(f"🔄 Attempting fallback model for {self.model_name}")
+                fallback_result = self._try_fallback_model(
+                    messages, _attempted_models,
+                    "Content too large for context window"
+                )
+                if fallback_result:
+                    logger.info(f"✅ Fallback model succeeded")
+                    return fallback_result
+                logger.warning(f"⚠️ No fallback available - returning error message to user")
+
+            # No fallback available - return error message
+            return (
+                f"⚠️ Content exceeds maximum length for {self.model_name}. "
+                "Please reduce content size or split into smaller chunks."
+            )
+
+        except (BadRequestError, InvalidRequestError, JSONSchemaValidationError) as e:
+            error_type = type(e).__name__
+            logger.warning(f"⚠️ ERROR CLASSIFICATION: SKIPPABLE - {error_type}")
+            logger.warning(f"⚠️ Model: {self.model_name}")
+            logger.warning(f"⚠️ Error: {e}")
+            logger.warning(f"⚠️ ACTION: Skipping this request - Invalid request format")
+            logger.warning(f"⚠️ Circuit breaker: Recording failure")
+            self.circuit_breaker.record_failure(e)
+            return (
+                f"⚠️ Invalid request for {self.model_name}. "
+                f"Details: {str(e)}"
+            )
+
+        # ========= DEGRADED ERRORS - Try fallback =========
+        except (ServiceUnavailableError, APIError) as e:
+            error_type = type(e).__name__
+            logger.warning(f"⚠️ ERROR CLASSIFICATION: DEGRADED - {error_type}")
+            logger.warning(f"⚠️ Model: {self.model_name}")
+            logger.warning(f"⚠️ Error: {e}")
+            logger.warning(f"⚠️ ACTION: Service degraded, attempting fallback model")
+            logger.warning(f"⚠️ Circuit breaker: Recording failure")
+            self.circuit_breaker.record_failure(e)
+
+            if not _is_fallback:
+                logger.info(f"🔄 Attempting fallback model for {self.model_name}")
+                fallback_result = self._try_fallback_model(messages, _attempted_models, f"Service error: {str(e)}")
+                if fallback_result:
+                    logger.info(f"✅ Fallback model succeeded")
+                    return fallback_result
+                logger.warning(f"⚠️ No fallback available - returning error message to user")
+
+            return f"⚠️ {self.model_name} is currently unavailable. Please try a different model."
+
+        # ========= UNKNOWN ERRORS - Classify and handle =========
         except Exception as e:
             error_message = str(e)
-            logger.error(f"❌ Error generating response with {self.model_name}: {error_message}")
-            
-            # Check if this is a context window error
-            is_context_window_error = "context length" in error_message.lower() and "tokens" in error_message.lower()
-            
-            if is_context_window_error:
-                logger.warning(f"📏 Context window exceeded for {self.model_name}")
-            
-            # Try to find a fallback model if this isn't already a fallback call
+            error_type = type(e).__name__
+            logger.error(f"❌ ERROR: Unknown exception type - {error_type}")
+            logger.error(f"❌ Model: {self.model_name}")
+            logger.error(f"❌ Error: {e}")
+            logger.error(f"❌ Circuit breaker: Recording failure")
+            self.circuit_breaker.record_failure(e)
+
+            # Classify the error
+            severity = LLMErrorClassifier.classify(e)
+            logger.error(f"❌ ERROR CLASSIFICATION: {severity.value} - {error_type}")
+
+            if severity == ErrorSeverity.FATAL:
+                logger.error(f"🚨 ACTION: Stopping pipeline - Unknown error classified as FATAL")
+                raise PipelineError(
+                    f"Unexpected error with {self.model_name}: {error_message}",
+                    severity=ErrorSeverity.FATAL,
+                    original_exception=e
+                )
+
+            # Try fallback for non-fatal unknown errors
+            logger.warning(f"⚠️ ACTION: Attempting fallback model (error classified as {severity.value})")
             if not _is_fallback:
-                logger.info(f"🔄 Attempting fallback for {self.model_name}")
-                
-                # Get fallbacks configuration
-                config_dir = os.path.join(os.path.dirname(__file__), 'config')
-                local_config_path = os.path.join(config_dir, 'litellm_config.yaml.local')
-                default_config_path = os.path.join(config_dir, 'litellm_config.yaml')
-                
-                config_path = local_config_path if os.path.exists(local_config_path) else default_config_path
-                with open(config_path, 'r') as f:
-                    config = yaml.safe_load(f)
-                
-                fallbacks_config = config.get("fallbacks", [])
-                
-                # Find fallbacks for the current model
-                for fallback_dict in fallbacks_config:
-                    if self.model_name in fallback_dict:
-                        fallback_models = fallback_dict[self.model_name]
-                        logger.info(f"🎯 Found {len(fallback_models)} fallback models for {self.model_name}: {fallback_models}")
-                        
-                        # Try each fallback model that hasn't been attempted yet
-                        for fallback_model_name in fallback_models:
-                            if fallback_model_name in _attempted_models:
-                                logger.debug(f"⏭️ Skipping already attempted fallback model: {fallback_model_name}")
-                                continue
-                                
-                            logger.info(f"🔄 Attempting fallback to {fallback_model_name}")
-                            try:
-                                # Get or create the fallback model instance
-                                fallback_model = LiteLLMModel.get_instance(fallback_model_name)
-                                # Call generate_response on the fallback model with fallback flag
-                                result = fallback_model.generate_response(
-                                    messages, 
-                                    _is_fallback=True,
-                                    _attempted_models=_attempted_models
-                                )
-                                logger.info(f"✅ Fallback to {fallback_model_name} succeeded")
-                                return result
-                            except Exception as fallback_error:
-                                logger.warning(f"❌ Fallback to {fallback_model_name} failed: {str(fallback_error)}")
-                                continue
-                
-                logger.warning(f"⚠️ All fallback options exhausted for {self.model_name}")
-            else:
-                logger.debug(f"🔄 This is already a fallback call for {self.model_name}, not attempting further fallbacks")
-            
-            # If we've reached here, either there are no fallbacks or all fallbacks failed
-            # Extract useful information from the error
-            user_message = self._extract_user_friendly_error(error_message, self.model_name)
-            logger.error(f"💬 Returning user-friendly error: {user_message}")
-            return user_message
+                fallback_result = self._try_fallback_model(messages, _attempted_models, f"Error: {error_message}")
+                if fallback_result:
+                    logger.info(f"✅ Fallback model succeeded")
+                    return fallback_result
+                logger.warning(f"⚠️ No fallback available - returning error message to user")
+
+            return f"⚠️ An error occurred while using {self.model_name}. Please try again or select a different model. Error: {error_message}"
 
     def _extract_user_friendly_error(self, error_message, model_name):
         """Extract user-friendly error messages from common errors."""
@@ -662,7 +893,20 @@ class LiteLLMModel(AIModel):
             logger.warning(f"🚦 Rate limit error for {model_name}")
             return f"⚠️ Rate limit exceeded for {model_name}. " \
                    f"Please try again later or use a different model."
-        
+
+        # Quota/billing errors (OpenAI credits exhausted)
+        elif any(phrase in error_message.lower() for phrase in [
+            "exceeded your current quota",
+            "insufficient_quota",
+            "billing",
+            "quota exceeded",
+            "insufficient quota"
+        ]):
+            logger.error(f"💳 Quota/billing error for {model_name}")
+            return f"⚠️ API quota exceeded for {model_name}. " \
+                   f"Your API credits may be exhausted or billing may need attention. " \
+                   f"Please check your API provider's billing dashboard."
+
         # Model not available
         elif "model" in error_message.lower() and ("not found" in error_message.lower() or 
                                                  "unavailable" in error_message.lower() or

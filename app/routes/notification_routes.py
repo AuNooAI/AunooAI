@@ -8,8 +8,10 @@ from pydantic import BaseModel
 from typing import Optional
 from app.database import get_database_instance
 from app.security.session import verify_session
+import logging
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 class NotificationCreate(BaseModel):
     username: Optional[str] = None
@@ -145,22 +147,42 @@ async def create_notification(
     notification: NotificationCreate,
     session=Depends(verify_session)
 ):
-    """Create a new notification (admin only)."""
+    """Create a new notification. Users can create notifications for themselves, admins can create for any user."""
     try:
         db = get_database_instance()
 
-        # Optional: Add admin check here if needed
-        # if not session.get("user", {}).get("is_admin"):
-        #     raise HTTPException(status_code=403, detail="Admin access required")
+        # Get current user from session
+        current_username = session.get("user", {}).get("username")
+        logger.info(f"[Notification Create] Current user from session: {current_username}")
+        logger.info(f"[Notification Create] Requested username: {notification.username}")
+        logger.info(f"[Notification Create] Notification type: {notification.type}")
 
+        # If username is not specified in the request, use current user
+        # If username IS specified, only allow if admin or if it's the current user
+        target_username = notification.username or current_username
+
+        if not target_username:
+            logger.error("[Notification Create] No username available (neither in request nor session)")
+            raise HTTPException(status_code=400, detail="Username is required but not found in session")
+
+        # For non-admin users, ensure they can only create notifications for themselves
+        is_admin = session.get("user", {}).get("is_admin", False)
+        if not is_admin and target_username != current_username:
+            raise HTTPException(status_code=403, detail="Cannot create notifications for other users")
+
+        logger.info(f"[Notification Create] Creating notification for user: {target_username}")
         notification_id = db.facade.create_notification(
-            username=notification.username,
+            username=target_username,
             type=notification.type,
             title=notification.title,
             message=notification.message,
             link=notification.link
         )
 
+        logger.info(f"[Notification Create] Successfully created notification ID: {notification_id}")
         return {"notification_id": notification_id}
+    except HTTPException:
+        raise
     except Exception as e:
+        logger.error(f"[Notification Create] Error creating notification: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

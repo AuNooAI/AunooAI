@@ -142,6 +142,9 @@ async def get_news_articles_only(
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
 
+        # DEBUG: Log the incoming parameters
+        logger.info(f"[NEWS FEED API] Incoming request - date_range={date_range}, topic={repr(topic)}, page={page}, per_page={per_page}")
+
         # Create request
         request = NewsFeedRequest(
             date=target_date,
@@ -156,6 +159,8 @@ async def get_news_articles_only(
         offset = (page - 1) * per_page
         limit = per_page
 
+        logger.info(f"[NEWS FEED API] Calling _get_articles_for_date_range with offset={offset}, limit={limit}")
+
         # Generate article list - fetch ONLY the requested page from database
         news_feed_service = get_news_feed_service(db)
         articles_data = await news_feed_service._get_articles_for_date_range(
@@ -167,6 +172,8 @@ async def get_news_articles_only(
             offset,  # SQL OFFSET for pagination
             limit    # SQL LIMIT for pagination
         )
+
+        logger.info(f"[NEWS FEED API] Returned {len(articles_data) if articles_data else 0} articles")
         
         if not articles_data:
             # Get the actual total count even when no articles returned (due to max_articles limit)

@@ -1,16 +1,116 @@
+# Python
 __pycache__
 *.pyc
 *.pyo
 *.pyd
 .Python
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
 env/
 venv/
-.env.example
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+# .env.template is needed for Docker initialization - DO NOT ignore it!
+# .env.example
+.env.hub
+
+# Database files
 *.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Git
 .git
 .gitignore
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Testing
 .pytest_cache/
 .coverage
 htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# Logs
 *.log
-.DS_Store 
+logs/
+
+# Documentation (exclude from image to save space)
+*.md
+!README.md
+docs/
+*.rst
+*.txt.bak
+
+# Development files
+Makefile
+.editorconfig
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Data directories (will be mounted as volumes)
+app/data/*
+!app/data/.gitkeep
+!app/data/mbfc_raw.csv
+!app/data/prompts/
+!app/data/prompts/**
+reports/*
+!reports/.gitkeep
+tmp/*
+
+# UI/React Development Files
+ui/node_modules/
+ui/build/
+ui/dist/
+ui/.vite/
+ui/.cache/
+ui/.eslintcache
+ui/.parcel-cache/
+
+# Static build artifacts (Docker will build fresh)
+# Keep the directories but not the built assets
+static/trend-convergence/assets/
+static/news-feed-v2/assets/
+
+# Unnecessary for Docker
+docker-compose.override.yml
+docker-compose.hub.yml
+DOCKER_HUB_DEPLOYMENT.md
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Misc
+*.bak
+*.tmp
+*.temp
+.cache/

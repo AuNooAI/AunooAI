@@ -98,7 +98,21 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Failed to close async database pool: {e}")
 
-        # Clean up any resources here
+        # Cleanup AutomatedIngestService executor
+        try:
+            from app.database import get_database_instance
+            from app.services.automated_ingest_service import AutomatedIngestService
+
+            # Get the ingest service instance if it exists
+            db = get_database_instance()
+            if db and hasattr(db, '_ingest_service'):
+                ingest_service = db._ingest_service
+                await ingest_service.close()
+                logger.info("AutomatedIngestService cleanup complete")
+        except Exception as e:
+            logger.error(f"Failed to cleanup AutomatedIngestService: {e}")
+
+        # Clean up any other resources here
         # For example, close database connections, stop background tasks, etc.
 
         logger.info("Application shutdown complete")

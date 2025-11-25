@@ -2132,6 +2132,23 @@ button#topic-select-btn {
         margin-bottom: 0.5rem;
     }
 
+    /* Fix button text color in narrative cards */
+    .insight-item-card .btn-outline-primary {
+        background-color: var(--colors-accent-8);
+        border-color: var(--colors-accent-8);
+        color: white !important;
+    }
+
+    .insight-item-card .btn-outline-primary:hover {
+        background-color: var(--colors-accent-9);
+        border-color: var(--colors-accent-9);
+        color: white !important;
+    }
+
+    .insight-item-card .btn-outline-primary i {
+        color: white !important;
+    }
+
     .insight-content {
         width: 100%;
     }
@@ -3080,7 +3097,7 @@ button#topic-select-btn {
                 <option value="8">8</option>
             </select>
             <select id="six-articles-voice" style="display: none;">
-                <option value="21m00Tcm4TlvDq8ikWAM" selected>Rachel</option>
+                <option value="2qfp6zPuviqeCOZIE9RZ" selected>Default Voice</option>
             </select>
             <select id="six-articles-length" style="display: none;">
                 <option value="90" selected>90</option>
@@ -3093,6 +3110,7 @@ button#topic-select-btn {
                 <div>Analyzing top articles...</div>
             </div>
             <div id="six-articles-error" class="error-message" style="display: none;"></div>
+            <div id="six-articles-podcast-container" class="mt-3 mb-3" style="display: none;"></div>
             <div id="six-articles-report"></div>
         </div>
 
@@ -3102,17 +3120,17 @@ button#topic-select-btn {
             <!-- Insights Sub-Navigation (Topic Analysis removed in v2) -->
             <ul class="nav nav-pills nav-fill mb-3 insights-nav" id="insights-nav">
                 <li class="nav-item">
-                    <a class="nav-link active" id="incident-tracking-nav" data-bs-toggle="pill" href="#incident-tracking-panel">
+                    <a class="nav-link active" id="incident-tracking-nav" href="#incident-tracking-panel">
                         <i class="fas fa-crosshairs me-1"></i> Highlights
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" id="article-insights-nav" data-bs-toggle="pill" href="#article-insights-panel">
+                    <a class="nav-link" id="article-insights-nav" href="#article-insights-panel">
                         <i class="fas fa-lightbulb me-1"></i> Narratives
                     </a>
                 </li>
                 <li class="nav-item">
-                    <a class="nav-link" id="realtime-signals-nav" data-bs-toggle="pill" href="#realtime-signals-panel">
+                    <a class="nav-link" id="realtime-signals-nav" href="#realtime-signals-panel">
                         <i class="fas fa-broadcast-tower me-1"></i> Investigators
                     </a>
                 </li>
@@ -4618,24 +4636,30 @@ document.addEventListener('DOMContentLoaded', function() {
                                 // Programmatically activate the Highlights sub-tab
                                 highlightsTab.click();
 
-                                // Wait for tab to become visible and cache checks to complete before auto-loading
-                                // Increased from 100ms to 500ms to allow for cache checking and content loading
-                                setTimeout(() => {
-                                    console.log('[Tab Switch] Highlights tab activated (after 500ms delay), now auto-loading...');
-                                    if (typeof autoLoadCachedInsights === 'function') {
-                                        autoLoadCachedInsights();
-                                    } else {
-                                        console.error('[Tab Switch] autoLoadCachedInsights function not found!');
-                                    }
-                                }, 500);
-                                return; // Exit early since we'll auto-load after timeout
+                                // Use requestAnimationFrame to ensure DOM is ready, then auto-load
+                                // This is more reliable than setTimeout for DOM-dependent operations
+                                requestAnimationFrame(() => {
+                                    requestAnimationFrame(() => {
+                                        console.log('[Tab Switch] Highlights tab activated (DOM ready), now auto-loading...');
+                                        if (typeof autoLoadCachedInsights === 'function') {
+                                            autoLoadCachedInsights().catch(err => {
+                                                console.error('[Tab Switch] Error in autoLoadCachedInsights:', err);
+                                            });
+                                        } else {
+                                            console.error('[Tab Switch] autoLoadCachedInsights function not found!');
+                                        }
+                                    });
+                                });
+                                return; // Exit early since we'll auto-load after DOM is ready
                             }
                         } else if (hasArticleCache && narrativesEmpty) {
                             console.log('[Tab Switch] Narratives cache available, keeping current sub-tab');
                         }
 
                         if (typeof autoLoadCachedInsights === 'function') {
-                            autoLoadCachedInsights();
+                            autoLoadCachedInsights().catch(err => {
+                                console.error('[Tab Switch] Error in autoLoadCachedInsights:', err);
+                            });
                         } else {
                             console.error('[Tab Switch] autoLoadCachedInsights function not found!');
                         }
@@ -4643,6 +4667,13 @@ document.addEventListener('DOMContentLoaded', function() {
                         console.log('[Tab Switch] All containers empty, no cache available');
                         if (typeof showInsightsWelcomeMessage === 'function') {
                             showInsightsWelcomeMessage();
+
+                            // Ensure the Highlights panel is visible (it's the default sub-tab)
+                            const incidentPanel = document.getElementById('incident-tracking-panel');
+                            if (incidentPanel && !incidentPanel.classList.contains('show')) {
+                                console.log('[Tab Switch] Activating Highlights panel to make welcome message visible');
+                                incidentPanel.classList.add('show', 'active');
+                            }
                         }
                     } else {
                         console.log('[Tab Switch] Cached insights already loaded, skipping auto-load');
@@ -5525,10 +5556,97 @@ function showNotification(message, type = 'info') {
         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
     `;
     document.body.appendChild(notification);
-    
+
     setTimeout(() => {
         if (notification.parentNode) notification.remove();
     }, 3000);
+}
+
+function determineNotificationType(errorMessage) {
+    const msg = errorMessage.toLowerCase();
+
+    if (msg.includes('api key') || msg.includes('apikey')) {
+        return {
+            type: 'api_key_error',
+            title: 'API Key Error',
+            icon: 'fa-key'
+        };
+    } else if (msg.includes('rate limit') || msg.includes('ratelimit')) {
+        return {
+            type: 'rate_limit_error',
+            title: 'Rate Limit Exceeded',
+            icon: 'fa-clock'
+        };
+    } else if (msg.includes('quota') || msg.includes('billing') || msg.includes('credits')) {
+        return {
+            type: 'quota_exceeded',
+            title: 'API Quota Exceeded',
+            icon: 'fa-credit-card'
+        };
+    } else if (msg.includes('context length') || msg.includes('maximum context')) {
+        return {
+            type: 'context_length_error',
+            title: 'Context Length Exceeded',
+            icon: 'fa-text-width'
+        };
+    } else if (msg.includes('model') && (msg.includes('unavailable') || msg.includes('not found'))) {
+        return {
+            type: 'model_unavailable',
+            title: 'Model Unavailable',
+            icon: 'fa-robot'
+        };
+    } else if (msg.includes('connection') || msg.includes('timeout')) {
+        return {
+            type: 'connection_error',
+            title: 'Connection Error',
+            icon: 'fa-plug'
+        };
+    } else {
+        return {
+            type: 'api_error',
+            title: 'API Error',
+            icon: 'fa-exclamation-triangle'
+        };
+    }
+}
+
+async function saveQuotaErrorNotification(errorMessage, featureName) {
+    try {
+        const notifType = determineNotificationType(errorMessage);
+        console.log('[Notification] Saving API error notification:', featureName, 'Type:', notifType.type);
+
+        const response = await fetch('/api/notifications/create', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                type: notifType.type,
+                title: notifType.title,
+                message: `${featureName}: ${errorMessage}`,
+                link: '/keyword-alerts'  // Link back to this page
+            })
+        });
+
+        if (!response.ok) {
+            // Try to get detailed error message
+            let errorDetail = response.statusText;
+            try {
+                const errorData = await response.json();
+                if (errorData.detail) {
+                    errorDetail = errorData.detail;
+                }
+            } catch (e) {
+                // Response not JSON
+            }
+            console.error('[Notification] Failed to save quota notification to database:', response.status, errorDetail);
+        } else {
+            const result = await response.json();
+            console.log('[Notification] Quota error notification saved to database with ID:', result.notification_id);
+        }
+    } catch (error) {
+        console.error('[Notification] Error saving quota notification:', error);
+    }
 }
 
 function clearExcludedArticles() {
@@ -7260,6 +7378,8 @@ async function generateSixArticlesPodcast() {
         const voiceId = document.getElementById('six-articles-voice').value;
         const lengthPerArticle = parseInt(document.getElementById('six-articles-length').value);
         const articleCount = parseInt(document.getElementById('six-articles-count').value);
+        const profileId = document.getElementById('profile-select').value;
+        const persona = document.getElementById('six-articles-persona').value;
 
         const response = await fetch('/api/generate_tts_podcast', {
             method: 'POST',
@@ -7272,7 +7392,9 @@ async function generateSixArticlesPodcast() {
                 host_voice_id: voiceId,
                 article_uris: articleUris,
                 length_per_article: lengthPerArticle,
-                article_count: articleCount
+                article_count: articleCount,
+                profile_id: profileId,
+                persona: persona
             })
         });
 
@@ -7290,23 +7412,28 @@ async function generateSixArticlesPodcast() {
 }
 
 function showPodcastLoading() {
-    // Find the export dropdown button and show loading state
-    const exportBtn = document.querySelector('.btn-group .dropdown-toggle');
-    if (exportBtn) {
-        exportBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Generating...';
-        exportBtn.disabled = true;
+    // Show loading in the dedicated podcast container
+    const podcastContainer = document.getElementById('six-articles-podcast-container');
+    if (podcastContainer) {
+        podcastContainer.style.display = 'block';
+        podcastContainer.innerHTML = `
+            <div class="alert alert-info d-flex align-items-center">
+                <i class="fas fa-spinner fa-spin me-3"></i>
+                <span>Generating podcast from Six Articles... This may take a few minutes.</span>
+            </div>
+        `;
     }
-    
+
     // Show notification
     showNotification('Generating podcast from Six Articles...', 'info');
 }
 
 function hidePodcastLoading() {
-    // Restore the export dropdown button
-    const exportBtn = document.querySelector('.btn-group .dropdown-toggle');
-    if (exportBtn) {
-        exportBtn.innerHTML = '<i class="fas fa-download me-2"></i>Export';
-        exportBtn.disabled = false;
+    // Clear the podcast container loading state
+    const podcastContainer = document.getElementById('six-articles-podcast-container');
+    if (podcastContainer) {
+        podcastContainer.style.display = 'none';
+        podcastContainer.innerHTML = '';
     }
 }
 
@@ -7331,8 +7458,8 @@ async function loadAvailableVoices() {
             option.value = voice.voice_id;
             option.textContent = `${voice.name}${voice.category ? ` (${voice.category})` : ''}`;
 
-            // Select Rachel as default
-            if (voice.voice_id === '21m00Tcm4TlvDq8ikWAM') {
+            // Select default voice
+            if (voice.voice_id === '2qfp6zPuviqeCOZIE9RZ') {
                 option.selected = true;
             }
 
@@ -7344,63 +7471,85 @@ async function loadAvailableVoices() {
 }
 
 function pollPodcastStatus(podcastId) {
+    console.log('Starting podcast status polling for:', podcastId);
+
     const checkStatus = async () => {
         try {
+            console.log('Checking podcast status...');
             const response = await fetch(`/api/podcast/status/${podcastId}`);
             if (!response.ok) {
                 throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
-            
+
             const data = await response.json();
-            
+            console.log('Podcast status:', data.status, data);
+
             switch (data.status) {
                 case 'completed':
+                    console.log('Podcast completed, showing download');
                     hidePodcastLoading();
                     showPodcastDownload(data.audio_url, data.title);
+
+                    // Update notification badge if function exists (from base_with_shared_nav.html)
+                    if (typeof updateUnreadCount === 'function') {
+                        await updateUnreadCount();
+                    }
+
+                    // Show success notification alert
+                    showNotification('Podcast ready! Check your notifications or download below.', 'success');
                     break;
                 case 'failed':
+                    console.log('Podcast generation failed');
                     hidePodcastLoading();
-                    showNotification('Podcast generation failed', 'error');
+                    showNotification('Podcast generation failed. Check notifications for details.', 'error');
+
+                    // Update notification badge for failure notification too
+                    if (typeof updateUnreadCount === 'function') {
+                        await updateUnreadCount();
+                    }
                     break;
                 case 'processing':
                 default:
+                    console.log('Podcast still processing, checking again in 5s');
                     // Continue polling
                     setTimeout(checkStatus, 5000);
                     break;
             }
         } catch (error) {
+            console.error('Error checking podcast status:', error);
             hidePodcastLoading();
             showNotification('Error checking podcast status: ' + error.message, 'error');
         }
     };
-    
+
     // Start polling
     checkStatus();
 }
 
 function showPodcastDownload(audioUrl, title) {
-    // Create download link
-    const downloadLink = document.createElement('a');
-    downloadLink.href = audioUrl;
-    downloadLink.download = `${title || 'six-articles-podcast'}.mp3`;
-    downloadLink.className = 'btn btn-success btn-sm';
-    downloadLink.innerHTML = '<i class="fas fa-download me-2"></i>Download Podcast';
-    
-    // Find the Six Articles export area specifically
-    const sixArticlesTab = document.getElementById('six-articles-content');
-    const exportArea = sixArticlesTab ? sixArticlesTab.querySelector('.d-flex.gap-2') : null;
-    if (exportArea) {
-        // Remove any existing podcast download link
-        const existingLink = exportArea.querySelector('.podcast-download-link');
-        if (existingLink) {
-            existingLink.remove();
-        }
-        
-        // Add new download link
-        downloadLink.classList.add('podcast-download-link');
-        exportArea.appendChild(downloadLink);
+    // Show success message with download link in dedicated container
+    const podcastContainer = document.getElementById('six-articles-podcast-container');
+    if (podcastContainer) {
+        podcastContainer.style.display = 'block';
+        podcastContainer.innerHTML = `
+            <div class="alert alert-success d-flex align-items-center justify-content-between">
+                <div class="d-flex align-items-center">
+                    <i class="fas fa-check-circle me-3"></i>
+                    <span>Podcast generated successfully!</span>
+                </div>
+                <div class="d-flex gap-2">
+                    <a href="${audioUrl}" class="btn btn-success btn-sm" download="${title || 'six-articles-podcast'}.mp3">
+                        <i class="fas fa-download me-2"></i>Download Podcast
+                    </a>
+                    <audio controls class="ms-2" style="height: 38px;">
+                        <source src="${audioUrl}" type="audio/mpeg">
+                        Your browser does not support the audio element.
+                    </audio>
+                </div>
+            </div>
+        `;
     }
-    
+
     showNotification('Podcast generated successfully!', 'success');
 }
 
@@ -11080,15 +11229,25 @@ async function autoLoadArticles() {
         if (allArticlesData.length > 0) {
             applyFiltersAndDisplay();
         } else {
-            // Show empty state
+            // Show empty state with helpful message about topic filter
             const listContainer = document.getElementById('articles-list');
+            const selectedTopics = getSelectedTopics();
+            const hasTopicFilter = selectedTopics && selectedTopics.length > 0;
+
             if (listContainer) {
                 listContainer.innerHTML = `
                     <div class="text-center p-4">
                         <i class="fas fa-inbox fa-3x text-muted mb-3"></i>
                         <h5 class="text-muted">No Articles Found</h5>
                         <p class="text-muted">No articles found for the selected criteria.</p>
-                        <small class="text-muted">Date range: ${dateRange}${topic ? `, Topic: ${topic}` : ''}</small>
+                        <small class="text-muted">Date range: ${dateRange}${topic ? `, Topics: ${selectedTopics.join(', ')}` : ''}</small>
+                        ${hasTopicFilter ? `
+                            <div class="mt-3">
+                                <button class="btn btn-sm btn-primary" onclick="clearAllTopics(); autoLoadArticles();">
+                                    <i class="fas fa-times-circle me-1"></i> Clear Topic Filter
+                                </button>
+                            </div>
+                        ` : ''}
                     </div>
                 `;
             }
@@ -12780,7 +12939,23 @@ function showInsightsWelcomeMessage() {
     const articleContainer = document.getElementById('article-insights-container');
     const categoryContainer = document.getElementById('category-insights-container');
     const thematicContainer = document.getElementById('thematic-insights-container');
-    
+    const incidentContainer = document.getElementById('incident-tracking-container');
+
+    // Show welcome message in Highlights (Incident Tracking) tab
+    if (incidentContainer && !incidentContainer.querySelector('.insight-item-card')) {
+        incidentContainer.innerHTML = `
+            <div class="text-center p-5 w-100">
+                <i class="fas fa-crosshairs fa-3x text-muted mb-3"></i>
+                <h5>Incident Tracking</h5>
+                <p class="text-muted mb-3">Track specific incidents, entities, and events for threat hunting.</p>
+                <p class="text-muted mb-4">Select topics and date range above, then click the button below to generate insights.</p>
+                <button class="btn btn-baby-blue btn-lg" onclick="smartGenerateInsights(true)">
+                    <i class="fas fa-magic me-2"></i>Generate Insights
+                </button>
+            </div>
+        `;
+    }
+
     if (articleContainer && !articleContainer.querySelector('.insight-item-card')) {
         articleContainer.innerHTML = `
             <div class="text-center p-5 w-100">
@@ -12932,16 +13107,24 @@ async function loadArticleInsights(topics, startDate, endDate, daysLimit, forceR
         const response = await fetch(insightsUrl);
         
         if (!response.ok) {
-            // Handle specific HTTP error codes with user-friendly messages
-            if (response.status === 404) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.detail || `No articles found for topic '${topic}' in the specified date range. Try expanding the date range or selecting a different topic.`);
-            } else if (response.status === 422) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.detail || `Insufficient articles for meaningful insights. Try expanding the date range or selecting a different topic.`);
-            } else {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            // Try to get detailed error message from response
+            let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+            try {
+                const errorData = await response.json();
+                if (errorData.detail) {
+                    errorMessage = errorData.detail;
+                }
+            } catch (e) {
+                // If response isn't JSON, use default error message
             }
+
+            // Handle specific HTTP error codes with user-friendly messages
+            if (response.status === 404 && !errorMessage.includes('⚠️')) {
+                errorMessage = `No articles found for topic '${topic}' in the specified date range. Try expanding the date range or selecting a different topic.`;
+            } else if (response.status === 422 && !errorMessage.includes('⚠️')) {
+                errorMessage = `Insufficient articles for meaningful insights. Try expanding the date range or selecting a different topic.`;
+            }
+            throw new Error(errorMessage);
         }
         
         const data = await response.json();
@@ -13005,17 +13188,32 @@ async function loadArticleInsights(topics, startDate, endDate, daysLimit, forceR
 
     } catch (error) {
         console.error('Error loading article insights:', error);
-        
+
         // Provide specific error messages based on the error content
         let errorMessage = error.message;
         let errorIcon = 'fas fa-exclamation-triangle';
         let errorClass = 'alert-warning';
-        
-        if (error.message.includes('No articles found') || error.message.includes('Insufficient articles')) {
+
+        // Check for quota/billing/API key errors (any critical API errors)
+        const isQuotaError = errorMessage.includes('quota') ||
+                            errorMessage.includes('billing') ||
+                            errorMessage.includes('credits') ||
+                            errorMessage.includes('API key') ||
+                            errorMessage.includes('api key') ||
+                            errorMessage.toLowerCase().includes('⚠️');
+
+        if (isQuotaError) {
+            errorIcon = 'fas fa-credit-card';
+            errorClass = 'alert-danger';
+            // Show toast notification for quota errors
+            showNotification(errorMessage, 'danger');
+            // Save notification to database
+            saveQuotaErrorNotification(errorMessage, 'Narratives');
+        } else if (error.message.includes('No articles found') || error.message.includes('Insufficient articles')) {
             errorIcon = 'fas fa-info-circle';
             errorClass = 'alert-info';
         }
-        
+
         errorEl.innerHTML = `<div class="alert ${errorClass}"><i class="${errorIcon} me-2"></i>${errorMessage}</div>`;
         errorEl.style.display = 'block';
         
@@ -13043,6 +13241,9 @@ async function loadArticleInsights(topics, startDate, endDate, daysLimit, forceR
                 </div>
             `;
         }
+
+        // Re-throw the error so Promise.allSettled can detect the failure
+        throw error;
     } finally {
         loadingEl.style.display = 'none';
     }
@@ -13204,7 +13405,7 @@ async function loadCategoryInsights(topics, startDate, endDate, daysLimit, force
         console.error('Error loading category insights:', error);
         errorEl.innerHTML = `<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>Failed to load category insights: ${error.message}</div>`;
         errorEl.style.display = 'block';
-        
+
         // Show fallback message
         containerEl.innerHTML = `
             <div class="text-center p-4">
@@ -13213,6 +13414,9 @@ async function loadCategoryInsights(topics, startDate, endDate, daysLimit, force
                 <p class="text-muted">Unable to generate category insights. Please try again or check if the topic has sufficient articles.</p>
             </div>
         `;
+
+        // Re-throw the error so Promise.allSettled can detect the failure
+        throw error;
     } finally {
         loadingEl.style.display = 'none';
     }
@@ -14448,11 +14652,21 @@ async function loadIncidentTracking(topics, startDate, endDate, daysLimit, force
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(requestBody)
         });
-        
+
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            // Try to get detailed error message from response
+            let errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+            try {
+                const errorData = await response.json();
+                if (errorData.detail) {
+                    errorMessage = errorData.detail;
+                }
+            } catch (e) {
+                // If response isn't JSON, use default error message
+            }
+            throw new Error(errorMessage);
         }
-        
+
         const data = await response.json();
 
         if (!data.incidents || data.incidents.length === 0) {
@@ -14521,8 +14735,29 @@ async function loadIncidentTracking(topics, startDate, endDate, daysLimit, force
 
     } catch (error) {
         console.error('Error loading incident tracking:', error);
-        errorEl.innerHTML = `<div class="alert alert-warning"><i class="fas fa-exclamation-triangle me-2"></i>Failed to load incident tracking: ${error.message}</div>`;
+        // Check if this is an API quota/billing/API key error (any critical API errors)
+        const errorMsg = error.message || '';
+        const isQuotaError = errorMsg.includes('quota') ||
+                            errorMsg.includes('billing') ||
+                            errorMsg.includes('credits') ||
+                            errorMsg.includes('API key') ||
+                            errorMsg.includes('api key') ||
+                            errorMsg.toLowerCase().includes('⚠️');
+        const alertClass = isQuotaError ? 'alert-danger' : 'alert-warning';
+        const icon = isQuotaError ? 'fa-credit-card' : 'fa-exclamation-triangle';
+
+        errorEl.innerHTML = `<div class="alert ${alertClass}"><i class="fas ${icon} me-2"></i>${errorMsg}</div>`;
         errorEl.style.display = 'block';
+
+        // Show toast notification for quota errors
+        if (isQuotaError) {
+            showNotification(errorMsg, 'danger');
+            // Save notification to database
+            saveQuotaErrorNotification(errorMsg, 'Highlights');
+        }
+
+        // Re-throw the error so Promise.allSettled can detect the failure
+        throw error;
     } finally {
         loadingEl.style.display = 'none';
     }
@@ -14878,26 +15113,8 @@ function renderIncidentTracking(incidents) {
 // Add to existing insights tab navigation handlers:
 document.addEventListener('DOMContentLoaded', function() {
     // ... existing code ...
-    
-    // Add handlers for new tabs
-    document.getElementById('incident-tracking-nav')?.addEventListener('click', function() {
-        // Don't auto-load - wait for Generate Insights button
-        const container = document.getElementById('incident-tracking-container');
-        if (container && !container.querySelector('.insight-item-card')) {
-            // Show helpful message with prominent Generate Insights button
-            container.innerHTML = `
-                <div class="text-center p-4 w-100">
-                    <i class="fas fa-crosshairs fa-3x text-muted mb-3"></i>
-                    <h5>Incident Tracking</h5>
-                    <p class="text-muted">Track specific incidents, entities, and events for threat hunting.</p>
-                    <button class="btn btn-baby-blue mt-3" onclick="smartGenerateInsights(true)">
-                        <i class="fas fa-magic me-2"></i>Generate Insights
-                    </button>
-                </div>
-            `;
-        }
-    });
 
+    // Add handlers for new tabs
     document.getElementById('realtime-signals-nav')?.addEventListener('click', function() {
         loadSignalInstructions();
     });
@@ -14956,20 +15173,38 @@ async function generateInsights(forceRegenerate = false) {
     }
 
     // Load all insights including incident tracking
-    await Promise.all([
+    // Track which operations succeeded and failed
+    const results = await Promise.allSettled([
         loadArticleInsights(selectedTopics, startDate, endDate, daysLimit, forceRegenerate),
         loadCategoryInsights(selectedTopics, startDate, endDate, daysLimit, forceRegenerate),
         loadIncidentTracking(selectedTopics, startDate, endDate, daysLimit, forceRegenerate)
     ]);
 
+    // Check if any operations failed
+    const failures = results.filter(r => r.status === 'rejected');
+    const successes = results.filter(r => r.status === 'fulfilled');
+
     // After generating insights, update cache state and button
     await checkInsightsCache();
     updateInsightsButton();
 
-    // Show save/export buttons for insights
-    showInsightsSaveButtons();
+    // Show save/export buttons for insights if any succeeded
+    if (successes.length > 0) {
+        showInsightsSaveButtons();
+    }
 
-    showNotification(`Insights generated for ${selectedTopics.length} topic(s)!`, 'success');
+    // Show appropriate notification based on results
+    if (failures.length === 0) {
+        showNotification(`Insights generated for ${selectedTopics.length} topic(s)!`, 'success');
+    } else if (successes.length === 0) {
+        // All failed - show error notification
+        showNotification(`Failed to generate insights. Please check error messages in each tab.`, 'danger');
+    } else {
+        // Partial success - but check if "successes" are just cached data
+        // If there are failures, don't celebrate partial success
+        console.warn(`${failures.length} operation(s) failed, ${successes.length} operation(s) succeeded (possibly from cache)`);
+        showNotification(`Failed to generate insights. Some tabs may show cached data.`, 'warning');
+    }
 }
 // Add this function to your JavaScript section:
 

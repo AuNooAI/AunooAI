@@ -77,7 +77,7 @@ async def get_market_signals_analysis(
             variables
         )
 
-        # Add articles to user prompt
+        # Add articles to user prompt - include raw_markdown for quote extraction
         articles_text = "\n\n".join([
             f"Title: {a.get('title', 'N/A')}\n"
             f"Publication: {a.get('news_source', 'N/A')}\n"
@@ -86,7 +86,8 @@ async def get_market_signals_analysis(
             f"Summary: {a.get('summary', 'N/A')}\n"
             f"Sentiment: {a.get('sentiment', 'N/A')}\n"
             f"Category: {a.get('category', 'N/A')}\n"
-            f"Future Signal: {a.get('future_signal', 'N/A')}"
+            f"Future Signal: {a.get('future_signal', 'N/A')}\n"
+            f"Full Content: {a.get('raw_markdown', 'N/A')[:2000]}"  # Include raw markdown (truncated to 2000 chars per article for token budget)
             for a in articles[:50]  # Limit for token budget
         ])
 

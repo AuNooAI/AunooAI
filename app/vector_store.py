@@ -1,17 +1,16 @@
 """
 Vector store implementation using PostgreSQL pgvector.
 
-This module has been migrated from ChromaDB to native PostgreSQL pgvector for better
-performance and simpler architecture. The old ChromaDB implementation is preserved
-in vector_store_chromadb_backup.py.
+Community Edition uses PostgreSQL pgvector exclusively for vector operations.
+ChromaDB has been removed as it's only needed for SQLite-based deployments.
 
-For all new code, use this module which provides the same interface but uses pgvector.
+For all code, use this module which provides pgvector-based vector search.
 """
 import logging
 
 logger = logging.getLogger(__name__)
 
-# Import all functions from the new pgvector implementation
+# Import all functions from the pgvector implementation
 from app.vector_store_pgvector import (
     # Sync functions
     upsert_article,
@@ -31,16 +30,42 @@ from app.vector_store_pgvector import (
     check_pgvector_health as check_chromadb_health,  # Renamed for compatibility
 )
 
-# Import legacy ChromaDB functions for backward compatibility with old routes
-from app.vector_store_chromadb_backup import (
-    _get_collection,
-    get_chroma_client,
-    _embed_texts,
-    embedding_projection,
-    shutdown_vector_store,
-)
-
 logger.info("Vector store: Using PostgreSQL pgvector implementation")
+
+# Compatibility stubs for removed ChromaDB functions
+# These are kept to prevent import errors in existing routes
+def get_chroma_client():
+    """Compatibility stub - ChromaDB not available in PostgreSQL-only community edition."""
+    raise NotImplementedError(
+        "ChromaDB is not available in Community Edition. "
+        "This version uses PostgreSQL pgvector exclusively."
+    )
+
+def _get_collection(*args, **kwargs):
+    """Compatibility stub - ChromaDB not available in PostgreSQL-only community edition."""
+    raise NotImplementedError(
+        "ChromaDB is not available in Community Edition. "
+        "This version uses PostgreSQL pgvector exclusively."
+    )
+
+def _embed_texts(*args, **kwargs):
+    """Compatibility stub - Use vector_store_pgvector functions instead."""
+    raise NotImplementedError(
+        "Use upsert_article() or search_articles() instead. "
+        "ChromaDB-specific functions are not available in Community Edition."
+    )
+
+def embedding_projection(*args, **kwargs):
+    """Compatibility stub - ChromaDB not available in PostgreSQL-only community edition."""
+    raise NotImplementedError(
+        "ChromaDB is not available in Community Edition. "
+        "This version uses PostgreSQL pgvector exclusively."
+    )
+
+def shutdown_vector_store():
+    """Compatibility stub - No cleanup needed for pgvector."""
+    logger.info("Vector store shutdown: No cleanup needed for pgvector")
+    pass
 
 # Export all public functions
 __all__ = [
@@ -61,29 +86,28 @@ __all__ = [
     # Health check
     'check_chromadb_health',  # Keep old name for compatibility
 
-    # Legacy ChromaDB functions (for backward compatibility)
-    '_get_collection',
+    # Compatibility stubs (raise NotImplementedError)
     'get_chroma_client',
+    '_get_collection',
     '_embed_texts',
     'embedding_projection',
     'shutdown_vector_store',
 ]
 
-# Compatibility note for developers
+# Migration note for developers
 def _migration_note():
     """
-    MIGRATION COMPLETE: ChromaDB → pgvector
+    COMMUNITY EDITION: PostgreSQL pgvector Only
 
-    This module now uses PostgreSQL's native pgvector extension instead of ChromaDB.
+    This module uses PostgreSQL's native pgvector extension for all vector operations.
+    ChromaDB support has been removed as it's only needed for SQLite-based deployments.
 
-    Benefits:
+    Benefits of pgvector:
     - No separate database synchronization needed
     - Native PostgreSQL ACID compliance
     - Simpler architecture and better performance
     - Integrated with existing database connection pool
-
-    The old ChromaDB implementation is available in vector_store_chromadb_backup.py
-    if you need to reference it.
+    - Single source of truth for data and vectors
 
     All public APIs remain the same, so no changes are needed in calling code.
     """

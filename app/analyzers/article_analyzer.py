@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 import hashlib
 from .prompt_templates import PromptTemplates, PromptTemplateError
 from .cache import AnalysisCache, CacheError
+from app.exceptions import PipelineError, ErrorSeverity, LLMErrorClassifier
 import json
 import traceback
 import re
@@ -80,6 +81,10 @@ Article text:
         except PromptTemplateError as e:
             logger.error(f"Error with prompt template: {str(e)}")
             raise ArticleAnalyzerError(f"Failed to extract title: {str(e)}")
+        except PipelineError as e:
+            logger.error(f"🚨 FATAL error extracting title: {e}")
+            # Re-raise PipelineError to allow pipeline to handle it
+            raise
         except Exception as e:
             logger.error(f"Error extracting title: {str(e)}")
             raise ArticleAnalyzerError(f"Failed to extract title: {str(e)}")
@@ -195,6 +200,10 @@ Article text:
         except PromptTemplateError as e:
             logger.error(f"Error with prompt template: {str(e)}")
             raise ArticleAnalyzerError(f"Failed to analyze content: {str(e)}")
+        except PipelineError as e:
+            logger.error(f"🚨 FATAL error analyzing content: {e}")
+            # Re-raise PipelineError to allow pipeline to handle it
+            raise
         except Exception as e:
             logger.error(f"Error analyzing content: {str(e)}")
             logger.error(f"Full traceback: {traceback.format_exc()}")
