@@ -32,10 +32,10 @@ class FloatingChat {
         this.chatSessions = [];
         this.isStreaming = false;
         this.modalInstance = null;
-        this.researchMode = 'off';  // 'off', 'internal', 'hybrid', 'external', 'extend'
+        this.researchMode = 'off';  // 'off', 'internal', 'hybrid', 'external'
         this.researchInProgress = false;
-        this.previousResearch = null;  // Stores last research output for extend mode
-        
+        this.includeCharts = false;  // Charts toggle state
+
         this.storageKeys = {
             topic: 'auspex_floating_last_topic',
             model: 'auspex_floating_last_model',
@@ -45,7 +45,7 @@ class FloatingChat {
             minimized: 'auspex_floating_minimized',
             toolsConfig: 'auspex_floating_tools_config',
             researchMode: 'auspex_floating_research_mode',
-            previousResearch: 'auspex_floating_previous_research'
+            includeCharts: 'auspex_floating_include_charts'
         };
         
         this.customQueries = this.loadCustomQueries();
@@ -1655,6 +1655,10 @@ class FloatingChat {
                 if (!document.getElementById('researchModeToggle')) {
                     this.createResearchBadge(container);
                 }
+                // Ensure charts toggle exists
+                if (!document.getElementById('chartsToggle')) {
+                    this.createChartsToggle(container);
+                }
                 return;
             }
 
@@ -1670,8 +1674,17 @@ class FloatingChat {
                 this.createResearchBadge(container);
             }
 
-            // Create badge buttons for each plugin tool
-            data.tools.forEach(tool => {
+            // Ensure charts toggle exists after research badge
+            if (!document.getElementById('chartsToggle')) {
+                this.createChartsToggle(container);
+            }
+
+            // Plugins to hide (redundant with Deep Research source selector)
+            const excludePlugins = ['external_research', 'web_search'];
+
+            // Create badge buttons for each plugin tool (excluding redundant ones)
+            const filteredTools = data.tools.filter(tool => !excludePlugins.includes(tool.name));
+            filteredTools.forEach(tool => {
                 const btn = document.createElement('button');
                 btn.className = 'floating-quick-btn plugin-tool';
                 btn.dataset.tool = tool.name;
@@ -1694,7 +1707,7 @@ class FloatingChat {
                 container.appendChild(btn);
             });
 
-            console.log(`Loaded ${data.tools.length} plugin tools`);
+            console.log(`Loaded ${filteredTools.length} plugin tools (filtered from ${data.tools.length})`);
 
         } catch (error) {
             console.error('Error loading plugin tools:', error);
@@ -1705,6 +1718,10 @@ class FloatingChat {
             // Still ensure research badge exists even on error
             if (!document.getElementById('researchModeToggle')) {
                 this.createResearchBadge(container);
+            }
+            // Ensure charts toggle exists
+            if (!document.getElementById('chartsToggle')) {
+                this.createChartsToggle(container);
             }
 
             // Add error message after research badge
@@ -2089,9 +2106,9 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
 
     // ==================== RESEARCH MODE ====================
 
-    // Research modes cycle: off -> internal -> hybrid -> external -> extend -> off
+    // Research modes cycle: off -> internal -> hybrid -> external -> off
     getNextResearchMode() {
-        const modes = ['off', 'internal', 'hybrid', 'external', 'extend'];
+        const modes = ['off', 'internal', 'hybrid', 'external'];
         const currentIndex = modes.indexOf(this.researchMode);
         return modes[(currentIndex + 1) % modes.length];
     }
@@ -2102,8 +2119,8 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
     }
 
     setResearchMode(mode) {
-        // Valid modes: 'off', 'internal', 'hybrid', 'external', 'extend'
-        const validModes = ['off', 'internal', 'hybrid', 'external', 'extend'];
+        // Valid modes: 'off', 'internal', 'hybrid', 'external'
+        const validModes = ['off', 'internal', 'hybrid', 'external'];
         if (!validModes.includes(mode)) {
             console.warn(`Invalid research mode: ${mode}, defaulting to 'off'`);
             mode = 'off';
@@ -2111,14 +2128,6 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
 
         this.researchMode = mode;
         localStorage.setItem(this.storageKeys.researchMode, mode);
-
-        // Load previous research for extend mode
-        if (mode === 'extend') {
-            this.previousResearch = localStorage.getItem(this.storageKeys.previousResearch) || null;
-            if (!this.previousResearch) {
-                this.showNotification('No previous research found. Run a research first, then use Extend.', 'warning');
-            }
-        }
 
         // Update research dropdown in Analysis Tools bar
         const researchToggle = document.getElementById('researchModeToggle');
@@ -2130,13 +2139,12 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
         // Update input placeholder based on mode
         if (this.elements.input) {
             const placeholders = {
-                'off': 'Type your message...',
-                'internal': 'Research using internal database only...',
-                'hybrid': 'Research using internal + external sources...',
-                'external': 'Research using external web sources only...',
-                'extend': 'Extend previous research with new query...'
+                'off': 'Ask Auspex anything...',
+                'internal': 'Deep research using internal database...',
+                'hybrid': 'Deep research using internal + external sources...',
+                'external': 'Deep research using external web sources...'
             };
-            this.elements.input.placeholder = placeholders[mode] || 'Type your message...';
+            this.elements.input.placeholder = placeholders[mode] || 'Ask Auspex anything...';
         }
 
         // Update send button appearance
@@ -2153,10 +2161,9 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
         // Show mode change notification
         const modeNames = {
             'off': 'Chat Mode',
-            'internal': 'Internal Only',
-            'hybrid': 'Hybrid (Internal + External)',
-            'external': 'External Only',
-            'extend': 'Extend Previous Research'
+            'internal': 'Deep Research: Internal Only',
+            'hybrid': 'Deep Research: Hybrid',
+            'external': 'Deep Research: External Only'
         };
         this.showNotification(`${modeNames[mode]} - ${mode === 'off' ? 'Standard chat active' : 'Queries trigger deep research'}`, 'info');
 
@@ -2491,19 +2498,18 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
     }
 
     initResearchModeToggle() {
-        // Load saved research mode state (now a string: 'off', 'internal', 'hybrid', 'external', 'extend')
+        // Load saved research mode state: 'off', 'internal', 'hybrid', 'external'
         const savedMode = localStorage.getItem(this.storageKeys.researchMode);
-        // Handle legacy boolean values and default to 'off'
-        if (savedMode === 'true') {
-            this.researchMode = 'hybrid';  // Legacy true -> hybrid
-        } else if (savedMode && savedMode !== 'false') {
+        const validModes = ['off', 'internal', 'hybrid', 'external'];
+
+        // Handle legacy values and default to 'off'
+        if (savedMode === 'true' || savedMode === 'extend') {
+            this.researchMode = 'hybrid';  // Legacy true or extend -> hybrid
+        } else if (savedMode && validModes.includes(savedMode)) {
             this.researchMode = savedMode;
         } else {
             this.researchMode = 'off';
         }
-
-        // Load previous research for extend mode
-        this.previousResearch = localStorage.getItem(this.storageKeys.previousResearch) || null;
 
         // Note: The research badge is created by loadPluginTools() to ensure proper ordering
         // This method just loads the saved state. Badge creation happens in createResearchBadge()
@@ -2529,10 +2535,9 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
 
         const modeLabels = {
             'off': 'Off',
-            'internal': 'Internal Only',
+            'internal': 'Internal',
             'hybrid': 'Hybrid',
-            'external': 'External Only',
-            'extend': 'Extend Previous'
+            'external': 'External'
         };
 
         // Create wrapper div for the dropdown
@@ -2543,7 +2548,7 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
         // Create label
         const label = document.createElement('span');
         label.className = 'research-mode-label';
-        label.textContent = 'Research:';
+        label.textContent = 'Deep Research:';
         label.style.cssText = 'font-size: 0.75rem; color: #6b7280; font-weight: 500;';
 
         // Create select dropdown
@@ -2603,6 +2608,57 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
             select.style.borderColor = '#e5e7eb';
             select.style.color = '#212529';
         }
+    }
+
+    // ==================== CHARTS TOGGLE ====================
+
+    createChartsToggle(container) {
+        /**
+         * Create the Charts toggle button in the Analysis Tools bar.
+         */
+        if (document.getElementById('chartsToggle')) {
+            return; // Toggle already exists
+        }
+
+        // Load saved state
+        this.includeCharts = localStorage.getItem(this.storageKeys.includeCharts) === 'true';
+
+        const btn = document.createElement('button');
+        btn.id = 'chartsToggle';
+        btn.className = `floating-quick-btn ${this.includeCharts ? 'active' : ''}`;
+        btn.innerHTML = '<i class="fas fa-chart-bar me-1"></i>Charts';
+        btn.title = 'Include charts in responses';
+        btn.onclick = () => this.toggleCharts();
+
+        // Insert after research badge wrapper
+        const researchWrapper = container.querySelector('.research-mode-wrapper');
+        if (researchWrapper && researchWrapper.nextSibling) {
+            container.insertBefore(btn, researchWrapper.nextSibling);
+        } else {
+            container.appendChild(btn);
+        }
+    }
+
+    toggleCharts() {
+        /**
+         * Toggle the charts include setting.
+         */
+        this.includeCharts = !this.includeCharts;
+        localStorage.setItem(this.storageKeys.includeCharts, this.includeCharts);
+
+        // Update button styling
+        const btn = document.getElementById('chartsToggle');
+        if (btn) {
+            btn.classList.toggle('active', this.includeCharts);
+        }
+
+        // Show notification
+        this.showNotification(
+            this.includeCharts ? 'Charts enabled - responses will include visualizations' : 'Charts disabled',
+            'info'
+        );
+
+        console.log(`Charts include: ${this.includeCharts}`);
     }
 }
 
