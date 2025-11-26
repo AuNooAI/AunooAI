@@ -32,7 +32,10 @@ class FloatingChat {
         this.chatSessions = [];
         this.isStreaming = false;
         this.modalInstance = null;
-        
+        this.researchMode = 'off';  // 'off', 'internal', 'hybrid', 'external'
+        this.researchInProgress = false;
+        this.includeCharts = false;  // Charts toggle state
+
         this.storageKeys = {
             topic: 'auspex_floating_last_topic',
             model: 'auspex_floating_last_model',
@@ -40,7 +43,9 @@ class FloatingChat {
             customLimit: 'auspex_floating_custom_limit',
             customQueries: 'auspex_floating_custom_queries',
             minimized: 'auspex_floating_minimized',
-            toolsConfig: 'auspex_floating_tools_config'
+            toolsConfig: 'auspex_floating_tools_config',
+            researchMode: 'auspex_floating_research_mode',
+            includeCharts: 'auspex_floating_include_charts'
         };
         
         this.customQueries = this.loadCustomQueries();
@@ -152,7 +157,23 @@ class FloatingChat {
     
     initializeAfterModalShow() {
         console.log('Reinitializing elements after modal show...');
-        
+
+        // Open modal maximized by default
+        const modalDialog = this.elements.modal.querySelector('.modal-dialog');
+        if (modalDialog && !modalDialog.classList.contains('modal-fullscreen')) {
+            modalDialog.classList.remove('modal-xl');
+            modalDialog.classList.add('modal-fullscreen');
+            // Update the expand button icon to show compress
+            const expandBtn = document.getElementById('expandWindowBtn');
+            if (expandBtn) {
+                const icon = expandBtn.querySelector('i');
+                if (icon) {
+                    icon.className = 'fas fa-compress';
+                }
+                expandBtn.title = 'Collapse window';
+            }
+        }
+
         // Re-check all elements that might not have been available initially
         const elementIds = {
             sessionsList: 'chatSessionsList',
@@ -184,9 +205,15 @@ class FloatingChat {
         });
         
         console.log(`Found ${foundCount}/${Object.keys(elementIds).length} elements`);
-        
+
         // Update UI state now that elements are available
         this.updateUIState();
+
+        // Initialize research mode toggle button
+        this.initResearchModeToggle();
+
+        // Load plugin tools for toolbar badges
+        this.loadPluginTools();
         
         // Check for pending chat switch from insights research
         if (window.pendingChatSwitch) {
@@ -663,14 +690,21 @@ class FloatingChat {
 
     async sendMessage() {
         if (this.isStreaming) return;
-        
+
         if (!this.elements.input) {
             console.warn('Input element not found');
             return;
         }
-        
+
         const message = this.elements.input.value.trim();
         if (!message) return;
+
+        // Check if research mode is enabled (not 'off')
+        if (this.researchMode && this.researchMode !== 'off') {
+            this.elements.input.value = '';
+            await this.startDeepResearch(message);
+            return;
+        }
 
         const topic = this.elements.topicSelect ? this.elements.topicSelect.value : '';
         const model = this.elements.modelSelect ? this.elements.modelSelect.value : '';
@@ -738,7 +772,8 @@ class FloatingChat {
                     limit: limit,
                     profile_id: profileId,
                     tools_config: this.toolsConfig,
-                    article_detail_limit: limit  // Use same limit for both search and citations
+                    article_detail_limit: limit,  // Use same limit for both search and citations
+                    include_charts: this.includeCharts  // Charts toggle
                 })
             });
 
@@ -783,12 +818,12 @@ class FloatingChat {
                             
                             if (data.content) {
                                 assistantMessage += data.content;
-                                
+
                                 // Create message element if it doesn't exist
                                 if (!messageElement) {
                                     messageElement = this.createStreamingMessage();
                                 }
-                                
+
                                 // Update the streaming message
                                 this.updateStreamingMessage(messageElement, assistantMessage);
                             }
@@ -836,8 +871,137 @@ class FloatingChat {
 
     updateStreamingMessage(messageElement, content) {
         const contentDiv = messageElement.querySelector('.floating-message-content');
-        contentDiv.innerHTML = marked.parse(content);
+
+        // Process chart markers before parsing markdown
+        const processedContent = this.processChartMarkers(content, contentDiv);
+
+        // Check if we already have charts rendered - preserve them
+        const existingChartContainer = contentDiv.querySelector('.auspex-chart-container');
+
+        // Create a container for text content
+        let textContainer = contentDiv.querySelector('.message-text-content');
+        if (!textContainer) {
+            textContainer = document.createElement('div');
+            textContainer.className = 'message-text-content';
+            contentDiv.appendChild(textContainer);
+        }
+
+        // Parse markdown for the text content (with chart markers removed)
+        textContainer.innerHTML = marked.parse(processedContent.textContent);
+
+        // Render any charts that were found (only if not already rendered)
+        if (processedContent.charts && processedContent.charts.length > 0 && !existingChartContainer) {
+            // Insert charts BEFORE the text content
+            this.renderChartsInMessage(contentDiv, processedContent.charts, textContainer);
+        }
+
         this.elements.messages.scrollTop = this.elements.messages.scrollHeight;
+    }
+
+    processChartMarkers(content, container) {
+        /**
+         * Process chart markers from the streaming content.
+         * Markers are in format: <!-- CHART_DATA:{json}:END_CHART -->
+         * Returns: { textContent: string, charts: Array }
+         */
+        const chartRegex = /<!-- CHART_DATA:([\s\S]*?):END_CHART -->/g;
+        const errorRegex = /<!-- CHART_ERROR:([\s\S]*?):END_CHART -->/g;
+
+        const charts = [];
+        let textContent = content;
+
+        // Extract chart data
+        let match;
+        while ((match = chartRegex.exec(content)) !== null) {
+            try {
+                const chartData = JSON.parse(match[1]);
+                charts.push(chartData);
+                // Remove marker from text content
+                textContent = textContent.replace(match[0], '');
+            } catch (e) {
+                // Silent fail during streaming - chart marker might be incomplete
+            }
+        }
+
+        // Handle error markers (just remove them for now)
+        textContent = textContent.replace(errorRegex, '');
+
+        return { textContent: textContent.trim(), charts };
+    }
+
+    renderChartsInMessage(container, charts, insertBefore = null) {
+        /**
+         * Render Plotly charts within a message container.
+         * @param {HTMLElement} container - The container to add charts to
+         * @param {Array} charts - Array of chart data objects
+         * @param {HTMLElement} insertBefore - Optional element to insert charts before
+         */
+        if (!window.Plotly) {
+            console.warn('Plotly not loaded, cannot render charts');
+            return;
+        }
+
+        charts.forEach((chartData, index) => {
+            if (chartData.error) {
+                console.warn('Chart error:', chartData.error);
+                return;
+            }
+
+            // Create chart container
+            const chartWrapper = document.createElement('div');
+            chartWrapper.className = 'auspex-chart-container';
+            chartWrapper.style.cssText = 'margin: 15px 0; padding: 10px; background: white; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);';
+
+            // Chart title
+            if (chartData.title) {
+                const titleEl = document.createElement('div');
+                titleEl.className = 'auspex-chart-title';
+                titleEl.style.cssText = 'font-weight: 600; margin-bottom: 10px; color: #333;';
+                titleEl.textContent = chartData.title;
+                chartWrapper.appendChild(titleEl);
+            }
+
+            // Chart div for Plotly
+            const chartDiv = document.createElement('div');
+            chartDiv.id = `auspex-chart-${Date.now()}-${index}`;
+            chartDiv.style.cssText = 'min-height: 350px; width: 100%;';
+            chartWrapper.appendChild(chartDiv);
+
+            // Append to message (insert before text content if specified)
+            if (insertBefore) {
+                container.insertBefore(chartWrapper, insertBefore);
+            } else {
+                container.appendChild(chartWrapper);
+            }
+
+            // Render with Plotly
+            if (chartData.format === 'json' && chartData.data) {
+                const plotlyData = chartData.data;
+                const config = {
+                    responsive: true,
+                    displayModeBar: true,
+                    modeBarButtonsToRemove: ['sendDataToCloud', 'lasso2d', 'select2d'],
+                    displaylogo: false
+                };
+
+                try {
+                    Plotly.newPlot(chartDiv.id, plotlyData.data, plotlyData.layout, config);
+                } catch (e) {
+                    console.error('Failed to render Plotly chart:', e);
+                    chartDiv.innerHTML = '<p style="color: red;">Failed to render chart</p>';
+                }
+            } else if (chartData.format === 'base64' && chartData.data) {
+                // Render as image
+                const img = document.createElement('img');
+                img.src = chartData.data;
+                img.alt = chartData.title || 'Chart';
+                img.style.cssText = 'max-width: 100%; height: auto;';
+                chartDiv.appendChild(img);
+            } else if (chartData.format === 'html' && chartData.data) {
+                // Render as HTML
+                chartDiv.innerHTML = chartData.data;
+            }
+        });
     }
 
     updateUIState() {
@@ -1482,6 +1646,137 @@ class FloatingChat {
         this.loadToolsConfigIntoModal();
     }
 
+    // ==================== PLUGIN TOOLS ====================
+
+    async loadPluginTools() {
+        /**
+         * Load available plugin tools from the backend and display as badges.
+         * These are analysis tools from data/auspex/plugins/ directory.
+         */
+        const container = document.getElementById('pluginToolsContainer');
+        if (!container) {
+            console.warn('Plugin tools container not found');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/auspex/plugin-tools');
+            if (!response.ok) {
+                throw new Error(`Failed to load plugin tools: ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (data.status !== 'success' || !data.tools || data.tools.length === 0) {
+                // Remove loading message, keep research badge if present
+                const loadingMsg = container.querySelector('.loading-tools');
+                if (loadingMsg) loadingMsg.remove();
+
+                // Ensure research badge exists
+                if (!document.getElementById('researchModeToggle')) {
+                    this.createResearchBadge(container);
+                }
+                // Ensure charts toggle exists
+                if (!document.getElementById('chartsToggle')) {
+                    this.createChartsToggle(container);
+                }
+                return;
+            }
+
+            // Remove loading message only, preserve existing badges
+            const loadingMsg = container.querySelector('.loading-tools');
+            if (loadingMsg) loadingMsg.remove();
+
+            // Remove any existing plugin-tool badges (to avoid duplicates on reload)
+            container.querySelectorAll('.plugin-tool').forEach(el => el.remove());
+
+            // Ensure research badge exists at the start
+            if (!document.getElementById('researchModeToggle')) {
+                this.createResearchBadge(container);
+            }
+
+            // Ensure charts toggle exists after research badge
+            if (!document.getElementById('chartsToggle')) {
+                this.createChartsToggle(container);
+            }
+
+            // Plugins to hide (redundant with Deep Research source selector)
+            const excludePlugins = ['external_research', 'web_search'];
+
+            // Create badge buttons for each plugin tool (excluding redundant ones)
+            const filteredTools = data.tools.filter(tool => !excludePlugins.includes(tool.name));
+            filteredTools.forEach(tool => {
+                const btn = document.createElement('button');
+                btn.className = 'floating-quick-btn plugin-tool';
+                btn.dataset.tool = tool.name;
+                btn.dataset.description = tool.description;
+                btn.title = tool.description;
+
+                // Format display name (convert snake_case to Title Case)
+                const displayName = tool.name
+                    .split('_')
+                    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                    .join(' ');
+
+                btn.textContent = displayName;
+
+                // Add click handler to insert tool query into input (not execute)
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();  // Prevent quickQueries parent handler from auto-sending
+                    this.handlePluginToolClick(tool);
+                });
+
+                container.appendChild(btn);
+            });
+
+            console.log(`Loaded ${filteredTools.length} plugin tools (filtered from ${data.tools.length})`);
+
+        } catch (error) {
+            console.error('Error loading plugin tools:', error);
+            // Remove loading message, keep research badge
+            const loadingMsg = container.querySelector('.loading-tools');
+            if (loadingMsg) loadingMsg.remove();
+
+            // Still ensure research badge exists even on error
+            if (!document.getElementById('researchModeToggle')) {
+                this.createResearchBadge(container);
+            }
+            // Ensure charts toggle exists
+            if (!document.getElementById('chartsToggle')) {
+                this.createChartsToggle(container);
+            }
+
+            // Add error message after research badge
+            const errorSpan = document.createElement('span');
+            errorSpan.className = 'text-muted small';
+            errorSpan.textContent = 'Failed to load tools';
+            container.appendChild(errorSpan);
+        }
+    }
+
+    handlePluginToolClick(tool) {
+        /**
+         * Handle click on a plugin tool badge.
+         * Inserts a trigger query into the input that will activate the tool.
+         */
+        if (!this.elements.input) return;
+
+        // Format display name
+        const displayName = tool.name
+            .split('_')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
+
+        // Build a natural, descriptive query using the tool name and topic
+        const topic = this.elements.topicSelect?.value || 'the topic';
+        const query = `${displayName} for ${topic}`;
+
+        // Set the input value
+        this.elements.input.value = query;
+        this.elements.input.focus();
+
+        this.showNotification(`Edit query and press Enter to run ${displayName}`, 'info');
+    }
+
     // Dynamic Sample Sizing Methods
     calculateOptimalSampleSize(model, message) {
         const mode = this.elements.sampleSizeMode ? this.elements.sampleSizeMode.value : 'auto';
@@ -1787,14 +2082,14 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
     showNotification(message, type = 'info') {
         const notification = document.createElement('div');
         notification.textContent = message;
-        
+
         const colors = {
             success: '#28a745',
             error: '#dc3545',
             warning: '#ffc107',
             info: '#007bff'
         };
-        
+
         notification.style.cssText = `
             position: fixed;
             top: 20px;
@@ -1808,13 +2103,592 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
             font-weight: 500;
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
         `;
-        
+
         document.body.appendChild(notification);
         setTimeout(() => {
             if (document.body.contains(notification)) {
                 document.body.removeChild(notification);
             }
         }, 3000);
+    }
+
+    // ==================== RESEARCH MODE ====================
+
+    // Research modes cycle: off -> internal -> hybrid -> external -> off
+    getNextResearchMode() {
+        const modes = ['off', 'internal', 'hybrid', 'external'];
+        const currentIndex = modes.indexOf(this.researchMode);
+        return modes[(currentIndex + 1) % modes.length];
+    }
+
+    toggleResearchMode() {
+        const newMode = this.getNextResearchMode();
+        this.setResearchMode(newMode);
+    }
+
+    setResearchMode(mode) {
+        // Valid modes: 'off', 'internal', 'hybrid', 'external'
+        const validModes = ['off', 'internal', 'hybrid', 'external'];
+        if (!validModes.includes(mode)) {
+            console.warn(`Invalid research mode: ${mode}, defaulting to 'off'`);
+            mode = 'off';
+        }
+
+        this.researchMode = mode;
+        localStorage.setItem(this.storageKeys.researchMode, mode);
+
+        // Update research dropdown in Analysis Tools bar
+        const researchToggle = document.getElementById('researchModeToggle');
+        if (researchToggle && researchToggle.tagName === 'SELECT') {
+            researchToggle.value = mode;
+            this.updateResearchSelectStyle(researchToggle);
+        }
+
+        // Update input placeholder based on mode
+        if (this.elements.input) {
+            const placeholders = {
+                'off': 'Ask Auspex anything...',
+                'internal': 'Deep research using internal database...',
+                'hybrid': 'Deep research using internal + external sources...',
+                'external': 'Deep research using external web sources...'
+            };
+            this.elements.input.placeholder = placeholders[mode] || 'Ask Auspex anything...';
+        }
+
+        // Update send button appearance
+        if (this.elements.sendBtn) {
+            if (mode === 'off') {
+                this.elements.sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i>';
+                this.elements.sendBtn.title = 'Send Message';
+            } else {
+                this.elements.sendBtn.innerHTML = '<i class="fas fa-search"></i>';
+                this.elements.sendBtn.title = 'Start Deep Research';
+            }
+        }
+
+        // Show mode change notification
+        const modeNames = {
+            'off': 'Chat Mode',
+            'internal': 'Deep Research: Internal Only',
+            'hybrid': 'Deep Research: Hybrid',
+            'external': 'Deep Research: External Only'
+        };
+        this.showNotification(`${modeNames[mode]} - ${mode === 'off' ? 'Standard chat active' : 'Queries trigger deep research'}`, 'info');
+
+        console.log(`Research mode set to: ${mode}`);
+    }
+
+    async startDeepResearch(query) {
+        if (this.researchInProgress) {
+            this.showNotification('Research already in progress', 'warning');
+            return;
+        }
+
+        const topic = this.elements.topicSelect ? this.elements.topicSelect.value : '';
+        if (!topic) {
+            this.showNotification('Please select a topic first', 'warning');
+            return;
+        }
+
+        console.log(`Starting deep research: query="${query}", topic="${topic}", mode="${this.researchMode}"`);
+
+        this.researchInProgress = true;
+        this.addMessage(query, true);
+
+        // Create research progress element
+        const progressElement = this.createResearchProgressElement();
+        this.elements.messages.appendChild(progressElement);
+        this.elements.messages.scrollTop = this.elements.messages.scrollHeight;
+
+        // Build research config based on current mode
+        const searchSourceMap = {
+            'internal': 'internal',
+            'external': 'external',
+            'hybrid': 'hybrid',
+            'extend': 'hybrid'
+        };
+
+        const researchConfig = {
+            search_source: searchSourceMap[this.researchMode] || 'hybrid',
+            research_mode: this.researchMode,
+            extend_mode: this.researchMode === 'extend',
+            previous_research: this.researchMode === 'extend' ? this.previousResearch : null,
+            include_charts: this.includeCharts
+        };
+
+        try {
+            const response = await fetch('/api/auspex/research', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    query: query,
+                    topic: topic,
+                    chat_id: this.currentChatId,
+                    config: researchConfig
+                })
+            });
+
+            if (!response.ok) {
+                // Try to get detailed error from response
+                let errorDetail = `Server error: ${response.status}`;
+                try {
+                    const errorData = await response.json();
+                    if (errorData.detail) {
+                        if (Array.isArray(errorData.detail)) {
+                            errorDetail = errorData.detail.map(d => d.msg || d).join(', ');
+                        } else {
+                            errorDetail = errorData.detail;
+                        }
+                    }
+                } catch (e) {
+                    // Could not parse error JSON
+                }
+                throw new Error(errorDetail);
+            }
+
+            // Handle SSE streaming with buffering for partial chunks
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let finalReport = '';
+            let buffer = '';  // Buffer to handle partial SSE data
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                // Append decoded chunk to buffer
+                buffer += decoder.decode(value, { stream: true });
+
+                // SSE events are separated by double newlines
+                // Each event starts with "data: " and contains JSON
+                const events = buffer.split('\n\n');
+                // Keep the last potentially incomplete event in the buffer
+                buffer = events.pop() || '';
+
+                for (const event of events) {
+                    // Skip empty events
+                    if (!event.trim()) continue;
+
+                    // Extract data from event (handle multi-line data)
+                    const dataMatch = event.match(/^data:\s*([\s\S]*)$/m);
+                    if (!dataMatch) continue;
+
+                    try {
+                        const jsonStr = dataMatch[1].trim();
+                        if (!jsonStr) continue;
+                        const data = JSON.parse(jsonStr);
+
+                        if (data.error) {
+                            this.updateResearchProgress(progressElement, 'error', data.error, 0);
+                            throw new Error(data.error);
+                        }
+
+                        if (data.done) {
+                            console.log('Research completed');
+                            this.researchInProgress = false;
+                            // Remove progress element and show final report
+                            progressElement.remove();
+                            if (finalReport) {
+                                this.addMessage(finalReport, false);
+                            }
+                            return;
+                        }
+
+                        // Update progress UI based on stage
+                        if (data.stage) {
+                            const progress = data.progress || 0;
+                            let statusText = '';
+
+                            switch (data.stage) {
+                                case 'planning':
+                                    statusText = data.status === 'started'
+                                        ? 'Planning research objectives...'
+                                        : `Planning complete: ${data.objectives?.length || 0} objectives identified`;
+                                    break;
+                                case 'searching':
+                                    statusText = data.status === 'started'
+                                        ? 'Searching for relevant sources...'
+                                        : `Found ${data.results_count || 0} relevant articles`;
+                                    break;
+                                case 'synthesis':
+                                    statusText = data.status === 'started'
+                                        ? 'Synthesizing findings...'
+                                        : 'Synthesis complete';
+                                    break;
+                                case 'writing':
+                                    statusText = data.status === 'started'
+                                        ? 'Writing research report...'
+                                        : 'Report generation complete';
+                                    break;
+                            }
+
+                            this.updateResearchProgress(progressElement, data.stage, statusText, progress);
+                        }
+
+                        // Capture streaming report content (from chunk field)
+                        if (data.chunk) {
+                            finalReport += data.chunk;
+                        }
+
+                        // Also handle report_chunk for backwards compat
+                        if (data.report_chunk) {
+                            finalReport += data.report_chunk;
+                        }
+
+                        // Handle final report
+                        if (data.final_report) {
+                            finalReport = data.final_report;
+                        }
+
+                    } catch (e) {
+                        // Only log if it's not an empty string parse error
+                        if (jsonStr && jsonStr.length > 0) {
+                            console.warn('Error parsing SSE data:', e, 'Data:', jsonStr.substring(0, 100));
+                        }
+                    }
+                }
+            }
+
+            // Process any remaining buffer content after stream ends
+            if (buffer.trim() && buffer.startsWith('data: ')) {
+                try {
+                    const jsonStr = buffer.slice(6).trim();
+                    if (jsonStr) {
+                        const data = JSON.parse(jsonStr);
+                        if (data.final_report) {
+                            finalReport = data.final_report;
+                        }
+                    }
+                } catch (e) {
+                    console.warn('Error parsing final buffer:', e);
+                }
+            }
+
+            // If we have a report but didn't get a done signal, show it anyway
+            if (finalReport && progressElement.parentNode) {
+                progressElement.remove();
+                this.addMessage(finalReport, false);
+            }
+
+            // Store research output for extend mode
+            if (finalReport) {
+                this.previousResearch = finalReport;
+                localStorage.setItem(this.storageKeys.previousResearch, finalReport);
+                console.log('Research stored for extend mode');
+            }
+
+        } catch (error) {
+            console.error('Deep research error:', error);
+            this.updateResearchProgress(progressElement, 'error', error.message, 0);
+            this.showNotification(`Research failed: ${error.message}`, 'error');
+        } finally {
+            this.researchInProgress = false;
+        }
+    }
+
+    createResearchProgressElement() {
+        const container = document.createElement('div');
+        container.className = 'research-progress-container p-3 mb-3';
+        container.style.cssText = `
+            background: linear-gradient(135deg, #fdf2f8 0%, #fce7f3 100%);
+            border-radius: 12px;
+            border: 1px solid #f9a8d4;
+            box-shadow: 0 2px 8px rgba(236, 72, 153, 0.15);
+        `;
+
+        container.innerHTML = `
+            <div class="d-flex align-items-center mb-3">
+                <div class="research-icon me-3" style="font-size: 24px; color: #ec4899;">
+                    <i class="fas fa-microscope"></i>
+                </div>
+                <div>
+                    <h6 class="mb-0" style="color: #111827;">Deep Research in Progress</h6>
+                    <small style="color: #6b7280;">Analyzing sources and synthesizing findings...</small>
+                </div>
+            </div>
+
+            <div class="research-stages">
+                <div class="research-stage" data-stage="planning">
+                    <div class="stage-indicator d-flex align-items-center gap-2">
+                        <span class="stage-icon" style="color: #ec4899;"><i class="fas fa-clipboard-list"></i></span>
+                        <span class="stage-name" style="color: #374151; font-weight: 500;">Planning</span>
+                        <span class="stage-status badge" style="background: #e5e7eb; color: #6b7280;">Pending</span>
+                    </div>
+                    <div class="progress mt-1" style="height: 4px; background: #f3f4f6;">
+                        <div class="progress-bar" style="width: 0%; background: #ec4899;"></div>
+                    </div>
+                </div>
+
+                <div class="research-stage mt-2" data-stage="searching">
+                    <div class="stage-indicator d-flex align-items-center gap-2">
+                        <span class="stage-icon" style="color: #ec4899;"><i class="fas fa-search"></i></span>
+                        <span class="stage-name" style="color: #374151; font-weight: 500;">Searching</span>
+                        <span class="stage-status badge" style="background: #e5e7eb; color: #6b7280;">Pending</span>
+                    </div>
+                    <div class="progress mt-1" style="height: 4px; background: #f3f4f6;">
+                        <div class="progress-bar" style="width: 0%; background: #f472b6;"></div>
+                    </div>
+                </div>
+
+                <div class="research-stage mt-2" data-stage="synthesis">
+                    <div class="stage-indicator d-flex align-items-center gap-2">
+                        <span class="stage-icon" style="color: #ec4899;"><i class="fas fa-flask"></i></span>
+                        <span class="stage-name" style="color: #374151; font-weight: 500;">Synthesis</span>
+                        <span class="stage-status badge" style="background: #e5e7eb; color: #6b7280;">Pending</span>
+                    </div>
+                    <div class="progress mt-1" style="height: 4px; background: #f3f4f6;">
+                        <div class="progress-bar" style="width: 0%; background: #db2777;"></div>
+                    </div>
+                </div>
+
+                <div class="research-stage mt-2" data-stage="writing">
+                    <div class="stage-indicator d-flex align-items-center gap-2">
+                        <span class="stage-icon" style="color: #ec4899;"><i class="fas fa-pen-fancy"></i></span>
+                        <span class="stage-name" style="color: #374151; font-weight: 500;">Writing</span>
+                        <span class="stage-status badge" style="background: #e5e7eb; color: #6b7280;">Pending</span>
+                    </div>
+                    <div class="progress mt-1" style="height: 4px; background: #f3f4f6;">
+                        <div class="progress-bar" style="width: 0%; background: #be185d;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="research-status mt-3 p-2 rounded" style="background: rgba(236, 72, 153, 0.1);">
+                <small class="status-text" style="color: #374151;">Initializing research workflow...</small>
+            </div>
+        `;
+
+        return container;
+    }
+
+    updateResearchProgress(element, stage, statusText, progress) {
+        if (!element) return;
+
+        // Update status text
+        const statusEl = element.querySelector('.status-text');
+        if (statusEl) {
+            statusEl.textContent = statusText;
+        }
+
+        // Handle error state
+        if (stage === 'error') {
+            const statusDiv = element.querySelector('.research-status');
+            if (statusDiv) {
+                statusDiv.style.background = 'rgba(220, 53, 69, 0.15)';
+                statusDiv.innerHTML = `<small style="color: #dc2626;"><i class="fas fa-exclamation-triangle"></i> ${statusText}</small>`;
+            }
+            return;
+        }
+
+        // Update stage indicators
+        const stageEl = element.querySelector(`[data-stage="${stage}"]`);
+        if (stageEl) {
+            const badge = stageEl.querySelector('.stage-status');
+            const progressBar = stageEl.querySelector('.progress-bar');
+
+            if (progress === 0) {
+                // Starting
+                badge.style.cssText = 'background: #ec4899; color: white;';
+                badge.textContent = 'In Progress';
+            } else if (progress >= 1) {
+                // Complete
+                badge.style.cssText = 'background: #10b981; color: white;';
+                badge.textContent = 'Complete';
+            }
+
+            if (progressBar) {
+                progressBar.style.width = `${Math.min(100, progress * 100)}%`;
+            }
+        }
+
+        // Mark previous stages as complete
+        const stages = ['planning', 'searching', 'synthesis', 'writing'];
+        const currentIndex = stages.indexOf(stage);
+        for (let i = 0; i < currentIndex; i++) {
+            const prevStage = element.querySelector(`[data-stage="${stages[i]}"]`);
+            if (prevStage) {
+                const badge = prevStage.querySelector('.stage-status');
+                const progressBar = prevStage.querySelector('.progress-bar');
+                if (badge) {
+                    badge.style.cssText = 'background: #10b981; color: white;';
+                    badge.textContent = 'Complete';
+                }
+                if (progressBar) {
+                    progressBar.style.width = '100%';
+                }
+            }
+        }
+    }
+
+    initResearchModeToggle() {
+        // Load saved research mode state: 'off', 'internal', 'hybrid', 'external'
+        const savedMode = localStorage.getItem(this.storageKeys.researchMode);
+        const validModes = ['off', 'internal', 'hybrid', 'external'];
+
+        // Handle legacy values and default to 'off'
+        if (savedMode === 'true' || savedMode === 'extend') {
+            this.researchMode = 'hybrid';  // Legacy true or extend -> hybrid
+        } else if (savedMode && validModes.includes(savedMode)) {
+            this.researchMode = savedMode;
+        } else {
+            this.researchMode = 'off';
+        }
+
+        // Note: The research badge is created by loadPluginTools() to ensure proper ordering
+        // This method just loads the saved state. Badge creation happens in createResearchBadge()
+
+        // Apply UI state without notification if mode is active
+        if (this.researchMode !== 'off') {
+            // Temporarily disable notifications
+            const originalNotify = this.showNotification.bind(this);
+            this.showNotification = () => {};
+            this.setResearchMode(this.researchMode);
+            this.showNotification = originalNotify;
+        }
+    }
+
+    createResearchBadge(container) {
+        /**
+         * Create the research mode dropdown in the Analysis Tools bar.
+         * Called by loadPluginTools() to ensure proper ordering.
+         */
+        if (document.getElementById('researchModeToggle')) {
+            return; // Dropdown already exists
+        }
+
+        const modeLabels = {
+            'off': 'Off',
+            'internal': 'Internal',
+            'hybrid': 'Hybrid',
+            'external': 'External'
+        };
+
+        // Create wrapper div for the dropdown
+        const wrapper = document.createElement('div');
+        wrapper.className = 'research-mode-wrapper';
+        wrapper.style.cssText = 'display: inline-flex; align-items: center; gap: 4px;';
+
+        // Create label
+        const label = document.createElement('span');
+        label.className = 'research-mode-label';
+        label.textContent = 'Deep Research:';
+        label.style.cssText = 'font-size: 0.75rem; color: #6b7280; font-weight: 500;';
+
+        // Create select dropdown
+        const select = document.createElement('select');
+        select.id = 'researchModeToggle';
+        select.className = 'research-mode-select';
+        select.style.cssText = `
+            padding: 4px 8px;
+            font-size: 0.75rem;
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
+            background: #f1f3f5;
+            color: #212529;
+            cursor: pointer;
+            outline: none;
+            transition: all 0.15s ease;
+        `;
+
+        // Add options
+        Object.entries(modeLabels).forEach(([value, label]) => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = label;
+            if (value === this.researchMode) {
+                option.selected = true;
+            }
+            select.appendChild(option);
+        });
+
+        // Style selected state
+        this.updateResearchSelectStyle(select);
+
+        // Add change handler
+        select.addEventListener('change', (e) => {
+            this.setResearchMode(e.target.value);
+            this.updateResearchSelectStyle(select);
+        });
+
+        wrapper.appendChild(label);
+        wrapper.appendChild(select);
+
+        // Insert at the beginning of the container
+        container.insertBefore(wrapper, container.firstChild);
+    }
+
+    updateResearchSelectStyle(select) {
+        /**
+         * Update the dropdown styling based on selected mode.
+         */
+        const isActive = select.value !== 'off';
+        if (isActive) {
+            select.style.background = '#ec4899';
+            select.style.borderColor = '#ec4899';
+            select.style.color = 'white';
+        } else {
+            select.style.background = '#f1f3f5';
+            select.style.borderColor = '#e5e7eb';
+            select.style.color = '#212529';
+        }
+    }
+
+    // ==================== CHARTS TOGGLE ====================
+
+    createChartsToggle(container) {
+        /**
+         * Create the Charts toggle button in the Analysis Tools bar.
+         */
+        if (document.getElementById('chartsToggle')) {
+            return; // Toggle already exists
+        }
+
+        // Load saved state
+        this.includeCharts = localStorage.getItem(this.storageKeys.includeCharts) === 'true';
+
+        const btn = document.createElement('button');
+        btn.id = 'chartsToggle';
+        btn.type = 'button';  // Prevent form submission
+        btn.className = `floating-quick-btn ${this.includeCharts ? 'active' : ''}`;
+        btn.innerHTML = '<i class="fas fa-chart-bar me-1"></i>Charts';
+        btn.title = 'Include charts in responses';
+        btn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.toggleCharts();
+        };
+
+        // Insert after research badge wrapper
+        const researchWrapper = container.querySelector('.research-mode-wrapper');
+        if (researchWrapper && researchWrapper.nextSibling) {
+            container.insertBefore(btn, researchWrapper.nextSibling);
+        } else {
+            container.appendChild(btn);
+        }
+    }
+
+    toggleCharts() {
+        /**
+         * Toggle the charts include setting.
+         */
+        this.includeCharts = !this.includeCharts;
+        localStorage.setItem(this.storageKeys.includeCharts, this.includeCharts);
+
+        // Update button styling
+        const btn = document.getElementById('chartsToggle');
+        if (btn) {
+            btn.classList.toggle('active', this.includeCharts);
+        }
+
+        // Show notification
+        this.showNotification(
+            this.includeCharts ? 'Charts enabled - responses will include visualizations' : 'Charts disabled',
+            'info'
+        );
+
+        console.log(`Charts include: ${this.includeCharts}`);
     }
 }
 

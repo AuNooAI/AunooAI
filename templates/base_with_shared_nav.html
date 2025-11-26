@@ -578,7 +578,6 @@
                             <li><a href="/config" class="nav-submenu-link"><i class="fas fa-sliders-h"></i> App Configuration</a></li>
                             <li><a href="/onboarding?redo=true" class="nav-submenu-link"><i class="fas fa-hat-wizard"></i> AI-guided Topic Setup</a></li>
                             <li><a href="/create_topic" class="nav-submenu-link"><i class="fas fa-folder-plus"></i> Topic Editor</a></li>
-                            <li><a href="/promptmanager" class="nav-submenu-link"><i class="fas fa-brain"></i> Prompt Engineering</a></li>
                             <li><a href="/model-bias-arena" class="nav-submenu-link"><i class="fas fa-balance-scale"></i> Model Bias Arena</a></li>
                             <li><a href="/vector-analysis-improved" class="nav-submenu-link"><i class="fas fa-vector-square"></i> Exploratory Analysis</a></li>
                             <li><a href="/database-editor" class="nav-submenu-link"><i class="fas fa-edit"></i> Database Editor</a></li>
@@ -1056,6 +1055,8 @@
 
     <!-- Marked.js for markdown rendering -->
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- Plotly.js for interactive charts in Auspex chat -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
     <!-- Auspex Chat JavaScript -->
     <script src="/static/js/auspex-chat.js?v={{ range(1000, 9999) | random }}"></script>
     {% endif %}

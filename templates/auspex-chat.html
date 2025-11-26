@@ -6,119 +6,119 @@
 <!-- Tools Configuration Modal -->
 <div class="modal fade" id="toolsConfigModal" tabindex="-1" aria-labelledby="toolsConfigModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="toolsConfigModalLabel">
-                    <i class="fas fa-wrench me-2"></i>Auspex Tools Configuration
+        <div class="modal-content" style="border-radius: 16px; border: 1px solid #f3f4f6;">
+            <div class="modal-header" style="background: linear-gradient(135deg, #fdf2f8 0%, #fce7f3 100%); border-bottom: 1px solid #f9a8d4; border-radius: 16px 16px 0 0;">
+                <h5 class="modal-title" id="toolsConfigModalLabel" style="color: #111827; font-weight: 600;">
+                    <i class="fas fa-wrench me-2" style="color: #ec4899;"></i>Auspex Tools Configuration
                 </h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
-            <div class="modal-body">
-                <div class="mb-3">
-                    <p class="text-muted">Enable or disable individual tools for Auspex. Each tool provides specific capabilities for data analysis and retrieval.</p>
+            <div class="modal-body" style="padding: 24px;">
+                <div class="mb-4">
+                    <p style="color: #6b7280; font-size: 0.9rem;">Enable or disable individual tools for Auspex. Each tool provides specific capabilities for data analysis and retrieval.</p>
                 </div>
-                
+
                 <div class="row">
                     <!-- Database Tools -->
                     <div class="col-md-6">
-                        <h6 class="text-primary mb-3"><i class="fas fa-database me-2"></i>Database Tools</h6>
-                        
-                        <div class="tool-config-item mb-3">
+                        <h6 class="mb-3" style="color: #ec4899; font-weight: 600;"><i class="fas fa-database me-2"></i>Database Tools</h6>
+
+                        <div class="tool-config-item mb-3 p-3" style="background: #f9fafb; border-radius: 10px;">
                             <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" id="toolGetTopicArticles" checked>
-                                <label class="form-check-label fw-bold" for="toolGetTopicArticles">
+                                <input class="form-check-input auspex-switch" type="checkbox" id="toolGetTopicArticles" checked>
+                                <label class="form-check-label fw-bold" for="toolGetTopicArticles" style="color: #111827;">
                                     Get Topic Articles
                                 </label>
                             </div>
-                            <small class="text-muted">Retrieve articles from database for specific topics with date filtering.</small>
+                            <small style="color: #6b7280;">Retrieve articles from database for specific topics with date filtering.</small>
                         </div>
 
-                        <div class="tool-config-item mb-3">
+                        <div class="tool-config-item mb-3 p-3" style="background: #f9fafb; border-radius: 10px;">
                             <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" id="toolSemanticSearch" checked>
-                                <label class="form-check-label fw-bold" for="toolSemanticSearch">
+                                <input class="form-check-input auspex-switch" type="checkbox" id="toolSemanticSearch" checked>
+                                <label class="form-check-label fw-bold" for="toolSemanticSearch" style="color: #111827;">
                                     Semantic Search & Analysis
                                 </label>
                             </div>
-                            <small class="text-muted">Perform comprehensive semantic search with diversity filtering and structured analysis.</small>
+                            <small style="color: #6b7280;">Perform comprehensive semantic search with diversity filtering and structured analysis.</small>
                         </div>
 
-                        <div class="tool-config-item mb-3">
+                        <div class="tool-config-item mb-3 p-3" style="background: #f9fafb; border-radius: 10px;">
                             <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" id="toolKeywordSearch" checked>
-                                <label class="form-check-label fw-bold" for="toolKeywordSearch">
+                                <input class="form-check-input auspex-switch" type="checkbox" id="toolKeywordSearch" checked>
+                                <label class="form-check-label fw-bold" for="toolKeywordSearch" style="color: #111827;">
                                     Keyword Search
                                 </label>
                             </div>
-                            <small class="text-muted">Search articles by specific keywords with topic filtering.</small>
+                            <small style="color: #6b7280;">Search articles by specific keywords with topic filtering.</small>
                         </div>
 
-                        <div class="tool-config-item mb-3">
+                        <div class="tool-config-item mb-3 p-3" style="background: #f9fafb; border-radius: 10px;">
                             <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" id="toolFollowUp" checked>
-                                <label class="form-check-label fw-bold" for="toolFollowUp">
+                                <input class="form-check-input auspex-switch" type="checkbox" id="toolFollowUp" checked>
+                                <label class="form-check-label fw-bold" for="toolFollowUp" style="color: #111827;">
                                     Follow-up Query
                                 </label>
                             </div>
-                            <small class="text-muted">Conduct follow-up searches based on previous results for deeper investigation.</small>
+                            <small style="color: #6b7280;">Conduct follow-up searches based on previous results for deeper investigation.</small>
                         </div>
                     </div>
 
                     <!-- Analysis Tools -->
                     <div class="col-md-6">
-                        <h6 class="text-success mb-3"><i class="fas fa-chart-line me-2"></i>Analysis Tools</h6>
-                        
-                        <div class="tool-config-item mb-3">
+                        <h6 class="mb-3" style="color: #ec4899; font-weight: 600;"><i class="fas fa-chart-line me-2"></i>Analysis Tools</h6>
+
+                        <div class="tool-config-item mb-3 p-3" style="background: #f9fafb; border-radius: 10px;">
                             <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" id="toolSentimentTrends" checked>
-                                <label class="form-check-label fw-bold" for="toolSentimentTrends">
+                                <input class="form-check-input auspex-switch" type="checkbox" id="toolSentimentTrends" checked>
+                                <label class="form-check-label fw-bold" for="toolSentimentTrends" style="color: #111827;">
                                     Sentiment Trends Analysis
                                 </label>
                             </div>
-                            <small class="text-muted">Analyze sentiment patterns and trends over time with statistical breakdowns.</small>
+                            <small style="color: #6b7280;">Analyze sentiment patterns and trends over time with statistical breakdowns.</small>
                         </div>
 
-                        <div class="tool-config-item mb-3">
+                        <div class="tool-config-item mb-3 p-3" style="background: #f9fafb; border-radius: 10px;">
                             <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" id="toolCategoryAnalysis" checked>
-                                <label class="form-check-label fw-bold" for="toolCategoryAnalysis">
+                                <input class="form-check-input auspex-switch" type="checkbox" id="toolCategoryAnalysis" checked>
+                                <label class="form-check-label fw-bold" for="toolCategoryAnalysis" style="color: #111827;">
                                     Category Analysis
                                 </label>
                             </div>
-                            <small class="text-muted">Get article categories and their distribution with percentage breakdowns.</small>
+                            <small style="color: #6b7280;">Get article categories and their distribution with percentage breakdowns.</small>
                         </div>
 
-                        <div class="tool-config-item mb-3">
+                        <div class="tool-config-item mb-3 p-3" style="background: #f9fafb; border-radius: 10px;">
                             <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" id="toolNewsSearch" checked>
-                                <label class="form-check-label fw-bold" for="toolNewsSearch">
+                                <input class="form-check-input auspex-switch" type="checkbox" id="toolNewsSearch" checked>
+                                <label class="form-check-label fw-bold" for="toolNewsSearch" style="color: #111827;">
                                     Real-time News Search
                                 </label>
                             </div>
-                            <small class="text-muted">Search for current news articles using external APIs for latest information.</small>
+                            <small style="color: #6b7280;">Search for current news articles using external APIs for latest information.</small>
                         </div>
                     </div>
                 </div>
 
-                <hr class="my-4">
+                <hr style="border-color: #e5e7eb; margin: 24px 0;">
 
                 <!-- Global Controls -->
-                <div class="row">
-                    <div class="col-md-6">
-                        <h6 class="text-warning mb-3"><i class="fas fa-cogs me-2"></i>Global Controls</h6>
-                        <button class="btn btn-outline-success btn-sm me-2" id="enableAllTools">
+                <div class="row align-items-center">
+                    <div class="col-md-7">
+                        <h6 class="mb-3" style="color: #6b7280; font-weight: 600;"><i class="fas fa-cogs me-2"></i>Global Controls</h6>
+                        <button class="btn btn-sm me-2" id="enableAllTools" style="background: #10b981; color: white; border: none; border-radius: 8px; padding: 6px 12px;">
                             <i class="fas fa-check-circle me-1"></i>Enable All
                         </button>
-                        <button class="btn btn-outline-danger btn-sm me-2" id="disableAllTools">
+                        <button class="btn btn-sm me-2" id="disableAllTools" style="background: #ef4444; color: white; border: none; border-radius: 8px; padding: 6px 12px;">
                             <i class="fas fa-times-circle me-1"></i>Disable All
                         </button>
-                        <button class="btn btn-outline-primary btn-sm" id="resetDefaultTools">
+                        <button class="btn btn-sm" id="resetDefaultTools" style="background: #6b7280; color: white; border: none; border-radius: 8px; padding: 6px 12px;">
                             <i class="fas fa-undo me-1"></i>Reset to Default
                         </button>
                     </div>
-                    <div class="col-md-6">
+                    <div class="col-md-5">
                         <div class="text-end">
-                            <small class="text-muted">
+                            <small style="color: #9ca3af;">
                                 <i class="fas fa-info-circle me-1"></i>
                                 Tools can be toggled during conversations
                             </small>
@@ -126,9 +126,9 @@
                     </div>
                 </div>
             </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary" id="saveToolsConfig">
+            <div class="modal-footer" style="border-top: 1px solid #e5e7eb; padding: 16px 24px;">
+                <button type="button" class="btn" data-bs-dismiss="modal" style="background: #f3f4f6; color: #374151; border: none; border-radius: 8px; padding: 8px 16px;">Cancel</button>
+                <button type="button" class="btn" id="saveToolsConfig" style="background: #ec4899; color: white; border: none; border-radius: 8px; padding: 8px 16px;">
                     <i class="fas fa-save me-1"></i>Save Configuration
                 </button>
             </div>
@@ -180,12 +180,15 @@
                     <button class="floating-chat-icon-btn" id="toolsConfigBtn" data-bs-toggle="modal" data-bs-target="#toolsConfigModal" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Configure tools">
                         <i class="fas fa-wrench"></i>
                     </button>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    <button class="floating-chat-icon-btn" id="expandWindowBtn" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Toggle fullscreen">
+                        <i class="fas fa-expand"></i>
+                    </button>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
             </div>
             <div class="modal-body">
                 <div class="chat-container">
-                    <div class="chat-sidebar shown" id="chatSidebar">
+                    <div class="chat-sidebar hidden" id="chatSidebar">
                         <div class="chat-sidebar-header">
                             <h6><i class="fas fa-history me-2"></i>Chat History</h6>
                         </div>
@@ -198,11 +201,8 @@
                     </div>
                     <div class="chat-main">
                         <div class="chat-main-controls">
-                            <button class="floating-chat-icon-btn" id="toggleSidebar" data-bs-toggle="tooltip" data-bs-placement="top" title="Hide chat history">
-                                <i class="fas fa-chevron-left"></i>
-                            </button>
-                            <button class="floating-chat-icon-btn" id="expandWindowBtn" data-bs-toggle="tooltip" data-bs-placement="top" title="Expand window">
-                                <i class="fas fa-expand"></i>
+                            <button class="floating-chat-icon-btn" id="toggleSidebar" data-bs-toggle="tooltip" data-bs-placement="top" title="Toggle chat history">
+                                <i class="fas fa-chevron-right"></i>
                             </button>
                         </div>
                         <div class="floating-chat-messages" id="floatingChatMessages">
@@ -216,30 +216,27 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="floating-quick-queries" id="floatingQuickQueries">
-                            <label>Quick queries:</label>
-                            <button class="floating-quick-btn" data-query="Summarize recent trends">Recent trends</button>
-                            <button class="floating-quick-btn" data-query="What are the key insights?">Key insights</button>
-                            <button class="floating-quick-btn" data-query="Analyze sentiment patterns">Sentiment analysis</button>
-                            <button class="floating-quick-btn" data-query="Show future impact predictions">Future impact</button>
-                            <button class="floating-quick-btn" data-query="Compare categories">Compare categories</button>
-                            <button class="floating-quick-btn" data-query="Analyze potential risks and challenges">Risk analysis</button>
-                            <button class="floating-quick-btn" data-query="Provide a comprehensive summary by category">Category summary</button>
-                            <button class="floating-quick-btn" data-query="Perform comprehensive analysis with detailed insights">Comprehensive analysis</button>
-                            <button class="floating-quick-btn" data-query="Show me the structured breakdown with key themes">Structured breakdown</button>
-                            <div id="customQueries" style="display: contents;"></div>
-                        </div>
-                        <div class="floating-chat-input">
-                            <textarea id="floatingChatInput" class="form-control" placeholder="Ask Auspex anything..." disabled></textarea>
-                            <button id="floatingChatSave" class="btn" title="Save as quick query" disabled style="margin-right: 5px;">
-                                <i class="fas fa-bookmark"></i>
-                            </button>
-                            <button id="floatingChatSend" class="btn" disabled>
-                                <i class="fas fa-paper-plane"></i>
-                            </button>
-                        </div>
-                        <div class="floating-chat-loading" id="floatingChatLoading" style="display: none;">
-                            <i class="fas fa-spinner"></i> Auspex is thinking...
+                        <div class="chat-bottom-area">
+                            <div class="floating-quick-queries" id="floatingQuickQueries">
+                                <label>Analysis Tools:</label>
+                                <div id="pluginToolsContainer">
+                                    <!-- Plugin tools will be loaded dynamically -->
+                                    <span class="loading-tools">Loading tools...</span>
+                                </div>
+                                <div id="customQueries" style="display: contents;"></div>
+                            </div>
+                            <div class="floating-chat-input">
+                                <textarea id="floatingChatInput" class="form-control" placeholder="Ask Auspex anything..." disabled></textarea>
+                                <button id="floatingChatSave" class="btn" title="Save as quick query" disabled>
+                                    <i class="fas fa-bookmark"></i>
+                                </button>
+                                <button id="floatingChatSend" class="btn" disabled>
+                                    <i class="fas fa-paper-plane"></i>
+                                </button>
+                            </div>
+                            <div class="floating-chat-loading" id="floatingChatLoading" style="display: none;">
+                                <i class="fas fa-spinner"></i> Auspex is thinking...
+                            </div>
                         </div>
                     </div>
                 </div>

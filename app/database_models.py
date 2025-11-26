@@ -851,3 +851,53 @@ t_processing_jobs = Table(
     Index('idx_processing_jobs_status', 'status'),
     Index('idx_processing_jobs_job_type', 'job_type')
 )
+
+# Auspex Research Tables
+t_auspex_research_sessions = Table(
+    'auspex_research_sessions', metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('chat_id', Integer, ForeignKey('auspex_chats.id', ondelete='CASCADE')),
+    Column('username', Text, ForeignKey('users.username', ondelete='CASCADE'), nullable=False),
+    Column('query', Text, nullable=False),
+    Column('topic', String(255), nullable=False),
+    Column('status', String(50), server_default=text("'pending'"), nullable=False),
+    Column('objectives', JSONB),
+    Column('findings', JSONB),
+    Column('report', Text),
+    Column('metadata', JSONB),
+    Column('created_at', DateTime, server_default=text('CURRENT_TIMESTAMP')),
+    Column('completed_at', DateTime),
+    Index('ix_auspex_research_sessions_username', 'username'),
+    Index('ix_auspex_research_sessions_chat_id', 'chat_id'),
+    Index('ix_auspex_research_sessions_status', 'status'),
+    Index('ix_auspex_research_sessions_created_at', 'created_at')
+)
+
+t_auspex_tool_usage = Table(
+    'auspex_tool_usage', metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('chat_id', Integer, ForeignKey('auspex_chats.id', ondelete='SET NULL')),
+    Column('tool_name', String(100), nullable=False),
+    Column('tool_version', String(20)),
+    Column('parameters', JSONB),
+    Column('result_summary', JSONB),
+    Column('execution_ms', Integer),
+    Column('created_at', DateTime, server_default=text('CURRENT_TIMESTAMP')),
+    Index('ix_auspex_tool_usage_tool_name', 'tool_name'),
+    Index('ix_auspex_tool_usage_created_at', 'created_at')
+)
+
+t_auspex_search_routing = Table(
+    'auspex_search_routing', metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('query', Text, nullable=False),
+    Column('topic', String(255)),
+    Column('recommended_source', String(50), nullable=False),
+    Column('actual_source', String(50), nullable=False),
+    Column('confidence', Float),
+    Column('signals', JSONB),
+    Column('result_quality', Float),  # For feedback loop
+    Column('created_at', DateTime, server_default=text('CURRENT_TIMESTAMP')),
+    Index('ix_auspex_search_routing_created_at', 'created_at'),
+    Index('ix_auspex_search_routing_recommended_source', 'recommended_source')
+)

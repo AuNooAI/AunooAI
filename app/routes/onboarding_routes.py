@@ -354,17 +354,17 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
 
             if not key_found:
                 lines.append(new_line)
-                
+
             # Add model-specific key
             model_key_name = 'HUGGINGFACE_API_KEY_MIXTRAL_8X7B'
             model_key_found = False
-            
+
             for i, line in enumerate(lines):
                 if line.startswith(f'{model_key_name}='):
                     lines[i] = f'{model_key_name}="{api_key}"\n'
                     model_key_found = True
                     break
-            
+
             if not model_key_found:
                 lines.append(f'{model_key_name}="{api_key}"\n')
 
@@ -375,6 +375,56 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
             # Update environment
             os.environ[env_var_name] = api_key
             os.environ[model_key_name] = api_key
+
+        elif provider == "google_pse":
+            # Save Google Programmable Search Engine credentials
+            api_key_var = 'GOOGLE_API_KEY'
+            cse_id_var = 'GOOGLE_CSE_ID'
+
+            # Get CSE ID from extra_data
+            cse_id = extra_data.get('GOOGLE_CSE_ID', '') if extra_data else ''
+
+            if not cse_id:
+                raise HTTPException(status_code=400, detail="Search Engine ID (CSE ID) is required")
+
+            # Read existing content
+            try:
+                with open(env_path, "r") as env_file:
+                    lines = env_file.readlines()
+            except FileNotFoundError:
+                lines = []
+
+            # Update or add API key
+            api_key_line = f'{api_key_var}="{api_key}"\n'
+            api_key_found = False
+            for i, line in enumerate(lines):
+                if line.startswith(f'{api_key_var}='):
+                    lines[i] = api_key_line
+                    api_key_found = True
+                    break
+            if not api_key_found:
+                lines.append(api_key_line)
+
+            # Update or add CSE ID
+            cse_id_line = f'{cse_id_var}="{cse_id}"\n'
+            cse_id_found = False
+            for i, line in enumerate(lines):
+                if line.startswith(f'{cse_id_var}='):
+                    lines[i] = cse_id_line
+                    cse_id_found = True
+                    break
+            if not cse_id_found:
+                lines.append(cse_id_line)
+
+            # Write back to .env
+            with open(env_path, "w") as env_file:
+                env_file.writelines(lines)
+
+            # Update environment
+            os.environ[api_key_var] = api_key
+            os.environ[cse_id_var] = cse_id
+
+            logger.info(f"Successfully configured Google PSE credentials")
 
         else:
             raise HTTPException(status_code=400, detail="Unsupported provider")

@@ -13,6 +13,9 @@ from mcp.client.stdio import stdio_client
 
 from app.database import get_database_instance
 from app.services.auspex_tools import get_auspex_tools_service
+from app.services.search_router import get_search_router, SearchSource
+from app.services.chart_service import ChartService
+from app.services.tool_plugin_base import get_tool_registry, init_tool_registry
 from app.analyze_db import AnalyzeDB
 from app.vector_store import search_articles as vector_search_articles
 from app.ai_models import get_ai_model
@@ -574,15 +577,21 @@ class OptimizedContextManager:
 
 class AuspexService:
     """Enhanced Auspex service with MCP integration and chat persistence."""
-    
+
     def __init__(self):
         self.db = get_database_instance()
         self.tools = get_auspex_tools_service()
-        
+        self.search_router = get_search_router()
+        self.chart_service = ChartService()
+
+        # Initialize plugin tool registry
+        self.tool_registry = init_tool_registry()
+        logger.info(f"Loaded {len(self.tool_registry.get_all_tools())} plugin tools")
+
         # Initialize context optimization manager with a reasonable default
         # This will be updated dynamically based on the actual model used
         self.context_manager = OptimizedContextManager(model_context_limit=128000)  # Default to GPT-4o limit
-        
+
         self._ensure_default_prompt()
     
     def _ensure_default_prompt(self):
@@ -908,7 +917,7 @@ class AuspexService:
         logger.info(f"Using default citation limit: {limit} (available: {total_articles})")
         return limit
 
-    async def chat_with_tools(self, chat_id: int, message: str, model: str = None, limit: int = 50, tools_config: Dict = None, profile_id: int = None, custom_prompt: str = None, article_detail_limit: Optional[int] = None) -> AsyncGenerator[str, None]:
+    async def chat_with_tools(self, chat_id: int, message: str, model: str = None, limit: int = 50, tools_config: Dict = None, profile_id: int = None, custom_prompt: str = None, article_detail_limit: Optional[int] = None, include_charts: bool = False) -> AsyncGenerator[str, None]:
         """Chat with Auspex with optional tool usage and custom system prompt override."""
         if not model:
             model = DEFAULT_MODEL
@@ -968,9 +977,29 @@ class AuspexService:
             # Check if we need to use tools based on the message content and tools_config
             use_tools = tools_config and any(tools_config.values()) if tools_config else True
             needs_tools = use_tools and await self._should_use_tools(message)
-            
+
+            # Check for chart request - either from message keywords or include_charts toggle
+            chart_type = self._detect_chart_request(message)
+            # If charts are enabled via toggle and no specific chart type detected, default to sentiment_donut
+            if include_charts and not chart_type:
+                chart_type = "sentiment_donut"
+                logger.info(f"Charts enabled via toggle - using default chart type: {chart_type}")
+            chart_marker = None
+            logger.info(f"Chart detection result for message '{message}': chart_type={chart_type}, include_charts={include_charts}")
+
             if needs_tools:
-                # Use tools to gather information with citation limit
+                # First check for plugin tools that might handle this query
+                chat = self.db.get_auspex_chat(chat_id)
+                topic = chat['topic'] if chat else ""
+
+                plugin_results = await self._check_plugin_tools(message, topic)
+                if plugin_results:
+                    llm_messages.append({
+                        "role": "assistant",
+                        "content": plugin_results
+                    })
+
+                # Use standard tools to gather information with citation limit
                 tool_results = await self._use_mcp_tools(message, chat_id, limit, tools_config, article_detail_limit)
                 if tool_results:
                     # Add tool results as assistant context to avoid overriding system instructions
@@ -978,9 +1007,27 @@ class AuspexService:
                         "role": "assistant",
                         "content": f"[TOOLS] {tool_results}"
                     })
+
+                # If chart request detected, generate chart from articles
+                if chart_type and topic:
+                    logger.info(f"Chart request detected: generating {chart_type} chart for topic '{topic}'")
+                    chart_articles = await self._get_articles_for_chart(topic, limit)
+                    logger.info(f"Retrieved {len(chart_articles)} articles for chart generation")
+                    if chart_articles:
+                        chart_title = f"Sentiment Distribution for {topic}" if chart_type == "sentiment_donut" else None
+                        chart_marker = self._generate_chart_for_articles(chart_articles, chart_type, chart_title)
+                        logger.info(f"Generated chart marker for {chart_type}: {len(chart_marker) if chart_marker else 0} chars")
+                    else:
+                        logger.warning(f"No articles found for chart generation (topic: {topic})")
             
             # Generate response using LLM
             full_response = ""
+
+            # If we have a chart, yield it first as a special marker
+            if chart_marker:
+                full_response += chart_marker + "\n\n"
+                yield chart_marker + "\n\n"
+
             async for chunk in self._generate_streaming_response(llm_messages, model):
                 full_response += chunk
                 yield chunk
@@ -1168,11 +1215,12 @@ CURRENT SESSION CONTEXT:
     async def _should_use_tools(self, message: str) -> bool:
         """Determine if message requires tool usage."""
         tool_keywords = [
-            "search", "find", "latest", "recent", "news", "articles", "trends", 
+            "search", "find", "latest", "recent", "news", "articles", "trends",
             "sentiment", "analyze", "data", "statistics", "categories", "compare",
             "what's happening", "current", "update", "insights", "patterns",
             "comprehensive", "detailed", "deep", "thorough", "analysis", "themes",
-            "follow up", "more", "details", "expand", "elaborate", "investigate"
+            "follow up", "more", "details", "expand", "elaborate", "investigate",
+            "chart", "graph", "pie", "visualization", "visualize", "plot", "donut"
         ]
         
         message_lower = message.lower()
@@ -1182,8 +1230,276 @@ CURRENT SESSION CONTEXT:
         if should_use:
             found_keywords = [kw for kw in tool_keywords if kw in message_lower]
             logger.info(f"Found keywords: {found_keywords}")
-        
+
         return should_use
+
+    def _detect_chart_request(self, message: str) -> Optional[str]:
+        """
+        Detect if the user is requesting a chart/visualization.
+
+        Returns the chart type if detected, None otherwise.
+        """
+        message_lower = message.lower()
+
+        # Chart type detection patterns
+        chart_patterns = {
+            "sentiment_donut": [
+                "pie chart", "pie graph", "donut chart", "donut graph",
+                "sentiment pie", "sentiment donut", "sentiment distribution chart",
+                "show sentiment as pie", "sentiment breakdown chart"
+            ],
+            "sentiment_timeline": [
+                "sentiment over time", "sentiment timeline", "sentiment trends chart",
+                "sentiment line chart", "sentiment graph over time", "sentiment trend chart"
+            ],
+            "volume": [
+                "article volume", "volume chart", "volume over time",
+                "article count chart", "how many articles chart", "publication volume"
+            ],
+            "category_bar": [
+                "category chart", "category bar", "categories bar chart",
+                "top categories chart", "category distribution chart"
+            ],
+            "radar": [
+                "radar chart", "spider chart", "signal radar",
+                "signal analysis chart", "future signals radar"
+            ]
+        }
+
+        # Generic chart keywords that default to sentiment_donut
+        generic_chart_keywords = [
+            "chart of sentiment", "sentiment chart", "visualize sentiment",
+            "graph sentiment", "show me a chart", "create a chart",
+            "generate a chart", "make a chart", "pie chart", "donut chart",
+            "[include charts]"  # Charts mode toggle prefix
+        ]
+
+        # Check for specific chart type patterns
+        for chart_type, patterns in chart_patterns.items():
+            for pattern in patterns:
+                if pattern in message_lower:
+                    logger.info(f"Detected chart request: {chart_type} (pattern: {pattern})")
+                    return chart_type
+
+        # Check for generic chart request (default to sentiment donut)
+        for keyword in generic_chart_keywords:
+            if keyword in message_lower:
+                logger.info(f"Detected generic chart request, defaulting to sentiment_donut (keyword: {keyword})")
+                return "sentiment_donut"
+
+        return None
+
+    def _generate_chart_for_articles(self, articles: List[Dict], chart_type: str, title: str = None) -> Optional[str]:
+        """
+        Generate a chart marker for the given articles and chart type.
+
+        Returns the chart marker string or None if generation fails.
+        """
+        if not articles:
+            logger.warning("Cannot generate chart: no articles provided")
+            return None
+
+        try:
+            # Use the chart_service to generate the chart marker
+            chart_marker = self.chart_service.generate_chart_marker(
+                chart_type=chart_type,
+                articles=articles,
+                title=title
+            )
+            logger.info(f"Generated {chart_type} chart for {len(articles)} articles")
+            return chart_marker
+        except Exception as e:
+            logger.error(f"Error generating chart: {e}")
+            return None
+
+    async def _get_articles_for_chart(self, topic: str, limit: int = 100) -> List[Dict]:
+        """
+        Get articles for chart generation.
+
+        Uses vector search to get articles with sentiment data for the given topic.
+        """
+        try:
+            # Build metadata filter for topic
+            metadata_filter = {"topic": topic}
+
+            # Use vector search to get articles
+            vector_results = vector_search_articles(
+                query=f"articles about {topic}",
+                top_k=limit,
+                metadata_filter=metadata_filter
+            )
+
+            articles = []
+            if vector_results and isinstance(vector_results, list):
+                for result in vector_results:
+                    if not result or not isinstance(result, dict):
+                        continue
+
+                    metadata = result.get("metadata")
+                    if not metadata or not isinstance(metadata, dict):
+                        continue
+
+                    # Only add articles with valid data
+                    uri = metadata.get("uri")
+                    if not uri:
+                        continue
+
+                    articles.append({
+                        "uri": uri,
+                        "title": metadata.get("title", "Unknown Title"),
+                        "url": metadata.get("url") or metadata.get("link") or uri,
+                        "summary": metadata.get("summary", ""),
+                        "category": metadata.get("category", "Uncategorized"),
+                        "sentiment": metadata.get("sentiment", "neutral"),
+                        "future_signal": metadata.get("future_signal", "None"),
+                        "time_to_impact": metadata.get("time_to_impact", "Unknown"),
+                        "publication_date": metadata.get("publication_date", "Unknown"),
+                        "news_source": metadata.get("news_source", "Unknown"),
+                    })
+
+            logger.info(f"Retrieved {len(articles)} articles for chart generation (topic: {topic})")
+            return articles
+
+        except Exception as e:
+            logger.error(f"Error getting articles for chart: {e}")
+            return []
+
+    async def _check_plugin_tools(self, message: str, topic: str) -> Optional[str]:
+        """
+        Check if any plugin tools should handle this message.
+
+        Returns tool results as formatted string, or None if no plugin handles it.
+        """
+        # Find matching plugin tools
+        matches = self.tool_registry.find_matching_tools(message, min_score=0.5)
+
+        if not matches:
+            return None
+
+        best_tool, score = matches[0]
+        logger.info(f"Plugin tool match: {best_tool.name} (score: {score})")
+
+        # Check if handler is available
+        if not self.tool_registry.get_handler(best_tool.name):
+            logger.warning(f"No handler for plugin tool: {best_tool.name}")
+            return None
+
+        # Build execution context
+        context = {
+            "topic": topic,
+            "db": self.db,
+            "vector_store": vector_search_articles,
+            "ai_model": get_ai_model
+        }
+
+        # Build params from the message (basic extraction)
+        params = {
+            "topic": topic
+        }
+
+        # Try to extract time period from message
+        time_patterns = [
+            (r'last\s*(\d+)\s*days?', lambda m: f"{m.group(1)}d"),
+            (r'past\s*(\d+)\s*days?', lambda m: f"{m.group(1)}d"),
+            (r'last\s*week', lambda m: "7d"),
+            (r'last\s*month', lambda m: "30d"),
+            (r'last\s*quarter', lambda m: "90d"),
+            (r'last\s*year', lambda m: "365d"),
+        ]
+
+        import re
+        for pattern, extractor in time_patterns:
+            match = re.search(pattern, message.lower())
+            if match:
+                params["time_period"] = extractor(match)
+                break
+
+        # Execute the tool
+        try:
+            result = await self.tool_registry.execute_tool(
+                best_tool.name,
+                params,
+                context
+            )
+
+            if result.success:
+                # Format result for inclusion in LLM context
+                return self._format_plugin_result(best_tool.name, result)
+            else:
+                logger.error(f"Plugin tool failed: {result.error}")
+                return None
+
+        except Exception as e:
+            logger.error(f"Error executing plugin tool: {e}", exc_info=True)
+            return None
+
+    def _format_plugin_result(self, tool_name: str, result) -> str:
+        """Format plugin tool result for LLM context."""
+        from app.services.tool_plugin_base import ToolResult
+
+        output_parts = [f"\n[TOOL: {tool_name}]"]
+
+        if result.message:
+            output_parts.append(f"Status: {result.message}")
+
+        data = result.data
+
+        # Format based on tool type
+        if "summary" in data:
+            output_parts.append(f"\nSummary:\n{data['summary']}")
+
+        if "trends" in data:
+            output_parts.append("\nKey Trends:")
+            for trend in data.get("trends", [])[:5]:
+                output_parts.append(f"- {trend.get('description', '')}")
+
+        if "analysis" in data:
+            analysis = data["analysis"]
+
+            if "sentiment" in analysis:
+                sent = analysis["sentiment"]
+                output_parts.append(f"\nSentiment: {sent.get('trend_direction', 'stable')}")
+                if "distribution" in sent:
+                    dist = sent["distribution"]
+                    output_parts.append(f"  Distribution: {dist}")
+
+            if "categories" in analysis:
+                cats = analysis["categories"]
+                if cats.get("emerging"):
+                    output_parts.append("\nEmerging Categories:")
+                    for cat in cats["emerging"][:3]:
+                        output_parts.append(f"  - {cat['category']} (+{cat['growth']}%)")
+
+        if "article_count" in data:
+            output_parts.append(f"\nArticles analyzed: {data['article_count']}")
+
+        output_parts.append(f"\nExecution time: {result.execution_time_ms}ms")
+        output_parts.append("[/TOOL]\n")
+
+        return "\n".join(output_parts)
+
+    def get_available_plugin_tools(self) -> List[Dict]:
+        """Get list of available plugin tools for UI display."""
+        tools = []
+        for tool_def in self.tool_registry.get_all_tools():
+            tools.append({
+                "name": tool_def.name,
+                "version": tool_def.version,
+                "description": tool_def.description,
+                "category": tool_def.category,
+                "has_handler": self.tool_registry.get_handler(tool_def.name) is not None,
+                "parameters": [
+                    {
+                        "name": p.name,
+                        "type": p.type,
+                        "required": p.required,
+                        "default": p.default,
+                        "description": p.description
+                    }
+                    for p in tool_def.parameters
+                ]
+            })
+        return tools
 
     async def _extract_search_query(self, message: str) -> str:
         """Extract the actual search query from a complex message that may contain both instructions and search intent.
