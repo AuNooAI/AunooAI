@@ -9,6 +9,7 @@
   * [Keyword Monitoring](collecting-data/keyword-monitoring.md)
   * [Submitting Articles](collecting-data/submitting-articles.md)
 * [Doing Research](doing-research/README.md)
+  * [Auspex AI Assistant](doing-research/auspex-ai-assistant.md)
   * [Article Investigator](doing-research/article-investigator.md)
   * [Narrative View](doing-research/narrative-view.md)
   * [Six Articles](doing-research/six-articles.md)
@@ -20,3 +21,4 @@
   * [KISSQL – Keep-It-Simple,Stupid! Query Language](exploratory-analysis/kissql-keep-it-simple-stupid-query-language.md)
 * [FAQ](faq.md)
 * [Useful Information](useful-information.md)
+* [Auspex Plugin Tool System](auspex-plugin-tool-system.md)
