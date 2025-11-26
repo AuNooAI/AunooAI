@@ -19,7 +19,6 @@ class FloatingChat {
             quickQueries: document.getElementById('floatingQuickQueries'),
             sidebar: document.getElementById('chatSidebar'),
             sessionsList: document.getElementById('chatSessionsList'),
-            promptEditBtn: document.getElementById('promptEditBtn'),
             expandWindowBtn: document.getElementById('expandWindowBtn'),
             toolsConfigBtn: document.getElementById('toolsConfigBtn'),
             contextInfo: document.getElementById('contextInfo'),
@@ -185,7 +184,6 @@ class FloatingChat {
             clearBtn: 'clearChatBtn',
             exportBtn: 'exportChatBtn',
             quickQueries: 'floatingQuickQueries',
-            promptEditBtn: 'promptEditBtn',
             expandWindowBtn: 'expandWindowBtn'
         };
         
@@ -254,10 +252,7 @@ class FloatingChat {
         if (!this.elements.expandWindowBtn) {
             this.elements.expandWindowBtn = document.getElementById('expandWindowBtn');
         }
-        if (!this.elements.promptEditBtn) {
-            this.elements.promptEditBtn = document.getElementById('promptEditBtn');
-        }
-        
+
         if (this.elements.sessionsList && this.elements.sidebar) {
             console.log('Critical elements found on retry!');
             
@@ -473,14 +468,6 @@ class FloatingChat {
                     }
                 }
             });
-        }
-
-        // Prompt edit button
-        if (this.elements.promptEditBtn) {
-            this.elements.promptEditBtn.addEventListener('click', () => this.openPromptManager());
-            console.log('✓ Prompt edit event listener added');
-        } else {
-            console.warn('✗ Prompt edit button not found for event listener');
         }
 
         // Tools configuration modal event listeners

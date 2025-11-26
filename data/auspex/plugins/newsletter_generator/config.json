@@ -1,0 +1,31 @@
+{
+  "max_articles": 50,
+  "min_articles": 10,
+  "sections": {
+    "the_news": {
+      "enabled": true,
+      "min_headlines": 6,
+      "max_headlines": 15
+    },
+    "deep_dive": {
+      "enabled": true,
+      "min_words": 400,
+      "max_words": 600
+    },
+    "weird_shit": {
+      "enabled": true,
+      "min_words": 100,
+      "max_words": 150
+    },
+    "must_reads": {
+      "enabled": true,
+      "min_items": 8,
+      "max_items": 12
+    },
+    "market_money": {
+      "enabled": true,
+      "min_words": 150,
+      "max_words": 200
+    }
+  }
+}

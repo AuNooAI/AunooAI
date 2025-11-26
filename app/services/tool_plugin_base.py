@@ -316,14 +316,23 @@ class PromptToolHandler(ToolHandler):
         llm_response = None
         if self.definition.prompt and ai_model_getter:
             try:
-                # Build the full prompt
-                full_prompt = self.definition.prompt.format(
+                # Get organizational profile context if available
+                profile_context = context.get('profile_context', '')
+
+                # Build the full prompt with profile context prepended
+                base_prompt = self.definition.prompt.format(
                     topic=topic,
                     query=query,
                     article_count=len(articles),
                     articles=article_context,
                     **action_results
                 )
+
+                # Prepend profile context if available
+                if profile_context:
+                    full_prompt = f"{profile_context}\n\n{base_prompt}"
+                else:
+                    full_prompt = base_prompt
 
                 # Get AI model and execute
                 # ai_model_getter is get_ai_model which requires model_name
@@ -394,28 +403,49 @@ class PromptToolHandler(ToolHandler):
             'dominant': biases.most_common(1)[0][0] if biases else 'Unknown'
         }
 
-    def _format_articles_for_prompt(self, articles: List[Dict], max_chars: int = 8000) -> str:
-        """Format articles for LLM context."""
+    def _format_articles_for_prompt(self, articles: List[Dict], max_chars: int = 50000) -> str:
+        """Format articles for LLM context with URLs for citation."""
         lines = []
         char_count = 0
 
         for i, article in enumerate(articles, 1):
-            title = article.get('title', 'Untitled')
-            summary = article.get('summary', '')[:200]
-            source = article.get('news_source', 'Unknown')
-            sentiment = article.get('sentiment', '')
-            bias = article.get('political_bias') or article.get('media_bias', '')
+            # Handle both flat and nested (vector search) article structures
+            metadata = article.get('metadata', {})
 
-            line = f"{i}. [{source}] {title}"
-            if sentiment:
-                line += f" (Sentiment: {sentiment})"
-            if bias:
-                line += f" (Bias: {bias})"
+            # Try metadata first, then top-level
+            title = metadata.get('title') or article.get('title', 'Untitled')
+            summary = (metadata.get('summary') or article.get('summary', ''))[:300]
+            source = metadata.get('news_source') or article.get('news_source', 'Unknown')
+
+            # URI/URL: check metadata.uri, article.uri, article.id (vector search uses id as uri)
+            url = metadata.get('uri') or article.get('uri') or article.get('url') or article.get('id', '')
+
+            # Date: check multiple fields
+            date = metadata.get('publication_date') or metadata.get('date') or article.get('published_date') or article.get('publication_date') or article.get('date', '')
+
+            sentiment = metadata.get('sentiment') or article.get('sentiment', '')
+            bias = metadata.get('political_bias') or article.get('political_bias') or metadata.get('media_bias') or article.get('media_bias', '')
+
+            # Format: Title (Source, Date) - URL
+            line = f"{i}. **{title}**"
+            line += f"\n   Source: {source}"
+            if date:
+                # Format date if it's a datetime string
+                if isinstance(date, str) and len(date) > 10:
+                    date = date[:10]  # Just the date part
+                line += f" | Date: {date}"
+            if url:
+                line += f"\n   Link: {url}"
             if summary:
-                line += f"\n   {summary}"
+                line += f"\n   Summary: {summary}"
+            if sentiment:
+                line += f"\n   Sentiment: {sentiment}"
+            if bias:
+                line += f" | Bias: {bias}"
+            line += "\n"
 
             if char_count + len(line) > max_chars:
-                lines.append(f"... and {len(articles) - i + 1} more articles")
+                lines.append(f"\n... and {len(articles) - i + 1} more articles")
                 break
 
             lines.append(line)
@@ -426,8 +456,15 @@ class PromptToolHandler(ToolHandler):
     async def _execute_llm(self, model, prompt: str, context: Dict) -> str:
         """Execute LLM with the prompt."""
         try:
-            # Try async completion first
-            if hasattr(model, 'acomplete'):
+            # Check for AIModel from app.ai_models (has generate() async method)
+            if hasattr(model, 'generate') and callable(getattr(model, 'generate')):
+                response = await model.generate(prompt)
+                # AIModel.generate returns response.choices[0] which has .message.content
+                if hasattr(response, 'message') and hasattr(response.message, 'content'):
+                    return response.message.content
+                return str(response)
+            # Try async completion (for other model types)
+            elif hasattr(model, 'acomplete'):
                 response = await model.acomplete(prompt)
                 return response.text if hasattr(response, 'text') else str(response)
             elif hasattr(model, 'complete'):

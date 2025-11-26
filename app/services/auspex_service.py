@@ -987,40 +987,49 @@ class AuspexService:
             chart_marker = None
             logger.info(f"Chart detection result for message '{message}': chart_type={chart_type}, include_charts={include_charts}")
 
+            plugin_final_response = None
             if needs_tools:
                 # First check for plugin tools that might handle this query
                 chat = self.db.get_auspex_chat(chat_id)
                 topic = chat['topic'] if chat else ""
 
-                plugin_results = await self._check_plugin_tools(message, topic)
+                plugin_results, is_final_response = await self._check_plugin_tools(message, topic, chat_id)
                 if plugin_results:
-                    llm_messages.append({
-                        "role": "assistant",
-                        "content": plugin_results
-                    })
-
-                # Use standard tools to gather information with citation limit
-                tool_results = await self._use_mcp_tools(message, chat_id, limit, tools_config, article_detail_limit)
-                if tool_results:
-                    # Add tool results as assistant context to avoid overriding system instructions
-                    llm_messages.append({
-                        "role": "assistant",
-                        "content": f"[TOOLS] {tool_results}"
-                    })
-
-                # If chart request detected, generate chart from articles
-                if chart_type and topic:
-                    logger.info(f"Chart request detected: generating {chart_type} chart for topic '{topic}'")
-                    chart_articles = await self._get_articles_for_chart(topic, limit)
-                    logger.info(f"Retrieved {len(chart_articles)} articles for chart generation")
-                    if chart_articles:
-                        chart_title = f"Sentiment Distribution for {topic}" if chart_type == "sentiment_donut" else None
-                        chart_marker = self._generate_chart_for_articles(chart_articles, chart_type, chart_title)
-                        logger.info(f"Generated chart marker for {chart_type}: {len(chart_marker) if chart_marker else 0} chars")
+                    if is_final_response:
+                        # Plugin produced a complete LLM response - return directly
+                        plugin_final_response = plugin_results
+                        logger.info(f"Plugin produced final response, skipping main LLM")
                     else:
-                        logger.warning(f"No articles found for chart generation (topic: {topic})")
-            
-            # Generate response using LLM
+                        # Plugin produced context for main LLM
+                        llm_messages.append({
+                            "role": "assistant",
+                            "content": plugin_results
+                        })
+
+                # Only use additional tools if plugin didn't produce a final response
+                if not plugin_final_response:
+                    # Use standard tools to gather information with citation limit
+                    tool_results = await self._use_mcp_tools(message, chat_id, limit, tools_config, article_detail_limit)
+                    if tool_results:
+                        # Add tool results as assistant context to avoid overriding system instructions
+                        llm_messages.append({
+                            "role": "assistant",
+                            "content": f"[TOOLS] {tool_results}"
+                        })
+
+                    # If chart request detected, generate chart from articles
+                    if chart_type and topic:
+                        logger.info(f"Chart request detected: generating {chart_type} chart for topic '{topic}'")
+                        chart_articles = await self._get_articles_for_chart(topic, limit)
+                        logger.info(f"Retrieved {len(chart_articles)} articles for chart generation")
+                        if chart_articles:
+                            chart_title = f"Sentiment Distribution for {topic}" if chart_type == "sentiment_donut" else None
+                            chart_marker = self._generate_chart_for_articles(chart_articles, chart_type, chart_title)
+                            logger.info(f"Generated chart marker for {chart_type}: {len(chart_marker) if chart_marker else 0} chars")
+                        else:
+                            logger.warning(f"No articles found for chart generation (topic: {topic})")
+
+            # Generate response using LLM or return plugin response directly
             full_response = ""
 
             # If we have a chart, yield it first as a special marker
@@ -1028,9 +1037,15 @@ class AuspexService:
                 full_response += chart_marker + "\n\n"
                 yield chart_marker + "\n\n"
 
-            async for chunk in self._generate_streaming_response(llm_messages, model):
-                full_response += chunk
-                yield chunk
+            if plugin_final_response:
+                # Yield plugin response directly (already LLM-generated)
+                full_response += plugin_final_response
+                yield plugin_final_response
+            else:
+                # Generate response using main LLM
+                async for chunk in self._generate_streaming_response(llm_messages, model):
+                    full_response += chunk
+                    yield chunk
             
             # Save assistant response to database
             self.db.add_auspex_message(
@@ -1364,17 +1379,20 @@ CURRENT SESSION CONTEXT:
             logger.error(f"Error getting articles for chart: {e}")
             return []
 
-    async def _check_plugin_tools(self, message: str, topic: str) -> Optional[str]:
+    async def _check_plugin_tools(self, message: str, topic: str, chat_id: int = None) -> tuple[Optional[str], bool]:
         """
         Check if any plugin tools should handle this message.
 
-        Returns tool results as formatted string, or None if no plugin handles it.
+        Returns:
+            tuple: (result_string, is_final_response)
+            - result_string: Tool results as formatted string, or None if no plugin handles it
+            - is_final_response: True if result should be returned directly (not re-processed by LLM)
         """
         # Find matching plugin tools
         matches = self.tool_registry.find_matching_tools(message, min_score=0.5)
 
         if not matches:
-            return None
+            return None, False
 
         best_tool, score = matches[0]
         logger.info(f"Plugin tool match: {best_tool.name} (score: {score})")
@@ -1382,14 +1400,49 @@ CURRENT SESSION CONTEXT:
         # Check if handler is available
         if not self.tool_registry.get_handler(best_tool.name):
             logger.warning(f"No handler for plugin tool: {best_tool.name}")
-            return None
+            return None, False
+
+        # Load organizational profile context if available
+        profile_context = ""
+        if chat_id:
+            try:
+                chat = self.db.get_auspex_chat(chat_id)
+                profile_id = chat.get('profile_id') or ((chat.get('metadata') or {}).get('profile_id'))
+                if profile_id:
+                    from app.database_query_facade import DatabaseQueryFacade
+                    profile_row = DatabaseQueryFacade(self.db, logger).get_organisational_profile(profile_id)
+                    if profile_row:
+                        profile = {
+                            'name': profile_row['name'],
+                            'industry': profile_row['industry'],
+                            'organization_type': profile_row['organization_type'],
+                            'key_concerns': json.loads(profile_row['key_concerns']) if profile_row['key_concerns'] else [],
+                            'strategic_priorities': json.loads(profile_row['strategic_priorities']) if profile_row['strategic_priorities'] else [],
+                            'risk_tolerance': profile_row['risk_tolerance'],
+                            'stakeholder_focus': json.loads(profile_row['stakeholder_focus']) if profile_row['stakeholder_focus'] else [],
+                        }
+                        profile_context = f"""
+ORGANIZATIONAL CONTEXT:
+You are generating this content for {profile['name']} ({profile.get('organization_type', 'Organization')} in {profile.get('industry', 'General')}).
+
+Key Concerns: {', '.join(profile['key_concerns']) if profile['key_concerns'] else 'General business concerns'}
+Strategic Priorities: {', '.join(profile['strategic_priorities']) if profile['strategic_priorities'] else 'Growth and sustainability'}
+Risk Tolerance: {profile.get('risk_tolerance', 'Medium')}
+Key Stakeholders: {', '.join(profile['stakeholder_focus']) if profile['stakeholder_focus'] else 'Customers and employees'}
+
+PRIORITIZE insights relevant to these concerns and tailor analysis to this organization's perspective.
+"""
+                        logger.info(f"Plugin using organizational profile: {profile['name']}")
+            except Exception as e:
+                logger.warning(f"Could not load organizational profile for plugin: {e}")
 
         # Build execution context
         context = {
             "topic": topic,
             "db": self.db,
             "vector_store": vector_search_articles,
-            "ai_model": get_ai_model
+            "ai_model": get_ai_model,
+            "profile_context": profile_context
         }
 
         # Build params from the message (basic extraction)
@@ -1423,15 +1476,25 @@ CURRENT SESSION CONTEXT:
             )
 
             if result.success:
+                # Check if this is a prompt-only tool with an LLM-generated response
+                # These should be returned directly, not re-processed
+                is_final = False
+                analysis = result.data.get('analysis')
+                if isinstance(analysis, str) and len(analysis) > 200:
+                    # This is an LLM-generated response - return directly
+                    is_final = True
+                    logger.info(f"Plugin tool {best_tool.name} produced final LLM response ({len(analysis)} chars)")
+                    return analysis, is_final
+
                 # Format result for inclusion in LLM context
-                return self._format_plugin_result(best_tool.name, result)
+                return self._format_plugin_result(best_tool.name, result), is_final
             else:
                 logger.error(f"Plugin tool failed: {result.error}")
-                return None
+                return None, False
 
         except Exception as e:
             logger.error(f"Error executing plugin tool: {e}", exc_info=True)
-            return None
+            return None, False
 
     def _format_plugin_result(self, tool_name: str, result) -> str:
         """Format plugin tool result for LLM context."""
