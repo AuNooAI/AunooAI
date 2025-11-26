@@ -156,7 +156,7 @@ The Auto-Collect pipeline automates the process of discovering, downloading, ana
 
 By default, we apply the following settings:
 
-1. Enable Autocollection every 24 hours
+1. Enable Auto-collection every 24 hours
 2. Search across articles for a maximum of the past 7 days
 3. Maximum daily API requests 100
 4. Whichever News API key was added during onboarding will be activated
@@ -176,6 +176,6 @@ You will want to configure the most suitable LLM model in the “Default LLM Mod
 * Test First: Use "Test Auto-Ingest" to verify your settings before relying on automated collection
 * Multiple Providers: Select multiple news providers for broader coverage<br>
 
-See [Auto-Collect Settings](https://docs.google.com/document/d/1Rkk_Hz4fXedv-J4-R_h_cTaLuQWJWsBEc6GreckkinM/edit?tab=t.0#heading=h.qjulhbv5c1c2) for a full list of settings
+See [Auto-Collect Settings](useful-information.md) for a full list of settings
 
 ***

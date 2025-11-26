@@ -13,7 +13,8 @@ The simplest way to install Aunoo for self-hosting is using Docker
 Windows (PowerShell):
 
 ```
-mkdir aunooai && cd aunooai
+mkdir aunooai 
+cd aunooai
 Invoke-WebRequest -Uri 
 "https://raw.githubusercontent.com/AuNooAI/AunooAI/refs/heads/main/docker-compose.yml" 
 -OutFile "docker-compose.yml"
