@@ -63,7 +63,7 @@ Don't have keys yet? Get them from:
 2. Paste your API keys in Step 1
 3. Click Test and then Save on each
 
-<figure><img src=".gitbook/assets/unknown.png" alt=""><figcaption></figcaption></figure>
+<figure><img src=".gitbook/assets/unknown (5).png" alt=""><figcaption></figcaption></figure>
 
 ***
 
@@ -78,15 +78,15 @@ Using the wizard:
 3. Describe what you want to monitor
 4. AI suggests suitable Future Signals, essentially possible scenarios, and suitable categories to break down your topic. When you are happy with the selection, go to Step 3.&#x20;
 
-<figure><img src=".gitbook/assets/unknown (1).png" alt=""><figcaption></figcaption></figure>
+<figure><img src=".gitbook/assets/unknown (1) (1).png" alt=""><figcaption></figcaption></figure>
 
 6. AI suggests keywords to collect news for your topic automatically
 
-<figure><img src=".gitbook/assets/unknown (2).png" alt=""><figcaption></figcaption></figure>
+<figure><img src=".gitbook/assets/unknown (2) (1).png" alt=""><figcaption></figcaption></figure>
 
 7. Review keywords in Step 3, click Save
 
-<figure><img src=".gitbook/assets/unknown (3).png" alt=""><figcaption></figcaption></figure>
+<figure><img src=".gitbook/assets/unknown (3) (1).png" alt=""><figcaption></figcaption></figure>
 
 Done! Aunoo will now monitor news for your topic.
 
@@ -101,7 +101,7 @@ Automated collection (ongoing):<br>
 1. Go to Gather → Keyword Alerts
 2.  Click Auto-Collect button
 
-    <figure><img src=".gitbook/assets/unknown (4).png" alt=""><figcaption></figcaption></figure>
+    <figure><img src=".gitbook/assets/unknown (4) (1).png" alt=""><figcaption></figcaption></figure>
 3. Enable auto-collection
 4. Select the LLM you want to use for automated processing
 5. Set check interval to 24 hours
@@ -125,7 +125,7 @@ Explore View - Your main workspace:
 1. Click Explore in the sidebar
 2. See all collected articles
 
-<figure><img src=".gitbook/assets/unknown (5).png" alt=""><figcaption></figcaption></figure>
+<figure><img src=".gitbook/assets/unknown (5) (1).png" alt=""><figcaption></figcaption></figure>
 
 3. Use filters to narrow by topic, date, source
 4. Drill down into topics by asking Auspex, the AI Futurist.
