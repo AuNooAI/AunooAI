@@ -195,6 +195,9 @@ class FloatingChat {
 
         // Initialize research mode toggle button
         this.initResearchModeToggle();
+
+        // Load plugin tools for toolbar badges
+        this.loadPluginTools();
         
         // Check for pending chat switch from insights research
         if (window.pendingChatSwitch) {
@@ -1605,6 +1608,103 @@ class FloatingChat {
     resetToolsToDefault() {
         this.toolsConfig = this.getDefaultToolsConfig();
         this.loadToolsConfigIntoModal();
+    }
+
+    // ==================== PLUGIN TOOLS ====================
+
+    async loadPluginTools() {
+        /**
+         * Load available plugin tools from the backend and display as badges.
+         * These are analysis tools from data/auspex/plugins/ directory.
+         */
+        const container = document.getElementById('pluginToolsContainer');
+        if (!container) {
+            console.warn('Plugin tools container not found');
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/auspex/plugin-tools');
+            if (!response.ok) {
+                throw new Error(`Failed to load plugin tools: ${response.status}`);
+            }
+
+            const data = await response.json();
+            if (data.status !== 'success' || !data.tools || data.tools.length === 0) {
+                container.innerHTML = '<span class="text-muted small">No analysis tools available</span>';
+                return;
+            }
+
+            // Clear loading message
+            container.innerHTML = '';
+
+            // Create badge buttons for each tool
+            data.tools.forEach(tool => {
+                const btn = document.createElement('button');
+                btn.className = 'floating-quick-btn plugin-tool';
+                btn.dataset.tool = tool.name;
+                btn.dataset.description = tool.description;
+                btn.title = tool.description;
+
+                // Format display name (convert snake_case to Title Case)
+                const displayName = tool.name
+                    .split('_')
+                    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+                    .join(' ');
+
+                btn.textContent = displayName;
+
+                // Add click handler to insert tool query into input
+                btn.addEventListener('click', () => {
+                    this.handlePluginToolClick(tool);
+                });
+
+                container.appendChild(btn);
+            });
+
+            console.log(`Loaded ${data.tools.length} plugin tools`);
+
+        } catch (error) {
+            console.error('Error loading plugin tools:', error);
+            container.innerHTML = '<span class="text-muted small">Failed to load tools</span>';
+        }
+    }
+
+    handlePluginToolClick(tool) {
+        /**
+         * Handle click on a plugin tool badge.
+         * Inserts a trigger query into the input that will activate the tool.
+         */
+        if (!this.elements.input) return;
+
+        // Get the first trigger pattern to use as query template
+        let queryTemplate = '';
+        if (tool.triggers && tool.triggers.length > 0 && tool.triggers[0].patterns.length > 0) {
+            // Use a natural language version of the first pattern
+            const pattern = tool.triggers[0].patterns[0];
+            // Clean up regex patterns for display
+            queryTemplate = pattern
+                .replace(/\\s\+/g, ' ')
+                .replace(/\.\*/g, '')
+                .replace(/[\\()[\]{}|^$]/g, '')
+                .trim();
+        }
+
+        // Format display name
+        const displayName = tool.name
+            .split('_')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
+
+        // Build a natural query
+        const topic = this.elements.topicSelect?.value || 'the topic';
+        const query = queryTemplate || `Run ${displayName} analysis on ${topic}`;
+
+        // Set the input value
+        this.elements.input.value = query;
+        this.elements.input.focus();
+
+        this.showNotification(`${displayName} - Edit query and send to run analysis`, 'info');
     }
 
     // Dynamic Sample Sizing Methods
