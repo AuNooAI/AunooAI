@@ -18,3 +18,5 @@
 * [FAQ](faq.md)
 * [KISSQL – Keep-It-Simple,Stupid! Query Language](kissql-keep-it-simple-stupid-query-language.md)
 * [Useful Information](useful-information.md)
+* [Model Bias Arena](model-bias-arena.md)
+* [Exploratory Analysis](exploratory-analysis.md)
