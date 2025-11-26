@@ -281,8 +281,8 @@ t_keyword_groups = Table(
 t_keyword_monitor_settings = Table(
     'keyword_monitor_settings', metadata,
     Column('id', Integer, primary_key=True),
-    Column('check_interval', Integer, nullable=False, default=text('15')),
-    Column('interval_unit', Integer, nullable=False, default=text('60')),
+    Column('check_interval', Integer, nullable=False, default=text('24')),  # 24 hours default
+    Column('interval_unit', Integer, nullable=False, default=text('3600')),  # Hours (3600 seconds)
     Column('search_fields', Text, nullable=False, default=text("'title,description,content'")),
     Column('language', Text, nullable=False, default=text("'en'")),
     Column('sort_by', Text, nullable=False, default=text("'publishedAt'")),
@@ -292,14 +292,14 @@ t_keyword_monitor_settings = Table(
     Column('search_date_range', Integer, nullable=False, default=text('7')),
     Column('provider', Text, nullable=False, default=text("'thenewsapi'")),
     Column('providers', Text, nullable=True, default=text("'[\"thenewsapi\"]'")),  # JSON array for multi-collector support
-    Column('auto_ingest_enabled', Boolean, nullable=False, default=text('FALSE')),
+    Column('auto_ingest_enabled', Boolean, nullable=False, default=text('TRUE')),  # Auto-processing ON by default
     Column('min_relevance_threshold', REAL, nullable=False, default=text('0.0')),
     Column('quality_control_enabled', Boolean, nullable=False, default=text('TRUE')),
-    Column('auto_save_approved_only', Boolean, nullable=False, default=text('FALSE')),
-    Column('default_llm_model', Text, nullable=False, default=text('"gpt-4o-mini"')),
-    Column('llm_temperature', REAL, nullable=False, default=text('0.1')),
+    Column('auto_save_approved_only', Boolean, nullable=False, default=text('TRUE')),  # Save Approved Only ON by default
+    Column('default_llm_model', Text, nullable=True, default=None),  # NULL = use first available model
+    Column('llm_temperature', REAL, nullable=False, default=text('0.2')),  # Temperature 0.2 default
     Column('llm_max_tokens', Integer, nullable=False, default=text('1000')),
-    Column('auto_regenerate_reports', Boolean, nullable=True, default=False)
+    Column('auto_regenerate_reports', Boolean, nullable=True, default=True)  # Auto-regenerate ON by default
 )
 
 t_keyword_monitor_status = Table(

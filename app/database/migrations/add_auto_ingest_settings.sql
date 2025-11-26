@@ -1,34 +1,41 @@
 -- Migration script to add auto-ingest settings and status tracking
+-- Default values for new users:
+-- - auto_ingest_enabled: TRUE (Auto-processing ON)
+-- - quality_control_enabled: TRUE
+-- - auto_save_approved_only: TRUE (Save Approved Only ON)
+-- - default_llm_model: NULL (use first available model)
+-- - llm_temperature: 0.2
+-- - auto_regenerate_reports: TRUE
 
 -- Add auto-ingest settings to keyword_monitor_settings table
-SELECT CASE 
-    WHEN NOT EXISTS(SELECT 1 FROM pragma_table_info('keyword_monitor_settings') WHERE name='auto_ingest_enabled') 
-    THEN 'ALTER TABLE keyword_monitor_settings ADD COLUMN auto_ingest_enabled BOOLEAN NOT NULL DEFAULT FALSE;' 
+SELECT CASE
+    WHEN NOT EXISTS(SELECT 1 FROM pragma_table_info('keyword_monitor_settings') WHERE name='auto_ingest_enabled')
+    THEN 'ALTER TABLE keyword_monitor_settings ADD COLUMN auto_ingest_enabled BOOLEAN NOT NULL DEFAULT TRUE;'
 END AS sql_command;
 
-SELECT CASE 
-    WHEN NOT EXISTS(SELECT 1 FROM pragma_table_info('keyword_monitor_settings') WHERE name='min_relevance_threshold') 
-    THEN 'ALTER TABLE keyword_monitor_settings ADD COLUMN min_relevance_threshold REAL NOT NULL DEFAULT 0.0;' 
+SELECT CASE
+    WHEN NOT EXISTS(SELECT 1 FROM pragma_table_info('keyword_monitor_settings') WHERE name='min_relevance_threshold')
+    THEN 'ALTER TABLE keyword_monitor_settings ADD COLUMN min_relevance_threshold REAL NOT NULL DEFAULT 0.0;'
 END AS sql_command;
 
-SELECT CASE 
-    WHEN NOT EXISTS(SELECT 1 FROM pragma_table_info('keyword_monitor_settings') WHERE name='quality_control_enabled') 
-    THEN 'ALTER TABLE keyword_monitor_settings ADD COLUMN quality_control_enabled BOOLEAN NOT NULL DEFAULT TRUE;' 
+SELECT CASE
+    WHEN NOT EXISTS(SELECT 1 FROM pragma_table_info('keyword_monitor_settings') WHERE name='quality_control_enabled')
+    THEN 'ALTER TABLE keyword_monitor_settings ADD COLUMN quality_control_enabled BOOLEAN NOT NULL DEFAULT TRUE;'
 END AS sql_command;
 
-SELECT CASE 
-    WHEN NOT EXISTS(SELECT 1 FROM pragma_table_info('keyword_monitor_settings') WHERE name='auto_save_approved_only') 
-    THEN 'ALTER TABLE keyword_monitor_settings ADD COLUMN auto_save_approved_only BOOLEAN NOT NULL DEFAULT FALSE;' 
+SELECT CASE
+    WHEN NOT EXISTS(SELECT 1 FROM pragma_table_info('keyword_monitor_settings') WHERE name='auto_save_approved_only')
+    THEN 'ALTER TABLE keyword_monitor_settings ADD COLUMN auto_save_approved_only BOOLEAN NOT NULL DEFAULT TRUE;'
 END AS sql_command;
 
-SELECT CASE 
-    WHEN NOT EXISTS(SELECT 1 FROM pragma_table_info('keyword_monitor_settings') WHERE name='default_llm_model') 
-    THEN 'ALTER TABLE keyword_monitor_settings ADD COLUMN default_llm_model TEXT NOT NULL DEFAULT "gpt-4o-mini";' 
+SELECT CASE
+    WHEN NOT EXISTS(SELECT 1 FROM pragma_table_info('keyword_monitor_settings') WHERE name='default_llm_model')
+    THEN 'ALTER TABLE keyword_monitor_settings ADD COLUMN default_llm_model TEXT DEFAULT NULL;'
 END AS sql_command;
 
-SELECT CASE 
-    WHEN NOT EXISTS(SELECT 1 FROM pragma_table_info('keyword_monitor_settings') WHERE name='llm_temperature') 
-    THEN 'ALTER TABLE keyword_monitor_settings ADD COLUMN llm_temperature REAL NOT NULL DEFAULT 0.1;' 
+SELECT CASE
+    WHEN NOT EXISTS(SELECT 1 FROM pragma_table_info('keyword_monitor_settings') WHERE name='llm_temperature')
+    THEN 'ALTER TABLE keyword_monitor_settings ADD COLUMN llm_temperature REAL NOT NULL DEFAULT 0.2;'
 END AS sql_command;
 
 SELECT CASE 

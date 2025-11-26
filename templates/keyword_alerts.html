@@ -8626,16 +8626,17 @@ async function saveAnalysisResults() {
 // AUTO-INGEST FUNCTIONALITY
 // =============================================================================
 
-// Auto-ingest settings
+// Auto-ingest settings - defaults for new users
 let autoIngestSettings = {
-    auto_ingest_enabled: false,
+    auto_ingest_enabled: true,  // Auto-processing ON by default
     min_relevance_threshold: 0.3,
     quality_control_enabled: true,
-    auto_save_approved_only: false,
-    default_llm_model: 'gpt-4.1-mini',
-    llm_temperature: 0.1,
+    auto_save_approved_only: true,  // Save Approved Only ON by default
+    default_llm_model: null,  // null = use first available model
+    llm_temperature: 0.2,  // Temperature 0.2 default
     llm_max_tokens: 1000,
-    max_articles_per_run: 50
+    max_articles_per_run: 50,
+    auto_regenerate_reports: true  // Auto-regenerate ON by default
 };
 
 // Initialize auto-ingest on page load
@@ -8827,19 +8828,27 @@ async function loadAvailableModels() {
             defaultModelSelect.innerHTML = '';
 
             if (models && models.length > 0) {
-                models.forEach(model => {
+                let firstModel = null;
+                models.forEach((model, index) => {
                     const option = document.createElement('option');
                     option.value = model.name;
                     option.textContent = `${model.name} (${model.provider})`;
-                    if (model.name === currentValue || (model.name === 'gpt-4.1-mini' && !currentValue)) {
+                    // Select first model if no current value is set (null/empty = use first available)
+                    if (model.name === currentValue || (index === 0 && !currentValue)) {
                         option.selected = true;
+                        if (index === 0) firstModel = model.name;
                     }
                     defaultModelSelect.appendChild(option);
                 });
+                // If no current value, ensure first model is selected
+                if (!currentValue && firstModel) {
+                    defaultModelSelect.value = firstModel;
+                }
             } else {
+                // No models available - show placeholder
                 const option = document.createElement('option');
-                option.value = 'gpt-4.1-mini';
-                option.textContent = 'gpt-4.1-mini (fallback)';
+                option.value = '';
+                option.textContent = 'No models configured';
                 option.selected = true;
                 defaultModelSelect.appendChild(option);
             }
@@ -8994,18 +9003,32 @@ async function loadAutoIngestStatus() {
 
         const pollingInterval = document.getElementById('pollingInterval');
         if (pollingInterval) {
-            pollingInterval.value = (settings.check_interval || 30).toString();
+            pollingInterval.value = (settings.check_interval || 24).toString();  // Default 24 hours
         }
 
-        // Update auto-processing settings
-        document.getElementById('autoIngestEnabled').checked = settings.auto_ingest_enabled || false;
-        document.getElementById('qualityControlEnabled').checked = settings.quality_control_enabled !== false;
-        document.getElementById('autoSaveApprovedOnly').checked = settings.auto_save_approved_only || false;
-        document.getElementById('defaultLlmModel').value = settings.default_llm_model || 'gpt-4.1-mini';
-        document.getElementById('llmTemperature').value = settings.llm_temperature || 0.1;
+        // Update auto-processing settings with new defaults
+        document.getElementById('autoIngestEnabled').checked = settings.auto_ingest_enabled !== false;  // Default ON
+        document.getElementById('qualityControlEnabled').checked = settings.quality_control_enabled !== false;  // Default ON
+        document.getElementById('autoSaveApprovedOnly').checked = settings.auto_save_approved_only !== false;  // Default ON
+
+        // Handle default_llm_model - if null/empty, select first available model
+        const modelSelect = document.getElementById('defaultLlmModel');
+        if (modelSelect) {
+            if (settings.default_llm_model) {
+                modelSelect.value = settings.default_llm_model;
+            } else {
+                // Select first available model if none is set
+                const firstOption = modelSelect.querySelector('option:not([value=""])');
+                if (firstOption) {
+                    modelSelect.value = firstOption.value;
+                }
+            }
+        }
+
+        document.getElementById('llmTemperature').value = settings.llm_temperature ?? 0.2;  // Default 0.2
         document.getElementById('llmMaxTokens').value = settings.llm_max_tokens || 1000;
         document.getElementById('maxArticlesPerRun').value = settings.max_articles_per_run || 50;
-        document.getElementById('autoRegenerateReports').checked = settings.auto_regenerate_reports || false;
+        document.getElementById('autoRegenerateReports').checked = settings.auto_regenerate_reports !== false;  // Default ON
 
         // Update threshold slider
         const threshold = settings.min_relevance_threshold || 0.3;
