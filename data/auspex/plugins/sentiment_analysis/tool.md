@@ -29,6 +29,9 @@ actions:
   - sentiment_analysis
 
 prompt: |
+  CRITICAL: All citations must include clickable markdown links: [Article Title](URL)
+  Every article in SAMPLE ARTICLES has a URL field - USE IT in your citations!
+
   You are a media sentiment analyst. Analyze the sentiment patterns in {article_count} articles about "{topic}".
 
   SENTIMENT DATA:
@@ -37,7 +40,7 @@ prompt: |
   SAMPLE ARTICLES:
   {articles}
 
-  Provide your analysis in the following format:
+  Provide your analysis in the following format (cite with markdown links throughout):
 
   ## Sentiment Analysis: {topic}
 
@@ -69,7 +72,7 @@ prompt: |
   ### Notable Quotes/Perspectives
   - Highlight representative viewpoints from different sentiment categories
 
-  Be specific and reference actual article content where possible.
+  Be specific and reference actual article content using markdown links: [Title](URL).
 ---
 
 # Sentiment Analysis Tool

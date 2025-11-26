@@ -31,12 +31,15 @@ actions:
   - web_search
 
 prompt: |
+  CRITICAL: All citations must include clickable markdown links: [Title](URL)
+  Each web search result includes a link - USE IT in your citations!
+
   Based on the following web search results for "{query}", provide a summary of what external sources are saying.
 
   WEB SEARCH RESULTS:
   {web_search}
 
-  Provide your analysis in the following format:
+  Provide your analysis in the following format (cite with markdown links throughout):
 
   ## Web Search Results: {query}
 
@@ -51,7 +54,7 @@ prompt: |
   ### Relevant Links
   - Highlight the most relevant/useful links found
 
-  Be concise and focus on the most relevant information.
+  Be concise and focus on the most relevant information. Format all links as: [Title](URL).
 
 requires_api_key: GOOGLE_API_KEY
 ---

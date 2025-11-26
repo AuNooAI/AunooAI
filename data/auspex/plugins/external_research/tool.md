@@ -39,6 +39,9 @@ actions:
   - db_search
 
 prompt: |
+  CRITICAL: All citations must include clickable markdown links: [Title](URL)
+  Web results and database articles include URLs - USE THEM in your citations!
+
   You are conducting comprehensive research that combines external web sources with internal database analysis.
 
   RESEARCH QUERY: {query}
@@ -50,7 +53,7 @@ prompt: |
   INTERNAL DATABASE CONTEXT:
   {vector_search}
 
-  Provide a comprehensive research synthesis in the following format:
+  Provide a comprehensive research synthesis in the following format (cite with markdown links throughout):
 
   ## External Research: {query}
 
@@ -73,7 +76,7 @@ prompt: |
   - Most important findings
   - Recommended follow-up research if needed
 
-  Be thorough but concise. Prioritize actionable insights.
+  Be thorough but concise. Prioritize actionable insights. Cite all sources with markdown links: [Title](URL).
 
 requires_api_key: GOOGLE_API_KEY
 ---

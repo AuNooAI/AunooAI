@@ -29,6 +29,9 @@ actions:
   - bias_analysis
 
 prompt: |
+  CRITICAL: All citations must include clickable markdown links: [Article Title](URL)
+  Every article in SAMPLE ARTICLES has a URL field - USE IT in your citations throughout!
+
   You are a media bias analyst. Analyze the political/partisan distribution in {article_count} articles about "{topic}".
 
   BIAS DATA:
@@ -37,46 +40,68 @@ prompt: |
   SAMPLE ARTICLES:
   {articles}
 
-  Provide your analysis in the following format:
+  Provide your analysis in the following format (cite with markdown links throughout):
 
   ## Partisan Analysis: {topic}
 
-  ### Source Bias Distribution
-  - Breakdown of sources by political leaning (Left, Center-Left, Center, Center-Right, Right)
-  - Percentage from each bias category
-  - Note if coverage is balanced or skewed
+  ### Source Bias Distribution Table
 
-  ### Framing Differences by Political Leaning
+  | Bias Category | Count | % | Example Sources |
+  |---------------|-------|---|-----------------|
+  | Left | X | X% | Source1, Source2 |
+  | Center-Left | X | X% | Source1, Source2 |
+  | Center | X | X% | Source1, Source2 |
+  | Center-Right | X | X% | Source1, Source2 |
+  | Right | X | X% | Source1, Source2 |
+
+  **Coverage Balance:** [Balanced/Left-Skewed/Right-Skewed] - brief explanation
+
+  ### Comparative Framing Table
+
+  | Aspect | Left-Leaning View | Center View | Right-Leaning View |
+  |--------|-------------------|-------------|-------------------|
+  | Main Narrative | [summary] | [summary] | [summary] |
+  | Key Concerns | [concerns] | [concerns] | [concerns] |
+  | Proposed Solutions | [solutions] | [solutions] | [solutions] |
+  | Tone | [tone] | [tone] | [tone] |
+
+  ### Detailed Framing Analysis
 
   **Left-Leaning Sources:**
-  - How do they frame this topic?
-  - What aspects do they emphasize?
-  - What language/terminology do they use?
+  - Key narrative and framing - cite: [Article Title](URL)
+  - Language and terminology used
+  - What they emphasize/de-emphasize
 
   **Center Sources:**
-  - How do they frame this topic?
-  - What balanced perspectives do they offer?
+  - Balanced perspectives offered - cite: [Article Title](URL)
+  - How they present multiple viewpoints
 
   **Right-Leaning Sources:**
-  - How do they frame this topic?
-  - What aspects do they emphasize?
-  - What language/terminology do they use?
+  - Key narrative and framing - cite: [Article Title](URL)
+  - Language and terminology used
+  - What they emphasize/de-emphasize
 
-  ### Key Narrative Differences
-  - Identify major points where left/right coverage diverges
-  - Note any consensus across political spectrum
-  - Highlight misleading or one-sided framings
+  ### Key Divergence Points
+  - Where left/right coverage diverges most sharply
+  - Any consensus across the political spectrum
+  - Potentially misleading or one-sided framings
 
-  ### Factual vs Opinion Content
-  - Assess ratio of factual reporting to opinion pieces
-  - Note which claims are disputed vs accepted
+  ### Sample Articles by Political Leaning
 
-  ### Recommendations for Balanced Understanding
-  - What sources provide most balanced coverage?
-  - What perspectives are underrepresented?
-  - What questions remain contested?
+  Present 3-4 representative articles from each political perspective:
 
-  Be objective in your analysis. Identify bias without exhibiting bias.
+  | Right Wing | Center | Left Wing |
+  |------------|--------|-----------|
+  | **[Article Title](URL)** (Source) - Brief 1-line summary of their take | **[Article Title](URL)** (Source) - Brief 1-line summary | **[Article Title](URL)** (Source) - Brief 1-line summary of their take |
+  | **[Article Title](URL)** (Source) - Brief summary | **[Article Title](URL)** (Source) - Brief summary | **[Article Title](URL)** (Source) - Brief summary |
+  | **[Article Title](URL)** (Source) - Brief summary | **[Article Title](URL)** (Source) - Brief summary | **[Article Title](URL)** (Source) - Brief summary |
+
+  ### Recommendations
+  - Most balanced sources for this topic
+  - Underrepresented perspectives
+  - Contested claims requiring further research
+
+  Be objective. Identify bias without exhibiting bias. Every claim needs a source citation with markdown link.
 ---
 
 # Partisan/Political Bias Analysis Tool

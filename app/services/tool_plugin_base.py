@@ -265,7 +265,24 @@ class PromptToolHandler(ToolHandler):
                         metadata_filter={"topic": topic} if topic else None
                     )
                     if results:
-                        articles.extend(results)
+                        # Flatten vector search results (they have nested metadata)
+                        for result in results:
+                            metadata = result.get('metadata', {})
+                            uri = metadata.get('uri') or result.get('id', '')
+                            if not uri:
+                                continue
+                            articles.append({
+                                "uri": uri,
+                                "url": metadata.get("url") or metadata.get("link") or uri,
+                                "title": metadata.get("title", "Unknown Title"),
+                                "summary": metadata.get("summary", "No summary"),
+                                "category": metadata.get("category", "Uncategorized"),
+                                "sentiment": metadata.get("sentiment", "Neutral"),
+                                "future_signal": metadata.get("future_signal", "None"),
+                                "publication_date": metadata.get("publication_date", "Unknown"),
+                                "news_source": metadata.get("news_source", "Unknown"),
+                                "similarity_score": result.get("score", 0.0)
+                            })
                         action_results['vector_search'] = {
                             'count': len(results),
                             'method': 'semantic'
@@ -311,6 +328,9 @@ class PromptToolHandler(ToolHandler):
 
         # Build context for LLM prompt
         article_context = self._format_articles_for_prompt(articles[:limit])
+
+        # Debug: log sample of article context
+        self.logger.info(f"Article context sample (first 1000 chars): {article_context[:1000]}")
 
         # Execute LLM prompt if provided
         llm_response = None
@@ -408,40 +428,34 @@ class PromptToolHandler(ToolHandler):
         lines = []
         char_count = 0
 
+        # Debug: log first article structure
+        if articles:
+            self.logger.info(f"First article keys: {list(articles[0].keys())}")
+            self.logger.info(f"First article url field: {articles[0].get('url', 'NO URL FIELD')}")
+            self.logger.info(f"First article uri field: {articles[0].get('uri', 'NO URI FIELD')}")
+
         for i, article in enumerate(articles, 1):
-            # Handle both flat and nested (vector search) article structures
-            metadata = article.get('metadata', {})
-
-            # Try metadata first, then top-level
-            title = metadata.get('title') or article.get('title', 'Untitled')
-            summary = (metadata.get('summary') or article.get('summary', ''))[:300]
-            source = metadata.get('news_source') or article.get('news_source', 'Unknown')
-
-            # URI/URL: check metadata.uri, article.uri, article.id (vector search uses id as uri)
-            url = metadata.get('uri') or article.get('uri') or article.get('url') or article.get('id', '')
-
-            # Date: check multiple fields
-            date = metadata.get('publication_date') or metadata.get('date') or article.get('published_date') or article.get('publication_date') or article.get('date', '')
-
-            sentiment = metadata.get('sentiment') or article.get('sentiment', '')
-            bias = metadata.get('political_bias') or article.get('political_bias') or metadata.get('media_bias') or article.get('media_bias', '')
+            title = article.get('title', 'Untitled')
+            summary = article.get('summary', '')[:300]
+            source = article.get('news_source', 'Unknown')
+            url = article.get('url') or article.get('uri', '')
+            date = article.get('publication_date', '')
+            sentiment = article.get('sentiment', '')
 
             # Format: Title (Source, Date) - URL
             line = f"{i}. **{title}**"
             line += f"\n   Source: {source}"
-            if date:
+            if date and date != 'Unknown':
                 # Format date if it's a datetime string
                 if isinstance(date, str) and len(date) > 10:
                     date = date[:10]  # Just the date part
                 line += f" | Date: {date}"
             if url:
-                line += f"\n   Link: {url}"
-            if summary:
+                line += f"\n   URL: {url}"
+            if summary and summary != 'No summary':
                 line += f"\n   Summary: {summary}"
-            if sentiment:
+            if sentiment and sentiment != 'Neutral':
                 line += f"\n   Sentiment: {sentiment}"
-            if bias:
-                line += f" | Bias: {bias}"
             line += "\n"
 
             if char_count + len(line) > max_chars:

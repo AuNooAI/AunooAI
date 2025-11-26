@@ -183,10 +183,17 @@ class Database:
         self._facade = None  # Lazy initialization to avoid circular imports
 
         # Initialize SQLAlchemy connection pool on first use (lazy loading)
-        logger.info(f"Database initialized: {self.db_path}")
+        if self.db_type == 'postgresql':
+            from app.config.settings import db_settings
+            logger.info(f"Database initialized: PostgreSQL ({db_settings.DB_NAME})")
+        else:
+            logger.info(f"Database initialized: SQLite ({self.db_path})")
         try:
             self._temp_get_connection()
-            logger.info(f"Database connection pool ready for {db_name}")
+            if self.db_type == 'postgresql':
+                logger.info(f"Database connection pool ready for PostgreSQL")
+            else:
+                logger.info(f"Database connection pool ready for {db_name}")
         except Exception as e:
             logger.error(f"Failed to initialize database connection: {e}")
             raise RuntimeError(f"Database initialization failed: {e}") from e

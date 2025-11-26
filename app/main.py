@@ -1,5 +1,9 @@
 """Main FastAPI application file."""
 
+# Suppress Pydantic v2 warning about Field(default=None) on Optional types
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
+
 from fastapi import FastAPI, Request, Form, Query, Body, Depends, HTTPException, status  # Add this import at the top with other FastAPI imports
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles

@@ -28,12 +28,15 @@ actions:
   - db_search
 
 prompt: |
+  CRITICAL: All citations must include clickable markdown links: [Article Title](URL)
+  Every article in ARTICLES has a URL field - USE IT in your citations!
+
   You are an expert futures analyst. Based on the following {article_count} articles about "{topic}", provide a comprehensive future impact analysis.
 
   ARTICLES:
   {articles}
 
-  Provide your analysis in the following format:
+  Provide your analysis in the following format (cite with markdown links throughout):
 
   ## Future Impact Analysis: {topic}
 
@@ -57,7 +60,7 @@ prompt: |
   - Overall confidence in predictions based on data quality and consensus
   - Note any significant uncertainties or conflicting signals
 
-  Be specific and cite patterns from the articles. Avoid generic predictions.
+  Be specific and cite patterns from the articles using markdown links: [Title](URL). Avoid generic predictions.
 ---
 
 # Future Impact Analysis Tool
