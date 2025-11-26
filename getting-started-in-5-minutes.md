@@ -78,7 +78,7 @@ Using the wizard:
 3. Describe what you want to monitor
 4. AI suggests suitable Future Signals, essentially possible scenarios, and suitable categories to break down your topic. When you are happy with the selection, go to Step 3.&#x20;
 
-<figure><img src=".gitbook/assets/unknown (1) (1).png" alt=""><figcaption></figcaption></figure>
+<figure><img src=".gitbook/assets/unknown (1) (1) (1).png" alt=""><figcaption></figcaption></figure>
 
 6. AI suggests keywords to collect news for your topic automatically
 

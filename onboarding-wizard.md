@@ -26,7 +26,7 @@ A 3-step wizard that helps you configure new topic monitoring:
 
 1. When you first start AuNoo, you will be presented with the onboarding agent.
 
-<figure><img src=".gitbook/assets/unknown.png" alt=""><figcaption></figcaption></figure>
+<figure><img src=".gitbook/assets/unknown (1).png" alt=""><figcaption></figcaption></figure>
 
 <br>
 
@@ -35,7 +35,7 @@ A 3-step wizard that helps you configure new topic monitoring:
 
 **Set up your first topic**
 
-<figure><img src=".gitbook/assets/unknown (1).png" alt=""><figcaption></figcaption></figure>
+<figure><img src=".gitbook/assets/unknown (1) (1).png" alt=""><figcaption></figcaption></figure>
 
 1. **Enter the topic or question you’re interested in.**&#x20;
 
