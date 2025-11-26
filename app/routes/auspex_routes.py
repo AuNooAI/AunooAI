@@ -1183,6 +1183,54 @@ async def test_auspex_tools(session=Depends(verify_session)):
 
 
 # =============================================================================
+# PLUGIN TOOLS ENDPOINT
+# =============================================================================
+
+@router.get("/plugin-tools", status_code=status.HTTP_200_OK)
+async def get_plugin_tools(session=Depends(verify_session)):
+    """
+    Get available plugin tools for UI display.
+
+    Returns a list of plugin tools from data/auspex/plugins/ that can be
+    displayed as badges/buttons in the Auspex chat toolbar.
+    """
+    from app.services.tool_plugin_base import get_tool_registry, init_tool_registry
+
+    try:
+        # Initialize registry if needed
+        registry = init_tool_registry()
+
+        tools = []
+        for tool in registry.get_all_tools():
+            tools.append({
+                "name": tool.name,
+                "description": tool.description,
+                "category": tool.category,
+                "version": tool.version,
+                "has_handler": registry.get_handler(tool.name) is not None,
+                "is_prompt_tool": tool.is_prompt_tool,
+                "triggers": [
+                    {"patterns": t.patterns, "priority": t.priority}
+                    for t in tool.triggers
+                ]
+            })
+
+        return {
+            "status": "success",
+            "tools": tools,
+            "count": len(tools)
+        }
+    except Exception as e:
+        logger.error(f"Error fetching plugin tools: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "error": str(e),
+            "tools": [],
+            "count": 0
+        }
+
+
+# =============================================================================
 # DEEP RESEARCH ENDPOINTS
 # =============================================================================
 
@@ -1247,6 +1295,15 @@ async def start_deep_research(req: DeepResearchRequest, session=Depends(verify_s
             config.allow_external_search = req.config["allow_external_search"]
         if "writing_model" in req.config:
             config.writing_model = req.config["writing_model"]
+        # Research mode settings
+        if "search_source" in req.config:
+            config.search_source = req.config["search_source"]  # 'internal', 'external', 'hybrid'
+        if "research_mode" in req.config:
+            config.research_mode = req.config["research_mode"]  # 'off', 'internal', 'hybrid', 'external', 'extend'
+        if "extend_mode" in req.config:
+            config.extend_mode = req.config["extend_mode"]
+        if "previous_research" in req.config:
+            config.previous_research = req.config["previous_research"]
 
     async def generate_sse():
         """Generate SSE events for research progress."""
