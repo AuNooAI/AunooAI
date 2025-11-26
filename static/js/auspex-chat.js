@@ -2222,7 +2222,21 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
             });
 
             if (!response.ok) {
-                throw new Error(`Server error: ${response.status}`);
+                // Try to get detailed error from response
+                let errorDetail = `Server error: ${response.status}`;
+                try {
+                    const errorData = await response.json();
+                    if (errorData.detail) {
+                        if (Array.isArray(errorData.detail)) {
+                            errorDetail = errorData.detail.map(d => d.msg || d).join(', ');
+                        } else {
+                            errorDetail = errorData.detail;
+                        }
+                    }
+                } catch (e) {
+                    // Could not parse error JSON
+                }
+                throw new Error(errorDetail);
             }
 
             // Handle SSE streaming with buffering for partial chunks
@@ -2369,69 +2383,71 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
         const container = document.createElement('div');
         container.className = 'research-progress-container p-3 mb-3';
         container.style.cssText = `
-            background: linear-gradient(135deg, #1a1f36 0%, #0d1224 100%);
+            background: linear-gradient(135deg, #fdf2f8 0%, #fce7f3 100%);
             border-radius: 12px;
-            border: 1px solid rgba(99, 102, 241, 0.3);
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            border: 1px solid #f9a8d4;
+            box-shadow: 0 2px 8px rgba(236, 72, 153, 0.15);
         `;
 
         container.innerHTML = `
             <div class="d-flex align-items-center mb-3">
-                <div class="research-icon me-3" style="font-size: 24px;">🔬</div>
+                <div class="research-icon me-3" style="font-size: 24px; color: #ec4899;">
+                    <i class="fas fa-microscope"></i>
+                </div>
                 <div>
-                    <h6 class="mb-0 text-light">Deep Research in Progress</h6>
-                    <small class="text-muted">Analyzing sources and synthesizing findings...</small>
+                    <h6 class="mb-0" style="color: #111827;">Deep Research in Progress</h6>
+                    <small style="color: #6b7280;">Analyzing sources and synthesizing findings...</small>
                 </div>
             </div>
 
             <div class="research-stages">
                 <div class="research-stage" data-stage="planning">
-                    <div class="stage-indicator">
-                        <span class="stage-icon">📋</span>
-                        <span class="stage-name">Planning</span>
-                        <span class="stage-status badge bg-secondary">Pending</span>
+                    <div class="stage-indicator d-flex align-items-center gap-2">
+                        <span class="stage-icon" style="color: #ec4899;"><i class="fas fa-clipboard-list"></i></span>
+                        <span class="stage-name" style="color: #374151; font-weight: 500;">Planning</span>
+                        <span class="stage-status badge" style="background: #e5e7eb; color: #6b7280;">Pending</span>
                     </div>
-                    <div class="progress mt-1" style="height: 4px;">
-                        <div class="progress-bar bg-primary" style="width: 0%"></div>
+                    <div class="progress mt-1" style="height: 4px; background: #f3f4f6;">
+                        <div class="progress-bar" style="width: 0%; background: #ec4899;"></div>
                     </div>
                 </div>
 
                 <div class="research-stage mt-2" data-stage="searching">
-                    <div class="stage-indicator">
-                        <span class="stage-icon">🔍</span>
-                        <span class="stage-name">Searching</span>
-                        <span class="stage-status badge bg-secondary">Pending</span>
+                    <div class="stage-indicator d-flex align-items-center gap-2">
+                        <span class="stage-icon" style="color: #ec4899;"><i class="fas fa-search"></i></span>
+                        <span class="stage-name" style="color: #374151; font-weight: 500;">Searching</span>
+                        <span class="stage-status badge" style="background: #e5e7eb; color: #6b7280;">Pending</span>
                     </div>
-                    <div class="progress mt-1" style="height: 4px;">
-                        <div class="progress-bar bg-info" style="width: 0%"></div>
+                    <div class="progress mt-1" style="height: 4px; background: #f3f4f6;">
+                        <div class="progress-bar" style="width: 0%; background: #f472b6;"></div>
                     </div>
                 </div>
 
                 <div class="research-stage mt-2" data-stage="synthesis">
-                    <div class="stage-indicator">
-                        <span class="stage-icon">🧪</span>
-                        <span class="stage-name">Synthesis</span>
-                        <span class="stage-status badge bg-secondary">Pending</span>
+                    <div class="stage-indicator d-flex align-items-center gap-2">
+                        <span class="stage-icon" style="color: #ec4899;"><i class="fas fa-flask"></i></span>
+                        <span class="stage-name" style="color: #374151; font-weight: 500;">Synthesis</span>
+                        <span class="stage-status badge" style="background: #e5e7eb; color: #6b7280;">Pending</span>
                     </div>
-                    <div class="progress mt-1" style="height: 4px;">
-                        <div class="progress-bar bg-warning" style="width: 0%"></div>
+                    <div class="progress mt-1" style="height: 4px; background: #f3f4f6;">
+                        <div class="progress-bar" style="width: 0%; background: #db2777;"></div>
                     </div>
                 </div>
 
                 <div class="research-stage mt-2" data-stage="writing">
-                    <div class="stage-indicator">
-                        <span class="stage-icon">📝</span>
-                        <span class="stage-name">Writing</span>
-                        <span class="stage-status badge bg-secondary">Pending</span>
+                    <div class="stage-indicator d-flex align-items-center gap-2">
+                        <span class="stage-icon" style="color: #ec4899;"><i class="fas fa-pen-fancy"></i></span>
+                        <span class="stage-name" style="color: #374151; font-weight: 500;">Writing</span>
+                        <span class="stage-status badge" style="background: #e5e7eb; color: #6b7280;">Pending</span>
                     </div>
-                    <div class="progress mt-1" style="height: 4px;">
-                        <div class="progress-bar bg-success" style="width: 0%"></div>
+                    <div class="progress mt-1" style="height: 4px; background: #f3f4f6;">
+                        <div class="progress-bar" style="width: 0%; background: #be185d;"></div>
                     </div>
                 </div>
             </div>
 
-            <div class="research-status mt-3 p-2 rounded" style="background: rgba(99, 102, 241, 0.1);">
-                <small class="text-light status-text">Initializing research workflow...</small>
+            <div class="research-status mt-3 p-2 rounded" style="background: rgba(236, 72, 153, 0.1);">
+                <small class="status-text" style="color: #374151;">Initializing research workflow...</small>
             </div>
         `;
 
@@ -2451,8 +2467,8 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
         if (stage === 'error') {
             const statusDiv = element.querySelector('.research-status');
             if (statusDiv) {
-                statusDiv.style.background = 'rgba(220, 53, 69, 0.2)';
-                statusDiv.innerHTML = `<small class="text-danger"><i class="bi bi-exclamation-triangle"></i> ${statusText}</small>`;
+                statusDiv.style.background = 'rgba(220, 53, 69, 0.15)';
+                statusDiv.innerHTML = `<small style="color: #dc2626;"><i class="fas fa-exclamation-triangle"></i> ${statusText}</small>`;
             }
             return;
         }
@@ -2465,11 +2481,11 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
 
             if (progress === 0) {
                 // Starting
-                badge.className = 'stage-status badge bg-primary';
+                badge.style.cssText = 'background: #ec4899; color: white;';
                 badge.textContent = 'In Progress';
             } else if (progress >= 1) {
                 // Complete
-                badge.className = 'stage-status badge bg-success';
+                badge.style.cssText = 'background: #10b981; color: white;';
                 badge.textContent = 'Complete';
             }
 
@@ -2487,7 +2503,7 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
                 const badge = prevStage.querySelector('.stage-status');
                 const progressBar = prevStage.querySelector('.progress-bar');
                 if (badge) {
-                    badge.className = 'stage-status badge bg-success';
+                    badge.style.cssText = 'background: #10b981; color: white;';
                     badge.textContent = 'Complete';
                 }
                 if (progressBar) {
