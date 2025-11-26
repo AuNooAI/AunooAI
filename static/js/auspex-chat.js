@@ -2075,25 +2075,23 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
             }
         }
 
-        // Update toggle button appearance
+        // Update toggle badge appearance in Analysis Tools bar
         const researchToggle = document.getElementById('researchModeToggle');
         if (researchToggle) {
             const isActive = mode !== 'off';
             researchToggle.classList.toggle('active', isActive);
-            researchToggle.classList.toggle('btn-primary', isActive);
-            researchToggle.classList.toggle('btn-outline-secondary', !isActive);
             researchToggle.setAttribute('aria-pressed', isActive);
 
-            // Update button text to show current mode
+            // Update badge text to show current mode
             const modeLabels = {
-                'off': 'Research',
-                'internal': 'Internal',
-                'hybrid': 'Hybrid',
-                'external': 'External',
-                'extend': 'Extend'
+                'off': 'Deep Research',
+                'internal': 'Research: Internal',
+                'hybrid': 'Research: Hybrid',
+                'external': 'Research: External',
+                'extend': 'Research: Extend'
             };
-            researchToggle.innerHTML = `<i class="fas fa-microscope me-1"></i>${modeLabels[mode]}`;
-            researchToggle.title = `Research Mode: ${modeLabels[mode]} (click to cycle)`;
+            researchToggle.textContent = modeLabels[mode];
+            researchToggle.title = `Click to cycle research modes: Off → Internal → Hybrid → External → Extend`;
         }
 
         // Update input placeholder based on mode
@@ -2474,27 +2472,28 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
         // Load previous research for extend mode
         this.previousResearch = localStorage.getItem(this.storageKeys.previousResearch) || null;
 
-        // Find or create research mode toggle button
-        const toolsConfigBtn = document.getElementById('toolsConfigBtn');
-        if (toolsConfigBtn && !document.getElementById('researchModeToggle')) {
+        // Create research mode badge in the Analysis Tools bar (pluginToolsContainer)
+        const container = document.getElementById('pluginToolsContainer');
+        if (container && !document.getElementById('researchModeToggle')) {
             const isActive = this.researchMode !== 'off';
             const modeLabels = {
-                'off': 'Research',
-                'internal': 'Internal',
-                'hybrid': 'Hybrid',
-                'external': 'External',
-                'extend': 'Extend'
+                'off': 'Deep Research',
+                'internal': 'Research: Internal',
+                'hybrid': 'Research: Hybrid',
+                'external': 'Research: External',
+                'extend': 'Research: Extend'
             };
 
             const toggleBtn = document.createElement('button');
             toggleBtn.id = 'researchModeToggle';
-            toggleBtn.className = `btn btn-sm ${isActive ? 'btn-primary' : 'btn-outline-secondary'} ms-2`;
-            toggleBtn.innerHTML = `<i class="fas fa-microscope me-1"></i>${modeLabels[this.researchMode]}`;
-            toggleBtn.title = `Research Mode: ${modeLabels[this.researchMode]} (click to cycle)`;
+            toggleBtn.className = `floating-quick-btn ${isActive ? 'active' : ''}`;
+            toggleBtn.textContent = modeLabels[this.researchMode];
+            toggleBtn.title = `Click to cycle research modes: Off → Internal → Hybrid → External → Extend`;
             toggleBtn.setAttribute('aria-pressed', isActive);
             toggleBtn.onclick = () => this.toggleResearchMode();
 
-            toolsConfigBtn.parentNode.insertBefore(toggleBtn, toolsConfigBtn.nextSibling);
+            // Insert at the beginning of the container
+            container.insertBefore(toggleBtn, container.firstChild);
         }
 
         // Apply UI state without notification if mode is active
