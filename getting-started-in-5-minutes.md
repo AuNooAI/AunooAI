@@ -78,15 +78,15 @@ Using the wizard:
 3. Describe what you want to monitor
 4. AI suggests suitable Future Signals, essentially possible scenarios, and suitable categories to break down your topic. When you are happy with the selection, go to Step 3.&#x20;
 
-<figure><img src=".gitbook/assets/unknown (1) (1) (1).png" alt=""><figcaption></figcaption></figure>
+<figure><img src=".gitbook/assets/unknown (1) (1) (1) (1).png" alt=""><figcaption></figcaption></figure>
 
 6. AI suggests keywords to collect news for your topic automatically
 
-<figure><img src=".gitbook/assets/unknown (2) (1).png" alt=""><figcaption></figcaption></figure>
+<figure><img src=".gitbook/assets/unknown (2) (1) (1).png" alt=""><figcaption></figcaption></figure>
 
 7. Review keywords in Step 3, click Save
 
-<figure><img src=".gitbook/assets/unknown (3) (1).png" alt=""><figcaption></figcaption></figure>
+<figure><img src=".gitbook/assets/unknown (3) (1) (1).png" alt=""><figcaption></figcaption></figure>
 
 Done! Aunoo will now monitor news for your topic.
 

@@ -49,7 +49,7 @@ Examples:
 
 Select which topic this group belongs to. Topics are high-level categories for organizing your monitoring.
 
-<figure><img src="../.gitbook/assets/unknown.png" alt=""><figcaption></figcaption></figure>
+<figure><img src="../.gitbook/assets/unknown (3).png" alt=""><figcaption></figcaption></figure>
 
 ***
 

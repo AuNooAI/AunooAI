@@ -26,7 +26,7 @@ A 3-step wizard that helps you configure new topic monitoring:
 
 1. When you first start AuNoo, you will be presented with the onboarding agent.
 
-<figure><img src=".gitbook/assets/unknown (1).png" alt=""><figcaption></figcaption></figure>
+<figure><img src=".gitbook/assets/unknown (1) (1).png" alt=""><figcaption></figcaption></figure>
 
 <br>
 
@@ -35,7 +35,7 @@ A 3-step wizard that helps you configure new topic monitoring:
 
 **Set up your first topic**
 
-<figure><img src=".gitbook/assets/unknown (1) (1).png" alt=""><figcaption></figcaption></figure>
+<figure><img src=".gitbook/assets/unknown (1) (1) (1).png" alt=""><figcaption></figcaption></figure>
 
 1. **Enter the topic or question you’re interested in.**&#x20;
 
@@ -54,13 +54,13 @@ Aunoo’s onboarding agent will make some suggestions for the necessary topic on
 
 Future signals are scenarios for the direction a topic can take. For example, future signals for an AI hype model could be "AI is hype" or "AI is evolving gradually". In the case of tracking a market, it could be "Market Convergence" or "Market Growth Stalling".
 
-<figure><img src=".gitbook/assets/unknown (2).png" alt=""><figcaption></figcaption></figure>
+<figure><img src=".gitbook/assets/unknown (2) (1).png" alt=""><figcaption></figcaption></figure>
 
 **Categories**
 
 Each topic is broken down into categories, making it easier to organize and analyze data. For example, a topic on AI might include subcategories like AI in Finance or Cloud Quarterly Earnings. The topic agent can do most of the heavy lifting for you. All it needs is the topic name and a description.&#x20;
 
-<figure><img src=".gitbook/assets/unknown (3).png" alt=""><figcaption></figcaption></figure>
+<figure><img src=".gitbook/assets/unknown (3) (1).png" alt=""><figcaption></figcaption></figure>
 
 You can amend the topic name or description and use the “Get Different Suggestions” option to regenerate the selection.
 
