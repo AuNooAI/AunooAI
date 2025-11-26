@@ -200,6 +200,7 @@ class ChatMessageRequest(BaseModel):
             "Range: 5-300. Examples: 10 (quick), 25 (standard), 50 (deep), 100+ (comprehensive)"
         )
     )
+    include_charts: bool = Field(False, description="Include charts/visualizations in response")
 
 class PromptRequest(BaseModel):
     name: str = Field(..., description="Unique prompt name")
@@ -370,7 +371,7 @@ async def send_chat_message(req: ChatMessageRequest, session=Depends(verify_sess
                 # Update the chat session to include the profile_id
                 auspex.db.update_auspex_chat_profile(req.chat_id, req.profile_id)
             
-            async for chunk in auspex.chat_with_tools(req.chat_id, req.message, req.model, req.limit, req.tools_config, req.profile_id, req.custom_prompt, req.article_detail_limit):
+            async for chunk in auspex.chat_with_tools(req.chat_id, req.message, req.model, req.limit, req.tools_config, req.profile_id, req.custom_prompt, req.article_detail_limit, req.include_charts):
                 yield f"data: {json.dumps({'content': chunk})}\n\n"
             logger.info("Chat response completed successfully")
             yield f"data: {json.dumps({'done': True})}\n\n"
@@ -1306,6 +1307,9 @@ async def start_deep_research(req: DeepResearchRequest, session=Depends(verify_s
             config.extend_mode = req.config["extend_mode"]
         if "previous_research" in req.config:
             config.previous_research = req.config["previous_research"]
+        if "include_charts" in req.config:
+            config.include_charts = req.config["include_charts"]
+            logger.info(f"Research config from request: include_charts={config.include_charts}")
 
     async def generate_sse():
         """Generate SSE events for research progress."""

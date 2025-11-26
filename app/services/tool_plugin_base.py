@@ -326,7 +326,9 @@ class PromptToolHandler(ToolHandler):
                 )
 
                 # Get AI model and execute
-                model = ai_model_getter()
+                # ai_model_getter is get_ai_model which requires model_name
+                model_name = self.config.get('model') or context.get('model') or 'gpt-4o-mini'
+                model = ai_model_getter(model_name)
                 if model:
                     llm_response = await self._execute_llm(model, full_prompt, context)
             except Exception as e:

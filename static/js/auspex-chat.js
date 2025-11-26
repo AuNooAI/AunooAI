@@ -772,7 +772,8 @@ class FloatingChat {
                     limit: limit,
                     profile_id: profileId,
                     tools_config: this.toolsConfig,
-                    article_detail_limit: limit  // Use same limit for both search and citations
+                    article_detail_limit: limit,  // Use same limit for both search and citations
+                    include_charts: this.includeCharts  // Charts toggle
                 })
             });
 
@@ -817,12 +818,12 @@ class FloatingChat {
                             
                             if (data.content) {
                                 assistantMessage += data.content;
-                                
+
                                 // Create message element if it doesn't exist
                                 if (!messageElement) {
                                     messageElement = this.createStreamingMessage();
                                 }
-                                
+
                                 // Update the streaming message
                                 this.updateStreamingMessage(messageElement, assistantMessage);
                             }
@@ -874,12 +875,24 @@ class FloatingChat {
         // Process chart markers before parsing markdown
         const processedContent = this.processChartMarkers(content, contentDiv);
 
-        // Parse markdown for the text content (with chart markers removed)
-        contentDiv.innerHTML = marked.parse(processedContent.textContent);
+        // Check if we already have charts rendered - preserve them
+        const existingChartContainer = contentDiv.querySelector('.auspex-chart-container');
 
-        // Render any charts that were found
-        if (processedContent.charts && processedContent.charts.length > 0) {
-            this.renderChartsInMessage(contentDiv, processedContent.charts);
+        // Create a container for text content
+        let textContainer = contentDiv.querySelector('.message-text-content');
+        if (!textContainer) {
+            textContainer = document.createElement('div');
+            textContainer.className = 'message-text-content';
+            contentDiv.appendChild(textContainer);
+        }
+
+        // Parse markdown for the text content (with chart markers removed)
+        textContainer.innerHTML = marked.parse(processedContent.textContent);
+
+        // Render any charts that were found (only if not already rendered)
+        if (processedContent.charts && processedContent.charts.length > 0 && !existingChartContainer) {
+            // Insert charts BEFORE the text content
+            this.renderChartsInMessage(contentDiv, processedContent.charts, textContainer);
         }
 
         this.elements.messages.scrollTop = this.elements.messages.scrollHeight;
@@ -906,7 +919,7 @@ class FloatingChat {
                 // Remove marker from text content
                 textContent = textContent.replace(match[0], '');
             } catch (e) {
-                console.error('Failed to parse chart data:', e);
+                // Silent fail during streaming - chart marker might be incomplete
             }
         }
 
@@ -916,9 +929,12 @@ class FloatingChat {
         return { textContent: textContent.trim(), charts };
     }
 
-    renderChartsInMessage(container, charts) {
+    renderChartsInMessage(container, charts, insertBefore = null) {
         /**
          * Render Plotly charts within a message container.
+         * @param {HTMLElement} container - The container to add charts to
+         * @param {Array} charts - Array of chart data objects
+         * @param {HTMLElement} insertBefore - Optional element to insert charts before
          */
         if (!window.Plotly) {
             console.warn('Plotly not loaded, cannot render charts');
@@ -951,8 +967,12 @@ class FloatingChat {
             chartDiv.style.cssText = 'min-height: 350px; width: 100%;';
             chartWrapper.appendChild(chartDiv);
 
-            // Append to message
-            container.appendChild(chartWrapper);
+            // Append to message (insert before text content if specified)
+            if (insertBefore) {
+                container.insertBefore(chartWrapper, insertBefore);
+            } else {
+                container.appendChild(chartWrapper);
+            }
 
             // Render with Plotly
             if (chartData.format === 'json' && chartData.data) {
@@ -1699,8 +1719,9 @@ class FloatingChat {
 
                 btn.textContent = displayName;
 
-                // Add click handler to insert tool query into input
-                btn.addEventListener('click', () => {
+                // Add click handler to insert tool query into input (not execute)
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();  // Prevent quickQueries parent handler from auto-sending
                     this.handlePluginToolClick(tool);
                 });
 
@@ -1739,34 +1760,21 @@ class FloatingChat {
          */
         if (!this.elements.input) return;
 
-        // Get the first trigger pattern to use as query template
-        let queryTemplate = '';
-        if (tool.triggers && tool.triggers.length > 0 && tool.triggers[0].patterns.length > 0) {
-            // Use a natural language version of the first pattern
-            const pattern = tool.triggers[0].patterns[0];
-            // Clean up regex patterns for display
-            queryTemplate = pattern
-                .replace(/\\s\+/g, ' ')
-                .replace(/\.\*/g, '')
-                .replace(/[\\()[\]{}|^$]/g, '')
-                .trim();
-        }
-
         // Format display name
         const displayName = tool.name
             .split('_')
             .map(word => word.charAt(0).toUpperCase() + word.slice(1))
             .join(' ');
 
-        // Build a natural query
+        // Build a natural, descriptive query using the tool name and topic
         const topic = this.elements.topicSelect?.value || 'the topic';
-        const query = queryTemplate || `Run ${displayName} analysis on ${topic}`;
+        const query = `${displayName} for ${topic}`;
 
         // Set the input value
         this.elements.input.value = query;
         this.elements.input.focus();
 
-        this.showNotification(`${displayName} - Edit query and send to run analysis`, 'info');
+        this.showNotification(`Edit query and press Enter to run ${displayName}`, 'info');
     }
 
     // Dynamic Sample Sizing Methods
@@ -2204,7 +2212,8 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
             search_source: searchSourceMap[this.researchMode] || 'hybrid',
             research_mode: this.researchMode,
             extend_mode: this.researchMode === 'extend',
-            previous_research: this.researchMode === 'extend' ? this.previousResearch : null
+            previous_research: this.researchMode === 'extend' ? this.previousResearch : null,
+            include_charts: this.includeCharts
         };
 
         try {

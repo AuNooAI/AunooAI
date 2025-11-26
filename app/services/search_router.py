@@ -338,19 +338,40 @@ class SearchRouter:
                 # Combine results
                 combined_articles = []
 
+                # Process database results
                 if not isinstance(db_results, Exception):
-                    for article in db_results.get("articles", []):
+                    db_articles = db_results.get("articles", [])
+                    logger.info(f"Hybrid: Database search returned {len(db_articles)} articles")
+                    for article in db_articles:
                         article["source_type"] = "database"
                         combined_articles.append(article)
                 else:
                     logger.warning(f"Database search failed in hybrid: {db_results}")
 
-                if not isinstance(ext_results, Exception):
-                    for article in ext_results.get("articles", []):
-                        article["source_type"] = "external"
-                        combined_articles.append(article)
+                # Process external results - check for errors and fallback to TheNewsAPI
+                ext_articles = []
+                if isinstance(ext_results, Exception):
+                    logger.warning(f"External search exception in hybrid: {ext_results}")
+                elif ext_results.get("error") or ext_results.get("total_results", 0) == 0:
+                    # Google PSE failed or returned no results, try TheNewsAPI as fallback
+                    logger.info(f"Hybrid: Google PSE unavailable or empty (error: {ext_results.get('error')}), falling back to TheNewsAPI")
+                    try:
+                        news_results = await tools_service.search_news(
+                            query=query,
+                            max_results=limit // 2,
+                            days_back=7
+                        )
+                        ext_articles = news_results.get("articles", [])
+                        logger.info(f"Hybrid: TheNewsAPI fallback returned {len(ext_articles)} articles")
+                    except Exception as news_err:
+                        logger.warning(f"Hybrid: TheNewsAPI fallback also failed: {news_err}")
                 else:
-                    logger.warning(f"External search failed in hybrid: {ext_results}")
+                    ext_articles = ext_results.get("articles", [])
+                    logger.info(f"Hybrid: Google PSE returned {len(ext_articles)} articles")
+
+                for article in ext_articles:
+                    article["source_type"] = "external"
+                    combined_articles.append(article)
 
                 # Deduplicate by URL/URI
                 seen_urls = set()
@@ -373,6 +394,7 @@ class SearchRouter:
                 results["metadata"]["search_method"] = "hybrid"
                 results["metadata"]["db_count"] = len([a for a in unique_articles if a.get("source_type") == "database"])
                 results["metadata"]["external_count"] = len([a for a in unique_articles if a.get("source_type") == "external"])
+                logger.info(f"Hybrid search complete: {results['metadata']['db_count']} internal + {results['metadata']['external_count']} external = {results['total_count']} total")
 
         except Exception as e:
             logger.error(f"Routed search failed: {e}")

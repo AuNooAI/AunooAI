@@ -112,8 +112,8 @@ class ChartService:
 
         sentiment_counts = df['sentiment'].value_counts()
 
-        # Get colors for each sentiment
-        colors = [self.SENTIMENT_COLORS.get(s, self.SENTIMENT_COLORS['unknown'])
+        # Get colors for each sentiment (case-insensitive lookup)
+        colors = [self.SENTIMENT_COLORS.get(s.lower() if isinstance(s, str) else s, self.SENTIMENT_COLORS['unknown'])
                   for s in sentiment_counts.index]
 
         fig = go.Figure(data=[go.Pie(

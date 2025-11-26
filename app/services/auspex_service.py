@@ -917,7 +917,7 @@ class AuspexService:
         logger.info(f"Using default citation limit: {limit} (available: {total_articles})")
         return limit
 
-    async def chat_with_tools(self, chat_id: int, message: str, model: str = None, limit: int = 50, tools_config: Dict = None, profile_id: int = None, custom_prompt: str = None, article_detail_limit: Optional[int] = None) -> AsyncGenerator[str, None]:
+    async def chat_with_tools(self, chat_id: int, message: str, model: str = None, limit: int = 50, tools_config: Dict = None, profile_id: int = None, custom_prompt: str = None, article_detail_limit: Optional[int] = None, include_charts: bool = False) -> AsyncGenerator[str, None]:
         """Chat with Auspex with optional tool usage and custom system prompt override."""
         if not model:
             model = DEFAULT_MODEL
@@ -978,10 +978,14 @@ class AuspexService:
             use_tools = tools_config and any(tools_config.values()) if tools_config else True
             needs_tools = use_tools and await self._should_use_tools(message)
 
-            # Check for chart request
+            # Check for chart request - either from message keywords or include_charts toggle
             chart_type = self._detect_chart_request(message)
+            # If charts are enabled via toggle and no specific chart type detected, default to sentiment_donut
+            if include_charts and not chart_type:
+                chart_type = "sentiment_donut"
+                logger.info(f"Charts enabled via toggle - using default chart type: {chart_type}")
             chart_marker = None
-            logger.info(f"Chart detection result for message '{message}': chart_type={chart_type}")
+            logger.info(f"Chart detection result for message '{message}': chart_type={chart_type}, include_charts={include_charts}")
 
             if needs_tools:
                 # First check for plugin tools that might handle this query

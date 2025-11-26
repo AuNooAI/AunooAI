@@ -395,8 +395,8 @@ Respond with valid JSON matching the expected schema."""
             forced_source = SearchSource.EXTERNAL if config.allow_external_search else SearchSource.VECTOR_DB
             logger.info(f"Forcing EXTERNAL search (allow_external: {config.allow_external_search})")
         elif config.search_source == "hybrid":
-            forced_source = None  # Let router decide
-            logger.info("Using HYBRID search (router decides)")
+            forced_source = SearchSource.HYBRID  # Force hybrid mode
+            logger.info("Forcing HYBRID search (both internal and external)")
 
         for i, search_query in enumerate(state.search_queries):
             query_text = search_query.get("query", state.query)
@@ -453,12 +453,15 @@ Respond with valid JSON matching the expected schema."""
                             state.sources_used["external"] += 1
                         elif actual_source == "hybrid":
                             # For hybrid, check individual article's source_type (set by router)
-                            if article.get("source_type") == "database" or article.get("_from_vector_db"):
+                            article_source = article.get("source_type")
+                            if article_source == "database" or article.get("_from_vector_db"):
                                 article["_source_type"] = "internal"
                                 state.sources_used["internal"] += 1
+                                logger.debug(f"Hybrid article marked internal: {article.get('title', '')[:50]}")
                             else:
                                 article["_source_type"] = "external"
                                 state.sources_used["external"] += 1
+                                logger.debug(f"Hybrid article marked external (source_type={article_source}): {article.get('title', '')[:50]}")
                         else:
                             # Fallback: default to internal if we forced internal search
                             if config.search_source == "internal":
@@ -698,6 +701,18 @@ Example: [1] Article Title - https://example.com *(internal)*"""
         # Post-process to add source attribution if not already present
         state.final_report = self._add_source_attribution(raw_report, article_refs, state)
 
+        # Add chart if include_charts is enabled
+        if config.include_charts and state.raw_results:
+            chart_marker = self._generate_chart_for_report(state.raw_results, state.topic)
+            if chart_marker:
+                # Insert chart at the beginning of the report (after title)
+                lines = state.final_report.split('\n', 2)
+                if len(lines) >= 2:
+                    state.final_report = lines[0] + '\n' + lines[1] + '\n\n' + chart_marker + '\n\n' + (lines[2] if len(lines) > 2 else '')
+                else:
+                    state.final_report = chart_marker + '\n\n' + state.final_report
+                logger.info(f"Added chart to research report (include_charts={config.include_charts})")
+
         yield {
             "status": "completed",
             "progress": 1.0,
@@ -729,16 +744,34 @@ Example: [1] Article Title - https://example.com *(internal)*"""
 
         # Build URL to source type mapping
         url_to_source_type = {}
+        domain_to_source_type = {}  # Fallback: map domains to source types
+
         for ref in article_refs:
             url = ref.get("url", "")
             if url:
                 url_to_source_type[url] = ref.get("source_type", "unknown")
+                # Also extract domain for fallback matching
+                domain_match = re.search(r'https?://([^/]+)', url)
+                if domain_match:
+                    domain = domain_match.group(1)
+                    # Only set domain mapping if we have a definite source type
+                    if ref.get("source_type") in ["internal", "external"]:
+                        domain_to_source_type[domain] = ref.get("source_type")
 
         # Also check raw_results for more complete mapping
         for article in state.raw_results:
             url = article.get("url") or article.get("uri", "")
-            if url and url not in url_to_source_type:
-                url_to_source_type[url] = article.get("_source_type", "unknown")
+            if url:
+                if url not in url_to_source_type:
+                    url_to_source_type[url] = article.get("_source_type", "unknown")
+                # Extract domain for fallback
+                domain_match = re.search(r'https?://([^/]+)', url)
+                if domain_match:
+                    domain = domain_match.group(1)
+                    if article.get("_source_type") in ["internal", "external"]:
+                        domain_to_source_type[domain] = article.get("_source_type")
+
+        logger.debug(f"URL mapping has {len(url_to_source_type)} URLs, {len(domain_to_source_type)} domains")
 
         # Process each line in references section
         lines = references_section.split('\n')
@@ -755,6 +788,13 @@ Example: [1] Article Title - https://example.com *(internal)*"""
             if url_match:
                 url = url_match.group(0).rstrip(')')
                 source_type = url_to_source_type.get(url, "unknown")
+
+                # Fallback: try domain matching if URL not found
+                if source_type == "unknown":
+                    domain_match = re.search(r'https?://([^/]+)', url)
+                    if domain_match:
+                        domain = domain_match.group(1)
+                        source_type = domain_to_source_type.get(domain, "unknown")
 
                 if source_type == "internal":
                     line = line.rstrip() + " *(internal)*"
@@ -810,6 +850,59 @@ Include:
 - References
 
 Use inline citations: [Article Title](URL)"""
+
+    def _generate_chart_for_report(self, articles: List[Dict], topic: str) -> Optional[str]:
+        """Generate a chart marker for the research report based on article sentiments."""
+        from collections import Counter
+        import json
+
+        try:
+            # Count sentiments
+            sentiments = Counter()
+            for article in articles:
+                sentiment = article.get('sentiment', 'Unknown')
+                if sentiment:
+                    sentiments[sentiment] += 1
+
+            if not sentiments:
+                logger.warning("No sentiment data available for chart")
+                return None
+
+            # Prepare chart data
+            labels = list(sentiments.keys())
+            values = list(sentiments.values())
+
+            # Color mapping for sentiments
+            color_map = {
+                'Positive': '#10B981',  # Green
+                'Negative': '#EF4444',  # Red
+                'Neutral': '#6B7280',   # Gray
+                'Mixed': '#F59E0B',     # Amber
+                'Unknown': '#9CA3AF'    # Light gray
+            }
+            colors = [color_map.get(label, '#6B7280') for label in labels]
+
+            chart_data = {
+                "chart_type": "sentiment_donut",
+                "data": {
+                    "labels": labels,
+                    "values": values,
+                    "colors": colors
+                },
+                "layout": {
+                    "title": f"Sentiment Distribution: {topic}",
+                    "showlegend": True
+                }
+            }
+
+            # Return chart marker that the frontend can process
+            chart_marker = f"<!-- CHART_DATA:{json.dumps(chart_data)}:END_CHART -->"
+            logger.info(f"Generated sentiment chart: {len(articles)} articles, distribution: {dict(sentiments)}")
+            return chart_marker
+
+        except Exception as e:
+            logger.error(f"Error generating chart for report: {e}")
+            return None
 
 
 # Singleton instance
