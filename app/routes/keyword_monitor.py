@@ -872,9 +872,10 @@ async def get_settings(db=Depends(get_database_instance), session=Depends(verify
             logger.debug(f"Returning response data: {response_data}")
             return response_data
         else:
+            # Return defaults for new users
             return {
-                "check_interval": 15,
-                "interval_unit": 60,
+                "check_interval": 24,  # 24 hours default
+                "interval_unit": 3600,  # Hours (in seconds)
                 "search_fields": "title,description,content",
                 "language": "en",
                 "sort_by": "publishedAt",
@@ -883,14 +884,15 @@ async def get_settings(db=Depends(get_database_instance), session=Depends(verify
                 "is_enabled": True,
                 "provider": "newsapi",
                 "providers": '["newsapi"]',  # Default to newsapi
-                "auto_ingest_enabled": False,
+                "auto_ingest_enabled": True,  # Auto-processing ON by default
                 "min_relevance_threshold": 0.0,
                 "quality_control_enabled": True,
-                "auto_save_approved_only": False,
-                "default_llm_model": "gpt-4o-mini",
-                "llm_temperature": 0.1,
+                "auto_save_approved_only": True,  # Save Approved Only ON by default
+                "default_llm_model": None,  # null = use first available model
+                "llm_temperature": 0.2,  # Temperature 0.2 default
                 "llm_max_tokens": 1000,
                 "max_articles_per_run": 50,
+                "auto_regenerate_reports": True,  # Auto-regenerate ON by default
                 "requests_today": 0,
                 "last_error": None,
                 "total_keywords": total_keywords
@@ -2292,8 +2294,8 @@ async def get_auto_ingest_status(
                     "min_relevance_threshold": float(settings[1] or 0.0),
                     "quality_control_enabled": bool(settings[2]),
                     "auto_save_approved_only": bool(settings[3]),
-                    "default_llm_model": settings[4] or "gpt-4o-mini",
-                    "llm_temperature": float(settings[5] or 0.1),
+                    "default_llm_model": settings[4],  # Can be None = use first available
+                    "llm_temperature": float(settings[5] if settings[5] is not None else 0.2),
                     "llm_max_tokens": int(settings[6] or 1000)
                 },
                 "statistics": {
@@ -2304,15 +2306,16 @@ async def get_auto_ingest_status(
                 }
             }
         else:
+            # Return defaults for new users
             return {
                 "success": True,
                 "settings": {
-                    "auto_ingest_enabled": False,
+                    "auto_ingest_enabled": True,  # Auto-processing ON by default
                     "min_relevance_threshold": 0.0,
                     "quality_control_enabled": True,
-                    "auto_save_approved_only": False,
-                    "default_llm_model": "gpt-4o-mini",
-                    "llm_temperature": 0.1,
+                    "auto_save_approved_only": True,  # Save Approved Only ON by default
+                    "default_llm_model": None,  # null = use first available model
+                    "llm_temperature": 0.2,  # Temperature 0.2 default
                     "llm_max_tokens": 1000
                 },
                 "statistics": {

@@ -24,7 +24,7 @@ from app.services.async_db import AsyncDatabase, get_async_database_instance
 from app.models.media_bias import MediaBias
 from app.relevance import RelevanceCalculator
 from app.analyzers.article_analyzer import ArticleAnalyzer
-from app.ai_models import LiteLLMModel
+from app.ai_models import LiteLLMModel, get_available_models
 import asyncio
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
@@ -67,23 +67,32 @@ class AutomatedIngestService:
     def get_llm_client(self, model_override: str = None) -> str:
         """
         Get the LLM model name to use for processing
-        
+
         Args:
             model_override: Optional model name to override default
-            
+
         Returns:
             LLM model name to use
         """
         if model_override:
             return model_override
-            
+
         # Get from database settings
         try:
-            return self.db.facade.get_configured_llm_model()
+            configured_model = self.db.facade.get_configured_llm_model()
+            if configured_model:
+                return configured_model
+
+            # If no model configured (None), use first available model
+            available = get_available_models()
+            if available and len(available) > 0:
+                first_model = available[0].get('name')
+                self.logger.info(f"No default model configured, using first available: {first_model}")
+                return first_model
         except Exception as e:
             self.logger.warning(f"Could not get LLM settings from database: {e}")
-        
-        return "gpt-4o-mini"  # Default fallback
+
+        return "gpt-4o-mini"  # Ultimate fallback
     
     def get_llm_parameters(self) -> Dict[str, Any]:
         """
@@ -1199,7 +1208,7 @@ class AutomatedIngestService:
     def get_auto_ingest_settings(self) -> Dict[str, Any]:
         """
         Get all auto-ingest settings from database
-        
+
         Returns:
             Dictionary containing all auto-ingest configuration
         """
@@ -1207,26 +1216,41 @@ class AutomatedIngestService:
             settings = self.db.facade.get_auto_ingest_settings()
 
             if settings:
+                # Get default model - if None, use first available
+                default_model = settings[4]
+                if not default_model:
+                    available = get_available_models()
+                    if available and len(available) > 0:
+                        default_model = available[0].get('name')
+
                 return {
                     "auto_ingest_enabled": bool(settings[0]),
                     "min_relevance_threshold": float(settings[1] or 0.0),
                     "quality_control_enabled": bool(settings[2]),
                     "auto_save_approved_only": bool(settings[3]),
-                    "default_llm_model": settings[4] or "gpt-4o-mini",
-                    "llm_temperature": float(settings[5] or 0.1),
+                    "default_llm_model": default_model,
+                    "llm_temperature": float(settings[5] if settings[5] is not None else 0.2),
                     "llm_max_tokens": int(settings[6] or 1000)
                 }
         except Exception as e:
             self.logger.error(f"Error getting auto-ingest settings: {e}")
-        
-        # Return defaults
+
+        # Return defaults for new users - get first available model
+        default_model = None
+        try:
+            available = get_available_models()
+            if available and len(available) > 0:
+                default_model = available[0].get('name')
+        except:
+            pass
+
         return {
-            "auto_ingest_enabled": False,
+            "auto_ingest_enabled": True,  # Auto-processing ON by default
             "min_relevance_threshold": 0.0,
             "quality_control_enabled": True,
-            "auto_save_approved_only": False,
-            "default_llm_model": "gpt-4o-mini",
-            "llm_temperature": 0.1,
+            "auto_save_approved_only": True,  # Save Approved Only ON by default
+            "default_llm_model": default_model,
+            "llm_temperature": 0.2,  # Temperature 0.2 default
             "llm_max_tokens": 1000
         }
     

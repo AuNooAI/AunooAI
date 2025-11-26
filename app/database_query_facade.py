@@ -745,6 +745,10 @@ class DatabaseQueryFacade:
 
     #### AUTOMATED INGEST SERVICE ####
     def get_configured_llm_model(self):
+        """
+        Get the configured LLM model name.
+        Returns None if not set (meaning use first available model).
+        """
         statement = select(
             keyword_monitor_settings.c.default_llm_model,
             keyword_monitor_settings.c.llm_temperature,
@@ -754,7 +758,9 @@ class DatabaseQueryFacade:
         )
         settings = self._execute_with_rollback(statement).mappings().fetchone()
         if settings:
-            return settings['default_llm_model'] or "gpt-4o-mini"
+            # Return the model or None if not set (frontend will select first available)
+            return settings['default_llm_model']
+        return None
 
     def get_llm_parameters(self):
         statement = select(

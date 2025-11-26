@@ -225,15 +225,28 @@ class DatabaseCreator:
     def _create_default_settings(self, cursor: sqlite3.Cursor) -> None:
         """Create default keyword monitor settings and status."""
         try:
-            # Insert default settings
+            # Insert default settings with auto-processing defaults:
+            # - check_interval: 24 hours
+            # - auto_ingest_enabled: ON
+            # - quality_control_enabled: ON
+            # - auto_save_approved_only: ON
+            # - llm_temperature: 0.2
+            # - auto_regenerate_reports: ON
+            # - default_llm_model: NULL (will use first available model)
             cursor.execute("""
                 INSERT INTO keyword_monitor_settings (
                     id, check_interval, interval_unit, search_fields, language,
-                    sort_by, page_size, is_enabled, daily_request_limit, search_date_range
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    sort_by, page_size, is_enabled, daily_request_limit, search_date_range,
+                    auto_ingest_enabled, min_relevance_threshold, quality_control_enabled,
+                    auto_save_approved_only, default_llm_model, llm_temperature, llm_max_tokens,
+                    auto_regenerate_reports
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
-                1, 15, 3600, 'title,description,content', 'en',
-                'publishedAt', 10, 1, 100, 7
+                1, 24, 3600, 'title,description,content', 'en',
+                'publishedAt', 10, 1, 100, 7,
+                1, 0.0, 1,  # auto_ingest_enabled, min_relevance_threshold, quality_control_enabled
+                1, None, 0.2, 1000,  # auto_save_approved_only, default_llm_model (NULL=first available), llm_temperature, llm_max_tokens
+                1  # auto_regenerate_reports
             ))
             
             # Insert default status
