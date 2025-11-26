@@ -13,6 +13,7 @@
   * [Six Articles](doing-research/six-articles.md)
 * [Operations HQ](operations-hq.md)
 * [Settings Overview](settings-overview.md)
+* [Anticipate - Foresight Tools](anticipate-foresight-tools.md)
 * [Docker Installation Guide](docker-installation-guide.md)
 * [FAQ](faq.md)
 * [KISSQL – Keep-It-Simple,Stupid! Query Language](kissql-keep-it-simple-stupid-query-language.md)
