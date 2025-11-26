@@ -20,6 +20,8 @@ Invoke-WebRequest -Uri
 -OutFile "docker-compose.yml"
 ```
 
+<mark style="color:$warning;">TIP: Make sure you have Docker Desktop running, or you will get an error</mark>
+
 Linux:
 
 ```
