@@ -58,6 +58,9 @@ class ResearchState:
     credibility_assessment: Dict = field(default_factory=dict)
     final_report: str = ""
 
+    # Source tracking for internal vs external attribution
+    sources_used: Dict[str, int] = field(default_factory=lambda: {"internal": 0, "external": 0})
+
     # Progress tracking
     current_stage: ResearchStage = ResearchStage.PLANNING
     stage_progress: Dict[str, float] = field(default_factory=lambda: {
@@ -96,7 +99,8 @@ class ResearchState:
             "current_stage": self.current_stage.value,
             "stage_progress": self.stage_progress,
             "errors": self.errors,
-            "articles_count": len(self.raw_results)
+            "articles_count": len(self.raw_results),
+            "sources_used": self.sources_used
         }
 
 
@@ -131,6 +135,12 @@ class ResearchConfig:
     # Feature flags
     allow_external_search: bool = True
     include_charts: bool = True
+
+    # Research mode settings
+    search_source: str = "hybrid"  # 'internal', 'external', 'hybrid'
+    research_mode: str = "hybrid"  # 'off', 'internal', 'hybrid', 'external', 'extend'
+    extend_mode: bool = False
+    previous_research: Optional[str] = None
 
     @classmethod
     def from_workflow(cls, workflow_config: Dict) -> "ResearchConfig":
@@ -365,6 +375,7 @@ Respond with valid JSON matching the expected schema."""
         """
         Stage 2: Searching
         Execute search queries and gather articles.
+        Tracks source type (internal/external) for each article.
         """
         total_queries = len(state.search_queries)
         if total_queries == 0:
@@ -373,6 +384,15 @@ Respond with valid JSON matching the expected schema."""
 
         all_articles = []
         seen_urls = set()
+
+        # Determine forced search source based on research mode config
+        forced_source = None
+        if config.search_source == "internal":
+            forced_source = SearchSource.VECTOR_DB
+        elif config.search_source == "external":
+            forced_source = SearchSource.EXTERNAL if config.allow_external_search else SearchSource.VECTOR_DB
+        elif config.search_source == "hybrid":
+            forced_source = None  # Let router decide
 
         for i, search_query in enumerate(state.search_queries):
             query_text = search_query.get("query", state.query)
@@ -387,13 +407,15 @@ Respond with valid JSON matching the expected schema."""
             }
 
             try:
-                # Determine search source
-                if search_type == "database":
-                    source = SearchSource.VECTOR_DB
-                elif search_type == "external":
-                    source = SearchSource.EXTERNAL if config.allow_external_search else SearchSource.VECTOR_DB
-                else:
-                    source = None  # Let router decide
+                # Use forced source from config, or fall back to query-specific type
+                source = forced_source
+                if source is None:
+                    if search_type == "database":
+                        source = SearchSource.VECTOR_DB
+                    elif search_type == "external":
+                        source = SearchSource.EXTERNAL if config.allow_external_search else SearchSource.VECTOR_DB
+                    else:
+                        source = None  # Let router decide
 
                 # Execute search
                 results = await self.search_router.execute_routed_search(
@@ -404,12 +426,33 @@ Respond with valid JSON matching the expected schema."""
                     tools_service=self.tools
                 )
 
-                # Deduplicate and add articles
+                # Determine actual source type from results
+                actual_source = results.get("source_type", "unknown")
+
+                # Deduplicate and add articles with source tracking
                 for article in results.get("articles", []):
                     url = article.get("url") or article.get("uri", "")
                     if url and url not in seen_urls:
                         seen_urls.add(url)
                         article["_objective_id"] = search_query.get("objective_id")
+
+                        # Track source type for attribution
+                        # Check if article came from vector DB (internal) or external search
+                        if actual_source == "vector_db" or article.get("_from_vector_db"):
+                            article["_source_type"] = "internal"
+                            state.sources_used["internal"] += 1
+                        elif actual_source == "external" or article.get("_from_external"):
+                            article["_source_type"] = "external"
+                            state.sources_used["external"] += 1
+                        else:
+                            # Default based on presence of certain fields
+                            if article.get("embedding") or article.get("vector_score"):
+                                article["_source_type"] = "internal"
+                                state.sources_used["internal"] += 1
+                            else:
+                                article["_source_type"] = "external"
+                                state.sources_used["external"] += 1
+
                         all_articles.append(article)
 
                     # Stop if we have enough
@@ -446,14 +489,16 @@ Respond with valid JSON matching the expected schema."""
             "sources_list": list(sources)[:20],
             "categories": list(categories),
             "sentiment_distribution": sentiments,
-            "total_articles": len(all_articles)
+            "total_articles": len(all_articles),
+            "sources_used": state.sources_used
         }
 
         yield {
             "status": "completed",
             "progress": 1.0,
             "articles_found": len(all_articles),
-            "unique_sources": len(sources)
+            "unique_sources": len(sources),
+            "sources_used": state.sources_used
         }
 
     async def _run_synthesis(self, state: ResearchState, config: ResearchConfig):
@@ -538,7 +583,7 @@ Respond with valid JSON."""
     ) -> AsyncGenerator[Dict, None]:
         """
         Stage 4: Writing
-        Produce the final research report.
+        Produce the final research report with source attribution.
         """
         writer_prompt = self._load_agent_prompt("report_writer")
         if not writer_prompt:
@@ -547,7 +592,7 @@ Respond with valid JSON."""
         # Build context for writing
         system_prompt = writer_prompt
 
-        # Prepare article references for citations
+        # Prepare article references for citations with source type
         article_refs = []
         for i, article in enumerate(state.raw_results[:30]):  # Top 30 for citations
             ref = {
@@ -555,9 +600,15 @@ Respond with valid JSON."""
                 "title": article.get("title", "Untitled"),
                 "source": article.get("news_source") or article.get("source", "Unknown"),
                 "url": article.get("url") or article.get("uri", ""),
-                "date": article.get("publication_date", "")
+                "date": article.get("publication_date", ""),
+                "source_type": article.get("_source_type", "unknown")  # internal or external
             }
             article_refs.append(ref)
+
+        # Build source summary header
+        internal_count = state.sources_used.get("internal", 0)
+        external_count = state.sources_used.get("external", 0)
+        source_summary = f"Sources: {internal_count} internal, {external_count} external"
 
         user_prompt = f"""Write a comprehensive research report based on the following:
 
@@ -566,6 +617,9 @@ Respond with valid JSON."""
 
 ## Topic
 {state.topic}
+
+## Source Summary
+{source_summary}
 
 ## Report Outline
 {json.dumps(state.report_outline, indent=2)}
@@ -577,15 +631,23 @@ Respond with valid JSON."""
 {json.dumps(state.credibility_assessment, indent=2)}
 
 ## Available Sources for Citation
+Each source has a "source_type" field indicating if it's from our internal database ("internal") or external web search ("external").
 {json.dumps(article_refs, indent=2)}
 
 ## Source Metadata
 - Total articles analyzed: {len(state.raw_results)}
-- Unique sources: {state.source_metadata.get('unique_sources', 0)}
+- Internal sources: {internal_count}
+- External sources: {external_count}
+- Unique news outlets: {state.source_metadata.get('unique_sources', 0)}
 - Categories covered: {', '.join(c for c in state.source_metadata.get('categories', [])[:10] if c)}
 
 Write the complete research report with inline citations using [Source Name](URL) format.
-Include: Executive Summary, Methodology, Findings, Analysis, Conclusions, Limitations, and References."""
+Include: Executive Summary, Methodology, Findings, Analysis, Conclusions, Limitations, and References.
+
+IMPORTANT: In the References section at the end, after each reference add the source attribution:
+- For internal database sources: add *(internal)* after the reference
+- For external web sources: add *(web)* after the reference
+Example: [1] Article Title - https://example.com *(internal)*"""
 
         # Stream the response
         report_chunks = []
@@ -616,13 +678,84 @@ Include: Executive Summary, Methodology, Findings, Analysis, Conclusions, Limita
                 "chunk": content
             }
 
-        state.final_report = "".join(report_chunks)
+        raw_report = "".join(report_chunks)
+
+        # Post-process to add source attribution if not already present
+        state.final_report = self._add_source_attribution(raw_report, article_refs, state)
 
         yield {
             "status": "completed",
             "progress": 1.0,
-            "report_length": len(state.final_report)
+            "report_length": len(state.final_report),
+            "sources_used": state.sources_used
         }
+
+    def _add_source_attribution(self, report: str, article_refs: List[Dict], state: ResearchState) -> str:
+        """
+        Post-process report to ensure source attribution in References section.
+        Adds *(internal)* or *(web)* after each reference if not already present.
+        """
+        import re
+
+        # Find the References section
+        references_match = re.search(r'(##?\s*References?.*?)($|\n##)', report, re.IGNORECASE | re.DOTALL)
+        if not references_match:
+            # No references section found, add source summary at the end
+            internal_count = state.sources_used.get("internal", 0)
+            external_count = state.sources_used.get("external", 0)
+            source_header = f"\n\n---\n**Sources:** {internal_count} internal, {external_count} external\n"
+            return report + source_header
+
+        references_section = references_match.group(1)
+        before_refs = report[:references_match.start()]
+        after_refs = report[references_match.end():]
+        if references_match.group(2) == '\n##':
+            after_refs = '\n##' + after_refs
+
+        # Build URL to source type mapping
+        url_to_source_type = {}
+        for ref in article_refs:
+            url = ref.get("url", "")
+            if url:
+                url_to_source_type[url] = ref.get("source_type", "unknown")
+
+        # Also check raw_results for more complete mapping
+        for article in state.raw_results:
+            url = article.get("url") or article.get("uri", "")
+            if url and url not in url_to_source_type:
+                url_to_source_type[url] = article.get("_source_type", "unknown")
+
+        # Process each line in references section
+        lines = references_section.split('\n')
+        processed_lines = []
+
+        for line in lines:
+            # Skip if already has attribution
+            if '*(internal)*' in line or '*(web)*' in line:
+                processed_lines.append(line)
+                continue
+
+            # Check if line contains a URL
+            url_match = re.search(r'https?://[^\s\)]+', line)
+            if url_match:
+                url = url_match.group(0).rstrip(')')
+                source_type = url_to_source_type.get(url, "unknown")
+
+                if source_type == "internal":
+                    line = line.rstrip() + " *(internal)*"
+                elif source_type == "external":
+                    line = line.rstrip() + " *(web)*"
+
+            processed_lines.append(line)
+
+        # Add source summary header before references
+        internal_count = state.sources_used.get("internal", 0)
+        external_count = state.sources_used.get("external", 0)
+        source_header = f"\n**Sources:** {internal_count} internal, {external_count} external\n\n"
+
+        new_references = '\n'.join(processed_lines)
+
+        return before_refs + source_header + new_references + after_refs
 
     def _get_default_planner_prompt(self) -> str:
         """Default planner prompt if agent not loaded."""
