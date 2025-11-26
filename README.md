@@ -4,6 +4,19 @@
 
 Welcome to the AunooAI documentation. AunooAI is an open strategic intelligence platform that automatically collects, analyzes, and organizes security news articles to help researchers and foresight professionals to stay informed without information overload.
 
+
+
+**Aunoo AI offers:**
+
+* Multisource research, across news, research papers and social media
+* Media Bias, Factuality and Credibility ratings&#x20;
+* Relevance Scoring
+* Quality Control
+* Semantic search and analysis
+* Foresight visualizations
+* Deep Research Agent
+* Topic Ontology Agent
+
 ### Quick Links
 
 * GitHub Repository: [https://github.com/AuNooAI/AunooAI](https://github.com/AuNooAI/AunooAI)
