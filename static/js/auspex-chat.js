@@ -32,8 +32,9 @@ class FloatingChat {
         this.chatSessions = [];
         this.isStreaming = false;
         this.modalInstance = null;
-        this.researchMode = false;
+        this.researchMode = 'off';  // 'off', 'internal', 'hybrid', 'external', 'extend'
         this.researchInProgress = false;
+        this.previousResearch = null;  // Stores last research output for extend mode
         
         this.storageKeys = {
             topic: 'auspex_floating_last_topic',
@@ -43,7 +44,8 @@ class FloatingChat {
             customQueries: 'auspex_floating_custom_queries',
             minimized: 'auspex_floating_minimized',
             toolsConfig: 'auspex_floating_tools_config',
-            researchMode: 'auspex_floating_research_mode'
+            researchMode: 'auspex_floating_research_mode',
+            previousResearch: 'auspex_floating_previous_research'
         };
         
         this.customQueries = this.loadCustomQueries();
@@ -678,8 +680,8 @@ class FloatingChat {
         const message = this.elements.input.value.trim();
         if (!message) return;
 
-        // Check if research mode is enabled
-        if (this.researchMode) {
+        // Check if research mode is enabled (not 'off')
+        if (this.researchMode && this.researchMode !== 'off') {
             this.elements.input.value = '';
             await this.startDeepResearch(message);
             return;
@@ -1942,42 +1944,92 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
 
     // ==================== RESEARCH MODE ====================
 
-    toggleResearchMode() {
-        this.researchMode = !this.researchMode;
-        localStorage.setItem(this.storageKeys.researchMode, this.researchMode);
+    // Research modes cycle: off -> internal -> hybrid -> external -> extend -> off
+    getNextResearchMode() {
+        const modes = ['off', 'internal', 'hybrid', 'external', 'extend'];
+        const currentIndex = modes.indexOf(this.researchMode);
+        return modes[(currentIndex + 1) % modes.length];
+    }
 
-        // Update UI to reflect research mode
-        const researchToggle = document.getElementById('researchModeToggle');
-        if (researchToggle) {
-            researchToggle.classList.toggle('active', this.researchMode);
-            researchToggle.setAttribute('aria-pressed', this.researchMode);
+    toggleResearchMode() {
+        const newMode = this.getNextResearchMode();
+        this.setResearchMode(newMode);
+    }
+
+    setResearchMode(mode) {
+        // Valid modes: 'off', 'internal', 'hybrid', 'external', 'extend'
+        const validModes = ['off', 'internal', 'hybrid', 'external', 'extend'];
+        if (!validModes.includes(mode)) {
+            console.warn(`Invalid research mode: ${mode}, defaulting to 'off'`);
+            mode = 'off';
         }
 
-        // Update input placeholder
+        this.researchMode = mode;
+        localStorage.setItem(this.storageKeys.researchMode, mode);
+
+        // Load previous research for extend mode
+        if (mode === 'extend') {
+            this.previousResearch = localStorage.getItem(this.storageKeys.previousResearch) || null;
+            if (!this.previousResearch) {
+                this.showNotification('No previous research found. Run a research first, then use Extend.', 'warning');
+            }
+        }
+
+        // Update toggle button appearance
+        const researchToggle = document.getElementById('researchModeToggle');
+        if (researchToggle) {
+            const isActive = mode !== 'off';
+            researchToggle.classList.toggle('active', isActive);
+            researchToggle.classList.toggle('btn-primary', isActive);
+            researchToggle.classList.toggle('btn-outline-secondary', !isActive);
+            researchToggle.setAttribute('aria-pressed', isActive);
+
+            // Update button text to show current mode
+            const modeLabels = {
+                'off': 'Research',
+                'internal': 'Internal',
+                'hybrid': 'Hybrid',
+                'external': 'External',
+                'extend': 'Extend'
+            };
+            researchToggle.innerHTML = `<i class="fas fa-microscope me-1"></i>${modeLabels[mode]}`;
+            researchToggle.title = `Research Mode: ${modeLabels[mode]} (click to cycle)`;
+        }
+
+        // Update input placeholder based on mode
         if (this.elements.input) {
-            this.elements.input.placeholder = this.researchMode
-                ? 'Enter your research question for deep analysis...'
-                : 'Type your message...';
+            const placeholders = {
+                'off': 'Type your message...',
+                'internal': 'Research using internal database only...',
+                'hybrid': 'Research using internal + external sources...',
+                'external': 'Research using external web sources only...',
+                'extend': 'Extend previous research with new query...'
+            };
+            this.elements.input.placeholder = placeholders[mode] || 'Type your message...';
         }
 
         // Update send button appearance
         if (this.elements.sendBtn) {
-            this.elements.sendBtn.innerHTML = this.researchMode
-                ? '<i class="bi bi-search"></i> Research'
-                : '<i class="bi bi-send"></i>';
-            this.elements.sendBtn.title = this.researchMode
-                ? 'Start Deep Research'
-                : 'Send Message';
+            if (mode === 'off') {
+                this.elements.sendBtn.innerHTML = '<i class="fas fa-paper-plane"></i>';
+                this.elements.sendBtn.title = 'Send Message';
+            } else {
+                this.elements.sendBtn.innerHTML = '<i class="fas fa-search"></i>';
+                this.elements.sendBtn.title = 'Start Deep Research';
+            }
         }
 
-        this.showNotification(
-            this.researchMode
-                ? 'Research Mode Enabled - Your queries will trigger comprehensive multi-stage research'
-                : 'Research Mode Disabled - Standard chat mode active',
-            'info'
-        );
+        // Show mode change notification
+        const modeNames = {
+            'off': 'Chat Mode',
+            'internal': 'Internal Only',
+            'hybrid': 'Hybrid (Internal + External)',
+            'external': 'External Only',
+            'extend': 'Extend Previous Research'
+        };
+        this.showNotification(`${modeNames[mode]} - ${mode === 'off' ? 'Standard chat active' : 'Queries trigger deep research'}`, 'info');
 
-        console.log(`Research mode: ${this.researchMode ? 'enabled' : 'disabled'}`);
+        console.log(`Research mode set to: ${mode}`);
     }
 
     async startDeepResearch(query) {
@@ -1992,7 +2044,7 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
             return;
         }
 
-        console.log(`Starting deep research: query="${query}", topic="${topic}"`);
+        console.log(`Starting deep research: query="${query}", topic="${topic}", mode="${this.researchMode}"`);
 
         this.researchInProgress = true;
         this.addMessage(query, true);
@@ -2001,6 +2053,21 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
         const progressElement = this.createResearchProgressElement();
         this.elements.messages.appendChild(progressElement);
         this.elements.messages.scrollTop = this.elements.messages.scrollHeight;
+
+        // Build research config based on current mode
+        const searchSourceMap = {
+            'internal': 'internal',
+            'external': 'external',
+            'hybrid': 'hybrid',
+            'extend': 'hybrid'
+        };
+
+        const researchConfig = {
+            search_source: searchSourceMap[this.researchMode] || 'hybrid',
+            research_mode: this.researchMode,
+            extend_mode: this.researchMode === 'extend',
+            previous_research: this.researchMode === 'extend' ? this.previousResearch : null
+        };
 
         try {
             const response = await fetch('/api/auspex/research', {
@@ -2011,7 +2078,8 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
                 body: JSON.stringify({
                     query: query,
                     topic: topic,
-                    chat_id: this.currentChatId
+                    chat_id: this.currentChatId,
+                    config: researchConfig
                 })
             });
 
@@ -2141,6 +2209,13 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
             if (finalReport && progressElement.parentNode) {
                 progressElement.remove();
                 this.addMessage(finalReport, false);
+            }
+
+            // Store research output for extend mode
+            if (finalReport) {
+                this.previousResearch = finalReport;
+                localStorage.setItem(this.storageKeys.previousResearch, finalReport);
+                console.log('Research stored for extend mode');
             }
 
         } catch (error) {
@@ -2285,27 +2360,50 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
     }
 
     initResearchModeToggle() {
-        // Load saved research mode state
-        this.researchMode = localStorage.getItem(this.storageKeys.researchMode) === 'true';
+        // Load saved research mode state (now a string: 'off', 'internal', 'hybrid', 'external', 'extend')
+        const savedMode = localStorage.getItem(this.storageKeys.researchMode);
+        // Handle legacy boolean values and default to 'off'
+        if (savedMode === 'true') {
+            this.researchMode = 'hybrid';  // Legacy true -> hybrid
+        } else if (savedMode && savedMode !== 'false') {
+            this.researchMode = savedMode;
+        } else {
+            this.researchMode = 'off';
+        }
+
+        // Load previous research for extend mode
+        this.previousResearch = localStorage.getItem(this.storageKeys.previousResearch) || null;
 
         // Find or create research mode toggle button
         const toolsConfigBtn = document.getElementById('toolsConfigBtn');
         if (toolsConfigBtn && !document.getElementById('researchModeToggle')) {
+            const isActive = this.researchMode !== 'off';
+            const modeLabels = {
+                'off': 'Research',
+                'internal': 'Internal',
+                'hybrid': 'Hybrid',
+                'external': 'External',
+                'extend': 'Extend'
+            };
+
             const toggleBtn = document.createElement('button');
             toggleBtn.id = 'researchModeToggle';
-            toggleBtn.className = `btn btn-sm ${this.researchMode ? 'btn-primary' : 'btn-outline-secondary'} ms-2`;
-            toggleBtn.innerHTML = '<i class="bi bi-search"></i> Research';
-            toggleBtn.title = 'Toggle Deep Research Mode';
-            toggleBtn.setAttribute('aria-pressed', this.researchMode);
+            toggleBtn.className = `btn btn-sm ${isActive ? 'btn-primary' : 'btn-outline-secondary'} ms-2`;
+            toggleBtn.innerHTML = `<i class="fas fa-microscope me-1"></i>${modeLabels[this.researchMode]}`;
+            toggleBtn.title = `Research Mode: ${modeLabels[this.researchMode]} (click to cycle)`;
+            toggleBtn.setAttribute('aria-pressed', isActive);
             toggleBtn.onclick = () => this.toggleResearchMode();
 
             toolsConfigBtn.parentNode.insertBefore(toggleBtn, toolsConfigBtn.nextSibling);
         }
 
-        // Update UI state
-        if (this.researchMode) {
-            this.toggleResearchMode();
-            this.toggleResearchMode(); // Toggle twice to apply UI without notification
+        // Apply UI state without notification if mode is active
+        if (this.researchMode !== 'off') {
+            // Temporarily disable notifications
+            const originalNotify = this.showNotification.bind(this);
+            this.showNotification = () => {};
+            this.setResearchMode(this.researchMode);
+            this.showNotification = originalNotify;
         }
     }
 }
