@@ -157,7 +157,23 @@ class FloatingChat {
     
     initializeAfterModalShow() {
         console.log('Reinitializing elements after modal show...');
-        
+
+        // Open modal maximized by default
+        const modalDialog = this.elements.modal.querySelector('.modal-dialog');
+        if (modalDialog && !modalDialog.classList.contains('modal-fullscreen')) {
+            modalDialog.classList.remove('modal-xl');
+            modalDialog.classList.add('modal-fullscreen');
+            // Update the expand button icon to show compress
+            const expandBtn = document.getElementById('expandWindowBtn');
+            if (expandBtn) {
+                const icon = expandBtn.querySelector('i');
+                if (icon) {
+                    icon.className = 'fas fa-compress';
+                }
+                expandBtn.title = 'Collapse window';
+            }
+        }
+
         // Re-check all elements that might not have been available initially
         const elementIds = {
             sessionsList: 'chatSessionsList',
@@ -1631,14 +1647,30 @@ class FloatingChat {
 
             const data = await response.json();
             if (data.status !== 'success' || !data.tools || data.tools.length === 0) {
-                container.innerHTML = '<span class="text-muted small">No analysis tools available</span>';
+                // Remove loading message, keep research badge if present
+                const loadingMsg = container.querySelector('.loading-tools');
+                if (loadingMsg) loadingMsg.remove();
+
+                // Ensure research badge exists
+                if (!document.getElementById('researchModeToggle')) {
+                    this.createResearchBadge(container);
+                }
                 return;
             }
 
-            // Clear loading message
-            container.innerHTML = '';
+            // Remove loading message only, preserve existing badges
+            const loadingMsg = container.querySelector('.loading-tools');
+            if (loadingMsg) loadingMsg.remove();
 
-            // Create badge buttons for each tool
+            // Remove any existing plugin-tool badges (to avoid duplicates on reload)
+            container.querySelectorAll('.plugin-tool').forEach(el => el.remove());
+
+            // Ensure research badge exists at the start
+            if (!document.getElementById('researchModeToggle')) {
+                this.createResearchBadge(container);
+            }
+
+            // Create badge buttons for each plugin tool
             data.tools.forEach(tool => {
                 const btn = document.createElement('button');
                 btn.className = 'floating-quick-btn plugin-tool';
@@ -1666,7 +1698,20 @@ class FloatingChat {
 
         } catch (error) {
             console.error('Error loading plugin tools:', error);
-            container.innerHTML = '<span class="text-muted small">Failed to load tools</span>';
+            // Remove loading message, keep research badge
+            const loadingMsg = container.querySelector('.loading-tools');
+            if (loadingMsg) loadingMsg.remove();
+
+            // Still ensure research badge exists even on error
+            if (!document.getElementById('researchModeToggle')) {
+                this.createResearchBadge(container);
+            }
+
+            // Add error message after research badge
+            const errorSpan = document.createElement('span');
+            errorSpan.className = 'text-muted small';
+            errorSpan.textContent = 'Failed to load tools';
+            container.appendChild(errorSpan);
         }
     }
 
@@ -2075,23 +2120,11 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
             }
         }
 
-        // Update toggle badge appearance in Analysis Tools bar
+        // Update research dropdown in Analysis Tools bar
         const researchToggle = document.getElementById('researchModeToggle');
-        if (researchToggle) {
-            const isActive = mode !== 'off';
-            researchToggle.classList.toggle('active', isActive);
-            researchToggle.setAttribute('aria-pressed', isActive);
-
-            // Update badge text to show current mode
-            const modeLabels = {
-                'off': 'Deep Research',
-                'internal': 'Research: Internal',
-                'hybrid': 'Research: Hybrid',
-                'external': 'Research: External',
-                'extend': 'Research: Extend'
-            };
-            researchToggle.textContent = modeLabels[mode];
-            researchToggle.title = `Click to cycle research modes: Off → Internal → Hybrid → External → Extend`;
+        if (researchToggle && researchToggle.tagName === 'SELECT') {
+            researchToggle.value = mode;
+            this.updateResearchSelectStyle(researchToggle);
         }
 
         // Update input placeholder based on mode
@@ -2472,29 +2505,8 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
         // Load previous research for extend mode
         this.previousResearch = localStorage.getItem(this.storageKeys.previousResearch) || null;
 
-        // Create research mode badge in the Analysis Tools bar (pluginToolsContainer)
-        const container = document.getElementById('pluginToolsContainer');
-        if (container && !document.getElementById('researchModeToggle')) {
-            const isActive = this.researchMode !== 'off';
-            const modeLabels = {
-                'off': 'Deep Research',
-                'internal': 'Research: Internal',
-                'hybrid': 'Research: Hybrid',
-                'external': 'Research: External',
-                'extend': 'Research: Extend'
-            };
-
-            const toggleBtn = document.createElement('button');
-            toggleBtn.id = 'researchModeToggle';
-            toggleBtn.className = `floating-quick-btn ${isActive ? 'active' : ''}`;
-            toggleBtn.textContent = modeLabels[this.researchMode];
-            toggleBtn.title = `Click to cycle research modes: Off → Internal → Hybrid → External → Extend`;
-            toggleBtn.setAttribute('aria-pressed', isActive);
-            toggleBtn.onclick = () => this.toggleResearchMode();
-
-            // Insert at the beginning of the container
-            container.insertBefore(toggleBtn, container.firstChild);
-        }
+        // Note: The research badge is created by loadPluginTools() to ensure proper ordering
+        // This method just loads the saved state. Badge creation happens in createResearchBadge()
 
         // Apply UI state without notification if mode is active
         if (this.researchMode !== 'off') {
@@ -2503,6 +2515,93 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
             this.showNotification = () => {};
             this.setResearchMode(this.researchMode);
             this.showNotification = originalNotify;
+        }
+    }
+
+    createResearchBadge(container) {
+        /**
+         * Create the research mode dropdown in the Analysis Tools bar.
+         * Called by loadPluginTools() to ensure proper ordering.
+         */
+        if (document.getElementById('researchModeToggle')) {
+            return; // Dropdown already exists
+        }
+
+        const modeLabels = {
+            'off': 'Off',
+            'internal': 'Internal Only',
+            'hybrid': 'Hybrid',
+            'external': 'External Only',
+            'extend': 'Extend Previous'
+        };
+
+        // Create wrapper div for the dropdown
+        const wrapper = document.createElement('div');
+        wrapper.className = 'research-mode-wrapper';
+        wrapper.style.cssText = 'display: inline-flex; align-items: center; gap: 4px;';
+
+        // Create label
+        const label = document.createElement('span');
+        label.className = 'research-mode-label';
+        label.textContent = 'Research:';
+        label.style.cssText = 'font-size: 0.75rem; color: #6b7280; font-weight: 500;';
+
+        // Create select dropdown
+        const select = document.createElement('select');
+        select.id = 'researchModeToggle';
+        select.className = 'research-mode-select';
+        select.style.cssText = `
+            padding: 4px 8px;
+            font-size: 0.75rem;
+            border-radius: 12px;
+            border: 1px solid #e5e7eb;
+            background: #f1f3f5;
+            color: #212529;
+            cursor: pointer;
+            outline: none;
+            transition: all 0.15s ease;
+        `;
+
+        // Add options
+        Object.entries(modeLabels).forEach(([value, label]) => {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = label;
+            if (value === this.researchMode) {
+                option.selected = true;
+            }
+            select.appendChild(option);
+        });
+
+        // Style selected state
+        this.updateResearchSelectStyle(select);
+
+        // Add change handler
+        select.addEventListener('change', (e) => {
+            this.setResearchMode(e.target.value);
+            this.updateResearchSelectStyle(select);
+        });
+
+        wrapper.appendChild(label);
+        wrapper.appendChild(select);
+
+        // Insert at the beginning of the container
+        container.insertBefore(wrapper, container.firstChild);
+    }
+
+    updateResearchSelectStyle(select) {
+        /**
+         * Update the dropdown styling based on selected mode.
+         */
+        const isActive = select.value !== 'off';
+        if (isActive) {
+            select.style.background = '#ec4899';
+            select.style.borderColor = '#ec4899';
+            select.style.color = 'white';
+        } else {
+            select.style.background = '#f1f3f5';
+            select.style.borderColor = '#e5e7eb';
+            select.style.color = '#212529';
         }
     }
 }
