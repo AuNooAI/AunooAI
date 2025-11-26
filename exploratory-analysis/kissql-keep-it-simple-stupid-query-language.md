@@ -2,7 +2,7 @@
 description: >-
   KISSQL (pronounced kiss-Q-L) is a tiny, human-friendly search syntax that lets
   you mix natural-language keywords with power-user filters in a single line
-cover: .gitbook/assets/KISSQL (1).png
+cover: ../.gitbook/assets/KISSQL (1).png
 coverY: 0
 ---
 
@@ -94,7 +94,7 @@ The above returns a random sample of 50 from the first 500 results.
 * `"exact phrase"` - exact match, e.g., "artificial intelligence"
 * `"near phrase"~5` - proximity, e.g., "climate change"\~3 (parsing only)
 
-<figure><img src=".gitbook/assets/image (16).png" alt=""><figcaption></figcaption></figure>
+<figure><img src="../.gitbook/assets/image (16).png" alt=""><figcaption></figcaption></figure>
 
 ### Examples
 
