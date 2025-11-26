@@ -507,7 +507,76 @@ Analyzing the {len(articles)} most recent articles
                 "articles": []
             }
 
-    async def get_topic_articles(self, topic: str, limit: int = 50, 
+    async def google_web_search(self, query: str, max_results: int = 10) -> Dict:
+        """Search using Google Programmable Search Engine."""
+        import os
+        import aiohttp
+
+        api_key = os.environ.get('GOOGLE_API_KEY') or os.environ.get('GOOGLE_SEARCH_API_KEY')
+        search_engine_id = os.environ.get('GOOGLE_CSE_ID') or os.environ.get('GOOGLE_SEARCH_ENGINE_ID')
+
+        if not api_key or not search_engine_id:
+            logger.debug("Google Search API key or CSE ID not configured")
+            return {
+                "error": "Google Search API not configured",
+                "query": query,
+                "total_results": 0,
+                "articles": []
+            }
+
+        try:
+            url = "https://www.googleapis.com/customsearch/v1"
+            params = {
+                'key': api_key,
+                'cx': search_engine_id,
+                'q': query,
+                'num': min(max_results, 10)  # Google CSE max is 10 per request
+            }
+
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, params=params) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        logger.error(f"Google Search API error: {response.status} - {error_text}")
+                        return {
+                            "error": f"Google Search API error: {response.status}",
+                            "query": query,
+                            "total_results": 0,
+                            "articles": []
+                        }
+
+                    data = await response.json()
+                    items = data.get('items', [])
+
+                    articles = []
+                    for item in items:
+                        articles.append({
+                            'title': item.get('title', ''),
+                            'url': item.get('link', ''),
+                            'summary': item.get('snippet', ''),
+                            'source': item.get('displayLink', ''),
+                            'category': 'Web Search',
+                            'sentiment': 'neutral',  # Default sentiment for web results
+                        })
+
+                    logger.info(f"Google Search returned {len(articles)} results for: {query}")
+                    return {
+                        "query": query,
+                        "total_results": len(articles),
+                        "search_method": "google_pse",
+                        "articles": articles
+                    }
+
+        except Exception as e:
+            logger.error(f"Error in Google web search: {e}")
+            return {
+                "error": f"Error in Google web search: {str(e)}",
+                "query": query,
+                "total_results": 0,
+                "articles": []
+            }
+
+    async def get_topic_articles(self, topic: str, limit: int = 50,
                                days_back: int = 30) -> Dict:
         """Get articles from database for a specific topic."""
         # Calculate date range

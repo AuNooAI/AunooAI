@@ -4,7 +4,7 @@
 [![Converts to Apache 2.0](https://img.shields.io/badge/Converts%20to-Apache%202.0-green.svg)](LICENSE.md)
 [![Change Date](https://img.shields.io/badge/Change%20Date-2028--11--21-orange.svg)](LICENSE.md)
 
-A FastAPI-based intelligence analysis platform for research, monitoring, and strategic insights.
+An open strategic intelligence platform
 
 ---
 
@@ -48,9 +48,6 @@ The application will be available at: http://localhost:10015
 - **Analytics Dashboard**: Visualizations and insights
 - **Multi-Source Data Collection**: NewsAPI, ArXiv, Bluesky, RSS feeds
 - **AI-Powered Analysis**: OpenAI and Anthropic integration
-- **User Authentication**: OAuth and session-based auth
-- **Database Options**: SQLite (development) or PostgreSQL (production)
-
 ---
 
 ## Configuration
@@ -99,30 +96,7 @@ For manual PostgreSQL setup:
 python scripts/setup_postgresql.py
 ```
 
-See [docs/POSTGRESQL_SETUP.md](docs/POSTGRESQL_SETUP.md) for details.
-
----
-
-## Project Structure
-
-```
-aunoo-ai/
-├── app/                          # Main application
-│   ├── routes/                   # API endpoints
-│   ├── services/                 # Business logic
-│   ├── collectors/               # Data collection
-│   ├── database.py               # Database interface
-│   ├── ai_models.py              # LLM integration
-│   └── run.py                    # Application entry point
-├── scripts/                      # Setup and utility scripts
-├── static/                       # Static assets
-├── templates/                    # Jinja2 templates
-├── .env                          # Environment configuration
-├── requirements.txt              # Python dependencies
-└── setup.py                      # Installation script
-```
-
----
+See [docs/POSTGRESQL_SETUP.md](docs/POSTGRESQL_SETUP.md) for details
 
 ## Running the Application
 
@@ -217,13 +191,13 @@ Once running, visit:
 
 **Database Layer**
 - SQLAlchemy ORM with async support
-- Dual support: SQLite and PostgreSQL
+- Dual support: PostgreSQL
 - Connection pooling and query optimization
-- Vector embeddings via ChromaDB
+- Vector embeddings via PGVector
 
 **Data Collection**
 - Factory pattern for collectors
-- Sources: NewsAPI, ArXiv, Bluesky, RSS
+- Sources: NewsAPI, ArXiv, Bluesky
 - Scheduled and on-demand collection
 
 **AI Integration**
@@ -367,8 +341,8 @@ pip install -r requirements.txt
 ## Tech Stack
 
 - **Framework**: FastAPI 0.68+
-- **Database**: SQLite / PostgreSQL with SQLAlchemy
-- **Vector Store**: ChromaDB
+- **Database**: PostgreSQL with SQLAlchemy
+- **Vector Store**: PGVector
 - **AI/LLM**: OpenAI, Anthropic, LiteLLM
 - **NLP**: spaCy, NLTK, BERTopic
 - **Templates**: Jinja2

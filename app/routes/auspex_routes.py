@@ -1245,8 +1245,8 @@ class DeepResearchRequest(BaseModel):
     @classmethod
     def validate_query(cls, v: str) -> str:
         """Ensure query is not empty."""
-        if not v or len(v.strip()) < 10:
-            raise ValueError("Research query must be at least 10 characters")
+        if not v or len(v.strip()) < 5:
+            raise ValueError("Research query must be at least 5 characters")
         return v.strip()
 
     @field_validator('topic')
@@ -1298,8 +1298,10 @@ async def start_deep_research(req: DeepResearchRequest, session=Depends(verify_s
         # Research mode settings
         if "search_source" in req.config:
             config.search_source = req.config["search_source"]  # 'internal', 'external', 'hybrid'
+            logger.info(f"Research config from request: search_source={config.search_source}")
         if "research_mode" in req.config:
-            config.research_mode = req.config["research_mode"]  # 'off', 'internal', 'hybrid', 'external', 'extend'
+            config.research_mode = req.config["research_mode"]  # 'off', 'internal', 'hybrid', 'external'
+            logger.info(f"Research config from request: research_mode={config.research_mode}")
         if "extend_mode" in req.config:
             config.extend_mode = req.config["extend_mode"]
         if "previous_research" in req.config:

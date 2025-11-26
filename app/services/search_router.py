@@ -297,26 +297,37 @@ class SearchRouter:
                 results["metadata"]["search_method"] = db_results.get("search_method", "vector")
 
             elif source == SearchSource.EXTERNAL:
-                ext_results = await tools_service.search_news(
+                # Try Google PSE first, fall back to TheNewsAPI
+                ext_results = await tools_service.google_web_search(
                     query=query,
-                    max_results=limit,
-                    days_back=7
+                    max_results=limit
                 )
+
+                # If Google search failed or returned no results, try TheNewsAPI
+                if ext_results.get("error") or ext_results.get("total_results", 0) == 0:
+                    logger.info("Google PSE unavailable or returned no results, falling back to TheNewsAPI")
+                    ext_results = await tools_service.search_news(
+                        query=query,
+                        max_results=limit,
+                        days_back=7
+                    )
+                    results["metadata"]["search_method"] = "thenewsapi"
+                else:
+                    results["metadata"]["search_method"] = "google_pse"
+
                 results["articles"] = ext_results.get("articles", [])
                 results["total_count"] = ext_results.get("total_results", 0)
-                results["metadata"]["search_method"] = "external_api"
 
             elif source == SearchSource.HYBRID:
-                # Execute both searches in parallel
+                # Execute both searches in parallel - use Google PSE for external
                 db_task = tools_service.enhanced_database_search(
                     query=query,
                     topic=topic,
                     limit=limit // 2
                 )
-                ext_task = tools_service.search_news(
+                ext_task = tools_service.google_web_search(
                     query=query,
-                    max_results=limit // 2,
-                    days_back=7
+                    max_results=limit // 2
                 )
 
                 db_results, ext_results = await asyncio.gather(

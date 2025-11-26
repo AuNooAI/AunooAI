@@ -1,0 +1,18 @@
+{
+  "min_articles_for_trend": 5,
+  "spike_threshold_multiplier": 2.0,
+  "smoothing_window": 3,
+  "confidence_thresholds": {
+    "high": 0.8,
+    "medium": 0.5,
+    "low": 0.3
+  },
+  "chart_colors": {
+    "positive": "#28a745",
+    "negative": "#dc3545",
+    "neutral": "#6c757d",
+    "mixed": "#ffc107"
+  },
+  "default_aggregation": "daily",
+  "max_trends_to_report": 10
+}

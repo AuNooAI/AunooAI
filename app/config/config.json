@@ -472,6 +472,27 @@
           "type": "text"
         }
       ]
+    },
+    {
+      "name": "google_pse",
+      "display_name": "Google Programmable Search",
+      "config_type": "api_key",
+      "description": "Web search using Google Programmable Search Engine for external research",
+      "enabled": true,
+      "api_key_required": true,
+      "api_key_name": "GOOGLE_API_KEY",
+      "api_key_description": "Your Google Cloud API key with Custom Search API enabled",
+      "api_key_placeholder": "Enter your Google API key",
+      "api_key_help": "Get your API key from https://console.cloud.google.com/apis/credentials",
+      "extra_fields": [
+        {
+          "field": "GOOGLE_CSE_ID",
+          "label": "Search Engine ID",
+          "placeholder": "Enter your Custom Search Engine ID",
+          "type": "text",
+          "help": "Create at https://programmablesearchengine.google.com/"
+        }
+      ]
     }
   ]
 }

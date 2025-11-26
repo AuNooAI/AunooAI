@@ -387,12 +387,16 @@ Respond with valid JSON matching the expected schema."""
 
         # Determine forced search source based on research mode config
         forced_source = None
+        logger.info(f"Research config - search_source: {config.search_source}, research_mode: {config.research_mode}")
         if config.search_source == "internal":
             forced_source = SearchSource.VECTOR_DB
+            logger.info("Forcing INTERNAL (VECTOR_DB) search only")
         elif config.search_source == "external":
             forced_source = SearchSource.EXTERNAL if config.allow_external_search else SearchSource.VECTOR_DB
+            logger.info(f"Forcing EXTERNAL search (allow_external: {config.allow_external_search})")
         elif config.search_source == "hybrid":
             forced_source = None  # Let router decide
+            logger.info("Using HYBRID search (router decides)")
 
         for i, search_query in enumerate(state.search_queries):
             query_text = search_query.get("query", state.query)
@@ -427,7 +431,9 @@ Respond with valid JSON matching the expected schema."""
                 )
 
                 # Determine actual source type from results
-                actual_source = results.get("source_type", "unknown")
+                # Router returns "source_used" with value like "vector_db", "external", "hybrid"
+                actual_source = results.get("source_used", results.get("source_type", "unknown"))
+                logger.info(f"Search result source: {actual_source} (from source_used or source_type)")
 
                 # Deduplicate and add articles with source tracking
                 for article in results.get("articles", []):
@@ -438,15 +444,24 @@ Respond with valid JSON matching the expected schema."""
 
                         # Track source type for attribution
                         # Check if article came from vector DB (internal) or external search
-                        if actual_source == "vector_db" or article.get("_from_vector_db"):
+                        # actual_source comes from router's "source_used" field: "vector_db", "external", "hybrid"
+                        if actual_source == "vector_db":
                             article["_source_type"] = "internal"
                             state.sources_used["internal"] += 1
-                        elif actual_source == "external" or article.get("_from_external"):
+                        elif actual_source == "external":
                             article["_source_type"] = "external"
                             state.sources_used["external"] += 1
+                        elif actual_source == "hybrid":
+                            # For hybrid, check individual article's source_type (set by router)
+                            if article.get("source_type") == "database" or article.get("_from_vector_db"):
+                                article["_source_type"] = "internal"
+                                state.sources_used["internal"] += 1
+                            else:
+                                article["_source_type"] = "external"
+                                state.sources_used["external"] += 1
                         else:
-                            # Default based on presence of certain fields
-                            if article.get("embedding") or article.get("vector_score"):
+                            # Fallback: default to internal if we forced internal search
+                            if config.search_source == "internal":
                                 article["_source_type"] = "internal"
                                 state.sources_used["internal"] += 1
                             else:

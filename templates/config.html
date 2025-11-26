@@ -429,7 +429,33 @@
                             <i class="fas fa-plus"></i> Set Bluesky Credentials
                         </button>
                     </form>
-                    
+
+                    <!-- Google PSE-specific Provider Form -->
+                    <form id="google-pse-config-form" class="mt-5">
+                        <h3>Google Programmable Search Configuration</h3>
+                        <p class="text-muted small mb-3">Configure Google Programmable Search Engine for external research capabilities</p>
+
+                        <div class="form-group">
+                            <label for="google-api-key" class="form-label">Google API Key</label>
+                            <input type="password" id="google-api-key" placeholder="Enter your Google API key" required
+                                   class="form-control"
+                                   data-tooltip="Your Google Cloud API key with Custom Search API enabled">
+                            <small class="form-text text-muted">Get your API key from <a href="https://console.cloud.google.com/apis/credentials" target="_blank">Google Cloud Console</a></small>
+                        </div>
+
+                        <div class="form-group mt-3">
+                            <label for="google-cse-id" class="form-label">Search Engine ID (CSE ID)</label>
+                            <input type="text" id="google-cse-id" placeholder="Enter your Custom Search Engine ID" required
+                                   class="form-control"
+                                   data-tooltip="Your Custom Search Engine ID from Google Programmable Search">
+                            <small class="form-text text-muted">Create at <a href="https://programmablesearchengine.google.com/" target="_blank">Programmable Search Engine</a></small>
+                        </div>
+
+                        <button type="submit" class="mt-3">
+                            <i class="fas fa-search"></i> Set Google PSE Credentials
+                        </button>
+                    </form>
+
                     <div class="config-item mt-4">
                         <h3>Environment Management</h3>
                         <p class="text-muted small mb-3">Reload environment variables without restarting the server.</p>
@@ -1986,6 +2012,10 @@
                 {
                     name: "Social Media",
                     providers: ["bluesky"]
+                },
+                {
+                    name: "Web Search",
+                    providers: ["google_pse"]
                 }
             ];
             
@@ -2046,7 +2076,44 @@
                         }
                         continue;
                     }
-                    
+
+                    // Special handling for Google PSE
+                    if (provider.name === 'google_pse') {
+                        try {
+                            const pseResponse = await fetch('/config/google_pse');
+                            const pseData = await pseResponse.json();
+
+                            const pseLi = document.createElement('li');
+                            pseLi.className = 'special-provider';
+                            pseLi.innerHTML = `
+                                <div class="provider-info">
+                                    <span class="provider-name">Google Programmable Search</span>
+                                    <span class="status-badge ${pseData.configured ? 'configured' : 'not-configured'}">
+                                        ${pseData.configured ? 'Configured' : 'Not Configured'}
+                                    </span>
+                                </div>
+                                <small class="provider-note">Requires API key and Search Engine ID</small>
+                                ${pseData.configured ?
+                                    `<button onclick="removeProviderConfig('google_pse')" class="mt-2">Remove Credentials</button>` :
+                                    ''}
+                            `;
+                            providerList.appendChild(pseLi);
+                        } catch (error) {
+                            console.error('Error loading Google PSE status:', error);
+                            const errorLi = document.createElement('li');
+                            errorLi.className = 'special-provider';
+                            errorLi.innerHTML = `
+                                <div class="provider-info">
+                                    <span class="provider-name">Google Programmable Search</span>
+                                    <span class="status-badge not-configured">Error</span>
+                                </div>
+                                <small class="provider-note text-danger">Error loading Google PSE status</small>
+                            `;
+                            providerList.appendChild(errorLi);
+                        }
+                        continue;
+                    }
+
                     // Standard API key providers
                     if (provider.config_type === 'api_key') {
                         try {
@@ -2146,13 +2213,57 @@
             
             showAlert('Bluesky credentials saved successfully', 'success');
             document.getElementById('bluesky-password').value = '';
-            
+
             // Reload the configuration after saving
             await reloadConfiguration();
-            
+
         } catch (error) {
             console.error('Error saving Bluesky credentials:', error);
             showAlert(`Error saving Bluesky credentials: ${error.message}`, 'danger');
+        }
+    });
+
+    // Add Google PSE form submission handler
+    document.getElementById('google-pse-config-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const apiKey = document.getElementById('google-api-key').value;
+        const cseId = document.getElementById('google-cse-id').value;
+
+        if (!apiKey || !cseId) {
+            alert('Please enter both API key and Search Engine ID for Google PSE');
+            return;
+        }
+
+        try {
+            const response = await fetch('/config/google_pse', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    api_key: apiKey,
+                    extra_data: {
+                        GOOGLE_CSE_ID: cseId
+                    }
+                })
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                throw new Error(data.detail || 'Failed to save Google PSE credentials');
+            }
+
+            showAlert('Google PSE credentials saved successfully', 'success');
+            document.getElementById('google-api-key').value = '';
+            document.getElementById('google-cse-id').value = '';
+
+            // Reload the configuration after saving
+            await reloadConfiguration();
+
+        } catch (error) {
+            console.error('Error saving Google PSE credentials:', error);
+            showAlert(`Error saving Google PSE credentials: ${error.message}`, 'danger');
         }
     });
 
@@ -2628,6 +2739,10 @@
                 {
                     name: "Text-to-Speech",
                     providers: ["elevenlabs", "dia"]
+                },
+                {
+                    name: "Web Search",
+                    providers: ["google_pse"]
                 }
                 // Don't include Social Media/Bluesky here since it uses a different auth method
             ];

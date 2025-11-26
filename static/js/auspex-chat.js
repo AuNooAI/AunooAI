@@ -2641,10 +2641,15 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
 
         const btn = document.createElement('button');
         btn.id = 'chartsToggle';
+        btn.type = 'button';  // Prevent form submission
         btn.className = `floating-quick-btn ${this.includeCharts ? 'active' : ''}`;
         btn.innerHTML = '<i class="fas fa-chart-bar me-1"></i>Charts';
         btn.title = 'Include charts in responses';
-        btn.onclick = () => this.toggleCharts();
+        btn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            this.toggleCharts();
+        };
 
         // Insert after research badge wrapper
         const researchWrapper = container.querySelector('.research-mode-wrapper');

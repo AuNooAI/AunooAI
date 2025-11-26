@@ -141,7 +141,8 @@ class ChartService:
             ),
             paper_bgcolor='white',
             plot_bgcolor='white',
-            font=dict(color='black')
+            font=dict(color='black'),
+            template=None  # Remove template to ensure explicit colors are used
         )
 
         return fig
@@ -198,7 +199,8 @@ class ChartService:
             ),
             paper_bgcolor='white',
             plot_bgcolor='white',
-            font=dict(color='black')
+            font=dict(color='black'),
+            template=None  # Remove template to ensure explicit colors are used
         )
 
         fig.update_xaxes(gridcolor='lightgray', linecolor='black', linewidth=1)

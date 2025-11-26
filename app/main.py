@@ -13,7 +13,7 @@ from app.analytics import Analytics
 from app.report import Report
 from app.analyze_db import AnalyzeDB 
 from app.config.settings import config
-from typing import Optional, List
+from typing import Optional, List, Dict
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from app.dependencies import get_research, get_analytics, get_report  # Add at top of file
@@ -3179,6 +3179,141 @@ async def remove_bluesky_config():
     except Exception as e:
         logger.error(f"Error removing Bluesky configuration: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# Google PSE Configuration Endpoints
+# ---------------------------------------------------------------------------
+
+class GooglePSEConfig(BaseModel):
+    api_key: str
+    extra_data: Optional[Dict[str, str]] = None
+
+    class Config:
+        populate_by_name = True
+
+@app.post("/config/google_pse")
+async def save_google_pse_config(config: GooglePSEConfig):
+    """Save Google PSE configuration."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        api_key_var = 'GOOGLE_API_KEY'
+        cse_id_var = 'GOOGLE_CSE_ID'
+
+        # Get CSE ID from extra_data
+        cse_id = config.extra_data.get('GOOGLE_CSE_ID', '') if config.extra_data else ''
+
+        if not cse_id:
+            raise HTTPException(status_code=400, detail="Search Engine ID (CSE ID) is required")
+
+        # Read existing content
+        try:
+            with open(env_path, "r") as env_file:
+                lines = env_file.readlines()
+        except FileNotFoundError:
+            lines = []
+
+        # Update or add the API key
+        api_key_line = f'{api_key_var}="{config.api_key}"\n'
+        api_key_found = False
+
+        # Update or add the CSE ID
+        cse_id_line = f'{cse_id_var}="{cse_id}"\n'
+        cse_id_found = False
+
+        for i, line in enumerate(lines):
+            if line.startswith(f'{api_key_var}='):
+                lines[i] = api_key_line
+                api_key_found = True
+            elif line.startswith(f'{cse_id_var}='):
+                lines[i] = cse_id_line
+                cse_id_found = True
+
+        if not api_key_found:
+            lines.append(api_key_line)
+        if not cse_id_found:
+            lines.append(cse_id_line)
+
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(lines)
+
+        # Update environment
+        os.environ[api_key_var] = config.api_key
+        os.environ[cse_id_var] = cse_id
+
+        logger.info("Successfully configured Google PSE credentials")
+        return JSONResponse(
+            status_code=200,
+            content={"message": "Google PSE configuration saved successfully"}
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving Google PSE configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/config/google_pse")
+async def get_google_pse_config():
+    """Get Google PSE configuration status."""
+    try:
+        api_key = os.environ.get("GOOGLE_API_KEY", "")
+        cse_id = os.environ.get("GOOGLE_CSE_ID", "")
+        configured = bool(api_key and cse_id)
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "configured": configured,
+                "has_api_key": bool(api_key),
+                "has_cse_id": bool(cse_id),
+                "message": "Google PSE is configured" if configured else "Google PSE is not configured"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error getting Google PSE configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/config/google_pse")
+async def remove_google_pse_config():
+    """Remove Google PSE configuration."""
+    try:
+        env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
+        api_key_var = 'GOOGLE_API_KEY'
+        cse_id_var = 'GOOGLE_CSE_ID'
+
+        # Read existing content
+        try:
+            with open(env_path, "r") as env_file:
+                lines = env_file.readlines()
+        except FileNotFoundError:
+            lines = []
+
+        # Remove the config lines
+        new_lines = [line for line in lines if not (line.startswith(f'{api_key_var}=') or
+                                                   line.startswith(f'{cse_id_var}='))]
+
+        # Write back to .env
+        with open(env_path, "w") as env_file:
+            env_file.writelines(new_lines)
+
+        # Remove from environment
+        if api_key_var in os.environ:
+            del os.environ[api_key_var]
+        if cse_id_var in os.environ:
+            del os.environ[cse_id_var]
+
+        logger.info("Google PSE configuration removed successfully")
+        return JSONResponse(
+            status_code=200,
+            content={"message": "Google PSE configuration removed successfully"}
+        )
+
+    except Exception as e:
+        logger.error(f"Error removing Google PSE configuration: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # ---------------------------------------------------------------------------
 # Streaming bulk research endpoint – returns NDJSON (one JSON per line)
