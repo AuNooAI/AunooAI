@@ -4,8 +4,17 @@
 [![Converts to Apache 2.0](https://img.shields.io/badge/Converts%20to-Apache%202.0-green.svg)](LICENSE.md)
 [![Change Date](https://img.shields.io/badge/Change%20Date-2028--11--21-orange.svg)](LICENSE.md)
 
-An open strategic intelligence platform
+AunooAI is an open strategic intelligence platform that automatically collects, analyzes, and organizes security news articles to help researchers and foresight professionals to stay informed without information overload.
 
+Aunoo AI offers:
+* Multisource research, across news, research papers and social media
+* Media Bias, Factuality and Credibility ratings 
+* Relevance Scoring
+* Quality Control
+* Semantic search and analysis
+* Foresight visualizations
+* Deep Research Agent
+* AI Topic Designer
 ---
 
 ## Quick Start
