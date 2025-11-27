@@ -475,7 +475,7 @@ class DatabaseQueryFacade:
                 uri=alert['url'],
                 title=alert['title'],
                 summary=alert['summary'],
-                source=alert['source'],
+                news_source=alert['source'],
                 topic=alert['topic'],
                 analyzed=False
             )
@@ -830,15 +830,15 @@ class DatabaseQueryFacade:
 
     def get_auto_ingest_settings(self):
         statement = select(
-            keyword_article_matches.c.auto_ingest_enabled,
-            keyword_article_matches.c.min_relevance_threshold,
-            keyword_article_matches.c.quality_control_enabled,
-            keyword_article_matches.c.auto_save_approved_only,
-            keyword_article_matches.c.default_llm_model,
-            keyword_article_matches.c.llm_temperature,
-            keyword_article_matches.c.llm_max_tokens
+            keyword_monitor_settings.c.auto_ingest_enabled,
+            keyword_monitor_settings.c.min_relevance_threshold,
+            keyword_monitor_settings.c.quality_control_enabled,
+            keyword_monitor_settings.c.auto_save_approved_only,
+            keyword_monitor_settings.c.default_llm_model,
+            keyword_monitor_settings.c.llm_temperature,
+            keyword_monitor_settings.c.llm_max_tokens
         ).where(
-            keyword_article_matches.c.id == 1
+            keyword_monitor_settings.c.id == 1
         )
         return self._execute_with_rollback(statement).fetchone()
 
@@ -909,8 +909,8 @@ class DatabaseQueryFacade:
                 keyword_groups.c.topic == topic_id,
                 keyword_article_matches.c.is_read == 0,
                 or_(
-                    keyword_article_matches.c.auto_ingested == 0,
-                    keyword_article_matches.c.auto_ingested == None
+                    articles.c.auto_ingested.is_(False),
+                    articles.c.auto_ingested == None
                 )
             )
         ).distinct().order_by(
@@ -935,8 +935,8 @@ class DatabaseQueryFacade:
                 keyword_groups.c.topic == topic_id,
                 keyword_alerts.c.is_read == 0,
                 or_(
-                    keyword_alerts.c.auto_ingested == 0,
-                    keyword_alerts.c.auto_ingested == None
+                    articles.c.auto_ingested.is_(False),
+                    articles.c.auto_ingested == None
                 )
             )
         ).distinct().order_by(
@@ -1816,7 +1816,7 @@ class DatabaseQueryFacade:
 
     def get_article_id_by_url(self, url):
         statement = select(
-            articles.c.id
+            articles.c.uri
         ).where(
             articles.c.uri == url
         )
@@ -1826,7 +1826,7 @@ class DatabaseQueryFacade:
 
     def check_if_article_exists_with_enrichment(self, url):
         statement = select(
-            articles.c.id
+            articles.c.uri
         ).where(
             articles.c.uri == url,
             articles.c.analyzed == True
@@ -1871,8 +1871,7 @@ class DatabaseQueryFacade:
         ).where(
             feed_items.c.id == params[1]
         ).values(
-            tags = params[0],
-            updated_at = func.now()
+            tags = params[0]
         )
         self._execute_with_rollback(statement)
         self.connection.commit() 
@@ -1953,8 +1952,8 @@ class DatabaseQueryFacade:
             keyword_alerts.c.matched_keyword,
             articles.c.uri,
             articles.c.title,
-            articles.c.url,
-            articles.c.source,
+            articles.c.uri.label('url'),
+            articles.c.news_source.label('source'),
             articles.c.publication_date,
             articles.c.summary,
             articles.c.category,
@@ -2656,9 +2655,7 @@ class DatabaseQueryFacade:
             id=params[0],
             title=params[1],
             created_at=func.current_timestamp(),
-            status= 'processing',
-            config=params[2],
-            article_uris=params[3]
+            status= 'processing'
         )
         self._execute_with_rollback(statement)
         self.connection.commit()
@@ -2955,7 +2952,7 @@ class DatabaseQueryFacade:
             cursor.execute("""
                            WITH alert_counts AS (SELECT kg.id                                                      as group_id,
                                                         COUNT(DISTINCT CASE
-                                                                           WHEN ka.read = 0 AND a.uri IS NOT NULL
+                                                                           WHEN ka.is_read = 0 AND a.uri IS NOT NULL
                                                                                THEN ka.id END)                     as unread_count,
                                                         COUNT(DISTINCT CASE WHEN a.uri IS NOT NULL THEN ka.id END) as total_count
                                                  FROM keyword_groups kg
@@ -4470,7 +4467,7 @@ class DatabaseQueryFacade:
             return result.inserted_primary_key[0]
 
     def update_media_bias_source(self, params):
-        statement = update(mediabias).where(mediabias.c.id == params[9]).values(
+        statement = update(mediabias).where(mediabias.c.source == params[0]).values(
             source = params[0],
             country = params[1],
             bias = params[2],
@@ -4524,13 +4521,13 @@ class DatabaseQueryFacade:
 
     def get_media_bias_source(self, source_id):
         statement = select(
-            mediabias.c.id
-        ).where(mediabias.c.id == source_id)
+            mediabias.c.source
+        ).where(mediabias.c.source == source_id)
 
         return self._execute_with_rollback(statement).fetchone()
 
     def delete_media_bias_source(self, source_id):
-        statement = delete(mediabias).where(mediabias.c.id == source_id)
+        statement = delete(mediabias).where(mediabias.c.source == source_id)
         self._execute_with_rollback(statement)
         self.connection.commit()
 
@@ -4609,13 +4606,12 @@ class DatabaseQueryFacade:
         return total_count, self._execute_with_rollback(paginated_stmt).mappings().fetchall()
 
     def delete_media_bias_source(self, source_id):
-        statement = delete(mediabias).where(mediabias.c.id == source_id)
+        statement = delete(mediabias).where(mediabias.c.source == source_id)
         self._execute_with_rollback(statement)
         self.connection.commit()
 
     def get_media_bias_source_by_id(self, source_id):
         statement = select(
-            mediabias.c.id,
             mediabias.c.source,
             mediabias.c.country,
             mediabias.c.bias,
@@ -4624,7 +4620,7 @@ class DatabaseQueryFacade:
             mediabias.c.media_type,
             mediabias.c.popularity,
             mediabias.c.mbfc_credibility_rating
-        ).where(mediabias.c.id == source_id)
+        ).where(mediabias.c.source == source_id)
 
         return self._execute_with_rollback(statement).mappings().fetchone()
 
