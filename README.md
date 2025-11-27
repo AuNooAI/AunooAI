@@ -15,6 +15,9 @@ Aunoo AI offers:
 * Foresight visualizations
 * Deep Research Agent
 * AI Topic Designer
+
+<img width="1863" height="906" alt="aunoohud" src="https://github.com/user-attachments/assets/1030fc06-6ed4-407e-bff1-8bf51cf98adf" />
+
 ---
 
 ## Quick Start
