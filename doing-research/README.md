@@ -73,6 +73,54 @@ Each tool offers appropriate export formats:
 * Narrative Explorer: Markdown, HTML (insights and themes)
 * Six Articles: Markdown, HTML, PDF, Podcast (executive briefing)
 
+### News Feed Dashboard Configuration
+
+The News Feed Dashboard provides a streamlined configuration panel at the top of the page that controls global settings for all analysis features. These settings affect how articles are loaded, which AI model performs analysis, and what organizational context shapes the results.
+
+#### Configuration Panel
+
+The collapsible Configuration panel contains four primary controls that shape your intelligence gathering:
+
+#### Date Range
+
+Select the time window for article collection:
+
+| Option        | Description                                |
+| ------------- | ------------------------------------------ |
+| Last 24 Hours | Breaking news and immediate developments   |
+| Last 72 Hours | Recent news cycle coverage                 |
+| Last 7 Days   | Weekly intelligence scan (default)         |
+| Last 30 Days  | Monthly trend analysis                     |
+| Custom Date   | Select a specific date via calendar picker |
+
+The date range display shows the active timeframe and total article count matching your criteria.
+
+#### Topics
+
+Multi-select dropdown for choosing intelligence categories to monitor. Options include threat intelligence categories, industry sectors, or custom keyword groups configured for your instance.
+
+* Select All: Monitor all available topics
+* Clear All: Reset topic selection
+* Topic count badge shows number of active selections
+
+#### Model
+
+Choose the AI model for analysis tasks:
+
+#### Profile
+
+Select an organizational profile to contextualize analysis:
+
+* General Analysis: Default, industry-agnostic analysis
+* Custom Profiles: Organization-specific contexts with tailored priorities, risk tolerance, and stakeholder focus
+
+#### Profile Actions:
+
+* Click the gear icon to open the Profile Manager and create/edit profiles
+* Click the star icon to save current settings (date range, topics, model, profile) as your default configuration
+
+
+
 ***
 
 ### Tips for Maximum Efficiency

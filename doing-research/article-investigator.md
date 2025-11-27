@@ -107,40 +107,114 @@ Navigate large article sets using pagination controls at the bottom:
 
 ***
 
-### Common Workflows
+### Narrative Explorer Configuration
 
-#### Daily Intelligence Review
+The Narrative Explorer's Config button opens a configuration modal that controls how the AI analyzes articles to identify incidents, trends, entities, and emerging narratives.
 
-1. Set date range to "Last 24 hours" or "Today"
-2. Select your primary focus topics (e.g., APT Groups, Ransomware)
-3. Use Card View to quickly scan headlines and summaries
-4. Hide irrelevant articles as you go
-5. Bookmark critical findings for follow-up
-6. Export bookmarked articles as PDF for team distribution
+#### **System Prompt**
 
-#### Incident Response Research
+Customize the core instructions that guide AI analysis.
 
-1. Filter by specific entities (threat actor, malware family, or CVE)
-2. Expand date range to capture historical context (7-30 days)
-3. Switch to HUD View for side-by-side article comparison
-4. Read full article content without leaving the page
-5. Export findings as Markdown for incident reports
+**System Prompt Template**&#x20;
 
-#### Trend Analysis
+The main instructions defining what the AI looks for, how findings are structured, and what patterns to identify.
 
-1. Select multiple related topics (e.g., all ransomware categories)
-2. Set a longer date range (30-90 days)
-3. Use Table View to quickly scan for patterns
-4. Filter by high-credibility sources only
-5. Export as CSV for further analysis in spreadsheets
+**User Prompt Template**&#x20;
 
-#### Executive Briefing Preparation
+Controls how articles are presented to the AI for analysis.
 
-1. Filter to last 7 days
-2. Focus on high-impact topics (APT Groups, Critical Vulnerabilities)
-3. Hide low-value or duplicate articles
-4. Switch to Reader View to read full context
-5. Export final selection as PDF with clean formatting
+**Organizational Profile Integration**
+
+* Profile Context Template: Define how org profile data is injected into prompts
+* Toggle to enable/disable profile integration
+
+**Available Placeholders:**
+
+| Placeholder              | Purpose                        |
+| ------------------------ | ------------------------------ |
+| {topic}                  | Current analysis topic         |
+| {ontology\_text}         | Generated ontology guidance    |
+| {articles\_text}         | Formatted article content      |
+| {profile\_context}       | Organizational profile context |
+| {analysis\_instructions} | AI analysis instructions       |
+| {quality\_guidelines}    | Quality control guidelines     |
+
+**Actions:**&#x20;
+
+Reset to Default, Preview with Sample Data, Validate Template
+
+***
+
+#### Ontology
+
+Define the vocabulary, entity types, and classification rules the AI uses.
+
+Base Ontology Core classification structure using a 7-Type system:
+
+| Type              | Description                                |
+| ----------------- | ------------------------------------------ |
+| incident          | Disruptive occurrences requiring response  |
+| event             | Noteworthy developments and announcements  |
+| entity            | Organizations, people, products tracked    |
+| expertise         | Expert analysis and authoritative insights |
+| informed\_insider | Insider perspectives and leaks             |
+| trend\_signal     | Market trends and behavioral shifts        |
+| strategic\_shift  | Major strategic and policy changes         |
+
+**Domain-Specific Overlays**&#x20;
+
+Add industry-specific rules by entering a domain key (e.g., scientific\_publisher, finance, healthcare) or use vanilla for no overlay.
+
+**Classification Examples**&#x20;
+
+Provide concrete examples to improve classification accuracy.
+
+**Required Output Fields:**&#x20;
+
+name, type, subtype, description, timeline, significance, plausibility, investigation\_leads, source\_quality, misinfo\_flags
+
+**Actions:**&#x20;
+
+Reset to Default, Add Domain Overlay, Validate Structure
+
+***
+
+#### AI Guidance
+
+_Fine-tune how the AI performs analysis._
+
+**Analysis Instructions**
+
+Specific instructions for analyzing articles and classifying incidents.
+
+**Quality Control Guidelines**&#x20;
+
+Rules for assessing credibility, handling extraordinary claims, and evaluating source quality.
+
+**Output Format Requirements**&#x20;
+
+JSON structure and formatting specifications.
+
+**Best Practices:**
+
+* Be specific about credibility assessment
+* Include source quality indicators
+* Flag extraordinary claims
+* Provide investigation leads
+* Be inclusive rather than restrictive
+
+Actions: Test with Sample Articles, View Examples
+
+***
+
+Important Notes
+
+* Changes affect future analyses only, not existing results
+* Use template variables to make prompts dynamic
+* Test changes with small datasets before full deployment
+* Reset to defaults available in each section
+
+***
 
 ### Tips & Tricks
 
