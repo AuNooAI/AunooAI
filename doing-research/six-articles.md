@@ -113,6 +113,104 @@ Transparency into why this article was chosen:
 
 ***
 
+### Advanded Configuration
+
+The Six Articles Config button opens a configuration modal that controls how the AI generates curated executive briefings tailored to specific C-Suite personas.
+
+#### System Prompt
+
+Customize the analyst prompt template that guides article selection and summarization.
+
+**Available Placeholders:**
+
+| Placeholder            | Purpose                              |
+| ---------------------- | ------------------------------------ |
+| {persona}              | Target persona (CEO, CMO, CTO, CISO) |
+| {article\_count}       | Number of articles to select (1-8)   |
+| {audience\_profile}    | Organizational profile context       |
+| {articles\_summary}    | Corpus of candidate articles         |
+| {persona\_priorities}  | Persona-specific priorities          |
+| {starred\_instruction} | Instructions for starred articles    |
+
+Actions: Reset to Default, Preview with Sample Data, Validate Template
+
+***
+
+#### Personas
+
+Define characteristics, priorities, and focus areas for each C-Suite persona.
+
+**CEO (Chief Executive Officer)**
+
+* Priorities: Regulation, enterprise adoption, market dynamics
+* Risk Appetite: Moderate (default)
+* Focus: Business strategy, market positioning, competitive advantage
+
+**CMO (Chief Marketing Officer)**
+
+* Priorities: Market trends, customer behavior, brand impact
+* Risk Appetite: High (default)
+* Focus: Marketing strategies, customer engagement, brand differentiation
+
+**CTO (Chief Technology Officer)**
+
+* Priorities: Technical breakthroughs, infrastructure, scalability
+* Risk Appetite: High (default)
+* Focus: Technical architecture, development practices, engineering excellence
+
+**CISO (Chief Information Security Officer)**
+
+* Priorities: Security threats, vulnerabilities, compliance
+* Risk Appetite: Low (default)
+* Focus: Security risks, compliance requirements, threat mitigation
+
+Each persona is fully customizable with editable priorities, risk appetite (Low/Moderate/High), and focus areas.
+
+***
+
+#### Output Format
+
+Define the JSON schema for Six Articles output.
+
+**Required Fields:**
+
+| Field                | Description                                   |
+| -------------------- | --------------------------------------------- |
+| title                | Article title with source & date              |
+| source               | Publisher name                                |
+| date                 | YYYY-MM-DD format                             |
+| url                  | Canonical URL                                 |
+| executive\_takeaway  | \~15 word summary                             |
+| summary              | 2-3 sentence overview                         |
+| strategic\_relevance | Why it matters                                |
+| time\_horizon        | Immediate/Medium/Long-term                    |
+| risk\_opportunity    | risk/opportunity/mixed                        |
+| signal\_strength     | weak/moderate/strong                          |
+| executive\_action    | Array of recommended actions                  |
+| category             | policy/market/tech/workforce/security/society |
+| scores               | Relevance/novelty/credibility/reputation      |
+
+***
+
+#### Why Six Articles?
+
+Background on the research-backed design:
+
+The Science:
+
+* Cognitive Load: Executives process 5-9 items effectively (Miller's Law)
+* Time: 6 articles takes \~8-12 minutes to review
+* Decision Quality: Plateaus after 5-7 data points
+
+Flexibility (1-8 articles):
+
+| Count | Use Case                             |
+| ----- | ------------------------------------ |
+| 1-2   | Crisis mode – immediate threats only |
+| 3-4   | Quick daily scan                     |
+| 6     | Optimal balance (recommended)        |
+| 7-8   | Deep dive / weekly digest            |
+
 ### Key Features
 
 #### Deep Analysis Tools
