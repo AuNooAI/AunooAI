@@ -6,7 +6,7 @@
 
 AunooAI is an open strategic intelligence platform that automatically collects, analyzes, and organizes security news articles to help researchers and foresight professionals to stay informed without information overload.
 
-Aunoo AI offers:
+## Features
 * Multisource research, across news, research papers and social media
 * Media Bias, Factuality and Credibility ratings 
 * Relevance Scoring
@@ -50,16 +50,6 @@ python app/run.py
 
 The application will be available at: http://localhost:10015
 
----
-
-## Features
-
-- **Research Intelligence**: Automated research and analysis
-- **Keyword Monitoring**: Track topics and keywords across news sources
-- **Vector Search**: Semantic search using ChromaDB embeddings
-- **Analytics Dashboard**: Visualizations and insights
-- **Multi-Source Data Collection**: NewsAPI, ArXiv, Bluesky, RSS feeds
-- **AI-Powered Analysis**: OpenAI and Anthropic integration
 ---
 
 ## Configuration
