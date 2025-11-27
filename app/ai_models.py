@@ -147,17 +147,20 @@ class AIModel:
         # ``LiteLLMModel`` uses ``model_name`` so we mirror that here.
         self.model_name = self.model  # type: ignore[attr-defined]
 
-    async def generate(self, prompt: str) -> Any:
+    async def generate(self, prompt: str, max_tokens: int = None) -> Any:
         try:
             # Set API key if provided
             if self.api_key:
                 os.environ[f"{self.model.upper()}_API_KEY"] = self.api_key
 
+            # Use provided max_tokens or fall back to instance default
+            tokens = max_tokens if max_tokens is not None else self.max_tokens
+
             # Generate completion
             response = completion(
                 model=self.model,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=self.max_tokens,
+                max_tokens=tokens,
                 temperature=self.temperature
             )
 

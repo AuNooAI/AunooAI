@@ -1,6 +1,17 @@
 {
-  "max_articles": 50,
-  "min_articles": 10,
+  "version": "2.0.0",
+  "model": "gpt-4o",
+  "max_articles_to_fetch": 200,
+  "min_articles_required": 20,
+  "section_limits": {
+    "policy_regulation": 5,
+    "models_research": 5,
+    "enterprise_adoption": 5,
+    "market_funding": 8,
+    "risk_trust": 4,
+    "weird_unusual": 3,
+    "general": 6
+  },
   "sections": {
     "the_news": {
       "enabled": true,
@@ -9,23 +20,51 @@
     },
     "deep_dive": {
       "enabled": true,
-      "min_words": 400,
-      "max_words": 600
+      "min_words": 250,
+      "max_words": 400
     },
     "weird_shit": {
       "enabled": true,
       "min_words": 100,
-      "max_words": 150
+      "max_words": 200
     },
     "must_reads": {
       "enabled": true,
       "min_items": 8,
       "max_items": 12
     },
-    "market_money": {
+    "market_updates": {
       "enabled": true,
-      "min_words": 150,
-      "max_words": 200
+      "min_bullets": 6,
+      "max_bullets": 12
     }
+  },
+  "source_quality": {
+    "high_quality_bonus": 30,
+    "medium_quality_bonus": 15,
+    "high_quality_sources": [
+      "reuters", "ft", "financial times", "wsj", "wall street journal",
+      "bloomberg", "ap", "associated press", "mit technology review",
+      "nature", "science", "wired", "ars technica", "the verge",
+      "techcrunch", "nyt", "new york times", "washington post",
+      "guardian", "economist", "bbc", "npr"
+    ],
+    "medium_quality_sources": [
+      "forbes", "fortune", "cnbc", "venturebeat", "zdnet", "cnet",
+      "engadget", "ieee spectrum", "hacker news", "medium", "substack",
+      "stratechery", "the register", "information", "protocol",
+      "semafor", "axios", "politico"
+    ]
+  },
+  "recency_scoring": {
+    "same_day_bonus": 25,
+    "within_3_days_bonus": 15,
+    "within_week_bonus": 5
+  },
+  "content_quality": {
+    "long_summary_bonus": 10,
+    "min_summary_length": 200,
+    "future_signal_bonus": 5,
+    "similarity_score_multiplier": 20
   }
 }

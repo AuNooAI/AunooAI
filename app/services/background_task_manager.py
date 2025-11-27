@@ -96,6 +96,18 @@ class BackgroundTaskManager:
             if not row:
                 return None
 
+            # Handle result - may be dict (from PostgreSQL JSONB) or str (from SQLite)
+            result_val = row[10]
+            if result_val is not None and isinstance(result_val, str):
+                result_val = json.loads(result_val)
+
+            # Handle metadata - may be dict (from PostgreSQL JSONB) or str (from SQLite)
+            metadata_val = row[12]
+            if metadata_val is None:
+                metadata_val = {}
+            elif isinstance(metadata_val, str):
+                metadata_val = json.loads(metadata_val)
+
             return TaskInfo(
                 id=row[0],
                 name=row[1],
@@ -107,9 +119,9 @@ class BackgroundTaskManager:
                 total_items=row[7] or 0,
                 processed_items=row[8] or 0,
                 current_item=row[9],
-                result=json.loads(row[10]) if row[10] else None,
+                result=result_val,
                 error=row[11],
-                metadata=json.loads(row[12]) if row[12] else {}
+                metadata=metadata_val
             )
         except Exception as e:
             logger.error(f"Failed to load task {task_id} from database: {e}")

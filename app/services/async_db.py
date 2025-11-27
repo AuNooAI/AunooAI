@@ -67,7 +67,8 @@ class AsyncDatabase:
                 min_size=self._pool_size,
                 max_size=self._pool_size * 2,
                 command_timeout=60,
-                timeout=30
+                timeout=30,
+                statement_cache_size=0
             )
             logger.info("PostgreSQL async database pool initialized successfully")
         else:

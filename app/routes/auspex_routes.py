@@ -1401,3 +1401,95 @@ async def get_research_config(session=Depends(verify_session)):
         }
 
     return response
+
+
+# =============================================================================
+# Newsletter Generation Endpoint
+# =============================================================================
+
+class NewsletterRequest(BaseModel):
+    """Request model for newsletter generation."""
+    topic: str = Field(..., description="Topic area for the newsletter")
+    days_back: int = Field(7, description="Number of days to look back for articles")
+    start_date: str | None = Field(None, description="Start date (YYYY-MM-DD)")
+    end_date: str | None = Field(None, description="End date (YYYY-MM-DD)")
+    model: str = Field("gpt-4o", description="Model to use for generation")
+    profile_id: int | None = Field(None, description="Optional organizational profile ID")
+
+    @field_validator('topic')
+    @classmethod
+    def sanitize_topic(cls, v: str) -> str:
+        """Sanitize topic name."""
+        if v:
+            import re
+            return re.sub(r'\s+', ' ', v.strip())
+        return v
+
+
+@router.post("/newsletter/generate", status_code=status.HTTP_200_OK)
+async def generate_newsletter(req: NewsletterRequest, session=Depends(verify_session)):
+    """
+    Generate a newsletter with streaming progress updates.
+
+    This endpoint conducts a 5-stage newsletter generation workflow:
+    1. Fetching - Gather articles from database and vector store
+    2. Categorizing - Organize articles by section
+    3. Analyzing - Detect metatrends and select deep dive topic
+    4. Deep Dive - Generate consensus/credibility analysis
+    5. Writing - Produce the complete newsletter
+
+    The response is a Server-Sent Events (SSE) stream with progress updates.
+    """
+    from app.services.newsletter_service import get_newsletter_service, NewsletterConfig
+
+    username = session.get('user')
+    if not username:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User authentication required for newsletter generation"
+        )
+
+    logger.info(f"Starting newsletter generation: topic='{req.topic}', days_back={req.days_back}, user={username}")
+
+    newsletter_service = get_newsletter_service()
+
+    # Build config
+    config = NewsletterConfig(
+        days_back=req.days_back,
+        start_date=req.start_date,
+        end_date=req.end_date,
+        model=req.model
+    )
+
+    # Get profile context if provided
+    profile_context = ""
+    if req.profile_id:
+        try:
+            auspex = get_auspex_service()
+            profile_context = auspex._build_profile_context(req.profile_id)
+        except Exception as e:
+            logger.warning(f"Failed to load profile context: {e}")
+
+    async def generate_sse():
+        """Generate SSE events for newsletter progress."""
+        try:
+            async for update in newsletter_service.generate_newsletter(
+                topic=req.topic,
+                config=config,
+                profile_context=profile_context
+            ):
+                yield f"data: {json.dumps(update)}\n\n"
+
+        except Exception as e:
+            logger.error(f"Newsletter generation error: {e}", exc_info=True)
+            yield f"data: {json.dumps({'error': str(e), 'stage': 'error'})}\n\n"
+
+    return StreamingResponse(
+        generate_sse(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
