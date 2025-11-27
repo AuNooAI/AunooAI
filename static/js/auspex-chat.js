@@ -1743,18 +1743,27 @@ class FloatingChat {
     handlePluginToolClick(tool) {
         /**
          * Handle click on a plugin tool badge.
-         * Inserts a trigger query into the input that will activate the tool.
+         * For newsletter_generator, uses dedicated streaming endpoint.
+         * For other tools, inserts a trigger query into the input.
          */
         if (!this.elements.input) return;
 
-        // Format display name
+        const topic = this.elements.topicSelect?.value || 'AI';
+
+        // Special handling for newsletter_generator - use streaming endpoint
+        if (tool.name === 'newsletter_generator') {
+            // Execute newsletter generation with streaming progress
+            this.executeNewsletterGeneration(topic, 7);
+            return;
+        }
+
+        // Format display name for other tools
         const displayName = tool.name
             .split('_')
             .map(word => word.charAt(0).toUpperCase() + word.slice(1))
             .join(' ');
 
         // Build a natural, descriptive query using the tool name and topic
-        const topic = this.elements.topicSelect?.value || 'the topic';
         const query = `${displayName} for ${topic}`;
 
         // Set the input value
@@ -2492,6 +2501,254 @@ SAVINGS: ${tokenSavings.toLocaleString()} tokens (${percentSavings}%)`;
 
         // Mark previous stages as complete
         const stages = ['planning', 'searching', 'synthesis', 'writing'];
+        const currentIndex = stages.indexOf(stage);
+        for (let i = 0; i < currentIndex; i++) {
+            const prevStage = element.querySelector(`[data-stage="${stages[i]}"]`);
+            if (prevStage) {
+                const badge = prevStage.querySelector('.stage-status');
+                const progressBar = prevStage.querySelector('.progress-bar');
+                if (badge) {
+                    badge.style.cssText = 'background: #10b981; color: white;';
+                    badge.textContent = 'Complete';
+                }
+                if (progressBar) {
+                    progressBar.style.width = '100%';
+                }
+            }
+        }
+    }
+
+    // ==================== NEWSLETTER GENERATION ====================
+
+    async executeNewsletterGeneration(topic, daysBack = 7) {
+        /**
+         * Execute newsletter generation with streaming progress.
+         */
+        if (this.newsletterInProgress) {
+            this.showNotification('Newsletter generation already in progress', 'warning');
+            return;
+        }
+
+        this.newsletterInProgress = true;
+
+        // Add user message
+        this.addMessage(`Newsletter Generator for ${topic} for the last ${daysBack} days`, true);
+
+        // Create progress element
+        const progressElement = this.createNewsletterProgressElement();
+        this.elements.messages.appendChild(progressElement);
+        this.elements.messages.scrollTop = this.elements.messages.scrollHeight;
+
+        let finalNewsletter = '';
+
+        try {
+            const response = await fetch('/api/auspex/newsletter/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    topic: topic,
+                    days_back: daysBack,
+                    model: this.elements.modelSelect?.value || 'gpt-4o'
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Newsletter generation failed: ${response.status}`);
+            }
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const events = buffer.split('\n\n');
+                buffer = events.pop() || '';
+
+                for (const event of events) {
+                    if (!event.trim() || !event.startsWith('data:')) continue;
+
+                    const dataMatch = event.match(/^data:\s*([\s\S]*)$/m);
+                    if (!dataMatch) continue;
+
+                    try {
+                        const jsonStr = dataMatch[1].trim();
+                        if (!jsonStr) continue;
+                        const data = JSON.parse(jsonStr);
+
+                        if (data.error) {
+                            this.updateNewsletterProgress(progressElement, 'error', data.error, 0);
+                            throw new Error(data.error);
+                        }
+
+                        if (data.done || data.stage === 'complete') {
+                            this.newsletterInProgress = false;
+                            progressElement.remove();
+                            if (data.newsletter) {
+                                this.addMessage(data.newsletter, false);
+                            }
+                            this.showNotification('Newsletter generated successfully', 'success');
+                            return;
+                        }
+
+                        // Update progress based on stage
+                        if (data.stage && data.status) {
+                            let statusText = data.message || '';
+                            let progress = data.progress || 0;
+
+                            this.updateNewsletterProgress(progressElement, data.stage, statusText, progress);
+                        }
+
+                    } catch (e) {
+                        console.error('Error parsing newsletter SSE:', e);
+                    }
+                }
+            }
+
+        } catch (error) {
+            console.error('Newsletter generation error:', error);
+            this.updateNewsletterProgress(progressElement, 'error', error.message, 0);
+            this.showNotification(`Newsletter failed: ${error.message}`, 'error');
+        } finally {
+            this.newsletterInProgress = false;
+        }
+    }
+
+    createNewsletterProgressElement() {
+        const container = document.createElement('div');
+        container.className = 'newsletter-progress-container p-3 mb-3';
+        container.style.cssText = `
+            background: linear-gradient(135deg, #fdf2f8 0%, #fce7f3 100%);
+            border: 1px solid #f9a8d4;
+            border-radius: 12px;
+        `;
+
+        container.innerHTML = `
+            <div class="d-flex align-items-center gap-2 mb-3">
+                <div class="spinner-border spinner-border-sm" style="color: #ec4899;" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+                <div>
+                    <h6 class="mb-0" style="color: #111827;">Newsletter Generation in Progress</h6>
+                    <small style="color: #6b7280;">Curating and analyzing articles...</small>
+                </div>
+            </div>
+
+            <div class="newsletter-stages">
+                <div class="newsletter-stage" data-stage="fetching">
+                    <div class="stage-indicator d-flex align-items-center gap-2">
+                        <span class="stage-icon" style="color: #ec4899;"><i class="fas fa-database"></i></span>
+                        <span class="stage-name" style="color: #374151; font-weight: 500;">Fetching Articles</span>
+                        <span class="stage-status badge" style="background: #e5e7eb; color: #6b7280;">Pending</span>
+                    </div>
+                    <div class="progress mt-1" style="height: 4px; background: #f3f4f6;">
+                        <div class="progress-bar" style="width: 0%; background: #ec4899;"></div>
+                    </div>
+                </div>
+
+                <div class="newsletter-stage mt-2" data-stage="categorizing">
+                    <div class="stage-indicator d-flex align-items-center gap-2">
+                        <span class="stage-icon" style="color: #ec4899;"><i class="fas fa-folder-open"></i></span>
+                        <span class="stage-name" style="color: #374151; font-weight: 500;">Categorizing</span>
+                        <span class="stage-status badge" style="background: #e5e7eb; color: #6b7280;">Pending</span>
+                    </div>
+                    <div class="progress mt-1" style="height: 4px; background: #f3f4f6;">
+                        <div class="progress-bar" style="width: 0%; background: #f472b6;"></div>
+                    </div>
+                </div>
+
+                <div class="newsletter-stage mt-2" data-stage="analyzing">
+                    <div class="stage-indicator d-flex align-items-center gap-2">
+                        <span class="stage-icon" style="color: #ec4899;"><i class="fas fa-chart-line"></i></span>
+                        <span class="stage-name" style="color: #374151; font-weight: 500;">Detecting Metatrends</span>
+                        <span class="stage-status badge" style="background: #e5e7eb; color: #6b7280;">Pending</span>
+                    </div>
+                    <div class="progress mt-1" style="height: 4px; background: #f3f4f6;">
+                        <div class="progress-bar" style="width: 0%; background: #db2777;"></div>
+                    </div>
+                </div>
+
+                <div class="newsletter-stage mt-2" data-stage="deep_dive">
+                    <div class="stage-indicator d-flex align-items-center gap-2">
+                        <span class="stage-icon" style="color: #ec4899;"><i class="fas fa-microscope"></i></span>
+                        <span class="stage-name" style="color: #374151; font-weight: 500;">Deep Dive Analysis</span>
+                        <span class="stage-status badge" style="background: #e5e7eb; color: #6b7280;">Pending</span>
+                    </div>
+                    <div class="progress mt-1" style="height: 4px; background: #f3f4f6;">
+                        <div class="progress-bar" style="width: 0%; background: #be185d;"></div>
+                    </div>
+                </div>
+
+                <div class="newsletter-stage mt-2" data-stage="writing">
+                    <div class="stage-indicator d-flex align-items-center gap-2">
+                        <span class="stage-icon" style="color: #ec4899;"><i class="fas fa-pen-fancy"></i></span>
+                        <span class="stage-name" style="color: #374151; font-weight: 500;">Writing Newsletter</span>
+                        <span class="stage-status badge" style="background: #e5e7eb; color: #6b7280;">Pending</span>
+                    </div>
+                    <div class="progress mt-1" style="height: 4px; background: #f3f4f6;">
+                        <div class="progress-bar" style="width: 0%; background: #9d174d;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="newsletter-status mt-3 p-2 rounded" style="background: rgba(236, 72, 153, 0.1);">
+                <small class="status-text" style="color: #374151;">Initializing newsletter generation...</small>
+            </div>
+        `;
+
+        return container;
+    }
+
+    updateNewsletterProgress(element, stage, statusText, progress) {
+        if (!element) return;
+
+        // Update status text
+        const statusEl = element.querySelector('.status-text');
+        if (statusEl && statusText) {
+            statusEl.textContent = statusText;
+        }
+
+        // Handle error state
+        if (stage === 'error') {
+            const statusDiv = element.querySelector('.newsletter-status');
+            if (statusDiv) {
+                statusDiv.style.background = 'rgba(220, 53, 69, 0.15)';
+                statusDiv.innerHTML = `<small style="color: #dc2626;"><i class="fas fa-exclamation-triangle"></i> ${statusText}</small>`;
+            }
+            return;
+        }
+
+        // Update stage indicators
+        const stageEl = element.querySelector(`[data-stage="${stage}"]`);
+        if (stageEl) {
+            const badge = stageEl.querySelector('.stage-status');
+            const progressBar = stageEl.querySelector('.progress-bar');
+
+            if (progress === 0 || progress < 1) {
+                // In progress
+                if (badge) {
+                    badge.style.cssText = 'background: #ec4899; color: white;';
+                    badge.textContent = 'In Progress';
+                }
+            }
+            if (progress >= 1) {
+                // Complete
+                if (badge) {
+                    badge.style.cssText = 'background: #10b981; color: white;';
+                    badge.textContent = 'Complete';
+                }
+            }
+
+            if (progressBar) {
+                progressBar.style.width = `${Math.min(100, progress * 100)}%`;
+            }
+        }
+
+        // Mark previous stages as complete
+        const stages = ['fetching', 'categorizing', 'analyzing', 'deep_dive', 'writing'];
         const currentIndex = stages.indexOf(stage);
         for (let i = 0; i < currentIndex; i++) {
             const prevStage = element.querySelector(`[data-stage="${stages[i]}"]`);
