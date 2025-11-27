@@ -108,7 +108,14 @@ Automated collection (ongoing):<br>
 3. Enable auto-collection
 4. Select the LLM you want to use for automated processing
 5. Set check interval to 24 hours
-6. Click Save
+6. Make sure everything is configured for full automation
+   1. Enable Auto-collection every 24 hours
+   2. Search across articles for a maximum of the past 7 days
+   3. Maximum daily API requests 100
+   4. Whichever News API key was added during onboarding will be activated
+   5. Articles will be scored for at least medium relevance.
+   6. Article output will be quality assessed to ensure we don’t save CAPTCHA, errors or other bad data to the topic dataset.
+7. Click Save
 
 Now Aunoo will automatically search for articles every 24 hours.
 
