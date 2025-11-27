@@ -81,14 +81,8 @@ ELEVENLABS_API_KEY=your_key_here
 
 ### Database Setup
 
-The setup script (`python setup.py`) will prompt you to choose:
-
-**Option 1: SQLite (Default)**
-- Simple file-based database
-- Good for development and single-user
-- No installation required
-
-**Option 2: PostgreSQL**
+The setup script (`python setup.py`) will prompt you to setup a database
+**PostgreSQL**
 - Production-grade database
 - Better for concurrent users (50+)
 - Automatic installation and configuration
@@ -97,8 +91,6 @@ For manual PostgreSQL setup:
 ```bash
 python scripts/setup_postgresql.py
 ```
-
-See [docs/POSTGRESQL_SETUP.md](docs/POSTGRESQL_SETUP.md) for details
 
 ## Running the Application
 
