@@ -2159,6 +2159,107 @@ def generate_future_horizons_prompt(
     return f"{system_prompt}\n\n{user_prompt}"
 
 
+def generate_intelligence_brief_prompt(
+    topic: str,
+    org_context: str,
+    organizational_profile: Dict = None
+) -> str:
+    """
+    Generate specialized prompt for Strategic Intelligence Oracle (SIO) tab.
+    Focus on comprehensive 24-hour news scan with BBC/Wiley quality standards.
+    """
+
+    # Get organization-specific context
+    org_type = organizational_profile.get('organization_type', 'executive') if organizational_profile else 'executive'
+    org_name = organizational_profile.get('name', 'your organization') if organizational_profile else 'your organization'
+
+    system_prompt = """You are a senior intelligence editor producing strategic intelligence briefs for decision-makers. Your role is to synthesize multiple event analyses into a coherent, actionable intelligence product that meets BBC/Wiley editorial standards.
+
+## Quality Standards
+
+- **Verification**: All factual claims must be cross-referenced against multiple credible sources
+- **Attribution**: Every claim must cite its source with credibility assessment
+- **Balance**: Present multiple perspectives where they exist
+- **Transparency**: Clearly distinguish between confirmed facts, analysis, and speculation
+- **Confidence Levels**: Assign explicit confidence ratings to all assessments"""
+
+    user_prompt = f"""## Intelligence Brief Request
+
+**Topic Focus:** {topic}
+
+{org_context}
+
+**Organization:** {org_name} ({org_type})
+
+## Your Task
+
+Generate a comprehensive 24-hour Strategic Intelligence Brief that:
+
+1. **Prioritizes and Ranks Events**
+   - Order events by strategic importance to {org_name}
+   - Identify the 5 most critical items for executive summary
+   - Group related events where connections exist
+   - Separate confirmed intelligence from emerging signals
+
+2. **Synthesizes Across Events**
+   - Identify patterns across multiple events
+   - Note cross-event connections and implications
+   - Highlight emerging trends relevant to {org_type} organizations
+   - Flag potential cascade effects
+
+3. **Applies Quality Gates**
+   - Ensure all claims are properly sourced
+   - Verify confidence levels are appropriate
+   - Check for balanced perspectives
+   - Document any limitations
+
+## Output Structure
+
+### 1. Executive Summary
+- Top 5 critical items in bullet form
+- Overall assessment of the intelligence landscape
+- Key uncertainties and watch items (2-3 paragraphs max)
+
+### 2. Critical Events
+For each critical/high importance event:
+- **Headline** (clear, specific)
+- **Summary** (2-3 sentences)
+- **Key Facts** (bulleted, with confidence indicators)
+- **Implications** (strategic significance for {org_name})
+- **Sources** (with credibility notes)
+- **Confidence Level** (with explanation)
+
+### 3. Emerging Signals
+- Weak signals worth monitoring
+- Developing stories not yet confirmed
+- Potential future developments
+- Each with confidence assessment
+
+### 4. Confidence Assessment
+- Overall confidence in the brief
+- Per-event confidence breakdown
+- Factors affecting confidence
+
+### 5. Methodology & Audit Trail
+- Time window covered
+- Articles analyzed
+- AI models used
+- Human review requirements
+
+## Confidence Indicators
+- 🟢 **HIGH CONFIDENCE** (0.85+): Verified by multiple credible sources
+- 🟡 **MEDIUM CONFIDENCE** (0.70-0.84): Partially verified, some uncertainty
+- 🔴 **LOW CONFIDENCE** (<0.70): Unverified or conflicting reports
+
+## Importance Markers
+- 🔴 **CRITICAL**: Immediate strategic impact
+- 🟠 **HIGH**: Significant development
+- 🟡 **MEDIUM**: Noteworthy
+- ⚪ **MONITORING**: Emerging signal"""
+
+    return f"{system_prompt}\n\n{user_prompt}"
+
+
 # ============================================================================
 # END TAB-SPECIFIC PROMPT FUNCTIONS
 # ============================================================================
@@ -2959,7 +3060,8 @@ ORGANIZATIONAL CONTEXT:
                 "timeline": "impact_timeline",
                 "impact-timeline": "impact_timeline",
                 "horizons": "future_horizons",
-                "future-horizons": "future_horizons"
+                "future-horizons": "future_horizons",
+                "intelligence-brief": "intelligence_brief"
             }
             prompt_type = prompt_type_mapping.get(tab_name, "strategic_recommendations")
             prompt_template = prompt_manager.get_version(prompt_type, "current")
@@ -3008,7 +3110,8 @@ ORGANIZATIONAL CONTEXT:
             "timeline": "impact-timeline",
             "impact-timeline": "impact-timeline",
             "horizons": "future-horizons",
-            "future-horizons": "future-horizons"
+            "future-horizons": "future-horizons",
+            "intelligence-brief": "intelligence-brief"
         }
 
         normalized_tab = tab_mapping.get(tab_name, tab_name)
@@ -3051,6 +3154,12 @@ ORGANIZATIONAL CONTEXT:
                 org_context=org_context,
                 organizational_profile=organizational_profile
             )
+        elif normalized_tab == "intelligence-brief":
+            prompt = generate_intelligence_brief_prompt(
+                topic=topic,
+                org_context=org_context,
+                organizational_profile=organizational_profile
+            )
         else:
             raise HTTPException(status_code=400, detail=f"Unknown tab name: {tab_name} (normalized: {normalized_tab})")
 
@@ -3076,6 +3185,34 @@ ORGANIZATIONAL CONTEXT:
 
             expected_output_schema = prompt_template.get('expected_output_schema')
             variables = prompt_template.get('variables', {})
+        elif normalized_tab == "intelligence-brief":
+            # For intelligence-brief, extract template from the hardcoded prompt
+            # The prompt is formatted as "system_prompt\n\nuser_prompt"
+            if "\n\n" in prompt:
+                parts = prompt.split("\n\n", 1)
+                # Find where the system prompt ends (after "## Quality Standards" section)
+                system_end_marker = "- **Confidence Levels**: Assign explicit confidence ratings to all assessments"
+                if system_end_marker in prompt:
+                    system_end_idx = prompt.index(system_end_marker) + len(system_end_marker)
+                    template_system_prompt = prompt[:system_end_idx].strip()
+                    template_user_prompt = prompt[system_end_idx:].strip()
+                else:
+                    template_system_prompt = parts[0]
+                    template_user_prompt = parts[1] if len(parts) > 1 else ""
+            else:
+                template_user_prompt = prompt
+
+            # Extract output format section
+            if "## Output Structure" in template_user_prompt:
+                instruction_end = template_user_prompt.index("## Output Structure")
+                template_output_format = template_user_prompt[instruction_end:]
+                template_user_prompt = template_user_prompt[:instruction_end].strip()
+
+            variables = {
+                "topic": topic,
+                "org_name": organizational_profile.get('name', 'your organization') if organizational_profile else 'your organization',
+                "org_type": organizational_profile.get('organization_type', 'executive') if organizational_profile else 'executive'
+            }
 
         return {
             "success": True,

@@ -230,7 +230,7 @@ class Database:
                     database_url,
                     echo=False,  # Disable SQL query logging for production
                     pool_pre_ping=True,  # Check connection health on checkout
-                    pool_recycle=3600,    # Recycle connections after 1 hour (before they go stale)
+                    pool_recycle=300,     # Recycle connections every 5 min (before pgbouncer's 10 min idle timeout)
                     pool_size=20,         # Increased from 10 to support background processing
                     max_overflow=10,      # Increased from 5 for peak loads
                     pool_timeout=30       # Timeout waiting for connection from pool
@@ -260,27 +260,16 @@ class Database:
             # pprint.pp([user for user in result])
             # TODO: END TEMPORARY PATCH
         else:
-            logger.debug(f"Reusing existing SQLAlchemy connection for thread {thread_id}")
-            # CRITICAL FIX: Always rollback any pending invalid transactions
-            # Per SQLAlchemy docs: "When a connection is invalidated, any Transaction
-            # that was in progress is now in an invalid state, and must be explicitly
-            # rolled back in order to remove it from the Connection"
-            # Reference: https://docs.sqlalchemy.org/en/20/errors.html
             conn = self._sqlalchemy_connections[thread_id]
             try:
-                # Always rollback to ensure clean state, especially after connection invalidation
+                conn.execute(text("SELECT 1"))
                 conn.rollback()
-                logger.debug(f"Rolled back any pending transaction on connection for thread {thread_id}")
-            except Exception as e:
-                logger.error(f"Error rolling back transaction: {e}")
-                # If rollback fails, the connection is likely unusable - recreate it
-                logger.warning(f"Recreating connection due to rollback failure for thread {thread_id}")
+            except Exception:
                 try:
                     conn.close()
                 except:
                     pass
                 del self._sqlalchemy_connections[thread_id]
-                # Recursively call to create a new connection
                 return self._temp_get_connection()
         return self._sqlalchemy_connections[thread_id]
 

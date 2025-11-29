@@ -28,6 +28,9 @@ import { ExportService } from './services/exportService';
 import { ArticleCitations } from './components/ArticleCitations';
 import { AIDisclosureFooter, dashboardFooterConfigs } from './components/AIDisclosureFooter';
 import { renderCitationsAsLinks } from './utils/citationRenderer';
+import { IntelligenceBrief } from './components/IntelligenceBrief';
+import { useStrategicIntelligence } from './hooks/useStrategicIntelligence';
+import { SIOTuneModal } from './components/SIOTuneModal';
 
 function App() {
   const {
@@ -74,6 +77,33 @@ function App() {
 
   // All available topics
   const [allTopics, setAllTopics] = useState<string[]>([]);
+
+  // Strategic Intelligence Oracle (SIO) state - lifted from IntelligenceBrief
+  const sio = useStrategicIntelligence();
+  const [sioHoursBack, setSioHoursBack] = useState(24);
+  const [sioMaxEvents, setSioMaxEvents] = useState(30);
+  const [sioCredibilityThreshold, setSioCredibilityThreshold] = useState(60);
+  const [isSioTuneOpen, setIsSioTuneOpen] = useState(false);
+  const [showSioRawModal, setShowSioRawModal] = useState(false);
+  const [showSioReferencesModal, setShowSioReferencesModal] = useState(false);
+
+  // Load saved SIO config on mount
+  useEffect(() => {
+    const loadSioConfig = async () => {
+      try {
+        const response = await fetch('/api/sio/config', { credentials: 'include' });
+        if (response.ok) {
+          const config = await response.json();
+          setSioCredibilityThreshold(config.credibility_threshold ?? 60);
+          setSioHoursBack(config.hours_back ?? 24);
+          setSioMaxEvents(config.max_events ?? 30);
+        }
+      } catch (err) {
+        console.error('Failed to load SIO config:', err);
+      }
+    };
+    loadSioConfig();
+  }, []);
 
   // Fetch prompt preview when Tune modal opens
   useEffect(() => {
@@ -874,12 +904,24 @@ function App() {
                 {data?._cache_info?.last_updated || new Date().toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '.')}
               </span>
               <button
-                onClick={() => generateAnalysis(true)}
-                disabled={loading}
+                onClick={() => {
+                  if (activeTab === 'intelligence-brief') {
+                    sio.startScan({
+                      topic: config.topic || undefined,
+                      hours_back: sioHoursBack,
+                      max_events: sioMaxEvents,
+                      credibility_threshold: sioCredibilityThreshold,
+                      profile_id: config.profile_id,
+                    });
+                  } else {
+                    generateAnalysis(true);
+                  }
+                }}
+                disabled={loading || sio.isScanning}
                 className="p-2 hover:bg-gray-100 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Refresh analysis (bypass cache)"
+                title={activeTab === 'intelligence-brief' ? 'Generate intelligence brief' : 'Refresh analysis (bypass cache)'}
               >
-                <RefreshCw className={`w-4 h-4 text-gray-700 ${loading ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-4 h-4 text-gray-700 ${(loading || sio.isScanning) ? 'animate-spin' : ''}`} />
               </button>
             </div>
           </div>
@@ -898,7 +940,11 @@ function App() {
             <button
               onClick={() => {
                 console.log('🔧 Tune button clicked');
-                setIsPromptEditorOpen(true);
+                if (activeTab === 'intelligence-brief') {
+                  setIsSioTuneOpen(true);
+                } else {
+                  setIsPromptEditorOpen(true);
+                }
               }}
               className="px-4 py-2 text-pink-500 hover:bg-pink-50 rounded-md text-sm font-medium flex items-center gap-2"
             >
@@ -907,78 +953,146 @@ function App() {
             </button>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => handleExport('pdf')}
-              disabled={!data}
-              className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Download className="w-4 h-4" />
-              PDF
-            </button>
-            <button
-              onClick={() => handleExport('image')}
-              disabled={!data}
-              className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ImageIcon className="w-4 h-4" />
-              PNG
-            </button>
-            <button
-              onClick={handleViewRaw}
-              disabled={!data?.analysis_id || loadingRaw}
-              className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Code className="w-4 h-4" />
-              {loadingRaw ? 'Loading...' : 'Raw'}
-            </button>
-            {data?.analysis_id && (
-              <div className="reference-articles-button-wrapper">
-                <ArticleCitations
-                  dashboardType={
-                    activeTab === 'consensus' ? 'consensus' :
-                    activeTab === 'strategic-recommendations' ? 'strategic' :
-                    activeTab === 'market-signals' ? 'market-signals' :
-                    activeTab === 'impact-timeline' ? 'timeline' :
-                    activeTab === 'future-horizons' ? 'horizons' :
-                    'consensus'
-                  }
-                  analysisId={data.analysis_id}
-                  topic={config.topic}
-                />
-              </div>
+            {/* Export/Raw/References buttons for Intelligence Brief tab */}
+            {activeTab === 'intelligence-brief' && sio.briefContent && !sio.isScanning && (
+              <>
+                <button
+                  onClick={() => {
+                    // Export brief as markdown file
+                    const blob = new Blob([sio.briefContent], { type: 'text/markdown' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `intelligence-brief-${config.topic || 'report'}-${new Date().toISOString().slice(0, 10)}.md`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Download className="w-4 h-4" />
+                  Export
+                </button>
+                <button
+                  onClick={() => setShowSioRawModal(true)}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Code className="w-4 h-4" />
+                  Raw
+                </button>
+                <button
+                  onClick={() => setShowSioReferencesModal(true)}
+                  disabled={!sio.scanResult?.articles?.length}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  References
+                </button>
+              </>
             )}
+            {/* Export buttons - hidden for Intelligence Brief tab */}
+            {activeTab !== 'intelligence-brief' && (
+              <>
+                <button
+                  onClick={() => handleExport('pdf')}
+                  disabled={!data}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Download className="w-4 h-4" />
+                  PDF
+                </button>
+                <button
+                  onClick={() => handleExport('image')}
+                  disabled={!data}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ImageIcon className="w-4 h-4" />
+                  PNG
+                </button>
+                <button
+                  onClick={handleViewRaw}
+                  disabled={!data?.analysis_id || loadingRaw}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Code className="w-4 h-4" />
+                  {loadingRaw ? 'Loading...' : 'Raw'}
+                </button>
+                {data?.analysis_id && (
+                  <div className="reference-articles-button-wrapper">
+                    <ArticleCitations
+                      dashboardType={
+                        activeTab === 'consensus' ? 'consensus' :
+                        activeTab === 'strategic-recommendations' ? 'strategic' :
+                        activeTab === 'market-signals' ? 'market-signals' :
+                        activeTab === 'impact-timeline' ? 'timeline' :
+                        activeTab === 'future-horizons' ? 'horizons' :
+                        'consensus'
+                      }
+                      analysisId={data.analysis_id}
+                      topic={config.topic}
+                    />
+                  </div>
+                )}
 
-            {/* Save Dashboard Button */}
-            <button
-              onClick={() => setShowSaveDialog(true)}
-              disabled={!data}
-              className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Save className="w-4 h-4" />
-              Save
-            </button>
+                {/* Save Dashboard Button */}
+                <button
+                  onClick={() => setShowSaveDialog(true)}
+                  disabled={!data}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Save className="w-4 h-4" />
+                  Save
+                </button>
 
-            {/* Delete Dashboard Button - Only shown when a dashboard is loaded */}
-            {currentDashboardId && (
-              <button
-                onClick={() => {
-                  const dashboard = savedDashboards.find(d => d.id === currentDashboardId);
-                  if (dashboard) {
-                    openDeleteConfirmation(currentDashboardId, dashboard.name);
-                  }
-                }}
-                className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-red-500"
-                title="Delete Dashboard"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
+                {/* Delete Dashboard Button - Only shown when a dashboard is loaded */}
+                {currentDashboardId && (
+                  <button
+                    onClick={() => {
+                      const dashboard = savedDashboards.find(d => d.id === currentDashboardId);
+                      if (dashboard) {
+                        openDeleteConfirmation(currentDashboardId, dashboard.name);
+                      }
+                    }}
+                    className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-red-500"
+                    title="Delete Dashboard"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>
 
         {/* Main Scrollable Content */}
         <div id="dashboard-content" className="flex-1 overflow-y-auto px-6 py-6">
-          {loading ? (
+          {/* Intelligence Brief Tab - State lifted to App.tsx for header button integration */}
+          {activeTab === 'intelligence-brief' ? (
+            <IntelligenceBrief
+              topic={config.topic}
+              profileId={config.profile_id}
+              isScanning={sio.isScanning}
+              currentStage={sio.currentStage}
+              stageProgress={sio.stageProgress}
+              overallProgress={sio.overallProgress}
+              briefContent={sio.briefContent}
+              scanResult={sio.scanResult}
+              error={sio.error}
+              articlesCollected={sio.articlesCollected}
+              articlesScreened={sio.articlesScreened}
+              eventsIdentified={sio.eventsIdentified}
+              eventsAnalyzed={sio.eventsAnalyzed}
+              currentEvent={sio.currentEvent}
+              hoursBack={sioHoursBack}
+              maxEvents={sioMaxEvents}
+              credibilityThreshold={sioCredibilityThreshold}
+              onHoursBackChange={setSioHoursBack}
+              onMaxEventsChange={setSioMaxEvents}
+              onCredibilityThresholdChange={setSioCredibilityThreshold}
+              onClearError={sio.clearError}
+              onClearResults={sio.clearResults}
+            />
+          ) : loading ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
                 <Loader2 className="w-12 h-12 animate-spin text-pink-500 mx-auto mb-4" />
@@ -1733,6 +1847,155 @@ function App() {
         }}
       />
 
+      {/* SIO Raw Output Modal */}
+      {showSioRawModal && (
+        <Dialog open={showSioRawModal} onOpenChange={setShowSioRawModal}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Intelligence Brief - Raw Data</DialogTitle>
+              <DialogDescription>
+                Complete scan output and audit trail
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4">
+              {sio.scanResult && (
+                <>
+                  <div className="mb-4 text-sm text-gray-600 space-y-1">
+                    <p><strong>Scan ID:</strong> {sio.scanResult.scan_id}</p>
+                    <p><strong>Articles Collected:</strong> {sio.scanResult.metadata.articles_collected}</p>
+                    <p><strong>Articles Screened:</strong> {sio.scanResult.metadata.articles_screened}</p>
+                    <p><strong>Events Analyzed:</strong> {sio.scanResult.metadata.events_analyzed}</p>
+                    <p><strong>Duration:</strong> {Math.round(sio.scanResult.metadata.duration_seconds)}s</p>
+                    {sio.scanResult.metadata.generated_at && (
+                      <p><strong>Generated:</strong> {new Date(sio.scanResult.metadata.generated_at).toLocaleString()}</p>
+                    )}
+                  </div>
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 max-h-[400px] overflow-y-auto">
+                    <pre className="text-xs whitespace-pre-wrap break-all">
+                      {JSON.stringify({
+                        scan_id: sio.scanResult.scan_id,
+                        metadata: sio.scanResult.metadata,
+                        audit_trail: sio.scanResult.audit_trail,
+                        articles_count: sio.scanResult.articles?.length || 0
+                      }, null, 2)}
+                    </pre>
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        navigator.clipboard.writeText(JSON.stringify(sio.scanResult, null, 2));
+                        alert('Copied to clipboard!');
+                      }}
+                    >
+                      Copy to Clipboard
+                    </Button>
+                    <Button onClick={() => setShowSioRawModal(false)} variant="outline" size="sm">
+                      Close
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* SIO References Modal */}
+      {showSioReferencesModal && (
+        <Dialog open={showSioReferencesModal} onOpenChange={setShowSioReferencesModal}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Reference Articles</DialogTitle>
+              <DialogDescription>
+                Articles analyzed for this intelligence brief ({sio.scanResult?.articles?.length || 0} total)
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4">
+              {sio.scanResult?.articles && sio.scanResult.articles.length > 0 ? (
+                <>
+                  <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                    {sio.scanResult.articles.map((article, idx) => (
+                      <div key={article.id || idx} className="p-3 border rounded-lg hover:bg-gray-50">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            {article.uri ? (
+                              <a
+                                href={article.uri}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm font-medium text-blue-600 hover:underline block truncate"
+                              >
+                                {idx + 1}. {article.title}
+                              </a>
+                            ) : (
+                              <span className="text-sm font-medium text-gray-800 block truncate">
+                                {idx + 1}. {article.title}
+                              </span>
+                            )}
+                            <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                              <span>{article.source}</span>
+                              {article.credibility_score !== undefined && (
+                                <span className={`px-1.5 py-0.5 rounded ${
+                                  article.credibility_score >= 80 ? 'bg-green-100 text-green-700' :
+                                  article.credibility_score >= 60 ? 'bg-yellow-100 text-yellow-700' :
+                                  'bg-red-100 text-red-700'
+                                }`}>
+                                  {article.credibility_score}%
+                                </span>
+                              )}
+                              {article.published_at && (
+                                <span>{new Date(article.published_at).toLocaleDateString()}</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        // Download as TXT
+                        let txt = `Reference Articles - Intelligence Brief\n`;
+                        txt += `Total: ${sio.scanResult?.articles?.length || 0}\n`;
+                        txt += `Generated: ${new Date().toLocaleString()}\n\n`;
+                        txt += '='.repeat(80) + '\n\n';
+                        sio.scanResult?.articles?.forEach((a, i) => {
+                          txt += `${i + 1}. ${a.title}\n`;
+                          txt += `   Source: ${a.source}\n`;
+                          if (a.credibility_score) txt += `   Credibility: ${a.credibility_score}%\n`;
+                          if (a.published_at) txt += `   Published: ${new Date(a.published_at).toLocaleDateString()}\n`;
+                          if (a.uri) txt += `   URL: ${a.uri}\n`;
+                          txt += '\n';
+                        });
+                        const blob = new Blob([txt], { type: 'text/plain' });
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.download = `references-intelligence-brief-${Date.now()}.txt`;
+                        link.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                    >
+                      Download as TXT
+                    </Button>
+                    <Button onClick={() => setShowSioReferencesModal(false)} variant="outline" size="sm">
+                      Close
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-gray-500 text-center py-8">No reference articles available.</p>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {/* Raw Analysis Modal */}
       {showRawModal && (
         <Dialog open={showRawModal} onOpenChange={setShowRawModal}>
@@ -2095,6 +2358,18 @@ function App() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* SIO Tune Modal - Multi-step prompt editor for Intelligence Brief */}
+      <SIOTuneModal
+        open={isSioTuneOpen}
+        onOpenChange={setIsSioTuneOpen}
+        credibilityThreshold={sioCredibilityThreshold}
+        hoursBack={sioHoursBack}
+        maxEvents={sioMaxEvents}
+        onCredibilityThresholdChange={setSioCredibilityThreshold}
+        onHoursBackChange={setSioHoursBack}
+        onMaxEventsChange={setSioMaxEvents}
+      />
     </div>
   );
 }

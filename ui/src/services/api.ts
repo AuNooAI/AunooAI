@@ -812,3 +812,306 @@ export async function cloneDashboard(dashboardId: number, newName: string): Prom
     method: 'POST',
   });
 }
+
+// ============================================================================
+// Strategic Intelligence Oracle (SIO) API Functions
+// ============================================================================
+
+export interface SIOScanRequest {
+  topic?: string;
+  hours_back?: number;
+  max_events?: number;
+  credibility_threshold?: number;
+  profile_id?: number;
+  stream?: boolean;
+}
+
+export interface SIOEventCluster {
+  cluster_id: string;
+  title: string;
+  summary: string;
+  category: string;
+  article_count: number;
+  source_diversity_score: number;
+  preliminary_importance: 'critical' | 'high' | 'medium' | 'low';
+  final_importance_score: number;
+  keywords: string[];
+  analysis?: {
+    key_facts: Array<{ fact: string; sources_count?: number; importance?: string }>;
+    key_entities: Array<{ name: string; type: string; role: string }>;
+    confidence_score: number;
+    quality_gates: {
+      accuracy_passed: boolean;
+      context_passed: boolean;
+      sourcing_passed: boolean;
+      all_passed: boolean;
+      issues: string[];
+    };
+    impact_assessment: {
+      urgency_score: number;
+      scale_score: number;
+      consequence_score: number;
+      overall_importance: number;
+      strategic_category: string;
+    };
+    cross_references: Array<{ title: string; source: string; url?: string }>;
+    contradictions: Array<{ topic: string; source_a: string; source_b: string; severity: string }>;
+  };
+}
+
+export interface SIOScanProgress {
+  stage: 'discovery' | 'triage' | 'deep_analysis' | 'synthesis' | 'complete' | 'error';
+  status: string;
+  progress: number;
+  scan_id?: string;
+  articles_collected?: number;
+  articles_screened?: number;
+  events_identified?: number;
+  events_analyzed?: number;
+  current_event?: string;
+  chunk?: string;
+  brief?: string;
+  metadata?: {
+    articles_collected: number;
+    articles_screened: number;
+    events_identified: number;
+    events_analyzed: number;
+    duration_seconds: number;
+  };
+  audit_trail?: any;
+  error?: string;
+}
+
+export interface SIOArticle {
+  id: number;
+  title: string;
+  uri: string;
+  source: string;
+  published_at?: string;
+  credibility_score?: number;
+  summary?: string;
+}
+
+export interface SIOBriefData {
+  scan_id: string;
+  brief: string;
+  metadata: {
+    articles_collected: number;
+    articles_screened: number;
+    events_identified: number;
+    events_analyzed: number;
+    duration_seconds: number;
+    generated_at?: string;
+  };
+  articles?: SIOArticle[];
+  audit_trail: any;
+  events?: SIOEventCluster[];
+}
+
+export interface AnalyzeUrlRequest {
+  url: string;
+  topic?: string;
+  deep_verification?: boolean;
+}
+
+export interface ArticleAnalysis {
+  analysis_id: string;
+  url: string;
+  analysis: {
+    title: string;
+    summary: string;
+    key_facts: Array<{ fact: string; type?: string; importance?: string }>;
+    key_entities: Array<{ name: string; type: string; role: string }>;
+    verification: {
+      results: Array<{
+        claim: string;
+        verified: boolean;
+        confidence: number;
+        supporting_sources: string[];
+        contradicting_sources: string[];
+        notes: string;
+      }>;
+      cross_references: Array<{ title: string; source: string; url?: string }>;
+      contradictions: Array<{ topic: string; severity: string }>;
+    };
+    source: {
+      credibility: { rating?: string; score?: number };
+      bias?: string;
+    };
+    confidence_score: number;
+    impact_assessment: {
+      urgency_score: number;
+      scale_score: number;
+      consequence_score: number;
+      overall_importance: number;
+      strategic_category: string;
+    };
+    quality_gates: {
+      accuracy_passed: boolean;
+      context_passed: boolean;
+      sourcing_passed: boolean;
+      all_passed: boolean;
+      issues: string[];
+    };
+  };
+}
+
+/**
+ * Start a Strategic Intelligence Oracle scan with streaming
+ * Returns an EventSource for SSE streaming
+ */
+export function startSIOScanStream(
+  params: SIOScanRequest,
+  onProgress: (data: SIOScanProgress) => void,
+  onComplete: (data: SIOBriefData) => void,
+  onError: (error: string) => void
+): () => void {
+  const controller = new AbortController();
+
+  const runStream = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/sio/scan`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ ...params, stream: true }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+        throw new Error(errorData.detail || `HTTP ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('No response body');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const data = JSON.parse(line.slice(6)) as SIOScanProgress;
+
+              if (data.stage === 'complete') {
+                onComplete({
+                  scan_id: data.scan_id || '',
+                  brief: data.brief || '',
+                  metadata: data.metadata || {
+                    articles_collected: 0,
+                    articles_screened: 0,
+                    events_identified: 0,
+                    events_analyzed: 0,
+                    duration_seconds: 0,
+                  },
+                  articles: (data as any).articles || [],
+                  audit_trail: data.audit_trail,
+                });
+              } else if (data.stage === 'error') {
+                onError(data.error || 'Unknown error');
+              } else {
+                onProgress(data);
+              }
+            } catch (e) {
+              console.error('Error parsing SSE data:', e);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      if ((error as Error).name !== 'AbortError') {
+        onError((error as Error).message);
+      }
+    }
+  };
+
+  runStream();
+
+  // Return cleanup function
+  return () => controller.abort();
+}
+
+/**
+ * Start a SIO scan without streaming (waits for completion)
+ */
+export async function startSIOScan(params: SIOScanRequest): Promise<SIOBriefData> {
+  const response = await fetchWithAuth<{
+    success: boolean;
+    scan_id: string;
+    brief: string;
+    metadata: any;
+    audit_trail: any;
+  }>(`${API_BASE_URL}/api/sio/scan`, {
+    method: 'POST',
+    body: JSON.stringify({ ...params, stream: false }),
+  });
+
+  return {
+    scan_id: response.scan_id,
+    brief: response.brief,
+    metadata: response.metadata,
+    audit_trail: response.audit_trail,
+  };
+}
+
+/**
+ * Analyze a single URL with deep verification
+ */
+export async function analyzeSIOUrl(request: AnalyzeUrlRequest): Promise<ArticleAnalysis> {
+  return fetchWithAuth<ArticleAnalysis>(`${API_BASE_URL}/api/sio/analyze-url`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+/**
+ * Get SIO service health status
+ */
+export async function getSIOHealth(): Promise<{ status: string; version: string; components: any }> {
+  return fetchWithAuth(`${API_BASE_URL}/api/sio/health`);
+}
+
+/**
+ * Get a specific SIO scan by ID
+ */
+export async function getSIOScan(scanId: string): Promise<any> {
+  return fetchWithAuth(`${API_BASE_URL}/api/sio/scan/${scanId}`);
+}
+
+/**
+ * Get just the brief from a scan
+ */
+export async function getSIOBrief(scanId: string): Promise<{ brief: string }> {
+  return fetchWithAuth(`${API_BASE_URL}/api/sio/scan/${scanId}/brief`);
+}
+
+/**
+ * List recent SIO scans
+ */
+export async function listSIOScans(params?: {
+  page?: number;
+  per_page?: number;
+  topic?: string;
+  status?: string;
+}): Promise<{ scans: any[]; total: number; page: number; per_page: number }> {
+  const queryParams = new URLSearchParams();
+  if (params?.page) queryParams.append('page', String(params.page));
+  if (params?.per_page) queryParams.append('per_page', String(params.per_page));
+  if (params?.topic) queryParams.append('topic', params.topic);
+  if (params?.status) queryParams.append('status', params.status);
+
+  return fetchWithAuth(`${API_BASE_URL}/api/sio/scans?${queryParams}`);
+}
