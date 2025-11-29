@@ -31,6 +31,7 @@ import {
   type SIOConfig
 } from '../hooks/useStrategicIntelligence';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface IntelligenceBriefProps {
   topic?: string;
@@ -306,28 +307,28 @@ function BriefDisplay({
       <div className="text-center py-12 text-gray-500">
         <FileText className="w-12 h-12 mx-auto mb-4 opacity-50" />
         <p>No intelligence brief available.</p>
-        <p className="text-sm mt-2">Click "Generate Brief" to start a 24-hour scan.</p>
+        <p className="text-sm mt-2">Click the refresh button to generate a strategic intelligence briefing.</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-4">
-      {/* Metadata summary */}
+      {/* Metadata summary - darker styling */}
       {metadata && (
-        <div className="flex items-center justify-between bg-gray-50 p-3 rounded-lg">
-          <div className="flex items-center gap-4 text-sm text-gray-600">
-            <span className="flex items-center gap-1">
-              <Search className="w-4 h-4" />
-              {metadata.articles_collected} articles
+        <div className="flex items-center justify-between bg-slate-800 text-white p-4 rounded-lg">
+          <div className="flex items-center gap-6 text-sm">
+            <span className="flex items-center gap-2">
+              <Search className="w-4 h-4 text-pink-400" />
+              <span className="font-medium">{metadata.articles_collected}</span> articles
             </span>
-            <span className="flex items-center gap-1">
-              <Zap className="w-4 h-4" />
-              {metadata.events_analyzed} events
+            <span className="flex items-center gap-2">
+              <Zap className="w-4 h-4 text-yellow-400" />
+              <span className="font-medium">{metadata.events_analyzed}</span> events
             </span>
             {metadata.generated_at && (
-              <span className="flex items-center gap-1">
-                <Clock className="w-4 h-4" />
+              <span className="flex items-center gap-2">
+                <Clock className="w-4 h-4 text-blue-400" />
                 {new Date(metadata.generated_at).toLocaleString()}
               </span>
             )}
@@ -335,6 +336,7 @@ function BriefDisplay({
           <Button
             variant="ghost"
             size="sm"
+            className="text-white hover:bg-slate-700"
             onClick={() => setShowMetadata(!showMetadata)}
           >
             {showMetadata ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -345,8 +347,8 @@ function BriefDisplay({
 
       {/* Quality Gates */}
       {metadata && (metadata.quality_gates_passed || metadata.quality_gates_failed) && (
-        <div className="p-3 bg-gray-50 rounded-lg">
-          <p className="text-xs text-gray-500 mb-2">Quality Gates</p>
+        <div className="p-3 bg-slate-100 rounded-lg border border-slate-200">
+          <p className="text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wide">Quality Gates</p>
           <QualityGatesDisplay
             passed={metadata.quality_gates_passed}
             failed={metadata.quality_gates_failed}
@@ -355,9 +357,9 @@ function BriefDisplay({
       )}
 
       {showMetadata && metadata && (
-        <Card className="bg-gray-50">
+        <Card className="bg-slate-50 border-slate-200">
           <CardContent className="pt-4">
-            <pre className="text-xs overflow-auto max-h-48">
+            <pre className="text-xs overflow-auto max-h-48 text-slate-700">
               {JSON.stringify(metadata, null, 2)}
             </pre>
           </CardContent>
@@ -367,67 +369,123 @@ function BriefDisplay({
       {/* Events Summary */}
       <EventsSummary events={events} />
 
-      {/* Brief content */}
-      <div className={`prose prose-sm max-w-none ${isStreaming ? 'animate-pulse' : ''}`}>
+      {/* Brief content - improved typography and table styling */}
+      <div className={`prose prose-slate prose-sm max-w-none ${isStreaming ? 'animate-pulse' : ''}`}>
         <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
           components={{
-            // Custom rendering for headings
+            // Custom rendering for headings - more contrast
             h1: ({ children }) => (
-              <h1 className="text-2xl font-bold text-gray-900 border-b pb-2 mb-4">{children}</h1>
+              <h1 className="text-2xl font-bold text-slate-900 border-b-2 border-pink-500 pb-2 mb-6">{children}</h1>
             ),
             h2: ({ children }) => (
-              <h2 className="text-xl font-semibold text-gray-800 mt-6 mb-3 flex items-center gap-2">
+              <h2 className="text-xl font-bold text-slate-800 mt-8 mb-4 pb-2 border-b border-slate-200">
                 {children}
               </h2>
             ),
             h3: ({ children }) => (
-              <h3 className="text-lg font-medium text-gray-700 mt-4 mb-2">{children}</h3>
+              <h3 className="text-lg font-semibold text-slate-700 mt-6 mb-3">{children}</h3>
             ),
-            // Custom rendering for confidence indicators
-            p: ({ children }) => {
-              const text = String(children);
-              // Check for confidence badges
-              if (text.includes('HIGH CONFIDENCE')) {
-                return <p className="my-2">{children}</p>;
-              }
-              return <p className="my-2 text-gray-700 leading-relaxed">{children}</p>;
-            },
+            h4: ({ children }) => (
+              <h4 className="text-base font-semibold text-slate-600 mt-4 mb-2">{children}</h4>
+            ),
+            // Paragraphs with better contrast
+            p: ({ children }) => (
+              <p className="my-3 text-slate-700 leading-relaxed">{children}</p>
+            ),
             // Style lists
             ul: ({ children }) => (
-              <ul className="my-2 space-y-1 list-disc pl-5">{children}</ul>
+              <ul className="my-3 space-y-2 list-disc pl-5 text-slate-700">{children}</ul>
+            ),
+            ol: ({ children }) => (
+              <ol className="my-3 space-y-2 list-decimal pl-5 text-slate-700">{children}</ol>
             ),
             li: ({ children }) => (
-              <li className="text-gray-700">{children}</li>
+              <li className="text-slate-700 leading-relaxed">{children}</li>
+            ),
+            // TABLE STYLING - Key fix
+            table: ({ children }) => (
+              <div className="my-6 overflow-x-auto rounded-lg border border-slate-300 shadow-sm">
+                <table className="min-w-full divide-y divide-slate-300">
+                  {children}
+                </table>
+              </div>
+            ),
+            thead: ({ children }) => (
+              <thead className="bg-slate-700 text-white">
+                {children}
+              </thead>
+            ),
+            tbody: ({ children }) => (
+              <tbody className="bg-white divide-y divide-slate-200">
+                {children}
+              </tbody>
+            ),
+            tr: ({ children }) => (
+              <tr className="hover:bg-slate-50 transition-colors">
+                {children}
+              </tr>
+            ),
+            th: ({ children }) => (
+              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-white">
+                {children}
+              </th>
+            ),
+            td: ({ children }) => (
+              <td className="px-4 py-3 text-sm text-slate-700 whitespace-normal">
+                {children}
+              </td>
             ),
             // Style code/pre for audit sections
             code: ({ children }) => (
-              <code className="bg-gray-100 px-1 py-0.5 rounded text-sm">{children}</code>
+              <code className="bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded text-sm font-mono border border-slate-200">{children}</code>
             ),
-            // Style blockquotes
+            pre: ({ children }) => (
+              <pre className="bg-slate-800 text-slate-100 p-4 rounded-lg overflow-x-auto my-4 text-sm">
+                {children}
+              </pre>
+            ),
+            // Style blockquotes - more prominent
             blockquote: ({ children }) => (
-              <blockquote className="border-l-4 border-pink-300 pl-4 italic text-gray-600 my-4">
+              <blockquote className="border-l-4 border-pink-500 bg-pink-50 pl-4 pr-4 py-3 italic text-slate-700 my-4 rounded-r-lg">
                 {children}
               </blockquote>
             ),
             // Style horizontal rules
-            hr: () => <Separator className="my-6" />,
+            hr: () => <hr className="my-8 border-t-2 border-slate-200" />,
             // Style strong/bold with importance indicators
             strong: ({ children }) => {
               const text = String(children);
-              if (text.includes('CRITICAL')) {
-                return <strong className="text-red-600 font-bold">{children}</strong>;
+              if (text.includes('CRITICAL') || text.includes('THREAT')) {
+                return <strong className="text-red-600 font-bold bg-red-50 px-1 rounded">{children}</strong>;
               }
-              if (text.includes('HIGH')) {
-                return <strong className="text-orange-600 font-semibold">{children}</strong>;
+              if (text.includes('HIGH') || text.includes('OPPORTUNITY')) {
+                return <strong className="text-orange-600 font-bold bg-orange-50 px-1 rounded">{children}</strong>;
               }
-              return <strong className="font-semibold text-gray-900">{children}</strong>;
+              if (text.includes('MEDIUM') || text.includes('MODERATE')) {
+                return <strong className="text-yellow-700 font-bold bg-yellow-50 px-1 rounded">{children}</strong>;
+              }
+              if (text.includes('LOW') || text.includes('WATCH')) {
+                return <strong className="text-blue-600 font-semibold">{children}</strong>;
+              }
+              return <strong className="font-bold text-slate-900">{children}</strong>;
             },
+            // Style emphasis
+            em: ({ children }) => (
+              <em className="text-slate-600 italic">{children}</em>
+            ),
+            // Style links
+            a: ({ children, href }) => (
+              <a href={href} className="text-pink-600 hover:text-pink-800 underline font-medium" target="_blank" rel="noopener noreferrer">
+                {children}
+              </a>
+            ),
           }}
         >
           {content}
         </ReactMarkdown>
         {isStreaming && (
-          <span className="inline-block w-2 h-4 bg-pink-500 animate-pulse ml-1" />
+          <span className="inline-block w-2 h-5 bg-pink-500 animate-pulse ml-1" />
         )}
       </div>
     </div>
@@ -588,8 +646,8 @@ export function IntelligenceBrief({
       )}
 
       {/* Brief display */}
-      <Card>
-        <CardContent className="pt-6">
+      <Card className="border-slate-200 shadow-md">
+        <CardContent className="pt-6 bg-gradient-to-b from-white to-slate-50">
           <BriefDisplay
             content={briefContent}
             metadata={scanResult?.metadata}

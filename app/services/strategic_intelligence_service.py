@@ -149,7 +149,7 @@ class SIOConfig:
     max_discovery_articles: int = 500
     min_discovery_articles: int = 50
     max_events_to_analyze: int = 30
-    min_articles_per_cluster: int = 2
+    min_articles_per_cluster: int = 1  # Allow single-article events
 
     # Quality thresholds
     credibility_threshold: int = 60
@@ -650,14 +650,21 @@ class StrategicIntelligenceService:
         # Use triage agent to cluster
         agent_prompt = self._load_agent_prompt("sio_triage_agent")
 
-        prompt = f"""Analyze these {len(article_summaries)} articles and cluster them into distinct events/stories.
+        prompt = f"""Analyze these {len(article_summaries)} PRE-SCREENED articles and cluster them into distinct events/stories.
+
+IMPORTANT: These articles have ALREADY passed credibility screening. Your job is to GROUP them into events, NOT filter them.
 
 ARTICLES:
 {json.dumps(article_summaries, indent=2)}
 
-Group related articles that cover the SAME event or story.
-Assign importance: critical, high, medium, low.
-Return JSON with event_clusters array."""
+Instructions:
+1. Group related articles that cover the SAME event or story
+2. Create event clusters - each article should belong to an event
+3. Single-article events ARE allowed for unique stories
+4. Assign importance: critical, high, medium, low
+5. Return JSON with event_clusters array - NEVER return an empty array
+
+You MUST create at least one event cluster for every few articles."""
 
         try:
             response = await litellm.acompletion(
@@ -671,16 +678,32 @@ Return JSON with event_clusters array."""
                 response_format={"type": "json_object"}
             )
 
-            result = json.loads(response.choices[0].message.content)
+            raw_response = response.choices[0].message.content
+            logger.info(f"Clustering LLM raw response (first 500 chars): {raw_response[:500]}")
+
+            result = json.loads(raw_response)
             raw_clusters = result.get("event_clusters", [])
+
+            # Check alternative keys the LLM might use
+            if not raw_clusters:
+                raw_clusters = result.get("clusters", [])
+            if not raw_clusters:
+                raw_clusters = result.get("events", [])
+
+            logger.info(f"Clustering LLM returned {len(raw_clusters)} raw clusters")
+            if raw_clusters:
+                logger.info(f"First cluster sample: {raw_clusters[0]}")
 
             # Convert to EventCluster objects
             clusters = []
+            skipped_too_few = 0
             for i, rc in enumerate(raw_clusters[:config.max_clusters]):
                 indices = rc.get("article_indices", [])
                 cluster_articles = [articles[idx] for idx in indices if idx < len(articles)]
 
                 if len(cluster_articles) < config.min_articles_per_cluster:
+                    skipped_too_few += 1
+                    logger.debug(f"Skipping cluster '{rc.get('event_title', 'Unknown')}': only {len(cluster_articles)} articles (need {config.min_articles_per_cluster})")
                     continue
 
                 # Calculate source diversity
@@ -712,6 +735,8 @@ Return JSON with event_clusters array."""
                 importance_order.get(c.preliminary_importance, 2),
                 -len(c.articles)
             ))
+
+            logger.info(f"Clustering result: {len(clusters)} valid clusters, {skipped_too_few} skipped (too few articles)")
 
             return clusters
 

@@ -1,56 +1,76 @@
 ---
-name: "sio_deep_analysis_agent"
-version: "1.0.0"
-type: "agent"
-category: "strategic_intelligence"
-description: "Performs deep analysis on individual events with cross-verification"
-
+category: strategic_intelligence
+description: Performs deep analysis on individual events with cross-verification
 model_config:
-  model: "gpt-4o"
-  temperature: 0.3
   max_tokens: 4000
-
+  model: gpt-4.1-mini
+  temperature: 0.3
+name: sio_deep_analysis_agent
 output_schema:
-  type: object
-  required:
-    - event_analysis
-    - verification_status
-    - quality_gates
   properties:
     event_analysis:
-      type: object
       properties:
-        event_id: { type: string }
-        headline: { type: string }
-        detailed_summary: { type: string }
-        key_facts: { type: array }
-        key_entities: { type: array }
-        timeline: { type: array }
-        implications: { type: object }
-        related_context: { type: string }
-    verification_status:
+        detailed_summary:
+          type: string
+        event_id:
+          type: string
+        headline:
+          type: string
+        implications:
+          type: object
+        key_entities:
+          type: array
+        key_facts:
+          type: array
+        related_context:
+          type: string
+        timeline:
+          type: array
       type: object
-      properties:
-        claims_verified: { type: integer }
-        claims_unverified: { type: integer }
-        contradictions_found: { type: array }
-        cross_reference_count: { type: integer }
-        overall_confidence: { type: number }
-    quality_gates:
-      type: object
-      properties:
-        accuracy_passed: { type: boolean }
-        context_passed: { type: boolean }
-        sourcing_passed: { type: boolean }
-        issues: { type: array }
     impact_assessment:
-      type: object
       properties:
-        urgency_score: { type: number }
-        scale_score: { type: number }
-        consequence_score: { type: number }
-        overall_importance: { type: number }
-        strategic_category: { type: string }
+        consequence_score:
+          type: number
+        overall_importance:
+          type: number
+        scale_score:
+          type: number
+        strategic_category:
+          type: string
+        urgency_score:
+          type: number
+      type: object
+    quality_gates:
+      properties:
+        accuracy_passed:
+          type: boolean
+        context_passed:
+          type: boolean
+        issues:
+          type: array
+        sourcing_passed:
+          type: boolean
+      type: object
+    verification_status:
+      properties:
+        claims_unverified:
+          type: integer
+        claims_verified:
+          type: integer
+        contradictions_found:
+          type: array
+        cross_reference_count:
+          type: integer
+        overall_confidence:
+          type: number
+      type: object
+  required:
+  - event_analysis
+  - verification_status
+  - quality_gates
+  type: object
+type: agent
+version: 1.0.0
 ---
 
 # SIO Deep Analysis Agent
