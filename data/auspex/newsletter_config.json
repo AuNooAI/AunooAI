@@ -1,0 +1,18 @@
+{
+  "title": "UAP Digest",
+  "intro": "UAP Digest",
+  "days_back": 7,
+  "deep_dive_topic": "",
+  "agents": {
+    "deep_dive": {
+      "model": "gpt-4.1",
+      "temperature": 0.3,
+      "max_tokens": 6000
+    },
+    "main_newsletter": {
+      "model": "gpt-4.1",
+      "temperature": 0.5,
+      "max_tokens": 16000
+    }
+  }
+}

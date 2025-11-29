@@ -1,42 +1,44 @@
 ---
-name: eos_weak_signals_agent
-version: 1.0.0
-type: agent
 category: extreme_outlier_scenarios
-description: Detects faint patterns and overlooked signals in trend data that mainstream analysis might miss
-
+description: Detects faint patterns and overlooked signals in trend data that mainstream
+  analysis might miss
 model_config:
-  model: gpt-4o
-  temperature: 0.3
   max_tokens: 3000
-
+  model: gpt-4.1-mini
+  temperature: 0.3
+name: eos_weak_signals_agent
 output_schema:
-  type: object
-  required:
-    - weak_signals
   properties:
     weak_signals:
-      type: array
       items:
-        type: object
         properties:
-          signal_id:
-            type: string
-          title:
+          amplification_potential:
+            enum:
+            - high
+            - medium
+            - low
             type: string
           description:
             type: string
-          source_contradiction:
-            type: string
-          amplification_potential:
-            type: string
-            enum: [high, medium, low]
-          time_sensitivity:
-            type: string
           related_trends:
-            type: array
             items:
               type: string
+            type: array
+          signal_id:
+            type: string
+          source_contradiction:
+            type: string
+          time_sensitivity:
+            type: string
+          title:
+            type: string
+        type: object
+      type: array
+  required:
+  - weak_signals
+  type: object
+type: agent
+version: 1.0.0
 ---
 
 # EOS Weak Signals Detection Agent

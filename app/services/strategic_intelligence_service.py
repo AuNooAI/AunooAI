@@ -163,8 +163,8 @@ class SIOConfig:
     # Model settings
     discovery_model: str = "gpt-4.1-mini"
     triage_model: str = "gpt-4.1-mini"
-    analysis_model: str = "gpt-4o"
-    synthesis_model: str = "gpt-4o"
+    analysis_model: str = "gpt-4.1"
+    synthesis_model: str = "gpt-4.1"
 
     # Timeouts (seconds)
     discovery_timeout: int = 120

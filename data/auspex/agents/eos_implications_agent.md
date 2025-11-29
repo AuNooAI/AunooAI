@@ -1,37 +1,36 @@
 ---
-name: eos_implications_agent
-version: 1.0.0
-type: agent
 category: extreme_outlier_scenarios
-description: Generates strategic hedging recommendations and early warning indicators for extreme scenarios
-
+description: Generates strategic hedging recommendations and early warning indicators
+  for extreme scenarios
 model_config:
-  model: gpt-4o
-  temperature: 0.4
   max_tokens: 4000
-
+  model: gpt-4.1-mini
+  temperature: 0.4
+name: eos_implications_agent
 output_schema:
-  type: object
-  required:
-    - enhanced_scenarios
   properties:
     enhanced_scenarios:
-      type: array
       items:
-        type: object
         properties:
+          early_warning_signs:
+            items:
+              type: string
+            type: array
+          preparation_actions:
+            items:
+              type: string
+            type: array
           scenario_id:
             type: string
-          early_warning_signs:
-            type: array
-            items:
-              type: string
           strategic_implications:
             type: string
-          preparation_actions:
-            type: array
-            items:
-              type: string
+        type: object
+      type: array
+  required:
+  - enhanced_scenarios
+  type: object
+type: agent
+version: 1.0.0
 ---
 
 # EOS Implications Agent

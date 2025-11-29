@@ -1,57 +1,62 @@
 ---
-name: eos_scenario_building_agent
-version: 1.0.0
-type: agent
 category: extreme_outlier_scenarios
-description: Constructs vivid, detailed extreme outlier scenario narratives that bring abstract risks to life
-
+description: Constructs vivid, detailed extreme outlier scenario narratives that bring
+  abstract risks to life
 model_config:
-  model: gpt-4o
-  temperature: 0.7
   max_tokens: 6000
-
+  model: gpt-4.1
+  temperature: 0.7
+name: eos_scenario_building_agent
 output_schema:
-  type: object
-  required:
-    - scenarios
   properties:
     scenarios:
-      type: array
       items:
-        type: object
         properties:
-          scenario_id:
-            type: string
           category:
+            enum:
+            - black_swan
+            - contrarian
+            - wild_card
             type: string
-            enum: [black_swan, contrarian, wild_card]
-          title:
-            type: string
-          subtitle:
-            type: string
+          impact_rating:
+            maximum: 10
+            minimum: 1
+            type: integer
           narrative:
             type: string
-          weak_signals:
-            type: array
-            items:
-              type: string
-          trigger_events:
-            type: array
-            items:
-              type: string
           probability:
+            enum:
+            - very_low
+            - low
+            - moderate
             type: string
-            enum: [very_low, low, moderate]
-          impact_rating:
-            type: integer
-            minimum: 1
-            maximum: 10
-          time_horizon:
+          scenario_id:
             type: string
           source_pathways:
-            type: array
             items:
               type: string
+            type: array
+          subtitle:
+            type: string
+          time_horizon:
+            type: string
+          title:
+            type: string
+          trigger_events:
+            items:
+              type: string
+            type: array
+          weak_signals:
+            items:
+              type: string
+            type: array
+        type: object
+      type: array
+  required:
+  - scenarios
+  type: object
+type: agent
+version: 1.0.0
 ---
 
 # EOS Scenario Building Agent

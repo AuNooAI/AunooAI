@@ -43,6 +43,7 @@ def register_routers(app: FastAPI):
     from app.routes.health_routes import router as health_router
     from app.routes.sio_routes import router as sio_router
     from app.routes.eos_routes import router as eos_router
+    from app.routes.newsletter_routes import router as newsletter_router
 
     # Register database routes
     app.include_router(database.router)
@@ -139,5 +140,8 @@ def register_routers(app: FastAPI):
 
     # Extreme Outlier Scenarios routes
     app.include_router(eos_router)
+
+    # Newsletter Generator routes
+    app.include_router(newsletter_router)
 
     logger.info("All routers registered successfully")
