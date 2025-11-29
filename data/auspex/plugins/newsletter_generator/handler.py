@@ -92,6 +92,34 @@ class NewsletterGeneratorHandler(ToolHandler):
         super().__init__(definition, config)
         self.logger = logging.getLogger("tool.newsletter_generator")
 
+    def _get_agent_config(self, agent_name: str) -> Dict[str, Any]:
+        """Get model configuration for a specific agent.
+
+        Checks newsletter_config.json first, then falls back to defaults.
+        """
+        import json
+        from pathlib import Path
+
+        defaults = {
+            "deep_dive": {"model": "gpt-4.1", "temperature": 0.3, "max_tokens": 6000},
+            "main_newsletter": {"model": "gpt-4.1", "temperature": 0.5, "max_tokens": 16000}
+        }
+
+        # Try to load from newsletter_config.json
+        config_file = Path("/home/orochford/tenants/testbed.aunoo.ai/data/auspex/newsletter_config.json")
+        if config_file.exists():
+            try:
+                with open(config_file, 'r') as f:
+                    user_config = json.load(f)
+                    agents_config = user_config.get("agents", {})
+                    if agent_name in agents_config:
+                        # Merge with defaults
+                        return {**defaults.get(agent_name, {}), **agents_config[agent_name]}
+            except Exception as e:
+                self.logger.warning(f"Failed to load newsletter config: {e}")
+
+        return defaults.get(agent_name, {"model": "gpt-4.1", "temperature": 0.5, "max_tokens": 4000})
+
     async def execute(self, params: Dict[str, Any], context: Dict[str, Any]) -> ToolResult:
         """
         Execute multi-step newsletter generation.
@@ -364,17 +392,23 @@ Write 300-400 words of analysis in a clear, analytical voice (Atlantic/Strateche
 Be skeptical, evidence-based, and focused on what matters for decision-makers."""
 
         try:
-            model_name = self.config.get('model') or context.get('model') or 'gpt-4o'
+            # Get per-agent config for deep_dive
+            agent_config = self._get_agent_config("deep_dive")
+            model_name = agent_config.get('model') or self.config.get('model') or context.get('model') or 'gpt-4.1'
+            max_tokens = agent_config.get('max_tokens', 4000)
+
+            self.logger.info(f"Deep dive using model={model_name}, max_tokens={max_tokens}")
+
             model = ai_model_getter(model_name)
 
             if model:
                 if hasattr(model, 'generate') and callable(getattr(model, 'generate')):
-                    response = await model.generate(prompt)
+                    response = await model.generate(prompt, max_tokens=max_tokens)
                     if hasattr(response, 'message') and hasattr(response.message, 'content'):
                         return response.message.content
                     return str(response)
                 elif hasattr(model, 'acomplete'):
-                    response = await model.acomplete(prompt)
+                    response = await model.acomplete(prompt, max_tokens=max_tokens)
                     return response.text if hasattr(response, 'text') else str(response)
         except Exception as e:
             self.logger.error(f"Deep dive analysis failed: {e}")
@@ -714,17 +748,23 @@ Be skeptical, evidence-based, and focused on what matters for decision-makers.""
         )
 
         try:
-            model_name = self.config.get('model') or context.get('model') or 'gpt-4o'
+            # Get per-agent config for main_newsletter
+            agent_config = self._get_agent_config("main_newsletter")
+            model_name = agent_config.get('model') or self.config.get('model') or context.get('model') or 'gpt-4.1'
+            max_tokens = agent_config.get('max_tokens', 8000)
+
+            self.logger.info(f"Main newsletter using model={model_name}, max_tokens={max_tokens}")
+
             model = ai_model_getter(model_name)
 
             if model:
                 if hasattr(model, 'generate') and callable(getattr(model, 'generate')):
-                    response = await model.generate(prompt)
+                    response = await model.generate(prompt, max_tokens=max_tokens)
                     if hasattr(response, 'message') and hasattr(response.message, 'content'):
                         return response.message.content
                     return str(response)
                 elif hasattr(model, 'acomplete'):
-                    response = await model.acomplete(prompt)
+                    response = await model.acomplete(prompt, max_tokens=max_tokens)
                     return response.text if hasattr(response, 'text') else str(response)
         except Exception as e:
             self.logger.error(f"LLM generation failed: {e}")

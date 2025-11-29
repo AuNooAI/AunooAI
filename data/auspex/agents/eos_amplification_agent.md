@@ -1,53 +1,58 @@
 ---
-name: eos_amplification_agent
-version: 1.0.0
-type: agent
 category: extreme_outlier_scenarios
-description: Models how weak signals could cascade into major disruptions through feedback loops and systemic vulnerabilities
-
+description: Models how weak signals could cascade into major disruptions through
+  feedback loops and systemic vulnerabilities
 model_config:
-  model: gpt-4o
-  temperature: 0.5
   max_tokens: 4000
-
+  model: gpt-4.1-mini
+  temperature: 0.5
+name: eos_amplification_agent
 output_schema:
-  type: object
-  required:
-    - amplified_pathways
   properties:
     amplified_pathways:
-      type: array
       items:
-        type: object
         properties:
-          pathway_id:
-            type: string
-          source_signal:
-            type: string
-          category:
-            type: string
-            enum: [black_swan, contrarian, wild_card]
-          trigger_events:
-            type: array
-            items:
-              type: string
           cascade_chain:
             type: string
+          category:
+            enum:
+            - black_swan
+            - contrarian
+            - wild_card
+            type: string
           feedback_loops:
-            type: array
             items:
               type: string
+            type: array
+          impact_potential:
+            maximum: 10
+            minimum: 1
+            type: integer
+          pathway_id:
+            type: string
           peak_disruption:
             type: string
           probability:
+            enum:
+            - very_low
+            - low
+            - moderate
             type: string
-            enum: [very_low, low, moderate]
-          impact_potential:
-            type: integer
-            minimum: 1
-            maximum: 10
+          source_signal:
+            type: string
           time_to_peak:
             type: string
+          trigger_events:
+            items:
+              type: string
+            type: array
+        type: object
+      type: array
+  required:
+  - amplified_pathways
+  type: object
+type: agent
+version: 1.0.0
 ---
 
 # EOS Amplification Agent

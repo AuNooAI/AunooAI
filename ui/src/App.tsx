@@ -34,6 +34,9 @@ import { SIOTuneModal } from './components/SIOTuneModal';
 import { ExtremeOutliers } from './components/ExtremeOutliers';
 import { useExtremeOutliers } from './hooks/useExtremeOutliers';
 import { EOSTuneModal } from './components/EOSTuneModal';
+import { Newsletter } from './components/Newsletter';
+import { useNewsletter } from './hooks/useNewsletter';
+import { NewsletterTuneModal } from './components/NewsletterTuneModal';
 
 function App() {
   const {
@@ -99,6 +102,14 @@ function App() {
   const [eosTimeHorizon, setEosTimeHorizon] = useState<'near' | 'mid' | 'long'>('mid');
   const [isEosTuneOpen, setIsEosTuneOpen] = useState(false);
 
+  // Newsletter state - lifted from Newsletter component
+  const newsletter = useNewsletter();
+  const [newsletterDaysBack, setNewsletterDaysBack] = useState(7);
+  const [newsletterDeepDiveTopic, setNewsletterDeepDiveTopic] = useState('');
+  const [newsletterTitle, setNewsletterTitle] = useState('Intelligence Newsletter');
+  const [newsletterIntro, setNewsletterIntro] = useState('');
+  const [isNewsletterTuneOpen, setIsNewsletterTuneOpen] = useState(false);
+
   // Load saved SIO config on mount
   useEffect(() => {
     const loadSioConfig = async () => {
@@ -135,6 +146,25 @@ function App() {
       }
     };
     loadEosConfig();
+  }, []);
+
+  // Load saved Newsletter config on mount
+  useEffect(() => {
+    const loadNewsletterConfig = async () => {
+      try {
+        const response = await fetch('/api/newsletter/config', { credentials: 'include' });
+        if (response.ok) {
+          const config = await response.json();
+          setNewsletterTitle(config.title ?? 'Intelligence Newsletter');
+          setNewsletterIntro(config.intro ?? '');
+          setNewsletterDaysBack(config.days_back ?? 7);
+          setNewsletterDeepDiveTopic(config.deep_dive_topic ?? '');
+        }
+      } catch (err) {
+        console.error('Failed to load Newsletter config:', err);
+      }
+    };
+    loadNewsletterConfig();
   }, []);
 
   // Fetch prompt preview when Tune modal opens
@@ -954,15 +984,22 @@ function App() {
                       include_wild_cards: eosIncludeWildCards,
                       time_horizon: eosTimeHorizon,
                     });
+                  } else if (activeTab === 'newsletter') {
+                    newsletter.startGeneration({
+                      topic: config.topic || 'AI',
+                      days_back: newsletterDaysBack,
+                      deep_dive_topic: newsletterDeepDiveTopic || undefined,
+                      model: config.model,
+                    });
                   } else {
                     generateAnalysis(true);
                   }
                 }}
-                disabled={loading || sio.isScanning || eos.isGenerating}
+                disabled={loading || sio.isScanning || eos.isGenerating || newsletter.isGenerating}
                 className="p-2 hover:bg-gray-100 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
-                title={activeTab === 'intelligence-brief' ? 'Generate intelligence brief' : activeTab === 'extreme-outliers' ? 'Generate extreme outlier scenarios' : 'Refresh analysis (bypass cache)'}
+                title={activeTab === 'intelligence-brief' ? 'Generate intelligence brief' : activeTab === 'extreme-outliers' ? 'Generate extreme outlier scenarios' : activeTab === 'newsletter' ? 'Generate newsletter' : 'Refresh analysis (bypass cache)'}
               >
-                <RefreshCw className={`w-4 h-4 text-gray-700 ${(loading || sio.isScanning || eos.isGenerating) ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-4 h-4 text-gray-700 ${(loading || sio.isScanning || eos.isGenerating || newsletter.isGenerating) ? 'animate-spin' : ''}`} />
               </button>
             </div>
           </div>
@@ -985,6 +1022,8 @@ function App() {
                   setIsSioTuneOpen(true);
                 } else if (activeTab === 'extreme-outliers') {
                   setIsEosTuneOpen(true);
+                } else if (activeTab === 'newsletter') {
+                  setIsNewsletterTuneOpen(true);
                 } else {
                   setIsPromptEditorOpen(true);
                 }
@@ -1033,8 +1072,30 @@ function App() {
                 </button>
               </>
             )}
-            {/* Export buttons - hidden for Intelligence Brief tab */}
-            {activeTab !== 'intelligence-brief' && (
+            {/* Export button for Newsletter tab */}
+            {activeTab === 'newsletter' && newsletter.newsletterContent && !newsletter.isGenerating && (
+              <button
+                onClick={() => {
+                  // Export newsletter as markdown file
+                  const content = newsletter.isEditing ? newsletter.editedContent : newsletter.newsletterContent;
+                  const blob = new Blob([content], { type: 'text/markdown' });
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `newsletter-${config.topic || 'report'}-${new Date().toISOString().slice(0, 10)}.md`;
+                  document.body.appendChild(a);
+                  a.click();
+                  document.body.removeChild(a);
+                  URL.revokeObjectURL(url);
+                }}
+                className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+              >
+                <Download className="w-4 h-4" />
+                Export
+              </button>
+            )}
+            {/* Export buttons - hidden for Intelligence Brief and Newsletter tabs */}
+            {activeTab !== 'intelligence-brief' && activeTab !== 'newsletter' && (
               <>
                 <button
                   onClick={() => handleExport('pdf')}
@@ -1160,6 +1221,40 @@ function App() {
               onTimeHorizonChange={setEosTimeHorizon}
               onClearError={eos.clearError}
               onClearResults={eos.clearResults}
+            />
+          ) : activeTab === 'newsletter' ? (
+            <Newsletter
+              topic={config.topic}
+              isGenerating={newsletter.isGenerating}
+              currentStage={newsletter.currentStage}
+              stageProgress={newsletter.stageProgress}
+              overallProgress={newsletter.overallProgress}
+              newsletterContent={newsletter.newsletterContent}
+              editedContent={newsletter.editedContent}
+              isEditing={newsletter.isEditing}
+              availableArticles={newsletter.availableArticles}
+              selectedArticles={newsletter.selectedArticles}
+              result={newsletter.result}
+              error={newsletter.error}
+              articlesFetched={newsletter.articlesFetched}
+              articlesCategorized={newsletter.articlesCategorized}
+              daysBack={newsletterDaysBack}
+              deepDiveTopic={newsletterDeepDiveTopic}
+              newsletterTitle={newsletterTitle}
+              newsletterIntro={newsletterIntro}
+              onDaysBackChange={setNewsletterDaysBack}
+              onDeepDiveTopicChange={setNewsletterDeepDiveTopic}
+              onNewsletterTitleChange={setNewsletterTitle}
+              onNewsletterIntroChange={setNewsletterIntro}
+              onStartEditing={newsletter.startEditing}
+              onSaveEdits={newsletter.saveEdits}
+              onDiscardEdits={newsletter.discardEdits}
+              onUpdateEditedContent={newsletter.updateEditedContent}
+              onToggleArticleSelection={newsletter.toggleArticleSelection}
+              onUpdateArticleAnnotation={newsletter.updateArticleAnnotation}
+              onAddSelectedToNewsletter={newsletter.addSelectedToNewsletter}
+              onClearError={newsletter.clearError}
+              onClearResults={newsletter.clearResults}
             />
           ) : loading ? (
             <div className="flex items-center justify-center h-64">
@@ -2454,6 +2549,20 @@ function App() {
         onIncludeContrarianChange={setEosIncludeContrarian}
         onIncludeWildCardsChange={setEosIncludeWildCards}
         onTimeHorizonChange={setEosTimeHorizon}
+      />
+
+      {/* Newsletter Tune Modal - Configuration editor for Newsletter Generator */}
+      <NewsletterTuneModal
+        open={isNewsletterTuneOpen}
+        onOpenChange={setIsNewsletterTuneOpen}
+        daysBack={newsletterDaysBack}
+        deepDiveTopic={newsletterDeepDiveTopic}
+        newsletterTitle={newsletterTitle}
+        newsletterIntro={newsletterIntro}
+        onDaysBackChange={setNewsletterDaysBack}
+        onDeepDiveTopicChange={setNewsletterDeepDiveTopic}
+        onNewsletterTitleChange={setNewsletterTitle}
+        onNewsletterIntroChange={setNewsletterIntro}
       />
     </div>
   );

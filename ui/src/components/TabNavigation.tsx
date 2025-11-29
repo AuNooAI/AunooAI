@@ -20,6 +20,11 @@ const tabs: Tab[] = [
     tooltip: '24-hour strategic intelligence scan with BBC/Wiley quality standards'
   },
   {
+    id: 'newsletter',
+    label: 'Newsletter',
+    tooltip: 'Generate professional newsletters with curated headlines, analysis, and market insights'
+  },
+  {
     id: 'strategic-recommendations',
     label: 'Strategic Recommendations',
     tooltip: 'Actionable strategic insights across near, mid, and long-term horizons'
