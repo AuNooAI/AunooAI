@@ -1,0 +1,25 @@
+{
+  "model": "gpt-4o",
+  "max_tokens": 8000,
+  "temperature": 0.4,
+  "streaming": true,
+  "quality_standards": "BBC/Wiley Editorial Standards",
+  "discovery": {
+    "max_articles": 200,
+    "search_strategies": ["database", "vector", "alternative_queries"]
+  },
+  "triage": {
+    "default_credibility_threshold": 60,
+    "min_sources_per_event": 2
+  },
+  "analysis": {
+    "default_deep_analysis_count": 10,
+    "max_articles_per_event": 5
+  },
+  "quality_gates": {
+    "source_diversity_threshold": 3,
+    "credibility_minimum": 60,
+    "temporal_freshness_hours": 24,
+    "geographic_diversity_regions": 2
+  }
+}

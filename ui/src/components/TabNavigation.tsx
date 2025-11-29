@@ -15,6 +15,11 @@ interface TabNavigationProps {
 
 const tabs: Tab[] = [
   {
+    id: 'intelligence-brief',
+    label: 'Intelligence Brief',
+    tooltip: '24-hour strategic intelligence scan with BBC/Wiley quality standards'
+  },
+  {
     id: 'strategic-recommendations',
     label: 'Strategic Recommendations',
     tooltip: 'Actionable strategic insights across near, mid, and long-term horizons'
