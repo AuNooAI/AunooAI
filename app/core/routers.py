@@ -42,6 +42,7 @@ def register_routers(app: FastAPI):
     from app.routes.news_feed_routes import router as news_feed_router, page_router as news_feed_page_router
     from app.routes.health_routes import router as health_router
     from app.routes.sio_routes import router as sio_router
+    from app.routes.eos_routes import router as eos_router
 
     # Register database routes
     app.include_router(database.router)
@@ -135,5 +136,8 @@ def register_routers(app: FastAPI):
 
     # Strategic Intelligence Oracle routes
     app.include_router(sio_router)
+
+    # Extreme Outlier Scenarios routes
+    app.include_router(eos_router)
 
     logger.info("All routers registered successfully")

@@ -31,6 +31,9 @@ import { renderCitationsAsLinks } from './utils/citationRenderer';
 import { IntelligenceBrief } from './components/IntelligenceBrief';
 import { useStrategicIntelligence } from './hooks/useStrategicIntelligence';
 import { SIOTuneModal } from './components/SIOTuneModal';
+import { ExtremeOutliers } from './components/ExtremeOutliers';
+import { useExtremeOutliers } from './hooks/useExtremeOutliers';
+import { EOSTuneModal } from './components/EOSTuneModal';
 
 function App() {
   const {
@@ -87,6 +90,15 @@ function App() {
   const [showSioRawModal, setShowSioRawModal] = useState(false);
   const [showSioReferencesModal, setShowSioReferencesModal] = useState(false);
 
+  // Extreme Outlier Scenarios (EOS) state - lifted from ExtremeOutliers
+  const eos = useExtremeOutliers();
+  const [eosScenarioCount, setEosScenarioCount] = useState(5);
+  const [eosIncludeBlackSwans, setEosIncludeBlackSwans] = useState(true);
+  const [eosIncludeContrarian, setEosIncludeContrarian] = useState(true);
+  const [eosIncludeWildCards, setEosIncludeWildCards] = useState(true);
+  const [eosTimeHorizon, setEosTimeHorizon] = useState<'near' | 'mid' | 'long'>('mid');
+  const [isEosTuneOpen, setIsEosTuneOpen] = useState(false);
+
   // Load saved SIO config on mount
   useEffect(() => {
     const loadSioConfig = async () => {
@@ -103,6 +115,26 @@ function App() {
       }
     };
     loadSioConfig();
+  }, []);
+
+  // Load saved EOS config on mount
+  useEffect(() => {
+    const loadEosConfig = async () => {
+      try {
+        const response = await fetch('/api/eos/config', { credentials: 'include' });
+        if (response.ok) {
+          const config = await response.json();
+          setEosScenarioCount(config.scenario_count ?? 5);
+          setEosIncludeBlackSwans(config.include_black_swans ?? true);
+          setEosIncludeContrarian(config.include_contrarian ?? true);
+          setEosIncludeWildCards(config.include_wild_cards ?? true);
+          setEosTimeHorizon(config.time_horizon ?? 'mid');
+        }
+      } catch (err) {
+        console.error('Failed to load EOS config:', err);
+      }
+    };
+    loadEosConfig();
   }, []);
 
   // Fetch prompt preview when Tune modal opens
@@ -913,15 +945,24 @@ function App() {
                       credibility_threshold: sioCredibilityThreshold,
                       profile_id: config.profile_id,
                     });
+                  } else if (activeTab === 'extreme-outliers') {
+                    eos.startGeneration({
+                      topic: config.topic || '',
+                      scenario_count: eosScenarioCount,
+                      include_black_swans: eosIncludeBlackSwans,
+                      include_contrarian: eosIncludeContrarian,
+                      include_wild_cards: eosIncludeWildCards,
+                      time_horizon: eosTimeHorizon,
+                    });
                   } else {
                     generateAnalysis(true);
                   }
                 }}
-                disabled={loading || sio.isScanning}
+                disabled={loading || sio.isScanning || eos.isGenerating}
                 className="p-2 hover:bg-gray-100 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
-                title={activeTab === 'intelligence-brief' ? 'Generate intelligence brief' : 'Refresh analysis (bypass cache)'}
+                title={activeTab === 'intelligence-brief' ? 'Generate intelligence brief' : activeTab === 'extreme-outliers' ? 'Generate extreme outlier scenarios' : 'Refresh analysis (bypass cache)'}
               >
-                <RefreshCw className={`w-4 h-4 text-gray-700 ${(loading || sio.isScanning) ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-4 h-4 text-gray-700 ${(loading || sio.isScanning || eos.isGenerating) ? 'animate-spin' : ''}`} />
               </button>
             </div>
           </div>
@@ -942,6 +983,8 @@ function App() {
                 console.log('🔧 Tune button clicked');
                 if (activeTab === 'intelligence-brief') {
                   setIsSioTuneOpen(true);
+                } else if (activeTab === 'extreme-outliers') {
+                  setIsEosTuneOpen(true);
                 } else {
                   setIsPromptEditorOpen(true);
                 }
@@ -1091,6 +1134,32 @@ function App() {
               onCredibilityThresholdChange={setSioCredibilityThreshold}
               onClearError={sio.clearError}
               onClearResults={sio.clearResults}
+            />
+          ) : activeTab === 'extreme-outliers' ? (
+            <ExtremeOutliers
+              topic={config.topic}
+              isGenerating={eos.isGenerating}
+              currentStage={eos.currentStage}
+              stageProgress={eos.stageProgress}
+              overallProgress={eos.overallProgress}
+              scenarios={eos.scenarios}
+              result={eos.result}
+              error={eos.error}
+              signalsDetected={eos.signalsDetected}
+              pathwaysIdentified={eos.pathwaysIdentified}
+              scenariosGenerated={eos.scenariosGenerated}
+              scenarioCount={eosScenarioCount}
+              includeBlackSwans={eosIncludeBlackSwans}
+              includeContrarian={eosIncludeContrarian}
+              includeWildCards={eosIncludeWildCards}
+              timeHorizon={eosTimeHorizon}
+              onScenarioCountChange={setEosScenarioCount}
+              onIncludeBlackSwansChange={setEosIncludeBlackSwans}
+              onIncludeContrarianChange={setEosIncludeContrarian}
+              onIncludeWildCardsChange={setEosIncludeWildCards}
+              onTimeHorizonChange={setEosTimeHorizon}
+              onClearError={eos.clearError}
+              onClearResults={eos.clearResults}
             />
           ) : loading ? (
             <div className="flex items-center justify-center h-64">
@@ -2369,6 +2438,22 @@ function App() {
         onCredibilityThresholdChange={setSioCredibilityThreshold}
         onHoursBackChange={setSioHoursBack}
         onMaxEventsChange={setSioMaxEvents}
+      />
+
+      {/* EOS Tune Modal - Multi-step prompt editor for Extreme Outliers */}
+      <EOSTuneModal
+        open={isEosTuneOpen}
+        onOpenChange={setIsEosTuneOpen}
+        scenarioCount={eosScenarioCount}
+        includeBlackSwans={eosIncludeBlackSwans}
+        includeContrarian={eosIncludeContrarian}
+        includeWildCards={eosIncludeWildCards}
+        timeHorizon={eosTimeHorizon}
+        onScenarioCountChange={setEosScenarioCount}
+        onIncludeBlackSwansChange={setEosIncludeBlackSwans}
+        onIncludeContrarianChange={setEosIncludeContrarian}
+        onIncludeWildCardsChange={setEosIncludeWildCards}
+        onTimeHorizonChange={setEosTimeHorizon}
       />
     </div>
   );

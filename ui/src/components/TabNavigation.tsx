@@ -44,6 +44,11 @@ const tabs: Tab[] = [
     label: 'Future Horizons',
     tooltip: 'Explore long-term scenarios and future possibilities'
   },
+  {
+    id: 'extreme-outliers',
+    label: 'Extreme Outliers',
+    tooltip: 'Black Swan events, Contrarian analysis, and Wild Card futures'
+  },
 ];
 
 export function TabNavigation({ activeTab, onTabChange }: TabNavigationProps) {
