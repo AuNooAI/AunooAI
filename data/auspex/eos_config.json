@@ -1,7 +1,7 @@
 {
-  "scenario_count": 5,
+  "scenario_count": 6,
   "include_black_swans": true,
   "include_contrarian": true,
   "include_wild_cards": true,
-  "time_horizon": "mid"
+  "time_horizon": "long"
 }

@@ -96,6 +96,28 @@ const DEFAULT_TEMPS: Record<string, string> = {
   newsletter_main_agent: '0.5'
 };
 
+// Section names for the UI
+const SECTION_NAMES: Record<string, string> = {
+  policy_regulation: "Policy & Regulation",
+  models_research: "Models & Research",
+  enterprise_adoption: "Enterprise & Adoption",
+  market_funding: "Market & Funding",
+  risk_trust: "Risk & Trust",
+  weird_unusual: "Weird & Unusual",
+  general: "General News"
+};
+
+// Default section limits
+const DEFAULT_SECTION_LIMITS: Record<string, number> = {
+  policy_regulation: 5,
+  models_research: 5,
+  enterprise_adoption: 5,
+  market_funding: 5,
+  risk_trust: 5,
+  weird_unusual: 3,
+  general: 5
+};
+
 export function NewsletterTuneModal({
   open,
   onOpenChange,
@@ -125,13 +147,15 @@ export function NewsletterTuneModal({
   const [editedDeepDive, setEditedDeepDive] = useState(deepDiveTopic);
   const [editedTitle, setEditedTitle] = useState(newsletterTitle);
   const [editedIntro, setEditedIntro] = useState(newsletterIntro);
+  const [editedSectionLimits, setEditedSectionLimits] = useState<Record<string, number>>({});
 
   // Original config values (for comparison)
   const [originalConfig, setOriginalConfig] = useState({
     daysBack,
     deepDiveTopic,
     newsletterTitle,
-    newsletterIntro
+    newsletterIntro,
+    sectionLimits: {} as Record<string, number>
   });
 
   const [activeAgent, setActiveAgent] = useState('newsletter_deep_dive_agent');
@@ -183,11 +207,16 @@ export function NewsletterTuneModal({
           setEditedDaysBack(configData.days_back || 7);
           setEditedDeepDive(configData.deep_dive_topic || '');
 
+          // Load section limits with defaults
+          const sectionLimits = { ...DEFAULT_SECTION_LIMITS, ...(configData.section_limits || {}) };
+          setEditedSectionLimits(sectionLimits);
+
           setOriginalConfig({
             daysBack: configData.days_back || 7,
             deepDiveTopic: configData.deep_dive_topic || '',
             newsletterTitle: configData.title || 'Weekly Intelligence Digest',
-            newsletterIntro: configData.intro || ''
+            newsletterIntro: configData.intro || '',
+            sectionLimits: sectionLimits
           });
 
           // Update parent state with saved values
@@ -233,7 +262,8 @@ export function NewsletterTuneModal({
               title: editedTitle,
               intro: editedIntro,
               days_back: editedDaysBack,
-              deep_dive_topic: editedDeepDive
+              deep_dive_topic: editedDeepDive,
+              section_limits: editedSectionLimits
             })
           })
         );
@@ -276,7 +306,8 @@ export function NewsletterTuneModal({
         daysBack: editedDaysBack,
         deepDiveTopic: editedDeepDive,
         newsletterTitle: editedTitle,
-        newsletterIntro: editedIntro
+        newsletterIntro: editedIntro,
+        sectionLimits: { ...editedSectionLimits }
       });
 
       // Update agents state with saved values
@@ -315,6 +346,7 @@ export function NewsletterTuneModal({
     setEditedDeepDive(originalConfig.deepDiveTopic);
     setEditedTitle(originalConfig.newsletterTitle);
     setEditedIntro(originalConfig.newsletterIntro);
+    setEditedSectionLimits({ ...originalConfig.sectionLimits });
 
     // Reset agent values
     const resetContent: Record<string, string> = {};
@@ -336,10 +368,22 @@ export function NewsletterTuneModal({
 
   // Check if global config has changed
   const hasConfigChanges = () => {
-    return editedDaysBack !== originalConfig.daysBack ||
-           editedDeepDive !== originalConfig.deepDiveTopic ||
-           editedTitle !== originalConfig.newsletterTitle ||
-           editedIntro !== originalConfig.newsletterIntro;
+    // Check basic fields
+    if (editedDaysBack !== originalConfig.daysBack ||
+        editedDeepDive !== originalConfig.deepDiveTopic ||
+        editedTitle !== originalConfig.newsletterTitle ||
+        editedIntro !== originalConfig.newsletterIntro) {
+      return true;
+    }
+    // Check section limits
+    const sectionKeys = Object.keys(SECTION_NAMES);
+    for (const key of sectionKeys) {
+      if ((editedSectionLimits[key] || DEFAULT_SECTION_LIMITS[key]) !==
+          (originalConfig.sectionLimits[key] || DEFAULT_SECTION_LIMITS[key])) {
+        return true;
+      }
+    }
+    return false;
   };
 
   // Check if a specific agent has changes
@@ -466,6 +510,36 @@ export function NewsletterTuneModal({
                   placeholder="e.g., AI regulation, Supply chain..."
                 />
               </div>
+            </div>
+          </div>
+
+          {/* Section Article Limits */}
+          <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+            <label className="text-sm font-semibold text-purple-900 block mb-3">
+              Section Article Limits
+            </label>
+            <p className="text-xs text-purple-600 mb-3">
+              Maximum number of articles to include in each newsletter section
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {Object.entries(SECTION_NAMES).map(([key, label]) => (
+                <div key={key}>
+                  <label className="text-xs font-medium text-purple-800 block mb-1">
+                    {label}
+                  </label>
+                  <input
+                    type="number"
+                    value={editedSectionLimits[key] || DEFAULT_SECTION_LIMITS[key]}
+                    onChange={(e) => setEditedSectionLimits(prev => ({
+                      ...prev,
+                      [key]: Math.max(1, Math.min(15, Number(e.target.value)))
+                    }))}
+                    min={1}
+                    max={15}
+                    className="w-full px-3 py-2 border border-purple-200 rounded-md text-sm focus:ring-purple-500 focus:border-purple-500"
+                  />
+                </div>
+              ))}
             </div>
           </div>
 

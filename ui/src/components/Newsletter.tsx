@@ -24,6 +24,8 @@ import {
   RefreshCw,
   ExternalLink,
   Trash2,
+  FolderOpen,
+  BookmarkPlus,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
@@ -34,6 +36,21 @@ import { Separator } from './ui/separator';
 import { Textarea } from './ui/textarea';
 import { Input } from './ui/input';
 import { Label } from './ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from './ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './ui/select';
 import {
   NEWSLETTER_STAGES,
   type NewsletterArticle,
@@ -51,6 +68,18 @@ import {
   formatArticleAsMarkdown,
   type InsertResult
 } from '../utils/markdown-utils';
+
+// Saved newsletter summary for dropdown
+interface SavedNewsletterSummary {
+  id: number;
+  name: string;
+  description?: string;
+  created_at: string;
+  articles_used?: number;
+  model_used?: string;
+  days_back?: number;
+  deep_dive_topic?: string;
+}
 
 interface NewsletterProps {
   topic?: string;
@@ -87,6 +116,8 @@ interface NewsletterProps {
   onAddSelectedToNewsletter: () => void;
   onClearError: () => void;
   onClearResults: () => void;
+  // Saved newsletters (optional callbacks for save/load)
+  onLoadNewsletter?: (content: string, result?: any) => void;
 }
 
 // Stage indicator component
@@ -392,6 +423,7 @@ function MarkdownEditor({
 }) {
   const [showPreview, setShowPreview] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lastCursorPositionRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 });
   const { value, set, undo, redo, canUndo, canRedo, reset } = useUndoRedo(content);
 
   // Sync with parent content when it changes externally
@@ -406,6 +438,17 @@ function MarkdownEditor({
     set(newContent);
     onChange(newContent);
   }, [set, onChange]);
+
+  // Save cursor position whenever it changes in the textarea
+  const handleTextareaSelect = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      lastCursorPositionRef.current = {
+        start: textarea.selectionStart,
+        end: textarea.selectionEnd
+      };
+    }
+  }, []);
 
   // Handle toolbar actions
   const handleToolbarAction = useCallback((action: string, extra?: string) => {
@@ -435,32 +478,40 @@ function MarkdownEditor({
     });
   }, [value, handleChange]);
 
-  // Handle article insertion
+  // Handle article insertion - uses saved cursor position
   const handleInsertArticle = useCallback((article: SearchableArticle) => {
     console.log('📰 Inserting article:', article.title);
+
     const md = formatArticleAsMarkdown(article);
     console.log('📰 Formatted markdown:', md.substring(0, 100) + '...');
 
     const textarea = textareaRef.current;
+
+    // Use saved cursor position (which persists even after textarea loses focus)
+    const cursorPos = lastCursorPositionRef.current.end;
     const currentValue = textarea?.value || value;
-    const selection = textarea ? getSelection(textarea) : { start: currentValue.length, end: currentValue.length, selectedText: '' };
+    const newContent = currentValue.substring(0, cursorPos) + md + currentValue.substring(cursorPos);
+    console.log('📰 Inserting at saved cursor position:', cursorPos);
 
-    const newContent = currentValue.substring(0, selection.end) + md + currentValue.substring(selection.end);
-    console.log('📰 New content length:', newContent.length);
-
-    // Update both the undo/redo state and parent
-    set(newContent, true); // immediate=true to add to history
+    set(newContent, true);
     onChange(newContent);
 
-    // Restore focus to textarea
+    // If in preview mode, switch to edit mode
+    if (showPreview) {
+      setShowPreview(false);
+    }
+
+    // Restore focus and set new cursor position
     if (textarea) {
       requestAnimationFrame(() => {
         textarea.focus();
-        const newPos = selection.end + md.length;
+        const newPos = cursorPos + md.length;
         textarea.setSelectionRange(newPos, newPos);
+        // Update the saved position too
+        lastCursorPositionRef.current = { start: newPos, end: newPos };
       });
     }
-  }, [value, set, onChange]);
+  }, [set, onChange, value, showPreview]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -508,74 +559,81 @@ function MarkdownEditor({
   }, [handleToolbarAction, undo, redo, onSave, onChange, value]);
 
   return (
-    <div className="border rounded-lg overflow-hidden">
-      {/* Toolbar */}
-      <MarkdownToolbar
-        onAction={handleToolbarAction}
-        onUndo={() => { undo(); onChange(value); }}
-        onRedo={() => { redo(); onChange(value); }}
-        canUndo={canUndo}
-        canRedo={canRedo}
-        showPreview={showPreview}
-        onTogglePreview={() => setShowPreview(!showPreview)}
-        wordCount={countWords(value)}
-        daysBack={daysBack}
-        topic={topic}
-        onInsertArticle={handleInsertArticle}
-      />
-
-      {/* Editor/Preview Area */}
-      {showPreview ? (
-        <div className="p-6 min-h-[500px] bg-white">
-          <div className="prose prose-slate max-w-none">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm]}
-              components={{
-                table: ({ children }) => (
-                  <div className="my-6 overflow-x-auto rounded-lg border border-slate-300 shadow-sm">
-                    <table className="min-w-full divide-y divide-slate-300">{children}</table>
-                  </div>
-                ),
-                thead: ({ children }) => (
-                  <thead className="bg-slate-700 text-white">{children}</thead>
-                ),
-                th: ({ children }) => (
-                  <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-white">{children}</th>
-                ),
-                tbody: ({ children }) => (
-                  <tbody className="divide-y divide-slate-200 bg-white">{children}</tbody>
-                ),
-                tr: ({ children }) => (
-                  <tr className="hover:bg-slate-50 transition-colors">{children}</tr>
-                ),
-                td: ({ children }) => (
-                  <td className="px-4 py-3 text-sm text-slate-700">{children}</td>
-                ),
-                a: ({ href, children }) => (
-                  <a href={href} target="_blank" rel="noopener noreferrer" className="text-pink-600 hover:text-pink-700 underline">
-                    {children}
-                  </a>
-                ),
-                blockquote: ({ children }) => (
-                  <blockquote className="border-l-4 border-yellow-400 pl-4 py-2 bg-yellow-50 italic text-yellow-800">
-                    {children}
-                  </blockquote>
-                ),
-              }}
-            >
-              {value}
-            </ReactMarkdown>
-          </div>
-        </div>
-      ) : (
-        <Textarea
-          ref={textareaRef}
-          value={value}
-          onChange={(e) => handleChange(e.target.value)}
-          className="min-h-[500px] font-mono text-sm border-0 rounded-none focus:ring-0 focus-visible:ring-0"
-          placeholder="Newsletter content in markdown..."
+    <div className="border rounded-lg flex flex-col max-h-[80vh]">
+      {/* Sticky Toolbar */}
+      <div className="sticky top-0 z-10 bg-slate-50 border-b rounded-t-lg">
+        <MarkdownToolbar
+          onAction={handleToolbarAction}
+          onUndo={() => { undo(); onChange(value); }}
+          onRedo={() => { redo(); onChange(value); }}
+          canUndo={canUndo}
+          canRedo={canRedo}
+          showPreview={showPreview}
+          onTogglePreview={() => setShowPreview(!showPreview)}
+          wordCount={countWords(value)}
+          daysBack={daysBack}
+          topic={topic}
+          onInsertArticle={handleInsertArticle}
         />
-      )}
+      </div>
+
+      {/* Scrollable Editor/Preview Area */}
+      <div className="flex-1 overflow-auto">
+        {showPreview ? (
+          <div className="p-6 min-h-[500px] bg-white">
+            <div className="prose prose-slate max-w-none">
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  table: ({ children }) => (
+                    <div className="my-6 overflow-x-auto rounded-lg border border-slate-300 shadow-sm">
+                      <table className="min-w-full divide-y divide-slate-300">{children}</table>
+                    </div>
+                  ),
+                  thead: ({ children }) => (
+                    <thead className="bg-slate-700 text-white">{children}</thead>
+                  ),
+                  th: ({ children }) => (
+                    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-white">{children}</th>
+                  ),
+                  tbody: ({ children }) => (
+                    <tbody className="divide-y divide-slate-200 bg-white">{children}</tbody>
+                  ),
+                  tr: ({ children }) => (
+                    <tr className="hover:bg-slate-50 transition-colors">{children}</tr>
+                  ),
+                  td: ({ children }) => (
+                    <td className="px-4 py-3 text-sm text-slate-700">{children}</td>
+                  ),
+                  a: ({ href, children }) => (
+                    <a href={href} target="_blank" rel="noopener noreferrer" className="text-pink-600 hover:text-pink-700 underline">
+                      {children}
+                    </a>
+                  ),
+                  blockquote: ({ children }) => (
+                    <blockquote className="border-l-4 border-yellow-400 pl-4 py-2 bg-yellow-50 italic text-yellow-800">
+                      {children}
+                    </blockquote>
+                  ),
+                }}
+              >
+                {value}
+              </ReactMarkdown>
+            </div>
+          </div>
+        ) : (
+          <Textarea
+            ref={textareaRef}
+            value={value}
+            onChange={(e) => handleChange(e.target.value)}
+            onSelect={handleTextareaSelect}
+            onClick={handleTextareaSelect}
+            onKeyUp={handleTextareaSelect}
+            className="min-h-[500px] font-mono text-sm border-0 rounded-none focus:ring-0 focus-visible:ring-0"
+            placeholder="Newsletter content in markdown..."
+          />
+        )}
+      </div>
 
       {/* Footer with Save/Discard */}
       <div className="flex items-center justify-end gap-2 p-2 border-t bg-slate-50">
@@ -727,11 +785,131 @@ export function Newsletter({
   onAddSelectedToNewsletter,
   onClearError,
   onClearResults,
+  onLoadNewsletter,
 }: NewsletterProps) {
-  // Empty state - show welcome
+  // Save dialog state
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [saveName, setSaveName] = useState('');
+  const [saveDescription, setSaveDescription] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Saved newsletters state
+  const [savedNewsletters, setSavedNewsletters] = useState<SavedNewsletterSummary[]>([]);
+  const [loadingSaved, setLoadingSaved] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [newsletterToDelete, setNewsletterToDelete] = useState<SavedNewsletterSummary | null>(null);
+
+  // Fetch saved newsletters when topic changes
+  useEffect(() => {
+    if (topic) {
+      fetchSavedNewsletters();
+    }
+  }, [topic]);
+
+  const fetchSavedNewsletters = async () => {
+    if (!topic) return;
+    setLoadingSaved(true);
+    try {
+      const res = await fetch(`/api/newsletter/saved/${encodeURIComponent(topic)}`, {
+        credentials: 'include'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSavedNewsletters(data.newsletters || []);
+      }
+    } catch (err) {
+      console.error('Error fetching saved newsletters:', err);
+    } finally {
+      setLoadingSaved(false);
+    }
+  };
+
+  const handleSaveNewsletter = async () => {
+    if (!topic || !saveName.trim() || !newsletterContent) return;
+
+    setSaving(true);
+    setSaveError(null);
+
+    try {
+      const res = await fetch('/api/newsletter/save', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic,
+          name: saveName.trim(),
+          description: saveDescription.trim() || undefined,
+          newsletter_content: newsletterContent,
+          config: { title: newsletterTitle, intro: newsletterIntro },
+          days_back: daysBack,
+          deep_dive_topic: deepDiveTopic || undefined,
+          articles_used: result?.articles_used,
+          model_used: result?.model_used || 'gpt-4.1'
+        })
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.detail || 'Failed to save newsletter');
+      }
+
+      // Success - close dialog and refresh list
+      setShowSaveDialog(false);
+      setSaveName('');
+      setSaveDescription('');
+      fetchSavedNewsletters();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleLoadNewsletter = async (id: number) => {
+    try {
+      const res = await fetch(`/api/newsletter/saved/load/${id}`, {
+        credentials: 'include'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const newsletter = data.newsletter;
+        if (newsletter && onLoadNewsletter) {
+          onLoadNewsletter(newsletter.newsletter_content, {
+            articles_used: newsletter.articles_used,
+            article_count: newsletter.articles_used,
+            deep_dive_topic: newsletter.deep_dive_topic
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Error loading newsletter:', err);
+    }
+  };
+
+  const handleDeleteNewsletter = async () => {
+    if (!newsletterToDelete) return;
+
+    try {
+      const res = await fetch(`/api/newsletter/saved/${newsletterToDelete.id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (res.ok) {
+        fetchSavedNewsletters();
+      }
+    } catch (err) {
+      console.error('Error deleting newsletter:', err);
+    } finally {
+      setShowDeleteConfirm(false);
+      setNewsletterToDelete(null);
+    }
+  };
+
+  // Empty state - show welcome and saved newsletters
   if (!isGenerating && !newsletterContent && !error) {
     return (
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-4xl mx-auto space-y-6">
         <Card className="border-dashed border-2">
           <CardContent className="py-16 text-center">
             <FileText className="w-16 h-16 mx-auto text-gray-300 mb-4" />
@@ -747,6 +925,80 @@ export function Newsletter({
             </p>
           </CardContent>
         </Card>
+
+        {/* Saved newsletters list */}
+        {savedNewsletters.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <FolderOpen className="w-5 h-5" />
+                Saved Newsletters
+              </CardTitle>
+              <CardDescription>
+                Previously saved newsletters for this topic
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {savedNewsletters.map((n) => (
+                  <div
+                    key={n.id}
+                    className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-sm truncate">{n.name}</p>
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <span>{new Date(n.created_at).toLocaleDateString()}</span>
+                        {n.articles_used && <span>• {n.articles_used} articles</span>}
+                        {n.deep_dive_topic && <span>• Deep dive: {n.deep_dive_topic}</span>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleLoadNewsletter(n.id)}
+                      >
+                        Load
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setNewsletterToDelete(n);
+                          setShowDeleteConfirm(true);
+                        }}
+                      >
+                        <Trash2 className="w-4 h-4 text-gray-400 hover:text-red-500" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Delete Confirmation Dialog for empty state */}
+        <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Delete Newsletter?</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete <strong>"{newsletterToDelete?.name}"</strong>?
+                This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setShowDeleteConfirm(false)}>
+                Cancel
+              </Button>
+              <Button variant="destructive" onClick={handleDeleteNewsletter}>
+                Delete
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }
@@ -841,11 +1093,51 @@ export function Newsletter({
                 )}
               </div>
               <div className="flex items-center gap-2">
+                {/* Load saved newsletter dropdown */}
+                {savedNewsletters.length > 0 && (
+                  <Select
+                    onValueChange={(value) => {
+                      if (value) {
+                        handleLoadNewsletter(parseInt(value, 10));
+                      }
+                    }}
+                  >
+                    <SelectTrigger className="w-48">
+                      <FolderOpen className="w-4 h-4 mr-1" />
+                      <SelectValue placeholder="Load Saved..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {savedNewsletters.map((n) => (
+                        <SelectItem key={n.id} value={String(n.id)}>
+                          <div className="flex items-center justify-between w-full">
+                            <span className="truncate">{n.name}</span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setNewsletterToDelete(n);
+                                setShowDeleteConfirm(true);
+                              }}
+                              className="ml-2 text-gray-400 hover:text-red-500"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
                 {!isEditing && (
-                  <Button variant="outline" onClick={onStartEditing}>
-                    <Edit3 className="w-4 h-4 mr-1" />
-                    Edit
-                  </Button>
+                  <>
+                    <Button variant="outline" onClick={() => setShowSaveDialog(true)}>
+                      <BookmarkPlus className="w-4 h-4 mr-1" />
+                      Save
+                    </Button>
+                    <Button variant="outline" onClick={onStartEditing}>
+                      <Edit3 className="w-4 h-4 mr-1" />
+                      Edit
+                    </Button>
+                  </>
                 )}
                 <Button variant="outline" onClick={onClearResults}>
                   <Trash2 className="w-4 h-4 mr-1" />
@@ -886,6 +1178,86 @@ export function Newsletter({
           topic={topic}
         />
       )}
+
+      {/* Save Newsletter Dialog */}
+      <Dialog open={showSaveDialog} onOpenChange={setShowSaveDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save Newsletter</DialogTitle>
+            <DialogDescription>
+              Save this newsletter for future reference.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="newsletter-save-name">Newsletter Name</Label>
+              <Input
+                id="newsletter-save-name"
+                placeholder="e.g., Weekly Digest Nov 29"
+                value={saveName}
+                onChange={(e) => setSaveName(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="newsletter-save-description">Description (optional)</Label>
+              <Textarea
+                id="newsletter-save-description"
+                placeholder="Add notes about this newsletter..."
+                value={saveDescription}
+                onChange={(e) => setSaveDescription(e.target.value)}
+                rows={3}
+              />
+            </div>
+
+            <div className="text-sm text-gray-500 bg-gray-50 p-3 rounded">
+              <div>Topic: <strong>{topic}</strong></div>
+              <div>Articles Used: <strong>{result?.articles_used || 0}</strong></div>
+              <div>Days Back: <strong>{daysBack}</strong></div>
+              {deepDiveTopic && <div>Deep Dive: <strong>{deepDiveTopic}</strong></div>}
+            </div>
+
+            {saveError && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{saveError}</AlertDescription>
+              </Alert>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowSaveDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveNewsletter} disabled={!saveName.trim() || saving}>
+              {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+              Save Newsletter
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Newsletter?</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete <strong>"{newsletterToDelete?.name}"</strong>?
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowDeleteConfirm(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteNewsletter}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

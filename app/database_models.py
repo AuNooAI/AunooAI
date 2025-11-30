@@ -98,6 +98,29 @@ t_saved_dashboards = Table(
     Index('idx_saved_dashboards_created', 'created_at')
 )
 
+t_saved_newsletters = Table(
+    'saved_newsletters', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('topic', String(255), nullable=False),
+    Column('username', Text, ForeignKey('users.username', ondelete='SET NULL')),
+    Column('name', String(255), nullable=False),
+    Column('description', Text),
+    Column('config', JSONB),
+    Column('days_back', Integer),
+    Column('deep_dive_topic', String(255)),
+    Column('newsletter_content', Text, nullable=False),
+    Column('deep_dive_analysis', Text),
+    Column('articles_used', Integer),
+    Column('article_uris', ARRAY(Text)),
+    Column('model_used', String(100)),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    UniqueConstraint('topic', 'username', 'name', name='uq_saved_newsletters_topic_user_name'),
+    Index('idx_saved_newsletters_topic', 'topic'),
+    Index('idx_saved_newsletters_user', 'username'),
+    Index('idx_saved_newsletters_created', 'created_at')
+)
+
 t_analysis_versions = Table(
     'analysis_versions', metadata,
     Column('id', Integer, primary_key=True),

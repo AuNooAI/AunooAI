@@ -3,7 +3,7 @@
  * Full-featured toolbar for markdown editing with formatting, insertion, and article search
  */
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Bold,
   Italic,
@@ -121,35 +121,76 @@ function ArticleSearchDropdown({
     articleCount
   } = useArticleSearch({ daysBack, topic });
 
+  // Store the callback in a ref to avoid stale closure issues
+  const onInsertArticleRef = useRef(onInsertArticle);
+  onInsertArticleRef.current = onInsertArticle;
+
+  // Debug: log when component renders
+  console.log('📰 ArticleSearchDropdown render, open:', open);
+
   // Fetch articles when dropdown opens
   useEffect(() => {
+    console.log('📰 useEffect triggered, open:', open, 'articleCount:', articleCount);
     if (open && articleCount === 0) {
+      console.log('📰 Fetching articles...');
       fetchArticles();
     }
   }, [open, articleCount, fetchArticles]);
 
   const handleSelect = (article: SearchableArticle) => {
-    console.log('📰 Article selected in toolbar:', article.title);
-    // Close popover first, then insert
+    console.log('📰 Article selected:', article.title);
     setOpen(false);
     setSearchTerm('');
-    // Use setTimeout to ensure the popover is closed before inserting
-    setTimeout(() => {
-      console.log('📰 Calling onInsertArticle callback');
-      onInsertArticle(article);
-    }, 50);
+    // Call immediately - the ref ensures we have the latest callback
+    onInsertArticleRef.current(article);
   };
 
+  const handleOpenChange = (newOpen: boolean) => {
+    console.log('📰 handleOpenChange called with:', newOpen);
+    setOpen(newOpen);
+  };
+
+  // Click outside handler
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        console.log('📰 Click outside, closing');
+        setOpen(false);
+      }
+    };
+
+    // Delay adding listener to avoid immediate trigger
+    const timeoutId = setTimeout(() => {
+      document.addEventListener('mousedown', handleClickOutside);
+    }, 0);
+
+    return () => {
+      clearTimeout(timeoutId);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [open]);
+
+  // Render inline dropdown instead of using Popover (which has portal issues)
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-8 gap-1 px-2">
-          <FileText className="w-4 h-4" />
-          <span className="text-xs">Insert Article</span>
-          <ChevronDown className="w-3 h-3" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-96 p-0" align="start">
+    <div className="relative" ref={dropdownRef}>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-8 gap-1 px-2"
+        onClick={() => {
+          console.log('📰 Button onClick, toggling open');
+          handleOpenChange(!open);
+        }}
+      >
+        <FileText className="w-4 h-4" />
+        <span className="text-xs">Insert Article</span>
+        <ChevronDown className="w-3 h-3" />
+      </Button>
+      {open && (
+        <div className="absolute top-full left-0 mt-1 w-96 bg-white border rounded-md shadow-lg z-[9999]">
         <div className="p-3 border-b">
           <div className="relative">
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -209,8 +250,9 @@ function ArticleSearchDropdown({
             </div>
           )}
         </ScrollArea>
-      </PopoverContent>
-    </Popover>
+        </div>
+      )}
+    </div>
   );
 }
 
