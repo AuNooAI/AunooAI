@@ -50,8 +50,13 @@ const tabs: Tab[] = [
     tooltip: 'Discover stakeholder personas with rich psychographic profiles from article content'
   },
   {
+    id: 'executive-briefing',
+    label: 'Executive Briefing',
+    tooltip: 'Persona-tailored executive briefing with strategic analysis and action items'
+  },
+  {
     id: 'intelligence-brief',
-    label: 'Intelligence Brief',
+    label: 'Situation Assessment',
     tooltip: '24-hour strategic intelligence scan with BBC/Wiley quality standards'
   },
   {

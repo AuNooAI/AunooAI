@@ -13,7 +13,7 @@ import { ImpactTimelineCard } from './components/ImpactTimelineCard';
 import { FutureHorizons } from './components/FutureHorizons';
 import { OrganizationalProfileModal } from './components/OrganizationalProfileModal';
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
-import { Bell, Settings, Download, Image as ImageIcon, FileText, RefreshCw, Clock, TrendingUp, Target, Code, Save, Trash2, Plus, X, Zap } from 'lucide-react';
+import { Bell, Settings, Download, Image as ImageIcon, FileText, RefreshCw, Clock, TrendingUp, Target, Code, Save, Trash2, Plus, X, Zap, Mic } from 'lucide-react';
 import { Button } from './components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from './components/ui/dialog';
@@ -40,6 +40,9 @@ import { NewsletterTuneModal } from './components/NewsletterTuneModal';
 import { FocusGroup } from './components/FocusGroup';
 import { useFocusGroup } from './hooks/useFocusGroup';
 import { FGTuneModal } from './components/FGTuneModal';
+import { ExecutiveBriefing } from './components/ExecutiveBriefing';
+import { useExecutiveBriefing } from './hooks/useExecutiveBriefing';
+import { EBTuneModal } from './components/EBTuneModal';
 
 function App() {
   const {
@@ -95,6 +98,9 @@ function App() {
   const [isSioTuneOpen, setIsSioTuneOpen] = useState(false);
   const [showSioRawModal, setShowSioRawModal] = useState(false);
   const [showSioReferencesModal, setShowSioReferencesModal] = useState(false);
+  const [showSioSaveDialog, setShowSioSaveDialog] = useState(false);
+  const [sioSaveName, setSioSaveName] = useState('');
+  const [sioSaveDescription, setSioSaveDescription] = useState('');
 
   // Extreme Outlier Scenarios (EOS) state - lifted from ExtremeOutliers
   const eos = useExtremeOutliers();
@@ -114,6 +120,7 @@ function App() {
   const [newsletterTitle, setNewsletterTitle] = useState('Intelligence Newsletter');
   const [newsletterIntro, setNewsletterIntro] = useState('');
   const [isNewsletterTuneOpen, setIsNewsletterTuneOpen] = useState(false);
+  const [showNewsletterSaveDialog, setShowNewsletterSaveDialog] = useState(false);
 
   // Focus Group state - lifted from FocusGroup component
   const focusGroup = useFocusGroup();
@@ -123,6 +130,16 @@ function App() {
   const [fgIncludePsychographics, setFgIncludePsychographics] = useState(true);
   const [fgIncludeVoice, setFgIncludeVoice] = useState(true);
   const [isFgTuneOpen, setIsFgTuneOpen] = useState(false);
+
+  // Executive Briefing state - lifted from ExecutiveBriefing component
+  const executiveBriefing = useExecutiveBriefing();
+  const [ebPersona, setEbPersona] = useState('ceo');
+  const [ebArticleCount, setEbArticleCount] = useState(6);
+  const [ebDaysBack, setEbDaysBack] = useState(7);
+  const [ebIncludePodcastScript, setEbIncludePodcastScript] = useState(false);
+  const [ebPodcastDuration, setEbPodcastDuration] = useState<'short' | 'medium' | 'long'>('short');
+  const [isEbTuneOpen, setIsEbTuneOpen] = useState(false);
+  const [showEbPodcastModal, setShowEbPodcastModal] = useState(false);
 
   // Load saved SIO config on mount
   useEffect(() => {
@@ -199,6 +216,23 @@ function App() {
       }
     };
     loadFgConfig();
+  }, []);
+
+  // Load saved Executive Briefing config on mount
+  useEffect(() => {
+    const loadEbConfig = async () => {
+      try {
+        const response = await fetch('/api/executive-briefing/config', { credentials: 'include' });
+        if (response.ok) {
+          const config = await response.json();
+          setEbPersona(config.default_persona ?? 'ceo');
+          setEbArticleCount(config.default_article_count ?? 6);
+        }
+      } catch (err) {
+        console.error('Failed to load Executive Briefing config:', err);
+      }
+    };
+    loadEbConfig();
   }, []);
 
   // Fetch prompt preview when Tune modal opens
@@ -1027,6 +1061,16 @@ function App() {
                       include_psychographics: fgIncludePsychographics,
                       include_voice: fgIncludeVoice,
                     });
+                  } else if (activeTab === 'executive-briefing') {
+                    executiveBriefing.startGeneration({
+                      topic: config.topic || '',
+                      persona: ebPersona,
+                      article_count: ebArticleCount,
+                      days_back: ebDaysBack,
+                      include_synthesis: true,
+                      include_podcast_script: ebIncludePodcastScript,
+                      podcast_duration: ebPodcastDuration,
+                    });
                   } else if (activeTab === 'newsletter') {
                     newsletter.startGeneration({
                       topic: config.topic || 'AI',
@@ -1038,11 +1082,11 @@ function App() {
                     generateAnalysis(true);
                   }
                 }}
-                disabled={loading || sio.isScanning || eos.isGenerating || focusGroup.isGenerating || newsletter.isGenerating}
+                disabled={loading || sio.isScanning || eos.isGenerating || focusGroup.isGenerating || executiveBriefing.isGenerating || newsletter.isGenerating}
                 className="p-2 hover:bg-gray-100 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
-                title={activeTab === 'intelligence-brief' ? 'Generate intelligence brief' : activeTab === 'extreme-outliers' ? 'Generate extreme outlier scenarios' : activeTab === 'focus-group' ? 'Generate focus group personas' : activeTab === 'newsletter' ? 'Generate newsletter' : 'Refresh analysis (bypass cache)'}
+                title={activeTab === 'intelligence-brief' ? 'Generate situation assessment' : activeTab === 'extreme-outliers' ? 'Generate extreme outlier scenarios' : activeTab === 'focus-group' ? 'Generate focus group personas' : activeTab === 'executive-briefing' ? 'Generate executive briefing' : activeTab === 'newsletter' ? 'Generate newsletter' : 'Refresh analysis (bypass cache)'}
               >
-                <RefreshCw className={`w-4 h-4 text-gray-700 ${(loading || sio.isScanning || eos.isGenerating || focusGroup.isGenerating || newsletter.isGenerating) ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-4 h-4 text-gray-700 ${(loading || sio.isScanning || eos.isGenerating || focusGroup.isGenerating || executiveBriefing.isGenerating || newsletter.isGenerating) ? 'animate-spin' : ''}`} />
               </button>
             </div>
           </div>
@@ -1069,6 +1113,8 @@ function App() {
                   setIsNewsletterTuneOpen(true);
                 } else if (activeTab === 'focus-group') {
                   setIsFgTuneOpen(true);
+                } else if (activeTab === 'executive-briefing') {
+                  setIsEbTuneOpen(true);
                 } else {
                   setIsPromptEditorOpen(true);
                 }
@@ -1080,9 +1126,43 @@ function App() {
             </button>
           </div>
           <div className="flex items-center gap-2">
-            {/* Export/Raw/References buttons for Intelligence Brief tab */}
+            {/* Export/Raw/References buttons for Situation Assessment tab */}
             {activeTab === 'intelligence-brief' && sio.briefContent && !sio.isScanning && (
               <>
+                <button
+                  onClick={async () => {
+                    // Export as PDF using ExportService
+                    const timestamp = Date.now();
+                    const baseFilename = `situation-assessment-${config.topic.toLowerCase().replace(/\s+/g, '-')}-${timestamp}`;
+                    try {
+                      await ExportService.exportPDF('dashboard-content', baseFilename);
+                    } catch (error) {
+                      console.error('PDF export failed:', error);
+                      alert('Failed to export as PDF. Please try again.');
+                    }
+                  }}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Download className="w-4 h-4" />
+                  PDF
+                </button>
+                <button
+                  onClick={async () => {
+                    // Export as PNG using ExportService
+                    const timestamp = Date.now();
+                    const baseFilename = `situation-assessment-${config.topic.toLowerCase().replace(/\s+/g, '-')}-${timestamp}`;
+                    try {
+                      await ExportService.exportImage('dashboard-content', baseFilename);
+                    } catch (error) {
+                      console.error('PNG export failed:', error);
+                      alert('Failed to export as PNG. Please try again.');
+                    }
+                  }}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <ImageIcon className="w-4 h-4" />
+                  PNG
+                </button>
                 <button
                   onClick={() => {
                     // Export brief as markdown file
@@ -1090,7 +1170,7 @@ function App() {
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `intelligence-brief-${config.topic || 'report'}-${new Date().toISOString().slice(0, 10)}.md`;
+                    a.download = `situation-assessment-${config.topic || 'report'}-${new Date().toISOString().slice(0, 10)}.md`;
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
@@ -1114,6 +1194,13 @@ function App() {
                   className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   References
+                </button>
+                <button
+                  onClick={() => setShowSioSaveDialog(true)}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Save className="w-4 h-4" />
+                  Save
                 </button>
               </>
             )}
@@ -1154,30 +1241,148 @@ function App() {
                 </button>
               </>
             )}
-            {/* Export button for Newsletter tab */}
+            {/* Action buttons for Newsletter tab */}
             {activeTab === 'newsletter' && newsletter.newsletterContent && !newsletter.isGenerating && (
-              <button
-                onClick={() => {
-                  // Export newsletter as markdown file
-                  const content = newsletter.isEditing ? newsletter.editedContent : newsletter.newsletterContent;
-                  const blob = new Blob([content], { type: 'text/markdown' });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = `newsletter-${config.topic || 'report'}-${new Date().toISOString().slice(0, 10)}.md`;
-                  document.body.appendChild(a);
-                  a.click();
-                  document.body.removeChild(a);
-                  URL.revokeObjectURL(url);
-                }}
-                className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
-              >
-                <Download className="w-4 h-4" />
-                Export
-              </button>
+              <>
+                <button
+                  onClick={() => handleExport('pdf')}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Download className="w-4 h-4" />
+                  PDF
+                </button>
+                <button
+                  onClick={() => handleExport('image')}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <ImageIcon className="w-4 h-4" />
+                  PNG
+                </button>
+                <button
+                  onClick={() => {
+                    // Export newsletter as markdown file
+                    const content = newsletter.isEditing ? newsletter.editedContent : newsletter.newsletterContent;
+                    const blob = new Blob([content], { type: 'text/markdown' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `newsletter-${config.topic || 'report'}-${new Date().toISOString().slice(0, 10)}.md`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Download className="w-4 h-4" />
+                  Export
+                </button>
+                <button
+                  onClick={() => setShowNewsletterSaveDialog(true)}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Save className="w-4 h-4" />
+                  Save
+                </button>
+              </>
             )}
-            {/* Export buttons - hidden for Intelligence Brief, Newsletter, and Extreme Outliers tabs */}
-            {activeTab !== 'intelligence-brief' && activeTab !== 'newsletter' && activeTab !== 'extreme-outliers' && (
+            {/* Export/Raw/Save buttons for Executive Briefing tab */}
+            {activeTab === 'executive-briefing' && executiveBriefing.result && !executiveBriefing.isGenerating && (
+              <>
+                <button
+                  onClick={() => handleExport('pdf')}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Download className="w-4 h-4" />
+                  PDF
+                </button>
+                <button
+                  onClick={() => handleExport('image')}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <ImageIcon className="w-4 h-4" />
+                  PNG
+                </button>
+                <button
+                  onClick={() => {
+                    // Export briefing as markdown file
+                    const lines = [
+                      `# Executive Briefing: ${config.topic}`,
+                      '',
+                      `**Persona:** ${ebPersona}`,
+                      `**Generated:** ${new Date().toISOString()}`,
+                      `**Articles:** ${executiveBriefing.articles.length}`,
+                      '',
+                      '## Executive Summary',
+                      '',
+                      executiveBriefing.briefingSummary || 'No summary available.',
+                      '',
+                      '## Articles',
+                      '',
+                    ];
+                    for (const article of executiveBriefing.articles) {
+                      lines.push(`### ${article.title}`);
+                      lines.push('');
+                      lines.push(`**Source:** ${article.source} | **Date:** ${article.date}`);
+                      lines.push('');
+                      lines.push(`**Takeaway:** ${article.executive_takeaway}`);
+                      lines.push('');
+                      lines.push('---');
+                      lines.push('');
+                    }
+                    const content = lines.join('\n');
+                    const blob = new Blob([content], { type: 'text/markdown' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `executive-briefing-${config.topic || 'report'}-${new Date().toISOString().slice(0, 10)}.md`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Download className="w-4 h-4" />
+                  Export
+                </button>
+                <button
+                  onClick={() => {
+                    // Export as JSON (Raw)
+                    const content = JSON.stringify(executiveBriefing.result, null, 2);
+                    const blob = new Blob([content], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `executive-briefing-${config.topic || 'report'}-${new Date().toISOString().slice(0, 10)}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Code className="w-4 h-4" />
+                  Raw
+                </button>
+                <button
+                  onClick={() => setShowSaveDialog(true)}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Save className="w-4 h-4" />
+                  Save
+                </button>
+                <button
+                  onClick={() => setShowEbPodcastModal(true)}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Mic className="w-4 h-4" />
+                  Podcast
+                </button>
+              </>
+            )}
+            {/* Export buttons - hidden for Situation Assessment, Newsletter, Extreme Outliers, and Executive Briefing tabs (they have custom buttons) */}
+            {activeTab !== 'intelligence-brief' && activeTab !== 'newsletter' && activeTab !== 'extreme-outliers' && activeTab !== 'executive-briefing' && (
               <>
                 <button
                   onClick={() => handleExport('pdf')}
@@ -1252,7 +1457,7 @@ function App() {
 
         {/* Main Scrollable Content */}
         <div id="dashboard-content" className="flex-1 overflow-y-auto px-6 py-6">
-          {/* Intelligence Brief Tab - State lifted to App.tsx for header button integration */}
+          {/* Situation Assessment Tab - State lifted to App.tsx for header button integration */}
           {activeTab === 'intelligence-brief' ? (
             <IntelligenceBrief
               topic={config.topic}
@@ -1343,6 +1548,51 @@ function App() {
               onLoadSavedFocusGroup={focusGroup.loadSavedFocusGroup}
               onDeleteSavedFocusGroup={focusGroup.deleteSavedFocusGroup}
             />
+          ) : activeTab === 'executive-briefing' ? (
+            <ExecutiveBriefing
+              topic={config.topic}
+              isGenerating={executiveBriefing.isGenerating}
+              currentStage={executiveBriefing.currentStage}
+              stageProgress={executiveBriefing.stageProgress}
+              overallProgress={executiveBriefing.overallProgress}
+              articles={executiveBriefing.articles}
+              briefingSummary={executiveBriefing.briefingSummary}
+              themes={executiveBriefing.themes}
+              priorityActions={executiveBriefing.priorityActions}
+              riskSummary={executiveBriefing.riskSummary}
+              opportunitySummary={executiveBriefing.opportunitySummary}
+              focusAreas={executiveBriefing.focusAreas}
+              podcastScript={executiveBriefing.podcastScript}
+              result={executiveBriefing.result}
+              error={executiveBriefing.error}
+              articlesSelected={executiveBriefing.articlesSelected}
+              articlesAnalyzed={executiveBriefing.articlesAnalyzed}
+              currentArticle={executiveBriefing.currentArticle}
+              currentArticleTitle={executiveBriefing.currentArticleTitle}
+              savedBriefings={executiveBriefing.savedBriefings}
+              isSaving={executiveBriefing.isSaving}
+              isLoadingSaved={executiveBriefing.isLoadingSaved}
+              persona={ebPersona}
+              articleCount={ebArticleCount}
+              daysBack={ebDaysBack}
+              includePodcastScript={ebIncludePodcastScript}
+              podcastDuration={ebPodcastDuration}
+              onPersonaChange={setEbPersona}
+              onArticleCountChange={setEbArticleCount}
+              onDaysBackChange={setEbDaysBack}
+              onIncludePodcastScriptChange={setEbIncludePodcastScript}
+              onPodcastDurationChange={setEbPodcastDuration}
+              onPodcastScriptChange={executiveBriefing.setPodcastScript}
+              onClearError={executiveBriefing.clearError}
+              onClearResults={executiveBriefing.clearResults}
+              onUpdateArticle={executiveBriefing.updateArticle}
+              onSaveBriefing={executiveBriefing.saveBriefing}
+              onLoadSavedBriefings={executiveBriefing.loadSavedBriefings}
+              onLoadSavedBriefing={executiveBriefing.loadSavedBriefing}
+              onDeleteSavedBriefing={executiveBriefing.deleteSavedBriefing}
+              showPodcastModal={showEbPodcastModal}
+              onPodcastModalChange={setShowEbPodcastModal}
+            />
           ) : activeTab === 'newsletter' ? (
             <Newsletter
               topic={config.topic}
@@ -1377,6 +1627,8 @@ function App() {
               onClearError={newsletter.clearError}
               onClearResults={newsletter.clearResults}
               onLoadNewsletter={newsletter.loadContent}
+              showSaveDialog={showNewsletterSaveDialog}
+              onSaveDialogChange={setShowNewsletterSaveDialog}
             />
           ) : loading ? (
             <div className="flex items-center justify-center h-64">
@@ -2138,7 +2390,7 @@ function App() {
         <Dialog open={showSioRawModal} onOpenChange={setShowSioRawModal}>
           <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
             <DialogHeader>
-              <DialogTitle>Intelligence Brief - Raw Data</DialogTitle>
+              <DialogTitle>Situation Assessment - Raw Data</DialogTitle>
               <DialogDescription>
                 Complete scan output and audit trail
               </DialogDescription>
@@ -2195,7 +2447,7 @@ function App() {
             <DialogHeader>
               <DialogTitle>Reference Articles</DialogTitle>
               <DialogDescription>
-                Articles analyzed for this intelligence brief ({sio.scanResult?.articles?.length || 0} total)
+                Articles analyzed for this situation assessment ({sio.scanResult?.articles?.length || 0} total)
               </DialogDescription>
             </DialogHeader>
             <div className="mt-4">
@@ -2246,7 +2498,7 @@ function App() {
                       size="sm"
                       onClick={() => {
                         // Download as TXT
-                        let txt = `Reference Articles - Intelligence Brief\n`;
+                        let txt = `Reference Articles - Situation Assessment\n`;
                         txt += `Total: ${sio.scanResult?.articles?.length || 0}\n`;
                         txt += `Generated: ${new Date().toLocaleString()}\n\n`;
                         txt += '='.repeat(80) + '\n\n';
@@ -2770,7 +3022,84 @@ function App() {
         </DialogContent>
       </Dialog>
 
-      {/* SIO Tune Modal - Multi-step prompt editor for Intelligence Brief */}
+      {/* Situation Assessment Save Dialog */}
+      <Dialog open={showSioSaveDialog} onOpenChange={setShowSioSaveDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save Situation Assessment</DialogTitle>
+            <DialogDescription>
+              Save this assessment for later reference.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="sio-save-name">Name</Label>
+              <Input
+                id="sio-save-name"
+                placeholder="e.g., Morning Brief Nov 30"
+                value={sioSaveName}
+                onChange={(e) => setSioSaveName(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="sio-save-description">Description (optional)</Label>
+              <Textarea
+                id="sio-save-description"
+                placeholder="Add notes about this assessment..."
+                value={sioSaveDescription}
+                onChange={(e) => setSioSaveDescription(e.target.value)}
+                rows={3}
+              />
+            </div>
+
+            <div className="text-sm text-gray-500">
+              <div>Topic: <strong>{config.topic}</strong></div>
+              <div>Articles: <strong>{sio.scanResult?.articles?.length || 0}</strong></div>
+              <div>Events Analyzed: <strong>{sio.scanResult?.metadata?.events_analyzed || 0}</strong></div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowSioSaveDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={async () => {
+              try {
+                // Save as a JSON file for now (can be enhanced with backend API later)
+                const saveData = {
+                  name: sioSaveName,
+                  description: sioSaveDescription,
+                  topic: config.topic,
+                  briefContent: sio.briefContent,
+                  scanResult: sio.scanResult,
+                  savedAt: new Date().toISOString()
+                };
+                const blob = new Blob([JSON.stringify(saveData, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `situation-assessment-${sioSaveName.toLowerCase().replace(/\s+/g, '-') || 'unnamed'}-${new Date().toISOString().slice(0, 10)}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                setShowSioSaveDialog(false);
+                setSioSaveName('');
+                setSioSaveDescription('');
+              } catch (error) {
+                console.error('Failed to save:', error);
+                alert('Failed to save assessment. Please try again.');
+              }
+            }}>
+              Save Assessment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* SIO Tune Modal - Multi-step prompt editor for Situation Assessment */}
       <SIOTuneModal
         open={isSioTuneOpen}
         onOpenChange={setIsSioTuneOpen}
@@ -2826,6 +3155,16 @@ function App() {
         onIncludeDemographicsChange={setFgIncludeDemographics}
         onIncludePsychographicsChange={setFgIncludePsychographics}
         onIncludeVoiceChange={setFgIncludeVoice}
+      />
+
+      {/* EB Tune Modal - Multi-step prompt editor for Executive Briefing */}
+      <EBTuneModal
+        open={isEbTuneOpen}
+        onOpenChange={setIsEbTuneOpen}
+        persona={ebPersona}
+        articleCount={ebArticleCount}
+        onPersonaChange={setEbPersona}
+        onArticleCountChange={setEbArticleCount}
       />
     </div>
   );

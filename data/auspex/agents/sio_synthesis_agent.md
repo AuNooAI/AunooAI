@@ -37,7 +37,7 @@ Your briefing MUST follow this exact structure:
 
 ---
 
-# STRATEGIC INTELLIGENCE BRIEFING
+# SITUATION ASSESSMENT
 ## {Topic} | {Date Range from SCAN METADATA}
 ### Classification: INTERNAL | Generated: {Use TODAY'S DATE and CURRENT TIME from the prompt}
 

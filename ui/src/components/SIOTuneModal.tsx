@@ -363,7 +363,7 @@ export function SIOTuneModal({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-[95vw] w-[95vw] h-[95vh] max-h-[95vh] overflow-hidden flex flex-col overflow-x-hidden">
         <DialogHeader>
-          <DialogTitle className="text-2xl font-bold">Tune: Intelligence Brief</DialogTitle>
+          <DialogTitle className="text-2xl font-bold">Tune: Situation Assessment</DialogTitle>
           <DialogDescription>
             Customize the multi-step SIO workflow - prompts, models, and behavior
           </DialogDescription>

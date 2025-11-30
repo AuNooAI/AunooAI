@@ -25,7 +25,6 @@ import {
   ExternalLink,
   Trash2,
   FolderOpen,
-  BookmarkPlus,
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
@@ -118,6 +117,10 @@ interface NewsletterProps {
   onClearResults: () => void;
   // Saved newsletters (optional callbacks for save/load)
   onLoadNewsletter?: (content: string, result?: any) => void;
+  // Header button callbacks (controlled from App.tsx)
+  onSave?: () => void;
+  showSaveDialog?: boolean;
+  onSaveDialogChange?: (open: boolean) => void;
 }
 
 // Stage indicator component
@@ -786,9 +789,11 @@ export function Newsletter({
   onClearError,
   onClearResults,
   onLoadNewsletter,
+  onSave,
+  showSaveDialog: externalShowSaveDialog,
+  onSaveDialogChange,
 }: NewsletterProps) {
   // Save dialog state
-  const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [saveName, setSaveName] = useState('');
   const [saveDescription, setSaveDescription] = useState('');
   const [saving, setSaving] = useState(false);
@@ -799,6 +804,11 @@ export function Newsletter({
   const [loadingSaved, setLoadingSaved] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [newsletterToDelete, setNewsletterToDelete] = useState<SavedNewsletterSummary | null>(null);
+
+  // Use external or internal save dialog state
+  const [internalShowSaveDialog, setInternalShowSaveDialog] = useState(false);
+  const actualShowSaveDialog = externalShowSaveDialog !== undefined ? externalShowSaveDialog : internalShowSaveDialog;
+  const setActualShowSaveDialog = onSaveDialogChange || setInternalShowSaveDialog;
 
   // Fetch saved newsletters when topic changes
   useEffect(() => {
@@ -855,7 +865,7 @@ export function Newsletter({
       }
 
       // Success - close dialog and refresh list
-      setShowSaveDialog(false);
+      setActualShowSaveDialog(false);
       setSaveName('');
       setSaveDescription('');
       fetchSavedNewsletters();
@@ -1129,16 +1139,10 @@ export function Newsletter({
                   </Select>
                 )}
                 {!isEditing && (
-                  <>
-                    <Button variant="outline" onClick={() => setShowSaveDialog(true)}>
-                      <BookmarkPlus className="w-4 h-4 mr-1" />
-                      Save
-                    </Button>
-                    <Button variant="outline" onClick={onStartEditing}>
-                      <Edit3 className="w-4 h-4 mr-1" />
-                      Edit
-                    </Button>
-                  </>
+                  <Button variant="outline" onClick={onStartEditing}>
+                    <Edit3 className="w-4 h-4 mr-1" />
+                    Edit
+                  </Button>
                 )}
                 <Button variant="outline" onClick={onClearResults}>
                   <Trash2 className="w-4 h-4 mr-1" />
@@ -1181,7 +1185,7 @@ export function Newsletter({
       )}
 
       {/* Save Newsletter Dialog */}
-      <Dialog open={showSaveDialog} onOpenChange={setShowSaveDialog}>
+      <Dialog open={actualShowSaveDialog} onOpenChange={setActualShowSaveDialog}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Save Newsletter</DialogTitle>
@@ -1228,7 +1232,7 @@ export function Newsletter({
           </div>
 
           <DialogFooter>
-            <Button variant="ghost" onClick={() => setShowSaveDialog(false)}>
+            <Button variant="ghost" onClick={() => setActualShowSaveDialog(false)}>
               Cancel
             </Button>
             <Button onClick={handleSaveNewsletter} disabled={!saveName.trim() || saving}>
@@ -1259,6 +1263,7 @@ export function Newsletter({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
     </div>
   );
 }

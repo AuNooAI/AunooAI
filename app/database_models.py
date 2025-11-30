@@ -168,6 +168,33 @@ t_saved_focus_groups = Table(
     Index('idx_saved_focus_groups_created', 'created_at')
 )
 
+t_saved_executive_briefings = Table(
+    'saved_executive_briefings', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('topic', String(255), nullable=False),
+    Column('username', Text, ForeignKey('users.username', ondelete='SET NULL')),
+    Column('name', String(255), nullable=False),
+    Column('description', Text),
+    Column('persona', String(50), nullable=False),  # CEO/CMO/CTO/CISO/Custom
+    Column('article_count', Integer, nullable=False),
+    Column('config', JSONB),  # Generation config (custom persona settings)
+    Column('articles', JSONB, nullable=False),  # Array of analyzed articles
+    Column('briefing_summary', Text),  # Synthesis narrative
+    Column('themes', JSONB),  # Cross-article themes
+    Column('priority_actions', JSONB),  # Recommended actions
+    Column('metadata', JSONB),  # Generation stats
+    Column('articles_used', Integer),
+    Column('article_uris', ARRAY(Text)),
+    Column('model_used', String(100)),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    UniqueConstraint('topic', 'username', 'name', name='uq_saved_exec_briefings_topic_user_name'),
+    Index('idx_saved_exec_briefings_topic', 'topic'),
+    Index('idx_saved_exec_briefings_user', 'username'),
+    Index('idx_saved_exec_briefings_persona', 'persona'),
+    Index('idx_saved_exec_briefings_created', 'created_at')
+)
+
 t_analysis_versions = Table(
     'analysis_versions', metadata,
     Column('id', Integer, primary_key=True),
