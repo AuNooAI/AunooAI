@@ -8336,3 +8336,191 @@ class DatabaseQueryFacade:
         except Exception as e:
             self.logger.error(f"Failed to get search routing accuracy: {e}")
             return {"period_days": days, "total_queries": 0, "accuracy_pct": 0.0}
+
+    # ==================== Saved Newsletters Methods ====================
+
+    def create_saved_newsletter(
+        self,
+        topic: str,
+        username: str,
+        name: str,
+        newsletter_content: str,
+        config: dict = None,
+        days_back: int = None,
+        deep_dive_topic: str = None,
+        deep_dive_analysis: str = None,
+        articles_used: int = None,
+        article_uris: list = None,
+        model_used: str = None,
+        description: str = None
+    ) -> int:
+        """Create a new saved newsletter.
+
+        Args:
+            topic: Topic name
+            username: Username
+            name: Newsletter name
+            newsletter_content: The generated newsletter content (markdown)
+            config: Configuration dict used to generate (stored as JSONB)
+            days_back: Days back setting used
+            deep_dive_topic: Deep dive topic if specified
+            deep_dive_analysis: Deep dive analysis content if generated
+            articles_used: Number of articles used
+            article_uris: List of article URIs used
+            model_used: AI model used
+            description: Optional description
+
+        Returns:
+            Newsletter ID
+        """
+        try:
+            from app.database_models import t_saved_newsletters
+            from sqlalchemy import insert
+
+            statement = insert(t_saved_newsletters).values(
+                topic=topic,
+                username=username,
+                name=name,
+                description=description,
+                config=config,
+                days_back=days_back,
+                deep_dive_topic=deep_dive_topic,
+                newsletter_content=newsletter_content,
+                deep_dive_analysis=deep_dive_analysis,
+                articles_used=articles_used,
+                article_uris=article_uris,
+                model_used=model_used
+            ).returning(t_saved_newsletters.c.id)
+
+            result = self._execute_with_rollback(statement)
+            newsletter_id = result.scalar()
+            self.logger.info(f"Created saved newsletter '{name}' (ID: {newsletter_id}) for user '{username}'")
+            return newsletter_id
+        except Exception as e:
+            self.logger.error(f"Error creating saved newsletter: {e}")
+            raise
+
+    def get_saved_newsletters_for_topic(
+        self,
+        topic: str,
+        username: str
+    ) -> list:
+        """Get all saved newsletters for a topic (user-scoped).
+
+        Returns list of newsletter summaries sorted by creation date desc.
+        """
+        try:
+            from app.database_models import t_saved_newsletters
+            from sqlalchemy import select
+
+            statement = select(
+                t_saved_newsletters.c.id,
+                t_saved_newsletters.c.name,
+                t_saved_newsletters.c.description,
+                t_saved_newsletters.c.created_at,
+                t_saved_newsletters.c.updated_at,
+                t_saved_newsletters.c.articles_used,
+                t_saved_newsletters.c.model_used,
+                t_saved_newsletters.c.days_back,
+                t_saved_newsletters.c.deep_dive_topic
+            ).where(
+                (t_saved_newsletters.c.topic == topic) &
+                (t_saved_newsletters.c.username == username)
+            ).order_by(
+                t_saved_newsletters.c.created_at.desc()
+            )
+
+            results = self._execute_with_rollback(statement).fetchall()
+            newsletters = [dict(row._mapping) for row in results]
+            return newsletters
+        except Exception as e:
+            self.logger.error(f"Error retrieving saved newsletters for topic '{topic}': {e}")
+            return []
+
+    def get_saved_newsletter_by_id(
+        self,
+        newsletter_id: int,
+        username: str
+    ) -> dict:
+        """Get a specific saved newsletter by ID (user-scoped).
+
+        Returns full newsletter data or None if not found.
+        """
+        try:
+            from app.database_models import t_saved_newsletters
+            from sqlalchemy import select
+
+            statement = select(t_saved_newsletters).where(
+                (t_saved_newsletters.c.id == newsletter_id) &
+                (t_saved_newsletters.c.username == username)
+            )
+
+            result = self._execute_with_rollback(statement).fetchone()
+            if result:
+                return dict(result._mapping)
+            return None
+        except Exception as e:
+            self.logger.error(f"Error retrieving saved newsletter {newsletter_id}: {e}")
+            return None
+
+    def delete_saved_newsletter(
+        self,
+        newsletter_id: int,
+        username: str
+    ) -> bool:
+        """Delete a saved newsletter (user-scoped)."""
+        try:
+            from app.database_models import t_saved_newsletters
+            from sqlalchemy import delete
+
+            statement = delete(t_saved_newsletters).where(
+                (t_saved_newsletters.c.id == newsletter_id) &
+                (t_saved_newsletters.c.username == username)
+            )
+
+            result = self._execute_with_rollback(statement)
+            deleted = result.rowcount > 0
+            if deleted:
+                self.logger.info(f"Deleted saved newsletter {newsletter_id} for user '{username}'")
+            return deleted
+        except Exception as e:
+            self.logger.error(f"Error deleting saved newsletter {newsletter_id}: {e}")
+            return False
+
+    def update_saved_newsletter(
+        self,
+        newsletter_id: int,
+        username: str,
+        name: str = None,
+        description: str = None,
+        newsletter_content: str = None
+    ) -> bool:
+        """Update a saved newsletter (user-scoped)."""
+        try:
+            from app.database_models import t_saved_newsletters
+            from sqlalchemy import update
+
+            update_values = {}
+            if name is not None:
+                update_values['name'] = name
+            if description is not None:
+                update_values['description'] = description
+            if newsletter_content is not None:
+                update_values['newsletter_content'] = newsletter_content
+
+            if not update_values:
+                return True  # Nothing to update
+
+            statement = update(t_saved_newsletters).where(
+                (t_saved_newsletters.c.id == newsletter_id) &
+                (t_saved_newsletters.c.username == username)
+            ).values(**update_values)
+
+            result = self._execute_with_rollback(statement)
+            updated = result.rowcount > 0
+            if updated:
+                self.logger.info(f"Updated saved newsletter {newsletter_id}")
+            return updated
+        except Exception as e:
+            self.logger.error(f"Error updating saved newsletter {newsletter_id}: {e}")
+            return False

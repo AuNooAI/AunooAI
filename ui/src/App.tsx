@@ -1255,6 +1255,7 @@ function App() {
               onAddSelectedToNewsletter={newsletter.addSelectedToNewsletter}
               onClearError={newsletter.clearError}
               onClearResults={newsletter.clearResults}
+              onLoadNewsletter={newsletter.loadContent}
             />
           ) : loading ? (
             <div className="flex items-center justify-center h-64">

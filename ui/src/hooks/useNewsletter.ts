@@ -296,6 +296,18 @@ export function useNewsletter() {
     setError(null);
   }, []);
 
+  // Load content from a saved newsletter
+  const loadContent = useCallback((content: string, loadedResult?: any) => {
+    setNewsletterContent(content);
+    setEditedContent(content);
+    setIsEditing(false);
+    if (loadedResult) {
+      setResult(loadedResult);
+    }
+    setError(null);
+    setCurrentStage('complete');
+  }, []);
+
   return {
     // Generation state
     isGenerating,
@@ -332,5 +344,6 @@ export function useNewsletter() {
     addSelectedToNewsletter,
     clearResults,
     clearError,
+    loadContent,
   };
 }

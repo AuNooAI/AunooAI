@@ -49,6 +49,7 @@ class NewsletterConfigUpdate(BaseModel):
     intro: Optional[str] = None
     days_back: Optional[int] = Field(None, ge=1, le=30)
     deep_dive_topic: Optional[str] = None
+    section_limits: Optional[Dict[str, int]] = None
     agents: Optional[Dict[str, AgentConfig]] = None
 
 
@@ -235,6 +236,11 @@ async def get_newsletter_config(
     # Get user config (dynamic settings like title, model preferences)
     user_config = load_newsletter_config()
 
+    # Merge section_limits: user config takes precedence over plugin defaults
+    default_section_limits = plugin_config.get("section_limits", {})
+    user_section_limits = user_config.get("section_limits", {})
+    merged_section_limits = {**default_section_limits, **user_section_limits}
+
     return {
         # User configurable settings
         "title": user_config.get("title", "Weekly Intelligence Digest"),
@@ -245,12 +251,13 @@ async def get_newsletter_config(
             "deep_dive": {"model": "gpt-4.1", "temperature": 0.3, "max_tokens": 4000},
             "main_newsletter": {"model": "gpt-4.1", "temperature": 0.5, "max_tokens": 8000}
         }),
+        # Section limits (user overrides plugin defaults)
+        "section_limits": merged_section_limits,
         # Plugin settings (read-only)
         "version": plugin_config.get("version", "2.0.0"),
         "model": plugin_config.get("model", "gpt-4.1"),
         "max_articles_to_fetch": plugin_config.get("max_articles_to_fetch", 200),
         "min_articles_required": plugin_config.get("min_articles_required", 20),
-        "section_limits": plugin_config.get("section_limits", {}),
         "sections": plugin_config.get("sections", {}),
     }
 
@@ -274,6 +281,8 @@ async def update_newsletter_config(
             config["days_back"] = request.days_back
         if request.deep_dive_topic is not None:
             config["deep_dive_topic"] = request.deep_dive_topic
+        if request.section_limits is not None:
+            config["section_limits"] = request.section_limits
         if request.agents is not None:
             # Merge agent configs
             existing_agents = config.get("agents", {})
@@ -471,4 +480,175 @@ async def update_newsletter_prompt(
     return {
         "success": True,
         "message": f"Updated {agent['name']} agent configuration"
+    }
+
+
+# ============================================================================
+# Saved Newsletters Endpoints (following saved_dashboards pattern)
+# ============================================================================
+
+class SaveNewsletterRequest(BaseModel):
+    """Request model for saving a newsletter."""
+    topic: str = Field(..., description="Topic name")
+    name: str = Field(..., min_length=1, max_length=255, description="Newsletter name")
+    description: Optional[str] = Field(None, description="Optional description")
+    newsletter_content: str = Field(..., description="The generated newsletter content (markdown)")
+    config: Optional[Dict[str, Any]] = Field(None, description="Configuration used to generate")
+    days_back: Optional[int] = Field(None, description="Days back setting")
+    deep_dive_topic: Optional[str] = Field(None, description="Deep dive topic if specified")
+    deep_dive_analysis: Optional[str] = Field(None, description="Deep dive analysis content")
+    articles_used: Optional[int] = Field(None, description="Number of articles used")
+    article_uris: Optional[list] = Field(None, description="List of article URIs used")
+    model_used: Optional[str] = Field(None, description="AI model used")
+
+
+@router.post("/save")
+async def save_newsletter(
+    request: SaveNewsletterRequest,
+    session: dict = Depends(verify_session)
+):
+    """
+    Save a generated newsletter to the database.
+
+    Creates a new saved newsletter instance with content and metadata.
+    """
+    # Extract username from session
+    user = session.get("user")
+    if user and isinstance(user, dict):
+        username = user.get("username")
+    else:
+        username = session.get("username")
+
+    if not username:
+        raise HTTPException(401, "User not authenticated")
+
+    db = get_database_instance()
+
+    # Check for duplicate name
+    existing = db.facade.get_saved_newsletters_for_topic(request.topic, username)
+    if any(n["name"] == request.name for n in existing):
+        raise HTTPException(409, f"Newsletter '{request.name}' already exists for this topic")
+
+    try:
+        newsletter_id = db.facade.create_saved_newsletter(
+            topic=request.topic,
+            username=username,
+            name=request.name,
+            newsletter_content=request.newsletter_content,
+            config=request.config,
+            days_back=request.days_back,
+            deep_dive_topic=request.deep_dive_topic,
+            deep_dive_analysis=request.deep_dive_analysis,
+            articles_used=request.articles_used,
+            article_uris=request.article_uris,
+            model_used=request.model_used,
+            description=request.description
+        )
+
+        logger.info(f"Saved newsletter '{request.name}' (ID: {newsletter_id}) for user '{username}'")
+
+        return {
+            "success": True,
+            "newsletter_id": newsletter_id,
+            "message": f"Newsletter '{request.name}' saved successfully"
+        }
+    except Exception as e:
+        logger.error(f"Failed to save newsletter: {e}")
+        raise HTTPException(500, f"Failed to save newsletter: {str(e)}")
+
+
+@router.get("/saved/{topic}")
+async def list_saved_newsletters(
+    topic: str,
+    session: dict = Depends(verify_session)
+):
+    """
+    Get all saved newsletters for a topic (current user only).
+
+    Returns a list of newsletter summaries sorted by creation date.
+    """
+    # Extract username from session
+    user = session.get("user")
+    if user and isinstance(user, dict):
+        username = user.get("username")
+    else:
+        username = session.get("username")
+
+    if not username:
+        raise HTTPException(401, "User not authenticated")
+
+    db = get_database_instance()
+    newsletters = db.facade.get_saved_newsletters_for_topic(topic, username)
+
+    return {
+        "success": True,
+        "newsletters": newsletters
+    }
+
+
+@router.get("/saved/load/{newsletter_id}")
+async def load_newsletter(
+    newsletter_id: int,
+    session: dict = Depends(verify_session)
+):
+    """
+    Load a specific saved newsletter with full content.
+
+    Returns complete newsletter including content and metadata.
+    """
+    # Extract username from session
+    user = session.get("user")
+    if user and isinstance(user, dict):
+        username = user.get("username")
+    else:
+        username = session.get("username")
+
+    if not username:
+        raise HTTPException(401, "User not authenticated")
+
+    db = get_database_instance()
+    newsletter = db.facade.get_saved_newsletter_by_id(newsletter_id, username)
+
+    if not newsletter:
+        raise HTTPException(404, "Newsletter not found")
+
+    logger.info(f"Loaded newsletter {newsletter_id} for user '{username}'")
+
+    return {
+        "success": True,
+        "newsletter": newsletter
+    }
+
+
+@router.delete("/saved/{newsletter_id}")
+async def delete_newsletter(
+    newsletter_id: int,
+    session: dict = Depends(verify_session)
+):
+    """
+    Delete a saved newsletter.
+
+    Removes the newsletter. This action cannot be undone.
+    """
+    # Extract username from session
+    user = session.get("user")
+    if user and isinstance(user, dict):
+        username = user.get("username")
+    else:
+        username = session.get("username")
+
+    if not username:
+        raise HTTPException(401, "User not authenticated")
+
+    db = get_database_instance()
+    success = db.facade.delete_saved_newsletter(newsletter_id, username)
+
+    if not success:
+        raise HTTPException(404, "Newsletter not found or permission denied")
+
+    logger.info(f"Deleted newsletter {newsletter_id} for user '{username}'")
+
+    return {
+        "success": True,
+        "message": "Newsletter deleted successfully"
     }
