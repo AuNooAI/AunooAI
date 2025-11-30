@@ -80,6 +80,7 @@ from app.routes.user_management_routes import router as user_management_router  
 from app.routes.prompt_management_routes import router as prompt_management_router  # Prompt management API
 from app.routes.market_signals_routes import router as market_signals_router  # Market Signals & Strategic Risks
 from app.routes.notification_routes import router as notification_router  # Notification system (Added 2025-11-08)
+from app.routes.focus_group_routes import router as focus_group_router  # Synthetic Focus Group Generator
 
 # ElevenLabs SDK imports used in podcast endpoints
 from elevenlabs import ElevenLabs, PodcastConversationModeData, PodcastTextSource
@@ -133,6 +134,7 @@ app.include_router(prompt_management_router)  # Prompt management API (Added 202
 app.include_router(market_signals_router)  # Market Signals & Strategic Risks (Added 2025-01-06)
 app.include_router(notification_router)  # Notification system (Added 2025-11-08)
 app.include_router(saved_dashboard_router)  # Saved Dashboards API (Added 2025-11-13)
+app.include_router(focus_group_router)  # Synthetic Focus Group Generator
 
 class ArticleData(BaseModel):
     title: str

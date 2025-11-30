@@ -2145,11 +2145,17 @@ class DatabaseQueryFacade:
         return self._execute_with_rollback(statement).fetchone()
 
     def get_articles_for_date_range(self, limit, topic, start_date, end_date):
+        # Convert datetime to ISO string for TEXT column comparison
+        # publication_date is stored as TEXT in the database
+        start_str = start_date.isoformat() if hasattr(start_date, 'isoformat') else str(start_date)
+        end_str = end_date.isoformat() if hasattr(end_date, 'isoformat') else str(end_date)
+
         statement = select(
             articles
         ).where(
             articles.c.topic == topic,
-            articles.c.publication_date.between(start_date, end_date)
+            articles.c.publication_date >= start_str,
+            articles.c.publication_date <= end_str
         ).order_by(
             articles.c.publication_date.desc()
         )
@@ -2157,9 +2163,9 @@ class DatabaseQueryFacade:
             statement = statement.limit(limit)
 
         articles_list = self._execute_with_rollback(statement).mappings().fetchall()
-        column_names = [col.name for col in articles.columns]
 
-        return column_names, articles_list 
+        # Return list of dicts for easier consumption
+        return [dict(article) for article in articles_list]
 
     def enriched_articles(self, limit):
         # Query for articles that have a non-null and non-empty category
@@ -8678,4 +8684,224 @@ class DatabaseQueryFacade:
             return deleted
         except Exception as e:
             self.logger.error(f"Error deleting saved EOS {eos_id}: {e}")
+            return False
+
+    # ========================================================================
+    # SAVED FOCUS GROUPS CRUD
+    # ========================================================================
+
+    def create_saved_focus_group(
+        self,
+        topic: str,
+        username: str,
+        name: str,
+        personas: list,
+        focus_group_summary: str = None,
+        interaction_dynamics: dict = None,
+        config: dict = None,
+        metadata: dict = None,
+        articles_used: int = None,
+        article_uris: list = None,
+        model_used: str = None,
+        persona_count: int = None,
+        description: str = None
+    ) -> int:
+        """Create a new saved focus group.
+
+        Args:
+            topic: Topic name
+            username: Username
+            name: Focus group name
+            personas: List of persona objects (stored as JSONB)
+            focus_group_summary: Generated narrative summary
+            interaction_dynamics: Consensus areas, tension points, diversity score
+            config: Configuration dict used to generate (stored as JSONB)
+            metadata: Generation metadata (stored as JSONB)
+            articles_used: Number of articles used
+            article_uris: List of article URIs used
+            model_used: AI model used
+            persona_count: Number of personas generated
+            description: Optional description
+
+        Returns:
+            ID of the created saved focus group
+        """
+        try:
+            from app.database_models import t_saved_focus_groups
+            from sqlalchemy import insert
+            import json
+
+            # Ensure personas is JSON-serializable
+            personas_json = json.loads(json.dumps(personas, default=str)) if personas else []
+
+            statement = insert(t_saved_focus_groups).values(
+                topic=topic,
+                username=username,
+                name=name,
+                personas=personas_json,
+                focus_group_summary=focus_group_summary,
+                interaction_dynamics=interaction_dynamics,
+                config=config,
+                metadata=metadata,
+                articles_used=articles_used,
+                article_uris=article_uris,
+                model_used=model_used,
+                persona_count=persona_count,
+                description=description
+            ).returning(t_saved_focus_groups.c.id)
+
+            result = self._execute_with_rollback(statement)
+            row = result.fetchone()
+            self.logger.info(f"Created saved focus group '{name}' for user '{username}' (ID: {row[0]})")
+            return row[0]
+        except Exception as e:
+            self.logger.error(f"Error creating saved focus group: {e}")
+            raise
+
+    def get_saved_focus_groups_for_topic(
+        self,
+        topic: str,
+        username: str
+    ) -> list:
+        """Get all saved focus groups for a topic (user-scoped).
+
+        Returns list of focus group summaries sorted by creation date desc.
+        """
+        try:
+            from app.database_models import t_saved_focus_groups
+            from sqlalchemy import select
+
+            statement = select(
+                t_saved_focus_groups.c.id,
+                t_saved_focus_groups.c.name,
+                t_saved_focus_groups.c.description,
+                t_saved_focus_groups.c.created_at,
+                t_saved_focus_groups.c.updated_at,
+                t_saved_focus_groups.c.articles_used,
+                t_saved_focus_groups.c.model_used,
+                t_saved_focus_groups.c.persona_count
+            ).where(
+                (t_saved_focus_groups.c.topic == topic) &
+                (t_saved_focus_groups.c.username == username)
+            ).order_by(
+                t_saved_focus_groups.c.created_at.desc()
+            )
+
+            results = self._execute_with_rollback(statement).fetchall()
+            return [dict(r._mapping) for r in results]
+        except Exception as e:
+            self.logger.error(f"Error getting saved focus groups for topic {topic}: {e}")
+            return []
+
+    def get_saved_focus_group_by_id(
+        self,
+        focus_group_id: int,
+        username: str
+    ) -> dict:
+        """Get a specific saved focus group by ID (user-scoped).
+
+        Returns full focus group data or None if not found.
+        """
+        try:
+            from app.database_models import t_saved_focus_groups
+            from sqlalchemy import select
+
+            statement = select(t_saved_focus_groups).where(
+                (t_saved_focus_groups.c.id == focus_group_id) &
+                (t_saved_focus_groups.c.username == username)
+            )
+
+            result = self._execute_with_rollback(statement).fetchone()
+            if result:
+                return dict(result._mapping)
+            return None
+        except Exception as e:
+            self.logger.error(f"Error retrieving saved focus group {focus_group_id}: {e}")
+            return None
+
+    def delete_saved_focus_group(
+        self,
+        focus_group_id: int,
+        username: str
+    ) -> bool:
+        """Delete a saved focus group (user-scoped)."""
+        try:
+            from app.database_models import t_saved_focus_groups
+            from sqlalchemy import delete
+
+            statement = delete(t_saved_focus_groups).where(
+                (t_saved_focus_groups.c.id == focus_group_id) &
+                (t_saved_focus_groups.c.username == username)
+            )
+
+            result = self._execute_with_rollback(statement)
+            deleted = result.rowcount > 0
+            if deleted:
+                self.logger.info(f"Deleted saved focus group {focus_group_id} for user '{username}'")
+            return deleted
+        except Exception as e:
+            self.logger.error(f"Error deleting saved focus group {focus_group_id}: {e}")
+            return False
+
+    def update_focus_group_persona(
+        self,
+        focus_group_id: int,
+        username: str,
+        persona_id: str,
+        persona_updates: dict
+    ) -> bool:
+        """Update a specific persona within a saved focus group.
+
+        Args:
+            focus_group_id: Focus group ID
+            username: Username (for ownership check)
+            persona_id: ID of the persona to update
+            persona_updates: Dict of fields to update in the persona
+
+        Returns:
+            True if updated, False otherwise
+        """
+        try:
+            from app.database_models import t_saved_focus_groups
+            from sqlalchemy import select, update
+            from datetime import datetime
+            import json
+
+            # First get the current focus group
+            statement = select(t_saved_focus_groups.c.personas).where(
+                (t_saved_focus_groups.c.id == focus_group_id) &
+                (t_saved_focus_groups.c.username == username)
+            )
+            result = self._execute_with_rollback(statement).fetchone()
+            if not result:
+                return False
+
+            personas = result[0] if result[0] else []
+
+            # Find and update the persona
+            persona_found = False
+            for i, persona in enumerate(personas):
+                if persona.get('id') == persona_id:
+                    personas[i] = {**persona, **persona_updates, 'user_edited': True}
+                    persona_found = True
+                    break
+
+            if not persona_found:
+                self.logger.warning(f"Persona {persona_id} not found in focus group {focus_group_id}")
+                return False
+
+            # Update the focus group with modified personas
+            update_stmt = update(t_saved_focus_groups).where(
+                (t_saved_focus_groups.c.id == focus_group_id) &
+                (t_saved_focus_groups.c.username == username)
+            ).values(
+                personas=json.loads(json.dumps(personas, default=str)),
+                updated_at=datetime.utcnow()
+            )
+
+            self._execute_with_rollback(update_stmt)
+            self.logger.info(f"Updated persona {persona_id} in focus group {focus_group_id}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error updating persona in focus group {focus_group_id}: {e}")
             return False

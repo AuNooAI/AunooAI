@@ -37,6 +37,9 @@ import { EOSTuneModal } from './components/EOSTuneModal';
 import { Newsletter } from './components/Newsletter';
 import { useNewsletter } from './hooks/useNewsletter';
 import { NewsletterTuneModal } from './components/NewsletterTuneModal';
+import { FocusGroup } from './components/FocusGroup';
+import { useFocusGroup } from './hooks/useFocusGroup';
+import { FGTuneModal } from './components/FGTuneModal';
 
 function App() {
   const {
@@ -112,6 +115,15 @@ function App() {
   const [newsletterIntro, setNewsletterIntro] = useState('');
   const [isNewsletterTuneOpen, setIsNewsletterTuneOpen] = useState(false);
 
+  // Focus Group state - lifted from FocusGroup component
+  const focusGroup = useFocusGroup();
+  const [fgMaxPersonas, setFgMaxPersonas] = useState(6);
+  const [fgMinEvidenceThreshold, setFgMinEvidenceThreshold] = useState(2);
+  const [fgIncludeDemographics, setFgIncludeDemographics] = useState(true);
+  const [fgIncludePsychographics, setFgIncludePsychographics] = useState(true);
+  const [fgIncludeVoice, setFgIncludeVoice] = useState(true);
+  const [isFgTuneOpen, setIsFgTuneOpen] = useState(false);
+
   // Load saved SIO config on mount
   useEffect(() => {
     const loadSioConfig = async () => {
@@ -167,6 +179,26 @@ function App() {
       }
     };
     loadNewsletterConfig();
+  }, []);
+
+  // Load saved Focus Group config on mount
+  useEffect(() => {
+    const loadFgConfig = async () => {
+      try {
+        const response = await fetch('/api/focus-groups/config', { credentials: 'include' });
+        if (response.ok) {
+          const config = await response.json();
+          setFgMaxPersonas(config.max_personas ?? 6);
+          setFgMinEvidenceThreshold(config.min_evidence_threshold ?? 2);
+          setFgIncludeDemographics(config.include_demographics ?? true);
+          setFgIncludePsychographics(config.include_psychographics ?? true);
+          setFgIncludeVoice(config.include_voice ?? true);
+        }
+      } catch (err) {
+        console.error('Failed to load Focus Group config:', err);
+      }
+    };
+    loadFgConfig();
   }, []);
 
   // Fetch prompt preview when Tune modal opens
@@ -986,6 +1018,15 @@ function App() {
                       include_wild_cards: eosIncludeWildCards,
                       time_horizon: eosTimeHorizon,
                     });
+                  } else if (activeTab === 'focus-group') {
+                    focusGroup.startGeneration({
+                      topic: config.topic || '',
+                      max_personas: fgMaxPersonas,
+                      min_evidence_threshold: fgMinEvidenceThreshold,
+                      include_demographics: fgIncludeDemographics,
+                      include_psychographics: fgIncludePsychographics,
+                      include_voice: fgIncludeVoice,
+                    });
                   } else if (activeTab === 'newsletter') {
                     newsletter.startGeneration({
                       topic: config.topic || 'AI',
@@ -997,11 +1038,11 @@ function App() {
                     generateAnalysis(true);
                   }
                 }}
-                disabled={loading || sio.isScanning || eos.isGenerating || newsletter.isGenerating}
+                disabled={loading || sio.isScanning || eos.isGenerating || focusGroup.isGenerating || newsletter.isGenerating}
                 className="p-2 hover:bg-gray-100 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
-                title={activeTab === 'intelligence-brief' ? 'Generate intelligence brief' : activeTab === 'extreme-outliers' ? 'Generate extreme outlier scenarios' : activeTab === 'newsletter' ? 'Generate newsletter' : 'Refresh analysis (bypass cache)'}
+                title={activeTab === 'intelligence-brief' ? 'Generate intelligence brief' : activeTab === 'extreme-outliers' ? 'Generate extreme outlier scenarios' : activeTab === 'focus-group' ? 'Generate focus group personas' : activeTab === 'newsletter' ? 'Generate newsletter' : 'Refresh analysis (bypass cache)'}
               >
-                <RefreshCw className={`w-4 h-4 text-gray-700 ${(loading || sio.isScanning || eos.isGenerating || newsletter.isGenerating) ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-4 h-4 text-gray-700 ${(loading || sio.isScanning || eos.isGenerating || focusGroup.isGenerating || newsletter.isGenerating) ? 'animate-spin' : ''}`} />
               </button>
             </div>
           </div>
@@ -1026,6 +1067,8 @@ function App() {
                   setIsEosTuneOpen(true);
                 } else if (activeTab === 'newsletter') {
                   setIsNewsletterTuneOpen(true);
+                } else if (activeTab === 'focus-group') {
+                  setIsFgTuneOpen(true);
                 } else {
                   setIsPromptEditorOpen(true);
                 }
@@ -1263,6 +1306,42 @@ function App() {
               onClearError={eos.clearError}
               onClearResults={eos.clearResults}
               onLoadEOS={eos.loadResult}
+            />
+          ) : activeTab === 'focus-group' ? (
+            <FocusGroup
+              topic={config.topic}
+              isGenerating={focusGroup.isGenerating}
+              currentStage={focusGroup.currentStage}
+              stageProgress={focusGroup.stageProgress}
+              overallProgress={focusGroup.overallProgress}
+              personas={focusGroup.personas}
+              focusGroupSummary={focusGroup.focusGroupSummary}
+              interactionDynamics={focusGroup.interactionDynamics}
+              result={focusGroup.result}
+              error={focusGroup.error}
+              mentionsFound={focusGroup.mentionsFound}
+              clustersFormed={focusGroup.clustersFormed}
+              personasCreated={focusGroup.personasCreated}
+              savedFocusGroups={focusGroup.savedFocusGroups}
+              isSaving={focusGroup.isSaving}
+              isLoadingSaved={focusGroup.isLoadingSaved}
+              maxPersonas={fgMaxPersonas}
+              minEvidenceThreshold={fgMinEvidenceThreshold}
+              includeDemographics={fgIncludeDemographics}
+              includePsychographics={fgIncludePsychographics}
+              includeVoice={fgIncludeVoice}
+              onMaxPersonasChange={setFgMaxPersonas}
+              onMinEvidenceThresholdChange={setFgMinEvidenceThreshold}
+              onIncludeDemographicsChange={setFgIncludeDemographics}
+              onIncludePsychographicsChange={setFgIncludePsychographics}
+              onIncludeVoiceChange={setFgIncludeVoice}
+              onClearError={focusGroup.clearError}
+              onClearResults={focusGroup.clearResults}
+              onUpdatePersona={focusGroup.updatePersona}
+              onSaveFocusGroup={focusGroup.saveFocusGroup}
+              onLoadSavedFocusGroups={focusGroup.loadSavedFocusGroups}
+              onLoadSavedFocusGroup={focusGroup.loadSavedFocusGroup}
+              onDeleteSavedFocusGroup={focusGroup.deleteSavedFocusGroup}
             />
           ) : activeTab === 'newsletter' ? (
             <Newsletter
@@ -2731,6 +2810,22 @@ function App() {
         onDeepDiveTopicChange={setNewsletterDeepDiveTopic}
         onNewsletterTitleChange={setNewsletterTitle}
         onNewsletterIntroChange={setNewsletterIntro}
+      />
+
+      {/* FG Tune Modal - Multi-step prompt editor for Focus Group */}
+      <FGTuneModal
+        open={isFgTuneOpen}
+        onOpenChange={setIsFgTuneOpen}
+        maxPersonas={fgMaxPersonas}
+        minEvidenceThreshold={fgMinEvidenceThreshold}
+        includeDemographics={fgIncludeDemographics}
+        includePsychographics={fgIncludePsychographics}
+        includeVoice={fgIncludeVoice}
+        onMaxPersonasChange={setFgMaxPersonas}
+        onMinEvidenceThresholdChange={setFgMinEvidenceThreshold}
+        onIncludeDemographicsChange={setFgIncludeDemographics}
+        onIncludePsychographicsChange={setFgIncludePsychographics}
+        onIncludeVoiceChange={setFgIncludeVoice}
       />
     </div>
   );

@@ -144,6 +144,30 @@ t_saved_eos = Table(
     Index('idx_saved_eos_created', 'created_at')
 )
 
+t_saved_focus_groups = Table(
+    'saved_focus_groups', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('topic', String(255), nullable=False),
+    Column('username', Text, ForeignKey('users.username', ondelete='SET NULL')),
+    Column('name', String(255), nullable=False),
+    Column('description', Text),
+    Column('config', JSONB),
+    Column('personas', JSONB, nullable=False),
+    Column('focus_group_summary', Text),
+    Column('interaction_dynamics', JSONB),
+    Column('metadata', JSONB),
+    Column('articles_used', Integer),
+    Column('article_uris', ARRAY(Text)),
+    Column('model_used', String(100)),
+    Column('persona_count', Integer),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    UniqueConstraint('topic', 'username', 'name', name='uq_saved_focus_groups_topic_user_name'),
+    Index('idx_saved_focus_groups_topic', 'topic'),
+    Index('idx_saved_focus_groups_user', 'username'),
+    Index('idx_saved_focus_groups_created', 'created_at')
+)
+
 t_analysis_versions = Table(
     'analysis_versions', metadata,
     Column('id', Integer, primary_key=True),
