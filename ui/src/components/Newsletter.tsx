@@ -910,23 +910,7 @@ export function Newsletter({
   if (!isGenerating && !newsletterContent && !error) {
     return (
       <div className="max-w-4xl mx-auto space-y-6">
-        <Card className="border-dashed border-2">
-          <CardContent className="py-16 text-center">
-            <FileText className="w-16 h-16 mx-auto text-gray-300 mb-4" />
-            <h3 className="text-xl font-semibold text-gray-700 mb-2">
-              Generate a Newsletter
-            </h3>
-            <p className="text-gray-500 max-w-md mx-auto mb-6">
-              Create a professional newsletter with curated headlines, deep analysis,
-              market insights, and notable discoveries. Edit the output and add your own annotations.
-            </p>
-            <p className="text-sm text-gray-400">
-              Select a topic and click the refresh button to generate
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Saved newsletters list */}
+        {/* Saved newsletters list - shown first */}
         {savedNewsletters.length > 0 && (
           <Card>
             <CardHeader>
@@ -978,6 +962,23 @@ export function Newsletter({
             </CardContent>
           </Card>
         )}
+
+        {/* Generate newsletter prompt - shown after saved newsletters */}
+        <Card className="border-dashed border-2">
+          <CardContent className="py-16 text-center">
+            <FileText className="w-16 h-16 mx-auto text-gray-300 mb-4" />
+            <h3 className="text-xl font-semibold text-gray-700 mb-2">
+              Generate a Newsletter
+            </h3>
+            <p className="text-gray-500 max-w-md mx-auto mb-6">
+              Create a professional newsletter with curated headlines, deep analysis,
+              market insights, and notable discoveries. Edit the output and add your own annotations.
+            </p>
+            <p className="text-sm text-gray-400">
+              Select a topic and click the refresh button to generate
+            </p>
+          </CardContent>
+        </Card>
 
         {/* Delete Confirmation Dialog for empty state */}
         <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>

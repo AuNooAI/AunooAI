@@ -3,7 +3,7 @@
  * Black Swan events, Contrarian analysis, and Wild Card futures
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Loader2,
   AlertCircle,
@@ -19,7 +19,11 @@ import {
   Clock,
   Lightbulb,
   Shield,
-  BarChart3
+  BarChart3,
+  FileText,
+  Save,
+  Trash2,
+  FolderOpen
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
@@ -27,12 +31,43 @@ import { Alert, AlertDescription, AlertTitle } from './ui/alert';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Separator } from './ui/separator';
+import { Input } from './ui/input';
+import { Label } from './ui/label';
+import { Textarea } from './ui/textarea';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from './ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './ui/select';
 import {
   EOS_STAGES,
   type EOSScenario,
   type EOSConfig,
-  type EOSResult
+  type EOSResult,
+  type EOSArticle
 } from '../hooks/useExtremeOutliers';
+
+// Saved EOS summary for dropdown
+interface SavedEOSSummary {
+  id: number;
+  name: string;
+  description?: string;
+  created_at: string;
+  articles_used?: number;
+  model_used?: string;
+  time_horizon?: string;
+  scenario_count?: number;
+}
 
 interface ExtremeOutliersProps {
   topic?: string;
@@ -47,6 +82,8 @@ interface ExtremeOutliersProps {
   signalsDetected: number;
   pathwaysIdentified: number;
   scenariosGenerated: number;
+  // Articles for references
+  articles?: EOSArticle[];
   // Config state
   scenarioCount: number;
   includeBlackSwans: boolean;
@@ -61,6 +98,8 @@ interface ExtremeOutliersProps {
   // Actions
   onClearError: () => void;
   onClearResults: () => void;
+  // Saved EOS (optional callback for load)
+  onLoadEOS?: (scenarios: EOSScenario[], result?: EOSResult) => void;
 }
 
 // Stage indicator component for EOS workflow
@@ -380,6 +419,71 @@ function ScenarioCard({ scenario }: { scenario: EOSScenario }) {
   );
 }
 
+// Article References Section for EOS
+function ArticleReferencesSection({ articles }: { articles?: EOSArticle[] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!articles?.length) return null;
+
+  const displayArticles = expanded ? articles : articles.slice(0, 10);
+
+  return (
+    <Card className="mt-6 border-purple-200">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <FileText className="w-4 h-4 text-purple-500" />
+          Source Articles ({articles.length})
+        </CardTitle>
+        <CardDescription className="text-xs">
+          Articles analyzed for extreme outlier scenarios
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-2 max-h-[400px] overflow-y-auto">
+          {displayArticles.map((article, idx) => (
+            <div key={article.id || idx} className="p-2 border rounded-lg hover:bg-gray-50 text-sm">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  {article.uri ? (
+                    <a
+                      href={article.uri}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-blue-600 hover:underline block truncate"
+                    >
+                      {idx + 1}. {article.title}
+                    </a>
+                  ) : (
+                    <span className="font-medium text-gray-800 block truncate">
+                      {idx + 1}. {article.title}
+                    </span>
+                  )}
+                  <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                    <span>{article.source}</span>
+                    {article.published_at && (
+                      <span>{new Date(article.published_at).toLocaleDateString()}</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        {articles.length > 10 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mt-2 w-full"
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded ? 'Show Less' : `Show ${articles.length - 10} More`}
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // Empty state
 function EmptyState() {
   return (
@@ -404,6 +508,8 @@ export function ExtremeOutliers({
   signalsDetected,
   pathwaysIdentified,
   scenariosGenerated,
+  // Articles for references
+  articles,
   // Config state
   scenarioCount,
   includeBlackSwans,
@@ -418,8 +524,130 @@ export function ExtremeOutliers({
   // Actions
   onClearError,
   onClearResults,
+  onLoadEOS,
 }: ExtremeOutliersProps) {
   const [showConfig, setShowConfig] = useState(false);
+
+  // Save dialog state
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [saveName, setSaveName] = useState('');
+  const [saveDescription, setSaveDescription] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Saved EOS state
+  const [savedEOSList, setSavedEOSList] = useState<SavedEOSSummary[]>([]);
+  const [loadingSaved, setLoadingSaved] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [eosToDelete, setEosToDelete] = useState<SavedEOSSummary | null>(null);
+
+  // Fetch saved EOS when topic changes
+  useEffect(() => {
+    if (topic) {
+      fetchSavedEOS();
+    }
+  }, [topic]);
+
+  const fetchSavedEOS = async () => {
+    if (!topic) return;
+    setLoadingSaved(true);
+    try {
+      const res = await fetch(`/api/eos/saved/${encodeURIComponent(topic)}`, {
+        credentials: 'include'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSavedEOSList(data.saved_eos || []);
+      }
+    } catch (err) {
+      console.error('Error fetching saved EOS:', err);
+    } finally {
+      setLoadingSaved(false);
+    }
+  };
+
+  const handleSaveEOS = async () => {
+    if (!topic || !saveName.trim() || !scenarios.length) return;
+
+    setSaving(true);
+    setSaveError(null);
+
+    try {
+      const res = await fetch('/api/eos/save', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          topic,
+          name: saveName.trim(),
+          description: saveDescription.trim() || undefined,
+          scenarios: scenarios,
+          config: { scenarioCount, includeBlackSwans, includeContrarian, includeWildCards, timeHorizon },
+          metadata: result?.metadata,
+          articles_used: articles?.length || 0,
+          article_uris: articles?.map(a => a.uri).filter(Boolean),
+          model_used: 'gpt-4.1',
+          time_horizon: timeHorizon,
+          scenario_count: scenarios.length
+        })
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.detail || 'Failed to save EOS analysis');
+      }
+
+      // Success - close dialog and refresh list
+      setShowSaveDialog(false);
+      setSaveName('');
+      setSaveDescription('');
+      fetchSavedEOS();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleLoadEOS = async (id: number) => {
+    try {
+      const res = await fetch(`/api/eos/saved/load/${id}`, {
+        credentials: 'include'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const eos = data.eos;
+        if (eos && onLoadEOS) {
+          onLoadEOS(eos.scenarios || [], {
+            scenarios: eos.scenarios || [],
+            metadata: eos.metadata || {},
+            articles: []
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Error loading EOS:', err);
+    }
+  };
+
+  const handleDeleteEOS = async () => {
+    if (!eosToDelete) return;
+
+    try {
+      const res = await fetch(`/api/eos/saved/${eosToDelete.id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (res.ok) {
+        fetchSavedEOS();
+      }
+    } catch (err) {
+      console.error('Error deleting EOS:', err);
+    } finally {
+      setShowDeleteConfirm(false);
+      setEosToDelete(null);
+    }
+  };
 
   // Group scenarios by category
   const blackSwanScenarios = scenarios.filter(s => s.category === 'black_swan');
@@ -652,14 +880,146 @@ export function ExtremeOutliers({
         !isGenerating && <EmptyState />
       )}
 
-      {/* Clear results button */}
-      {result && !isGenerating && (
-        <div className="flex justify-end">
-          <Button variant="ghost" size="sm" onClick={onClearResults}>
-            Clear Results
-          </Button>
+      {/* Article References Section */}
+      {!isGenerating && articles && articles.length > 0 && (
+        <ArticleReferencesSection articles={articles} />
+      )}
+
+      {/* Action buttons - Save, Load, Clear */}
+      {result && !isGenerating && scenarios.length > 0 && (
+        <div className="flex items-center justify-between pt-4 border-t">
+          <div className="flex items-center gap-2">
+            {/* Load saved EOS dropdown */}
+            {savedEOSList.length > 0 && (
+              <Select
+                onValueChange={(value) => {
+                  if (value) {
+                    handleLoadEOS(parseInt(value, 10));
+                  }
+                }}
+              >
+                <SelectTrigger className="w-48">
+                  <FolderOpen className="w-4 h-4 mr-1" />
+                  <SelectValue placeholder="Load Saved..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {savedEOSList.map((e) => (
+                    <SelectItem key={e.id} value={String(e.id)}>
+                      <div className="flex items-center justify-between w-full">
+                        <span className="truncate">{e.name}</span>
+                        <button
+                          onClick={(ev) => {
+                            ev.stopPropagation();
+                            setEosToDelete(e);
+                            setShowDeleteConfirm(true);
+                          }}
+                          className="ml-2 text-gray-400 hover:text-red-500"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowSaveDialog(true)}>
+              <Save className="w-4 h-4 mr-1" />
+              Save
+            </Button>
+            <Button variant="ghost" size="sm" onClick={onClearResults}>
+              <Trash2 className="w-4 h-4 mr-1" />
+              Clear
+            </Button>
+          </div>
         </div>
       )}
+
+      {/* Save EOS Dialog */}
+      <Dialog open={showSaveDialog} onOpenChange={setShowSaveDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save EOS Analysis</DialogTitle>
+            <DialogDescription>
+              Save this extreme outlier analysis for future reference.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="eos-save-name">Analysis Name</Label>
+              <Input
+                id="eos-save-name"
+                placeholder="e.g., Q4 Risk Assessment"
+                value={saveName}
+                onChange={(e) => setSaveName(e.target.value)}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="eos-save-description">Description (optional)</Label>
+              <Textarea
+                id="eos-save-description"
+                placeholder="Add notes about this analysis..."
+                value={saveDescription}
+                onChange={(e) => setSaveDescription(e.target.value)}
+                rows={3}
+              />
+            </div>
+
+            <div className="text-sm text-gray-500 bg-gray-50 p-3 rounded">
+              <div>Topic: <strong>{topic}</strong></div>
+              <div>Scenarios: <strong>{scenarios.length}</strong></div>
+              <div>Time Horizon: <strong>{TIME_HORIZON_LABELS[timeHorizon]}</strong></div>
+              <div className="flex gap-2 mt-1">
+                {includeBlackSwans && <Badge variant="outline" className="text-xs">Black Swan</Badge>}
+                {includeContrarian && <Badge variant="outline" className="text-xs">Contrarian</Badge>}
+                {includeWildCards && <Badge variant="outline" className="text-xs">Wild Card</Badge>}
+              </div>
+            </div>
+
+            {saveError && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{saveError}</AlertDescription>
+              </Alert>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowSaveDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveEOS} disabled={!saveName.trim() || saving}>
+              {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+              Save Analysis
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete EOS Analysis?</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to delete <strong>"{eosToDelete?.name}"</strong>?
+              This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowDeleteConfirm(false)}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteEOS}>
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
