@@ -1,0 +1,7 @@
+{
+  "max_personas": 6,
+  "min_evidence_threshold": 2,
+  "include_demographics": true,
+  "include_psychographics": true,
+  "include_voice": false
+}

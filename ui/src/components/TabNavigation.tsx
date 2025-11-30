@@ -45,6 +45,11 @@ const tabs: Tab[] = [
     tooltip: 'Black Swan events, Contrarian analysis, and Wild Card futures'
   },
   {
+    id: 'focus-group',
+    label: 'Focus Group',
+    tooltip: 'Discover stakeholder personas with rich psychographic profiles from article content'
+  },
+  {
     id: 'intelligence-brief',
     label: 'Intelligence Brief',
     tooltip: '24-hour strategic intelligence scan with BBC/Wiley quality standards'
