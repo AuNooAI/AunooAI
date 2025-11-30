@@ -8524,3 +8524,158 @@ class DatabaseQueryFacade:
         except Exception as e:
             self.logger.error(f"Error updating saved newsletter {newsletter_id}: {e}")
             return False
+
+    # ========================================================================
+    # Saved EOS (Extreme Outlier Scenarios) Methods
+    # ========================================================================
+
+    def create_saved_eos(
+        self,
+        topic: str,
+        username: str,
+        name: str,
+        scenarios: list,
+        config: dict = None,
+        metadata: dict = None,
+        articles_used: int = None,
+        article_uris: list = None,
+        model_used: str = None,
+        time_horizon: str = None,
+        scenario_count: int = None,
+        description: str = None
+    ) -> int:
+        """Create a new saved EOS analysis.
+
+        Args:
+            topic: Topic name
+            username: Username
+            name: EOS analysis name
+            scenarios: List of generated scenarios (stored as JSONB)
+            config: Configuration dict used to generate (stored as JSONB)
+            metadata: Analysis metadata (stored as JSONB)
+            articles_used: Number of articles used
+            article_uris: List of article URIs used
+            model_used: AI model used
+            time_horizon: Time horizon setting (near/mid/long)
+            scenario_count: Number of scenarios generated
+            description: Optional description
+
+        Returns:
+            ID of the created saved EOS analysis
+        """
+        try:
+            from app.database_models import t_saved_eos
+            from sqlalchemy import insert
+            import json
+
+            # Ensure scenarios is JSON-serializable
+            scenarios_json = json.loads(json.dumps(scenarios, default=str)) if scenarios else []
+
+            statement = insert(t_saved_eos).values(
+                topic=topic,
+                username=username,
+                name=name,
+                scenarios=scenarios_json,
+                config=config,
+                metadata=metadata,
+                articles_used=articles_used,
+                article_uris=article_uris,
+                model_used=model_used,
+                time_horizon=time_horizon,
+                scenario_count=scenario_count,
+                description=description
+            ).returning(t_saved_eos.c.id)
+
+            result = self._execute_with_rollback(statement)
+            row = result.fetchone()
+            self.logger.info(f"Created saved EOS '{name}' for user '{username}' (ID: {row[0]})")
+            return row[0]
+        except Exception as e:
+            self.logger.error(f"Error creating saved EOS: {e}")
+            raise
+
+    def get_saved_eos_for_topic(
+        self,
+        topic: str,
+        username: str
+    ) -> list:
+        """Get all saved EOS analyses for a topic (user-scoped).
+
+        Returns list of EOS summaries sorted by creation date desc.
+        """
+        try:
+            from app.database_models import t_saved_eos
+            from sqlalchemy import select
+
+            statement = select(
+                t_saved_eos.c.id,
+                t_saved_eos.c.name,
+                t_saved_eos.c.description,
+                t_saved_eos.c.created_at,
+                t_saved_eos.c.updated_at,
+                t_saved_eos.c.articles_used,
+                t_saved_eos.c.model_used,
+                t_saved_eos.c.time_horizon,
+                t_saved_eos.c.scenario_count
+            ).where(
+                (t_saved_eos.c.topic == topic) &
+                (t_saved_eos.c.username == username)
+            ).order_by(
+                t_saved_eos.c.created_at.desc()
+            )
+
+            results = self._execute_with_rollback(statement).fetchall()
+            return [dict(r._mapping) for r in results]
+        except Exception as e:
+            self.logger.error(f"Error getting saved EOS for topic {topic}: {e}")
+            return []
+
+    def get_saved_eos_by_id(
+        self,
+        eos_id: int,
+        username: str
+    ) -> dict:
+        """Get a specific saved EOS analysis by ID (user-scoped).
+
+        Returns full EOS data or None if not found.
+        """
+        try:
+            from app.database_models import t_saved_eos
+            from sqlalchemy import select
+
+            statement = select(t_saved_eos).where(
+                (t_saved_eos.c.id == eos_id) &
+                (t_saved_eos.c.username == username)
+            )
+
+            result = self._execute_with_rollback(statement).fetchone()
+            if result:
+                return dict(result._mapping)
+            return None
+        except Exception as e:
+            self.logger.error(f"Error retrieving saved EOS {eos_id}: {e}")
+            return None
+
+    def delete_saved_eos(
+        self,
+        eos_id: int,
+        username: str
+    ) -> bool:
+        """Delete a saved EOS analysis (user-scoped)."""
+        try:
+            from app.database_models import t_saved_eos
+            from sqlalchemy import delete
+
+            statement = delete(t_saved_eos).where(
+                (t_saved_eos.c.id == eos_id) &
+                (t_saved_eos.c.username == username)
+            )
+
+            result = self._execute_with_rollback(statement)
+            deleted = result.rowcount > 0
+            if deleted:
+                self.logger.info(f"Deleted saved EOS {eos_id} for user '{username}'")
+            return deleted
+        except Exception as e:
+            self.logger.error(f"Error deleting saved EOS {eos_id}: {e}")
+            return False

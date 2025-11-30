@@ -354,10 +354,10 @@ class StrategicIntelligenceService:
                     "id": article.get("id"),
                     "title": article.get("title", "Untitled"),
                     "uri": article.get("uri") or article.get("url", ""),
-                    "source": article.get("source", "Unknown"),
-                    "published_at": article.get("published_at"),
+                    "source": article.get("news_source") or article.get("source", "Unknown"),
+                    "published_at": article.get("published_at") or article.get("publication_date"),
                     "credibility_score": article.get("credibility_score", 0),
-                    "summary": article.get("summary", "")[:200] if article.get("summary") else ""
+                    "summary": (article.get("summary", "") or "")[:200]
                 })
 
             # Final result
@@ -915,9 +915,18 @@ You MUST create at least one event cluster for every few articles."""
         # Use synthesis agent
         agent_prompt = self._load_agent_prompt("sio_synthesis_agent")
 
+        # Calculate actual date range for the brief
+        end_date = datetime.now()
+        start_date = end_date - timedelta(hours=state.hours_back)
+        date_range_str = f"{start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"
+
         prompt = f"""Generate a Strategic Intelligence Brief based on these analyzed events.
 
+TODAY'S DATE: {end_date.strftime('%Y-%m-%d')}
+CURRENT TIME: {end_date.strftime('%H:%M:%S UTC')}
+
 SCAN METADATA:
+- Date range covered: {date_range_str}
 - Time window: Past {state.hours_back} hours
 - Topic filter: {state.topic or 'All topics'}
 - Articles collected: {len(state.raw_articles)}
@@ -933,7 +942,11 @@ Generate a comprehensive intelligence brief following the standard structure:
 4. Source Analysis
 5. Confidence Assessment
 6. Methodology
-7. Audit Trail
+
+IMPORTANT:
+- Use the dates provided above (Date range: {date_range_str}). Do NOT use any other dates.
+- The brief header should show: "{state.topic or 'General Intelligence'} | {date_range_str}"
+- Do NOT include an Audit Trail section - this will be added automatically.
 
 Use markdown formatting. Include confidence indicators and source attributions."""
 

@@ -101,6 +101,8 @@ function App() {
   const [eosIncludeWildCards, setEosIncludeWildCards] = useState(true);
   const [eosTimeHorizon, setEosTimeHorizon] = useState<'near' | 'mid' | 'long'>('mid');
   const [isEosTuneOpen, setIsEosTuneOpen] = useState(false);
+  const [showEosRawModal, setShowEosRawModal] = useState(false);
+  const [showEosReferencesModal, setShowEosReferencesModal] = useState(false);
 
   // Newsletter state - lifted from Newsletter component
   const newsletter = useNewsletter();
@@ -1072,6 +1074,43 @@ function App() {
                 </button>
               </>
             )}
+            {/* Export/Raw/References buttons for Extreme Outliers tab */}
+            {activeTab === 'extreme-outliers' && eos.result && !eos.isGenerating && (
+              <>
+                <button
+                  onClick={() => {
+                    // Export scenarios as JSON file
+                    const blob = new Blob([JSON.stringify(eos.result, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `extreme-outliers-${config.topic || 'scenarios'}-${new Date().toISOString().slice(0, 10)}.json`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                  }}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Download className="w-4 h-4" />
+                  Export
+                </button>
+                <button
+                  onClick={() => setShowEosRawModal(true)}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Code className="w-4 h-4" />
+                  Raw
+                </button>
+                <button
+                  onClick={() => setShowEosReferencesModal(true)}
+                  disabled={!eos.result?.articles?.length}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  References
+                </button>
+              </>
+            )}
             {/* Export button for Newsletter tab */}
             {activeTab === 'newsletter' && newsletter.newsletterContent && !newsletter.isGenerating && (
               <button
@@ -1094,8 +1133,8 @@ function App() {
                 Export
               </button>
             )}
-            {/* Export buttons - hidden for Intelligence Brief and Newsletter tabs */}
-            {activeTab !== 'intelligence-brief' && activeTab !== 'newsletter' && (
+            {/* Export buttons - hidden for Intelligence Brief, Newsletter, and Extreme Outliers tabs */}
+            {activeTab !== 'intelligence-brief' && activeTab !== 'newsletter' && activeTab !== 'extreme-outliers' && (
               <>
                 <button
                   onClick={() => handleExport('pdf')}
@@ -1187,6 +1226,7 @@ function App() {
               eventsIdentified={sio.eventsIdentified}
               eventsAnalyzed={sio.eventsAnalyzed}
               currentEvent={sio.currentEvent}
+              articles={sio.scanResult?.articles}
               hoursBack={sioHoursBack}
               maxEvents={sioMaxEvents}
               credibilityThreshold={sioCredibilityThreshold}
@@ -1209,6 +1249,7 @@ function App() {
               signalsDetected={eos.signalsDetected}
               pathwaysIdentified={eos.pathwaysIdentified}
               scenariosGenerated={eos.scenariosGenerated}
+              articles={eos.result?.articles}
               scenarioCount={eosScenarioCount}
               includeBlackSwans={eosIncludeBlackSwans}
               includeContrarian={eosIncludeContrarian}
@@ -1221,6 +1262,7 @@ function App() {
               onTimeHorizonChange={setEosTimeHorizon}
               onClearError={eos.clearError}
               onClearResults={eos.clearResults}
+              onLoadEOS={eos.loadResult}
             />
           ) : activeTab === 'newsletter' ? (
             <Newsletter
@@ -2149,6 +2191,131 @@ function App() {
                       Download as TXT
                     </Button>
                     <Button onClick={() => setShowSioReferencesModal(false)} variant="outline" size="sm">
+                      Close
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-gray-500 text-center py-8">No reference articles available.</p>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* EOS Raw Modal */}
+      {showEosRawModal && (
+        <Dialog open={showEosRawModal} onOpenChange={setShowEosRawModal}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Extreme Outliers Raw Output</DialogTitle>
+              <DialogDescription>
+                Raw scenario data and metadata
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4">
+              {eos.result ? (
+                <>
+                  <div className="mb-4 text-sm text-gray-600 space-y-1">
+                    <p><strong>Scan ID:</strong> {eos.result.scan_id}</p>
+                    <p><strong>Topic:</strong> {eos.result.metadata?.topic}</p>
+                    <p><strong>Scenarios Generated:</strong> {eos.result.scenarios?.length}</p>
+                    <p><strong>Articles Used:</strong> {eos.result.articles?.length || 0}</p>
+                    {eos.result.metadata?.generated_at && (
+                      <p><strong>Generated:</strong> {new Date(eos.result.metadata.generated_at).toLocaleString()}</p>
+                    )}
+                  </div>
+                  <div className="bg-slate-100 p-4 rounded-md overflow-auto max-h-[400px]">
+                    <pre className="text-xs text-slate-700 whitespace-pre-wrap">
+                      {JSON.stringify({
+                        scan_id: eos.result.scan_id,
+                        metadata: eos.result.metadata,
+                        scenarios_count: eos.result.scenarios?.length || 0,
+                        articles_count: eos.result.articles?.length || 0
+                      }, null, 2)}
+                    </pre>
+                  </div>
+                </>
+              ) : (
+                <p className="text-gray-500 text-center py-8">No data available.</p>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* EOS References Modal */}
+      {showEosReferencesModal && (
+        <Dialog open={showEosReferencesModal} onOpenChange={setShowEosReferencesModal}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Reference Articles</DialogTitle>
+              <DialogDescription>
+                Articles used for extreme outlier analysis ({eos.result?.articles?.length || 0} total)
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4">
+              {eos.result?.articles && eos.result.articles.length > 0 ? (
+                <>
+                  <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                    {eos.result.articles.map((article, idx) => (
+                      <div key={article.id || idx} className="p-3 border rounded-lg hover:bg-gray-50">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            {article.uri ? (
+                              <a
+                                href={article.uri}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm font-medium text-blue-600 hover:underline block truncate"
+                              >
+                                {idx + 1}. {article.title}
+                              </a>
+                            ) : (
+                              <span className="text-sm font-medium text-gray-800 block truncate">
+                                {idx + 1}. {article.title}
+                              </span>
+                            )}
+                            <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                              <span>{article.source}</span>
+                              {article.published_at && (
+                                <span>{new Date(article.published_at).toLocaleDateString()}</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        // Download as TXT
+                        let txt = `Reference Articles - Extreme Outliers\n`;
+                        txt += `Total: ${eos.result?.articles?.length || 0}\n`;
+                        txt += `Generated: ${new Date().toLocaleString()}\n\n`;
+                        txt += '='.repeat(80) + '\n\n';
+                        eos.result?.articles?.forEach((a, i) => {
+                          txt += `${i + 1}. ${a.title}\n`;
+                          txt += `   Source: ${a.source}\n`;
+                          if (a.published_at) txt += `   Published: ${new Date(a.published_at).toLocaleDateString()}\n`;
+                          if (a.uri) txt += `   URL: ${a.uri}\n`;
+                          txt += '\n';
+                        });
+                        const blob = new Blob([txt], { type: 'text/plain' });
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.download = `references-extreme-outliers-${Date.now()}.txt`;
+                        link.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                    >
+                      Download as TXT
+                    </Button>
+                    <Button onClick={() => setShowEosReferencesModal(false)} variant="outline" size="sm">
                       Close
                     </Button>
                   </div>

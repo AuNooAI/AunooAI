@@ -121,6 +121,29 @@ t_saved_newsletters = Table(
     Index('idx_saved_newsletters_created', 'created_at')
 )
 
+t_saved_eos = Table(
+    'saved_eos', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('topic', String(255), nullable=False),
+    Column('username', Text, ForeignKey('users.username', ondelete='SET NULL')),
+    Column('name', String(255), nullable=False),
+    Column('description', Text),
+    Column('config', JSONB),
+    Column('scenarios', JSONB, nullable=False),
+    Column('metadata', JSONB),
+    Column('articles_used', Integer),
+    Column('article_uris', ARRAY(Text)),
+    Column('model_used', String(100)),
+    Column('time_horizon', String(50)),
+    Column('scenario_count', Integer),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    UniqueConstraint('topic', 'username', 'name', name='uq_saved_eos_topic_user_name'),
+    Index('idx_saved_eos_topic', 'topic'),
+    Index('idx_saved_eos_user', 'username'),
+    Index('idx_saved_eos_created', 'created_at')
+)
+
 t_analysis_versions = Table(
     'analysis_versions', metadata,
     Column('id', Integer, primary_key=True),

@@ -96,6 +96,9 @@ class EOSState:
     trends_data: List[Dict] = field(default_factory=list)
     consensus_data: List[Dict] = field(default_factory=list)
 
+    # Raw articles used for analysis
+    raw_articles: List[Dict] = field(default_factory=list)
+
     # Stage 1: Weak Signals
     weak_signals: List[Dict] = field(default_factory=list)
 

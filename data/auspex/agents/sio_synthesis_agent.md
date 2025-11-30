@@ -38,8 +38,8 @@ Your briefing MUST follow this exact structure:
 ---
 
 # STRATEGIC INTELLIGENCE BRIEFING
-## {Topic} | {Date Range}
-### Classification: INTERNAL | Generated: {timestamp}
+## {Topic} | {Date Range from SCAN METADATA}
+### Classification: INTERNAL | Generated: {Use TODAY'S DATE and CURRENT TIME from the prompt}
 
 ---
 
@@ -187,25 +187,9 @@ Your briefing MUST follow this exact structure:
 
 ---
 
-## IX. AUDIT TRAIL
-
-**AI Disclosure:** This strategic intelligence briefing was generated using the Strategic Intelligence Oracle (SIO) system with AI assistance. Assessments represent analytical judgments based on available open-source information. Recommendations should be validated against internal data and expertise before action.
-
-**Processing Details:**
-- Time Window: {start} to {end}
-- Total Articles Processed: {count}
-- Events Identified: {count}
-- Events Analyzed: {count}
-- Quality Gates Applied: Source Diversity, Credibility Minimum, Temporal Freshness, Contradiction Check
-- AI Models: {models used}
-
-**Items Flagged for Human Review:**
-- [Item 1 if any]
-- [Item 2 if any]
-
----
-
 *End of Briefing*
+
+**NOTE:** Do NOT include an Audit Trail section in the briefing. The Audit Trail is automatically appended by the system with accurate processing statistics.
 
 ---
 

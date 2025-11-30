@@ -64,6 +64,15 @@ export const EOS_STAGES: EOSStageInfo[] = [
   },
 ];
 
+export interface EOSArticle {
+  id: number;
+  title: string;
+  uri: string;
+  source: string;
+  published_at?: string;
+  summary?: string;
+}
+
 export interface EOSResult {
   scan_id: string;
   scenarios: EOSScenario[];
@@ -75,6 +84,7 @@ export interface EOSResult {
     generated_at: string;
     config: EOSConfig;
   };
+  articles?: EOSArticle[];
 }
 
 interface EOSProgress {
@@ -87,6 +97,7 @@ interface EOSProgress {
   scenarios?: EOSScenario[];
   scan_id?: string;
   metadata?: any;
+  articles?: EOSArticle[];
   error?: string;
 }
 
@@ -257,6 +268,7 @@ export function useExtremeOutliers(): UseExtremeOutliersReturn {
                     scan_id: data.scan_id || '',
                     scenarios: data.scenarios,
                     metadata: data.metadata,
+                    articles: data.articles || [],
                   };
                   setResult(fullResult);
 
@@ -324,6 +336,29 @@ export function useExtremeOutliers(): UseExtremeOutliersReturn {
     setError(null);
   }, []);
 
+  // Load a saved result (e.g., from saved EOS)
+  const loadResult = useCallback((loadedScenarios: EOSScenario[], loadedResult?: EOSResult) => {
+    setScenarios(loadedScenarios);
+    setScenariosGenerated(loadedScenarios.length);
+    if (loadedResult) {
+      setResult(loadedResult);
+    } else {
+      setResult({
+        scan_id: '',
+        scenarios: loadedScenarios,
+        metadata: {
+          signals_detected: 0,
+          pathways_explored: 0,
+          scenarios_generated: loadedScenarios.length,
+          generated_at: new Date().toISOString()
+        }
+      });
+    }
+    setCurrentStage('complete');
+    setOverallProgress(1);
+    setStageProgress(1);
+  }, []);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -348,5 +383,6 @@ export function useExtremeOutliers(): UseExtremeOutliersReturn {
     cancelGeneration,
     clearResults,
     clearError,
+    loadResult,
   };
 }

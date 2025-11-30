@@ -33,6 +33,16 @@ import {
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
+interface SIOArticle {
+  id: number;
+  title: string;
+  uri: string;
+  source: string;
+  published_at?: string;
+  credibility_score?: number;
+  summary?: string;
+}
+
 interface IntelligenceBriefProps {
   topic?: string;
   profileId?: number;
@@ -49,6 +59,8 @@ interface IntelligenceBriefProps {
   eventsIdentified: number;
   eventsAnalyzed: number;
   currentEvent: string;
+  // Articles for references
+  articles?: SIOArticle[];
   // SIO config state
   hoursBack: number;
   maxEvents: number;
@@ -288,6 +300,80 @@ function EventsSummary({ events }: { events?: any[] }) {
   );
 }
 
+// Article References Section
+function ArticleReferencesSection({ articles }: { articles?: SIOArticle[] }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!articles?.length) return null;
+
+  const displayArticles = expanded ? articles : articles.slice(0, 10);
+
+  return (
+    <Card className="mt-6 border-slate-200">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <FileText className="w-4 h-4 text-pink-500" />
+          Source Articles ({articles.length})
+        </CardTitle>
+        <CardDescription className="text-xs">
+          Articles analyzed for this intelligence brief
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="space-y-2 max-h-[400px] overflow-y-auto">
+          {displayArticles.map((article, idx) => (
+            <div key={article.id || idx} className="p-2 border rounded-lg hover:bg-gray-50 text-sm">
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1 min-w-0">
+                  {article.uri ? (
+                    <a
+                      href={article.uri}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-blue-600 hover:underline block truncate"
+                    >
+                      {idx + 1}. {article.title}
+                    </a>
+                  ) : (
+                    <span className="font-medium text-gray-800 block truncate">
+                      {idx + 1}. {article.title}
+                    </span>
+                  )}
+                  <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                    <span>{article.source}</span>
+                    {article.credibility_score !== undefined && (
+                      <span className={`px-1.5 py-0.5 rounded ${
+                        article.credibility_score >= 80 ? 'bg-green-100 text-green-700' :
+                        article.credibility_score >= 60 ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-red-100 text-red-700'
+                      }`}>
+                        {article.credibility_score}%
+                      </span>
+                    )}
+                    {article.published_at && (
+                      <span>{new Date(article.published_at).toLocaleDateString()}</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        {articles.length > 10 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="mt-2 w-full"
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded ? 'Show Less' : `Show ${articles.length - 10} More`}
+          </Button>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 // Brief display with markdown rendering
 function BriefDisplay({
   content,
@@ -508,6 +594,8 @@ export function IntelligenceBrief({
   eventsIdentified,
   eventsAnalyzed,
   currentEvent,
+  // Articles for references
+  articles,
   // Config state
   hoursBack,
   maxEvents,
@@ -656,6 +744,11 @@ export function IntelligenceBrief({
           />
         </CardContent>
       </Card>
+
+      {/* Article References Section */}
+      {!isScanning && articles && articles.length > 0 && (
+        <ArticleReferencesSection articles={articles} />
+      )}
 
       {/* Clear results button */}
       {scanResult && !isScanning && (

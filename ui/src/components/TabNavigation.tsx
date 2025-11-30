@@ -15,16 +15,6 @@ interface TabNavigationProps {
 
 const tabs: Tab[] = [
   {
-    id: 'intelligence-brief',
-    label: 'Intelligence Brief',
-    tooltip: '24-hour strategic intelligence scan with BBC/Wiley quality standards'
-  },
-  {
-    id: 'newsletter',
-    label: 'Newsletter',
-    tooltip: 'Generate professional newsletters with curated headlines, analysis, and market insights'
-  },
-  {
     id: 'strategic-recommendations',
     label: 'Strategic Recommendations',
     tooltip: 'Actionable strategic insights across near, mid, and long-term horizons'
@@ -53,6 +43,16 @@ const tabs: Tab[] = [
     id: 'extreme-outliers',
     label: 'Extreme Outliers',
     tooltip: 'Black Swan events, Contrarian analysis, and Wild Card futures'
+  },
+  {
+    id: 'intelligence-brief',
+    label: 'Intelligence Brief',
+    tooltip: '24-hour strategic intelligence scan with BBC/Wiley quality standards'
+  },
+  {
+    id: 'newsletter',
+    label: 'Newsletter',
+    tooltip: 'Generate professional newsletters with curated headlines, analysis, and market insights'
   },
 ];
 

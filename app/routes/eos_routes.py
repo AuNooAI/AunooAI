@@ -14,13 +14,15 @@ from typing import Optional, List, Dict, Any
 from pathlib import Path
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.services.extreme_outlier_service import (
     get_extreme_outlier_service,
     EOSConfig
 )
 from app.security.session import verify_session
+from app.database import get_database_instance
+from app.database_query_facade import DatabaseQueryFacade
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/eos", tags=["Extreme Outlier Scenarios"])
@@ -72,6 +74,40 @@ class EOSScanRequest(BaseModel):
 # Streaming Helper
 # ============================================================================
 
+def fetch_articles_for_topic(topic: str, days_back: int = 30, limit: int = 100) -> List[Dict]:
+    """Fetch recent articles for a topic from the database."""
+    try:
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days_back)
+
+        # Use the facade's article fetching method (synchronous)
+        articles = facade.get_articles_for_date_range(
+            start_date=start_date,
+            end_date=end_date,
+            topic=topic,
+            limit=limit
+        )
+
+        # Format articles for frontend
+        formatted_articles = []
+        for article in articles:
+            formatted_articles.append({
+                "id": article.get("id"),
+                "title": article.get("title", "Untitled"),
+                "uri": article.get("uri") or article.get("url", ""),
+                "source": article.get("news_source") or article.get("source", "Unknown"),
+                "published_at": article.get("publication_date") or article.get("published_at"),
+                "summary": (article.get("summary", "") or "")[:200]
+            })
+
+        return formatted_articles
+    except Exception as e:
+        logger.warning(f"Failed to fetch articles for EOS: {e}")
+        return []
+
+
 async def stream_eos_progress(
     topic: str,
     source_analysis: Dict,
@@ -80,14 +116,22 @@ async def stream_eos_progress(
     """Generator that yields SSE events for EOS progress."""
     service = get_extreme_outlier_service()
 
+    # Pre-fetch articles for this topic
+    articles = fetch_articles_for_topic(topic, days_back=30, limit=100)
+    logger.info(f"EOS: Fetched {len(articles)} articles for topic '{topic}'")
+
     try:
         async for update in service.run_generation(
             topic=topic,
             source_analysis=source_analysis,
             config=config
         ):
+            # If complete, inject the articles into the response
+            if update.get("stage") == "complete":
+                update["articles"] = articles
+
             # Format as Server-Sent Event
-            event_data = json.dumps(update)
+            event_data = json.dumps(update, default=str)
             yield f"data: {event_data}\n\n"
 
             # If complete or error, stop streaming
@@ -154,6 +198,9 @@ async def start_eos_generation(
         service = get_extreme_outlier_service()
         result = None
 
+        # Fetch articles for non-streaming response
+        articles = fetch_articles_for_topic(request.topic, days_back=30, limit=100)
+
         async for update in service.run_generation(
             topic=request.topic,
             source_analysis=source_analysis,
@@ -168,7 +215,8 @@ async def start_eos_generation(
                 "success": True,
                 "scan_id": result.get("scan_id"),
                 "scenarios": result.get("scenarios"),
-                "metadata": result.get("metadata")
+                "metadata": result.get("metadata"),
+                "articles": articles
             }
         else:
             raise HTTPException(
@@ -500,4 +548,175 @@ async def update_eos_prompt(
     return {
         "success": True,
         "message": f"Updated {agent['name']} agent configuration"
+    }
+
+
+# ============================================================================
+# Saved EOS Endpoints (following saved_newsletters pattern)
+# ============================================================================
+
+class SaveEOSRequest(BaseModel):
+    """Request model for saving an EOS analysis."""
+    topic: str = Field(..., description="Topic name")
+    name: str = Field(..., min_length=1, max_length=255, description="EOS analysis name")
+    description: Optional[str] = Field(None, description="Optional description")
+    scenarios: List[Dict[str, Any]] = Field(..., description="The generated scenarios")
+    config: Optional[Dict[str, Any]] = Field(None, description="Configuration used to generate")
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Analysis metadata")
+    articles_used: Optional[int] = Field(None, description="Number of articles used")
+    article_uris: Optional[List[str]] = Field(None, description="List of article URIs used")
+    model_used: Optional[str] = Field(None, description="AI model used")
+    time_horizon: Optional[str] = Field(None, description="Time horizon setting")
+    scenario_count: Optional[int] = Field(None, description="Number of scenarios")
+
+
+@router.post("/save")
+async def save_eos(
+    request: SaveEOSRequest,
+    session: dict = Depends(verify_session)
+):
+    """
+    Save an EOS analysis to the database.
+
+    Creates a new saved EOS instance with scenarios and metadata.
+    """
+    # Extract username from session
+    user = session.get("user")
+    if user and isinstance(user, dict):
+        username = user.get("username")
+    else:
+        username = session.get("username")
+
+    if not username:
+        raise HTTPException(401, "User not authenticated")
+
+    db = get_database_instance()
+
+    # Check for duplicate name
+    existing = db.facade.get_saved_eos_for_topic(request.topic, username)
+    if any(e["name"] == request.name for e in existing):
+        raise HTTPException(409, f"EOS analysis '{request.name}' already exists for this topic")
+
+    try:
+        eos_id = db.facade.create_saved_eos(
+            topic=request.topic,
+            username=username,
+            name=request.name,
+            scenarios=request.scenarios,
+            config=request.config,
+            metadata=request.metadata,
+            articles_used=request.articles_used,
+            article_uris=request.article_uris,
+            model_used=request.model_used,
+            time_horizon=request.time_horizon,
+            scenario_count=request.scenario_count,
+            description=request.description
+        )
+
+        logger.info(f"Saved EOS '{request.name}' (ID: {eos_id}) for user '{username}'")
+
+        return {
+            "success": True,
+            "eos_id": eos_id,
+            "message": f"EOS analysis '{request.name}' saved successfully"
+        }
+    except Exception as e:
+        logger.error(f"Failed to save EOS: {e}")
+        raise HTTPException(500, f"Failed to save EOS analysis: {str(e)}")
+
+
+@router.get("/saved/{topic}")
+async def list_saved_eos(
+    topic: str,
+    session: dict = Depends(verify_session)
+):
+    """
+    Get all saved EOS analyses for a topic (current user only).
+
+    Returns a list of EOS summaries sorted by creation date.
+    """
+    # Extract username from session
+    user = session.get("user")
+    if user and isinstance(user, dict):
+        username = user.get("username")
+    else:
+        username = session.get("username")
+
+    if not username:
+        raise HTTPException(401, "User not authenticated")
+
+    db = get_database_instance()
+    eos_list = db.facade.get_saved_eos_for_topic(topic, username)
+
+    return {
+        "success": True,
+        "saved_eos": eos_list
+    }
+
+
+@router.get("/saved/load/{eos_id}")
+async def load_eos(
+    eos_id: int,
+    session: dict = Depends(verify_session)
+):
+    """
+    Load a specific saved EOS analysis with full content.
+
+    Returns complete EOS including scenarios and metadata.
+    """
+    # Extract username from session
+    user = session.get("user")
+    if user and isinstance(user, dict):
+        username = user.get("username")
+    else:
+        username = session.get("username")
+
+    if not username:
+        raise HTTPException(401, "User not authenticated")
+
+    db = get_database_instance()
+    eos = db.facade.get_saved_eos_by_id(eos_id, username)
+
+    if not eos:
+        raise HTTPException(404, "EOS analysis not found")
+
+    logger.info(f"Loaded EOS {eos_id} for user '{username}'")
+
+    return {
+        "success": True,
+        "eos": eos
+    }
+
+
+@router.delete("/saved/{eos_id}")
+async def delete_eos(
+    eos_id: int,
+    session: dict = Depends(verify_session)
+):
+    """
+    Delete a saved EOS analysis.
+
+    Removes the EOS analysis. This action cannot be undone.
+    """
+    # Extract username from session
+    user = session.get("user")
+    if user and isinstance(user, dict):
+        username = user.get("username")
+    else:
+        username = session.get("username")
+
+    if not username:
+        raise HTTPException(401, "User not authenticated")
+
+    db = get_database_instance()
+    success = db.facade.delete_saved_eos(eos_id, username)
+
+    if not success:
+        raise HTTPException(404, "EOS analysis not found or permission denied")
+
+    logger.info(f"Deleted EOS {eos_id} for user '{username}'")
+
+    return {
+        "success": True,
+        "message": "EOS analysis deleted successfully"
     }
