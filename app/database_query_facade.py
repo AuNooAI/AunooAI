@@ -8905,3 +8905,338 @@ class DatabaseQueryFacade:
         except Exception as e:
             self.logger.error(f"Error updating persona in focus group {focus_group_id}: {e}")
             return False
+
+    # ========================================================================
+    # SAVED EXECUTIVE BRIEFINGS CRUD
+    # ========================================================================
+
+    def create_saved_executive_briefing(
+        self,
+        topic: str,
+        username: str,
+        name: str,
+        persona: str,
+        article_count: int,
+        articles: list,
+        briefing_summary: str = None,
+        themes: list = None,
+        priority_actions: list = None,
+        config: dict = None,
+        metadata: dict = None,
+        articles_used: int = None,
+        article_uris: list = None,
+        model_used: str = None,
+        description: str = None
+    ) -> int:
+        """Create a new saved executive briefing.
+
+        Args:
+            topic: Topic name
+            username: Username
+            name: Briefing name
+            persona: Executive persona (CEO/CMO/CTO/CISO/Custom)
+            article_count: Number of articles requested
+            articles: List of analyzed article objects (stored as JSONB)
+            briefing_summary: Generated synthesis narrative
+            themes: Cross-article themes (list)
+            priority_actions: Recommended actions (list)
+            config: Configuration dict used to generate (stored as JSONB)
+            metadata: Generation metadata (stored as JSONB)
+            articles_used: Number of articles actually used
+            article_uris: List of article URIs used
+            model_used: AI model used
+            description: Optional description
+
+        Returns:
+            ID of the created saved executive briefing
+        """
+        try:
+            from app.database_models import t_saved_executive_briefings
+            from sqlalchemy import insert
+            import json
+
+            # Ensure articles is JSON-serializable
+            articles_json = json.loads(json.dumps(articles, default=str)) if articles else []
+
+            statement = insert(t_saved_executive_briefings).values(
+                topic=topic,
+                username=username,
+                name=name,
+                persona=persona,
+                article_count=article_count,
+                articles=articles_json,
+                briefing_summary=briefing_summary,
+                themes=themes,
+                priority_actions=priority_actions,
+                config=config,
+                metadata=metadata,
+                articles_used=articles_used,
+                article_uris=article_uris,
+                model_used=model_used,
+                description=description
+            ).returning(t_saved_executive_briefings.c.id)
+
+            result = self._execute_with_rollback(statement)
+            row = result.fetchone()
+            self.logger.info(f"Created saved executive briefing '{name}' for user '{username}' (ID: {row[0]})")
+            return row[0]
+        except Exception as e:
+            self.logger.error(f"Error creating saved executive briefing: {e}")
+            raise
+
+    def get_saved_executive_briefings_for_topic(
+        self,
+        topic: str,
+        username: str
+    ) -> list:
+        """Get all saved executive briefings for a topic (user-scoped).
+
+        Returns list of briefing summaries sorted by creation date desc.
+        """
+        try:
+            from app.database_models import t_saved_executive_briefings
+            from sqlalchemy import select
+
+            statement = select(
+                t_saved_executive_briefings.c.id,
+                t_saved_executive_briefings.c.name,
+                t_saved_executive_briefings.c.description,
+                t_saved_executive_briefings.c.persona,
+                t_saved_executive_briefings.c.article_count,
+                t_saved_executive_briefings.c.created_at,
+                t_saved_executive_briefings.c.updated_at,
+                t_saved_executive_briefings.c.articles_used,
+                t_saved_executive_briefings.c.model_used
+            ).where(
+                (t_saved_executive_briefings.c.topic == topic) &
+                (t_saved_executive_briefings.c.username == username)
+            ).order_by(
+                t_saved_executive_briefings.c.created_at.desc()
+            )
+
+            results = self._execute_with_rollback(statement).fetchall()
+            return [dict(r._mapping) for r in results]
+        except Exception as e:
+            self.logger.error(f"Error getting saved executive briefings for topic {topic}: {e}")
+            return []
+
+    def get_saved_executive_briefing_by_id(
+        self,
+        briefing_id: int,
+        username: str
+    ) -> dict:
+        """Get a specific saved executive briefing by ID (user-scoped).
+
+        Returns full briefing data or None if not found.
+        """
+        try:
+            from app.database_models import t_saved_executive_briefings
+            from sqlalchemy import select
+
+            statement = select(t_saved_executive_briefings).where(
+                (t_saved_executive_briefings.c.id == briefing_id) &
+                (t_saved_executive_briefings.c.username == username)
+            )
+
+            result = self._execute_with_rollback(statement).fetchone()
+            if result:
+                return dict(result._mapping)
+            return None
+        except Exception as e:
+            self.logger.error(f"Error retrieving saved executive briefing {briefing_id}: {e}")
+            return None
+
+    def delete_saved_executive_briefing(
+        self,
+        briefing_id: int,
+        username: str
+    ) -> bool:
+        """Delete a saved executive briefing (user-scoped)."""
+        try:
+            from app.database_models import t_saved_executive_briefings
+            from sqlalchemy import delete
+
+            statement = delete(t_saved_executive_briefings).where(
+                (t_saved_executive_briefings.c.id == briefing_id) &
+                (t_saved_executive_briefings.c.username == username)
+            )
+
+            result = self._execute_with_rollback(statement)
+            deleted = result.rowcount > 0
+            if deleted:
+                self.logger.info(f"Deleted saved executive briefing {briefing_id} for user '{username}'")
+            return deleted
+        except Exception as e:
+            self.logger.error(f"Error deleting saved executive briefing {briefing_id}: {e}")
+            return False
+
+    def update_executive_briefing_article(
+        self,
+        briefing_id: int,
+        username: str,
+        article_index: int,
+        article_updates: dict
+    ) -> bool:
+        """Update a specific article within a saved executive briefing.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            article_index: Index of the article to update
+            article_updates: Dict of fields to update in the article
+
+        Returns:
+            True if updated, False otherwise
+        """
+        try:
+            from app.database_models import t_saved_executive_briefings
+            from sqlalchemy import select, update
+            from datetime import datetime
+            import json
+
+            # First get the current briefing
+            statement = select(t_saved_executive_briefings.c.articles).where(
+                (t_saved_executive_briefings.c.id == briefing_id) &
+                (t_saved_executive_briefings.c.username == username)
+            )
+            result = self._execute_with_rollback(statement).fetchone()
+            if not result:
+                return False
+
+            articles = result[0] if result[0] else []
+
+            # Check if article index is valid
+            if article_index < 0 or article_index >= len(articles):
+                self.logger.warning(f"Article index {article_index} out of range for briefing {briefing_id}")
+                return False
+
+            # Update the article
+            articles[article_index] = {**articles[article_index], **article_updates, 'user_edited': True}
+
+            # Update the briefing with modified articles
+            update_stmt = update(t_saved_executive_briefings).where(
+                (t_saved_executive_briefings.c.id == briefing_id) &
+                (t_saved_executive_briefings.c.username == username)
+            ).values(
+                articles=json.loads(json.dumps(articles, default=str)),
+                updated_at=datetime.utcnow()
+            )
+
+            self._execute_with_rollback(update_stmt)
+            self.logger.info(f"Updated article {article_index} in briefing {briefing_id}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error updating article in briefing {briefing_id}: {e}")
+            return False
+
+    def get_eb_config(self, topic: str) -> dict:
+        """Get Executive Briefing configuration for a topic.
+
+        Returns default config if none exists.
+        """
+        try:
+            from app.database_models import t_user_preferences
+            from sqlalchemy import select
+            import json
+
+            # Look for EB config in user_preferences with key 'eb_config_{topic}'
+            pref_key = f"eb_config_{topic}"
+            statement = select(t_user_preferences.c.config_value).where(
+                t_user_preferences.c.preference_key == pref_key
+            )
+            result = self._execute_with_rollback(statement).fetchone()
+
+            if result and result[0]:
+                return result[0]
+
+            # Return default config
+            return self._get_default_eb_config()
+        except Exception as e:
+            self.logger.error(f"Error getting EB config for topic {topic}: {e}")
+            return self._get_default_eb_config()
+
+    def update_eb_config(self, topic: str, username: str, config: dict) -> bool:
+        """Update Executive Briefing configuration for a topic.
+
+        Args:
+            topic: Topic name
+            username: Username
+            config: Configuration dict
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            from app.database_models import t_user_preferences
+            from sqlalchemy import insert
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+            from datetime import datetime
+
+            pref_key = f"eb_config_{topic}"
+
+            # Upsert the config
+            statement = pg_insert(t_user_preferences).values(
+                username=username,
+                preference_key=pref_key,
+                config_value=config,
+                updated_at=datetime.utcnow()
+            ).on_conflict_do_update(
+                constraint='uq_user_preference_key',
+                set_={
+                    'config_value': config,
+                    'updated_at': datetime.utcnow()
+                }
+            )
+
+            self._execute_with_rollback(statement)
+            self.logger.info(f"Updated EB config for topic {topic} by user {username}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error updating EB config for topic {topic}: {e}")
+            return False
+
+    def _get_default_eb_config(self) -> dict:
+        """Return default Executive Briefing configuration."""
+        return {
+            "personas": {
+                "CEO": {
+                    "priorities": "Regulation, enterprise adoption, scaling limits, market dynamics, security/safety, workforce impact, strategic partnerships",
+                    "risk_appetite": "moderate",
+                    "focus": "business strategy, market positioning, competitive advantage, and regulatory compliance"
+                },
+                "CMO": {
+                    "priorities": "Market trends, customer behavior, brand impact, advertising innovation, customer experience, competitive positioning",
+                    "risk_appetite": "high",
+                    "focus": "marketing strategies, customer engagement, brand differentiation, and market opportunities"
+                },
+                "CTO": {
+                    "priorities": "Technical breakthroughs, infrastructure, scalability, development tools, architecture patterns, security vulnerabilities",
+                    "risk_appetite": "high",
+                    "focus": "technical architecture, development practices, technology stack decisions, and engineering excellence"
+                },
+                "CISO": {
+                    "priorities": "Security threats, vulnerabilities, compliance requirements, risk management, data protection, incident response",
+                    "risk_appetite": "low",
+                    "focus": "security risks, compliance requirements, threat mitigation, and data protection"
+                }
+            },
+            "default_persona": "CEO",
+            "default_article_count": 6,
+            "default_days_back": 1,
+            "include_bias_analysis": True,
+            "include_synthesis": True,
+            "agents": {
+                "selection": {
+                    "model": None,
+                    "temperature": 0.3
+                },
+                "analysis": {
+                    "model": None,
+                    "temperature": 0.4
+                },
+                "synthesis": {
+                    "model": None,
+                    "temperature": 0.5
+                }
+            }
+        }

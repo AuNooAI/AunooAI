@@ -18,7 +18,13 @@ import {
   AlertTriangle,
   Shield,
   TrendingUp,
-  FileText
+  FileText,
+  Target,
+  Lightbulb,
+  Calendar,
+  ArrowRight,
+  AlertOctagon,
+  Sparkles
 } from 'lucide-react';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
@@ -309,7 +315,7 @@ function ArticleReferencesSection({ articles }: { articles?: SIOArticle[] }) {
   const displayArticles = expanded ? articles : articles.slice(0, 10);
 
   return (
-    <Card className="mt-6 border-slate-200">
+    <Card className="mt-6 border-gray-200">
       <CardHeader className="pb-2">
         <CardTitle className="text-sm flex items-center gap-2">
           <FileText className="w-4 h-4 text-pink-500" />
@@ -374,6 +380,633 @@ function ArticleReferencesSection({ articles }: { articles?: SIOArticle[] }) {
   );
 }
 
+// Card component for Threat/Opportunity items
+function ThreatOpportunityCard({
+  type,
+  title,
+  description,
+  confidence,
+  timeframe
+}: {
+  type: 'threat' | 'opportunity';
+  title: string;
+  description: string;
+  confidence?: string;
+  timeframe?: string;
+}) {
+  const isThreat = type === 'threat';
+  return (
+    <div className={`p-4 rounded-lg border-l-4 ${
+      isThreat
+        ? 'bg-red-50 border-red-500'
+        : 'bg-green-50 border-green-500'
+    }`}>
+      <div className="flex items-start gap-3">
+        <div className={`p-2 rounded-full ${isThreat ? 'bg-red-100' : 'bg-green-100'}`}>
+          {isThreat
+            ? <AlertOctagon className="w-5 h-5 text-red-600" />
+            : <Sparkles className="w-5 h-5 text-green-600" />
+          }
+        </div>
+        <div className="flex-1">
+          <div className="flex items-center justify-between">
+            <h4 className={`font-semibold ${isThreat ? 'text-red-800' : 'text-green-800'}`}>
+              {title}
+            </h4>
+            <div className="flex gap-2">
+              {confidence && (
+                <Badge variant="outline" className={isThreat ? 'border-red-300 text-red-700' : 'border-green-300 text-green-700'}>
+                  {confidence}
+                </Badge>
+              )}
+              {timeframe && (
+                <Badge variant="outline" className="border-gray-300 text-gray-600">
+                  <Clock className="w-3 h-3 mr-1" />
+                  {timeframe}
+                </Badge>
+              )}
+            </div>
+          </div>
+          <p className={`mt-2 text-sm ${isThreat ? 'text-red-700' : 'text-green-700'}`}>
+            {description}
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Card component for Implications
+function ImplicationCard({
+  category,
+  content,
+  icon
+}: {
+  category: string;
+  content: string;
+  icon?: 'strategic' | 'operational' | 'tactical' | 'default';
+}) {
+  const iconMap = {
+    strategic: <Target className="w-5 h-5 text-purple-600" />,
+    operational: <Zap className="w-5 h-5 text-blue-600" />,
+    tactical: <ArrowRight className="w-5 h-5 text-orange-600" />,
+    default: <Lightbulb className="w-5 h-5 text-amber-600" />
+  };
+
+  const bgMap = {
+    strategic: 'bg-purple-50 border-purple-200',
+    operational: 'bg-blue-50 border-blue-200',
+    tactical: 'bg-orange-50 border-orange-200',
+    default: 'bg-amber-50 border-amber-200'
+  };
+
+  const iconType = icon || 'default';
+
+  return (
+    <div className={`p-4 rounded-lg border ${bgMap[iconType]}`}>
+      <div className="flex items-start gap-3">
+        <div className="p-2 rounded-full bg-white shadow-sm">
+          {iconMap[iconType]}
+        </div>
+        <div className="flex-1">
+          <h4 className="font-semibold text-gray-800 mb-1">{category}</h4>
+          <p className="text-sm text-gray-700">{content}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Timeline component for Recommended Actions
+function ActionTimeline({
+  actions
+}: {
+  actions: Array<{
+    title: string;
+    description: string;
+    timeframe?: string;
+    priority?: 'immediate' | 'short-term' | 'medium-term' | 'long-term';
+  }>;
+}) {
+  const priorityColors = {
+    immediate: 'bg-red-500',
+    'short-term': 'bg-orange-500',
+    'medium-term': 'bg-blue-500',
+    'long-term': 'bg-gray-500'
+  };
+
+  const priorityLabels = {
+    immediate: 'Immediate',
+    'short-term': 'Short-term',
+    'medium-term': 'Medium-term',
+    'long-term': 'Long-term'
+  };
+
+  return (
+    <div className="relative pl-8 space-y-6">
+      {/* Vertical line */}
+      <div className="absolute left-3 top-2 bottom-2 w-0.5 bg-gradient-to-b from-pink-500 via-purple-500 to-blue-500" />
+
+      {actions.map((action, index) => (
+        <div key={index} className="relative">
+          {/* Timeline dot */}
+          <div className={`absolute -left-5 w-4 h-4 rounded-full border-2 border-white shadow-md ${
+            priorityColors[action.priority || 'medium-term']
+          }`} />
+
+          <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="font-semibold text-gray-900">{action.title}</h4>
+              <div className="flex gap-2">
+                {action.priority && (
+                  <Badge className={`${priorityColors[action.priority]} text-white text-xs`}>
+                    {priorityLabels[action.priority]}
+                  </Badge>
+                )}
+                {action.timeframe && (
+                  <Badge variant="outline" className="text-xs">
+                    <Calendar className="w-3 h-3 mr-1" />
+                    {action.timeframe}
+                  </Badge>
+                )}
+              </div>
+            </div>
+            <p className="text-sm text-gray-600">{action.description}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Enhanced section renderer that detects special sections and renders with cards/timeline
+function EnhancedSectionRenderer({ content }: { content: string }) {
+  // Split content by ## headings to identify sections
+  const sections = content.split(/(?=^## )/m);
+
+  return (
+    <>
+      {sections.map((section, idx) => {
+        const headerMatch = section.match(/^## (.+?)[\r\n]/);
+        const headerText = headerMatch ? headerMatch[1].toUpperCase() : '';
+
+        // Check if this is a Threat & Opportunity Analysis section
+        if (headerText.includes('THREAT') && headerText.includes('OPPORTUNIT')) {
+          return <ThreatOpportunitySection key={idx} content={section} />;
+        }
+
+        // Check if this is a Recommended Actions section
+        if (headerText.includes('RECOMMENDED ACTION') || headerText.includes('PRIORITY ACTION')) {
+          return <RecommendedActionsSection key={idx} content={section} />;
+        }
+
+        // Check if this section contains "Implications" subsections
+        if (section.includes('### ') && section.toLowerCase().includes('implication')) {
+          return <ImplicationsSection key={idx} content={section} />;
+        }
+
+        // Default: render normally with ReactMarkdown
+        return (
+          <ReactMarkdown
+            key={idx}
+            remarkPlugins={[remarkGfm]}
+            components={defaultMarkdownComponents}
+          >
+            {section}
+          </ReactMarkdown>
+        );
+      })}
+    </>
+  );
+}
+
+// Render Threat & Opportunity section as two-column cards (like Strategic Recommendations)
+function ThreatOpportunitySection({ content }: { content: string }) {
+  // Split into ### subsections
+  const subsections = content.split(/(?=^### )/m);
+
+  // Extract header
+  const headerMatch = content.match(/^(## .+?)[\r\n]/);
+  const header = headerMatch ? headerMatch[1].replace('## ', '') : 'Threat & Opportunity Analysis';
+
+  // Parse threats and opportunities from subsections
+  let threatsContent = '';
+  let opportunitiesContent = '';
+
+  for (const sub of subsections) {
+    if (/^### .*threat/i.test(sub)) {
+      threatsContent = sub.replace(/^### .+?[\r\n]/, '').trim();
+    } else if (/^### .*opportunit/i.test(sub)) {
+      opportunitiesContent = sub.replace(/^### .+?[\r\n]/, '').trim();
+    }
+  }
+
+  // Parse individual items from content
+  const parseItems = (text: string): Array<{ name: string; details: string[] }> => {
+    const items: Array<{ name: string; details: string[] }> = [];
+    // Match **THREAT 1: Name** or **OPPORTUNITY 1: Name** patterns
+    const itemRegex = /\*\*(?:THREAT|OPPORTUNITY)\s*\d*:?\s*(.+?)\*\*/gi;
+    const matches = text.split(itemRegex);
+
+    for (let i = 1; i < matches.length; i += 2) {
+      const name = matches[i]?.trim() || '';
+      const detailsText = matches[i + 1] || '';
+      // Extract bullet points
+      const details = detailsText
+        .split(/\n/)
+        .filter(line => line.trim().startsWith('-') || line.trim().startsWith('*'))
+        .map(line => line.replace(/^[\s-*]+/, '').trim())
+        .filter(Boolean);
+      if (name) {
+        items.push({ name, details });
+      }
+    }
+    return items;
+  };
+
+  const threats = parseItems(threatsContent);
+  const opportunities = parseItems(opportunitiesContent);
+
+  // If we couldn't parse structured items, fall back to default rendering
+  if (threats.length === 0 && opportunities.length === 0) {
+    return (
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={defaultMarkdownComponents}>
+        {content}
+      </ReactMarkdown>
+    );
+  }
+
+  return (
+    <div className="my-8">
+      <h2 className="text-xl font-bold text-gray-800 mb-6 pb-2 border-b border-gray-200 flex items-center gap-2">
+        <Target className="w-5 h-5 text-pink-500" />
+        {header}
+      </h2>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Threats Column */}
+        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+          <div className="bg-red-50 p-4 border-b border-red-100">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center">
+                <AlertOctagon className="w-4 h-4 text-red-700" />
+              </div>
+              <h3 className="font-bold text-sm text-gray-900">IDENTIFIED THREATS</h3>
+            </div>
+          </div>
+          <div className="p-4 space-y-4">
+            {threats.length > 0 ? threats.map((threat, idx) => (
+              <div key={idx} className="border-l-2 border-red-300 pl-3">
+                <p className="font-semibold text-red-800 text-sm">{threat.name}</p>
+                {threat.details.length > 0 && (
+                  <ul className="mt-1 space-y-1">
+                    {threat.details.map((detail, dIdx) => (
+                      <li key={dIdx} className="text-xs text-gray-600 flex gap-1">
+                        <span className="text-red-400">•</span>
+                        <span>{detail}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )) : (
+              <p className="text-sm text-gray-500 italic">No threats identified</p>
+            )}
+          </div>
+        </div>
+
+        {/* Opportunities Column */}
+        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+          <div className="bg-green-50 p-4 border-b border-green-100">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+                <Sparkles className="w-4 h-4 text-green-700" />
+              </div>
+              <h3 className="font-bold text-sm text-gray-900">IDENTIFIED OPPORTUNITIES</h3>
+            </div>
+          </div>
+          <div className="p-4 space-y-4">
+            {opportunities.length > 0 ? opportunities.map((opp, idx) => (
+              <div key={idx} className="border-l-2 border-green-300 pl-3">
+                <p className="font-semibold text-green-800 text-sm">{opp.name}</p>
+                {opp.details.length > 0 && (
+                  <ul className="mt-1 space-y-1">
+                    {opp.details.map((detail, dIdx) => (
+                      <li key={dIdx} className="text-xs text-gray-600 flex gap-1">
+                        <span className="text-green-400">•</span>
+                        <span>{detail}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )) : (
+              <p className="text-sm text-gray-500 italic">No opportunities identified</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Render Recommended Actions section as 3-column timeframe cards (like Strategic Recommendations)
+function RecommendedActionsSection({ content }: { content: string }) {
+  // Split into ### subsections
+  const subsections = content.split(/(?=^### )/m);
+
+  // Extract header
+  const headerMatch = content.match(/^(## .+?)[\r\n]/);
+  const header = headerMatch ? headerMatch[1].replace('## ', '') : 'Recommended Actions';
+
+  // Parse actions by timeframe
+  const timeframes: { [key: string]: { label: string; timeframe: string; actions: Array<{ text: string; owner?: string }> } } = {
+    immediate: { label: 'IMMEDIATE', timeframe: '0-48 hours', actions: [] },
+    nearterm: { label: 'NEAR-TERM', timeframe: '1-2 weeks', actions: [] },
+    strategic: { label: 'STRATEGIC', timeframe: '1-3 months', actions: [] }
+  };
+
+  for (const sub of subsections) {
+    const subHeaderMatch = sub.match(/^### (.+?)[\r\n]/);
+    if (!subHeaderMatch) continue;
+
+    const subHeader = subHeaderMatch[1].toLowerCase();
+    let targetKey = '';
+
+    if (/immediate|0-48|48.hour|today|urgent/i.test(subHeader)) {
+      targetKey = 'immediate';
+      // Extract timeframe from header if present
+      const tfMatch = subHeader.match(/\(([^)]+)\)/);
+      if (tfMatch) timeframes.immediate.timeframe = tfMatch[1];
+    } else if (/near.term|1-2 week|week|short/i.test(subHeader)) {
+      targetKey = 'nearterm';
+      const tfMatch = subHeader.match(/\(([^)]+)\)/);
+      if (tfMatch) timeframes.nearterm.timeframe = tfMatch[1];
+    } else if (/strategic|long|1-3 month|month|quarter/i.test(subHeader)) {
+      targetKey = 'strategic';
+      const tfMatch = subHeader.match(/\(([^)]+)\)/);
+      if (tfMatch) timeframes.strategic.timeframe = tfMatch[1];
+    }
+
+    if (targetKey) {
+      // Parse action items (checkbox format: - [ ] **Action** - Rationale - Owner: Function)
+      const lines = sub.split('\n');
+      for (const line of lines) {
+        // Match checkbox items: - [ ] **Action** or - **Action**
+        const actionMatch = line.match(/^[-*]\s*(?:\[[ x]?\])?\s*\*?\*?(.+?)\*?\*?\s*(?:[-–]|$)/);
+        if (actionMatch) {
+          let text = actionMatch[1].trim();
+          // Extract owner if present
+          const ownerMatch = line.match(/Owner:\s*(\w+)/i);
+          const owner = ownerMatch ? ownerMatch[1] : undefined;
+          // Clean up the text
+          text = text.replace(/[-–]\s*Owner:\s*\w+/i, '').replace(/[-–]\s*$/, '').trim();
+          if (text) {
+            timeframes[targetKey].actions.push({ text, owner });
+          }
+        }
+      }
+    }
+  }
+
+  // If we couldn't parse any actions, fall back to default rendering
+  const hasActions = Object.values(timeframes).some(tf => tf.actions.length > 0);
+  if (!hasActions) {
+    return (
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={defaultMarkdownComponents}>
+        {content}
+      </ReactMarkdown>
+    );
+  }
+
+  return (
+    <div className="my-8">
+      <h2 className="text-xl font-bold text-gray-800 mb-6 pb-2 border-b border-gray-200 flex items-center gap-2">
+        <Calendar className="w-5 h-5 text-pink-500" />
+        {header}
+      </h2>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Immediate Actions */}
+        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+          <div className="bg-red-50 p-4 border-b border-red-100">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center">
+                <Zap className="w-4 h-4 text-red-700" />
+              </div>
+              <h3 className="font-bold text-sm text-gray-900">{timeframes.immediate.label}</h3>
+            </div>
+            <div className="text-xs font-medium text-gray-600">{timeframes.immediate.timeframe}</div>
+          </div>
+          <div className="p-4">
+            {timeframes.immediate.actions.length > 0 ? (
+              <ul className="space-y-3">
+                {timeframes.immediate.actions.map((action, idx) => (
+                  <li key={idx} className="text-sm text-gray-700 flex gap-2">
+                    <span className="text-red-500 font-bold">•</span>
+                    <span>{action.text}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-gray-400 italic">No immediate actions</p>
+            )}
+          </div>
+        </div>
+
+        {/* Near-term Actions */}
+        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+          <div className="bg-amber-50 p-4 border-b border-amber-100">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center">
+                <Clock className="w-4 h-4 text-amber-700" />
+              </div>
+              <h3 className="font-bold text-sm text-gray-900">{timeframes.nearterm.label}</h3>
+            </div>
+            <div className="text-xs font-medium text-gray-600">{timeframes.nearterm.timeframe}</div>
+          </div>
+          <div className="p-4">
+            {timeframes.nearterm.actions.length > 0 ? (
+              <ul className="space-y-3">
+                {timeframes.nearterm.actions.map((action, idx) => (
+                  <li key={idx} className="text-sm text-gray-700 flex gap-2">
+                    <span className="text-amber-500 font-bold">•</span>
+                    <span>{action.text}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-gray-400 italic">No near-term actions</p>
+            )}
+          </div>
+        </div>
+
+        {/* Strategic Actions */}
+        <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+          <div className="bg-purple-50 p-4 border-b border-purple-100">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center">
+                <Target className="w-4 h-4 text-purple-700" />
+              </div>
+              <h3 className="font-bold text-sm text-gray-900">{timeframes.strategic.label}</h3>
+            </div>
+            <div className="text-xs font-medium text-gray-600">{timeframes.strategic.timeframe}</div>
+          </div>
+          <div className="p-4">
+            {timeframes.strategic.actions.length > 0 ? (
+              <ul className="space-y-3">
+                {timeframes.strategic.actions.map((action, idx) => (
+                  <li key={idx} className="text-sm text-gray-700 flex gap-2">
+                    <span className="text-purple-500 font-bold">•</span>
+                    <span>{action.text}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="text-sm text-gray-400 italic">No strategic actions</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Render Implications as cards
+function ImplicationsSection({ content }: { content: string }) {
+  // Parse implication subsections
+  const subsections = content.split(/(?=^### )/m);
+  const implications: Array<{ category: string; content: string; icon: 'strategic' | 'operational' | 'tactical' | 'default' }> = [];
+
+  // Extract main header
+  const headerMatch = content.match(/^(## .+?)[\r\n]/);
+  const header = headerMatch ? headerMatch[1].replace('## ', '') : 'Implications';
+
+  for (const sub of subsections) {
+    const subHeaderMatch = sub.match(/^### (.+?)[\r\n]/);
+    if (subHeaderMatch && subHeaderMatch[1].toLowerCase().includes('implication')) {
+      const category = subHeaderMatch[1].replace(/implications?:?\s*/i, '').trim();
+      const contentText = sub.replace(/^### .+?[\r\n]/, '').trim();
+
+      // Determine icon based on category
+      let icon: 'strategic' | 'operational' | 'tactical' | 'default' = 'default';
+      if (/strategic|strategy|long.term/i.test(category)) icon = 'strategic';
+      else if (/operational|operation|process/i.test(category)) icon = 'operational';
+      else if (/tactical|immediate|action/i.test(category)) icon = 'tactical';
+
+      implications.push({ category, content: contentText, icon });
+    }
+  }
+
+  // If we couldn't parse structured items, fall back to default rendering
+  if (implications.length === 0) {
+    return (
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={defaultMarkdownComponents}>
+        {content}
+      </ReactMarkdown>
+    );
+  }
+
+  return (
+    <div className="my-8">
+      <h2 className="text-xl font-bold text-gray-800 mb-4 pb-2 border-b border-gray-200 flex items-center gap-2">
+        <Lightbulb className="w-5 h-5 text-amber-500" />
+        {header}
+      </h2>
+      <div className="grid gap-4 md:grid-cols-2">
+        {implications.map((impl, idx) => (
+          <ImplicationCard
+            key={idx}
+            category={impl.category}
+            content={impl.content}
+            icon={impl.icon}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Default markdown components for sections that don't need special rendering
+const defaultMarkdownComponents = {
+  h1: ({ children }: any) => (
+    <h1 className="text-2xl font-bold text-gray-900 border-b-2 border-pink-500 pb-2 mb-6">{children}</h1>
+  ),
+  h2: ({ children }: any) => (
+    <h2 className="text-xl font-bold text-gray-800 mt-8 mb-4 pb-2 border-b border-gray-200">{children}</h2>
+  ),
+  h3: ({ children }: any) => (
+    <h3 className="text-lg font-semibold text-gray-700 mt-6 mb-3">{children}</h3>
+  ),
+  h4: ({ children }: any) => (
+    <h4 className="text-base font-semibold text-gray-600 mt-4 mb-2">{children}</h4>
+  ),
+  p: ({ children }: any) => (
+    <p className="my-3 text-gray-700 leading-relaxed">{children}</p>
+  ),
+  ul: ({ children }: any) => (
+    <ul className="my-3 space-y-2 list-disc pl-5 text-gray-700">{children}</ul>
+  ),
+  ol: ({ children }: any) => (
+    <ol className="my-3 space-y-2 list-decimal pl-5 text-gray-700">{children}</ol>
+  ),
+  li: ({ children }: any) => (
+    <li className="text-gray-700 leading-relaxed">{children}</li>
+  ),
+  table: ({ children }: any) => (
+    <div className="my-6 overflow-x-auto rounded-lg border border-gray-300 shadow-sm">
+      <table className="min-w-full divide-y divide-gray-300">{children}</table>
+    </div>
+  ),
+  thead: ({ children }: any) => (
+    <thead className="bg-pink-500 text-white">{children}</thead>
+  ),
+  tbody: ({ children }: any) => (
+    <tbody className="bg-white divide-y divide-gray-200">{children}</tbody>
+  ),
+  tr: ({ children }: any) => (
+    <tr className="hover:bg-pink-50 transition-colors">{children}</tr>
+  ),
+  th: ({ children }: any) => (
+    <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-white">{children}</th>
+  ),
+  td: ({ children }: any) => (
+    <td className="px-4 py-3 text-sm text-gray-700 whitespace-normal">{children}</td>
+  ),
+  code: ({ children }: any) => (
+    <code className="bg-gray-100 text-gray-800 px-1.5 py-0.5 rounded text-sm font-mono border border-gray-200">{children}</code>
+  ),
+  pre: ({ children }: any) => (
+    <pre className="bg-gray-800 text-gray-100 p-4 rounded-lg overflow-x-auto my-4 text-sm">{children}</pre>
+  ),
+  blockquote: ({ children }: any) => (
+    <blockquote className="border-l-4 border-pink-500 bg-pink-50 pl-4 pr-4 py-3 italic text-gray-700 my-4 rounded-r-lg">{children}</blockquote>
+  ),
+  hr: () => <hr className="my-8 border-t-2 border-gray-200" />,
+  strong: ({ children }: any) => {
+    const text = String(children);
+    if (text.includes('CRITICAL') || text.includes('THREAT')) {
+      return <strong className="text-red-600 font-bold bg-red-50 px-1 rounded">{children}</strong>;
+    }
+    if (text.includes('HIGH') || text.includes('OPPORTUNITY')) {
+      return <strong className="text-orange-600 font-bold bg-orange-50 px-1 rounded">{children}</strong>;
+    }
+    if (text.includes('MEDIUM') || text.includes('MODERATE')) {
+      return <strong className="text-yellow-700 font-bold bg-yellow-50 px-1 rounded">{children}</strong>;
+    }
+    if (text.includes('LOW') || text.includes('WATCH')) {
+      return <strong className="text-blue-600 font-semibold">{children}</strong>;
+    }
+    return <strong className="font-bold text-gray-900">{children}</strong>;
+  },
+  em: ({ children }: any) => (
+    <em className="text-gray-600 italic">{children}</em>
+  ),
+  a: ({ children, href }: any) => (
+    <a href={href} className="text-pink-600 hover:text-pink-800 underline font-medium" target="_blank" rel="noopener noreferrer">{children}</a>
+  ),
+};
+
 // Brief display with markdown rendering
 function BriefDisplay({
   content,
@@ -400,21 +1033,21 @@ function BriefDisplay({
 
   return (
     <div className="space-y-4">
-      {/* Metadata summary - darker styling */}
+      {/* Metadata summary - pink accent styling to match app theme */}
       {metadata && (
-        <div className="flex items-center justify-between bg-slate-800 text-white p-4 rounded-lg">
-          <div className="flex items-center gap-6 text-sm">
+        <div className="flex items-center justify-between bg-gradient-to-r from-pink-50 to-pink-100 border border-pink-200 p-4 rounded-lg">
+          <div className="flex items-center gap-6 text-sm text-gray-700">
             <span className="flex items-center gap-2">
-              <Search className="w-4 h-4 text-pink-400" />
+              <Search className="w-4 h-4 text-pink-500" />
               <span className="font-medium">{metadata.articles_collected}</span> articles
             </span>
             <span className="flex items-center gap-2">
-              <Zap className="w-4 h-4 text-yellow-400" />
+              <Zap className="w-4 h-4 text-amber-500" />
               <span className="font-medium">{metadata.events_analyzed}</span> events
             </span>
             {metadata.generated_at && (
               <span className="flex items-center gap-2">
-                <Clock className="w-4 h-4 text-blue-400" />
+                <Clock className="w-4 h-4 text-blue-500" />
                 {new Date(metadata.generated_at).toLocaleString()}
               </span>
             )}
@@ -422,7 +1055,7 @@ function BriefDisplay({
           <Button
             variant="ghost"
             size="sm"
-            className="text-white hover:bg-slate-700"
+            className="text-pink-600 hover:bg-pink-200"
             onClick={() => setShowMetadata(!showMetadata)}
           >
             {showMetadata ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
@@ -433,8 +1066,8 @@ function BriefDisplay({
 
       {/* Quality Gates */}
       {metadata && (metadata.quality_gates_passed || metadata.quality_gates_failed) && (
-        <div className="p-3 bg-slate-100 rounded-lg border border-slate-200">
-          <p className="text-xs font-semibold text-slate-600 mb-2 uppercase tracking-wide">Quality Gates</p>
+        <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+          <p className="text-xs font-semibold text-gray-600 mb-2 uppercase tracking-wide">Quality Gates</p>
           <QualityGatesDisplay
             passed={metadata.quality_gates_passed}
             failed={metadata.quality_gates_failed}
@@ -443,9 +1076,9 @@ function BriefDisplay({
       )}
 
       {showMetadata && metadata && (
-        <Card className="bg-slate-50 border-slate-200">
+        <Card className="bg-gray-50 border-gray-200">
           <CardContent className="pt-4">
-            <pre className="text-xs overflow-auto max-h-48 text-slate-700">
+            <pre className="text-xs overflow-auto max-h-48 text-gray-700">
               {JSON.stringify(metadata, null, 2)}
             </pre>
           </CardContent>
@@ -455,121 +1088,9 @@ function BriefDisplay({
       {/* Events Summary */}
       <EventsSummary events={events} />
 
-      {/* Brief content - improved typography and table styling */}
-      <div className={`prose prose-slate prose-sm max-w-none ${isStreaming ? 'animate-pulse' : ''}`}>
-        <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
-          components={{
-            // Custom rendering for headings - more contrast
-            h1: ({ children }) => (
-              <h1 className="text-2xl font-bold text-slate-900 border-b-2 border-pink-500 pb-2 mb-6">{children}</h1>
-            ),
-            h2: ({ children }) => (
-              <h2 className="text-xl font-bold text-slate-800 mt-8 mb-4 pb-2 border-b border-slate-200">
-                {children}
-              </h2>
-            ),
-            h3: ({ children }) => (
-              <h3 className="text-lg font-semibold text-slate-700 mt-6 mb-3">{children}</h3>
-            ),
-            h4: ({ children }) => (
-              <h4 className="text-base font-semibold text-slate-600 mt-4 mb-2">{children}</h4>
-            ),
-            // Paragraphs with better contrast
-            p: ({ children }) => (
-              <p className="my-3 text-slate-700 leading-relaxed">{children}</p>
-            ),
-            // Style lists
-            ul: ({ children }) => (
-              <ul className="my-3 space-y-2 list-disc pl-5 text-slate-700">{children}</ul>
-            ),
-            ol: ({ children }) => (
-              <ol className="my-3 space-y-2 list-decimal pl-5 text-slate-700">{children}</ol>
-            ),
-            li: ({ children }) => (
-              <li className="text-slate-700 leading-relaxed">{children}</li>
-            ),
-            // TABLE STYLING - Key fix
-            table: ({ children }) => (
-              <div className="my-6 overflow-x-auto rounded-lg border border-slate-300 shadow-sm">
-                <table className="min-w-full divide-y divide-slate-300">
-                  {children}
-                </table>
-              </div>
-            ),
-            thead: ({ children }) => (
-              <thead className="bg-slate-700 text-white">
-                {children}
-              </thead>
-            ),
-            tbody: ({ children }) => (
-              <tbody className="bg-white divide-y divide-slate-200">
-                {children}
-              </tbody>
-            ),
-            tr: ({ children }) => (
-              <tr className="hover:bg-slate-50 transition-colors">
-                {children}
-              </tr>
-            ),
-            th: ({ children }) => (
-              <th className="px-4 py-3 text-left text-xs font-bold uppercase tracking-wider text-white">
-                {children}
-              </th>
-            ),
-            td: ({ children }) => (
-              <td className="px-4 py-3 text-sm text-slate-700 whitespace-normal">
-                {children}
-              </td>
-            ),
-            // Style code/pre for audit sections
-            code: ({ children }) => (
-              <code className="bg-slate-100 text-slate-800 px-1.5 py-0.5 rounded text-sm font-mono border border-slate-200">{children}</code>
-            ),
-            pre: ({ children }) => (
-              <pre className="bg-slate-800 text-slate-100 p-4 rounded-lg overflow-x-auto my-4 text-sm">
-                {children}
-              </pre>
-            ),
-            // Style blockquotes - more prominent
-            blockquote: ({ children }) => (
-              <blockquote className="border-l-4 border-pink-500 bg-pink-50 pl-4 pr-4 py-3 italic text-slate-700 my-4 rounded-r-lg">
-                {children}
-              </blockquote>
-            ),
-            // Style horizontal rules
-            hr: () => <hr className="my-8 border-t-2 border-slate-200" />,
-            // Style strong/bold with importance indicators
-            strong: ({ children }) => {
-              const text = String(children);
-              if (text.includes('CRITICAL') || text.includes('THREAT')) {
-                return <strong className="text-red-600 font-bold bg-red-50 px-1 rounded">{children}</strong>;
-              }
-              if (text.includes('HIGH') || text.includes('OPPORTUNITY')) {
-                return <strong className="text-orange-600 font-bold bg-orange-50 px-1 rounded">{children}</strong>;
-              }
-              if (text.includes('MEDIUM') || text.includes('MODERATE')) {
-                return <strong className="text-yellow-700 font-bold bg-yellow-50 px-1 rounded">{children}</strong>;
-              }
-              if (text.includes('LOW') || text.includes('WATCH')) {
-                return <strong className="text-blue-600 font-semibold">{children}</strong>;
-              }
-              return <strong className="font-bold text-slate-900">{children}</strong>;
-            },
-            // Style emphasis
-            em: ({ children }) => (
-              <em className="text-slate-600 italic">{children}</em>
-            ),
-            // Style links
-            a: ({ children, href }) => (
-              <a href={href} className="text-pink-600 hover:text-pink-800 underline font-medium" target="_blank" rel="noopener noreferrer">
-                {children}
-              </a>
-            ),
-          }}
-        >
-          {content}
-        </ReactMarkdown>
+      {/* Brief content - enhanced rendering with cards and timeline for special sections */}
+      <div className={`prose prose-gray prose-sm max-w-none ${isStreaming ? 'animate-pulse' : ''}`}>
+        <EnhancedSectionRenderer content={content} />
         {isStreaming && (
           <span className="inline-block w-2 h-5 bg-pink-500 animate-pulse ml-1" />
         )}
@@ -615,10 +1136,10 @@ export function IntelligenceBrief({
       <div>
         <h2 className="text-xl font-semibold text-gray-900 flex items-center gap-2">
           <Shield className="w-5 h-5 text-pink-500" />
-          Strategic Intelligence Oracle
+          Situation Assessment
         </h2>
         <p className="text-sm text-gray-500 mt-1">
-          24-hour news analysis with BBC/Wiley quality standards
+          24-hour strategic intelligence scan with quality-verified sources
         </p>
       </div>
 
@@ -734,8 +1255,8 @@ export function IntelligenceBrief({
       )}
 
       {/* Brief display */}
-      <Card className="border-slate-200 shadow-md">
-        <CardContent className="pt-6 bg-gradient-to-b from-white to-slate-50">
+      <Card className="border-gray-200 shadow-md">
+        <CardContent className="pt-6 bg-gradient-to-b from-white to-gray-50">
           <BriefDisplay
             content={briefContent}
             metadata={scanResult?.metadata}
