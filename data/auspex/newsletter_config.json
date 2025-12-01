@@ -1,6 +1,6 @@
 {
-  "title": "UAP Digest",
-  "intro": "UAP Digest",
+  "title": "Curious AI Newsletter",
+  "intro": "For pragmatic decision-makers & foresight pros. Techno-realism, second-order effects, and a touch of Stratechery wit.",
   "days_back": 7,
   "deep_dive_topic": "",
   "agents": {
@@ -14,5 +14,14 @@
       "temperature": 0.5,
       "max_tokens": 16000
     }
+  },
+  "section_limits": {
+    "policy_regulation": 5,
+    "models_research": 5,
+    "enterprise_adoption": 5,
+    "market_funding": 8,
+    "risk_trust": 4,
+    "weird_unusual": 3,
+    "general": 6
   }
 }
