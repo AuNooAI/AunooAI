@@ -104,6 +104,9 @@ interface FocusGroupProps {
   onLoadSavedFocusGroups: (topic: string) => Promise<void>;
   onLoadSavedFocusGroup: (id: number) => Promise<void>;
   onDeleteSavedFocusGroup: (id: number) => Promise<void>;
+  // External control of save dialog (for header button)
+  showSaveDialog?: boolean;
+  onShowSaveDialogChange?: (show: boolean) => void;
 }
 
 // Stage indicator component
@@ -728,11 +731,22 @@ export function FocusGroup({
   onLoadSavedFocusGroups,
   onLoadSavedFocusGroup,
   onDeleteSavedFocusGroup,
+  // External control of save dialog
+  showSaveDialog: externalShowSaveDialog,
+  onShowSaveDialogChange,
 }: FocusGroupProps) {
   const [showConfig, setShowConfig] = useState(false);
 
-  // Save dialog state
-  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  // Save dialog state - can be controlled externally or internally
+  const [internalShowSaveDialog, setInternalShowSaveDialog] = useState(false);
+  const showSaveDialog = externalShowSaveDialog ?? internalShowSaveDialog;
+  const setShowSaveDialog = (show: boolean) => {
+    if (onShowSaveDialogChange) {
+      onShowSaveDialogChange(show);
+    } else {
+      setInternalShowSaveDialog(show);
+    }
+  };
   const [saveName, setSaveName] = useState('');
   const [saveDescription, setSaveDescription] = useState('');
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -776,7 +790,10 @@ export function FocusGroup({
   };
 
   const handleExport = async (format: 'json' | 'markdown' | 'articles') => {
-    if (!result) return;
+    if (!result) {
+      console.error('No result available for export');
+      return;
+    }
 
     try {
       let content: string;
@@ -789,7 +806,30 @@ export function FocusGroup({
         mimeType = 'application/json';
       } else if (format === 'articles') {
         // Export article reference list
-        const articles = result.articles || [];
+        let articles = result.articles || [];
+
+        // If no articles in result, try to extract from persona source_articles
+        if (articles.length === 0 && personas.length > 0) {
+          const uniqueUris = new Set<string>();
+          for (const persona of personas) {
+            for (const uri of persona.source_articles || []) {
+              if (uri) uniqueUris.add(uri);
+            }
+          }
+          // Create minimal article references from URIs
+          articles = Array.from(uniqueUris).map(uri => ({
+            title: uri.split('/').pop() || 'Article',
+            uri: uri,
+            source: 'Unknown',
+            published_at: undefined
+          }));
+        }
+
+        if (articles.length === 0) {
+          alert('No article references available. The focus group may have been loaded from cache without article data.');
+          return;
+        }
+
         const lines = [
           `# Article References for Focus Group: ${topic}`,
           '',
@@ -1116,23 +1156,7 @@ export function FocusGroup({
             )}
           </div>
           <div className="flex items-center gap-2">
-            {/* Export buttons */}
-            <Button variant="outline" size="sm" onClick={() => handleExport('json')}>
-              <Download className="w-4 h-4 mr-1" />
-              JSON
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => handleExport('markdown')}>
-              <Download className="w-4 h-4 mr-1" />
-              Markdown
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => handleExport('articles')}>
-              <Download className="w-4 h-4 mr-1" />
-              Articles
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setShowSaveDialog(true)} disabled={isSaving}>
-              {isSaving ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Save className="w-4 h-4 mr-1" />}
-              Save
-            </Button>
+            {/* Clear button only - Save moved to App.tsx header for consistency */}
             <Button variant="ghost" size="sm" onClick={onClearResults}>
               <Trash2 className="w-4 h-4 mr-1" />
               Clear

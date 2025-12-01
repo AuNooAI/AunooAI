@@ -130,6 +130,8 @@ function App() {
   const [fgIncludePsychographics, setFgIncludePsychographics] = useState(true);
   const [fgIncludeVoice, setFgIncludeVoice] = useState(true);
   const [isFgTuneOpen, setIsFgTuneOpen] = useState(false);
+  const [showFgReferencesModal, setShowFgReferencesModal] = useState(false);
+  const [showFgSaveDialog, setShowFgSaveDialog] = useState(false);
 
   // Executive Briefing state - lifted from ExecutiveBriefing component
   const executiveBriefing = useExecutiveBriefing();
@@ -562,7 +564,18 @@ function App() {
   };
 
   const handleViewRaw = async () => {
-    // Get analysis_id from data
+    // Handle focus-group tab separately - uses focusGroup.result not data
+    if (activeTab === 'focus-group') {
+      if (!focusGroup.result) {
+        alert('No focus group data found. Please generate a focus group first.');
+        return;
+      }
+      setRawAnalysisData(focusGroup.result);
+      setShowRawModal(true);
+      return;
+    }
+
+    // Get analysis_id from data for other tabs
     const analysisId = data?.analysis_id;
     if (!analysisId) {
       alert('No analysis ID found. Please generate an analysis first.');
@@ -1386,7 +1399,7 @@ function App() {
               <>
                 <button
                   onClick={() => handleExport('pdf')}
-                  disabled={!data}
+                  disabled={activeTab === 'focus-group' ? !focusGroup.result : !data}
                   className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Download className="w-4 h-4" />
@@ -1394,7 +1407,7 @@ function App() {
                 </button>
                 <button
                   onClick={() => handleExport('image')}
-                  disabled={!data}
+                  disabled={activeTab === 'focus-group' ? !focusGroup.result : !data}
                   className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <ImageIcon className="w-4 h-4" />
@@ -1402,13 +1415,14 @@ function App() {
                 </button>
                 <button
                   onClick={handleViewRaw}
-                  disabled={!data?.analysis_id || loadingRaw}
+                  disabled={(activeTab === 'focus-group' ? !focusGroup.result : !data?.analysis_id) || loadingRaw}
                   className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Code className="w-4 h-4" />
                   {loadingRaw ? 'Loading...' : 'Raw'}
                 </button>
-                {data?.analysis_id && (
+                {/* References button - for standard dashboards */}
+                {activeTab !== 'focus-group' && data?.analysis_id && (
                   <div className="reference-articles-button-wrapper">
                     <ArticleCitations
                       dashboardType={
@@ -1424,11 +1438,27 @@ function App() {
                     />
                   </div>
                 )}
+                {/* References button - for focus group (uses articles from result) */}
+                {activeTab === 'focus-group' && focusGroup.result && (
+                  <button
+                    onClick={() => setShowFgReferencesModal(true)}
+                    className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                  >
+                    <FileText className="w-4 h-4" />
+                    References
+                  </button>
+                )}
 
                 {/* Save Dashboard Button */}
                 <button
-                  onClick={() => setShowSaveDialog(true)}
-                  disabled={!data}
+                  onClick={() => {
+                    if (activeTab === 'focus-group') {
+                      setShowFgSaveDialog(true);
+                    } else {
+                      setShowSaveDialog(true);
+                    }
+                  }}
+                  disabled={activeTab === 'focus-group' ? !focusGroup.result : !data}
                   className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Save className="w-4 h-4" />
@@ -1547,6 +1577,8 @@ function App() {
               onLoadSavedFocusGroups={focusGroup.loadSavedFocusGroups}
               onLoadSavedFocusGroup={focusGroup.loadSavedFocusGroup}
               onDeleteSavedFocusGroup={focusGroup.deleteSavedFocusGroup}
+              showSaveDialog={showFgSaveDialog}
+              onShowSaveDialogChange={setShowFgSaveDialog}
             />
           ) : activeTab === 'executive-briefing' ? (
             <ExecutiveBriefing
@@ -2534,6 +2566,90 @@ function App() {
         </Dialog>
       )}
 
+      {/* Focus Group References Modal */}
+      {showFgReferencesModal && (
+        <Dialog open={showFgReferencesModal} onOpenChange={setShowFgReferencesModal}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Reference Articles</DialogTitle>
+              <DialogDescription>
+                Articles analyzed for this focus group ({focusGroup.result?.articles?.length || 0} total)
+              </DialogDescription>
+            </DialogHeader>
+            <div className="mt-4">
+              {focusGroup.result?.articles && focusGroup.result.articles.length > 0 ? (
+                <>
+                  <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                    {focusGroup.result.articles.map((article, idx) => (
+                      <div key={idx} className="p-3 border rounded-lg hover:bg-gray-50">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            {article.uri ? (
+                              <a
+                                href={article.uri}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm font-medium text-blue-600 hover:underline block truncate"
+                              >
+                                {idx + 1}. {article.title}
+                              </a>
+                            ) : (
+                              <span className="text-sm font-medium text-gray-800 block truncate">
+                                {idx + 1}. {article.title}
+                              </span>
+                            )}
+                            <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                              <span>{article.source}</span>
+                              {article.published_at && (
+                                <span>{new Date(article.published_at).toLocaleDateString()}</span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        // Download as TXT
+                        let txt = `Reference Articles - Focus Group\n`;
+                        txt += `Total: ${focusGroup.result?.articles?.length || 0}\n`;
+                        txt += `Generated: ${new Date().toLocaleString()}\n\n`;
+                        txt += '='.repeat(80) + '\n\n';
+                        focusGroup.result?.articles?.forEach((a, i) => {
+                          txt += `${i + 1}. ${a.title}\n`;
+                          txt += `   Source: ${a.source}\n`;
+                          if (a.published_at) txt += `   Published: ${new Date(a.published_at).toLocaleDateString()}\n`;
+                          if (a.uri) txt += `   URL: ${a.uri}\n`;
+                          txt += '\n';
+                        });
+                        const blob = new Blob([txt], { type: 'text/plain' });
+                        const url = URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.download = `references-focus-group-${Date.now()}.txt`;
+                        link.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                    >
+                      Download as TXT
+                    </Button>
+                    <Button onClick={() => setShowFgReferencesModal(false)} variant="outline" size="sm">
+                      Close
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-gray-500 text-center py-8">No reference articles available.</p>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {/* EOS Raw Modal */}
       {showEosRawModal && (
         <Dialog open={showEosRawModal} onOpenChange={setShowEosRawModal}>
@@ -2666,22 +2782,36 @@ function App() {
             <DialogHeader>
               <DialogTitle>Raw Analysis Output</DialogTitle>
               <DialogDescription>
-                Stored analysis data from database
+                {rawAnalysisData?.scan_id ? 'Focus Group data' : 'Stored analysis data from database'}
               </DialogDescription>
             </DialogHeader>
             <div className="mt-4">
               {rawAnalysisData && (
                 <>
                   <div className="mb-4 text-sm text-gray-600">
-                    <p><strong>Analysis ID:</strong> {rawAnalysisData.analysis_id}</p>
-                    <p><strong>Topic:</strong> {rawAnalysisData.topic}</p>
-                    <p><strong>Model:</strong> {rawAnalysisData.model_used}</p>
-                    <p><strong>Created:</strong> {rawAnalysisData.created_at}</p>
-                    <p><strong>Articles Analyzed:</strong> {rawAnalysisData.total_articles_analyzed}</p>
+                    {/* Focus Group data format */}
+                    {rawAnalysisData.scan_id ? (
+                      <>
+                        <p><strong>Scan ID:</strong> {rawAnalysisData.scan_id}</p>
+                        <p><strong>Topic:</strong> {rawAnalysisData.metadata?.topic}</p>
+                        <p><strong>Generated:</strong> {rawAnalysisData.metadata?.generated_at}</p>
+                        <p><strong>Personas:</strong> {rawAnalysisData.metadata?.personas_generated}</p>
+                        <p><strong>Articles Analyzed:</strong> {rawAnalysisData.metadata?.articles_analyzed}</p>
+                      </>
+                    ) : (
+                      /* Standard dashboard data format */
+                      <>
+                        <p><strong>Analysis ID:</strong> {rawAnalysisData.analysis_id}</p>
+                        <p><strong>Topic:</strong> {rawAnalysisData.topic}</p>
+                        <p><strong>Model:</strong> {rawAnalysisData.model_used}</p>
+                        <p><strong>Created:</strong> {rawAnalysisData.created_at}</p>
+                        <p><strong>Articles Analyzed:</strong> {rawAnalysisData.total_articles_analyzed}</p>
+                      </>
+                    )}
                   </div>
                   <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                    <pre className="text-xs overflow-y-auto whitespace-pre-wrap break-all">
-                      {JSON.stringify(rawAnalysisData.raw_output, null, 2)}
+                    <pre className="text-xs overflow-y-auto whitespace-pre-wrap break-all max-h-[50vh]">
+                      {JSON.stringify(rawAnalysisData.scan_id ? rawAnalysisData : rawAnalysisData.raw_output, null, 2)}
                     </pre>
                   </div>
                   <div className="mt-4 flex gap-2">
