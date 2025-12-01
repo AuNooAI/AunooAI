@@ -9240,3 +9240,168 @@ class DatabaseQueryFacade:
                 }
             }
         }
+
+    # =====================================================
+    # Keyword Relevance Analysis Methods
+    # =====================================================
+
+    def get_keyword_relevance_stats(self):
+        """Get relevance statistics for all keywords across all groups.
+
+        Returns aggregated stats including:
+        - keyword_id, keyword, group_id, group_name, topic
+        - total_matches, avg_relevance, avg_topic_alignment, avg_confidence
+        - high_relevance_count (>=0.7), low_relevance_count (<0.4)
+        """
+        query = text("""
+            WITH keyword_matches AS (
+                -- Expand keyword_ids to individual keywords
+                SELECT
+                    kam.article_uri,
+                    kam.group_id,
+                    unnest(string_to_array(kam.keyword_ids, ','))::int as keyword_id
+                FROM keyword_article_matches kam
+            )
+            SELECT
+                mk.id as keyword_id,
+                mk.keyword,
+                kg.id as group_id,
+                kg.name as group_name,
+                kg.topic,
+                COUNT(DISTINCT km.article_uri) as total_matches,
+                ROUND(AVG(a.keyword_relevance_score)::numeric, 3) as avg_relevance,
+                ROUND(AVG(a.topic_alignment_score)::numeric, 3) as avg_topic_alignment,
+                ROUND(AVG(a.confidence_score)::numeric, 3) as avg_confidence,
+                COUNT(DISTINCT CASE WHEN a.keyword_relevance_score >= 0.7 THEN km.article_uri END) as high_relevance_count,
+                COUNT(DISTINCT CASE WHEN a.keyword_relevance_score < 0.4 THEN km.article_uri END) as low_relevance_count
+            FROM monitored_keywords mk
+            JOIN keyword_groups kg ON mk.group_id = kg.id
+            LEFT JOIN keyword_matches km ON km.keyword_id = mk.id AND km.group_id = kg.id
+            LEFT JOIN articles a ON km.article_uri = a.uri AND a.keyword_relevance_score IS NOT NULL
+            GROUP BY mk.id, mk.keyword, kg.id, kg.name, kg.topic
+            ORDER BY avg_relevance DESC NULLS LAST
+        """)
+
+        result = self._execute_with_rollback(query)
+        return result.mappings().fetchall()
+
+    def get_articles_for_keyword(self, keyword_id: int, group_id: int, relevance_filter: str = 'all', limit: int = 50):
+        """Get articles matched to a specific keyword with relevance data.
+
+        Args:
+            keyword_id: The monitored_keywords.id
+            group_id: The keyword_groups.id
+            relevance_filter: 'all', 'high' (>=0.7), or 'low' (<0.4)
+            limit: Maximum number of articles to return
+
+        Returns articles with uri, title, news_source, publication_date,
+        keyword_relevance_score, topic_alignment_score, confidence_score,
+        overall_match_explanation, extracted_article_keywords
+        """
+        # Build relevance filter condition
+        relevance_condition = ""
+        if relevance_filter == 'high':
+            relevance_condition = "AND a.keyword_relevance_score >= 0.7"
+        elif relevance_filter == 'low':
+            relevance_condition = "AND a.keyword_relevance_score < 0.4"
+
+        query = text(f"""
+            WITH keyword_matches AS (
+                SELECT
+                    kam.article_uri,
+                    kam.group_id,
+                    unnest(string_to_array(kam.keyword_ids, ','))::int as keyword_id
+                FROM keyword_article_matches kam
+                WHERE kam.group_id = :group_id
+            )
+            SELECT DISTINCT
+                a.uri,
+                a.title,
+                a.news_source,
+                a.publication_date,
+                a.keyword_relevance_score,
+                a.topic_alignment_score,
+                a.confidence_score,
+                a.overall_match_explanation,
+                a.extracted_article_keywords
+            FROM keyword_matches km
+            JOIN articles a ON km.article_uri = a.uri
+            WHERE km.keyword_id = :keyword_id
+            AND a.keyword_relevance_score IS NOT NULL
+            {relevance_condition}
+            ORDER BY a.keyword_relevance_score DESC
+            LIMIT :limit
+        """)
+
+        result = self._execute_with_rollback(query, {
+            'keyword_id': keyword_id,
+            'group_id': group_id,
+            'limit': limit
+        })
+        return result.mappings().fetchall()
+
+    def get_source_distribution_by_relevance(self, group_id: int = None):
+        """Get news source distribution split by high/low relevance.
+
+        Args:
+            group_id: Optional group_id to filter by. If None, returns all sources.
+
+        Returns sources with:
+        - news_source, total_count, high_relevance_count, low_relevance_count
+        - avg_relevance, bias
+        """
+        group_filter = "WHERE kam.group_id = :group_id" if group_id else ""
+
+        query = text(f"""
+            SELECT
+                a.news_source,
+                COUNT(DISTINCT a.uri) as total_count,
+                COUNT(DISTINCT CASE WHEN a.keyword_relevance_score >= 0.7 THEN a.uri END) as high_relevance_count,
+                COUNT(DISTINCT CASE WHEN a.keyword_relevance_score < 0.4 THEN a.uri END) as low_relevance_count,
+                ROUND(AVG(a.keyword_relevance_score)::numeric, 3) as avg_relevance,
+                MAX(a.bias) as bias
+            FROM keyword_article_matches kam
+            JOIN articles a ON kam.article_uri = a.uri
+            {group_filter}
+            AND a.keyword_relevance_score IS NOT NULL
+            AND a.news_source IS NOT NULL
+            AND a.news_source != ''
+            GROUP BY a.news_source
+            ORDER BY total_count DESC
+            LIMIT 50
+        """)
+
+        params = {'group_id': group_id} if group_id else {}
+        result = self._execute_with_rollback(query, params)
+        return result.mappings().fetchall()
+
+    def get_low_relevance_article_titles_for_keyword(self, keyword_id: int, group_id: int, limit: int = 10):
+        """Get sample low-relevance article titles for a keyword (for LLM analysis).
+
+        Returns list of titles from articles with keyword_relevance_score < 0.4
+        """
+        query = text("""
+            WITH keyword_matches AS (
+                SELECT
+                    kam.article_uri,
+                    kam.group_id,
+                    unnest(string_to_array(kam.keyword_ids, ','))::int as keyword_id
+                FROM keyword_article_matches kam
+                WHERE kam.group_id = :group_id
+            )
+            SELECT a.title
+            FROM keyword_matches km
+            JOIN articles a ON km.article_uri = a.uri
+            WHERE km.keyword_id = :keyword_id
+            AND a.keyword_relevance_score IS NOT NULL
+            AND a.keyword_relevance_score < 0.4
+            ORDER BY a.keyword_relevance_score ASC
+            LIMIT :limit
+        """)
+
+        result = self._execute_with_rollback(query, {
+            'keyword_id': keyword_id,
+            'group_id': group_id,
+            'limit': limit
+        })
+        return [row['title'] for row in result.mappings().fetchall()]
