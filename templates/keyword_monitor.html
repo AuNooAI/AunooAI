@@ -27,71 +27,196 @@
 
     <!-- Scrollable Content Area -->
     <div class="keyword-monitor-scrollable">
-        <!-- New Group Button -->
-        <div class="mb-4">
-            <button class="btn-action-subtle" onclick="showNewGroupModal()" title="Create a new group of keywords to monitor">
-                <i class="fas fa-plus"></i> New Group
-            </button>
-        </div>
+        <!-- Tab Navigation -->
+        <ul class="nav nav-tabs mb-4" id="keywordMonitorTabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="groups-tab" data-bs-toggle="tab"
+                        data-bs-target="#groups-content" type="button" role="tab">
+                    <i class="fas fa-layer-group me-2"></i>Keyword Groups
+                </button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="analysis-tab" data-bs-toggle="tab"
+                        data-bs-target="#analysis-content" type="button" role="tab"
+                        onclick="console.log('INLINE: Analysis tab clicked'); if(typeof loadRelevanceAnalysis === 'function' && !window.analysisDataLoaded) { setTimeout(loadRelevanceAnalysis, 200); }">
+                    <i class="fas fa-chart-line me-2"></i>Relevance Analysis
+                </button>
+            </li>
+        </ul>
 
-        {% if not keyword_groups %}
-        <div class="alert alert-info">
-            <i class="fas fa-info-circle"></i>
-            Get started by creating a keyword group. Each group can monitor multiple related keywords.
-        </div>
-        {% endif %}
+        <!-- Tab Content -->
+        <div class="tab-content" id="keywordMonitorTabContent">
+            <!-- Keyword Groups Tab -->
+            <div class="tab-pane fade show active" id="groups-content" role="tabpanel">
+                <!-- New Group Button -->
+                <div class="mb-4">
+                    <button class="btn-action-subtle" onclick="showNewGroupModal()" title="Create a new group of keywords to monitor">
+                        <i class="fas fa-plus"></i> New Group
+                    </button>
+                </div>
 
-        <div class="row">
-            {% for group in keyword_groups %}
-            <div class="col-md-6 mb-4">
-                <div class="card" id="group-{{ group.id }}">
-                    <div class="card-header">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <h5 class="mb-0">{{ group.name }}</h5>
-                            <span class="badge bg-secondary"
-                                  data-tooltip="Topic this group belongs to">
-                                Topic: {{ group.topic }}
-                            </span>
+                {% if not keyword_groups %}
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle"></i>
+                    Get started by creating a keyword group. Each group can monitor multiple related keywords.
+                </div>
+                {% endif %}
+
+                <div class="row">
+                    {% for group in keyword_groups %}
+                    <div class="col-md-6 mb-4">
+                        <div class="card" id="group-{{ group.id }}">
+                            <div class="card-header">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h5 class="mb-0">{{ group.name }}</h5>
+                                    <span class="badge bg-secondary"
+                                          data-tooltip="Topic this group belongs to">
+                                        Topic: {{ group.topic }}
+                                    </span>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    {% if group.keywords %}
+                                    <h6 class="mb-2">Monitored Keywords:</h6>
+                                    <div class="d-flex gap-2 flex-wrap">
+                                        {% for keyword in group.keywords %}
+                                        <div class="keyword-badge">
+                                            {{ keyword.keyword }}
+                                            <button class="btn-close"
+                                                    onclick="deleteKeyword({{ keyword.id }})"
+                                                    data-tooltip="Remove this keyword"
+                                                    aria-label="Delete keyword"></button>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                    {% else %}
+                                    <div class="alert alert-light">
+                                        <i class="fas fa-lightbulb"></i>
+                                        Add keywords to start monitoring news articles for this group.
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                <div class="d-flex justify-content-between">
+                                    <button class="btn-action-subtle"
+                                            onclick="showAddKeywordModal({{ group.id }})"
+                                            data-tooltip="Add a new keyword to this group">
+                                        <i class="fas fa-plus"></i> Add Keyword
+                                    </button>
+                                    <button class="btn-danger-subtle"
+                                            onclick="deleteGroup({{ group.id }})"
+                                            data-tooltip="Delete this entire group">
+                                        <i class="fas fa-trash"></i> Delete Group
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <div class="card-body">
-                        <div class="mb-3">
-                            {% if group.keywords %}
-                            <h6 class="mb-2">Monitored Keywords:</h6>
-                            <div class="d-flex gap-2 flex-wrap">
-                                {% for keyword in group.keywords %}
-                                <div class="keyword-badge">
-                                    {{ keyword.keyword }}
-                                    <button class="btn-close"
-                                            onclick="deleteKeyword({{ keyword.id }})"
-                                            data-tooltip="Remove this keyword"
-                                            aria-label="Delete keyword"></button>
-                                </div>
-                                {% endfor %}
+                    {% endfor %}
+                </div>
+            </div>
+
+            <!-- Relevance Analysis Tab -->
+            <div class="tab-pane fade" id="analysis-content" role="tabpanel">
+                <!-- Loading indicator -->
+                <div id="analysisLoading" class="text-center py-5">
+                    <i class="fas fa-spinner fa-spin fa-2x text-muted"></i>
+                    <p class="mt-3 text-muted">Loading relevance analysis...</p>
+                </div>
+
+                <!-- Analysis content (hidden until loaded) -->
+                <div id="analysisData" style="display: none;">
+                    <!-- Summary Stats Cards -->
+                    <div class="row mb-4">
+                        <div class="col-md-3 col-sm-6 mb-3">
+                            <div class="stats-card">
+                                <div class="stats-value" id="totalKeywordsCount">--</div>
+                                <div class="stats-label">Keywords Monitored</div>
                             </div>
-                            {% else %}
-                            <div class="alert alert-light">
-                                <i class="fas fa-lightbulb"></i>
-                                Add keywords to start monitoring news articles for this group.
-                            </div>
-                            {% endif %}
                         </div>
-                        <div class="d-flex justify-content-between">
-                            <button class="btn-action-subtle"
-                                    onclick="showAddKeywordModal({{ group.id }})"
-                                    data-tooltip="Add a new keyword to this group">
-                                <i class="fas fa-plus"></i> Add Keyword
-                            </button>
-                            <button class="btn-danger-subtle"
-                                    onclick="deleteGroup({{ group.id }})"
-                                    data-tooltip="Delete this entire group">
-                                <i class="fas fa-trash"></i> Delete Group
-                            </button>
+                        <div class="col-md-3 col-sm-6 mb-3">
+                            <div class="stats-card">
+                                <div class="stats-value" id="totalArticlesCount">--</div>
+                                <div class="stats-label">Total Articles</div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 col-sm-6 mb-3">
+                            <div class="stats-card">
+                                <div class="stats-value" id="avgRelevanceScore">--</div>
+                                <div class="stats-label">Avg Relevance</div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 col-sm-6 mb-3">
+                            <div class="stats-card">
+                                <div class="stats-value" id="highRelevancePct">--</div>
+                                <div class="stats-label">High Relevance %</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Keyword Performance Table -->
+                    <div class="card mb-4">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0"><i class="fas fa-chart-bar me-2"></i>Keyword Performance</h5>
+                            <div class="d-flex gap-2 align-items-center">
+                                <label class="me-2 mb-0 text-muted small">Sort by:</label>
+                                <select id="sortKeywordsBy" class="form-select form-select-sm" style="width: auto;" onchange="sortKeywordTable()">
+                                    <option value="relevance_desc">Relevance (High to Low)</option>
+                                    <option value="relevance_asc">Relevance (Low to High)</option>
+                                    <option value="matches_desc">Matches (Most)</option>
+                                    <option value="matches_asc">Matches (Least)</option>
+                                    <option value="high_pct_desc">High Relevance % (Best)</option>
+                                    <option value="low_pct_desc">Low Relevance % (Worst)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-hover mb-0" id="keywordStatsTable">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th style="min-width: 250px;">Keyword</th>
+                                            <th class="text-center">Matches</th>
+                                            <th class="text-center">Avg Relevance</th>
+                                            <th style="min-width: 200px;">High/Low Split</th>
+                                            <th class="text-center">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="keywordStatsBody">
+                                        <!-- Populated by JavaScript -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Source Distribution Table -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0"><i class="fas fa-newspaper me-2"></i>Source Distribution</h5>
+                        </div>
+                        <div class="card-body p-0">
+                            <div class="table-responsive">
+                                <table class="table table-hover mb-0" id="sourceDistributionTable">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>News Source</th>
+                                            <th class="text-center">Total</th>
+                                            <th class="text-center">High Rel.</th>
+                                            <th class="text-center">Low Rel.</th>
+                                            <th class="text-center">Avg Relevance</th>
+                                            <th class="text-center">Bias</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="sourceDistributionBody">
+                                        <!-- Populated by JavaScript -->
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
-            {% endfor %}
         </div>
     </div>
 </div>
@@ -169,6 +294,126 @@
             <div class="modal-footer">
                 <button type="button" class="btn-gray-subtle" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn-action-subtle" onclick="addKeyword()">Add Keyword</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Article Analysis Modal -->
+<div class="modal fade" id="articleAnalysisModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-search me-2"></i>Articles for: <span id="modalKeywordName" class="text-muted"></span>
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Filter controls -->
+                <div class="mb-3 d-flex gap-2 align-items-center">
+                    <span class="text-muted me-2">Filter:</span>
+                    <button class="btn-filter active" data-filter="all" onclick="filterArticles('all')">All</button>
+                    <button class="btn-filter" data-filter="high" onclick="filterArticles('high')">
+                        <i class="fas fa-check-circle text-success me-1"></i>High Relevance
+                    </button>
+                    <button class="btn-filter" data-filter="low" onclick="filterArticles('low')">
+                        <i class="fas fa-exclamation-circle text-danger me-1"></i>Low Relevance
+                    </button>
+                </div>
+
+                <!-- Loading indicator -->
+                <div id="articlesLoading" class="text-center py-4">
+                    <i class="fas fa-spinner fa-spin"></i> Loading articles...
+                </div>
+
+                <!-- Articles table -->
+                <div id="articlesTableContainer" style="display: none;">
+                    <div class="table-responsive" style="max-height: 500px; overflow-y: auto;">
+                        <table class="table table-sm table-hover">
+                            <thead class="table-light sticky-top">
+                                <tr>
+                                    <th style="min-width: 300px;">Title</th>
+                                    <th>Source</th>
+                                    <th>Date</th>
+                                    <th class="text-center">Relevance</th>
+                                    <th class="text-center">Topic</th>
+                                    <th>Explanation</th>
+                                </tr>
+                            </thead>
+                            <tbody id="articlesTableBody">
+                                <!-- Populated by JavaScript -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="mt-2 text-muted small" id="articlesCount"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-gray-subtle" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Keyword Suggestions Modal -->
+<div class="modal fade" id="suggestionsModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-magic me-2"></i>Keyword Refinement Suggestions
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <!-- Loading indicator -->
+                <div id="suggestionsLoading" class="text-center py-4">
+                    <i class="fas fa-spinner fa-spin fa-2x"></i>
+                    <p class="mt-3">Analyzing keyword performance with AI...</p>
+                    <p class="text-muted small">This may take a few seconds</p>
+                </div>
+
+                <!-- Suggestions content -->
+                <div id="suggestionsContent" style="display: none;">
+                    <!-- Original keyword -->
+                    <div class="mb-4">
+                        <label class="form-label text-muted small">Original Keyword Pattern:</label>
+                        <code id="originalKeywordDisplay" class="d-block p-2 bg-light rounded" style="word-break: break-all;"></code>
+                    </div>
+
+                    <!-- AI Analysis -->
+                    <div class="alert alert-info mb-4" id="llmAnalysisBox">
+                        <h6 class="alert-heading"><i class="fas fa-robot me-2"></i>AI Analysis</h6>
+                        <p id="llmAnalysisText" class="mb-0"></p>
+                    </div>
+
+                    <!-- Suggested refinements -->
+                    <div id="suggestionsList" class="mb-4">
+                        <h6 class="mb-3"><i class="fas fa-lightbulb me-2 text-warning"></i>Suggested Refinements</h6>
+                        <!-- Populated by JavaScript -->
+                    </div>
+
+                    <!-- Recommended exclusions -->
+                    <div id="exclusionTermsSection" class="mb-4">
+                        <h6 class="mb-2"><i class="fas fa-minus-circle me-2 text-danger"></i>Recommended Exclusions</h6>
+                        <p class="text-muted small mb-2">Add these terms with a minus sign (-) to exclude false positives:</p>
+                        <div id="exclusionTermsList" class="d-flex flex-wrap gap-2">
+                            <!-- Populated by JavaScript -->
+                        </div>
+                    </div>
+
+                    <!-- Sample false positives -->
+                    <div id="sampleTitlesSection">
+                        <h6 class="mb-2"><i class="fas fa-file-alt me-2"></i>Sample Low-Relevance Matches</h6>
+                        <ul id="sampleTitlesList" class="list-unstyled small text-muted">
+                            <!-- Populated by JavaScript -->
+                        </ul>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn-gray-subtle" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
@@ -485,6 +730,180 @@
 
     .keyword-badge .btn-close:hover {
         opacity: 1;
+    }
+
+    /* Tab styling */
+    .nav-tabs {
+        border-bottom: 2px solid var(--colors-neutral-4);
+    }
+
+    .nav-tabs .nav-link {
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: var(--colors-neutral-8);
+        font-weight: 500;
+        padding: 0.75rem 1rem;
+        margin-bottom: -2px;
+        transition: all 0.2s ease;
+    }
+
+    .nav-tabs .nav-link:hover {
+        border-bottom-color: var(--colors-accent-5);
+        color: var(--colors-accent-8);
+    }
+
+    .nav-tabs .nav-link.active {
+        border-bottom-color: var(--colors-accent-8);
+        color: var(--colors-accent-8);
+        background: transparent;
+    }
+
+    /* Stats cards */
+    .stats-card {
+        background: white;
+        border: 1px solid var(--colors-neutral-4);
+        border-radius: 8px;
+        padding: 1.5rem;
+        text-align: center;
+        transition: all 0.2s ease;
+    }
+
+    .stats-card:hover {
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+    }
+
+    .stats-value {
+        font-size: 2rem;
+        font-weight: 600;
+        color: var(--colors-accent-8);
+        line-height: 1.2;
+    }
+
+    .stats-label {
+        font-size: 0.875rem;
+        color: var(--colors-neutral-8);
+        margin-top: 0.25rem;
+    }
+
+    /* Relevance bars */
+    .relevance-bar {
+        display: flex;
+        height: 20px;
+        border-radius: 4px;
+        overflow: hidden;
+        background: var(--colors-neutral-3);
+    }
+
+    .relevance-bar .high-bar {
+        background: #22c55e;
+        transition: width 0.3s ease;
+    }
+
+    .relevance-bar .low-bar {
+        background: #ef4444;
+        transition: width 0.3s ease;
+    }
+
+    .relevance-bar .med-bar {
+        background: #f59e0b;
+        transition: width 0.3s ease;
+    }
+
+    /* Filter buttons */
+    .btn-filter {
+        padding: 0.375rem 0.75rem;
+        border: 1px solid var(--colors-neutral-4);
+        background: white;
+        border-radius: 4px;
+        font-size: 0.875rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+    }
+
+    .btn-filter:hover {
+        background: var(--colors-neutral-2);
+    }
+
+    .btn-filter.active {
+        background: var(--colors-accent-1);
+        border-color: var(--colors-accent-3);
+        color: var(--colors-accent-8);
+    }
+
+    /* Relevance score badges */
+    .relevance-badge {
+        display: inline-block;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
+    }
+
+    .relevance-badge.high {
+        background: #dcfce7;
+        color: #166534;
+    }
+
+    .relevance-badge.medium {
+        background: #fef3c7;
+        color: #92400e;
+    }
+
+    .relevance-badge.low {
+        background: #fee2e2;
+        color: #991b1b;
+    }
+
+    /* Keyword text in table (truncated with tooltip) */
+    .keyword-text {
+        max-width: 250px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        cursor: help;
+    }
+
+    /* Suggestion card */
+    .suggestion-card {
+        background: var(--colors-neutral-2);
+        border: 1px solid var(--colors-neutral-4);
+        border-radius: 8px;
+        padding: 1rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .suggestion-card code {
+        display: block;
+        background: white;
+        padding: 0.5rem;
+        border-radius: 4px;
+        margin-bottom: 0.5rem;
+        word-break: break-all;
+        font-size: 0.8rem;
+    }
+
+    .suggestion-card .explanation {
+        font-size: 0.875rem;
+        color: var(--colors-neutral-8);
+    }
+
+    /* Exclusion term badges */
+    .exclusion-badge {
+        background: #fee2e2;
+        color: #991b1b;
+        padding: 0.25rem 0.5rem;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 0.8rem;
+    }
+
+    /* Table row highlighting for relevance */
+    .table tbody tr.low-relevance-row {
+        background-color: #fef2f2;
+    }
+
+    .table tbody tr.high-relevance-row {
+        background-color: #f0fdf4;
     }
 
     /* Mobile responsive adjustments */
@@ -1033,25 +1452,427 @@ async function resetApiCounter() {
     if (!confirm("Are you sure you want to manually reset the API counter? This should only be needed if the automatic daily reset isn't working.")) {
         return;
     }
-    
+
     try {
         const response = await fetch('/api/keyword-monitor/reset-api-counter', {
             method: 'POST'
         });
-        
+
         if (!response.ok) {
             throw new Error('Failed to reset API counter');
         }
-        
+
         const result = await response.json();
         showAlert(`API counter reset successfully: ${result.message}`, 'success');
-        
+
         // Refresh the API usage display
         refreshRequestCount();
     } catch (error) {
         console.error('Error:', error);
         showAlert('Failed to reset API counter: ' + error.message, 'danger');
     }
+}
+
+// =====================================================
+// Relevance Analysis Functions
+// =====================================================
+
+// Global state for analysis data - use window to avoid TDZ issues with inline onclick
+window.analysisDataLoaded = false;
+window.analysisData = null;
+var currentArticleFilter = 'all';
+var currentKeywordId = null;
+var currentGroupId = null;
+
+// Load analysis data when the Analysis tab is shown
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Relevance analysis JS initialized');
+    const analysisTab = document.getElementById('analysis-tab');
+    if (analysisTab) {
+        console.log('analysis-tab element found, attaching event listeners');
+        // Listen for Bootstrap tab shown event
+        analysisTab.addEventListener('shown.bs.tab', function() {
+            console.log('Analysis tab shown.bs.tab event fired');
+            if (!window.analysisDataLoaded) {
+                loadRelevanceAnalysis();
+            }
+        });
+    } else {
+        console.error('analysis-tab element not found');
+    }
+});
+
+async function loadRelevanceAnalysis() {
+    console.log('loadRelevanceAnalysis() called');
+    const loadingEl = document.getElementById('analysisLoading');
+    const dataEl = document.getElementById('analysisData');
+
+    if (!loadingEl) {
+        console.error('analysisLoading element not found');
+        return;
+    }
+    if (!dataEl) {
+        console.error('analysisData element not found');
+        return;
+    }
+
+    loadingEl.style.display = 'block';
+    dataEl.style.display = 'none';
+
+    try {
+        console.log('Fetching relevance stats and source distribution...');
+        // Load keyword stats and source distribution in parallel
+        const [statsResponse, sourcesResponse] = await Promise.all([
+            fetch('/api/keyword-monitor/relevance-stats'),
+            fetch('/api/keyword-monitor/source-distribution')
+        ]);
+
+        console.log('Stats response status:', statsResponse.status);
+        console.log('Sources response status:', sourcesResponse.status);
+
+        if (!statsResponse.ok) throw new Error(`Failed to load relevance stats: ${statsResponse.status} ${statsResponse.statusText}`);
+        if (!sourcesResponse.ok) throw new Error(`Failed to load source distribution: ${sourcesResponse.status} ${sourcesResponse.statusText}`);
+
+        const statsData = await statsResponse.json();
+        const sourcesData = await sourcesResponse.json();
+
+        window.analysisData = statsData;
+        window.analysisDataLoaded = true;
+
+        // Update summary cards
+        updateSummaryCards(statsData.summary);
+
+        // Render keyword table
+        renderKeywordTable(statsData.keywords);
+
+        // Render source distribution
+        renderSourceDistribution(sourcesData.sources);
+
+        loadingEl.style.display = 'none';
+        dataEl.style.display = 'block';
+
+    } catch (error) {
+        console.error('Error loading relevance analysis:', error);
+        loadingEl.innerHTML = `
+            <div class="alert alert-danger">
+                <i class="fas fa-exclamation-circle me-2"></i>
+                Error loading analysis: ${error.message}
+                <button class="btn btn-sm btn-outline-danger ms-3" onclick="loadRelevanceAnalysis()">
+                    <i class="fas fa-redo me-1"></i>Retry
+                </button>
+            </div>
+        `;
+    }
+}
+
+function updateSummaryCards(summary) {
+    document.getElementById('totalKeywordsCount').textContent = summary.total_keywords.toLocaleString();
+    document.getElementById('totalArticlesCount').textContent = summary.total_articles.toLocaleString();
+    document.getElementById('avgRelevanceScore').textContent = (summary.overall_avg_relevance * 100).toFixed(1) + '%';
+    document.getElementById('highRelevancePct').textContent = summary.overall_high_relevance_pct.toFixed(1) + '%';
+}
+
+function renderKeywordTable(keywords) {
+    const tbody = document.getElementById('keywordStatsBody');
+    tbody.innerHTML = '';
+
+    keywords.forEach(kw => {
+        const medPct = 100 - kw.high_relevance_pct - kw.low_relevance_pct;
+        const relevanceClass = kw.avg_relevance >= 0.5 ? 'high' : kw.avg_relevance >= 0.3 ? 'medium' : 'low';
+
+        // Truncate keyword for display
+        const displayKeyword = kw.keyword.length > 60 ? kw.keyword.substring(0, 60) + '...' : kw.keyword;
+
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>
+                <div class="keyword-text" title="${escapeHtml(kw.keyword)}">
+                    ${escapeHtml(displayKeyword)}
+                </div>
+                <small class="text-muted">${escapeHtml(kw.group_name)}</small>
+            </td>
+            <td class="text-center">${kw.total_matches.toLocaleString()}</td>
+            <td class="text-center">
+                <span class="relevance-badge ${relevanceClass}">${(kw.avg_relevance * 100).toFixed(1)}%</span>
+            </td>
+            <td>
+                <div class="relevance-bar" title="High: ${kw.high_relevance_pct.toFixed(1)}%, Med: ${medPct.toFixed(1)}%, Low: ${kw.low_relevance_pct.toFixed(1)}%">
+                    <div class="high-bar" style="width: ${kw.high_relevance_pct}%"></div>
+                    <div class="med-bar" style="width: ${medPct}%"></div>
+                    <div class="low-bar" style="width: ${kw.low_relevance_pct}%"></div>
+                </div>
+                <small class="text-muted d-flex justify-content-between mt-1">
+                    <span class="text-success">${kw.high_relevance_count} high</span>
+                    <span class="text-danger">${kw.low_relevance_count} low</span>
+                </small>
+            </td>
+            <td class="text-center">
+                <div class="btn-group btn-group-sm">
+                    <button class="btn btn-outline-secondary btn-sm" onclick="openArticleAnalysis(${kw.keyword_id}, '${escapeHtml(kw.keyword).replace(/'/g, "\\'")}', ${kw.group_id})" title="View articles">
+                        <i class="fas fa-search"></i>
+                    </button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="getSuggestions(${kw.keyword_id}, '${escapeHtml(kw.keyword).replace(/'/g, "\\'")}', '${escapeHtml(kw.topic).replace(/'/g, "\\'")}', ${kw.group_id})" title="Get AI suggestions">
+                        <i class="fas fa-magic"></i>
+                    </button>
+                </div>
+            </td>
+        `;
+        // Store data on row for sorting
+        row.dataset.relevance = kw.avg_relevance;
+        row.dataset.matches = kw.total_matches;
+        row.dataset.highPct = kw.high_relevance_pct;
+        row.dataset.lowPct = kw.low_relevance_pct;
+
+        tbody.appendChild(row);
+    });
+}
+
+function sortKeywordTable() {
+    const sortBy = document.getElementById('sortKeywordsBy').value;
+    const tbody = document.getElementById('keywordStatsBody');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+
+    rows.sort((a, b) => {
+        switch (sortBy) {
+            case 'relevance_desc':
+                return parseFloat(b.dataset.relevance) - parseFloat(a.dataset.relevance);
+            case 'relevance_asc':
+                return parseFloat(a.dataset.relevance) - parseFloat(b.dataset.relevance);
+            case 'matches_desc':
+                return parseInt(b.dataset.matches) - parseInt(a.dataset.matches);
+            case 'matches_asc':
+                return parseInt(a.dataset.matches) - parseInt(b.dataset.matches);
+            case 'high_pct_desc':
+                return parseFloat(b.dataset.highPct) - parseFloat(a.dataset.highPct);
+            case 'low_pct_desc':
+                return parseFloat(b.dataset.lowPct) - parseFloat(a.dataset.lowPct);
+            default:
+                return 0;
+        }
+    });
+
+    tbody.innerHTML = '';
+    rows.forEach(row => tbody.appendChild(row));
+}
+
+function renderSourceDistribution(sources) {
+    const tbody = document.getElementById('sourceDistributionBody');
+    tbody.innerHTML = '';
+
+    sources.slice(0, 25).forEach(src => {
+        const relevanceClass = src.avg_relevance >= 0.5 ? 'high' : src.avg_relevance >= 0.3 ? 'medium' : 'low';
+
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${escapeHtml(src.news_source)}</td>
+            <td class="text-center">${src.total_count}</td>
+            <td class="text-center"><span class="text-success">${src.high_relevance_count}</span></td>
+            <td class="text-center"><span class="text-danger">${src.low_relevance_count}</span></td>
+            <td class="text-center">
+                <span class="relevance-badge ${relevanceClass}">${(src.avg_relevance * 100).toFixed(1)}%</span>
+            </td>
+            <td class="text-center">
+                <span class="badge bg-secondary">${escapeHtml(src.bias)}</span>
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+// Article Analysis Modal
+async function openArticleAnalysis(keywordId, keyword, groupId) {
+    currentKeywordId = keywordId;
+    currentGroupId = groupId;
+    currentArticleFilter = 'all';
+
+    // Update modal title
+    document.getElementById('modalKeywordName').textContent = keyword.length > 50 ? keyword.substring(0, 50) + '...' : keyword;
+
+    // Reset filter buttons
+    document.querySelectorAll('#articleAnalysisModal .btn-filter').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filter === 'all');
+    });
+
+    // Show modal
+    const modal = new bootstrap.Modal(document.getElementById('articleAnalysisModal'));
+    modal.show();
+
+    // Load articles
+    await loadArticlesForKeyword(keywordId, groupId, 'all');
+}
+
+async function loadArticlesForKeyword(keywordId, groupId, filter) {
+    const loadingEl = document.getElementById('articlesLoading');
+    const containerEl = document.getElementById('articlesTableContainer');
+
+    loadingEl.style.display = 'block';
+    containerEl.style.display = 'none';
+
+    try {
+        const response = await fetch(`/api/keyword-monitor/keyword/${keywordId}/articles?group_id=${groupId}&relevance_filter=${filter}&limit=50`);
+        if (!response.ok) throw new Error('Failed to load articles');
+
+        const data = await response.json();
+
+        renderArticlesTable(data.articles);
+        document.getElementById('articlesCount').textContent = `Showing ${data.articles.length} articles`;
+
+        loadingEl.style.display = 'none';
+        containerEl.style.display = 'block';
+
+    } catch (error) {
+        console.error('Error loading articles:', error);
+        loadingEl.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+    }
+}
+
+function renderArticlesTable(articles) {
+    const tbody = document.getElementById('articlesTableBody');
+    tbody.innerHTML = '';
+
+    if (articles.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No articles found with selected filter</td></tr>';
+        return;
+    }
+
+    articles.forEach(article => {
+        const relevanceClass = article.keyword_relevance_score >= 0.7 ? 'high' : article.keyword_relevance_score >= 0.4 ? 'medium' : 'low';
+        const topicClass = article.topic_alignment_score >= 0.7 ? 'high' : article.topic_alignment_score >= 0.4 ? 'medium' : 'low';
+        const rowClass = article.keyword_relevance_score < 0.4 ? 'low-relevance-row' : article.keyword_relevance_score >= 0.7 ? 'high-relevance-row' : '';
+
+        const row = document.createElement('tr');
+        row.className = rowClass;
+        row.innerHTML = `
+            <td>
+                <a href="${escapeHtml(article.uri)}" target="_blank" class="text-decoration-none">
+                    ${escapeHtml(article.title || 'Untitled')}
+                </a>
+            </td>
+            <td><small>${escapeHtml(article.news_source || 'Unknown')}</small></td>
+            <td><small>${article.publication_date || 'N/A'}</small></td>
+            <td class="text-center">
+                <span class="relevance-badge ${relevanceClass}">${(article.keyword_relevance_score * 100).toFixed(0)}%</span>
+            </td>
+            <td class="text-center">
+                <span class="relevance-badge ${topicClass}">${(article.topic_alignment_score * 100).toFixed(0)}%</span>
+            </td>
+            <td>
+                ${article.overall_match_explanation ?
+                    `<button class="btn btn-sm btn-link p-0" onclick="alert('${escapeHtml(article.overall_match_explanation).replace(/'/g, "\\'")}')">
+                        <i class="fas fa-info-circle"></i>
+                    </button>` :
+                    '<span class="text-muted">-</span>'
+                }
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+function filterArticles(filter) {
+    currentArticleFilter = filter;
+
+    // Update button states
+    document.querySelectorAll('#articleAnalysisModal .btn-filter').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.filter === filter);
+    });
+
+    // Reload articles with new filter
+    loadArticlesForKeyword(currentKeywordId, currentGroupId, filter);
+}
+
+// Keyword Suggestions Modal
+async function getSuggestions(keywordId, keyword, topic, groupId) {
+    const loadingEl = document.getElementById('suggestionsLoading');
+    const contentEl = document.getElementById('suggestionsContent');
+
+    // Reset and show modal
+    loadingEl.style.display = 'block';
+    contentEl.style.display = 'none';
+
+    const modal = new bootstrap.Modal(document.getElementById('suggestionsModal'));
+    modal.show();
+
+    // Set original keyword
+    document.getElementById('originalKeywordDisplay').textContent = keyword;
+
+    try {
+        const response = await fetch('/api/keyword-monitor/suggest-refinements', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                keyword_id: keywordId,
+                keyword: keyword,
+                topic: topic,
+                group_id: groupId
+            })
+        });
+
+        if (!response.ok) throw new Error('Failed to get suggestions');
+
+        const data = await response.json();
+
+        // Update analysis text
+        document.getElementById('llmAnalysisText').textContent = data.analysis || 'No analysis available.';
+
+        // Render suggestions
+        const suggestionsListEl = document.getElementById('suggestionsList');
+        if (data.suggestions && data.suggestions.length > 0) {
+            suggestionsListEl.innerHTML = '<h6 class="mb-3"><i class="fas fa-lightbulb me-2 text-warning"></i>Suggested Refinements</h6>';
+            data.suggestions.forEach((suggestion, idx) => {
+                suggestionsListEl.innerHTML += `
+                    <div class="suggestion-card">
+                        <code>${escapeHtml(suggestion.refined_pattern)}</code>
+                        <div class="explanation">${escapeHtml(suggestion.explanation)}</div>
+                    </div>
+                `;
+            });
+        } else {
+            suggestionsListEl.innerHTML = '<p class="text-muted">No suggestions available.</p>';
+        }
+
+        // Render exclusion terms
+        const exclusionEl = document.getElementById('exclusionTermsList');
+        if (data.recommended_exclusions && data.recommended_exclusions.length > 0) {
+            exclusionEl.innerHTML = data.recommended_exclusions.map(term =>
+                `<span class="exclusion-badge">-${escapeHtml(term)}</span>`
+            ).join('');
+            document.getElementById('exclusionTermsSection').style.display = 'block';
+        } else {
+            document.getElementById('exclusionTermsSection').style.display = 'none';
+        }
+
+        // Render sample titles
+        const titlesEl = document.getElementById('sampleTitlesList');
+        if (data.sample_low_relevance_titles && data.sample_low_relevance_titles.length > 0) {
+            titlesEl.innerHTML = data.sample_low_relevance_titles.map(title =>
+                `<li><i class="fas fa-file-alt me-2"></i>${escapeHtml(title)}</li>`
+            ).join('');
+            document.getElementById('sampleTitlesSection').style.display = 'block';
+        } else {
+            document.getElementById('sampleTitlesSection').style.display = 'none';
+        }
+
+        loadingEl.style.display = 'none';
+        contentEl.style.display = 'block';
+
+    } catch (error) {
+        console.error('Error getting suggestions:', error);
+        loadingEl.innerHTML = `
+            <div class="alert alert-danger">
+                <i class="fas fa-exclamation-circle me-2"></i>
+                Error: ${error.message}
+            </div>
+        `;
+    }
+}
+
+// Utility function to escape HTML
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 </script>
 {% endblock %} 

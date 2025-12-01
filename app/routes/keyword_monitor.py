@@ -2671,3 +2671,308 @@ async def clear_completed_jobs(
             "success": False,
             "error": str(e)
         }
+
+
+# =====================================================
+# Keyword Relevance Analysis Endpoints
+# =====================================================
+
+@router.get("/relevance-stats")
+async def get_relevance_stats(
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session_api)
+):
+    """
+    Get aggregated relevance statistics for all keywords.
+    Returns keyword performance metrics including match counts,
+    average relevance scores, and high/low relevance splits.
+    """
+    logger.info("=== RELEVANCE-STATS ENDPOINT CALLED ===")
+    try:
+        # Get keyword stats from database
+        logger.info("Fetching keyword relevance stats from database...")
+        keyword_stats = db.facade.get_keyword_relevance_stats()
+        logger.info(f"Got {len(keyword_stats) if keyword_stats else 0} keyword stats")
+
+        # Convert to list of dicts for JSON serialization
+        keywords = []
+        total_matches = 0
+        total_high_relevance = 0
+        relevance_sum = 0
+        keywords_with_data = 0
+
+        for row in keyword_stats:
+            matches = row['total_matches'] or 0
+            high_rel = row['high_relevance_count'] or 0
+            low_rel = row['low_relevance_count'] or 0
+            avg_rel = float(row['avg_relevance']) if row['avg_relevance'] else 0
+
+            # Calculate percentages
+            high_pct = round(100 * high_rel / matches, 1) if matches > 0 else 0
+            low_pct = round(100 * low_rel / matches, 1) if matches > 0 else 0
+
+            keywords.append({
+                "keyword_id": row['keyword_id'],
+                "keyword": row['keyword'],
+                "group_id": row['group_id'],
+                "group_name": row['group_name'],
+                "topic": row['topic'],
+                "total_matches": matches,
+                "avg_relevance": avg_rel,
+                "avg_topic_alignment": float(row['avg_topic_alignment']) if row['avg_topic_alignment'] else 0,
+                "avg_confidence": float(row['avg_confidence']) if row['avg_confidence'] else 0,
+                "high_relevance_count": high_rel,
+                "high_relevance_pct": high_pct,
+                "low_relevance_count": low_rel,
+                "low_relevance_pct": low_pct
+            })
+
+            total_matches += matches
+            total_high_relevance += high_rel
+            if avg_rel > 0:
+                relevance_sum += avg_rel
+                keywords_with_data += 1
+
+        # Calculate summary stats
+        overall_avg_relevance = round(relevance_sum / keywords_with_data, 3) if keywords_with_data > 0 else 0
+        overall_high_relevance_pct = round(100 * total_high_relevance / total_matches, 1) if total_matches > 0 else 0
+
+        return {
+            "keywords": keywords,
+            "summary": {
+                "total_keywords": len(keywords),
+                "total_articles": total_matches,
+                "overall_avg_relevance": overall_avg_relevance,
+                "overall_high_relevance_pct": overall_high_relevance_pct
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting relevance stats: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error fetching relevance stats: {str(e)}")
+
+
+@router.get("/keyword/{keyword_id}/articles")
+async def get_keyword_articles(
+    keyword_id: int,
+    group_id: int,
+    relevance_filter: str = "all",
+    limit: int = 50,
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session_api)
+):
+    """
+    Get articles matched to a specific keyword with relevance data.
+
+    Args:
+        keyword_id: The monitored_keywords.id
+        group_id: The keyword_groups.id
+        relevance_filter: 'all', 'high' (>=0.7), or 'low' (<0.4)
+        limit: Maximum number of articles to return
+    """
+    try:
+        # Get articles for this keyword
+        articles = db.facade.get_articles_for_keyword(
+            keyword_id=keyword_id,
+            group_id=group_id,
+            relevance_filter=relevance_filter,
+            limit=limit
+        )
+
+        # Convert to list of dicts
+        article_list = []
+        for row in articles:
+            article_list.append({
+                "uri": row['uri'],
+                "title": row['title'],
+                "news_source": row['news_source'],
+                "publication_date": row['publication_date'],
+                "keyword_relevance_score": float(row['keyword_relevance_score']) if row['keyword_relevance_score'] else 0,
+                "topic_alignment_score": float(row['topic_alignment_score']) if row['topic_alignment_score'] else 0,
+                "confidence_score": float(row['confidence_score']) if row['confidence_score'] else 0,
+                "overall_match_explanation": row['overall_match_explanation'] or "",
+                "extracted_article_keywords": row['extracted_article_keywords'] or ""
+            })
+
+        return {
+            "keyword_id": keyword_id,
+            "group_id": group_id,
+            "filter": relevance_filter,
+            "count": len(article_list),
+            "articles": article_list
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting articles for keyword {keyword_id}: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error fetching keyword articles: {str(e)}")
+
+
+@router.get("/source-distribution")
+async def get_source_distribution(
+    group_id: Optional[int] = None,
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session_api)
+):
+    """
+    Get news source distribution split by high/low relevance.
+
+    Args:
+        group_id: Optional group_id to filter by. If None, returns all sources.
+    """
+    try:
+        sources = db.facade.get_source_distribution_by_relevance(group_id)
+
+        # Convert to list of dicts
+        source_list = []
+        for row in sources:
+            total = row['total_count'] or 0
+            high = row['high_relevance_count'] or 0
+            low = row['low_relevance_count'] or 0
+
+            source_list.append({
+                "news_source": row['news_source'],
+                "total_count": total,
+                "high_relevance_count": high,
+                "low_relevance_count": low,
+                "high_relevance_pct": round(100 * high / total, 1) if total > 0 else 0,
+                "low_relevance_pct": round(100 * low / total, 1) if total > 0 else 0,
+                "avg_relevance": float(row['avg_relevance']) if row['avg_relevance'] else 0,
+                "bias": row['bias'] or "Unknown"
+            })
+
+        return {
+            "group_id": group_id,
+            "sources": source_list
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting source distribution: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error fetching source distribution: {str(e)}")
+
+
+class KeywordRefinementRequest(BaseModel):
+    keyword_id: int
+    keyword: str
+    topic: str
+    group_id: int
+
+
+@router.post("/suggest-refinements")
+async def suggest_keyword_refinements(
+    request: KeywordRefinementRequest,
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session_api)
+):
+    """
+    Use LLM to analyze a low-performing keyword and suggest refined patterns.
+
+    Returns analysis of why the keyword is too broad and suggests improved patterns.
+    """
+    try:
+        # Get sample low-relevance article titles for context
+        low_relevance_titles = db.facade.get_low_relevance_article_titles_for_keyword(
+            keyword_id=request.keyword_id,
+            group_id=request.group_id,
+            limit=10
+        )
+
+        if not low_relevance_titles:
+            return {
+                "original_keyword": request.keyword,
+                "analysis": "No low-relevance articles found for this keyword. The keyword may be performing well or has no matched articles yet.",
+                "suggestions": [],
+                "common_false_positive_sources": [],
+                "recommended_exclusions": []
+            }
+
+        # Format titles for LLM
+        titles_text = "\n".join([f"- {title}" for title in low_relevance_titles])
+
+        # Build the LLM prompt
+        prompt = f"""Analyze this keyword pattern used for monitoring news articles about "{request.topic}":
+
+Keyword Pattern: {request.keyword}
+
+Sample LOW-RELEVANCE article titles that matched this keyword (these are false positives we want to avoid):
+{titles_text}
+
+The keyword is matching too many irrelevant articles. Please analyze and provide refinements.
+
+Respond in JSON format with this exact structure:
+{{
+    "analysis": "Brief explanation of why the current keyword pattern is too broad and what's causing false positives",
+    "suggestions": [
+        {{
+            "refined_pattern": "The improved keyword pattern using boolean operators (AND, OR, NOT, quotes for phrases)",
+            "explanation": "Why this refinement would help reduce false positives"
+        }}
+    ],
+    "common_false_positive_sources": ["List", "of", "common", "irrelevant", "topics"],
+    "recommended_exclusions": ["term1", "term2", "term3"]
+}}
+
+Provide 2-3 refined patterns. Use standard boolean search syntax:
+- Use quotes for exact phrases: "artificial intelligence"
+- Use OR for alternatives: AI OR "artificial intelligence"
+- Use AND for required terms: AI AND safety
+- Use NOT or minus (-) for exclusions: AI -stock -market
+- Use parentheses for grouping: (AI OR ML) AND safety
+
+Focus on making the patterns more specific to {request.topic} while excluding the false positive topics seen in the sample titles."""
+
+        # Call the LLM
+        config = load_config()
+        default_model = config.get("default_llm_model", "gpt-4o-mini")
+
+        model = LiteLLMModel(default_model)
+        response = await model.generate(
+            prompt=prompt,
+            system_prompt="You are an expert at crafting precise keyword search patterns for news monitoring. You understand boolean search syntax and how to balance specificity with recall. Always respond with valid JSON.",
+            temperature=0.3,
+            max_tokens=1500
+        )
+
+        # Parse the JSON response
+        try:
+            # Try to extract JSON from the response
+            response_text = response.strip()
+
+            # Handle markdown code blocks
+            if "```json" in response_text:
+                response_text = response_text.split("```json")[1].split("```")[0].strip()
+            elif "```" in response_text:
+                response_text = response_text.split("```")[1].split("```")[0].strip()
+
+            result = json.loads(response_text)
+
+            return {
+                "original_keyword": request.keyword,
+                "analysis": result.get("analysis", ""),
+                "suggestions": result.get("suggestions", []),
+                "common_false_positive_sources": result.get("common_false_positive_sources", []),
+                "recommended_exclusions": result.get("recommended_exclusions", []),
+                "sample_low_relevance_titles": low_relevance_titles[:5]
+            }
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse LLM JSON response: {e}")
+            logger.error(f"Raw response: {response}")
+
+            # Return a structured error response
+            return {
+                "original_keyword": request.keyword,
+                "analysis": "The AI generated a response but it couldn't be parsed. Please try again.",
+                "suggestions": [],
+                "common_false_positive_sources": [],
+                "recommended_exclusions": [],
+                "sample_low_relevance_titles": low_relevance_titles[:5],
+                "raw_response": response[:500]  # Include partial response for debugging
+            }
+
+    except Exception as e:
+        logger.error(f"Error suggesting keyword refinements: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error generating keyword suggestions: {str(e)}")
