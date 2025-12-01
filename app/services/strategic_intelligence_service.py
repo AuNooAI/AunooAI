@@ -1041,40 +1041,37 @@ Use markdown formatting. Include confidence indicators and source attributions."
         # First pass: fix bullet points globally
         text = text.replace('• ', '- ')
 
-        # Known field labels that should be bold
+        # Known field labels that should be bold - comprehensive list
         field_labels = [
             'Nature', 'Likelihood', 'Impact', 'Time Horizon',
             'Indicators to Watch', 'Window', 'Prerequisites',
             'Risk if Missed', 'Current Status', 'Trigger Event',
             'Escalation Action', 'Priority', 'Development', 'Confidence',
-            'Implication', 'Item', 'Assessment', 'Basis'
+            'Implication', 'Item', 'Assessment', 'Basis', 'Factors Supporting',
+            'Factors Limiting', 'Information Gaps', 'Key assessments',
+            'The single most important thing', 'Overall Briefing Confidence'
         ]
 
-        # Pattern 1: "- Label:**" -> "- **Label:**" (missing opening **)
-        # Matches: "- Nature:**", "  - Likelihood:**", etc.
+        # CRITICAL FIX: Handle "Label:**" anywhere in text (not just with bullet prefix)
+        # This catches cases like "Nature:** some text" -> "**Nature:** some text"
         for label in field_labels:
-            # Case: "- Label:**" (no opening **)
-            pattern = rf'(^|\n)(\s*-\s+)({re.escape(label)}):\*\*'
-            text = re.sub(pattern, rf'\1\2**\3:**', text)
+            # Pattern: "Label:**" without opening ** (can be at start of line or after bullet)
+            # This regex matches Label:** and replaces with **Label:**
+            pattern = rf'(?<!\*)({re.escape(label)}):\*\*'
+            text = re.sub(pattern, r'**\1:**', text)
 
-            # Case: "- Label**:" (** in wrong position)
-            pattern2 = rf'(^|\n)(\s*-\s+)({re.escape(label)})\*\*:'
-            text = re.sub(pattern2, rf'\1\2**\3:**', text)
+            # Pattern: "Label**:" with ** in wrong position
+            pattern2 = rf'(?<!\*)({re.escape(label)})\*\*:'
+            text = re.sub(pattern2, r'**\1:**', text)
 
-        # Pattern 2: Fix any "Word:**" without opening ** in bullet context
-        # This is a broader catch-all for patterns we might have missed
-        text = re.sub(r'(^|\n)(\s*-\s+)([A-Z][a-zA-Z\s]+?):\*\*(\s)', r'\1\2**\3:**\4', text)
+        # Also catch any Word:** pattern (capitalized word followed by colon and **)
+        # This is a broader catch-all
+        text = re.sub(r'(?<!\*)([A-Z][a-zA-Z\s]{2,20}):\*\*', r'**\1:**', text)
 
-        # Pattern 3: Fix standalone trailing ** at end of field values
-        # e.g., "High**" at end of line -> "High"
-        # But be careful not to break valid ** pairs
-
-        # Pattern 4: Fix "| Word:**" patterns in tables (missing opening **)
+        # Fix "| Word:**" patterns in tables (missing opening **)
         text = re.sub(r'\|\s*([A-Z][a-zA-Z\s]+?):\*\*', r'| **\1:**', text)
 
-        # Pattern 5: Fix lines that have trailing ** without matching opening
-        # This handles cases like "Some text value**" -> "Some text value"
-        # Only remove trailing ** if there's no opening ** on the same line segment
+        # Fix lines that have trailing ** without matching opening
         lines = text.split('\n')
         fixed_lines = []
 

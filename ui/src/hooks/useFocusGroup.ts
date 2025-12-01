@@ -102,6 +102,13 @@ export const FG_STAGES: FGStageInfo[] = [
   },
 ];
 
+export interface ArticleReference {
+  title: string;
+  uri: string;
+  source: string;
+  published_at?: string;
+}
+
 export interface FGResult {
   scan_id: string;
   personas: Persona[];
@@ -116,6 +123,8 @@ export interface FGResult {
     config: FGConfig;
   };
   article_count?: number;
+  article_uris?: string[];
+  articles?: ArticleReference[];
 }
 
 interface FGProgress {
@@ -131,6 +140,8 @@ interface FGProgress {
   scan_id?: string;
   metadata?: any;
   article_count?: number;
+  article_uris?: string[];
+  articles?: ArticleReference[];
   error?: string;
 }
 
@@ -355,6 +366,8 @@ export function useFocusGroup(): UseFocusGroupReturn {
                     },
                     metadata: data.metadata,
                     article_count: data.article_count,
+                    article_uris: data.article_uris || [],
+                    articles: data.articles || [],
                   };
                   setResult(fullResult);
 
