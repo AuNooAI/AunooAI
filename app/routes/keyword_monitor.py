@@ -19,7 +19,7 @@ from fastapi.responses import JSONResponse
 from app.config.config import load_config
 from app.relevance import RelevanceCalculator, RelevanceCalculatorError
 from urllib.parse import urlencode
-from app.ai_models import LiteLLMModel
+from app.ai_models import LiteLLMModel, get_available_models
 import asyncio
 import uuid
 
@@ -2923,22 +2923,27 @@ Provide 2-3 refined patterns. Use standard boolean search syntax:
 
 Focus on making the patterns more specific to {request.topic} while excluding the false positive topics seen in the sample titles."""
 
-        # Call the LLM
-        config = load_config()
-        default_model = config.get("default_llm_model", "gpt-4o-mini")
+        # Call the LLM - use first available configured model
+        available_models = get_available_models()
+        if not available_models:
+            raise HTTPException(status_code=500, detail="No configured models available")
+        default_model = available_models[0]['name']
+
+        # Prepend system instruction to the prompt since generate() only accepts prompt and max_tokens
+        full_prompt = """You are an expert at crafting precise keyword search patterns for news monitoring. You understand boolean search syntax and how to balance specificity with recall. Always respond with valid JSON.
+
+""" + prompt
 
         model = LiteLLMModel(default_model)
-        response = await model.generate(
-            prompt=prompt,
-            system_prompt="You are an expert at crafting precise keyword search patterns for news monitoring. You understand boolean search syntax and how to balance specificity with recall. Always respond with valid JSON.",
-            temperature=0.3,
-            max_tokens=1500
-        )
+        response = await model.generate(full_prompt, max_tokens=1500)
 
         # Parse the JSON response
         try:
-            # Try to extract JSON from the response
-            response_text = response.strip()
+            # Extract content from response object
+            if hasattr(response, 'message') and hasattr(response.message, 'content'):
+                response_text = response.message.content.strip()
+            else:
+                response_text = str(response).strip()
 
             # Handle markdown code blocks
             if "```json" in response_text:

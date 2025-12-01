@@ -3,7 +3,7 @@ category: executive_briefing
 description: Generates professional podcast scripts from executive briefing content
 model_config:
   max_tokens: 3000
-  model: gpt-4o
+  model: gpt-4o-mini
   temperature: 0.7
 name: eb_podcast_agent
 output_schema:
