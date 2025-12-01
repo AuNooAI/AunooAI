@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.concurrency import run_in_threadpool
 from app.database import Database, get_database_instance
-from app.ai_models import LiteLLMModel  # Added for LLM access
+from app.ai_models import LiteLLMModel, get_available_models  # Added for LLM access
 from app.security.session import verify_session
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
@@ -977,10 +977,13 @@ async def get_article_insights(
         llm_model_name = model  # Use model from frontend
         logger.info(f"Article insights using model: {llm_model_name} for topic {topic_name}")
         
-        # Try the requested model first, then fallback to known working models
+        # Try the requested model first, then fallback to configured models
         ai_model = None
-        models_to_try = [llm_model_name, "gpt-4o-mini", "gpt-4.1-mini", "gpt-3.5-turbo"]
-        
+        available_models = get_available_models()
+        configured_model_names = [m['name'] for m in available_models]
+        # Build fallback list: requested model first, then all configured models
+        models_to_try = [llm_model_name] + [m for m in configured_model_names if m != llm_model_name]
+
         for model_name in models_to_try:
             try:
                 ai_model = LiteLLMModel.get_instance(model_name)
@@ -1431,10 +1434,13 @@ async def get_category_insights(
         llm_model_name = model  # Use model from frontend
         logger.info(f"Category insights using model: {llm_model_name} for topic {topic_name}")
         
-        # Try the requested model first, then fallback to known working models
+        # Try the requested model first, then fallback to configured models
         ai_model = None
-        models_to_try = [llm_model_name, "gpt-4o-mini", "gpt-4.1-mini", "gpt-3.5-turbo"]
-        
+        available_models = get_available_models()
+        configured_model_names = [m['name'] for m in available_models]
+        # Build fallback list: requested model first, then all configured models
+        models_to_try = [llm_model_name] + [m for m in configured_model_names if m != llm_model_name]
+
         for model_name in models_to_try:
             try:
                 ai_model = LiteLLMModel.get_instance(model_name)

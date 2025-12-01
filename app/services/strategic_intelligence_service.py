@@ -425,15 +425,8 @@ class StrategicIntelligenceService:
             tasks = []
             for query_info in query_batch:
                 query = query_info.get("query", "")
-                source_pref = query_info.get("source_preference", "both")
-
-                # Determine search source
-                if source_pref == "internal":
-                    source = SearchSource.VECTOR_DB
-                elif source_pref == "external":
-                    source = SearchSource.EXTERNAL
-                else:
-                    source = SearchSource.HYBRID
+                # Force internal-only search - mine internal database only, no external API calls
+                source = SearchSource.VECTOR_DB
 
                 tasks.append(self._execute_search(
                     query=query,
@@ -547,6 +540,7 @@ class StrategicIntelligenceService:
             )
 
             articles = results.get("articles", [])
+            logger.info(f"Search for '{query}' returned {len(articles)} articles from search_router")
 
             # Filter by date
             filtered = []
@@ -560,6 +554,8 @@ class StrategicIntelligenceService:
                             article_date = datetime.strptime(date_part, "%Y-%m-%d")
                             if article_date >= start_date:
                                 filtered.append(article)
+                            else:
+                                logger.debug(f"Date filter: excluding article from {date_part} (before {start_date.strftime('%Y-%m-%d')})")
                         else:
                             filtered.append(article)
                     except:
@@ -567,6 +563,7 @@ class StrategicIntelligenceService:
                 else:
                     filtered.append(article)  # Include if no date
 
+            logger.info(f"After date filter (>= {start_date.strftime('%Y-%m-%d %H:%M')}): {len(filtered)}/{len(articles)} articles")
             return filtered
 
         except Exception as e:

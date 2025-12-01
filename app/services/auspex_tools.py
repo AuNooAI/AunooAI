@@ -12,7 +12,7 @@ from app.collectors.thenewsapi_collector import TheNewsAPICollector
 from app.database import get_database_instance
 from app.analyze_db import AnalyzeDB
 from app.vector_store import search_articles as vector_search_articles
-from app.ai_models import get_ai_model
+from app.ai_models import get_ai_model, get_available_models
 
 logger = logging.getLogger(__name__)
 
@@ -88,9 +88,17 @@ class AuspexToolsService:
         
         return selected[:limit]
 
-    async def enhanced_database_search(self, query: str, topic: str, limit: int = 50, model: str = "gpt-3.5-turbo") -> Dict:
+    async def enhanced_database_search(self, query: str, topic: str, limit: int = 50, model: str = None) -> Dict:
         """Enhanced database search with hybrid vector/SQL search and intelligent query parsing."""
         try:
+            # Get model from configured models if not specified
+            if model is None:
+                available = get_available_models()
+                if available:
+                    model = available[0]['name']
+                else:
+                    raise ValueError("No configured models available")
+
             # Get available options for this topic
             topic_options = self.analyze_db.get_topic_options(topic)
             
