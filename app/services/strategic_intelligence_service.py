@@ -1034,47 +1034,64 @@ Use markdown formatting. Include confidence indicators and source attributions."
         - '• Nature:**' -> '- **Nature:**'
         - 'Nature:**' at start of line -> '- **Nature:**'
         - Missing opening ** markers
+        - Trailing ** without opening **
         """
         import re
 
+        # First pass: fix bullet points globally
+        text = text.replace('• ', '- ')
+
+        # Known field labels that should be bold
+        field_labels = [
+            'Nature', 'Likelihood', 'Impact', 'Time Horizon',
+            'Indicators to Watch', 'Window', 'Prerequisites',
+            'Risk if Missed', 'Current Status', 'Trigger Event',
+            'Escalation Action', 'Priority', 'Development', 'Confidence',
+            'Implication', 'Item', 'Assessment', 'Basis'
+        ]
+
+        # Pattern 1: "- Label:**" -> "- **Label:**" (missing opening **)
+        # Matches: "- Nature:**", "  - Likelihood:**", etc.
+        for label in field_labels:
+            # Case: "- Label:**" (no opening **)
+            pattern = rf'(^|\n)(\s*-\s+)({re.escape(label)}):\*\*'
+            text = re.sub(pattern, rf'\1\2**\3:**', text)
+
+            # Case: "- Label**:" (** in wrong position)
+            pattern2 = rf'(^|\n)(\s*-\s+)({re.escape(label)})\*\*:'
+            text = re.sub(pattern2, rf'\1\2**\3:**', text)
+
+        # Pattern 2: Fix any "Word:**" without opening ** in bullet context
+        # This is a broader catch-all for patterns we might have missed
+        text = re.sub(r'(^|\n)(\s*-\s+)([A-Z][a-zA-Z\s]+?):\*\*(\s)', r'\1\2**\3:**\4', text)
+
+        # Pattern 3: Fix standalone trailing ** at end of field values
+        # e.g., "High**" at end of line -> "High"
+        # But be careful not to break valid ** pairs
+
+        # Pattern 4: Fix "| Word:**" patterns in tables (missing opening **)
+        text = re.sub(r'\|\s*([A-Z][a-zA-Z\s]+?):\*\*', r'| **\1:**', text)
+
+        # Pattern 5: Fix lines that have trailing ** without matching opening
+        # This handles cases like "Some text value**" -> "Some text value"
+        # Only remove trailing ** if there's no opening ** on the same line segment
         lines = text.split('\n')
         fixed_lines = []
 
-        # Patterns for threat/opportunity fields that should be formatted as **Field:**
-        field_patterns = [
-            'Nature:', 'Likelihood:', 'Impact:', 'Time Horizon:',
-            'Indicators to Watch:', 'Window:', 'Prerequisites:',
-            'Risk if Missed:', 'Current Status:', 'Trigger Event:',
-            'Escalation Action:'
-        ]
-
         for line in lines:
-            fixed_line = line
+            # Count ** occurrences
+            double_star_count = line.count('**')
 
-            # Fix bullet points: • -> -
-            if fixed_line.strip().startswith('•'):
-                fixed_line = fixed_line.replace('•', '-', 1)
+            # If odd number of **, there's an unmatched one
+            if double_star_count % 2 == 1:
+                # Check if line ends with ** (trailing without opening)
+                if line.rstrip().endswith('**') and not line.rstrip().endswith(':**'):
+                    # Remove the trailing **
+                    line = line.rstrip()
+                    if line.endswith('**'):
+                        line = line[:-2]
 
-            # Fix missing opening ** for known field patterns
-            for field in field_patterns:
-                # Pattern: "- Field:**" or "  - Field:**" (missing opening **)
-                pattern = rf'^(\s*-\s*)({re.escape(field)})\*\*'
-                if re.match(pattern, fixed_line):
-                    fixed_line = re.sub(pattern, r'\1**\2**', fixed_line)
-
-                # Pattern: "Field:**" at start of bullet (no opening **)
-                pattern2 = rf'^(\s*-\s*)({re.escape(field[:-1])})\*\*:'
-                if re.match(pattern2, fixed_line):
-                    fixed_line = re.sub(pattern2, r'\1**\2:**', fixed_line)
-
-            # Fix any remaining pattern: "- Word:**" -> "- **Word:**"
-            # This catches cases like "- Likelihood:**" missing opening **
-            fixed_line = re.sub(r'^(\s*-\s+)([A-Z][a-z\s]+):\*\*', r'\1**\2:**', fixed_line)
-
-            # Also fix "• Word:**" patterns that were converted to "- Word:**"
-            fixed_line = re.sub(r'^(\s*-\s+)([A-Z][a-z\s]+)\*\*:', r'\1**\2:**', fixed_line)
-
-            fixed_lines.append(fixed_line)
+            fixed_lines.append(line)
 
         return '\n'.join(fixed_lines)
 
