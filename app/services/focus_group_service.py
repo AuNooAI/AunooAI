@@ -339,6 +339,13 @@ class FocusGroupService:
             )
             state.update_progress("synthesis", 1.0)
 
+            # Collect all article URIs used
+            all_article_uris = []
+            for article in state.raw_articles:
+                uri = article.get("uri") or article.get("url", "")
+                if uri and uri not in all_article_uris:
+                    all_article_uris.append(uri)
+
             # Final result
             yield {
                 "stage": "complete",
@@ -348,6 +355,16 @@ class FocusGroupService:
                 "personas": [p.to_dict() for p in state.personas],
                 "focus_group_summary": state.focus_group_summary,
                 "interaction_dynamics": state.interaction_dynamics,
+                "article_uris": all_article_uris,
+                "articles": [
+                    {
+                        "title": a.get("title", "Untitled"),
+                        "uri": a.get("uri") or a.get("url", ""),
+                        "source": a.get("source", "Unknown"),
+                        "published_at": a.get("published_at")
+                    }
+                    for a in state.raw_articles
+                ],
                 "metadata": {
                     "topic": topic,
                     "articles_analyzed": len(state.raw_articles),

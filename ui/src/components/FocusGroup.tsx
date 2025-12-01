@@ -775,11 +775,10 @@ export function FocusGroup({
     }
   };
 
-  const handleExport = async (format: 'json' | 'markdown') => {
+  const handleExport = async (format: 'json' | 'markdown' | 'articles') => {
     if (!result) return;
 
     try {
-      // For now, just create a client-side export
       let content: string;
       let filename: string;
       let mimeType: string;
@@ -788,6 +787,44 @@ export function FocusGroup({
         content = JSON.stringify(result, null, 2);
         filename = `focus_group_${topic?.replace(/\s+/g, '_')}_${Date.now()}.json`;
         mimeType = 'application/json';
+      } else if (format === 'articles') {
+        // Export article reference list
+        const articles = result.articles || [];
+        const lines = [
+          `# Article References for Focus Group: ${topic}`,
+          '',
+          `**Generated:** ${result.metadata?.generated_at || new Date().toISOString()}`,
+          `**Total Articles Analyzed:** ${articles.length}`,
+          '',
+          '## Articles Used',
+          '',
+        ];
+
+        for (let i = 0; i < articles.length; i++) {
+          const article = articles[i];
+          lines.push(`### ${i + 1}. ${article.title}`);
+          lines.push(`- **Source:** ${article.source}`);
+          lines.push(`- **URL:** ${article.uri}`);
+          if (article.published_at) {
+            lines.push(`- **Published:** ${article.published_at}`);
+          }
+          lines.push('');
+        }
+
+        // Also list URIs only for easy reference
+        lines.push('---');
+        lines.push('');
+        lines.push('## Quick Reference (URLs only)');
+        lines.push('');
+        for (const article of articles) {
+          if (article.uri) {
+            lines.push(`- ${article.uri}`);
+          }
+        }
+
+        content = lines.join('\n');
+        filename = `focus_group_articles_${topic?.replace(/\s+/g, '_')}_${Date.now()}.md`;
+        mimeType = 'text/markdown';
       } else {
         // Generate markdown
         const lines = [
@@ -822,6 +859,16 @@ export function FocusGroup({
             lines.push('');
           }
           lines.push('---');
+          lines.push('');
+        }
+
+        // Add article references section
+        if (result.articles && result.articles.length > 0) {
+          lines.push('## Source Articles');
+          lines.push('');
+          for (const article of result.articles) {
+            lines.push(`- [${article.title}](${article.uri}) - ${article.source}`);
+          }
           lines.push('');
         }
 
@@ -1077,6 +1124,10 @@ export function FocusGroup({
             <Button variant="outline" size="sm" onClick={() => handleExport('markdown')}>
               <Download className="w-4 h-4 mr-1" />
               Markdown
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => handleExport('articles')}>
+              <Download className="w-4 h-4 mr-1" />
+              Articles
             </Button>
             <Button variant="outline" size="sm" onClick={() => setShowSaveDialog(true)} disabled={isSaving}>
               {isSaving ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Save className="w-4 h-4 mr-1" />}
