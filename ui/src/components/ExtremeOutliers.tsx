@@ -100,6 +100,8 @@ interface ExtremeOutliersProps {
   onClearResults: () => void;
   // Saved EOS (optional callback for load)
   onLoadEOS?: (scenarios: EOSScenario[], result?: EOSResult) => void;
+  // Export mode - expand all cards for PDF/PNG capture
+  expandAllForExport?: boolean;
 }
 
 // Stage indicator component for EOS workflow
@@ -250,8 +252,9 @@ const TIME_HORIZON_LABELS: Record<string, string> = {
 };
 
 // Individual scenario card
-function ScenarioCard({ scenario }: { scenario: EOSScenario }) {
+function ScenarioCard({ scenario, forceExpanded = false }: { scenario: EOSScenario; forceExpanded?: boolean }) {
   const [expanded, setExpanded] = useState(false);
+  const isExpanded = forceExpanded || expanded;
   const categoryConfig = CATEGORY_CONFIG[scenario.category] || CATEGORY_CONFIG.wild_card;
 
   return (
@@ -294,7 +297,7 @@ function ScenarioCard({ scenario }: { scenario: EOSScenario }) {
             Trigger Events
           </h4>
           <ul className="text-sm space-y-1">
-            {scenario.trigger_events.slice(0, expanded ? undefined : 2).map((event, idx) => (
+            {scenario.trigger_events.slice(0, isExpanded ? undefined : 2).map((event, idx) => (
               <li key={idx} className="flex items-start gap-2">
                 <span className="text-red-400">•</span>
                 <span>{event}</span>
@@ -304,7 +307,7 @@ function ScenarioCard({ scenario }: { scenario: EOSScenario }) {
         </div>
 
         {/* Expandable sections */}
-        {expanded && (
+        {isExpanded && (
           <>
             <Separator className="my-4" />
 
@@ -395,25 +398,27 @@ function ScenarioCard({ scenario }: { scenario: EOSScenario }) {
           </>
         )}
 
-        {/* Expand/Collapse button */}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="w-full mt-2"
-          onClick={() => setExpanded(!expanded)}
-        >
-          {expanded ? (
-            <>
-              <ChevronUp className="w-4 h-4 mr-2" />
-              Show Less
-            </>
-          ) : (
-            <>
-              <ChevronDown className="w-4 h-4 mr-2" />
-              Show Details
-            </>
-          )}
-        </Button>
+        {/* Expand/Collapse button - hidden when forceExpanded for export */}
+        {!forceExpanded && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full mt-2"
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded ? (
+              <>
+                <ChevronUp className="w-4 h-4 mr-2" />
+                Show Less
+              </>
+            ) : (
+              <>
+                <ChevronDown className="w-4 h-4 mr-2" />
+                Show Details
+              </>
+            )}
+          </Button>
+        )}
       </CardContent>
     </Card>
   );
@@ -525,6 +530,8 @@ export function ExtremeOutliers({
   onClearError,
   onClearResults,
   onLoadEOS,
+  // Export mode
+  expandAllForExport = false,
 }: ExtremeOutliersProps) {
   const [showConfig, setShowConfig] = useState(false);
 
@@ -840,7 +847,7 @@ export function ExtremeOutliers({
               </h3>
               <div className="grid gap-4">
                 {blackSwanScenarios.map((scenario) => (
-                  <ScenarioCard key={scenario.id} scenario={scenario} />
+                  <ScenarioCard key={scenario.id} scenario={scenario} forceExpanded={expandAllForExport} />
                 ))}
               </div>
             </div>
@@ -855,7 +862,7 @@ export function ExtremeOutliers({
               </h3>
               <div className="grid gap-4">
                 {contrarianScenarios.map((scenario) => (
-                  <ScenarioCard key={scenario.id} scenario={scenario} />
+                  <ScenarioCard key={scenario.id} scenario={scenario} forceExpanded={expandAllForExport} />
                 ))}
               </div>
             </div>
@@ -870,7 +877,7 @@ export function ExtremeOutliers({
               </h3>
               <div className="grid gap-4">
                 {wildCardScenarios.map((scenario) => (
-                  <ScenarioCard key={scenario.id} scenario={scenario} />
+                  <ScenarioCard key={scenario.id} scenario={scenario} forceExpanded={expandAllForExport} />
                 ))}
               </div>
             </div>

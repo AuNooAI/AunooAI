@@ -1222,6 +1222,34 @@ function App() {
               <>
                 <button
                   onClick={() => {
+                    // Export as text-based PDF with all scenario details
+                    ExportService.exportEOSTextPDF(
+                      eos.scenarios,
+                      config.topic || 'scenarios',
+                      eos.result?.metadata
+                    );
+                  }}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Download className="w-4 h-4" />
+                  PDF
+                </button>
+                <button
+                  onClick={() => {
+                    // Export as Markdown with all scenario details
+                    ExportService.exportEOSMarkdown(
+                      eos.scenarios,
+                      config.topic || 'scenarios',
+                      eos.result?.metadata
+                    );
+                  }}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <FileText className="w-4 h-4" />
+                  Markdown
+                </button>
+                <button
+                  onClick={() => {
                     // Export scenarios as JSON file
                     const blob = new Blob([JSON.stringify(eos.result, null, 2)], { type: 'application/json' });
                     const url = URL.createObjectURL(blob);
@@ -1394,12 +1422,12 @@ function App() {
                 </button>
               </>
             )}
-            {/* Export buttons - hidden for Situation Assessment, Newsletter, Extreme Outliers, and Executive Briefing tabs (they have custom buttons) */}
-            {activeTab !== 'intelligence-brief' && activeTab !== 'newsletter' && activeTab !== 'extreme-outliers' && activeTab !== 'executive-briefing' && (
+            {/* Export buttons - hidden for Situation Assessment, Newsletter, Extreme Outliers, Focus Group, and Executive Briefing tabs (they have custom buttons) */}
+            {activeTab !== 'intelligence-brief' && activeTab !== 'newsletter' && activeTab !== 'extreme-outliers' && activeTab !== 'focus-group' && activeTab !== 'executive-briefing' && (
               <>
                 <button
                   onClick={() => handleExport('pdf')}
-                  disabled={activeTab === 'focus-group' ? !focusGroup.result : !data}
+                  disabled={!data}
                   className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Download className="w-4 h-4" />
@@ -1407,7 +1435,7 @@ function App() {
                 </button>
                 <button
                   onClick={() => handleExport('image')}
-                  disabled={activeTab === 'focus-group' ? !focusGroup.result : !data}
+                  disabled={!data}
                   className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <ImageIcon className="w-4 h-4" />
@@ -1415,14 +1443,14 @@ function App() {
                 </button>
                 <button
                   onClick={handleViewRaw}
-                  disabled={(activeTab === 'focus-group' ? !focusGroup.result : !data?.analysis_id) || loadingRaw}
+                  disabled={!data?.analysis_id || loadingRaw}
                   className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Code className="w-4 h-4" />
                   {loadingRaw ? 'Loading...' : 'Raw'}
                 </button>
                 {/* References button - for standard dashboards */}
-                {activeTab !== 'focus-group' && data?.analysis_id && (
+                {data?.analysis_id && (
                   <div className="reference-articles-button-wrapper">
                     <ArticleCitations
                       dashboardType={
@@ -1438,28 +1466,63 @@ function App() {
                     />
                   </div>
                 )}
-                {/* References button - for focus group (uses articles from result) */}
-                {activeTab === 'focus-group' && focusGroup.result && (
-                  <button
-                    onClick={() => setShowFgReferencesModal(true)}
-                    className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
-                  >
-                    <FileText className="w-4 h-4" />
-                    References
-                  </button>
-                )}
 
                 {/* Save Dashboard Button */}
                 <button
-                  onClick={() => {
-                    if (activeTab === 'focus-group') {
-                      setShowFgSaveDialog(true);
-                    } else {
-                      setShowSaveDialog(true);
-                    }
-                  }}
-                  disabled={activeTab === 'focus-group' ? !focusGroup.result : !data}
+                  onClick={() => setShowSaveDialog(true)}
+                  disabled={!data}
                   className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Save className="w-4 h-4" />
+                  Save
+                </button>
+              </>
+            )}
+            {/* Focus Group export buttons - text-based PDF and Markdown */}
+            {activeTab === 'focus-group' && focusGroup.result && !focusGroup.isGenerating && (
+              <>
+                <button
+                  onClick={() => {
+                    ExportService.exportFocusGroupTextPDF(
+                      focusGroup.result,
+                      config.topic || 'focus-group'
+                    );
+                  }}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <Download className="w-4 h-4" />
+                  PDF
+                </button>
+                <button
+                  onClick={() => {
+                    ExportService.exportFocusGroupMarkdown(
+                      focusGroup.result,
+                      config.topic || 'focus-group'
+                    );
+                  }}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <FileText className="w-4 h-4" />
+                  Markdown
+                </button>
+                <button
+                  onClick={handleViewRaw}
+                  disabled={loadingRaw}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Code className="w-4 h-4" />
+                  {loadingRaw ? 'Loading...' : 'Raw'}
+                </button>
+                <button
+                  onClick={() => setShowFgReferencesModal(true)}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
+                >
+                  <FileText className="w-4 h-4" />
+                  References
+                </button>
+                <button
+                  onClick={() => setShowFgSaveDialog(true)}
+                  className="px-3 py-2 hover:bg-gray-100 rounded-md text-sm font-medium flex items-center gap-2 text-pink-500"
                 >
                   <Save className="w-4 h-4" />
                   Save
