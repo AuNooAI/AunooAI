@@ -3,7 +3,7 @@ category: newsletter
 description: Generates deep dive analysis with consensus and credibility evaluation
 model_config:
   max_tokens: 4000
-  model: gpt-4.1
+  model: gpt-4.1-mini
   temperature: 0.3
 name: newsletter_deep_dive_agent
 type: agent

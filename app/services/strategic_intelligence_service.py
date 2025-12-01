@@ -979,6 +979,9 @@ Use markdown formatting. Include confidence indicators and source attributions."
 
             state.intelligence_brief = "".join(report_chunks)
 
+            # Fix any markdown formatting issues from LLM output
+            state.intelligence_brief = self._fix_markdown_formatting(state.intelligence_brief)
+
             # Add audit trail footer
             audit_footer = f"""
 
@@ -1023,6 +1026,57 @@ Use markdown formatting. Include confidence indicators and source attributions."
                 "progress": 1.0,
                 "error": str(e)
             }
+
+    def _fix_markdown_formatting(self, text: str) -> str:
+        """Fix common markdown formatting issues in LLM output.
+
+        Fixes issues like:
+        - '• Nature:**' -> '- **Nature:**'
+        - 'Nature:**' at start of line -> '- **Nature:**'
+        - Missing opening ** markers
+        """
+        import re
+
+        lines = text.split('\n')
+        fixed_lines = []
+
+        # Patterns for threat/opportunity fields that should be formatted as **Field:**
+        field_patterns = [
+            'Nature:', 'Likelihood:', 'Impact:', 'Time Horizon:',
+            'Indicators to Watch:', 'Window:', 'Prerequisites:',
+            'Risk if Missed:', 'Current Status:', 'Trigger Event:',
+            'Escalation Action:'
+        ]
+
+        for line in lines:
+            fixed_line = line
+
+            # Fix bullet points: • -> -
+            if fixed_line.strip().startswith('•'):
+                fixed_line = fixed_line.replace('•', '-', 1)
+
+            # Fix missing opening ** for known field patterns
+            for field in field_patterns:
+                # Pattern: "- Field:**" or "  - Field:**" (missing opening **)
+                pattern = rf'^(\s*-\s*)({re.escape(field)})\*\*'
+                if re.match(pattern, fixed_line):
+                    fixed_line = re.sub(pattern, r'\1**\2**', fixed_line)
+
+                # Pattern: "Field:**" at start of bullet (no opening **)
+                pattern2 = rf'^(\s*-\s*)({re.escape(field[:-1])})\*\*:'
+                if re.match(pattern2, fixed_line):
+                    fixed_line = re.sub(pattern2, r'\1**\2:**', fixed_line)
+
+            # Fix any remaining pattern: "- Word:**" -> "- **Word:**"
+            # This catches cases like "- Likelihood:**" missing opening **
+            fixed_line = re.sub(r'^(\s*-\s+)([A-Z][a-z\s]+):\*\*', r'\1**\2:**', fixed_line)
+
+            # Also fix "• Word:**" patterns that were converted to "- Word:**"
+            fixed_line = re.sub(r'^(\s*-\s+)([A-Z][a-z\s]+)\*\*:', r'\1**\2:**', fixed_line)
+
+            fixed_lines.append(fixed_line)
+
+        return '\n'.join(fixed_lines)
 
     def _generate_fallback_brief(self, state: SIOState) -> str:
         """Generate a basic fallback brief if synthesis fails."""
