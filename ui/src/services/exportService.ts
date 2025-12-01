@@ -90,7 +90,7 @@ export class ExportService {
 
     try {
       const canvas = await html2canvas(element, {
-        scale: 2,
+        scale: 1.5, // Reduced from 2 for smaller file size while maintaining readability
         useCORS: true,
         logging: false,
         backgroundColor: '#ffffff',
@@ -98,11 +98,13 @@ export class ExportService {
         height: element.scrollHeight
       });
 
-    const imgData = canvas.toDataURL('image/png');
+    // Use JPEG with 85% quality for much smaller file sizes
+    const imgData = canvas.toDataURL('image/jpeg', 0.85);
     const pdf = new jsPDF({
       orientation: 'portrait',
       unit: 'mm',
-      format: 'a4'
+      format: 'a4',
+      compress: true // Enable PDF compression
     });
 
     const imgWidth = 210; // A4 width in mm
@@ -112,14 +114,14 @@ export class ExportService {
     let position = 0;
 
     // Add first page
-    pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+    pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
     heightLeft -= pageHeight;
 
     // Add additional pages if content is longer than one page
     while (heightLeft >= 0) {
       position = heightLeft - imgHeight;
       pdf.addPage();
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      pdf.addImage(imgData, 'JPEG', 0, position, imgWidth, imgHeight, undefined, 'FAST');
       heightLeft -= pageHeight;
     }
 
@@ -200,6 +202,625 @@ export class ExportService {
   }
 
   /**
+   * Export Extreme Outliers as text-based PDF
+   */
+  static exportEOSTextPDF(scenarios: any[], topic: string, metadata?: any): void {
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+
+    const pageWidth = 210;
+    const pageHeight = 297;
+    const margin = 15;
+    const contentWidth = pageWidth - (margin * 2);
+    let y = margin;
+
+    const addPage = () => {
+      pdf.addPage();
+      y = margin;
+    };
+
+    const checkPageBreak = (neededHeight: number) => {
+      if (y + neededHeight > pageHeight - margin) {
+        addPage();
+      }
+    };
+
+    const addText = (text: string, fontSize: number, isBold: boolean = false, color: number[] = [0, 0, 0]) => {
+      pdf.setFontSize(fontSize);
+      pdf.setFont('helvetica', isBold ? 'bold' : 'normal');
+      pdf.setTextColor(color[0], color[1], color[2]);
+      const lines = pdf.splitTextToSize(text, contentWidth);
+      const lineHeight = fontSize * 0.4;
+      checkPageBreak(lines.length * lineHeight + 2);
+      pdf.text(lines, margin, y);
+      y += lines.length * lineHeight + 2;
+    };
+
+    const addSection = (title: string, items: string[], iconColor: number[]) => {
+      checkPageBreak(20);
+      addText(title, 11, true, iconColor);
+      items.forEach(item => {
+        addText(`• ${item}`, 10, false);
+      });
+      y += 3;
+    };
+
+    // Title
+    addText(`Extreme Outlier Scenarios`, 18, true, [128, 0, 128]);
+    addText(`Topic: ${topic}`, 12, false, [100, 100, 100]);
+    addText(`Generated: ${new Date().toLocaleString()}`, 10, false, [150, 150, 150]);
+    y += 5;
+
+    // Metadata summary
+    if (metadata) {
+      addText(`Analysis Summary: ${metadata.signals_detected || 0} signals detected, ${metadata.pathways_explored || 0} pathways explored, ${metadata.scenarios_generated || 0} scenarios generated`, 10, false, [100, 100, 100]);
+      y += 5;
+    }
+
+    // AI Disclosure
+    checkPageBreak(30);
+    addText('AI Technology Disclosure', 12, true);
+    addText('This analysis was generated using AI technologies (GPT-4, OpenAI Embeddings) for extreme scenario planning and risk identification. All content should be reviewed and validated by domain experts.', 9, false, [100, 100, 100]);
+    y += 8;
+
+    // Category colors
+    const categoryColors: Record<string, number[]> = {
+      black_swan: [128, 0, 128],
+      contrarian: [180, 120, 0],
+      wild_card: [0, 100, 200]
+    };
+
+    const categoryLabels: Record<string, string> = {
+      black_swan: 'Black Swan Event',
+      contrarian: 'Contrarian Analysis',
+      wild_card: 'Wild Card Future'
+    };
+
+    // Group scenarios by category
+    const blackSwans = scenarios.filter(s => s.category === 'black_swan');
+    const contrarian = scenarios.filter(s => s.category === 'contrarian');
+    const wildCards = scenarios.filter(s => s.category === 'wild_card');
+
+    const renderScenarios = (scenarioList: any[], categoryName: string) => {
+      if (scenarioList.length === 0) return;
+
+      checkPageBreak(15);
+      addText(`${categoryLabels[categoryName]} (${scenarioList.length})`, 14, true, categoryColors[categoryName]);
+      y += 3;
+
+      scenarioList.forEach((scenario, idx) => {
+        checkPageBreak(40);
+
+        // Scenario header
+        addText(`${idx + 1}. ${scenario.title}`, 12, true);
+        if (scenario.subtitle) {
+          addText(scenario.subtitle, 10, false, [80, 80, 80]);
+        }
+        y += 2;
+
+        // Badges line
+        addText(`Probability: ${(scenario.probability || 'unknown').replace('_', ' ')} | Impact: ${scenario.impact_rating || 'N/A'}/10 | Time Horizon: ${scenario.time_horizon || 'N/A'}`, 9, false, [100, 100, 100]);
+        y += 3;
+
+        // Description
+        addText(scenario.description || '', 10, false);
+        y += 3;
+
+        // Trigger Events
+        if (scenario.trigger_events?.length > 0) {
+          addSection('Trigger Events', scenario.trigger_events, [200, 50, 50]);
+        }
+
+        // Weak Signals
+        if (scenario.weak_signals?.length > 0) {
+          addSection('Weak Signals Detected', scenario.weak_signals, [0, 100, 200]);
+        }
+
+        // Amplification Path
+        if (scenario.amplification_path) {
+          checkPageBreak(15);
+          addText('Amplification Path', 11, true, [200, 120, 0]);
+          addText(scenario.amplification_path, 10, false);
+          y += 3;
+        }
+
+        // Early Warning Signs
+        if (scenario.early_warning_signs?.length > 0) {
+          addSection('Early Warning Signs', scenario.early_warning_signs, [200, 180, 0]);
+        }
+
+        // Strategic Implications
+        if (scenario.strategic_implications) {
+          checkPageBreak(15);
+          addText('Strategic Implications', 11, true, [128, 0, 128]);
+          addText(scenario.strategic_implications, 10, false);
+          y += 3;
+        }
+
+        // Preparation Actions
+        if (scenario.preparation_actions?.length > 0) {
+          addSection('Preparation Actions', scenario.preparation_actions, [0, 150, 50]);
+        }
+
+        // Source info
+        if (scenario.source_trends?.length > 0 || scenario.source_consensus?.length > 0) {
+          checkPageBreak(15);
+          addText('Derived From:', 9, true, [150, 150, 150]);
+          if (scenario.source_trends?.length > 0) {
+            addText(`Trends: ${scenario.source_trends.join(', ')}`, 8, false, [150, 150, 150]);
+          }
+          if (scenario.source_consensus?.length > 0) {
+            addText(`Consensus: ${scenario.source_consensus.join(', ')}`, 8, false, [150, 150, 150]);
+          }
+        }
+
+        y += 8; // Space between scenarios
+      });
+    };
+
+    renderScenarios(blackSwans, 'black_swan');
+    renderScenarios(contrarian, 'contrarian');
+    renderScenarios(wildCards, 'wild_card');
+
+    // Footer on last page
+    const totalPages = pdf.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      pdf.setPage(i);
+      pdf.setFontSize(8);
+      pdf.setTextColor(150, 150, 150);
+      pdf.text(`Page ${i} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
+      pdf.text('Generated by Aunoo AI - Extreme Outlier Scenarios', pageWidth / 2, pageHeight - 5, { align: 'center' });
+    }
+
+    pdf.save(`extreme-outliers-${topic.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}.pdf`);
+  }
+
+  /**
+   * Export Extreme Outliers as Markdown
+   */
+  static exportEOSMarkdown(scenarios: any[], topic: string, metadata?: any): void {
+    let md = `# Extreme Outlier Scenarios\n\n`;
+    md += `**Topic:** ${topic}\n`;
+    md += `**Generated:** ${new Date().toLocaleString()}\n\n`;
+
+    if (metadata) {
+      md += `**Analysis Summary:** ${metadata.signals_detected || 0} signals detected, ${metadata.pathways_explored || 0} pathways explored, ${metadata.scenarios_generated || 0} scenarios generated\n\n`;
+    }
+
+    md += `## AI Technology Disclosure\n\n`;
+    md += `This analysis was generated using AI technologies (GPT-4, OpenAI Embeddings) for extreme scenario planning and risk identification. All content should be reviewed and validated by domain experts.\n\n`;
+    md += `---\n\n`;
+
+    const categoryLabels: Record<string, string> = {
+      black_swan: 'Black Swan Events',
+      contrarian: 'Contrarian Analysis',
+      wild_card: 'Wild Card Futures'
+    };
+
+    const blackSwans = scenarios.filter(s => s.category === 'black_swan');
+    const contrarian = scenarios.filter(s => s.category === 'contrarian');
+    const wildCards = scenarios.filter(s => s.category === 'wild_card');
+
+    const renderScenarios = (scenarioList: any[], categoryName: string) => {
+      if (scenarioList.length === 0) return;
+
+      md += `## ${categoryLabels[categoryName]} (${scenarioList.length})\n\n`;
+
+      scenarioList.forEach((scenario, idx) => {
+        md += `### ${idx + 1}. ${scenario.title}\n\n`;
+        if (scenario.subtitle) {
+          md += `*${scenario.subtitle}*\n\n`;
+        }
+
+        md += `| Probability | Impact | Time Horizon |\n`;
+        md += `|-------------|--------|-------------|\n`;
+        md += `| ${(scenario.probability || 'unknown').replace('_', ' ')} | ${scenario.impact_rating || 'N/A'}/10 | ${scenario.time_horizon || 'N/A'} |\n\n`;
+
+        md += `${scenario.description || ''}\n\n`;
+
+        if (scenario.trigger_events?.length > 0) {
+          md += `#### Trigger Events\n`;
+          scenario.trigger_events.forEach((e: string) => md += `- ${e}\n`);
+          md += `\n`;
+        }
+
+        if (scenario.weak_signals?.length > 0) {
+          md += `#### Weak Signals Detected\n`;
+          scenario.weak_signals.forEach((s: string) => md += `- ${s}\n`);
+          md += `\n`;
+        }
+
+        if (scenario.amplification_path) {
+          md += `#### Amplification Path\n${scenario.amplification_path}\n\n`;
+        }
+
+        if (scenario.early_warning_signs?.length > 0) {
+          md += `#### Early Warning Signs\n`;
+          scenario.early_warning_signs.forEach((s: string) => md += `- ${s}\n`);
+          md += `\n`;
+        }
+
+        if (scenario.strategic_implications) {
+          md += `#### Strategic Implications\n${scenario.strategic_implications}\n\n`;
+        }
+
+        if (scenario.preparation_actions?.length > 0) {
+          md += `#### Preparation Actions\n`;
+          scenario.preparation_actions.forEach((a: string, i: number) => md += `${i + 1}. ${a}\n`);
+          md += `\n`;
+        }
+
+        if (scenario.source_trends?.length > 0 || scenario.source_consensus?.length > 0) {
+          md += `> **Derived From:**\n`;
+          if (scenario.source_trends?.length > 0) {
+            md += `> Trends: ${scenario.source_trends.join(', ')}\n`;
+          }
+          if (scenario.source_consensus?.length > 0) {
+            md += `> Consensus: ${scenario.source_consensus.join(', ')}\n`;
+          }
+          md += `\n`;
+        }
+
+        md += `---\n\n`;
+      });
+    };
+
+    renderScenarios(blackSwans, 'black_swan');
+    renderScenarios(contrarian, 'contrarian');
+    renderScenarios(wildCards, 'wild_card');
+
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `extreme-outliers-${topic.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Export Focus Group as text-based PDF
+   */
+  static exportFocusGroupTextPDF(result: any, topic: string): void {
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+
+    const pageWidth = 210;
+    const pageHeight = 297;
+    const margin = 15;
+    const contentWidth = pageWidth - (margin * 2);
+    let y = margin;
+
+    const addPage = () => {
+      pdf.addPage();
+      y = margin;
+    };
+
+    const checkPageBreak = (neededHeight: number) => {
+      if (y + neededHeight > pageHeight - margin) {
+        addPage();
+      }
+    };
+
+    const addText = (text: string, fontSize: number, isBold: boolean = false, color: number[] = [0, 0, 0]) => {
+      pdf.setFontSize(fontSize);
+      pdf.setFont('helvetica', isBold ? 'bold' : 'normal');
+      pdf.setTextColor(color[0], color[1], color[2]);
+      const lines = pdf.splitTextToSize(text, contentWidth);
+      const lineHeight = fontSize * 0.4;
+      checkPageBreak(lines.length * lineHeight + 2);
+      pdf.text(lines, margin, y);
+      y += lines.length * lineHeight + 2;
+    };
+
+    const addSection = (title: string, items: string[], iconColor: number[]) => {
+      checkPageBreak(20);
+      addText(title, 11, true, iconColor);
+      items.forEach(item => {
+        addText(`• ${item}`, 10, false);
+      });
+      y += 3;
+    };
+
+    // Title
+    addText(`Focus Group Analysis`, 18, true, [0, 128, 128]);
+    addText(`Topic: ${topic}`, 12, false, [100, 100, 100]);
+    addText(`Generated: ${result.metadata?.generated_at ? new Date(result.metadata.generated_at).toLocaleString() : new Date().toLocaleString()}`, 10, false, [150, 150, 150]);
+    y += 5;
+
+    // Metadata summary
+    if (result.metadata) {
+      addText(`Analysis Summary: ${result.metadata.articles_analyzed || 0} articles analyzed, ${result.metadata.mentions_found || 0} mentions found, ${result.metadata.personas_generated || 0} personas generated`, 10, false, [100, 100, 100]);
+      y += 5;
+    }
+
+    // AI Disclosure
+    checkPageBreak(30);
+    addText('AI Technology Disclosure', 12, true);
+    addText('This analysis was generated using AI technologies (GPT-4, OpenAI Embeddings) for audience persona development. All content should be reviewed and validated by domain experts.', 9, false, [100, 100, 100]);
+    y += 8;
+
+    // Focus Group Summary
+    if (result.focus_group_summary) {
+      checkPageBreak(30);
+      addText('Focus Group Summary', 14, true, [0, 100, 100]);
+      addText(result.focus_group_summary, 10, false);
+      y += 8;
+    }
+
+    // Interaction Dynamics
+    if (result.interaction_dynamics) {
+      const dynamics = result.interaction_dynamics;
+
+      // Consensus Areas
+      if (dynamics.consensus_areas?.length > 0) {
+        checkPageBreak(20);
+        addText('Consensus Areas', 14, true, [0, 150, 50]);
+        dynamics.consensus_areas.forEach((area: any) => {
+          checkPageBreak(15);
+          addText(`${area.topic}`, 11, true);
+          addText(area.description, 10, false);
+          if (area.supporting_personas?.length > 0) {
+            addText(`Supporting personas: ${area.supporting_personas.join(', ')}`, 9, false, [100, 100, 100]);
+          }
+          y += 3;
+        });
+        y += 5;
+      }
+
+      // Tension Points
+      if (dynamics.tension_points?.length > 0) {
+        checkPageBreak(20);
+        addText('Tension Points', 14, true, [200, 100, 0]);
+        dynamics.tension_points.forEach((tension: any) => {
+          checkPageBreak(20);
+          addText(`${tension.topic}`, 11, true);
+          addText(tension.description, 10, false);
+          if (tension.opposing_sides) {
+            addText(`Side A: ${tension.opposing_sides.side_a?.join(', ') || 'N/A'}`, 9, false, [100, 100, 100]);
+            addText(`Side B: ${tension.opposing_sides.side_b?.join(', ') || 'N/A'}`, 9, false, [100, 100, 100]);
+          }
+          y += 3;
+        });
+        y += 5;
+      }
+
+      // Power Dynamics
+      if (dynamics.power_dynamics) {
+        checkPageBreak(20);
+        addText('Power Dynamics', 14, true, [128, 0, 128]);
+        if (dynamics.power_dynamics.most_influential) {
+          addText(`Most Influential: ${dynamics.power_dynamics.most_influential}`, 10, false);
+        }
+        if (dynamics.power_dynamics.most_vulnerable) {
+          addText(`Most Vulnerable: ${dynamics.power_dynamics.most_vulnerable}`, 10, false);
+        }
+        if (dynamics.power_dynamics.likely_coalition?.length > 0) {
+          addText(`Likely Coalition: ${dynamics.power_dynamics.likely_coalition.join(', ')}`, 10, false);
+        }
+        y += 5;
+      }
+    }
+
+    // Personas
+    if (result.personas?.length > 0) {
+      checkPageBreak(15);
+      addText(`Personas (${result.personas.length})`, 16, true, [0, 100, 150]);
+      y += 5;
+
+      result.personas.forEach((persona: any, idx: number) => {
+        checkPageBreak(60);
+
+        // Persona header
+        addText(`${idx + 1}. ${persona.name}`, 13, true);
+        addText(`${persona.archetype} - ${persona.role_title}`, 11, false, [80, 80, 80]);
+        y += 2;
+
+        // Key attributes
+        addText(`Sector: ${persona.sector} | Experience: ${persona.experience_level} | Decision Authority: ${persona.decision_authority?.replace('_', ' ')}`, 9, false, [100, 100, 100]);
+        y += 3;
+
+        // Psychographic traits
+        if (persona.risk_tolerance !== undefined) {
+          addText(`Risk Tolerance: ${persona.risk_tolerance}/10 | Change Receptivity: ${persona.change_receptivity} | Technology Stance: ${persona.technology_stance}`, 9, false, [100, 100, 100]);
+        }
+        y += 3;
+
+        // Voice description
+        if (persona.voice_description) {
+          addText('Voice:', 10, true, [0, 100, 100]);
+          addText(persona.voice_description, 10, false);
+          y += 2;
+        }
+
+        // Primary concerns
+        if (persona.primary_concerns?.length > 0) {
+          addSection('Primary Concerns', persona.primary_concerns, [200, 50, 50]);
+        }
+
+        // Opportunity interests
+        if (persona.opportunity_interests?.length > 0) {
+          addSection('Opportunity Interests', persona.opportunity_interests, [0, 150, 50]);
+        }
+
+        // Fear triggers
+        if (persona.fear_triggers?.length > 0) {
+          addSection('Fear Triggers', persona.fear_triggers, [200, 100, 0]);
+        }
+
+        // Typical questions
+        if (persona.typical_questions?.length > 0) {
+          addSection('Typical Questions', persona.typical_questions, [0, 100, 200]);
+        }
+
+        // Decision factors
+        if (persona.decision_factors?.length > 0) {
+          addSection('Decision Factors', persona.decision_factors, [128, 0, 128]);
+        }
+
+        // Confidence
+        if (persona.confidence_score !== undefined) {
+          addText(`Confidence Score: ${(persona.confidence_score * 100).toFixed(0)}% | Based on ${persona.mention_count || 0} mentions`, 9, false, [150, 150, 150]);
+        }
+
+        y += 10; // Space between personas
+      });
+    }
+
+    // Footer on all pages
+    const totalPages = pdf.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      pdf.setPage(i);
+      pdf.setFontSize(8);
+      pdf.setTextColor(150, 150, 150);
+      pdf.text(`Page ${i} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
+      pdf.text('Generated by Aunoo AI - Focus Group Analysis', pageWidth / 2, pageHeight - 5, { align: 'center' });
+    }
+
+    pdf.save(`focus-group-${topic.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}.pdf`);
+  }
+
+  /**
+   * Export Focus Group as Markdown
+   */
+  static exportFocusGroupMarkdown(result: any, topic: string): void {
+    let md = `# Focus Group Analysis\n\n`;
+    md += `**Topic:** ${topic}\n`;
+    md += `**Generated:** ${result.metadata?.generated_at ? new Date(result.metadata.generated_at).toLocaleString() : new Date().toLocaleString()}\n\n`;
+
+    if (result.metadata) {
+      md += `**Analysis Summary:** ${result.metadata.articles_analyzed || 0} articles analyzed, ${result.metadata.mentions_found || 0} mentions found, ${result.metadata.personas_generated || 0} personas generated\n\n`;
+    }
+
+    md += `## AI Technology Disclosure\n\n`;
+    md += `This analysis was generated using AI technologies (GPT-4, OpenAI Embeddings) for audience persona development. All content should be reviewed and validated by domain experts.\n\n`;
+    md += `---\n\n`;
+
+    // Focus Group Summary
+    if (result.focus_group_summary) {
+      md += `## Focus Group Summary\n\n${result.focus_group_summary}\n\n`;
+    }
+
+    // Interaction Dynamics
+    if (result.interaction_dynamics) {
+      const dynamics = result.interaction_dynamics;
+
+      if (dynamics.consensus_areas?.length > 0) {
+        md += `## Consensus Areas\n\n`;
+        dynamics.consensus_areas.forEach((area: any) => {
+          md += `### ${area.topic}\n\n`;
+          md += `${area.description}\n\n`;
+          if (area.supporting_personas?.length > 0) {
+            md += `*Supporting personas: ${area.supporting_personas.join(', ')}*\n\n`;
+          }
+        });
+      }
+
+      if (dynamics.tension_points?.length > 0) {
+        md += `## Tension Points\n\n`;
+        dynamics.tension_points.forEach((tension: any) => {
+          md += `### ${tension.topic}\n\n`;
+          md += `${tension.description}\n\n`;
+          if (tension.opposing_sides) {
+            md += `| Side A | Side B |\n|--------|--------|\n`;
+            md += `| ${tension.opposing_sides.side_a?.join(', ') || 'N/A'} | ${tension.opposing_sides.side_b?.join(', ') || 'N/A'} |\n\n`;
+          }
+        });
+      }
+
+      if (dynamics.power_dynamics) {
+        md += `## Power Dynamics\n\n`;
+        md += `| Aspect | Persona |\n|--------|--------|\n`;
+        if (dynamics.power_dynamics.most_influential) {
+          md += `| Most Influential | ${dynamics.power_dynamics.most_influential} |\n`;
+        }
+        if (dynamics.power_dynamics.most_vulnerable) {
+          md += `| Most Vulnerable | ${dynamics.power_dynamics.most_vulnerable} |\n`;
+        }
+        if (dynamics.power_dynamics.likely_coalition?.length > 0) {
+          md += `| Likely Coalition | ${dynamics.power_dynamics.likely_coalition.join(', ')} |\n`;
+        }
+        md += `\n`;
+      }
+    }
+
+    // Personas
+    if (result.personas?.length > 0) {
+      md += `## Personas (${result.personas.length})\n\n`;
+
+      result.personas.forEach((persona: any, idx: number) => {
+        md += `### ${idx + 1}. ${persona.name}\n\n`;
+        md += `**${persona.archetype}** - ${persona.role_title}\n\n`;
+
+        md += `| Attribute | Value |\n|-----------|-------|\n`;
+        md += `| Sector | ${persona.sector} |\n`;
+        md += `| Experience | ${persona.experience_level} |\n`;
+        md += `| Decision Authority | ${persona.decision_authority?.replace('_', ' ')} |\n`;
+        if (persona.risk_tolerance !== undefined) {
+          md += `| Risk Tolerance | ${persona.risk_tolerance}/10 |\n`;
+        }
+        md += `| Change Receptivity | ${persona.change_receptivity} |\n`;
+        md += `| Technology Stance | ${persona.technology_stance} |\n`;
+        md += `\n`;
+
+        if (persona.voice_description) {
+          md += `#### Voice\n${persona.voice_description}\n\n`;
+        }
+
+        if (persona.primary_concerns?.length > 0) {
+          md += `#### Primary Concerns\n`;
+          persona.primary_concerns.forEach((c: string) => md += `- ${c}\n`);
+          md += `\n`;
+        }
+
+        if (persona.opportunity_interests?.length > 0) {
+          md += `#### Opportunity Interests\n`;
+          persona.opportunity_interests.forEach((o: string) => md += `- ${o}\n`);
+          md += `\n`;
+        }
+
+        if (persona.fear_triggers?.length > 0) {
+          md += `#### Fear Triggers\n`;
+          persona.fear_triggers.forEach((f: string) => md += `- ${f}\n`);
+          md += `\n`;
+        }
+
+        if (persona.typical_questions?.length > 0) {
+          md += `#### Typical Questions\n`;
+          persona.typical_questions.forEach((q: string) => md += `- ${q}\n`);
+          md += `\n`;
+        }
+
+        if (persona.decision_factors?.length > 0) {
+          md += `#### Decision Factors\n`;
+          persona.decision_factors.forEach((d: string) => md += `- ${d}\n`);
+          md += `\n`;
+        }
+
+        if (persona.confidence_score !== undefined) {
+          md += `> Confidence: ${(persona.confidence_score * 100).toFixed(0)}% | Based on ${persona.mention_count || 0} mentions\n\n`;
+        }
+
+        md += `---\n\n`;
+      });
+    }
+
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `focus-group-${topic.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /**
    * Helper: Get purpose text for dashboard type
    */
   private static getPurpose(dashboardType: string): string {
@@ -208,7 +829,8 @@ export class ExportService {
       'Strategic Recommendations': 'To synthesize actionable strategic insights',
       'Market Signals': 'To identify market trends, risks, and opportunities',
       'Impact Timeline': 'To project temporal sequences of anticipated impacts',
-      'Future Horizons': 'To explore long-term implications and future scenarios'
+      'Future Horizons': 'To explore long-term implications and future scenarios',
+      'Extreme Outliers': 'To identify black swan events, contrarian views, and wild card scenarios'
     };
     return purposes[dashboardType] || 'Advanced analysis and insight generation';
   }
