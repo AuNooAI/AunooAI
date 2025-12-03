@@ -106,7 +106,7 @@ class NewsletterGeneratorHandler(ToolHandler):
         }
 
         # Try to load from newsletter_config.json
-        config_file = Path("/home/orochford/tenants/testbed.aunoo.ai/data/auspex/newsletter_config.json")
+        config_file = Path(__file__).parent.parent.parent / "newsletter_config.json"
         if config_file.exists():
             try:
                 with open(config_file, 'r') as f:

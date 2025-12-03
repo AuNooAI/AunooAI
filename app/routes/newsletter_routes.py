@@ -54,7 +54,7 @@ class NewsletterConfigUpdate(BaseModel):
 
 
 # Path to newsletter config file
-NEWSLETTER_CONFIG_FILE = Path("/home/orochford/tenants/testbed.aunoo.ai/data/auspex/newsletter_config.json")
+NEWSLETTER_CONFIG_FILE = Path(__file__).parent.parent.parent / "data" / "auspex" / "newsletter_config.json"
 
 
 def load_newsletter_config() -> Dict[str, Any]:
@@ -322,7 +322,7 @@ NEWSLETTER_AGENTS = [
     }
 ]
 
-AGENTS_DIR = Path("/home/orochford/tenants/testbed.aunoo.ai/data/auspex/agents")
+AGENTS_DIR = Path(__file__).parent.parent.parent / "data" / "auspex" / "agents"
 
 
 def parse_agent_file(file_path: Path) -> tuple[str, dict]:

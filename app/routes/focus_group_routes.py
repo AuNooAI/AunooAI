@@ -256,7 +256,7 @@ async def health_check():
 # Focus Group Configuration Endpoints
 # ============================================================================
 
-FG_CONFIG_FILE = Path("/home/orochford/tenants/testbed.aunoo.ai/data/auspex/fg_config.json")
+FG_CONFIG_FILE = Path(__file__).parent.parent.parent / "data" / "auspex" / "fg_config.json"
 
 
 @router.get("/config")
@@ -388,7 +388,7 @@ async def list_fg_prompts(
     """
     import yaml
 
-    agents_dir = Path("/home/orochford/tenants/testbed.aunoo.ai/data/auspex/agents")
+    agents_dir = Path(__file__).parent.parent.parent / "data" / "auspex" / "agents"
 
     prompts = []
     for agent in FG_AGENTS:
@@ -440,7 +440,7 @@ async def get_fg_prompt(
     if not agent:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
 
-    agents_dir = Path("/home/orochford/tenants/testbed.aunoo.ai/data/auspex/agents")
+    agents_dir = Path(__file__).parent.parent.parent / "data" / "auspex" / "agents"
     agent_file = agents_dir / agent["file"]
 
     if not agent_file.exists():
@@ -497,7 +497,7 @@ async def update_fg_prompt(
     if not agent:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
 
-    agents_dir = Path("/home/orochford/tenants/testbed.aunoo.ai/data/auspex/agents")
+    agents_dir = Path(__file__).parent.parent.parent / "data" / "auspex" / "agents"
     agent_file = agents_dir / agent["file"]
 
     # Read existing file or create new metadata

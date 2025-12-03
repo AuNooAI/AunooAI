@@ -1323,11 +1323,13 @@ async def reset_database(db: Database = Depends(get_database_instance), session=
 
             # Run Alembic migrations to recreate schema
             import subprocess
+            from pathlib import Path
+            project_root = str(Path(__file__).parent.parent.parent)
             result = subprocess.run(
                 ["alembic", "upgrade", "head"],
                 capture_output=True,
                 text=True,
-                cwd="/home/orochford/tenants/skunkworkx.aunoo.ai",
+                cwd=project_root,
                 timeout=120  # 2 minute timeout
             )
 
@@ -1391,11 +1393,13 @@ async def reset_database(db: Database = Depends(get_database_instance), session=
 
             # Run Alembic migrations
             import subprocess
+            from pathlib import Path
+            project_root = str(Path(__file__).parent.parent.parent)
             result = subprocess.run(
                 ["alembic", "upgrade", "head"],
                 capture_output=True,
                 text=True,
-                cwd="/home/orochford/tenants/skunkworkx.aunoo.ai",
+                cwd=project_root,
                 timeout=120  # 2 minute timeout
             )
 

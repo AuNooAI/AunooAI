@@ -535,7 +535,7 @@ SIO_AGENTS = [
 ]
 
 # Path to SIO global config file
-SIO_CONFIG_FILE = Path("/home/orochford/tenants/testbed.aunoo.ai/data/auspex/sio_config.json")
+SIO_CONFIG_FILE = Path(__file__).parent.parent.parent / "data" / "auspex" / "sio_config.json"
 
 
 @router.get("/config")
@@ -642,7 +642,7 @@ async def list_sio_prompts(
     import os
     from pathlib import Path
 
-    agents_dir = Path("/home/orochford/tenants/testbed.aunoo.ai/data/auspex/agents")
+    agents_dir = Path(__file__).parent.parent.parent / "data" / "auspex" / "agents"
 
     prompts = []
     for agent in SIO_AGENTS:
@@ -697,7 +697,7 @@ async def get_sio_prompt(
     if not agent:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
 
-    agents_dir = Path("/home/orochford/tenants/testbed.aunoo.ai/data/auspex/agents")
+    agents_dir = Path(__file__).parent.parent.parent / "data" / "auspex" / "agents"
     agent_file = agents_dir / agent["file"]
 
     if not agent_file.exists():
@@ -758,7 +758,7 @@ async def update_sio_prompt(
     if not agent:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
 
-    agents_dir = Path("/home/orochford/tenants/testbed.aunoo.ai/data/auspex/agents")
+    agents_dir = Path(__file__).parent.parent.parent / "data" / "auspex" / "agents"
     agent_file = agents_dir / agent["file"]
 
     if not agent_file.exists():
