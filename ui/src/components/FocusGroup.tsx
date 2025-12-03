@@ -393,7 +393,7 @@ function PersonaCard({
             )}
 
             {/* Typical Questions */}
-            {persona.typical_questions.length > 0 && (
+            {persona.typical_questions?.length > 0 && (
               <div className="mb-4">
                 <h4 className="text-sm font-semibold flex items-center gap-2 mb-2">
                   <Brain className="w-4 h-4 text-purple-500" />
@@ -411,7 +411,7 @@ function PersonaCard({
             )}
 
             {/* Influence Vectors */}
-            {persona.influence_vectors.length > 0 && (
+            {persona.influence_vectors?.length > 0 && (
               <div className="mb-4">
                 <h4 className="text-sm font-semibold flex items-center gap-2 mb-2">
                   <Target className="w-4 h-4 text-indigo-500" />
@@ -460,7 +460,7 @@ function PersonaCard({
             </div>
 
             {/* Source Articles */}
-            {persona.source_articles.length > 0 && (
+            {persona.source_articles?.length > 0 && (
               <div className="bg-blue-50 rounded-lg p-3 mb-4">
                 <h4 className="text-xs font-semibold text-gray-500 mb-2">
                   DERIVED FROM {persona.mention_count} ARTICLE MENTIONS
@@ -477,9 +477,9 @@ function PersonaCard({
                       {uri}
                     </a>
                   ))}
-                  {persona.source_articles.length > 3 && (
+                  {(persona.source_articles?.length || 0) > 3 && (
                     <span className="text-gray-400">
-                      +{persona.source_articles.length - 3} more articles
+                      +{(persona.source_articles?.length || 0) - 3} more articles
                     </span>
                   )}
                 </div>
@@ -616,9 +616,9 @@ function InteractionDynamicsSection({ dynamics }: { dynamics: InteractionDynamic
             <div>
               <h4 className="text-sm font-semibold flex items-center gap-2 mb-2">
                 <Handshake className="w-4 h-4 text-green-500" />
-                Consensus Areas ({dynamics.consensus_areas.length})
+                Consensus Areas ({dynamics.consensus_areas?.length || 0})
               </h4>
-              {dynamics.consensus_areas.length > 0 ? (
+              {dynamics.consensus_areas?.length > 0 ? (
                 <ul className="space-y-2">
                   {dynamics.consensus_areas.map((area, idx) => (
                     <li key={idx} className="bg-green-50 rounded p-2 text-sm">
@@ -636,9 +636,9 @@ function InteractionDynamicsSection({ dynamics }: { dynamics: InteractionDynamic
             <div>
               <h4 className="text-sm font-semibold flex items-center gap-2 mb-2">
                 <Swords className="w-4 h-4 text-red-500" />
-                Tension Points ({dynamics.tension_points.length})
+                Tension Points ({dynamics.tension_points?.length || 0})
               </h4>
-              {dynamics.tension_points.length > 0 ? (
+              {dynamics.tension_points?.length > 0 ? (
                 <ul className="space-y-2">
                   {dynamics.tension_points.map((tension, idx) => (
                     <li key={idx} className="bg-red-50 rounded p-2 text-sm">
@@ -662,7 +662,7 @@ function InteractionDynamicsSection({ dynamics }: { dynamics: InteractionDynamic
           )}
 
           {/* Blind Spots */}
-          {dynamics.blind_spots.length > 0 && (
+          {dynamics.blind_spots?.length > 0 && (
             <div className="bg-yellow-50 rounded-lg p-3">
               <h4 className="text-sm font-semibold flex items-center gap-2 mb-2">
                 <AlertTriangle className="w-4 h-4 text-yellow-600" />
