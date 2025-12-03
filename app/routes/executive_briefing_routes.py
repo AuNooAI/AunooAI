@@ -278,7 +278,7 @@ async def health_check():
 # Executive Briefing Configuration Endpoints
 # ============================================================================
 
-EB_CONFIG_FILE = Path("/home/orochford/tenants/testbed.aunoo.ai/data/auspex/eb_config.json")
+EB_CONFIG_FILE = Path(__file__).parent.parent.parent / "data" / "auspex" / "eb_config.json"
 
 
 @router.get("/config")
@@ -465,7 +465,7 @@ async def list_eb_prompts(
     """
     import yaml
 
-    agents_dir = Path("/home/orochford/tenants/testbed.aunoo.ai/data/auspex/agents")
+    agents_dir = Path(__file__).parent.parent.parent / "data" / "auspex" / "agents"
 
     prompts = []
     for agent in EB_AGENTS:
@@ -517,7 +517,7 @@ async def get_eb_prompt(
     if not agent:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
 
-    agents_dir = Path("/home/orochford/tenants/testbed.aunoo.ai/data/auspex/agents")
+    agents_dir = Path(__file__).parent.parent.parent / "data" / "auspex" / "agents"
     agent_file = agents_dir / agent["file"]
 
     if not agent_file.exists():
@@ -574,7 +574,7 @@ async def update_eb_prompt(
     if not agent:
         raise HTTPException(status_code=404, detail=f"Agent {agent_id} not found")
 
-    agents_dir = Path("/home/orochford/tenants/testbed.aunoo.ai/data/auspex/agents")
+    agents_dir = Path(__file__).parent.parent.parent / "data" / "auspex" / "agents"
     agent_file = agents_dir / agent["file"]
 
     # Read existing file or create new metadata
