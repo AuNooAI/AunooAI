@@ -724,12 +724,13 @@ function App() {
   };
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="h-screen bg-gray-50 overflow-auto">
+      <div className="flex min-h-full min-w-[1064px]">
       {/* Shared Navigation */}
       <SharedNavigation currentPage="anticipate" />
 
       {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 h-screen">
         {/* Top Header */}
         <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
           {/* Breadcrumb and Dashboard Selector */}
@@ -3359,6 +3360,7 @@ function App() {
         onPersonaChange={setEbPersona}
         onArticleCountChange={setEbArticleCount}
       />
+      </div>
     </div>
   );
 }

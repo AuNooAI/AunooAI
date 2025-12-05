@@ -1,16 +1,12 @@
 {
-  "version": "2.0.0",
+  "version": "3.0.0",
   "model": "gpt-4o",
-  "max_articles_to_fetch": 200,
-  "min_articles_required": 20,
-  "section_limits": {
-    "policy_regulation": 5,
-    "models_research": 5,
-    "enterprise_adoption": 5,
-    "market_funding": 8,
-    "risk_trust": 4,
-    "weird_unusual": 3,
-    "general": 6
+  "max_articles_to_fetch": 2000,
+  "min_articles_required": 10,
+  "section_generation": {
+    "min_sections": 4,
+    "max_sections": 8,
+    "use_llm_proposal": true
   },
   "sections": {
     "the_news": {

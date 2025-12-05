@@ -48,7 +48,7 @@ export function SharedNavigation({ currentPage }: SharedNavigationProps) {
   };
 
   return (
-    <div className="w-64 bg-white shadow-lg flex flex-col border-r border-gray-200 overflow-y-auto">
+    <div className="w-64 shrink-0 bg-white shadow-lg flex flex-col border-r border-gray-200 overflow-y-auto">
       {/* Logo/Brand */}
       <div className="p-6 border-b border-gray-200">
         <h2 className="text-lg font-semibold text-pink-500 tracking-wide">AUNOOAI</h2>
