@@ -178,6 +178,58 @@
         "Unknown"
       ],
       "keywords": []
+    },
+    {
+      "name": "Cloud Repatriation",
+      "description": "Cloud Repatriation",
+      "categories": [
+        "Public Cloud Providers",
+        "Private Cloud Infrastructure",
+        "Hybrid Cloud Models",
+        "Workload Migration",
+        "Cost Management",
+        "Security and Compliance",
+        "Performance and Latency",
+        "Cloud Vendor Lock-in",
+        "Data Sovereignty",
+        "Enterprise IT Strategy",
+        "Cloud Exit Strategies",
+        "Cloud Cost Optimization",
+        "Cloud Service Contracts",
+        "Cloud Management Platforms",
+        "Cloud Repatriation Case Studies",
+        "Other"
+      ],
+      "future_signals": [
+        "Widespread cloud exit",
+        "Selective workload repatriation",
+        "Hybrid equilibrium emerges",
+        "Cloud dominance continues",
+        "Cloud repatriation slows"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "keywords": [
+        "cloud repatriation",
+        "cloud exit",
+        "hybrid cloud"
+      ]
     }
   ],
   "ai_models": [

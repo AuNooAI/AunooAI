@@ -15,13 +15,8 @@
       "max_tokens": 16000
     }
   },
-  "section_limits": {
-    "policy_regulation": 5,
-    "models_research": 5,
-    "enterprise_adoption": 5,
-    "market_funding": 8,
-    "risk_trust": 4,
-    "weird_unusual": 3,
-    "general": 6
+  "section_generation": {
+    "min_sections": 4,
+    "max_sections": 8
   }
 }
