@@ -1,0 +1,70 @@
+model_list:
+  - model_name: gpt-4.1-mini
+    litellm_params:
+      model: openai/gpt-4.1-mini
+      api_key: "os.environ/OPENAI_API_KEY"
+
+  - model_name: gpt-4o
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: "os.environ/OPENAI_API_KEY"
+
+  - model_name: gpt-4o-mini
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_key: "os.environ/OPENAI_API_KEY"
+
+  - model_name: gpt-4.1
+    litellm_params:
+      model: openai/gpt-4.1
+      api_key: "os.environ/OPENAI_API_KEY"
+
+  - model_name: gpt-4.1-nano
+    litellm_params:
+      model: openai/gpt-4.1-nano
+      api_key: "os.environ/OPENAI_API_KEY"
+
+  # Hugging Face
+  - model_name: mixtral-8x7b
+    litellm_params:
+      model: huggingface/mistralai/Mixtral-8x7B-Instruct-v0.1
+      api_base: "https://api-inference.huggingface.co/models/mistralai/Mixtral-8x7B-Instruct-v0.1"
+      api_key: "os.environ/HUGGINGFACE_API_KEY"
+      custom_llm_provider: "huggingface"
+
+  # Anthropic
+  - model_name: claude-4-sonnet-latest
+    litellm_params:
+      model: anthropic/claude-4-sonnet-latest
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+
+  - model_name: claude-3-7-sonnet-latest
+    litellm_params:
+      model: anthropic/claude-3-7-sonnet-latest
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+
+  - model_name: claude-3-5-sonnet-latest
+    litellm_params:
+      model: anthropic/claude-3-5-sonnet-latest
+      api_key: "os.environ/ANTHROPIC_API_KEY"
+
+  # Google Gemini
+  - model_name: gemini-pro
+    litellm_params:
+      model: gemini/gemini-pro
+      api_key: "os.environ/GEMINI_API_KEY"
+
+  - model_name: gemini-2.0-flash-exp
+    litellm_params:
+      model: gemini/gemini-2.0-flash-exp
+      api_key: "os.environ/GEMINI_API_KEY"
+
+fallbacks:
+  - gpt-4.1:
+      - qwen3:14b
+  - gpt-4.1-nano:
+      - qwen3:14b
+  - gpt-4.1-mini:
+      - qwen3:14b
+
+routing_strategy: least-busy

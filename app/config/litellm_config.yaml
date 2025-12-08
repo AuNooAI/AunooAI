@@ -1,7 +1,18 @@
 model_list:
+  # --- OpenAI 4.1 family (using shared OPENAI_API_KEY) ---
+  - model_name: gpt-4.1
+    litellm_params:
+      model: openai/gpt-4.1
+      api_key: "os.environ/OPENAI_API_KEY"
+
   - model_name: gpt-4.1-mini
     litellm_params:
       model: openai/gpt-4.1-mini
+      api_key: "os.environ/OPENAI_API_KEY"
+
+  - model_name: gpt-4.1-nano
+    litellm_params:
+      model: openai/gpt-4.1-nano
       api_key: "os.environ/OPENAI_API_KEY"
 
   - model_name: gpt-4o
@@ -14,57 +25,148 @@ model_list:
       model: openai/gpt-4o-mini
       api_key: "os.environ/OPENAI_API_KEY"
 
-  - model_name: gpt-4.1
+  # --- Google Gemini (using shared GOOGLE_API_KEY) ---
+  - model_name: gemini-2.5-pro
     litellm_params:
-      model: openai/gpt-4.1
-      api_key: "os.environ/OPENAI_API_KEY"
+      model: gemini/gemini-2.5-pro
+      api_key: "os.environ/GOOGLE_API_KEY"
 
-  - model_name: gpt-4.1-nano
+  - model_name: gemini-2.5-flash
     litellm_params:
-      model: openai/gpt-4.1-nano
-      api_key: "os.environ/OPENAI_API_KEY"
+      model: gemini/gemini-2.5-flash
+      api_key: "os.environ/GOOGLE_API_KEY"
 
-  # Hugging Face
-  - model_name: mixtral-8x7b
+  - model_name: gemini-2.0-flash
     litellm_params:
-      model: huggingface/mistralai/Mixtral-8x7B-Instruct-v0.1
-      api_base: "https://api-inference.huggingface.co/models/mistralai/Mixtral-8x7B-Instruct-v0.1"
-      api_key: "os.environ/HUGGINGFACE_API_KEY"
-      custom_llm_provider: "huggingface"
+      model: gemini/gemini-2.0-flash
+      api_key: "os.environ/GOOGLE_API_KEY"
 
-  # Anthropic
-  - model_name: claude-4-sonnet-latest
+  # --- Anthropic (requires ANTHROPIC_API_KEY) ---
+  - model_name: claude-sonnet-4.5
     litellm_params:
-      model: anthropic/claude-4-sonnet-latest
+      model: anthropic/claude-sonnet-4-5
       api_key: "os.environ/ANTHROPIC_API_KEY"
 
-  - model_name: claude-3-7-sonnet-latest
+  - model_name: claude-3.7-sonnet
     litellm_params:
       model: anthropic/claude-3-7-sonnet-latest
       api_key: "os.environ/ANTHROPIC_API_KEY"
 
-  - model_name: claude-3-5-sonnet-latest
+  # --- Mistral official API (requires MISTRAL_API_KEY) ---
+  - model_name: mistral-medium-2508
     litellm_params:
-      model: anthropic/claude-3-5-sonnet-latest
-      api_key: "os.environ/ANTHROPIC_API_KEY"
+      model: mistral/mistral-medium-2508
+      api_key: "os.environ/MISTRAL_API_KEY"
 
-  # Google Gemini
-  - model_name: gemini-pro
+  - model_name: magistral-medium-2509
     litellm_params:
-      model: gemini/gemini-pro
-      api_key: "os.environ/GEMINI_API_KEY"
+      model: mistral/magistral-medium-2509
+      api_key: "os.environ/MISTRAL_API_KEY"
 
-  - model_name: gemini-2.0-flash-exp
+  - model_name: codestral-2508
     litellm_params:
-      model: gemini/gemini-2.0-flash-exp
-      api_key: "os.environ/GEMINI_API_KEY"
+      model: mistral/codestral-2508
+      api_key: "os.environ/MISTRAL_API_KEY"
+
+  # --- Ollama local models (no API key needed) ---
+  # Gemma3 models
+  - model_name: gemma3:latest
+    litellm_params:
+      model: ollama/gemma3:latest
+      api_base: "http://localhost:11434"
+      max_tokens: 4096
+
+  - model_name: gemma3:12b
+    litellm_params:
+      model: ollama/gemma3:12b
+      api_base: "http://localhost:11434"
+      max_tokens: 4096
+
+  - model_name: gemma3:27b
+    litellm_params:
+      model: ollama/gemma3:27b
+      api_base: "http://localhost:11434"
+      max_tokens: 4096
+
+  # Qwen3 models
+  - model_name: qwen3:latest
+    litellm_params:
+      model: ollama/qwen3:latest
+      api_base: "http://localhost:11434"
+      max_tokens: 4096
+
+  - model_name: qwen3:14b
+    litellm_params:
+      model: ollama/qwen3:14b
+      api_base: "http://localhost:11434"
+      max_tokens: 4096
+
+  - model_name: qwen3:32b
+    litellm_params:
+      model: ollama/qwen3:32b
+      api_base: "http://localhost:11434"
+      max_tokens: 4096
+
+  # Mistral local model
+  - model_name: mistral:latest
+    litellm_params:
+      model: ollama/mistral:latest
+      api_base: "http://localhost:11434"
+      max_tokens: 4096
+
+  # Llama model
+  - model_name: llama3.1:8b
+    litellm_params:
+      model: ollama/llama3.1:8b
+      api_base: "http://localhost:11434"
+      max_tokens: 4096
+
+  # Mixtral models
+  - model_name: mixtral:latest
+    litellm_params:
+      model: ollama/mixtral:latest
+      api_base: "http://localhost:11434"
+      max_tokens: 4096
+
+  - model_name: mixtral:instruct
+    litellm_params:
+      model: ollama/mixtral:instruct
+      api_base: "http://localhost:11434"
+      max_tokens: 4096
+
+  # Phi model
+  - model_name: phi4:latest
+    litellm_params:
+      model: ollama/phi4:latest
+      api_base: "http://localhost:11434"
+      max_tokens: 4096
+
+  # Embedding model
+  - model_name: nomic-embed-text
+    litellm_params:
+      model: ollama/nomic-embed-text:latest
+      api_base: "http://localhost:11434"
+
+  # --- vLLM local models (high-performance serving on port 8765) ---
+  - model_name: qwen3-8b-vllm
+    litellm_params:
+      model: openai/Qwen/Qwen3-8B
+      api_base: "http://localhost:8765/v1"
+      api_key: "dummy"  # vLLM doesn't require auth but litellm needs a value
+      max_tokens: 2048  # Leave room for input tokens (model has 4096 total context)
 
 fallbacks:
+  # Prefer cross-vendor fallbacks that are widely available and cost-effective
   - gpt-4.1:
-      - qwen3:14b
-  - gpt-4.1-nano:
-      - qwen3:14b
+      - gpt-4o
+      - gemini-2.5-pro
+
   - gpt-4.1-mini:
-      - qwen3:14b
+      - gpt-4o-mini
+      - gemini-2.5-flash
+
+  - gpt-4.1-nano:
+      - gpt-4o-mini
+      - gemini-2.5-flash
 
 routing_strategy: least-busy

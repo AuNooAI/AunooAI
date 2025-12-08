@@ -115,6 +115,10 @@ Article text:
         if not driver_types:
             raise ArticleAnalyzerError("Driver types list cannot be empty")
 
+        # Store input title for fallback in case LLM doesn't return it
+        # (common issue with local Ollama/vLLM models)
+        self._extracted_title = title
+
         try:
             # Get template hash for cache validation
             template_hash = self.prompt_templates.get_template_hash()

@@ -24,6 +24,7 @@ import litellm
 
 from app.database import get_database_instance
 from app.services.tool_loader import get_tool_loader
+from app.utils.llm_helpers import parse_llm_json, is_local_model
 
 logger = logging.getLogger(__name__)
 
@@ -480,18 +481,22 @@ Return JSON with:
 Extract ALL stakeholder mentions you find - we will cluster them in the next stage."""
 
         try:
-            response = await litellm.acompletion(
-                model=model,
-                messages=[
+            # Build kwargs - strip response_format for local models (Ollama/vLLM)
+            kwargs = {
+                "model": model,
+                "messages": [
                     {"role": "system", "content": agent_prompt or "You are a stakeholder analyst specializing in identifying all parties with interest in a topic from news coverage. You extract both explicit mentions and implicit stakeholders."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=temperature,
-                max_tokens=4000,
-                response_format={"type": "json_object"}
-            )
+                "temperature": temperature,
+                "max_tokens": 4000,
+            }
+            if not is_local_model(model):
+                kwargs["response_format"] = {"type": "json_object"}
 
-            result = json.loads(response.choices[0].message.content)
+            response = await litellm.acompletion(**kwargs)
+
+            result = parse_llm_json(response.choices[0].message.content)
             state.stakeholder_mentions = result.get("stakeholder_mentions", [])
 
         except Exception as e:
@@ -584,18 +589,22 @@ Return JSON with:
 Remember: DISCOVER personas from evidence, don't INVENT them."""
 
         try:
-            response = await litellm.acompletion(
-                model=model,
-                messages=[
+            # Build kwargs - strip response_format for local models (Ollama/vLLM)
+            kwargs = {
+                "model": model,
+                "messages": [
                     {"role": "system", "content": agent_prompt or "You are a persona researcher specializing in clustering stakeholder mentions into meaningful archetypes. You only create archetypes with sufficient evidence."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=temperature,
-                max_tokens=3000,
-                response_format={"type": "json_object"}
-            )
+                "temperature": temperature,
+                "max_tokens": 3000,
+            }
+            if not is_local_model(model):
+                kwargs["response_format"] = {"type": "json_object"}
 
-            result = json.loads(response.choices[0].message.content)
+            response = await litellm.acompletion(**kwargs)
+
+            result = parse_llm_json(response.choices[0].message.content)
             # Filter to only clusters meeting threshold
             clusters = result.get("persona_clusters", [])
             state.persona_clusters = [
@@ -721,18 +730,22 @@ Make profiles DISTINCT and based on article evidence. Each persona should feel l
         yield {"status": "generating", "progress": 0.3}
 
         try:
-            response = await litellm.acompletion(
-                model=model,
-                messages=[
+            # Build kwargs - strip response_format for local models (Ollama/vLLM)
+            kwargs = {
+                "model": model,
+                "messages": [
                     {"role": "system", "content": agent_prompt or "You are a psychographic profiling expert creating rich, evidence-based stakeholder personas. Each persona should feel like a real individual with distinct characteristics."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=temperature,
-                max_tokens=6000,
-                response_format={"type": "json_object"}
-            )
+                "temperature": temperature,
+                "max_tokens": 6000,
+            }
+            if not is_local_model(model):
+                kwargs["response_format"] = {"type": "json_object"}
 
-            result = json.loads(response.choices[0].message.content)
+            response = await litellm.acompletion(**kwargs)
+
+            result = parse_llm_json(response.choices[0].message.content)
             raw_personas = result.get("personas", [])
 
             yield {"status": "processing", "progress": 0.7}
@@ -857,18 +870,22 @@ Return JSON with:
 Be specific about how the personas' characteristics would lead to these dynamics."""
 
         try:
-            response = await litellm.acompletion(
-                model=model,
-                messages=[
+            # Build kwargs - strip response_format for local models (Ollama/vLLM)
+            kwargs = {
+                "model": model,
+                "messages": [
                     {"role": "system", "content": agent_prompt or "You are a focus group facilitator and analyst. You understand group dynamics, consensus building, and conflict patterns. You synthesize insights from diverse stakeholder perspectives."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=temperature,
-                max_tokens=3000,
-                response_format={"type": "json_object"}
-            )
+                "temperature": temperature,
+                "max_tokens": 3000,
+            }
+            if not is_local_model(model):
+                kwargs["response_format"] = {"type": "json_object"}
 
-            result = json.loads(response.choices[0].message.content)
+            response = await litellm.acompletion(**kwargs)
+
+            result = parse_llm_json(response.choices[0].message.content)
             state.focus_group_summary = result.get("focus_group_summary", "")
             state.interaction_dynamics = result.get("interaction_dynamics", {})
 

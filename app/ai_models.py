@@ -428,23 +428,26 @@ class LiteLLMModel(AIModel):
         for model in config["model_list"]:
             model_name = model.get('model_name', 'unknown')
             logger.debug(f"🔍 Processing model {model_name} from config")
-            
+
             # Check if model requires an API key
-            if 'api_key' in model['litellm_params']:
-                env_key = model['litellm_params']['api_key'].split('/')[-1]
-                logger.debug(f"🔑 Model {model_name} requires API key: {env_key}")
-                
+            api_key_config = model['litellm_params'].get('api_key', '')
+
+            if api_key_config and api_key_config.startswith('os.environ/'):
+                # API key from environment variable (e.g., "os.environ/OPENAI_API_KEY")
+                env_key = api_key_config.split('/')[-1]
+                logger.debug(f"🔑 Model {model_name} requires API key from env: {env_key}")
+
                 if env_key not in os.environ:
                     logger.warning(f"⚠️ API key {env_key} not found in environment for model {model_name}, skipping")
                     continue
-                    
+
                 logger.debug(f"✅ API key found for {model_name}")
                 model_copy = model.copy()
                 model_copy['litellm_params'] = model_copy['litellm_params'].copy()
                 model_copy['litellm_params']['api_key'] = os.environ[env_key]
-                
+
                 # For custom OpenAI providers, use just the model name without the provider prefix
-                if (model_copy['litellm_params'].get('custom_llm_provider') == 'openai' and 
+                if (model_copy['litellm_params'].get('custom_llm_provider') == 'openai' and
                     model_copy['litellm_params'].get('api_base')):
                     original_model = model_copy['litellm_params']['model']
                     # Extract just the model name (e.g., "mixtral" from "aunooai/mixtral")
@@ -453,9 +456,16 @@ class LiteLLMModel(AIModel):
                     logger.info(f"🔄 Custom OpenAI provider detected - changed model path from '{original_model}' to '{model_name_only}' for {model_name}")
                 else:
                     logger.debug(f"🔄 Preserving full model path '{model_copy['litellm_params']['model']}' for {model_name}")
-                
+
+            elif api_key_config:
+                # Literal API key (e.g., "dummy" for vLLM local models)
+                logger.debug(f"🔐 Model {model_name} has literal API key (local/custom provider)")
+                model_copy = model.copy()
+                model_copy['litellm_params'] = model_copy['litellm_params'].copy()
+                # Keep the literal api_key as-is
+
             else:
-                # For models without API key (like local Ollama - testing)
+                # For models without API key (like local Ollama)
                 logger.debug(f"🏠 Model {model_name} does not require API key (local model)")
                 model_copy = model.copy()
             
@@ -969,9 +979,20 @@ def get_available_models():
                 else:
                     provider = 'unknown'
 
+                # Check if this is a local model (Ollama/vLLM) - no API key needed
+                api_base = litellm_params.get('api_base', '')
+                is_local = 'localhost' in api_base or '127.0.0.1' in api_base
+
                 # Check if provider key is configured
                 api_key = litellm_params.get('api_key', '')
-                if api_key.startswith('os.environ/'):
+                if is_local:
+                    # Local models (Ollama/vLLM) don't need real API keys
+                    models.append({
+                        "name": model_name,
+                        "provider": provider
+                    })
+                    logger.debug(f"✅ Found local model: {model_name} ({provider}) at {api_base}")
+                elif api_key.startswith('os.environ/'):
                     # Extract env var name
                     env_var = api_key.replace('os.environ/', '')
                     key_value = os.getenv(env_var)
@@ -997,6 +1018,46 @@ def get_available_models():
         logger.info(f"🎯 Found {len(models)} configured models: {[m['name'] for m in models]}")
 
     return models
+
+def get_model_litellm_params(model_name: str) -> dict:
+    """Get the litellm_params for a model from the config.
+
+    This is useful for calling litellm directly with the correct
+    model path and api_base for local models (Ollama/vLLM).
+
+    Args:
+        model_name: The model name (e.g., 'qwen3-8b-vllm', 'gpt-4o')
+
+    Returns:
+        dict with keys: model, api_base (optional), api_key (optional)
+    """
+    try:
+        config_path = os.path.join(os.path.dirname(__file__), 'config', 'litellm_config.yaml')
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+
+        for model_config in config.get('model_list', []):
+            if model_config.get('model_name') == model_name:
+                litellm_params = model_config.get('litellm_params', {})
+                result = {'model': litellm_params.get('model', model_name)}
+
+                # Include api_base for local models
+                if 'api_base' in litellm_params:
+                    result['api_base'] = litellm_params['api_base']
+
+                # Include api_key if specified (needed for vLLM dummy key)
+                api_key = litellm_params.get('api_key', '')
+                if api_key and not api_key.startswith('os.environ/'):
+                    result['api_key'] = api_key
+
+                return result
+
+        # Model not found in config, return as-is
+        return {'model': model_name}
+
+    except Exception as e:
+        logger.warning(f"Error getting model params for {model_name}: {e}")
+        return {'model': model_name}
 
 def ai_get_available_models():
     """Get all supported models from litellm configuration.

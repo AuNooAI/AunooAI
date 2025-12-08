@@ -23,6 +23,7 @@ from app.database import get_database_instance
 from app.services.auspex_tools import get_auspex_tools_service
 from app.services.tool_loader import get_tool_loader
 from app.services.search_router import get_search_router, SearchSource
+from app.utils.llm_helpers import parse_llm_json, is_local_model
 
 logger = logging.getLogger(__name__)
 
@@ -337,19 +338,23 @@ Please analyze this query and create:
 Respond with valid JSON matching the expected schema."""
 
         try:
-            response = await litellm.acompletion(
-                model=config.planning_model,
-                messages=[
+            # Build kwargs - strip response_format for local models (Ollama/vLLM)
+            kwargs = {
+                "model": config.planning_model,
+                "messages": [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=config.planning_temperature,
-                max_tokens=2000,
-                response_format={"type": "json_object"}
-            )
+                "temperature": config.planning_temperature,
+                "max_tokens": 2000,
+            }
+            if not is_local_model(config.planning_model):
+                kwargs["response_format"] = {"type": "json_object"}
+
+            response = await litellm.acompletion(**kwargs)
 
             result_text = response.choices[0].message.content
-            result = json.loads(result_text)
+            result = parse_llm_json(result_text)
 
             state.research_objectives = result.get("research_objectives", [])
             state.search_queries = result.get("search_queries", [])
@@ -357,7 +362,7 @@ Respond with valid JSON matching the expected schema."""
 
             logger.info(f"Planning complete: {len(state.research_objectives)} objectives, {len(state.search_queries)} queries")
 
-        except json.JSONDecodeError as e:
+        except (json.JSONDecodeError, ValueError) as e:
             logger.error(f"Failed to parse planning response: {e}")
             # Create default objectives from query
             state.research_objectives = [
@@ -564,26 +569,30 @@ Please synthesize these findings and provide:
 Respond with valid JSON."""
 
         try:
-            response = await litellm.acompletion(
-                model=config.synthesis_model,
-                messages=[
+            # Build kwargs - strip response_format for local models (Ollama/vLLM)
+            kwargs = {
+                "model": config.synthesis_model,
+                "messages": [
                     {"role": "system", "content": synthesizer_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=config.synthesis_temperature,
-                max_tokens=4000,
-                response_format={"type": "json_object"}
-            )
+                "temperature": config.synthesis_temperature,
+                "max_tokens": 4000,
+            }
+            if not is_local_model(config.synthesis_model):
+                kwargs["response_format"] = {"type": "json_object"}
+
+            response = await litellm.acompletion(**kwargs)
 
             result_text = response.choices[0].message.content
-            result = json.loads(result_text)
+            result = parse_llm_json(result_text)
 
             state.synthesized_findings = result.get("synthesized_findings", {})
             state.credibility_assessment = result.get("credibility_assessment", {})
 
             logger.info(f"Synthesis complete: {len(state.synthesized_findings)} findings")
 
-        except json.JSONDecodeError as e:
+        except (json.JSONDecodeError, ValueError) as e:
             logger.error(f"Failed to parse synthesis response: {e}")
             # Create basic synthesis
             state.synthesized_findings = {

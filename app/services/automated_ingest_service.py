@@ -747,7 +747,7 @@ class AutomatedIngestService:
             try:
                 enriched_article = await asyncio.wait_for(
                     self._analyze_article_content_async(enriched_article, topic),
-                    timeout=60  # 1 minute timeout
+                    timeout=300  # 5 minute timeout for local Ollama/vLLM models
                 )
                 self.logger.debug(f"🧠 LLM analysis completed for {article_uri}")
 

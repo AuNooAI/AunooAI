@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from typing import Dict, List, Optional, Tuple
 from app.analyzers.prompt_templates import PromptTemplates, PromptTemplateError
 from app.ai_models import get_ai_model, LiteLLMModel
@@ -7,6 +8,112 @@ from app.exceptions import PipelineError, ErrorSeverity, LLMErrorClassifier
 import litellm
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_llm_json(raw_content: str) -> dict:
+    """Parse JSON from LLM response, handling common issues with local models (Ollama/vLLM).
+
+    Handles:
+    - <think>...</think> blocks from Qwen3 models
+    - Truncated JSON responses
+    - Control characters in strings
+    - Malformed JSON with regex fallback for key fields
+    """
+    if not raw_content or not raw_content.strip():
+        raise ValueError("Empty response from LLM")
+
+    # Strip <think>...</think> blocks (Qwen3 thinking mode)
+    content = re.sub(r'<think>.*?</think>', '', raw_content, flags=re.DOTALL).strip()
+    if not content:
+        content = raw_content
+
+    # Find JSON object
+    start = content.find('{')
+    end = content.rfind('}')
+
+    # Handle truncated JSON (no closing brace)
+    if start != -1 and (end == -1 or end <= start):
+        # Try to repair truncated JSON by closing it
+        json_str = content[start:]
+        # Count unclosed braces and brackets
+        brace_count = json_str.count('{') - json_str.count('}')
+        bracket_count = json_str.count('[') - json_str.count(']')
+
+        # Check if we're in an incomplete string
+        in_string = False
+        last_char = ''
+        for c in json_str:
+            if c == '"' and last_char != '\\':
+                in_string = not in_string
+            last_char = c
+
+        # Close incomplete string if needed
+        if in_string:
+            json_str += '"'
+
+        # Close any open arrays/objects
+        json_str += ']' * bracket_count
+        json_str += '}' * brace_count
+
+        logger.warning(f"Attempted to repair truncated JSON (added {brace_count} braces, {bracket_count} brackets)")
+    elif start == -1:
+        raise ValueError("No JSON object found in response")
+    else:
+        json_str = content[start:end+1]
+
+    # First try direct parsing
+    try:
+        return json.loads(json_str)
+    except json.JSONDecodeError:
+        pass
+
+    # Try with strict=False to allow control characters
+    try:
+        return json.loads(json_str, strict=False)
+    except json.JSONDecodeError:
+        pass
+
+    # Clean up: replace literal newlines/tabs with escaped versions
+    cleaned = json_str.replace('\n', '\\n').replace('\t', '\\t').replace('\r', '\\r')
+    try:
+        return json.loads(cleaned, strict=False)
+    except json.JSONDecodeError:
+        pass
+
+    # Last resort: try to extract key fields using regex
+    # This handles cases where JSON is mostly valid but has corruption
+    result = {}
+
+    # Extract numeric scores
+    for field in ['topic_alignment_score', 'keyword_relevance_score', 'confidence_score']:
+        match = re.search(rf'"{field}"\s*:\s*([\d.]+)', content)
+        if match:
+            try:
+                result[field] = float(match.group(1))
+            except ValueError:
+                pass
+
+    # Extract overall_match_explanation
+    match = re.search(r'"overall_match_explanation"\s*:\s*"([^"]*(?:\\"[^"]*)*)"', content)
+    if match:
+        result['overall_match_explanation'] = match.group(1).replace('\\"', '"')
+
+    # Extract array fields
+    for field in ['extracted_article_topics', 'extracted_article_keywords']:
+        match = re.search(rf'"{field}"\s*:\s*\[([^\]]*)\]', content)
+        if match:
+            try:
+                items = re.findall(r'"([^"]*)"', match.group(1))
+                result[field] = items
+            except:
+                result[field] = []
+
+    if result:
+        logger.warning(f"Extracted partial JSON using regex fallback: {list(result.keys())}")
+        return result
+
+    raise ValueError(f"Could not parse JSON: {json_str[:200]}...")
+
 
 class RelevanceCalculatorError(Exception):
     """Custom exception for relevance calculation errors."""
@@ -161,6 +268,18 @@ class RelevanceCalculator:
             raise RelevanceCalculatorError("No AI model initialized for relevance analysis")
 
         try:
+            # Truncate content for models with small context windows
+            # Local models (vLLM, Ollama) typically have 4k-8k context
+            max_content_chars = 6000  # ~1500 tokens, leaves room for prompt and response
+            if self.model_name and ('vllm' in self.model_name.lower() or ':' in self.model_name):
+                max_content_chars = 3000  # More aggressive truncation for local models
+                logger.debug(f"Using reduced content limit ({max_content_chars} chars) for local model: {self.model_name}")
+
+            if content and len(content) > max_content_chars:
+                original_len = len(content)
+                content = content[:max_content_chars] + "... [truncated]"
+                logger.info(f"Truncated content from {original_len} to {max_content_chars} chars for model {self.model_name}")
+
             # Format the prompt using the template
             messages = self.prompt_templates.format_relevance_analysis_prompt(
                 title=title or "No title available",
@@ -192,20 +311,9 @@ class RelevanceCalculator:
                 else:
                     response_text = str(response)
             
-            # Parse the JSON response
+            # Parse the JSON response using robust parser for local models
             try:
-                # Clean the response text to extract JSON
-                response_text = response_text.strip()
-                
-                # Find JSON object in the response
-                start_idx = response_text.find('{')
-                end_idx = response_text.rfind('}') + 1
-                
-                if start_idx == -1 or end_idx == 0:
-                    raise ValueError("No JSON object found in response")
-                
-                json_str = response_text[start_idx:end_idx]
-                result = json.loads(json_str)
+                result = _parse_llm_json(response_text)
                 
                 # Validate required fields and provide defaults
                 validated_result = {

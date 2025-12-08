@@ -23,6 +23,7 @@ import litellm
 
 from app.database import get_database_instance
 from app.services.tool_loader import get_tool_loader
+from app.utils.llm_helpers import parse_llm_json, is_local_model
 
 logger = logging.getLogger(__name__)
 
@@ -522,18 +523,22 @@ Return JSON with:
 Select the articles that will best inform executive decision-making."""
 
         try:
-            response = await litellm.acompletion(
-                model=model,
-                messages=[
+            # Build kwargs - strip response_format for local models (Ollama/vLLM)
+            kwargs = {
+                "model": model,
+                "messages": [
                     {"role": "system", "content": agent_prompt or "You are an executive news curator specializing in selecting strategically relevant articles for busy executives. You prioritize quality, relevance, and diversity."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=temperature,
-                max_tokens=3000,
-                response_format={"type": "json_object"}
-            )
+                "temperature": temperature,
+                "max_tokens": 3000,
+            }
+            if not is_local_model(model):
+                kwargs["response_format"] = {"type": "json_object"}
 
-            result = json.loads(response.choices[0].message.content)
+            response = await litellm.acompletion(**kwargs)
+
+            result = parse_llm_json(response.choices[0].message.content)
             state.selected_articles = result.get("selected_articles", [])
 
         except Exception as e:
@@ -649,18 +654,22 @@ Return JSON with:
 Write as if this will be the only thing the executive reads about this topic today."""
 
             try:
-                response = await litellm.acompletion(
-                    model=model,
-                    messages=[
+                # Build kwargs - strip response_format for local models (Ollama/vLLM)
+                kwargs = {
+                    "model": model,
+                    "messages": [
                         {"role": "system", "content": agent_prompt or "You are an executive intelligence analyst specializing in distilling complex news into actionable insights. You write with precision and brevity for busy executives."},
                         {"role": "user", "content": prompt}
                     ],
-                    temperature=temperature,
-                    max_tokens=2000,
-                    response_format={"type": "json_object"}
-                )
+                    "temperature": temperature,
+                    "max_tokens": 2000,
+                }
+                if not is_local_model(model):
+                    kwargs["response_format"] = {"type": "json_object"}
 
-                result = json.loads(response.choices[0].message.content)
+                response = await litellm.acompletion(**kwargs)
+
+                result = parse_llm_json(response.choices[0].message.content)
                 analyzed = result.get("analyzed_article", {})
 
                 briefing_article = BriefingArticle(
@@ -818,18 +827,22 @@ Return JSON with:
 Enable the {config.persona} to make better decisions in the next 24-48 hours."""
 
         try:
-            response = await litellm.acompletion(
-                model=model,
-                messages=[
+            # Build kwargs - strip response_format for local models (Ollama/vLLM)
+            kwargs = {
+                "model": model,
+                "messages": [
                     {"role": "system", "content": agent_prompt or "You are a strategic intelligence analyst synthesizing multiple article analyses into actionable executive briefings. You identify patterns, prioritize actions, and provide strategic guidance."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=temperature,
-                max_tokens=4000,
-                response_format={"type": "json_object"}
-            )
+                "temperature": temperature,
+                "max_tokens": 4000,
+            }
+            if not is_local_model(model):
+                kwargs["response_format"] = {"type": "json_object"}
 
-            result = json.loads(response.choices[0].message.content)
+            response = await litellm.acompletion(**kwargs)
+
+            result = parse_llm_json(response.choices[0].message.content)
             state.briefing_summary = result.get("briefing_summary", "")
             state.themes = result.get("themes", [])
             state.priority_actions = result.get("priority_actions", [])

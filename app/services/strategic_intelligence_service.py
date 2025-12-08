@@ -28,6 +28,7 @@ from app.services.article_intelligence_analyzer import (
     get_article_intelligence_analyzer
 )
 from app.services.tool_loader import get_tool_loader
+from app.utils.llm_helpers import parse_llm_json, is_local_model
 from app.models.media_bias import MediaBias
 from app.vector_store import search_articles as vector_search_articles
 
@@ -492,18 +493,22 @@ class StrategicIntelligenceService:
             user_prompt = "Generate search queries for a comprehensive 24-hour strategic intelligence scan covering all major news categories."
 
         try:
-            response = await litellm.acompletion(
-                model=config.discovery_model,
-                messages=[
+            # Build kwargs - strip response_format for local models (Ollama/vLLM)
+            kwargs = {
+                "model": config.discovery_model,
+                "messages": [
                     {"role": "system", "content": agent_prompt or "Generate diverse search queries for news discovery."},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.2,
-                max_tokens=1500,
-                response_format={"type": "json_object"}
-            )
+                "temperature": 0.2,
+                "max_tokens": 1500,
+            }
+            if not is_local_model(config.discovery_model):
+                kwargs["response_format"] = {"type": "json_object"}
 
-            result = json.loads(response.choices[0].message.content)
+            response = await litellm.acompletion(**kwargs)
+
+            result = parse_llm_json(response.choices[0].message.content)
             return result.get("search_queries", [])
 
         except Exception as e:
@@ -664,21 +669,25 @@ Instructions:
 You MUST create at least one event cluster for every few articles."""
 
         try:
-            response = await litellm.acompletion(
-                model=config.triage_model,
-                messages=[
+            # Build kwargs - strip response_format for local models (Ollama/vLLM)
+            kwargs = {
+                "model": config.triage_model,
+                "messages": [
                     {"role": "system", "content": agent_prompt or "Cluster news articles into events."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.2,
-                max_tokens=4000,
-                response_format={"type": "json_object"}
-            )
+                "temperature": 0.2,
+                "max_tokens": 4000,
+            }
+            if not is_local_model(config.triage_model):
+                kwargs["response_format"] = {"type": "json_object"}
+
+            response = await litellm.acompletion(**kwargs)
 
             raw_response = response.choices[0].message.content
             logger.info(f"Clustering LLM raw response (first 500 chars): {raw_response[:500]}")
 
-            result = json.loads(raw_response)
+            result = parse_llm_json(raw_response)
             raw_clusters = result.get("event_clusters", [])
 
             # Check alternative keys the LLM might use

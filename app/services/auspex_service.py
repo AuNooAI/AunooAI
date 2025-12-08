@@ -18,7 +18,7 @@ from app.services.chart_service import ChartService
 from app.services.tool_plugin_base import get_tool_registry, init_tool_registry
 from app.analyze_db import AnalyzeDB
 from app.vector_store import search_articles as vector_search_articles
-from app.ai_models import get_ai_model
+from app.ai_models import get_ai_model, get_model_litellm_params
 
 logger = logging.getLogger(__name__)
 
@@ -2635,10 +2635,14 @@ Article Details (First {detail_limit}):
             max_tokens = max(500, max_tokens)
             
             logger.info(f"Model: {model}, Context limit: {context_limit}, Max output limit: {max_output_tokens}, Estimated input tokens: {estimated_input_tokens}, Final max_tokens: {max_tokens}")
-            
+
+            # Get model params from config (handles local models with api_base)
+            model_params = get_model_litellm_params(model)
+            logger.debug(f"Model params for {model}: {model_params}")
+
             # Create the streaming response
             response_stream = await litellm.acompletion(
-                model=model,
+                **model_params,
                 messages=messages,
                 stream=True,
                 temperature=0.7,
@@ -2697,20 +2701,28 @@ Article Details (First {detail_limit}):
                 {"role": "user", "content": user_prompt}
             ]
 
-            # Use litellm completion with JSON mode if supported
+            # Get model params from config (handles local models with api_base)
+            model_params = get_model_litellm_params(model)
+            is_local = 'api_base' in model_params and 'localhost' in model_params.get('api_base', '')
+
+            # Use litellm completion with JSON mode if supported (skip for local models)
             try:
-                response = await litellm.acompletion(
-                    model=model,
-                    messages=messages,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                    response_format={"type": "json_object"}  # Force JSON output
-                )
+                kwargs = {
+                    **model_params,
+                    'messages': messages,
+                    'temperature': temperature,
+                    'max_tokens': max_tokens,
+                }
+                # Only add response_format for non-local models
+                if not is_local:
+                    kwargs['response_format'] = {"type": "json_object"}
+
+                response = await litellm.acompletion(**kwargs)
             except Exception as e:
                 # Fallback without JSON mode if not supported
                 logger.warning(f"JSON mode not supported for {model}, falling back to regular completion: {e}")
                 response = await litellm.acompletion(
-                    model=model,
+                    **model_params,
                     messages=messages,
                     temperature=temperature,
                     max_tokens=max_tokens
@@ -2907,13 +2919,27 @@ Article Details (First {detail_limit}):
             "gemini-1.5-pro": 2097152,
             "llama-2-70b": 4096,
             "llama-3-70b": 8192,
-            "mixtral-8x7b": 32768
+            "mixtral-8x7b": 32768,
+            # Local Ollama models (conservative estimates based on typical VRAM)
+            "gemma3:latest": 8192,
+            "gemma3:12b": 8192,
+            "gemma3:27b": 8192,
+            "qwen3:latest": 32768,
+            "qwen3:14b": 32768,
+            "qwen3:32b": 32768,
+            "mistral:latest": 8192,
+            "llama3.1:8b": 8192,
+            "mixtral:latest": 32768,
+            "mixtral:instruct": 32768,
+            "phi4:latest": 16384,
+            # vLLM model (limited by GPU memory - running with --max-model-len 4096)
+            "qwen3-8b-vllm": 4096,
         }
-        
+
         # Handle versioned model names
         base_model = model.split("-")[0:2]  # Get first two parts
         base_model_key = "-".join(base_model)
-        
+
         # Try exact match first, then base model, then default
         return model_limits.get(model, model_limits.get(base_model_key, 16385))
     

@@ -23,6 +23,7 @@ from enum import Enum
 import litellm
 
 from app.services.tool_loader import get_tool_loader
+from app.utils.llm_helpers import parse_llm_json, is_local_model
 
 logger = logging.getLogger(__name__)
 
@@ -458,18 +459,22 @@ Return JSON with:
 Identify 8-12 weak signals across different domains."""
 
         try:
-            response = await litellm.acompletion(
-                model=model,
-                messages=[
+            # Build kwargs - strip response_format for local models (Ollama/vLLM)
+            kwargs = {
+                "model": model,
+                "messages": [
                     {"role": "system", "content": agent_prompt or "You are a contrarian analyst specializing in identifying weak signals and early warning indicators that mainstream analysis overlooks."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=temperature,
-                max_tokens=3000,
-                response_format={"type": "json_object"}
-            )
+                "temperature": temperature,
+                "max_tokens": 3000,
+            }
+            if not is_local_model(model):
+                kwargs["response_format"] = {"type": "json_object"}
 
-            result = json.loads(response.choices[0].message.content)
+            response = await litellm.acompletion(**kwargs)
+
+            result = parse_llm_json(response.choices[0].message.content)
             state.weak_signals = result.get("weak_signals", [])
 
         except Exception as e:
@@ -550,18 +555,22 @@ Generate 6-10 amplified pathways across the three categories:
 - wild_card: Low probability but transformative possibilities"""
 
         try:
-            response = await litellm.acompletion(
-                model=model,
-                messages=[
+            # Build kwargs - strip response_format for local models (Ollama/vLLM)
+            kwargs = {
+                "model": model,
+                "messages": [
                     {"role": "system", "content": agent_prompt or "You are a systems analyst specializing in cascade effects and amplification dynamics. You identify how small signals can grow into major disruptions."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=temperature,
-                max_tokens=4000,
-                response_format={"type": "json_object"}
-            )
+                "temperature": temperature,
+                "max_tokens": 4000,
+            }
+            if not is_local_model(model):
+                kwargs["response_format"] = {"type": "json_object"}
 
-            result = json.loads(response.choices[0].message.content)
+            response = await litellm.acompletion(**kwargs)
+
+            result = parse_llm_json(response.choices[0].message.content)
             state.amplified_pathways = result.get("amplified_pathways", [])
 
         except Exception as e:
@@ -644,18 +653,22 @@ Make scenarios vivid, specific, and strategically relevant. Each should challeng
         yield {"status": "generating", "progress": 0.3}
 
         try:
-            response = await litellm.acompletion(
-                model=model,
-                messages=[
+            # Build kwargs - strip response_format for local models (Ollama/vLLM)
+            kwargs = {
+                "model": model,
+                "messages": [
                     {"role": "system", "content": agent_prompt or "You are a scenario planner specializing in extreme outlier events. You create vivid, plausible narratives for low-probability, high-impact scenarios."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=temperature,
-                max_tokens=6000,
-                response_format={"type": "json_object"}
-            )
+                "temperature": temperature,
+                "max_tokens": 6000,
+            }
+            if not is_local_model(model):
+                kwargs["response_format"] = {"type": "json_object"}
 
-            result = json.loads(response.choices[0].message.content)
+            response = await litellm.acompletion(**kwargs)
+
+            result = parse_llm_json(response.choices[0].message.content)
             state.raw_scenarios = result.get("scenarios", [])
 
             yield {"status": "scenarios_built", "progress": 0.9, "count": len(state.raw_scenarios)}
@@ -717,18 +730,22 @@ Focus on ACTIONABLE indicators and preparations. Warning signs should be specifi
         yield {"status": "analyzing", "progress": 0.3}
 
         try:
-            response = await litellm.acompletion(
-                model=model,
-                messages=[
+            # Build kwargs - strip response_format for local models (Ollama/vLLM)
+            kwargs = {
+                "model": model,
+                "messages": [
                     {"role": "system", "content": agent_prompt or "You are a strategic advisor specializing in risk hedging and contingency planning for extreme scenarios."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=temperature,
-                max_tokens=4000,
-                response_format={"type": "json_object"}
-            )
+                "temperature": temperature,
+                "max_tokens": 4000,
+            }
+            if not is_local_model(model):
+                kwargs["response_format"] = {"type": "json_object"}
 
-            result = json.loads(response.choices[0].message.content)
+            response = await litellm.acompletion(**kwargs)
+
+            result = parse_llm_json(response.choices[0].message.content)
             enhancements = {e["scenario_id"]: e for e in result.get("enhanced_scenarios", [])}
 
             yield {"status": "merging", "progress": 0.7}
