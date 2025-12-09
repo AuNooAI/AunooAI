@@ -12,6 +12,7 @@ from app.collectors.arxiv_collector import ArxivCollector
 from app.collectors.bluesky_collector import BlueskyCollector
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from app.database import Database, get_database_instance
+from sqlalchemy import text
 from app.research import Research
 from app.analytics import Analytics
 from app.report import Report
@@ -1306,6 +1307,95 @@ async def get_ai_models_config():
     models = config.get("ai_models", [])
     #logger.info(f"AI models config: {models}")
     return {"ai_models": models}
+
+@app.get("/api/embedding_config")
+async def get_embedding_config_endpoint():
+    """Get current embedding model configuration."""
+    from app.vector_store_pgvector import get_embedding_config, get_available_embedding_models, EMBEDDING_MODELS
+
+    current_model = get_embedding_config()
+    available_models = get_available_embedding_models()
+
+    # Check current model stats from database
+    try:
+        db = get_database_instance()
+        conn = db._temp_get_connection()
+        result = conn.execute(text("""
+            SELECT embedding_model, COUNT(*) as count
+            FROM articles
+            WHERE embedding IS NOT NULL
+            GROUP BY embedding_model
+        """))
+        model_stats = {}
+        for row in result:
+            model_name = row[0] if row[0] else "unknown"
+            model_stats[model_name] = row[1]
+    except Exception as e:
+        logger.warning(f"Could not get embedding stats: {e}")
+        model_stats = {}
+
+    return {
+        "model": current_model,
+        "available_models": [
+            {
+                "name": name,
+                "dimensions": cfg["dimensions"],
+                "provider": cfg["provider"],
+                "description": cfg.get("description", "")
+            }
+            for name, cfg in available_models.items()
+        ],
+        "model_stats": model_stats
+    }
+
+@app.post("/api/embedding_config")
+async def set_embedding_config_endpoint(request: Request):
+    """Set the embedding model configuration."""
+    from app.vector_store_pgvector import EMBEDDING_MODELS
+
+    try:
+        data = await request.json()
+        model = data.get("model")
+
+        if not model:
+            raise HTTPException(status_code=400, detail="Model name is required")
+
+        if model not in EMBEDDING_MODELS:
+            raise HTTPException(status_code=400, detail=f"Unknown embedding model: {model}")
+
+        # Load current config
+        config = load_config()
+
+        # Update embedding config
+        if "embedding" not in config:
+            config["embedding"] = {}
+        config["embedding"]["model"] = model
+
+        # Save config
+        save_config(config)
+
+        # Check how many articles would need re-embedding
+        db = get_database_instance()
+        conn = db._temp_get_connection()
+        result = conn.execute(text("""
+            SELECT COUNT(*) FROM articles
+            WHERE embedding IS NOT NULL AND (embedding_model IS NULL OR embedding_model != :model)
+        """), {"model": model})
+        articles_needing_reembedding = result.scalar() or 0
+
+        logger.info(f"Embedding model set to {model}")
+
+        return {
+            "message": f"Embedding model set to {model}",
+            "model": model,
+            "articles_needing_reembedding": articles_needing_reembedding
+        }
+
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+    except Exception as e:
+        logger.error(f"Failed to set embedding config: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/api/available_models")
 def get_available_models_endpoint():

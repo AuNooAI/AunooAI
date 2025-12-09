@@ -385,5 +385,9 @@
         }
       ]
     }
-  ]
+  ],
+  "embedding": {
+    "model": "ollama/nomic-embed-text",
+    "ollama_base_url": "http://localhost:11434"
+  }
 }

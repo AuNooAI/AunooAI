@@ -9,14 +9,23 @@ article embeddings. Benefits:
 - ACID compliance for embeddings
 
 Vector column: articles.embedding vector(1536)
-Embedding model: OpenAI text-embedding-3-small (1536 dimensions)
+Embedding models: Configurable - OpenAI or Ollama (Nomic)
 Distance metric: Cosine distance (<=> operator)
+
+Supported embedding models:
+- openai/text-embedding-3-small: 1536 dimensions (cloud, requires API key)
+- ollama/nomic-embed-text: 768 dimensions (local, no API key needed)
+
+Note: Smaller dimension models are zero-padded to 1536 for storage compatibility.
 """
 import os
+import json
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 import asyncio
 from datetime import datetime, timezone
+
+import requests
 
 try:
     import openai
@@ -25,6 +34,34 @@ except ImportError:
 
 from sqlalchemy import text
 from app.database import get_database_instance
+
+# --------------------------------------------------------------------------------------
+# Embedding Model Configuration
+# --------------------------------------------------------------------------------------
+
+# Maximum embedding dimension (column size in database)
+MAX_EMBEDDING_DIM = 1536
+
+# Default Ollama URL for local models
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+
+# Supported embedding models and their configurations
+EMBEDDING_MODELS = {
+    "openai/text-embedding-3-small": {
+        "dimensions": 1536,
+        "provider": "openai",
+        "description": "OpenAI cloud embedding (requires API key)"
+    },
+    "ollama/nomic-embed-text": {
+        "dimensions": 768,
+        "provider": "ollama",
+        "ollama_model": "nomic-embed-text",
+        "description": "Local Nomic embedding via Ollama (no API key)"
+    }
+}
+
+# Default model if not configured
+DEFAULT_EMBEDDING_MODEL = "openai/text-embedding-3-small"
 
 # Import async database for native async operations
 try:
@@ -55,101 +92,185 @@ def _get_openai_client():
     return _OPENAI_CLIENT
 
 
-def _truncate_text_for_embedding(text: str, max_tokens: int = 8000) -> str:
-    """Truncate text to fit within OpenAI embedding token limits.
-
-    Args:
-        text: Input text to truncate
-        max_tokens: Maximum tokens allowed (default 8000 for safety buffer)
+def get_embedding_config() -> str:
+    """Load the configured embedding model from config.json.
 
     Returns:
-        Truncated text that fits within token limit
+        Model name string (e.g., 'openai/text-embedding-3-small' or 'ollama/nomic-embed-text')
     """
     try:
-        import tiktoken
-        encoding = tiktoken.encoding_for_model("text-embedding-3-small")
-
-        tokens = encoding.encode(text)
-        if len(tokens) <= max_tokens:
-            return text
-
-        truncated_tokens = tokens[:max_tokens]
-        truncated_text = encoding.decode(truncated_tokens)
-
-        logger.debug("Truncated text from %d to %d tokens", len(tokens), len(truncated_tokens))
-        return truncated_text
-
-    except ImportError:
-        # Fallback to character-based estimation
-        max_chars = max_tokens * 3
-        if len(text) <= max_chars:
-            return text
-
-        truncated = text[:max_chars]
-        last_space = truncated.rfind(' ')
-        if last_space > max_chars * 0.8:
-            truncated = truncated[:last_space]
-
-        logger.debug("Truncated text from %d to %d characters (estimated)", len(text), len(truncated))
-        return truncated
-
+        config_path = os.path.join(os.path.dirname(__file__), 'config', 'config.json')
+        if os.path.exists(config_path):
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+            model = config.get("embedding", {}).get("model")
+            if model and model in EMBEDDING_MODELS:
+                return model
     except Exception as exc:
-        logger.warning("Token truncation failed, using conservative fallback: %s", exc)
-        safe_chars = 20000
-        return text[:safe_chars] if len(text) > safe_chars else text
+        logger.warning(f"Failed to load embedding config: {exc}")
+
+    return DEFAULT_EMBEDDING_MODEL
 
 
-def _embed_texts(texts: List[str]) -> List[List[float]]:
-    """Embed texts into vectors using OpenAI.
+def get_available_embedding_models() -> Dict[str, Dict[str, Any]]:
+    """Get all available embedding models and their configurations.
+
+    Returns:
+        Dictionary of model configurations
+    """
+    return EMBEDDING_MODELS.copy()
+
+
+def _pad_embedding(embedding: List[float], target_dim: int = MAX_EMBEDDING_DIM) -> List[float]:
+    """Pad embedding with zeros to target dimension for storage compatibility.
+
+    Args:
+        embedding: Original embedding vector
+        target_dim: Target dimension (default 1536)
+
+    Returns:
+        Padded embedding vector
+    """
+    if len(embedding) >= target_dim:
+        return embedding[:target_dim]
+    return embedding + [0.0] * (target_dim - len(embedding))
+
+
+def _truncate_text_for_embedding(input_text: str, max_chars: int = 24000) -> str:
+    """Truncate text to fit within embedding model limits.
+
+    Args:
+        input_text: Input text to truncate
+        max_chars: Maximum characters (default ~6000 tokens)
+
+    Returns:
+        Truncated text
+    """
+    if len(input_text) <= max_chars:
+        return input_text
+
+    truncated = input_text[:max_chars]
+    last_space = truncated.rfind(' ')
+    if last_space > max_chars * 0.8:
+        truncated = truncated[:last_space]
+
+    logger.debug("Truncated text from %d to %d characters", len(input_text), len(truncated))
+    return truncated
+
+
+def _embed_with_openai(texts: List[str]) -> List[List[float]]:
+    """Generate embeddings using OpenAI API.
 
     Args:
         texts: List of texts to embed
 
     Returns:
-        List of embedding vectors (1536 dimensions each)
+        List of embedding vectors (1536 dimensions)
     """
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key or not openai:
+        raise ValueError("OpenAI API key not configured")
+
+    client = _get_openai_client()
+    if client is None:
+        raise ValueError("OpenAI client not available")
+
+    logger.debug("Calling OpenAI embedding API with %d texts", len(texts))
+    resp = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=texts,
+    )
+
+    embeddings_list = []
+    for item in sorted(resp.data, key=lambda x: x.index):
+        embeddings_list.append(item.embedding)
+
+    return embeddings_list
+
+
+def _embed_with_ollama(texts: List[str], model: str = "nomic-embed-text") -> List[List[float]]:
+    """Generate embeddings using Ollama local API.
+
+    Args:
+        texts: List of texts to embed
+        model: Ollama model name (default: nomic-embed-text)
+
+    Returns:
+        List of embedding vectors (768 dimensions for nomic)
+    """
+    embeddings = []
+    for text_content in texts:
+        try:
+            response = requests.post(
+                f"{OLLAMA_BASE_URL}/api/embeddings",
+                json={"model": model, "prompt": text_content},
+                timeout=60
+            )
+            response.raise_for_status()
+            embedding = response.json().get("embedding", [])
+            if not embedding:
+                raise ValueError(f"Empty embedding returned from Ollama for model {model}")
+            embeddings.append(embedding)
+        except requests.exceptions.RequestException as exc:
+            logger.error(f"Ollama embedding request failed: {exc}")
+            raise ValueError(f"Ollama embedding failed: {exc}")
+
+    return embeddings
+
+
+def _embed_texts(texts: List[str]) -> Tuple[List[List[float]], str]:
+    """Embed texts into vectors using the configured embedding model.
+
+    Args:
+        texts: List of texts to embed
+
+    Returns:
+        Tuple of (list of embedding vectors padded to 1536, model name)
+    """
+    import numpy as np
+
     # Clean and validate texts
     cleaned_texts = []
-    for text in texts:
-        if text is None:
+    for text_item in texts:
+        if text_item is None:
             continue
-        cleaned = str(text).strip()
+        cleaned = str(text_item).strip()
         if cleaned:
             cleaned = _truncate_text_for_embedding(cleaned)
             cleaned_texts.append(cleaned)
 
     if not cleaned_texts:
-        import numpy as np
         logger.warning("No valid texts to embed")
-        return np.random.rand(1, 1536).tolist()
+        return [_pad_embedding(np.random.rand(MAX_EMBEDDING_DIM).tolist())], DEFAULT_EMBEDDING_MODEL
 
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key or not openai:
-        logger.warning("OpenAI not available, using random embeddings")
-        import numpy as np
-        return np.random.rand(len(cleaned_texts), 1536).tolist()
+    # Get configured model
+    model_name = get_embedding_config()
+    model_config = EMBEDDING_MODELS.get(model_name)
+
+    if not model_config:
+        logger.warning(f"Unknown embedding model '{model_name}', falling back to default")
+        model_name = DEFAULT_EMBEDDING_MODEL
+        model_config = EMBEDDING_MODELS[model_name]
 
     try:
-        client = _get_openai_client()
-        if client is None:
-            raise Exception("OpenAI client not available")
+        if model_config["provider"] == "openai":
+            embeddings = _embed_with_openai(cleaned_texts)
+        elif model_config["provider"] == "ollama":
+            ollama_model = model_config.get("ollama_model", "nomic-embed-text")
+            embeddings = _embed_with_ollama(cleaned_texts, ollama_model)
+        else:
+            raise ValueError(f"Unknown provider: {model_config['provider']}")
 
-        logger.debug("Calling OpenAI embedding API with %d texts", len(cleaned_texts))
-        resp = client.embeddings.create(
-            model="text-embedding-3-small",
-            input=cleaned_texts,
-        )
+        # Pad embeddings to MAX_EMBEDDING_DIM for storage compatibility
+        padded_embeddings = [_pad_embedding(e) for e in embeddings]
 
-        embeddings_list = []
-        for item in sorted(resp.data, key=lambda x: x.index):
-            embeddings_list.append(item.embedding)
-
-        return embeddings_list
+        logger.debug(f"Generated {len(padded_embeddings)} embeddings using {model_name}")
+        return padded_embeddings, model_name
 
     except Exception as exc:
-        logger.warning("OpenAI embedding failed, falling back to random: %s", exc)
-        import numpy as np
-        return np.random.rand(len(cleaned_texts), 1536).tolist()
+        logger.warning(f"Embedding with {model_name} failed, falling back to random: {exc}")
+        random_embeddings = np.random.rand(len(cleaned_texts), MAX_EMBEDDING_DIM).tolist()
+        return random_embeddings, "random"
 
 
 # --------------------------------------------------------------------------------------
@@ -175,11 +296,11 @@ def upsert_article(article: Dict[str, Any]) -> None:
             logger.debug("No textual content for article %s – skipping vector index", article.get("uri"))
             return
 
-        # Generate embedding
-        embeddings = _embed_texts([doc_text])
+        # Generate embedding (returns tuple of embeddings and model name)
+        embeddings, model_name = _embed_texts([doc_text])
         embedding = embeddings[0]
 
-        # Update database with embedding
+        # Update database with embedding and model name
         db = get_database_instance()
         conn = db._temp_get_connection()
 
@@ -188,14 +309,15 @@ def upsert_article(article: Dict[str, Any]) -> None:
 
         stmt = text("""
             UPDATE articles
-            SET embedding = CAST(:embedding AS vector)
+            SET embedding = CAST(:embedding AS vector),
+                embedding_model = :model
             WHERE uri = :uri
         """)
 
-        conn.execute(stmt, {"embedding": embedding_str, "uri": article["uri"]})
+        conn.execute(stmt, {"embedding": embedding_str, "model": model_name, "uri": article["uri"]})
         conn.commit()
 
-        logger.debug("Upserted embedding for article %s", article.get("uri"))
+        logger.debug("Upserted embedding for article %s using model %s", article.get("uri"), model_name)
 
     except Exception as exc:
         logger.error("Vector upsert failed for article %s: %s", article.get("uri"), exc)
@@ -233,8 +355,8 @@ async def upsert_article_async(article: Dict[str, Any]) -> None:
             logger.debug("No textual content for article %s – skipping vector index", article.get("uri"))
             return
 
-        # Generate embedding (sync call, but relatively fast)
-        embeddings = _embed_texts([doc_text])
+        # Generate embedding (sync call, returns tuple of embeddings and model name)
+        embeddings, model_name = _embed_texts([doc_text])
         embedding = embeddings[0]
 
         # Convert embedding to PostgreSQL array format
@@ -246,11 +368,12 @@ async def upsert_article_async(article: Dict[str, Any]) -> None:
         async with async_db.get_connection() as conn:
             await conn.execute("""
                 UPDATE articles
-                SET embedding = $1::vector
-                WHERE uri = $2
-            """, embedding_str, article["uri"])
+                SET embedding = $1::vector,
+                    embedding_model = $2
+                WHERE uri = $3
+            """, embedding_str, model_name, article["uri"])
 
-        logger.debug("Async upserted embedding for article %s", article.get("uri"))
+        logger.debug("Async upserted embedding for article %s using model %s", article.get("uri"), model_name)
 
     except Exception as exc:
         logger.error("Async vector upsert failed for article %s: %s", article.get("uri"), exc)
@@ -275,8 +398,8 @@ def search_articles(
 
     conn = None
     try:
-        # Generate query embedding
-        embeddings = _embed_texts([query])
+        # Generate query embedding (returns tuple of embeddings and model name)
+        embeddings, _ = _embed_texts([query])
         query_embedding = embeddings[0]
 
         # Build SQL query with filters
@@ -380,8 +503,8 @@ async def search_articles_async(
         return await loop.run_in_executor(None, search_articles, query, top_k, metadata_filter)
 
     try:
-        # Generate query embedding (this is still blocking, but relatively fast)
-        embeddings = _embed_texts([query])
+        # Generate query embedding (this is still blocking, returns tuple)
+        embeddings, _ = _embed_texts([query])
         query_embedding = embeddings[0]
 
         # Build WHERE clause for filters
