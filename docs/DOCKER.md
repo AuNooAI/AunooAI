@@ -8,6 +8,11 @@ This document provides comprehensive instructions for running AunooAI in Docker 
 - Docker Compose installed (version 1.27.0+)
 - For PostgreSQL: Understanding of basic PostgreSQL concepts
 
+### Verify Docker is running
+```bash
+docker run hello-world
+```
+
 ## Quick Start
 
 ### Option 1: SQLite (Simplest)

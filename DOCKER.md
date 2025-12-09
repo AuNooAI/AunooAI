@@ -6,6 +6,11 @@ Complete guide for running AunooAI with Docker and Docker Compose.
 
 ## Quick Start
 
+### Verify Docker is running
+```bash
+docker run hello-world
+```
+
 ```bash
 # 1. Copy environment file
 cp .env.example .env
