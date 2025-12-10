@@ -7,6 +7,7 @@ class FloatingChat {
             topicSelect: document.getElementById('floatingTopicSelect'),
             modelSelect: document.getElementById('floatingModelSelect'),
             sampleSizeMode: document.getElementById('floatingSampleSizeMode'),
+            samplingStrategy: document.getElementById('floatingSamplingStrategy'),
             customLimit: document.getElementById('floatingCustomLimit'),
             messages: document.getElementById('floatingChatMessages'),
             input: document.getElementById('floatingChatInput'),
@@ -39,6 +40,7 @@ class FloatingChat {
             topic: 'auspex_floating_last_topic',
             model: 'auspex_floating_last_model',
             sampleSizeMode: 'auspex_floating_sample_size_mode',
+            samplingStrategy: 'auspex_floating_sampling_strategy',
             customLimit: 'auspex_floating_custom_limit',
             customQueries: 'auspex_floating_custom_queries',
             minimized: 'auspex_floating_minimized',
@@ -316,6 +318,12 @@ class FloatingChat {
                 this.elements.topicSelect.remove(1);
             }
             
+            // Add "All Topics" option first
+            const allTopicsOption = document.createElement('option');
+            allTopicsOption.value = '__all__';
+            allTopicsOption.textContent = '🌐 All Topics';
+            this.elements.topicSelect.appendChild(allTopicsOption);
+
             // Add topic options
             topics.forEach(topic => {
                 const option = document.createElement('option');
@@ -374,6 +382,12 @@ class FloatingChat {
             this.elements.customLimit.value = savedCustomLimit;
         }
 
+        // Restore sampling strategy
+        const savedSamplingStrategy = localStorage.getItem(this.storageKeys.samplingStrategy);
+        if (savedSamplingStrategy && this.elements.samplingStrategy) {
+            this.elements.samplingStrategy.value = savedSamplingStrategy;
+        }
+
         // Initialize sample size mode
         this.handleSampleSizeModeChange();
         
@@ -413,6 +427,13 @@ class FloatingChat {
                 localStorage.setItem(this.storageKeys.sampleSizeMode, this.elements.sampleSizeMode.value);
                 this.handleSampleSizeModeChange();
                 this.updateContextInfo();
+            });
+        }
+
+        // Sampling strategy change
+        if (this.elements.samplingStrategy) {
+            this.elements.samplingStrategy.addEventListener('change', () => {
+                localStorage.setItem(this.storageKeys.samplingStrategy, this.elements.samplingStrategy.value);
             });
         }
 
@@ -572,6 +593,7 @@ class FloatingChat {
     async loadChatSessions(topic) {
         try {
             console.log(`DEBUG: Fetching chat sessions for topic: ${topic}`);
+            // For __all__, still pass it to filter sessions that are cross-topic
             const response = await fetch(`/api/auspex/chat/sessions?topic=${encodeURIComponent(topic)}`);
             console.log(`DEBUG: Chat sessions response status: ${response.status}`);
             
@@ -607,9 +629,11 @@ class FloatingChat {
                 console.log('Could not access parent window profile selection for chat creation');
             }
             
+            // Handle "All Topics" special case
+            const displayTitle = topic === '__all__' ? 'Cross-Topic Research' : `Chat about ${topic}`;
             const requestBody = {
                 topic: topic,
-                title: `Chat about ${topic}`,
+                title: displayTitle,
                 profile_id: profileId
             };
             console.log(`DEBUG: Creating chat session with body:`, requestBody);
@@ -747,6 +771,9 @@ class FloatingChat {
                 console.log('Could not access parent window profile selection');
             }
             
+            // Get sampling strategy (default to 'auto' if not selected)
+            const samplingStrategy = this.elements.samplingStrategy ? this.elements.samplingStrategy.value : 'auto';
+
             const response = await fetch('/api/auspex/chat/message', {
                 method: 'POST',
                 headers: {
@@ -760,7 +787,8 @@ class FloatingChat {
                     profile_id: profileId,
                     tools_config: this.toolsConfig,
                     article_detail_limit: limit,  // Use same limit for both search and citations
-                    include_charts: this.includeCharts  // Charts toggle
+                    include_charts: this.includeCharts,  // Charts toggle
+                    sampling_strategy: samplingStrategy !== 'auto' ? samplingStrategy : null  // Pass strategy unless auto
                 })
             });
 
