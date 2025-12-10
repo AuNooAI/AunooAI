@@ -4761,16 +4761,24 @@ class DatabaseQueryFacade:
 
         return articles_list, total_count
 
-    def get_recent_articles_by_topic(self, topic_name, limit=10, start_date=None, end_date=None):
-        """Fetch recent articles for a topic - SQLAlchemy version."""
+    def get_recent_articles_by_topic(self, topic_name=None, limit=10, start_date=None, end_date=None):
+        """Fetch recent articles for a topic - SQLAlchemy version.
+
+        If topic_name is None (cross-topic mode), returns articles from all topics.
+        """
         from sqlalchemy import case, cast, Date
         import logging
         logger = logging.getLogger(__name__)
 
-        logger.info(f"Database: Fetching {limit} recent articles for topic {topic_name} (date range: {start_date} to {end_date})")
+        if topic_name:
+            logger.info(f"Database: Fetching {limit} recent articles for topic {topic_name} (date range: {start_date} to {end_date})")
+        else:
+            logger.info(f"Database: Fetching {limit} recent articles across ALL topics (date range: {start_date} to {end_date})")
 
-        # Build WHERE conditions
-        conditions = [articles.c.topic == topic_name]
+        # Build WHERE conditions (topic filter optional for cross-topic mode)
+        conditions = []
+        if topic_name:
+            conditions.append(articles.c.topic == topic_name)
 
         # COALESCE for date ordering
         coalesce_date = func.coalesce(articles.c.submission_date, articles.c.publication_date)
@@ -4783,11 +4791,17 @@ class DatabaseQueryFacade:
 
         # Build query
         # Note: PostgreSQL doesn't have rowid, so we only order by date
-        query = select(articles).where(
-            and_(*conditions)
-        ).order_by(
-            desc(coalesce_date)
-        ).limit(limit)
+        if conditions:
+            query = select(articles).where(
+                and_(*conditions)
+            ).order_by(
+                desc(coalesce_date)
+            ).limit(limit)
+        else:
+            # No conditions - query all articles (cross-topic mode)
+            query = select(articles).order_by(
+                desc(coalesce_date)
+            ).limit(limit)
 
         logger.debug(f"Executing query: {query}")
         result = self._execute_with_rollback(query).mappings().fetchall()
@@ -4800,6 +4814,110 @@ class DatabaseQueryFacade:
                 article['tags'] = article['tags'].split(',')
             else:
                 article['tags'] = []
+
+        return articles_list
+
+    def get_articles_with_bias_data(self, topic_name=None, limit=500, days_back=30):
+        """Fetch recent articles that have bias data populated.
+
+        Args:
+            topic_name: Optional topic filter. None for cross-topic (all topics).
+            limit: Maximum number of articles to return.
+            days_back: How many days back to search.
+
+        Returns:
+            List of article dicts with bias data.
+        """
+        from sqlalchemy import cast, Date
+        import logging
+        logger = logging.getLogger(__name__)
+
+        start_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
+
+        if topic_name:
+            logger.info(f"Database: Fetching {limit} articles with bias data for topic {topic_name}")
+        else:
+            logger.info(f"Database: Fetching {limit} articles with bias data across ALL topics")
+
+        # Build WHERE conditions - must have bias data
+        conditions = [
+            articles.c.bias.isnot(None),
+            articles.c.bias != ''
+        ]
+
+        if topic_name:
+            conditions.append(articles.c.topic == topic_name)
+
+        # Date filter
+        coalesce_date = func.coalesce(articles.c.submission_date, articles.c.publication_date)
+        conditions.append(cast(coalesce_date, Date) >= start_date)
+
+        # Build query
+        query = select(articles).where(
+            and_(*conditions)
+        ).order_by(
+            desc(coalesce_date)
+        ).limit(limit)
+
+        logger.debug(f"Executing bias articles query")
+        result = self._execute_with_rollback(query).mappings().fetchall()
+        articles_list = [dict(row) for row in result]
+        logger.info(f"Found {len(articles_list)} articles with bias data")
+
+        return articles_list
+
+    def get_articles_with_future_signals(self, topic_name=None, limit=500, days_back=30):
+        """Fetch articles that have future impact data (future_signal, time_to_impact, strong sentiment).
+
+        Prioritizes articles with:
+        - Non-null future_signal values (not 'None' or empty)
+        - time_to_impact data
+        - Strong sentiment (Negative, Positive, Critical - not just Neutral)
+
+        Args:
+            topic_name: Optional topic filter. None for cross-topic (all topics).
+            limit: Maximum number of articles to return.
+            days_back: How many days back to search.
+
+        Returns:
+            List of article dicts with future impact data.
+        """
+        from sqlalchemy import cast, Date
+        import logging
+        logger = logging.getLogger(__name__)
+
+        start_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
+
+        if topic_name:
+            logger.info(f"Database: Fetching {limit} articles with future signals for topic {topic_name}")
+        else:
+            logger.info(f"Database: Fetching {limit} articles with future signals across ALL topics")
+
+        # Build WHERE conditions - must have future_signal data
+        conditions = [
+            articles.c.future_signal.isnot(None),
+            articles.c.future_signal != '',
+            articles.c.future_signal != 'None'
+        ]
+
+        if topic_name:
+            conditions.append(articles.c.topic == topic_name)
+
+        # Date filter
+        coalesce_date = func.coalesce(articles.c.submission_date, articles.c.publication_date)
+        conditions.append(cast(coalesce_date, Date) >= start_date)
+
+        # Build query - order by recency
+        query = select(articles).where(
+            and_(*conditions)
+        ).order_by(
+            desc(coalesce_date)
+        ).limit(limit)
+
+        logger.debug(f"Executing future signals articles query")
+        result = self._execute_with_rollback(query).mappings().fetchall()
+        articles_list = [dict(row) for row in result]
+        logger.info(f"Found {len(articles_list)} articles with future signal data")
 
         return articles_list
 
