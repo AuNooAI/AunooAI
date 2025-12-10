@@ -291,9 +291,53 @@ def search_articles(
         params = {"query_embedding": embedding_str, "limit": top_k}
 
         if metadata_filter:
-            for key, value in metadata_filter.items():
-                where_clauses.append(f"{key} = :{key}")
-                params[key] = value
+            # Handle complex $and filters from auspex_service.py
+            if "$and" in metadata_filter:
+                param_idx = 0
+                for condition in metadata_filter["$and"]:
+                    for key, value in condition.items():
+                        if isinstance(value, dict):
+                            # Handle comparison operators like {"$gte": "2025-01-01"}
+                            for op, op_value in value.items():
+                                param_name = f"param_{param_idx}"
+                                if op == "$gte":
+                                    where_clauses.append(f"{key} >= :{param_name}")
+                                elif op == "$lte":
+                                    where_clauses.append(f"{key} <= :{param_name}")
+                                elif op == "$gt":
+                                    where_clauses.append(f"{key} > :{param_name}")
+                                elif op == "$lt":
+                                    where_clauses.append(f"{key} < :{param_name}")
+                                else:
+                                    where_clauses.append(f"{key} = :{param_name}")
+                                params[param_name] = op_value
+                                param_idx += 1
+                        else:
+                            # Simple equality
+                            param_name = f"param_{param_idx}"
+                            where_clauses.append(f"{key} = :{param_name}")
+                            params[param_name] = value
+                            param_idx += 1
+            else:
+                # Handle simple {key: value} or {key: {$gte: value}} filters
+                for key, value in metadata_filter.items():
+                    if isinstance(value, dict):
+                        # Handle comparison operators
+                        for op, op_value in value.items():
+                            if op == "$gte":
+                                where_clauses.append(f"{key} >= :{key}")
+                            elif op == "$lte":
+                                where_clauses.append(f"{key} <= :{key}")
+                            elif op == "$gt":
+                                where_clauses.append(f"{key} > :{key}")
+                            elif op == "$lt":
+                                where_clauses.append(f"{key} < :{key}")
+                            else:
+                                where_clauses.append(f"{key} = :{key}")
+                            params[key] = op_value
+                    else:
+                        where_clauses.append(f"{key} = :{key}")
+                        params[key] = value
 
         where_clause = " AND ".join(where_clauses)
 
@@ -384,16 +428,61 @@ async def search_articles_async(
         embeddings = _embed_texts([query])
         query_embedding = embeddings[0]
 
-        # Build WHERE clause for filters
+        # Build WHERE clause for filters (asyncpg uses positional params $1, $2, etc.)
         where_clauses = ["embedding IS NOT NULL"]
-        params = {"limit": top_k}
+        param_values = []  # Will be built as we process filters
+        param_idx = 2  # Start at 2 since $1 is the embedding
 
         if metadata_filter:
-            for key, value in metadata_filter.items():
-                where_clauses.append(f"{key} = ${len(params) + 1}")
-                params[key] = value
+            # Handle complex $and filters from auspex_service.py
+            if "$and" in metadata_filter:
+                for condition in metadata_filter["$and"]:
+                    for key, value in condition.items():
+                        if isinstance(value, dict):
+                            # Handle comparison operators like {"$gte": "2025-01-01"}
+                            for op, op_value in value.items():
+                                if op == "$gte":
+                                    where_clauses.append(f"{key} >= ${param_idx}")
+                                elif op == "$lte":
+                                    where_clauses.append(f"{key} <= ${param_idx}")
+                                elif op == "$gt":
+                                    where_clauses.append(f"{key} > ${param_idx}")
+                                elif op == "$lt":
+                                    where_clauses.append(f"{key} < ${param_idx}")
+                                else:
+                                    where_clauses.append(f"{key} = ${param_idx}")
+                                param_values.append(op_value)
+                                param_idx += 1
+                        else:
+                            # Simple equality
+                            where_clauses.append(f"{key} = ${param_idx}")
+                            param_values.append(value)
+                            param_idx += 1
+            else:
+                # Handle simple {key: value} or {key: {$gte: value}} filters
+                for key, value in metadata_filter.items():
+                    if isinstance(value, dict):
+                        # Handle comparison operators
+                        for op, op_value in value.items():
+                            if op == "$gte":
+                                where_clauses.append(f"{key} >= ${param_idx}")
+                            elif op == "$lte":
+                                where_clauses.append(f"{key} <= ${param_idx}")
+                            elif op == "$gt":
+                                where_clauses.append(f"{key} > ${param_idx}")
+                            elif op == "$lt":
+                                where_clauses.append(f"{key} < ${param_idx}")
+                            else:
+                                where_clauses.append(f"{key} = ${param_idx}")
+                            param_values.append(op_value)
+                            param_idx += 1
+                    else:
+                        where_clauses.append(f"{key} = ${param_idx}")
+                        param_values.append(value)
+                        param_idx += 1
 
         where_clause = " AND ".join(where_clauses)
+        limit_param_idx = param_idx
 
         # CRITICAL FIX: Use global singleton AsyncDatabase instance to avoid creating new connection pools
         from app.services.async_db import get_async_database_instance
@@ -420,16 +509,13 @@ async def search_articles_async(
                 FROM articles
                 WHERE {where_clause}
                 ORDER BY embedding <=> $1::vector
-                LIMIT ${len(params) + 1}
+                LIMIT ${limit_param_idx}
             """
 
-            # Build params list for asyncpg (positional)
-            param_values = [embedding_str]
-            if metadata_filter:
-                param_values.extend(metadata_filter.values())
-            param_values.append(top_k)
+            # Build final params list: embedding, filter values, limit
+            final_params = [embedding_str] + param_values + [top_k]
 
-            rows = await conn.fetch(query_sql, *param_values)
+            rows = await conn.fetch(query_sql, *final_params)
 
             docs = []
             for row in rows:

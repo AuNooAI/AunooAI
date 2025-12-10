@@ -230,6 +230,61 @@
         "cloud exit",
         "hybrid cloud"
       ]
+    },
+    {
+      "name": "Geopolitical Hotspots",
+      "description": "Geopolitical Hotspots and developments",
+      "categories": [
+        "Conflict Zones",
+        "Strategic Alliances",
+        "Economic Sanctions and Trade Wars",
+        "Military Deployments and Exercises",
+        "Diplomatic Negotiations and Treaties",
+        "Resource Competition",
+        "Cyber Warfare and Information Operations",
+        "Migration and Refugee Flows",
+        "Regional Power Shifts",
+        "Terrorism and Insurgency",
+        "International Organizations and Responses",
+        "Nuclear and WMD Developments",
+        "Energy Security",
+        "Maritime Disputes",
+        "Human Rights and Political Movements",
+        "Other"
+      ],
+      "future_signals": [
+        "Escalation into armed conflict",
+        "Peace agreements and de-escalation",
+        "Frozen conflicts persist",
+        "Shifts in regional power balance",
+        "New alliances form"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "keywords": [
+        "Cyber warfare",
+        "Surveillance technology",
+        "Drones",
+        "geopolitics",
+        "conflict",
+        "diplomacy"
+      ]
     }
   ],
   "ai_models": [

@@ -201,6 +201,14 @@ class ChatMessageRequest(BaseModel):
         )
     )
     include_charts: bool = Field(False, description="Include charts/visualizations in response")
+    sampling_strategy: str | None = Field(
+        None,
+        description=(
+            "Article sampling strategy preset name. "
+            "Options: recency_diversity (default for All Topics), quality_first, latest, diverse, balanced_topics, semantic_search. "
+            "If None, uses intelligent defaults based on context."
+        )
+    )
 
 class PromptRequest(BaseModel):
     name: str = Field(..., description="Unique prompt name")
@@ -335,7 +343,8 @@ async def send_chat_message(req: ChatMessageRequest, session=Depends(verify_sess
     """Send a message to Auspex and get streaming response with configurable citation depth."""
     logger.info(
         f"Received chat message - chat_id: {req.chat_id}, message: '{req.message}', "
-        f"model: {req.model}, limit: {req.limit}, article_detail_limit: {req.article_detail_limit}"
+        f"model: {req.model}, limit: {req.limit}, article_detail_limit: {req.article_detail_limit}, "
+        f"sampling_strategy: {req.sampling_strategy}"
     )
     
     auspex = get_auspex_service()
@@ -371,7 +380,7 @@ async def send_chat_message(req: ChatMessageRequest, session=Depends(verify_sess
                 # Update the chat session to include the profile_id
                 auspex.db.update_auspex_chat_profile(req.chat_id, req.profile_id)
             
-            async for chunk in auspex.chat_with_tools(req.chat_id, req.message, req.model, req.limit, req.tools_config, req.profile_id, req.custom_prompt, req.article_detail_limit, req.include_charts):
+            async for chunk in auspex.chat_with_tools(req.chat_id, req.message, req.model, req.limit, req.tools_config, req.profile_id, req.custom_prompt, req.article_detail_limit, req.include_charts, req.sampling_strategy):
                 yield f"data: {json.dumps({'content': chunk})}\n\n"
             logger.info("Chat response completed successfully")
             yield f"data: {json.dumps({'done': True})}\n\n"

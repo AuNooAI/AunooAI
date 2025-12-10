@@ -46,6 +46,7 @@ def register_routers(app: FastAPI):
     from app.routes.newsletter_routes import router as newsletter_router
     from app.routes.focus_group_routes import router as focus_group_router
     from app.routes.executive_briefing_routes import router as executive_briefing_router
+    from app.routes.sampling_routes import router as sampling_router
 
     # Register database routes
     app.include_router(database.router)
@@ -151,5 +152,8 @@ def register_routers(app: FastAPI):
 
     # Executive Briefing routes
     app.include_router(executive_briefing_router)
+
+    # Sampling & Filtering framework routes
+    app.include_router(sampling_router)
 
     logger.info("All routers registered successfully")

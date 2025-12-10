@@ -2981,3 +2981,170 @@ Focus on making the patterns more specific to {request.topic} while excluding th
         logger.error(f"Error suggesting keyword refinements: {e}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"Error generating keyword suggestions: {str(e)}")
+
+
+# ============================================================================
+# API-Compatible Keyword Improvement Endpoints (Relevance Feedback Loop)
+# ============================================================================
+
+@router.get("/keyword/{keyword_id}/suggest-improvements")
+async def suggest_keyword_improvements(
+    keyword_id: int,
+    group_id: int,
+    model: str = "gpt-4o-mini",
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session_api)
+):
+    """
+    Analyze keyword performance and suggest API-compatible improvements.
+
+    Uses LLM to analyze low-relevance articles and propose:
+    - Replacement keywords (more specific)
+    - Additional keywords to add
+    - Exclusion terms (-term format)
+
+    All suggestions follow API compatibility rules (no boolean operators, simple terms).
+    """
+    try:
+        from app.services.keyword_suggestion_service import KeywordSuggestionService
+
+        suggestion_service = KeywordSuggestionService(db)
+        result = await suggestion_service.suggest_keyword_improvements(
+            keyword_id=keyword_id,
+            group_id=group_id,
+            model=model
+        )
+
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error suggesting keyword improvements: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error generating suggestions: {str(e)}")
+
+
+class ApplySuggestionRequest(BaseModel):
+    suggestion_type: str  # 'replace', 'add', 'exclude'
+    suggested_keyword: str
+    reason: Optional[str] = None
+
+
+@router.post("/keyword/{keyword_id}/apply-suggestion")
+async def apply_keyword_suggestion(
+    keyword_id: int,
+    group_id: int,
+    request: ApplySuggestionRequest,
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session_api)
+):
+    """
+    Apply a suggested keyword change (requires user approval).
+
+    Can:
+    - Replace: Update the existing keyword text
+    - Add: Add a new keyword alongside the existing one
+    - Exclude: Add an exclusion term (-prefix) to the group
+    """
+    try:
+        username = session.get('user', {}).get('username', 'unknown')
+
+        # Validate suggestion type
+        if request.suggestion_type not in ['replace', 'add', 'exclude']:
+            raise HTTPException(status_code=400, detail=f"Invalid suggestion_type: {request.suggestion_type}")
+
+        # Normalize the suggested keyword
+        from app.utils.keyword_normalizer import normalize_keyword
+        normalized = normalize_keyword(request.suggested_keyword)
+
+        if not normalized:
+            raise HTTPException(status_code=400, detail="Invalid keyword after normalization")
+
+        # For exclusions, ensure the keyword starts with -
+        if request.suggestion_type == 'exclude' and not normalized.startswith('-'):
+            normalized = f"-{normalized}"
+
+        # Apply the suggestion based on type
+        if request.suggestion_type == 'replace':
+            # Update the existing keyword
+            db.facade.update_monitored_keyword_text(
+                keyword_id=keyword_id,
+                new_keyword=normalized
+            )
+            message = f"Keyword replaced with '{normalized}'"
+
+        elif request.suggestion_type == 'add':
+            # Add new keyword to the group - this becomes a separate search query
+            db.facade.add_keywords_to_group(group_id, normalized)
+            message = f"Added new keyword '{normalized}' (will be searched separately)"
+
+        elif request.suggestion_type == 'exclude':
+            # Append exclusion to the ORIGINAL keyword so it's included in the same search
+            # This makes the exclusion actually work with news APIs
+            current_keyword = db.facade.get_monitored_keyword_by_id(keyword_id)
+            if current_keyword:
+                current_text = current_keyword.get('keyword', '')
+                # Append exclusion term to existing keyword
+                new_keyword_text = f"{current_text} {normalized}"
+                db.facade.update_monitored_keyword_text(
+                    keyword_id=keyword_id,
+                    new_keyword=new_keyword_text
+                )
+                message = f"Added exclusion '{normalized}' to keyword (now: '{new_keyword_text[:50]}...')"
+            else:
+                raise HTTPException(status_code=404, detail="Original keyword not found")
+
+        logger.info(f"User {username} applied {request.suggestion_type} suggestion: {normalized}")
+
+        return {
+            "success": True,
+            "message": message,
+            "keyword_id": keyword_id,
+            "group_id": group_id,
+            "applied_keyword": normalized,
+            "suggestion_type": request.suggestion_type
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error applying keyword suggestion: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error applying suggestion: {str(e)}")
+
+
+@router.get("/group/{group_id}/performance-report")
+async def get_group_performance_report(
+    group_id: int,
+    db: Database = Depends(get_database_instance),
+    session=Depends(verify_session_api)
+):
+    """
+    Get comprehensive performance report for all keywords in a group.
+
+    Returns:
+    - Summary statistics (total keywords, articles, avg relevance)
+    - Per-keyword performance metrics
+    - Flag indicating if auto-suggestions are available
+    """
+    try:
+        from app.services.keyword_suggestion_service import KeywordSuggestionService
+
+        suggestion_service = KeywordSuggestionService(db)
+        result = await suggestion_service.get_group_performance_report(group_id)
+
+        if "error" in result:
+            raise HTTPException(status_code=400, detail=result["error"])
+
+        return result
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting group performance report: {e}")
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error generating report: {str(e)}")

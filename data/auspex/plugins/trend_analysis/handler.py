@@ -123,27 +123,40 @@ class TrendAnalysisHandler(ToolHandler):
     def _fetch_articles(self, db, topic: str, start_date: datetime) -> List[Dict]:
         """Fetch articles from database for the given topic and time range."""
         try:
-            # Use the database facade to get articles
-            articles = db.facade.get_articles_by_topic(
-                topic=topic,
-                start_date=start_date.isoformat(),
-                limit=1000  # Get substantial sample for trend analysis
+            # Use the database facade's get_recent_articles_by_topic with date filtering
+            # topic=None means cross-topic (All Topics) mode
+            topic_for_query = topic if topic and topic != '__all__' else None
+            articles = db.facade.get_recent_articles_by_topic(
+                topic_name=topic_for_query,
+                limit=1000,  # Get substantial sample for trend analysis
+                start_date=start_date.strftime('%Y-%m-%d')
             )
             return articles if articles else []
         except Exception as e:
-            self.logger.error(f"Failed to fetch articles: {e}")
-            # Fallback: try direct query
+            self.logger.error(f"Failed to fetch articles via facade: {e}")
+            # Fallback: try direct query with correct column name
             try:
-                query = """
-                    SELECT * FROM articles
-                    WHERE topic = :topic
-                    AND pub_date >= :start_date
-                    ORDER BY pub_date DESC
-                    LIMIT 1000
-                """
-                result = db.execute_query(query, {"topic": topic, "start_date": start_date})
+                if topic and topic != '__all__':
+                    query = """
+                        SELECT * FROM articles
+                        WHERE topic = :topic
+                        AND publication_date >= :start_date
+                        ORDER BY publication_date DESC
+                        LIMIT 1000
+                    """
+                    result = db.execute_query(query, {"topic": topic, "start_date": start_date.strftime('%Y-%m-%d')})
+                else:
+                    # Cross-topic mode: no topic filter
+                    query = """
+                        SELECT * FROM articles
+                        WHERE publication_date >= :start_date
+                        ORDER BY publication_date DESC
+                        LIMIT 1000
+                    """
+                    result = db.execute_query(query, {"start_date": start_date.strftime('%Y-%m-%d')})
                 return [dict(row) for row in result] if result else []
-            except:
+            except Exception as e2:
+                self.logger.error(f"Fallback query also failed: {e2}")
                 return []
 
     def _analyze_sentiment_trends(self, articles: List[Dict]) -> Dict:
@@ -155,12 +168,15 @@ class TrendAnalysisHandler(ToolHandler):
             sentiment = article.get("sentiment", "neutral")
             sentiment_counts[sentiment] += 1
 
-            # Group by week
-            pub_date = article.get("pub_date")
+            # Group by week - check both pub_date and publication_date for compatibility
+            pub_date = article.get("publication_date") or article.get("pub_date")
             if pub_date:
                 if isinstance(pub_date, str):
                     try:
-                        pub_date = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
+                        if 'T' in pub_date:
+                            pub_date = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
+                        else:
+                            pub_date = datetime.strptime(pub_date[:10], '%Y-%m-%d')
                     except:
                         continue
                 week_key = pub_date.strftime("%Y-W%W")
@@ -203,11 +219,14 @@ class TrendAnalysisHandler(ToolHandler):
             category = article.get("category", "Uncategorized")
             category_counts[category] += 1
 
-            pub_date = article.get("pub_date")
+            pub_date = article.get("publication_date") or article.get("pub_date")
             if pub_date:
                 if isinstance(pub_date, str):
                     try:
-                        pub_date = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
+                        if 'T' in pub_date:
+                            pub_date = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
+                        else:
+                            pub_date = datetime.strptime(pub_date[:10], '%Y-%m-%d')
                     except:
                         continue
                 week_key = pub_date.strftime("%Y-W%W")
@@ -279,11 +298,14 @@ class TrendAnalysisHandler(ToolHandler):
         daily_sentiment = defaultdict(lambda: defaultdict(int))
 
         for article in articles:
-            pub_date = article.get("pub_date")
+            pub_date = article.get("publication_date") or article.get("pub_date")
             if pub_date:
                 if isinstance(pub_date, str):
                     try:
-                        pub_date = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
+                        if 'T' in pub_date:
+                            pub_date = datetime.fromisoformat(pub_date.replace("Z", "+00:00"))
+                        else:
+                            pub_date = datetime.strptime(pub_date[:10], '%Y-%m-%d')
                     except:
                         continue
                 date_key = pub_date.strftime("%Y-%m-%d")

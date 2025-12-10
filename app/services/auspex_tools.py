@@ -14,6 +14,15 @@ from app.analyze_db import AnalyzeDB
 from app.vector_store import search_articles as vector_search_articles
 from app.ai_models import get_ai_model, get_available_models
 
+# Import sampling framework
+from app.services.sampling import (
+    get_registry,
+    SamplingContext,
+    RecencyDiversitySampling,
+    QualitySampling,
+    SemanticSampling
+)
+
 logger = logging.getLogger(__name__)
 
 class AuspexToolsService:
@@ -49,47 +58,66 @@ class AuspexToolsService:
             logger.error(f"Error extracting JSON: {str(e)}")
             return response
 
-    def _select_diverse_articles(self, articles: List[Dict], limit: int) -> List[Dict]:
-        """Select diverse articles from a larger pool based on category, source, and recency."""
+    def _select_diverse_articles(self, articles: List[Dict], limit: int, topic: str = None, sampling_strategy: str = None) -> List[Dict]:
+        """Select diverse articles from a larger pool using the sampling framework.
+
+        Args:
+            articles: List of articles to sample from
+            limit: Maximum number of articles to return
+            topic: Current topic (None for cross-topic mode)
+            sampling_strategy: Strategy name to use (default varies by context)
+
+        Returns:
+            Selected articles
+        """
         if len(articles) <= limit:
             return articles
-        
-        # Sort by similarity score first (best matches first)
-        sorted_articles = sorted(articles, key=lambda x: x.get('similarity_score', 1.0))
-        
-        selected = []
-        seen_categories = set()
-        seen_sources = set()
-        
-        # First pass: Select top articles ensuring category diversity
-        for article in sorted_articles:
-            if len(selected) >= limit:
-                break
-                
-            category = article.get('category', 'Unknown')
-            source = article.get('news_source', 'Unknown')
-            
-            # Prefer articles from new categories and sources
-            category_bonus = 0 if category in seen_categories else 1
-            source_bonus = 0 if source in seen_sources else 0.5
-            
-            # Add if we have space and it adds diversity, or if it's a very good match
-            if (len(selected) < limit * 0.7 or  # Always fill 70% with top matches
-                category_bonus > 0 or source_bonus > 0):
-                selected.append(article)
-                seen_categories.add(category)
-                seen_sources.add(source)
-        
-        # Fill remaining slots with best remaining articles
-        remaining_needed = limit - len(selected)
-        if remaining_needed > 0:
-            remaining_articles = [a for a in sorted_articles if a not in selected]
-            selected.extend(remaining_articles[:remaining_needed])
-        
-        return selected[:limit]
 
-    async def enhanced_database_search(self, query: str, topic: str, limit: int = 50, model: str = None) -> Dict:
-        """Enhanced database search with hybrid vector/SQL search and intelligent query parsing."""
+        # Create sampling context
+        context = SamplingContext(topic=topic)
+        context.update_stats(articles)
+
+        # Store similarity scores in context for semantic-aware sampling
+        for article in articles:
+            sim = article.get('similarity_score')
+            if sim is not None:
+                article_id = str(article.get('id') or article.get('uri', ''))
+                context.similarity_scores[article_id] = sim
+
+        # Get strategy from registry or use default
+        registry = get_registry()
+
+        if sampling_strategy:
+            # Use specified strategy
+            pipeline = registry.create_pipeline_from_preset(sampling_strategy)
+            if not pipeline:
+                strategy_class = registry.get_strategy(sampling_strategy)
+                if strategy_class:
+                    sampler = strategy_class()
+                else:
+                    # Fallback to recency_diversity
+                    sampler = RecencyDiversitySampling()
+            else:
+                return pipeline.execute(articles, limit, context)
+        else:
+            # Default behavior: use semantic sampling for searches (preserves relevance)
+            # but RecencyDiversity for general retrieval
+            has_similarity = any(a.get('similarity_score') is not None for a in articles)
+            if has_similarity:
+                # For semantic search results, use a 70% semantic / 30% diversity blend
+                sampler = RecencyDiversitySampling(recency_ratio=0.7)
+                # Override to use semantic sorting for "recency" portion
+                # This maintains compatibility with the old 70/30 split
+            else:
+                sampler = RecencyDiversitySampling()
+
+        return sampler.sample(articles, limit, context)
+
+    async def enhanced_database_search(self, query: str, topic: str = None, limit: int = 50, model: str = None) -> Dict:
+        """Enhanced database search with hybrid vector/SQL search and intelligent query parsing.
+
+        If topic is None (cross-topic mode), searches across all topics.
+        """
         try:
             # Get model from configured models if not specified
             if model is None:
@@ -99,15 +127,15 @@ class AuspexToolsService:
                 else:
                     raise ValueError("No configured models available")
 
-            # Get available options for this topic
+            # Get available options for this topic (or all topics if None)
             topic_options = self.analyze_db.get_topic_options(topic)
-            
+
             # Enhanced search strategy: Use both SQL and vector search
             # First, try vector search for semantic understanding
             vector_articles = []
             try:
-                # Build metadata filter for vector search
-                metadata_filter = {"topic": topic}
+                # Build metadata filter for vector search (skip topic filter for cross-topic mode)
+                metadata_filter = {"topic": topic} if topic else {}
                 
                 # EXPLICIT CHECK for common date patterns (safety net)
                 explicit_date_patterns = {
@@ -136,17 +164,22 @@ class AuspexToolsService:
                 if explicit_days_back:
                     cutoff_datetime = datetime.now() - timedelta(days=explicit_days_back)
                     cutoff_timestamp = int(cutoff_datetime.timestamp())
-                    # Use proper ChromaDB syntax for combining filters
-                    vector_date_filter = {
-                        "$and": [
-                            {"topic": topic},
-                            {"publication_date_ts": {"$gte": cutoff_timestamp}}
-                        ]
-                    }
+                    # Use proper syntax for combining filters
+                    # For cross-topic mode (topic=None), only filter by date
+                    if topic:
+                        vector_date_filter = {
+                            "$and": [
+                                {"topic": topic},
+                                {"publication_date_ts": {"$gte": cutoff_timestamp}}
+                            ]
+                        }
+                    else:
+                        vector_date_filter = {"publication_date_ts": {"$gte": cutoff_timestamp}}
                     logger.info(f"EXPLICIT date filter applied: publication_date_ts >= {cutoff_timestamp} ({cutoff_datetime.strftime('%Y-%m-%d %H:%M:%S')})")
                     logger.info(f"Vector date filter: {vector_date_filter}")
                 else:
-                    vector_date_filter = {"topic": topic}
+                    # No date filter - use topic filter if available, empty dict for cross-topic
+                    vector_date_filter = {"topic": topic} if topic else {}
                 
                 vector_results = vector_search_articles(
                     query=query,
@@ -256,8 +289,8 @@ class AuspexToolsService:
 
             # If vector search found good results, use them; otherwise fall back to SQL search
             if len(vector_articles) >= 10:
-                # Enhanced selection: Apply diversity and quality filtering
-                articles = self._select_diverse_articles(vector_articles, limit)
+                # Enhanced selection: Apply diversity and quality filtering via sampling framework
+                articles = self._select_diverse_articles(vector_articles, limit, topic=topic)
                 total_count = len(vector_articles)
                 search_method = "semantic vector search with diversity filtering"
                 
@@ -584,28 +617,31 @@ Analyzing the {len(articles)} most recent articles
                 "articles": []
             }
 
-    async def get_topic_articles(self, topic: str, limit: int = 50,
+    async def get_topic_articles(self, topic: str = None, limit: int = 50,
                                days_back: int = 30) -> Dict:
-        """Get articles from database for a specific topic."""
+        """Get articles from database for a specific topic.
+
+        If topic is None (cross-topic mode), returns articles from all topics.
+        """
         # Calculate date range
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days_back)
-        
+
         try:
             articles = self.db.facade.get_recent_articles_by_topic(
-                topic_name=topic,
+                topic_name=topic,  # None for cross-topic mode
                 limit=limit,
                 start_date=start_date.strftime("%Y-%m-%d"),
                 end_date=end_date.strftime("%Y-%m-%d")
             )
-            
+
             result = {
-                "topic": topic,
+                "topic": topic if topic else "All Topics",
                 "total_articles": len(articles),
                 "time_period": f"{days_back} days",
                 "articles": articles
             }
-            
+
             return result
         except Exception as e:
             logger.error(f"Error getting topic articles: {e}")
@@ -616,49 +652,52 @@ Analyzing the {len(articles)} most recent articles
                 "articles": []
             }
 
-    async def analyze_sentiment_trends(self, topic: str, 
+    async def analyze_sentiment_trends(self, topic: str = None,
                                      time_period: str = "month") -> Dict:
-        """Analyze sentiment trends for articles."""
+        """Analyze sentiment trends for articles.
+
+        If topic is None (cross-topic mode), analyzes across all topics.
+        """
         # Map time period to days
         period_days = {
             "week": 7,
             "month": 30,
             "quarter": 90
         }.get(time_period, 30)
-        
+
         try:
             # Get articles for the period
             end_date = datetime.now()
             start_date = end_date - timedelta(days=period_days)
-            
+
             articles, _ = self.db.facade.search_articles(
-                topic=topic,
+                topic=topic,  # None for cross-topic mode
                 pub_date_start=start_date.strftime("%Y-%m-%d"),
                 pub_date_end=end_date.strftime("%Y-%m-%d"),
                 page=1,
                 per_page=1000
             )
-            
+
             # Analyze sentiment distribution
             sentiment_counts = {}
             for article in articles:
                 sentiment = article.get('sentiment', 'Unknown')
                 sentiment_counts[sentiment] = sentiment_counts.get(sentiment, 0) + 1
-            
+
             total_articles = len(articles)
             sentiment_percentages = {
                 sentiment: (count / total_articles * 100) if total_articles > 0 else 0
                 for sentiment, count in sentiment_counts.items()
             }
-            
+
             result = {
-                "topic": topic,
+                "topic": topic if topic else "All Topics",
                 "time_period": time_period,
                 "total_articles": total_articles,
                 "sentiment_distribution": sentiment_counts,
                 "sentiment_percentages": sentiment_percentages
             }
-            
+
             return result
         except Exception as e:
             logger.error(f"Error analyzing sentiment trends: {e}")
@@ -670,25 +709,28 @@ Analyzing the {len(articles)} most recent articles
                 "sentiment_percentages": {}
             }
 
-    async def get_article_categories(self, topic: str) -> Dict:
-        """Get article categories and their distribution."""
+    async def get_article_categories(self, topic: str = None) -> Dict:
+        """Get article categories and their distribution.
+
+        If topic is None (cross-topic mode), returns categories from all topics.
+        """
         try:
             articles, _ = self.db.facade.search_articles(topic=topic, page=1, per_page=1000)
-            
+
             # Analyze category distribution
             category_counts = {}
             for article in articles:
                 category = article.get('category', 'Uncategorized')
                 category_counts[category] = category_counts.get(category, 0) + 1
-            
+
             total_articles = len(articles)
             category_percentages = {
                 category: (count / total_articles * 100) if total_articles > 0 else 0
                 for category, count in category_counts.items()
             }
-            
+
             result = {
-                "topic": topic,
+                "topic": topic if topic else "All Topics",
                 "total_articles": total_articles,
                 "category_distribution": category_counts,
                 "category_percentages": category_percentages
@@ -789,17 +831,20 @@ Analyzing the {len(articles)} most recent articles
                 "articles": []
             }
 
-    async def semantic_search_and_analyze(self, query: str, topic: str, 
+    async def semantic_search_and_analyze(self, query: str, topic: str = None,
                                         analysis_type: str = "comprehensive",
                                         limit: int = 50) -> Dict:
-        """Perform semantic search with diversity filtering and structured analysis."""
+        """Perform semantic search with diversity filtering and structured analysis.
+
+        If topic is None (cross-topic mode), searches across all topics.
+        """
         try:
             # For comprehensive analysis requests, get all articles for the topic
             # rather than searching for the specific query text
             if any(word in query.lower() for word in ["comprehensive", "analysis", "detailed", "insights", "structured", "breakdown"]):
                 # Get articles by topic only for comprehensive analysis
                 articles, _ = self.db.facade.search_articles(
-                    topic=topic,
+                    topic=topic,  # None for cross-topic mode
                     page=1,
                     per_page=limit * 2  # Get more for diversity filtering
                 )
@@ -807,27 +852,27 @@ Analyzing the {len(articles)} most recent articles
                 # For specific queries, search by keyword
                 articles, _ = self.db.facade.search_articles(
                     keyword=query,
-                    topic=topic,
+                    topic=topic,  # None for cross-topic mode
                     page=1,
                     per_page=limit * 2  # Get more for diversity filtering
                 )
-            
+
             # Apply diversity filtering (simplified version)
             diverse_articles = self._apply_diversity_filter(articles, limit)
-            
+
             # Perform structured analysis
             analysis = self._perform_structured_analysis(diverse_articles, analysis_type)
-            
+
             result = {
                 "query": query,
-                "topic": topic,
+                "topic": topic if topic else "All Topics",
                 "analysis_type": analysis_type,
                 "total_articles_found": len(articles),
                 "articles_analyzed": len(diverse_articles),
                 "analysis": analysis,
                 "articles": diverse_articles
             }
-            
+
             return result
         except Exception as e:
             logger.error(f"Error in semantic search and analysis: {e}")

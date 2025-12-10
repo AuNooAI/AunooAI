@@ -417,23 +417,40 @@ class AnalyzeDB:
     # Topic Options Helper
     # ----------------------
 
-    def get_topic_options(self, topic: str):
-        """Return distinct lists of categories, future signals, sentiments, time-to-impact, and driver types available for a given topic."""
+    def get_topic_options(self, topic: str = None):
+        """Return distinct lists of categories, future signals, sentiments, time-to-impact, and driver types.
+
+        If topic is None (cross-topic mode), returns options across all topics.
+        """
         from sqlalchemy import text
 
-        query = text("""
-        SELECT DISTINCT
-            category,
-            future_signal,
-            sentiment,
-            time_to_impact,
-            driver_type
-        FROM articles
-        WHERE topic = :topic
-        """)
+        # For cross-topic mode, query all topics; otherwise filter by specific topic
+        if topic:
+            query = text("""
+            SELECT DISTINCT
+                category,
+                future_signal,
+                sentiment,
+                time_to_impact,
+                driver_type
+            FROM articles
+            WHERE topic = :topic
+            """)
+            params = {"topic": topic}
+        else:
+            query = text("""
+            SELECT DISTINCT
+                category,
+                future_signal,
+                sentiment,
+                time_to_impact,
+                driver_type
+            FROM articles
+            """)
+            params = {}
 
         conn = self.db._temp_get_connection()
-        result = conn.execute(query, {"topic": topic})
+        result = conn.execute(query, params)
         results = result.fetchall()
 
         categories = sorted({row[0] for row in results if row[0]})
