@@ -78,13 +78,17 @@
                             <div class="card-body">
                                 <div class="mb-3">
                                     {% if group.keywords %}
-                                    <h6 class="mb-2">Monitored Keywords:</h6>
-                                    <div class="d-flex gap-2 flex-wrap">
+                                    <h6 class="mb-2">Monitored Keywords: <small class="text-muted">(click to edit)</small></h6>
+                                    <div class="d-flex gap-2 flex-wrap" id="keywords-group-{{ group.id }}">
                                         {% for keyword in group.keywords %}
-                                        <div class="keyword-badge">
-                                            {{ keyword.keyword }}
+                                        <div class="keyword-badge" id="keyword-badge-{{ keyword.id }}" data-keyword-id="{{ keyword.id }}" data-keyword-text="{{ keyword.keyword|e }}">
+                                            <span class="keyword-text" onclick="editKeywordInline({{ keyword.id }})">{{ keyword.keyword }}</span>
+                                            <input type="text" class="keyword-edit-input" id="keyword-input-{{ keyword.id }}"
+                                                   style="display: none; width: 200px; border: none; background: transparent; outline: none;"
+                                                   onkeydown="handleKeywordEditKey(event, {{ keyword.id }})"
+                                                   onblur="cancelKeywordEdit({{ keyword.id }})">
                                             <button class="btn-close"
-                                                    onclick="deleteKeyword({{ keyword.id }})"
+                                                    onclick="event.stopPropagation(); deleteKeyword({{ keyword.id }})"
                                                     data-tooltip="Remove this keyword"
                                                     aria-label="Delete keyword"></button>
                                         </div>
@@ -769,6 +773,23 @@
         opacity: 1;
     }
 
+    .keyword-badge .keyword-text {
+        cursor: pointer;
+        border-bottom: 1px dashed transparent;
+        transition: border-color 0.2s ease;
+    }
+
+    .keyword-badge .keyword-text:hover {
+        border-bottom-color: #831843;
+    }
+
+    .keyword-badge .keyword-edit-input {
+        font-size: inherit;
+        font-weight: inherit;
+        color: inherit;
+        min-width: 100px;
+    }
+
     /* Tab styling */
     .nav-tabs {
         border-bottom: 2px solid var(--colors-neutral-4);
@@ -1071,18 +1092,95 @@ async function addKeyword() {
 
 async function deleteKeyword(keywordId) {
     if (!confirm('Are you sure you want to delete this keyword?')) return;
-    
+
     try {
         const response = await fetch(`/api/keyword-monitor/keywords/${keywordId}`, {
             method: 'DELETE'
         });
-        
+
         if (!response.ok) throw new Error('Failed to delete keyword');
-        
+
         window.location.reload();
     } catch (error) {
         console.error('Error:', error);
         alert('Failed to delete keyword');
+    }
+}
+
+// Inline keyword editing functions
+function editKeywordInline(keywordId) {
+    const badge = document.getElementById(`keyword-badge-${keywordId}`);
+    const textSpan = badge.querySelector('.keyword-text');
+    const input = document.getElementById(`keyword-input-${keywordId}`);
+
+    // Get current value from data attribute (handles special chars safely)
+    const currentValue = badge.dataset.keywordText || textSpan.textContent;
+
+    // Hide text, show input
+    textSpan.style.display = 'none';
+    input.style.display = 'inline-block';
+    input.value = currentValue;
+    input.focus();
+    input.select();
+}
+
+function cancelKeywordEdit(keywordId) {
+    const badge = document.getElementById(`keyword-badge-${keywordId}`);
+    const textSpan = badge.querySelector('.keyword-text');
+    const input = document.getElementById(`keyword-input-${keywordId}`);
+
+    // Hide input, show text
+    input.style.display = 'none';
+    textSpan.style.display = 'inline';
+}
+
+function handleKeywordEditKey(event, keywordId) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        saveKeywordEdit(keywordId);
+    } else if (event.key === 'Escape') {
+        cancelKeywordEdit(keywordId);
+    }
+}
+
+async function saveKeywordEdit(keywordId) {
+    const input = document.getElementById(`keyword-input-${keywordId}`);
+    const newValue = input.value.trim();
+
+    if (!newValue) {
+        showAlert('Keyword cannot be empty', 'warning');
+        cancelKeywordEdit(keywordId);
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/keyword-monitor/keywords/${keywordId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ keyword: newValue })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to update keyword');
+        }
+
+        const result = await response.json();
+        const savedKeyword = result.keyword || newValue;
+
+        // Update the display and data attribute
+        const badge = document.getElementById(`keyword-badge-${keywordId}`);
+        const textSpan = badge.querySelector('.keyword-text');
+        textSpan.textContent = savedKeyword;
+        badge.dataset.keywordText = savedKeyword;
+
+        cancelKeywordEdit(keywordId);
+        showAlert('Keyword updated successfully', 'success');
+
+    } catch (error) {
+        console.error('Error:', error);
+        showAlert(error.message || 'Failed to update keyword', 'danger');
+        cancelKeywordEdit(keywordId);
     }
 }
 
