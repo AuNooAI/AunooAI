@@ -9493,10 +9493,15 @@ class DatabaseQueryFacade:
         result = self._execute_with_rollback(query, params)
         return result.mappings().fetchall()
 
-    def get_low_relevance_article_titles_for_keyword(self, keyword_id: int, group_id: int, limit: int = 10):
+    def get_low_relevance_article_titles_for_keyword(self, keyword_id: int, threshold: float = 0.4, limit: int = 10):
         """Get sample low-relevance article titles for a keyword (for LLM analysis).
 
-        Returns list of titles from articles with keyword_relevance_score < 0.4
+        Args:
+            keyword_id: ID of the monitored keyword
+            threshold: Relevance score threshold (default 0.4)
+            limit: Maximum number of titles to return
+
+        Returns list of titles from articles with keyword_relevance_score < threshold
         """
         query = text("""
             WITH keyword_matches AS (
@@ -9505,21 +9510,249 @@ class DatabaseQueryFacade:
                     kam.group_id,
                     unnest(string_to_array(kam.keyword_ids, ','))::int as keyword_id
                 FROM keyword_article_matches kam
-                WHERE kam.group_id = :group_id
             )
             SELECT a.title
             FROM keyword_matches km
             JOIN articles a ON km.article_uri = a.uri
             WHERE km.keyword_id = :keyword_id
             AND a.keyword_relevance_score IS NOT NULL
-            AND a.keyword_relevance_score < 0.4
+            AND a.keyword_relevance_score < :threshold
             ORDER BY a.keyword_relevance_score ASC
             LIMIT :limit
         """)
 
         result = self._execute_with_rollback(query, {
             'keyword_id': keyword_id,
-            'group_id': group_id,
+            'threshold': threshold,
             'limit': limit
         })
         return [row['title'] for row in result.mappings().fetchall()]
+
+    # =====================================================
+    # Keyword Suggestion/Improvement Methods
+    # =====================================================
+
+    def get_monitored_keyword_by_id(self, keyword_id: int):
+        """Get a monitored keyword by its ID.
+
+        Returns dict with id, keyword, group_id, last_checked, topic, group_name
+        """
+        query = text("""
+            SELECT
+                mk.id,
+                mk.keyword,
+                mk.group_id,
+                mk.last_checked,
+                kg.topic,
+                kg.name as group_name
+            FROM monitored_keywords mk
+            JOIN keyword_groups kg ON mk.group_id = kg.id
+            WHERE mk.id = :keyword_id
+        """)
+        result = self._execute_with_rollback(query, {'keyword_id': keyword_id})
+        row = result.mappings().fetchone()
+        return dict(row) if row else None
+
+    def get_keyword_relevance_stats_single(self, keyword_id: int):
+        """Get relevance statistics for a single keyword.
+
+        Returns dict with total_matches, avg_relevance, high_relevance_count, low_relevance_count
+        """
+        query = text("""
+            WITH keyword_matches AS (
+                SELECT
+                    kam.article_uri,
+                    kam.group_id,
+                    unnest(string_to_array(kam.keyword_ids, ','))::int as keyword_id
+                FROM keyword_article_matches kam
+            )
+            SELECT
+                COUNT(DISTINCT km.article_uri) as total_matches,
+                ROUND(AVG(a.keyword_relevance_score)::numeric, 3) as avg_relevance,
+                COUNT(DISTINCT CASE WHEN a.keyword_relevance_score >= 0.7 THEN km.article_uri END) as high_relevance_count,
+                COUNT(DISTINCT CASE WHEN a.keyword_relevance_score < 0.4 THEN km.article_uri END) as low_relevance_count
+            FROM keyword_matches km
+            JOIN articles a ON km.article_uri = a.uri
+            WHERE km.keyword_id = :keyword_id
+            AND a.keyword_relevance_score IS NOT NULL
+        """)
+        result = self._execute_with_rollback(query, {'keyword_id': keyword_id})
+        row = result.mappings().fetchone()
+        return dict(row) if row else None
+
+    def get_keyword_group_by_id(self, group_id: int):
+        """Get a keyword group by its ID.
+
+        Returns dict with id, name, topic, created_at, provider, source
+        """
+        query = text("""
+            SELECT id, name, topic, created_at, provider, source
+            FROM keyword_groups
+            WHERE id = :group_id
+        """)
+        result = self._execute_with_rollback(query, {'group_id': group_id})
+        row = result.mappings().fetchone()
+        return dict(row) if row else None
+
+    def get_keywords_for_group(self, group_id: int):
+        """Get all keywords in a group.
+
+        Returns list of dicts with id, keyword, last_checked
+        """
+        query = text("""
+            SELECT id, keyword, last_checked
+            FROM monitored_keywords
+            WHERE group_id = :group_id
+            ORDER BY keyword
+        """)
+        result = self._execute_with_rollback(query, {'group_id': group_id})
+        return [dict(row) for row in result.mappings().fetchall()]
+
+    def update_monitored_keyword_text(self, keyword_id: int, new_keyword: str):
+        """Update the text of a monitored keyword.
+
+        Args:
+            keyword_id: ID of the keyword to update
+            new_keyword: New keyword text
+        """
+        query = text("""
+            UPDATE monitored_keywords
+            SET keyword = :new_keyword
+            WHERE id = :keyword_id
+        """)
+        self._execute_with_rollback(query, {
+            'keyword_id': keyword_id,
+            'new_keyword': new_keyword
+        })
+
+    def save_keyword_suggestion(
+        self,
+        keyword_id: int,
+        group_id: int,
+        suggestion_type: str,
+        suggested_keyword: str,
+        reason: str,
+        confidence: float,
+        analyzed_articles: int,
+        avg_relevance: float
+    ) -> int:
+        """Save a keyword improvement suggestion.
+
+        Args:
+            keyword_id: ID of the original keyword
+            group_id: ID of the keyword group
+            suggestion_type: 'replace', 'add', or 'exclude'
+            suggested_keyword: The suggested keyword text
+            reason: Explanation for the suggestion
+            confidence: Confidence score (0-1)
+            analyzed_articles: Number of articles analyzed
+            avg_relevance: Average relevance at time of suggestion
+
+        Returns:
+            ID of the created suggestion
+        """
+        query = text("""
+            INSERT INTO keyword_suggestions
+                (keyword_id, group_id, suggestion_type, suggested_keyword, reason,
+                 confidence, analyzed_articles, avg_relevance_at_creation)
+            VALUES
+                (:keyword_id, :group_id, :suggestion_type, :suggested_keyword, :reason,
+                 :confidence, :analyzed_articles, :avg_relevance)
+            RETURNING id
+        """)
+        result = self._execute_with_rollback(query, {
+            'keyword_id': keyword_id,
+            'group_id': group_id,
+            'suggestion_type': suggestion_type,
+            'suggested_keyword': suggested_keyword,
+            'reason': reason,
+            'confidence': confidence,
+            'analyzed_articles': analyzed_articles,
+            'avg_relevance': avg_relevance
+        })
+        row = result.fetchone()
+        return row[0] if row else None
+
+    def get_keyword_suggestion_by_id(self, suggestion_id: int):
+        """Get a keyword suggestion by its ID.
+
+        Returns dict with all suggestion fields
+        """
+        query = text("""
+            SELECT
+                id, keyword_id, group_id, suggestion_type, suggested_keyword,
+                reason, confidence, status, analyzed_articles,
+                avg_relevance_at_creation, created_at, resolved_at, resolved_by
+            FROM keyword_suggestions
+            WHERE id = :suggestion_id
+        """)
+        result = self._execute_with_rollback(query, {'suggestion_id': suggestion_id})
+        row = result.mappings().fetchone()
+        return dict(row) if row else None
+
+    def update_keyword_suggestion_status(
+        self,
+        suggestion_id: int,
+        status: str,
+        resolved_by: str = None
+    ):
+        """Update the status of a keyword suggestion.
+
+        Args:
+            suggestion_id: ID of the suggestion to update
+            status: New status ('pending', 'approved', 'rejected', 'expired')
+            resolved_by: Username of the person who resolved it
+        """
+        query = text("""
+            UPDATE keyword_suggestions
+            SET status = :status,
+                resolved_at = NOW(),
+                resolved_by = :resolved_by
+            WHERE id = :suggestion_id
+        """)
+        self._execute_with_rollback(query, {
+            'suggestion_id': suggestion_id,
+            'status': status,
+            'resolved_by': resolved_by
+        })
+
+    def get_pending_suggestions_for_group(self, group_id: int):
+        """Get all pending keyword suggestions for a group.
+
+        Returns list of suggestion dicts
+        """
+        query = text("""
+            SELECT
+                ks.id, ks.keyword_id, ks.group_id, ks.suggestion_type,
+                ks.suggested_keyword, ks.reason, ks.confidence, ks.status,
+                ks.analyzed_articles, ks.avg_relevance_at_creation, ks.created_at,
+                mk.keyword as original_keyword
+            FROM keyword_suggestions ks
+            JOIN monitored_keywords mk ON ks.keyword_id = mk.id
+            WHERE ks.group_id = :group_id
+            AND ks.status = 'pending'
+            ORDER BY ks.created_at DESC
+        """)
+        result = self._execute_with_rollback(query, {'group_id': group_id})
+        return [dict(row) for row in result.mappings().fetchall()]
+
+    def get_suggestion_history_for_keyword(self, keyword_id: int, limit: int = 10):
+        """Get suggestion history for a keyword.
+
+        Returns list of suggestion dicts
+        """
+        query = text("""
+            SELECT
+                id, keyword_id, group_id, suggestion_type, suggested_keyword,
+                reason, confidence, status, analyzed_articles,
+                avg_relevance_at_creation, created_at, resolved_at, resolved_by
+            FROM keyword_suggestions
+            WHERE keyword_id = :keyword_id
+            ORDER BY created_at DESC
+            LIMIT :limit
+        """)
+        result = self._execute_with_rollback(query, {
+            'keyword_id': keyword_id,
+            'limit': limit
+        })
+        return [dict(row) for row in result.mappings().fetchall()]

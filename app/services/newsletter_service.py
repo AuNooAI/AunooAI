@@ -61,6 +61,7 @@ class NewsletterService:
         Generate newsletter with streaming progress updates.
 
         Uses dynamic LLM-proposed sections based on actual content.
+        If topic is '__all__', generates cross-topic newsletter from all topics.
 
         Yields progress updates for each stage:
         - fetching: Gathering ALL articles from database and vector store
@@ -73,6 +74,11 @@ class NewsletterService:
         if config is None:
             config = NewsletterConfig()
 
+        # Handle cross-topic mode: __all__ means search all topics
+        is_cross_topic = (topic == '__all__')
+        topic_for_query = None if is_cross_topic else topic
+        topic_display = "All Topics" if is_cross_topic else topic
+
         import time
         start_time = time.time()
 
@@ -84,10 +90,10 @@ class NewsletterService:
             "stage": "fetching",
             "status": "started",
             "progress": 0.0,
-            "message": "Gathering articles from database..."
+            "message": f"Gathering articles from database{' (cross-topic)' if is_cross_topic else ''}..."
         }
 
-        articles = await self._fetch_articles(topic, start_date, end_date, config.max_articles)
+        articles = await self._fetch_articles(topic_for_query, start_date, end_date, config.max_articles)
 
         yield {
             "stage": "fetching",
@@ -100,7 +106,7 @@ class NewsletterService:
         if not articles:
             yield {
                 "stage": "error",
-                "error": f"No articles found for topic '{topic}' in the specified date range"
+                "error": f"No articles found for topic '{topic_display}' in the specified date range"
             }
             return
 
@@ -125,7 +131,7 @@ class NewsletterService:
         ranked_articles = [art for score, art in scored_articles]
 
         # LLM proposes sections based on content
-        proposed_sections = await self._propose_sections(ranked_articles, topic, config.model)
+        proposed_sections = await self._propose_sections(ranked_articles, topic_display, config.model)
 
         if not proposed_sections:
             self.logger.warning("LLM section proposal failed, using fallback")
@@ -181,7 +187,7 @@ class NewsletterService:
         }
 
         newsletter_content = await self._generate_newsletter_dynamic(
-            proposed_sections, ranked_articles, topic, config.model,
+            proposed_sections, ranked_articles, topic_display, config.model,
             deep_dive_analysis=deep_dive_analysis,
             deep_dive_topic=deep_dive_topic,
             profile_context=profile_context
@@ -234,20 +240,24 @@ class NewsletterService:
 
     async def _fetch_articles(
         self,
-        topic: str,
+        topic: Optional[str],
         start_date: datetime,
         end_date: datetime,
         max_articles: int
     ) -> List[Dict]:
-        """Fetch articles from database and vector store."""
+        """Fetch articles from database and vector store.
+
+        If topic is None (cross-topic mode), fetches articles from all topics.
+        """
         articles = []
         seen_uris: Set[str] = set()
+        topic_display = topic if topic else "All Topics"
 
         # Strategy 1: Database with date range
         try:
             if hasattr(self.db, 'facade') and hasattr(self.db.facade, 'get_recent_articles_by_topic'):
                 db_articles = self.db.facade.get_recent_articles_by_topic(
-                    topic_name=topic,
+                    topic_name=topic,  # None for cross-topic mode
                     limit=max_articles,
                     start_date=start_date.strftime('%Y-%m-%d'),
                     end_date=end_date.strftime('%Y-%m-%d')
@@ -258,20 +268,30 @@ class NewsletterService:
                         if uri and uri not in seen_uris:
                             seen_uris.add(uri)
                             articles.append(art)
-                    self.logger.info(f"DB search: {len(db_articles)} articles")
+                    self.logger.info(f"DB search ({topic_display}): {len(db_articles)} articles")
         except Exception as e:
             self.logger.warning(f"DB search failed: {e}")
 
-        # Strategy 2: Vector search
+        # Strategy 2: Vector search (for cross-topic, use general queries)
         if self.vector_store and len(articles) < 100:
             try:
-                search_queries = [
-                    topic,
-                    f"latest {topic} news",
-                    f"{topic} regulation policy",
-                    f"{topic} funding investment",
-                    f"{topic} research breakthrough"
-                ]
+                if topic:
+                    search_queries = [
+                        topic,
+                        f"latest {topic} news",
+                        f"{topic} regulation policy",
+                        f"{topic} funding investment",
+                        f"{topic} research breakthrough"
+                    ]
+                else:
+                    # Cross-topic search queries
+                    search_queries = [
+                        "latest breaking news",
+                        "technology trends developments",
+                        "policy regulation updates",
+                        "economic market analysis",
+                        "research innovation breakthrough"
+                    ]
 
                 for query in search_queries:
                     try:

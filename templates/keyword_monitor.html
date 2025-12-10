@@ -215,6 +215,43 @@
                             </div>
                         </div>
                     </div>
+
+                    <!-- Keyword Improvement Suggestions -->
+                    <div class="card mt-4" id="suggestionsSection">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0"><i class="fas fa-lightbulb me-2"></i>Keyword Improvement Suggestions</h5>
+                            <button class="btn-action-subtle" onclick="generateSuggestionsForLowPerformers()" id="generateSuggestionsBtn">
+                                <i class="fas fa-magic me-1"></i> Analyze Low-Performers
+                            </button>
+                        </div>
+                        <div class="card-body">
+                            <div id="suggestionsLoading" style="display: none;">
+                                <div class="d-flex align-items-center">
+                                    <i class="fas fa-spinner fa-spin me-2"></i>
+                                    <span class="text-muted">Analyzing keyword performance and generating suggestions...</span>
+                                </div>
+                            </div>
+                            <div id="suggestionsEmpty">
+                                <div class="text-center py-4 text-muted">
+                                    <i class="fas fa-search mb-2" style="font-size: 2rem;"></i>
+                                    <p class="mb-1">Click "Analyze Low-Performers" to get AI-powered suggestions</p>
+                                    <small>Keywords with low relevance will be analyzed for improvements</small>
+                                </div>
+                            </div>
+                            <div id="suggestionsList" style="display: none;">
+                                <!-- Keyword tabs with horizontal scroll -->
+                                <div class="suggestion-tabs-wrapper" style="overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;">
+                                    <ul class="nav nav-tabs" id="suggestionTabs" role="tablist" style="flex-wrap: nowrap; display: inline-flex; min-width: 100%; border-bottom: 1px solid #dee2e6;">
+                                        <!-- Populated by JavaScript -->
+                                    </ul>
+                                </div>
+                                <!-- Tab content with vertical scroll -->
+                                <div class="tab-content pt-3" id="suggestionTabContent" style="max-height: 400px; overflow-y: auto;">
+                                    <!-- Populated by JavaScript -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1865,6 +1902,430 @@ async function getSuggestions(keywordId, keyword, topic, groupId) {
             </div>
         `;
     }
+}
+
+// =====================================================
+// API-Compatible Keyword Improvement Functions (Tabbed UI)
+// =====================================================
+
+// Store suggestion data globally for Apply All functionality
+window.suggestionData = {};
+
+async function generateSuggestionsForLowPerformers() {
+    const loadingEl = document.getElementById('suggestionsLoading');
+    const emptyEl = document.getElementById('suggestionsEmpty');
+    const listEl = document.getElementById('suggestionsList');
+    const btn = document.getElementById('generateSuggestionsBtn');
+
+    // Show loading state
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Analyzing...';
+    loadingEl.style.display = 'block';
+    emptyEl.style.display = 'none';
+    listEl.style.display = 'none';
+
+    try {
+        // Find keywords with low performance (avg_relevance < 0.5)
+        if (!window.analysisData || !window.analysisData.keywords) {
+            throw new Error('Please load the Relevance Analysis tab first');
+        }
+
+        // Filter for genuinely poor performers (< 35% relevance) with enough data
+        // and sort by worst first
+        const lowPerformers = window.analysisData.keywords
+            .filter(kw => kw.avg_relevance < 0.35 && kw.total_matches >= 5)
+            .sort((a, b) => a.avg_relevance - b.avg_relevance); // Worst first
+
+        if (lowPerformers.length === 0) {
+            document.getElementById('suggestionTabs').innerHTML = '';
+            document.getElementById('suggestionTabContent').innerHTML = `
+                <div class="alert alert-success">
+                    <i class="fas fa-check-circle me-2"></i>
+                    All keywords are performing well! No low-performers detected.
+                </div>
+            `;
+            loadingEl.style.display = 'none';
+            listEl.style.display = 'block';
+            return;
+        }
+
+        // Get suggestions for each low performer
+        const suggestionResults = [];
+        for (const kw of lowPerformers) {
+            try {
+                const response = await fetch(
+                    `/api/keyword-monitor/keyword/${kw.keyword_id}/suggest-improvements?group_id=${kw.group_id}&model=gpt-4o-mini`
+                );
+                if (response.ok) {
+                    const data = await response.json();
+                    if (!data.error) {
+                        suggestionResults.push(data);
+                    }
+                }
+            } catch (e) {
+                console.error(`Error getting suggestions for ${kw.keyword}:`, e);
+            }
+        }
+
+        // Render tabbed suggestions with summary report
+        if (suggestionResults.length === 0) {
+            document.getElementById('suggestionTabs').innerHTML = '';
+            document.getElementById('suggestionTabContent').innerHTML = `
+                <div class="alert alert-info">
+                    <i class="fas fa-info-circle me-2"></i>
+                    Could not generate suggestions. Keywords may not have enough low-relevance data.
+                </div>
+            `;
+        } else {
+            // Store data globally
+            window.suggestionData = {};
+            suggestionResults.forEach(r => {
+                window.suggestionData[r.keyword_id] = r;
+            });
+            renderTabbedSuggestions(suggestionResults, lowPerformers);
+        }
+
+        loadingEl.style.display = 'none';
+        listEl.style.display = 'block';
+
+    } catch (error) {
+        console.error('Error generating suggestions:', error);
+        document.getElementById('suggestionTabs').innerHTML = '';
+        document.getElementById('suggestionTabContent').innerHTML = `
+            <div class="alert alert-danger">
+                <i class="fas fa-exclamation-circle me-2"></i>
+                Error: ${escapeHtml(error.message)}
+            </div>
+        `;
+        loadingEl.style.display = 'none';
+        listEl.style.display = 'block';
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-magic me-1"></i> Analyze Low-Performers';
+    }
+}
+
+function renderTabbedSuggestions(results, allLowPerformers) {
+    const tabsEl = document.getElementById('suggestionTabs');
+    const contentEl = document.getElementById('suggestionTabContent');
+
+    // Build summary report
+    const totalKeywords = window.analysisData?.keywords?.length || 0;
+    const poorCount = allLowPerformers?.length || results.length;
+    const avgRelevance = results.reduce((sum, r) => sum + (r.current_performance?.avg_relevance || 0), 0) / results.length;
+
+    let summaryHtml = `
+        <div class="alert alert-light border mb-3">
+            <div class="d-flex justify-content-between align-items-center">
+                <div>
+                    <strong><i class="fas fa-chart-bar me-2"></i>Keyword Performance Report</strong>
+                    <div class="small text-muted mt-1">
+                        <span class="me-3"><i class="fas fa-exclamation-triangle text-danger me-1"></i>${poorCount} keywords need attention (&lt;35% relevance)</span>
+                        <span><i class="fas fa-database me-1"></i>${totalKeywords} total keywords</span>
+                    </div>
+                </div>
+                <div class="text-end small">
+                    <div class="text-muted">Relevance Scale:</div>
+                    <span class="badge bg-danger">0-20% Poor</span>
+                    <span class="badge bg-warning text-dark">20-35% Needs Work</span>
+                    <span class="badge bg-success">50%+ Good</span>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Build tabs (sorted worst first)
+    let tabsHtml = '';
+    let contentHtml = summaryHtml;
+
+    results.forEach((result, index) => {
+        const isActive = index === 0;
+        const tabId = `suggestion-tab-${result.keyword_id}`;
+        const paneId = `suggestion-pane-${result.keyword_id}`;
+        const shortKeyword = result.keyword.length > 20 ? result.keyword.substring(0, 20) + '...' : result.keyword;
+        const relevancePct = (result.current_performance?.avg_relevance * 100 || 0).toFixed(0);
+
+        // Color code by severity
+        let badgeClass = 'bg-warning text-dark';
+        if (relevancePct < 20) badgeClass = 'bg-danger';
+        else if (relevancePct < 30) badgeClass = 'bg-warning text-dark';
+
+        // Tab button
+        tabsHtml += `
+            <li class="nav-item" role="presentation" style="flex-shrink: 0;">
+                <button class="nav-link ${isActive ? 'active' : ''}" id="${tabId}" data-bs-toggle="tab"
+                        data-bs-target="#${paneId}" type="button" role="tab" style="white-space: nowrap;">
+                    <span title="${escapeHtml(result.keyword)}">${escapeHtml(shortKeyword)}</span>
+                    <span class="badge ${badgeClass} ms-1">${relevancePct}%</span>
+                    <span class="badge bg-secondary suggestion-count-${result.keyword_id}" id="suggestionCount-${result.keyword_id}"></span>
+                </button>
+            </li>
+        `;
+
+        // Tab pane content
+        contentHtml += `
+            <div class="tab-pane fade ${isActive ? 'show active' : ''}" id="${paneId}" role="tabpanel">
+                ${renderKeywordSuggestionPane(result)}
+            </div>
+        `;
+    });
+
+    tabsEl.innerHTML = tabsHtml;
+    contentEl.innerHTML = contentHtml;
+
+    // Update suggestion counts
+    results.forEach(result => {
+        updateSuggestionCount(result.keyword_id);
+    });
+}
+
+function renderKeywordSuggestionPane(result) {
+    const suggestions = result.suggestions || {};
+    // Only include replacements and exclusions (not additions - they're not useful)
+    const allSuggestions = [
+        ...(suggestions.replacements || []).map(s => ({...s, type: 'replace'})),
+        ...(suggestions.exclusions || []).map(s => ({...s, type: 'exclude'}))
+    ];
+
+    const hasAny = allSuggestions.length > 0;
+
+    let html = `
+        <div class="d-flex justify-content-between align-items-start mb-3">
+            <div>
+                <h6 class="mb-1"><strong>${escapeHtml(result.keyword)}</strong></h6>
+                <small class="text-muted">
+                    ${result.current_performance?.total_matches || 0} articles •
+                    Avg relevance: ${(result.current_performance?.avg_relevance * 100 || 0).toFixed(0)}%
+                </small>
+            </div>
+            ${hasAny ? `
+                <button class="btn btn-sm btn-success" onclick="applyAllSuggestions(${result.keyword_id}, ${result.group_id})"
+                        id="applyAllBtn-${result.keyword_id}">
+                    <i class="fas fa-check-double me-1"></i> Apply All
+                </button>
+            ` : ''}
+        </div>
+    `;
+
+    if (result.analysis) {
+        html += `<p class="mb-3 text-muted small"><i class="fas fa-lightbulb me-1 text-warning"></i>${escapeHtml(result.analysis)}</p>`;
+    }
+
+    // Replacements - suggest more specific/effective keywords
+    if (suggestions.replacements?.length > 0) {
+        html += `
+            <div class="mb-3">
+                <h6 class="text-primary small"><i class="fas fa-exchange-alt me-1"></i>Replace with:</h6>
+                ${suggestions.replacements.map((s, idx) => renderSuggestionItem(result.keyword_id, result.group_id, 'replace', s, idx)).join('')}
+            </div>
+        `;
+    }
+
+    // Exclusions - append exclusion terms to filter out irrelevant results
+    if (suggestions.exclusions?.length > 0) {
+        html += `
+            <div class="mb-3">
+                <h6 class="text-danger small"><i class="fas fa-ban me-1"></i>Add exclusions (appended to keyword):</h6>
+                ${suggestions.exclusions.map((s, idx) => renderSuggestionItem(result.keyword_id, result.group_id, 'exclude', s, idx)).join('')}
+            </div>
+        `;
+    }
+
+    const hasUseful = (suggestions.replacements?.length > 0) || (suggestions.exclusions?.length > 0);
+    if (!hasUseful) {
+        html += '<p class="text-muted mb-0"><i class="fas fa-info-circle me-1"></i>No specific suggestions available.</p>';
+    }
+
+    return html;
+}
+
+function renderSuggestionItem(keywordId, groupId, type, suggestion, idx) {
+    const itemId = `suggestion-${keywordId}-${type}-${idx}`;
+    const colorClass = { replace: 'primary', add: 'success', exclude: 'danger' }[type];
+    const btnLabel = { replace: 'Apply', add: 'Add', exclude: 'Exclude' }[type];
+    const escapedKeyword = escapeHtml(suggestion.keyword).replace(/'/g, "\\'");
+
+    return `
+        <div class="suggestion-item d-flex justify-content-between align-items-center p-2 bg-light rounded mb-2"
+             id="${itemId}" data-keyword="${escapedKeyword}" data-type="${type}">
+            <div>
+                <code class="text-${colorClass}">${escapeHtml(suggestion.keyword)}</code>
+                <br><small class="text-muted">${escapeHtml(suggestion.reason)}</small>
+            </div>
+            <div class="suggestion-actions">
+                <button class="btn btn-sm btn-outline-${colorClass} apply-btn"
+                        onclick="applySuggestion(${keywordId}, ${groupId}, '${type}', '${escapedKeyword}', '${itemId}')">
+                    <i class="fas fa-check"></i> ${btnLabel}
+                </button>
+                <button class="btn btn-sm btn-outline-secondary dismiss-btn"
+                        onclick="dismissSuggestion('${itemId}', ${keywordId})">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="suggestion-applied" style="display: none;">
+                <span class="badge bg-success"><i class="fas fa-check me-1"></i>Applied</span>
+            </div>
+            <div class="suggestion-dismissed" style="display: none;">
+                <span class="badge bg-secondary"><i class="fas fa-times me-1"></i>Dismissed</span>
+            </div>
+        </div>
+    `;
+}
+
+function updateSuggestionCount(keywordId) {
+    const pane = document.getElementById(`suggestion-pane-${keywordId}`);
+    if (!pane) return;
+
+    const pending = pane.querySelectorAll('.suggestion-item:not(.applied):not(.dismissed)').length;
+    const badge = document.getElementById(`suggestionCount-${keywordId}`);
+    if (badge) {
+        badge.textContent = pending > 0 ? pending : '';
+        badge.style.display = pending > 0 ? 'inline' : 'none';
+    }
+
+    // Update Apply All button state
+    const applyAllBtn = document.getElementById(`applyAllBtn-${keywordId}`);
+    if (applyAllBtn) {
+        applyAllBtn.disabled = pending === 0;
+        if (pending === 0) {
+            applyAllBtn.innerHTML = '<i class="fas fa-check-double me-1"></i> All Done';
+            applyAllBtn.classList.remove('btn-success');
+            applyAllBtn.classList.add('btn-secondary');
+        }
+    }
+}
+
+async function applySuggestion(keywordId, groupId, suggestionType, suggestedKeyword, itemId) {
+    const itemEl = document.getElementById(itemId);
+    if (!itemEl || itemEl.classList.contains('applied') || itemEl.classList.contains('dismissed')) {
+        return;
+    }
+
+    const actionName = { replace: 'Replace keyword', add: 'Add keyword', exclude: 'Add exclusion' }[suggestionType] || 'Apply';
+
+    if (!confirm(`${actionName} with "${suggestedKeyword}"?`)) {
+        return;
+    }
+
+    // Show loading state on button
+    const applyBtn = itemEl.querySelector('.apply-btn');
+    const originalHtml = applyBtn.innerHTML;
+    applyBtn.disabled = true;
+    applyBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+    try {
+        const response = await fetch(`/api/keyword-monitor/keyword/${keywordId}/apply-suggestion?group_id=${groupId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                suggestion_type: suggestionType,
+                suggested_keyword: suggestedKeyword
+            })
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to apply suggestion');
+        }
+
+        const result = await response.json();
+
+        // Mark as applied
+        itemEl.classList.add('applied');
+        itemEl.querySelector('.suggestion-actions').style.display = 'none';
+        itemEl.querySelector('.suggestion-applied').style.display = 'block';
+        itemEl.style.opacity = '0.6';
+
+        showAlert(result.message, 'success');
+        updateSuggestionCount(keywordId);
+
+    } catch (error) {
+        console.error('Error applying suggestion:', error);
+        showAlert('Error: ' + error.message, 'danger');
+        applyBtn.disabled = false;
+        applyBtn.innerHTML = originalHtml;
+    }
+}
+
+function dismissSuggestion(itemId, keywordId) {
+    const itemEl = document.getElementById(itemId);
+    if (!itemEl || itemEl.classList.contains('applied') || itemEl.classList.contains('dismissed')) {
+        return;
+    }
+
+    itemEl.classList.add('dismissed');
+    itemEl.querySelector('.suggestion-actions').style.display = 'none';
+    itemEl.querySelector('.suggestion-dismissed').style.display = 'block';
+    itemEl.style.opacity = '0.4';
+    itemEl.style.textDecoration = 'line-through';
+
+    updateSuggestionCount(keywordId);
+}
+
+async function applyAllSuggestions(keywordId, groupId) {
+    const pane = document.getElementById(`suggestion-pane-${keywordId}`);
+    if (!pane) return;
+
+    const pendingItems = pane.querySelectorAll('.suggestion-item:not(.applied):not(.dismissed)');
+    if (pendingItems.length === 0) {
+        showAlert('No pending suggestions to apply', 'info');
+        return;
+    }
+
+    if (!confirm(`Apply all ${pendingItems.length} suggestions for this keyword?`)) {
+        return;
+    }
+
+    const applyAllBtn = document.getElementById(`applyAllBtn-${keywordId}`);
+    const originalHtml = applyAllBtn.innerHTML;
+    applyAllBtn.disabled = true;
+    applyAllBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Applying...';
+
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const item of pendingItems) {
+        const type = item.dataset.type;
+        const keyword = item.dataset.keyword;
+        const itemId = item.id;
+
+        try {
+            const response = await fetch(`/api/keyword-monitor/keyword/${keywordId}/apply-suggestion?group_id=${groupId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    suggestion_type: type,
+                    suggested_keyword: keyword
+                })
+            });
+
+            if (response.ok) {
+                // Mark as applied
+                item.classList.add('applied');
+                item.querySelector('.suggestion-actions').style.display = 'none';
+                item.querySelector('.suggestion-applied').style.display = 'block';
+                item.style.opacity = '0.6';
+                successCount++;
+            } else {
+                errorCount++;
+            }
+        } catch (e) {
+            console.error('Error applying suggestion:', e);
+            errorCount++;
+        }
+    }
+
+    updateSuggestionCount(keywordId);
+
+    if (errorCount === 0) {
+        showAlert(`Successfully applied ${successCount} suggestions`, 'success');
+    } else {
+        showAlert(`Applied ${successCount} suggestions, ${errorCount} failed`, 'warning');
+    }
+
+    applyAllBtn.innerHTML = '<i class="fas fa-check-double me-1"></i> All Done';
+    applyAllBtn.classList.remove('btn-success');
+    applyAllBtn.classList.add('btn-secondary');
 }
 
 // Utility function to escape HTML
