@@ -22,3 +22,4 @@
 * [FAQ](faq.md)
 * [Useful Information](useful-information.md)
 * [Auspex Plugin Tool System](auspex-plugin-tool-system.md)
+* [Plugin Data Filtering & Sampling Strategies](plugin-data-filtering-and-sampling-strategies.md)
