@@ -137,6 +137,48 @@ async def delete_keyword(keyword_id: int, db=Depends(get_database_instance), ses
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+
+class UpdateKeywordRequest(BaseModel):
+    keyword: str
+
+
+@router.put("/keywords/{keyword_id}")
+async def update_keyword(
+    keyword_id: int,
+    request: UpdateKeywordRequest,
+    db=Depends(get_database_instance),
+    session=Depends(verify_session)
+):
+    """Update an existing keyword's text."""
+    try:
+        new_keyword = request.keyword.strip()
+        if not new_keyword:
+            raise HTTPException(status_code=400, detail="Keyword cannot be empty")
+
+        # Normalize the keyword for API compatibility
+        from app.utils.keyword_normalizer import normalize_keyword
+        normalized = normalize_keyword(new_keyword)
+
+        if not normalized:
+            raise HTTPException(status_code=400, detail="Invalid keyword after normalization")
+
+        db.facade.update_monitored_keyword_text(
+            keyword_id=keyword_id,
+            new_keyword=normalized
+        )
+
+        return {
+            "success": True,
+            "keyword_id": keyword_id,
+            "keyword": normalized
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating keyword: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.delete("/groups/{group_id}")
 async def delete_group(group_id: int, db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
