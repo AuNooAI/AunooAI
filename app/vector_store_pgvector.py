@@ -699,6 +699,130 @@ async def similar_articles_async(uri: str, top_k: int = 5) -> List[Dict[str, Any
         return await loop.run_in_executor(None, similar_articles, uri, top_k)
 
 
+def cluster_articles_by_similarity(
+    article_uris: List[str],
+    similarity_threshold: float = 0.3,
+    max_cluster_size: int = 4
+) -> List[Dict[str, Any]]:
+    """Cluster articles by semantic similarity using pgvector.
+
+    Groups related articles together based on embedding similarity.
+    Returns clusters where the first article is the "primary" and others are related.
+
+    Args:
+        article_uris: List of article URIs to cluster
+        similarity_threshold: Maximum cosine distance to consider articles related (lower = more similar)
+        max_cluster_size: Maximum articles per cluster (including primary)
+
+    Returns:
+        List of clusters, each containing:
+        - primary: The main article dict
+        - related: List of related article dicts with similarity scores
+    """
+    if not article_uris:
+        return []
+
+    conn = None
+    try:
+        db = get_database_instance()
+        conn = db._temp_get_connection()
+
+        # Fetch all articles with their embeddings
+        placeholders = ", ".join([f":uri_{i}" for i in range(len(article_uris))])
+        params = {f"uri_{i}": uri for i, uri in enumerate(article_uris)}
+
+        stmt = text(f"""
+            SELECT
+                uri, title, summary, news_source, publication_date,
+                category, topic, sentiment, time_to_impact, tags,
+                bias, factual_reporting, mbfc_credibility_rating,
+                embedding
+            FROM articles
+            WHERE uri IN ({placeholders})
+            AND embedding IS NOT NULL
+            ORDER BY publication_date DESC
+        """)
+
+        result = conn.execute(stmt, params)
+        articles = []
+        for row in result.mappings():
+            articles.append(dict(row))
+
+        if not articles:
+            return []
+
+        # Track which articles have been assigned to clusters
+        assigned = set()
+        clusters = []
+
+        # Process articles in order (newest first)
+        for article in articles:
+            if article['uri'] in assigned:
+                continue
+
+            # Start a new cluster with this article as primary
+            cluster = {
+                'primary': {k: v for k, v in article.items() if k != 'embedding'},
+                'related': []
+            }
+            assigned.add(article['uri'])
+
+            if article['embedding'] is None:
+                clusters.append(cluster)
+                continue
+
+            # Find similar articles from remaining unassigned articles
+            ref_embedding = str(article['embedding'])
+
+            for candidate in articles:
+                if candidate['uri'] in assigned:
+                    continue
+                if candidate['embedding'] is None:
+                    continue
+                if len(cluster['related']) >= max_cluster_size - 1:
+                    break
+
+                # Calculate similarity using pgvector
+                sim_stmt = text("""
+                    SELECT (CAST(:emb1 AS vector) <=> CAST(:emb2 AS vector)) as distance
+                """)
+                sim_result = conn.execute(sim_stmt, {
+                    'emb1': ref_embedding,
+                    'emb2': str(candidate['embedding'])
+                })
+                distance = sim_result.scalar()
+
+                # Lower distance = more similar
+                if distance is not None and distance < similarity_threshold:
+                    related_article = {k: v for k, v in candidate.items() if k != 'embedding'}
+                    related_article['similarity_score'] = 1.0 - float(distance)  # Convert to similarity
+                    cluster['related'].append(related_article)
+                    assigned.add(candidate['uri'])
+
+            # Sort related by similarity
+            cluster['related'].sort(key=lambda x: x.get('similarity_score', 0), reverse=True)
+            clusters.append(cluster)
+
+        # Add any remaining unassigned articles as single-article clusters
+        for article in articles:
+            if article['uri'] not in assigned:
+                clusters.append({
+                    'primary': {k: v for k, v in article.items() if k != 'embedding'},
+                    'related': []
+                })
+
+        logger.info(f"Clustered {len(article_uris)} articles into {len(clusters)} clusters")
+        return clusters
+
+    except Exception as exc:
+        logger.error(f"Error clustering articles: {exc}")
+        # Fallback: return each article as its own cluster
+        return []
+    finally:
+        if conn:
+            conn.close()
+
+
 def get_vectors_by_metadata(
     limit: Optional[int] = None,
     where: Optional[Dict[str, Any]] = None

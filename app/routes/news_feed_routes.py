@@ -206,6 +206,105 @@ async def get_news_articles_only(
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
+@router.get("/articles/clustered")
+async def get_clustered_articles(
+    date_range: Optional[str] = Query("7d", description="Date range: 24h, 7d, 30d, 3m, 1y, all"),
+    topic: Optional[str] = Query(None, description="Optional topic filter"),
+    category: Optional[str] = Query(None, description="Optional category filter"),
+    max_articles: int = Query(100, ge=10, le=500),
+    similarity_threshold: float = Query(0.3, ge=0.1, le=0.8, description="Max cosine distance for clustering (lower = stricter)"),
+    max_cluster_size: int = Query(4, ge=2, le=8, description="Max articles per cluster"),
+    db: Database = Depends(get_database_instance)
+):
+    """Get articles clustered by semantic similarity.
+
+    Groups related articles together based on vector embedding similarity.
+    Returns clusters where each has a primary article and related articles.
+    """
+    from app.vector_store import cluster_articles_by_similarity
+    from starlette.concurrency import run_in_threadpool
+
+    try:
+        # Get articles using the news feed service
+        news_feed_service = get_news_feed_service(db)
+        articles_data = await news_feed_service._get_articles_for_date_range(
+            date_range or "7d",
+            max_articles,
+            topic,
+            None  # custom_date
+        )
+
+        if not articles_data:
+            return {"clusters": [], "total_articles": 0, "total_clusters": 0}
+
+        # Filter by category if specified
+        if category:
+            articles_data = [a for a in articles_data if a.get('category') == category]
+
+        if not articles_data:
+            return {"clusters": [], "total_articles": 0, "total_clusters": 0}
+
+        # Extract URIs for clustering
+        article_uris = [a.get('uri') for a in articles_data if a.get('uri')]
+
+        # Run clustering in thread pool (it's a sync function)
+        clusters = await run_in_threadpool(
+            cluster_articles_by_similarity,
+            article_uris,
+            similarity_threshold,
+            max_cluster_size
+        )
+
+        # Transform clusters to include full article data with proper field mapping
+        transformed_clusters = []
+        for cluster in clusters:
+            primary = cluster.get('primary', {})
+            related = cluster.get('related', [])
+
+            transformed_cluster = {
+                'primary': {
+                    'uri': primary.get('uri'),
+                    'title': primary.get('title'),
+                    'summary': primary.get('summary'),
+                    'news_source': primary.get('news_source'),
+                    'publication_date': primary.get('publication_date'),
+                    'category': primary.get('category'),
+                    'topic': primary.get('topic'),
+                    'sentiment': primary.get('sentiment'),
+                    'time_to_impact': primary.get('time_to_impact'),
+                    'tags': primary.get('tags'),
+                    'bias': primary.get('bias'),
+                    'factual_reporting': primary.get('factual_reporting'),
+                    'mbfc_credibility_rating': primary.get('mbfc_credibility_rating'),
+                },
+                'related': [
+                    {
+                        'uri': r.get('uri'),
+                        'title': r.get('title'),
+                        'summary': r.get('summary'),
+                        'news_source': r.get('news_source'),
+                        'publication_date': r.get('publication_date'),
+                        'similarity_score': r.get('similarity_score'),
+                        'bias': r.get('bias'),
+                        'factual_reporting': r.get('factual_reporting'),
+                    }
+                    for r in related
+                ],
+                'article_count': 1 + len(related)
+            }
+            transformed_clusters.append(transformed_cluster)
+
+        return {
+            "clusters": transformed_clusters,
+            "total_articles": len(article_uris),
+            "total_clusters": len(transformed_clusters)
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting clustered articles: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
 @router.get("/six-articles")
 async def get_six_articles_report(
     date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format"),
@@ -318,6 +417,16 @@ async def news_feed_v2_page(request: Request, session=Depends(verify_session)):
         "request": request,
         "page_title": "News Narrator v2 - Proof of Concept",
         "show_share_button": True,
+        "session": session,
+        "current_page": "investigate"
+    })
+
+
+@page_router.get("/explore", response_class=HTMLResponse)
+async def explore_page(request: Request, session=Depends(verify_session)):
+    """Render the Explore page (React-based news feed)"""
+    return templates.TemplateResponse("explore_react.html", {
+        "request": request,
         "session": session,
         "current_page": "investigate"
     })

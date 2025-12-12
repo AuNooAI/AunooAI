@@ -13,16 +13,19 @@
 }
 
 .gather-layout {
-  display: flex;
+  display: flex !important;
+  flex-direction: row !important;
   min-height: 100vh;
+  width: 100%;
 }
 
 .gather-content-area {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+  flex: 1 1 0%;
+  display: flex !important;
+  flex-direction: column !important;
   min-width: 0;
   max-height: 100vh;
+  width: 100%;
 }
 
 .gather-main {
