@@ -2090,3 +2090,50 @@
 .gather-notification-sheet-footer button {
   flex: 1;
 }
+
+/* ============================================
+   News Feed Readability Improvements
+   ============================================ */
+
+/* Section dividers - target section elements inside gather-main */
+.gather-main > div > section.mb-8 {
+  padding-bottom: 24px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.gather-main > div > section.mb-8:last-of-type {
+  border-bottom: none;
+}
+
+/* Section headers - add left accent to h2 elements */
+.gather-main section > div:first-child > .flex.items-center.gap-2 h2,
+.gather-main section > .flex.items-center.justify-between h2 {
+  padding-left: 12px;
+  border-left: 3px solid #ec4899;
+}
+
+/* Typography - improve text contrast */
+.gather-main h2.text-xl {
+  color: #111827;
+  letter-spacing: -0.01em;
+}
+
+/* Topic cluster rows - alternating backgrounds */
+.gather-main section.mb-6 .space-y-1 > div.group {
+  padding: 8px 10px;
+  border-radius: 6px;
+  margin-bottom: 2px;
+  transition: background-color 0.15s ease;
+}
+
+.gather-main section.mb-6 .space-y-1 > div.group:nth-child(odd) {
+  background-color: #ffffff;
+}
+
+.gather-main section.mb-6 .space-y-1 > div.group:nth-child(even) {
+  background-color: #f8f9fa;
+}
+
+.gather-main section.mb-6 .space-y-1 > div.group:hover {
+  background-color: #f3f4f6;
+}
