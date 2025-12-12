@@ -13,7 +13,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <!-- React App CSS -->
     <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/index-DeAX3jn9.css">
-    <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/gather-FSERGgrb.css">
+    <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/gather-DmY3Th2I.css">
     <!-- Auspex Chat CSS (loaded after React CSS to ensure proper z-index) -->
     <link rel="stylesheet" href="/static/css/auspex-chat.css">
     <style>
@@ -37,7 +37,7 @@
         {% endif %}
       };
     </script>
-    <script type="module" crossorigin src="/static/trend-convergence/assets/gather-DAJfFheG.js"></script>
+    <script type="module" crossorigin src="/static/trend-convergence/assets/gather-B0Ft0Yjo.js"></script>
     <link rel="modulepreload" crossorigin href="/static/trend-convergence/assets/index-BoRIk4M3.js">
   </head>
 

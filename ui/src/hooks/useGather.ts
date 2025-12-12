@@ -17,6 +17,7 @@ import {
   getRelevanceStats,
   getGroupSummaries as fetchGroupSummaries,
   triggerKeywordCheck,
+  toggleScheduledCollection,
   getAvailableProviders,
   getTopics,
   type KeywordGroup,
@@ -193,13 +194,34 @@ export function useGather() {
     }
   }, [state.settings]);
 
-  // Toggle auto-processing
+  // Toggle auto-processing (AI enrichment)
   const toggleAutoProcessing = useCallback(async () => {
     if (!state.settings) return false;
 
     const newValue = !state.settings.auto_ingest_enabled;
     return saveSettings({ auto_ingest_enabled: newValue });
   }, [state.settings, saveSettings]);
+
+  // Toggle scheduled collection (is_enabled - background auto-collection)
+  const toggleCollection = useCallback(async () => {
+    if (!state.status) return false;
+
+    try {
+      const newValue = !state.status.is_enabled;
+      await toggleScheduledCollection(newValue);
+      setState(prev => ({
+        ...prev,
+        status: prev.status ? { ...prev.status, is_enabled: newValue } : null,
+      }));
+      return true;
+    } catch (err) {
+      setState(prev => ({
+        ...prev,
+        error: err instanceof Error ? err.message : 'Failed to toggle collection',
+      }));
+      return false;
+    }
+  }, [state.status]);
 
   // Create group
   const createGroup = useCallback(async (name: string, topic: string) => {
@@ -330,6 +352,7 @@ export function useGather() {
     refresh,
     saveSettings,
     toggleAutoProcessing,
+    toggleCollection,
     createGroup,
     removeGroup,
     addKeywordToGroup,

@@ -5,13 +5,12 @@
 import { Switch } from '../ui/switch';
 import { Button } from '../ui/button';
 import { RefreshCw, Settings, List, ExternalLink, Loader2, FlaskConical } from 'lucide-react';
-import type { KeywordMonitorSettings, MonitorStatus } from '../../services/gatherApi';
+import type { MonitorStatus } from '../../services/gatherApi';
 
 interface GatherHeaderProps {
-  settings: KeywordMonitorSettings | null;
   status: MonitorStatus | null;
   checkingKeywords: boolean;
-  onToggleAutoProcessing: () => void;
+  onToggleCollection: () => void;
   onUpdateNow: () => void;
   onOpenAutoCollect: () => void;
   onOpenManageKeywords: () => void;
@@ -19,16 +18,15 @@ interface GatherHeaderProps {
 }
 
 export function GatherHeader({
-  settings,
   status,
   checkingKeywords,
-  onToggleAutoProcessing,
+  onToggleCollection,
   onUpdateNow,
   onOpenAutoCollect,
   onOpenManageKeywords,
   onTestProcess,
 }: GatherHeaderProps) {
-  const isAutoProcessingEnabled = settings?.auto_ingest_enabled ?? false;
+  const isCollectionEnabled = status?.is_enabled ?? false;
 
   // Format last check time
   const formatLastCheck = () => {
@@ -73,18 +71,18 @@ export function GatherHeader({
 
       <div className="gather-header-controls">
         <div className="gather-header-controls-left">
-          {/* Auto-Processing Toggle */}
+          {/* Auto-Collection Toggle (scheduled background collection + processing) */}
           <div className="gather-toggle-control">
-            <label htmlFor="auto-processing" className="gather-toggle-label">
-              Auto-Processing
+            <label htmlFor="auto-collection" className="gather-toggle-label">
+              Auto-Collect
             </label>
             <Switch
-              id="auto-processing"
-              checked={isAutoProcessingEnabled}
-              onCheckedChange={onToggleAutoProcessing}
+              id="auto-collection"
+              checked={isCollectionEnabled}
+              onCheckedChange={onToggleCollection}
             />
-            <span className={`gather-toggle-status ${isAutoProcessingEnabled ? 'active' : ''}`}>
-              {isAutoProcessingEnabled ? 'ON' : 'OFF'}
+            <span className={`gather-toggle-status ${isCollectionEnabled ? 'active' : ''}`}>
+              {isCollectionEnabled ? 'ON' : 'OFF'}
             </span>
             {onTestProcess && (
               <button
