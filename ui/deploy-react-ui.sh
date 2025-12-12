@@ -130,6 +130,49 @@ else
     echo "⚠️  index-gather.html not found in build output"
 fi
 
+# ================================
+# EXPLORE/NEWSFEED PAGE DEPLOYMENT
+# ================================
+echo "================================"
+echo "  Deploying Explore Page"
+echo "================================"
+echo ""
+
+EXPLORE_TEMPLATE="$PROJECT_ROOT/templates/explore_react.html"
+
+# Extract the hash from newsfeed assets
+if [ -f "$STATIC_DIR/index-newsfeed.html" ]; then
+    NEWSFEED_JS=$(grep -oP 'newsfeed-[^.]+\.js' "$STATIC_DIR/index-newsfeed.html" | head -1)
+
+    echo "  📄 Newsfeed JS: $NEWSFEED_JS"
+
+    if [ -f "$EXPLORE_TEMPLATE" ]; then
+        # Backup the template
+        cp "$EXPLORE_TEMPLATE" "$EXPLORE_TEMPLATE.backup"
+
+        # Update JS file
+        if [ -n "$NEWSFEED_JS" ]; then
+            sed -i "s|/static/trend-convergence/assets/newsfeed-[^.]*\.js|/static/trend-convergence/assets/$NEWSFEED_JS|" "$EXPLORE_TEMPLATE"
+        fi
+
+        # Also update shared CSS (index.css)
+        if [ -n "$INDEX_CSS" ]; then
+            sed -i "s|/static/trend-convergence/assets/index-[^.]*\.css|/static/trend-convergence/assets/$INDEX_CSS|" "$EXPLORE_TEMPLATE"
+        fi
+
+        # Also update shared JS (index.js) for modulepreload
+        if [ -n "$INDEX_JS" ]; then
+            sed -i "s|/static/trend-convergence/assets/index-[^.]*\.js|/static/trend-convergence/assets/$INDEX_JS|" "$EXPLORE_TEMPLATE"
+        fi
+
+        echo "✅ Explore template updated successfully!"
+    else
+        echo "⚠️  Explore template not found: $EXPLORE_TEMPLATE"
+    fi
+else
+    echo "⚠️  index-newsfeed.html not found in build output"
+fi
+
 echo ""
 echo "✅ Deployment complete!"
 echo ""
@@ -138,8 +181,10 @@ ls -lh "$STATIC_DIR/assets" | head -20
 echo ""
 echo "🌐 React UI is now available at: /trend-convergence"
 echo "🌐 Gather is now available at: /gather"
+echo "🌐 Explore is now available at: /explore"
 echo "📝 Templates updated:"
 echo "   - $TEMPLATE_FILE"
 echo "   - $GATHER_TEMPLATE"
+echo "   - $EXPLORE_TEMPLATE"
 echo ""
 echo "================================"

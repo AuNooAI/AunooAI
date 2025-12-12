@@ -95,7 +95,7 @@ export function SharedNavigation({ currentPage }: SharedNavigationProps) {
             {/* Explore */}
             <li>
               <a
-                href="/news-feed-v2"
+                href="/explore"
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-all ${
                   currentPage === 'investigate'
                     ? 'bg-pink-50 text-pink-600'

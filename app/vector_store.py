@@ -16,6 +16,7 @@ from app.vector_store_pgvector import (
     upsert_article,
     search_articles,
     similar_articles,
+    cluster_articles_by_similarity,
     get_vectors_by_metadata,
     get_by_ids,
 
@@ -73,6 +74,7 @@ __all__ = [
     'upsert_article',
     'search_articles',
     'similar_articles',
+    'cluster_articles_by_similarity',
     'get_vectors_by_metadata',
     'get_by_ids',
 

@@ -1,0 +1,345 @@
+/**
+ * Custom React hook for news feed functionality
+ */
+
+import { useState, useEffect, useCallback } from 'react';
+import {
+  getNewsFeedArticles,
+  getSixArticles,
+  getAvailableDates,
+  getSixArticlesConfig,
+  saveSixArticlesConfig,
+  getTopics,
+  getOrganizationalProfiles,
+  getAvailableModels,
+  groupArticlesByCategory,
+  type NewsArticle,
+  type SixArticlesReport,
+  type AvailableDate,
+  type SixArticlesConfig,
+  type DateRange,
+  type Persona,
+} from '../services/newsFeedApi';
+
+export interface NewsFeedConfig {
+  dateRange: DateRange;
+  customDateStart?: string;
+  customDateEnd?: string;
+  topic?: string;
+  page: number;
+  perPage: number;
+  profileId?: number;
+  model: string;
+  persona: Persona;
+  articleCount: number;
+}
+
+export interface Topic {
+  name: string;
+  description?: string;
+}
+
+export interface OrganizationalProfile {
+  id: number;
+  name: string;
+  description?: string;
+  is_default?: boolean;
+}
+
+export interface AIModel {
+  id: string;
+  name: string;
+  provider: string;
+}
+
+export interface UseNewsFeedReturn {
+  // Data
+  articles: NewsArticle[];
+  groupedArticles: Record<string, NewsArticle[]>;
+  sixArticles: SixArticlesReport | null;
+  availableDates: AvailableDate[];
+  categories: string[];
+  topics: Topic[];
+  profiles: OrganizationalProfile[];
+  models: AIModel[];
+  config: NewsFeedConfig;
+  sixArticlesConfig: SixArticlesConfig;
+
+  // Pagination
+  totalArticles: number;
+  totalPages: number;
+
+  // State
+  loading: boolean;
+  loadingSixArticles: boolean;
+  error: string | null;
+
+  // Actions
+  updateConfig: (updates: Partial<NewsFeedConfig>) => void;
+  fetchArticles: () => Promise<void>;
+  fetchSixArticles: (forceRegenerate?: boolean) => Promise<void>;
+  updateSixArticlesConfig: (config: SixArticlesConfig) => Promise<void>;
+  starArticle: (uri: string) => void;
+  unstarArticle: (uri: string) => void;
+  clearError: () => void;
+
+  // Starred articles
+  starredArticles: string[];
+}
+
+const DEFAULT_CONFIG: NewsFeedConfig = {
+  dateRange: '7d',
+  page: 1,
+  perPage: 50,
+  model: 'gpt-4o',
+  persona: 'CEO',
+  articleCount: 6,
+};
+
+const STORAGE_KEYS = {
+  CONFIG: 'newsFeed_config',
+  STARRED: 'newsFeed_starred',
+};
+
+export function useNewsFeed(): UseNewsFeedReturn {
+  // Load config from localStorage
+  const loadStoredConfig = (): NewsFeedConfig => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.CONFIG);
+      if (stored) {
+        return { ...DEFAULT_CONFIG, ...JSON.parse(stored) };
+      }
+    } catch (err) {
+      console.error('Error loading stored config:', err);
+    }
+    return DEFAULT_CONFIG;
+  };
+
+  // Load starred articles from localStorage
+  const loadStoredStarred = (): string[] => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.STARRED);
+      if (stored) {
+        return JSON.parse(stored);
+      }
+    } catch (err) {
+      console.error('Error loading starred articles:', err);
+    }
+    return [];
+  };
+
+  // State
+  const [articles, setArticles] = useState<NewsArticle[]>([]);
+  const [groupedArticles, setGroupedArticles] = useState<Record<string, NewsArticle[]>>({});
+  const [sixArticles, setSixArticles] = useState<SixArticlesReport | null>(null);
+  const [availableDates, setAvailableDates] = useState<AvailableDate[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [topics, setTopics] = useState<Topic[]>([]);
+  const [profiles, setProfiles] = useState<OrganizationalProfile[]>([]);
+  const [models, setModels] = useState<AIModel[]>([]);
+  const [config, setConfig] = useState<NewsFeedConfig>(loadStoredConfig);
+  const [sixArticlesConfig, setSixArticlesConfig] = useState<SixArticlesConfig>({});
+  const [starredArticles, setStarredArticles] = useState<string[]>(loadStoredStarred);
+
+  // Pagination
+  const [totalArticles, setTotalArticles] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+
+  // Loading states
+  const [loading, setLoading] = useState(false);
+  const [loadingSixArticles, setLoadingSixArticles] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Save config to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(config));
+    } catch (err) {
+      console.error('Error saving config:', err);
+    }
+  }, [config]);
+
+  // Save starred articles to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.STARRED, JSON.stringify(starredArticles));
+    } catch (err) {
+      console.error('Error saving starred articles:', err);
+    }
+  }, [starredArticles]);
+
+  // Load initial data
+  useEffect(() => {
+    loadInitialData();
+  }, []);
+
+  // Fetch articles when config changes
+  useEffect(() => {
+    fetchArticles();
+  }, [config.dateRange, config.topic, config.page, config.perPage, config.profileId]);
+
+
+  const loadInitialData = async () => {
+    try {
+      const [topicsData, profilesData, modelsData, datesData, configData] = await Promise.all([
+        getTopics().catch(() => []),
+        getOrganizationalProfiles().catch(() => []),
+        getAvailableModels().catch(() => []),
+        getAvailableDates().catch(() => []),
+        getSixArticlesConfig().catch(() => ({})),
+      ]);
+
+      // Ensure all data is array (safeguard against API format issues)
+      const safeTopics = Array.isArray(topicsData) ? topicsData : [];
+      const safeProfiles = Array.isArray(profilesData) ? profilesData : [];
+      const safeModels = Array.isArray(modelsData) ? modelsData : [];
+      const safeDates = Array.isArray(datesData) ? datesData : [];
+
+      setTopics(safeTopics);
+      setProfiles(safeProfiles);
+      setModels(safeModels);
+      setAvailableDates(safeDates);
+      setSixArticlesConfig(configData || {});
+
+      // Set default profile if available
+      const defaultProfile = safeProfiles.find(p => p.is_default);
+      if (defaultProfile && !config.profileId) {
+        setConfig(prev => ({ ...prev, profileId: defaultProfile.id }));
+      }
+
+      // Set default model if available
+      if (safeModels.length > 0 && !config.model) {
+        setConfig(prev => ({ ...prev, model: safeModels[0].id }));
+      }
+    } catch (err) {
+      console.error('Error loading initial data:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load initial data');
+    }
+  };
+
+  // Fetch articles
+  const fetchArticles = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await getNewsFeedArticles({
+        dateRange: config.dateRange,
+        customDateStart: config.customDateStart,
+        topic: config.topic,
+        maxArticles: config.perPage * 10, // Fetch more for grouping
+        page: config.page,
+        perPage: config.perPage,
+        profileId: config.profileId,
+      });
+
+      setArticles(response.articles);
+      setTotalArticles(response.total);
+      setTotalPages(response.total_pages);
+
+      // Group articles by category
+      const grouped = groupArticlesByCategory(response.articles);
+      setGroupedArticles(grouped);
+
+      // Extract unique categories
+      const uniqueCategories = Object.keys(grouped).sort();
+      setCategories(uniqueCategories);
+    } catch (err) {
+      console.error('Error fetching articles:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch articles');
+    } finally {
+      setLoading(false);
+    }
+  }, [config.dateRange, config.customDateStart, config.topic, config.page, config.perPage, config.profileId]);
+
+  // Fetch six articles briefing
+  const fetchSixArticles = useCallback(async (forceRegenerate: boolean = false) => {
+    setLoadingSixArticles(true);
+    setError(null);
+
+    try {
+      const response = await getSixArticles({
+        dateRange: config.dateRange,
+        topic: config.topic,
+        profileId: config.profileId,
+        persona: config.persona,
+        articleCount: config.articleCount,
+        forceRegenerate,
+        starredArticles: starredArticles.length > 0 ? starredArticles : undefined,
+      });
+
+      setSixArticles(response);
+    } catch (err) {
+      console.error('Error fetching six articles:', err);
+      setError(err instanceof Error ? err.message : 'Failed to fetch six articles briefing');
+    } finally {
+      setLoadingSixArticles(false);
+    }
+  }, [config.dateRange, config.topic, config.profileId, config.persona, config.articleCount, starredArticles]);
+
+  // Fetch six articles briefing when relevant config changes
+  useEffect(() => {
+    fetchSixArticles();
+  }, [fetchSixArticles]);
+
+  // Update config
+  const updateConfig = useCallback((updates: Partial<NewsFeedConfig>) => {
+    setConfig(prev => ({ ...prev, ...updates }));
+  }, []);
+
+  // Update six articles config
+  const updateSixArticlesConfig = useCallback(async (newConfig: SixArticlesConfig) => {
+    try {
+      await saveSixArticlesConfig(newConfig);
+      setSixArticlesConfig(newConfig);
+    } catch (err) {
+      console.error('Error saving six articles config:', err);
+      setError(err instanceof Error ? err.message : 'Failed to save configuration');
+    }
+  }, []);
+
+  // Star/unstar articles
+  const starArticle = useCallback((uri: string) => {
+    setStarredArticles(prev => {
+      if (!prev.includes(uri)) {
+        return [...prev, uri];
+      }
+      return prev;
+    });
+  }, []);
+
+  const unstarArticle = useCallback((uri: string) => {
+    setStarredArticles(prev => prev.filter(u => u !== uri));
+  }, []);
+
+  // Clear error
+  const clearError = useCallback(() => {
+    setError(null);
+  }, []);
+
+  return {
+    articles,
+    groupedArticles,
+    sixArticles,
+    availableDates,
+    categories,
+    topics,
+    profiles,
+    models,
+    config,
+    sixArticlesConfig,
+    totalArticles,
+    totalPages,
+    loading,
+    loadingSixArticles,
+    error,
+    updateConfig,
+    fetchArticles,
+    fetchSixArticles,
+    updateSixArticlesConfig,
+    starArticle,
+    unstarArticle,
+    clearError,
+    starredArticles,
+  };
+}
