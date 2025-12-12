@@ -13,7 +13,7 @@ import {
   Cpu,
   Building2,
   Tag,
-  Filter,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { type NewsFeedConfig, type Topic, type OrganizationalProfile, type AIModel } from '../../hooks/useNewsFeed';
 import { type NarrativeExplorerConfig } from '../../hooks/useNarrativeExplorer';
@@ -30,7 +30,7 @@ interface NewsFeedHeaderProps {
   onConfigChange: (updates: Partial<NewsFeedConfig>) => void;
   onNarrativeConfigChange: (updates: Partial<NarrativeExplorerConfig>) => void;
   onRefresh: () => void;
-  onOpenFilter?: () => void;
+  onOpenConfig?: () => void;
 }
 
 const dateRangeOptions: { value: DateRange; label: string }[] = [
@@ -53,7 +53,7 @@ export function NewsFeedHeader({
   onConfigChange,
   onNarrativeConfigChange,
   onRefresh,
-  onOpenFilter,
+  onOpenConfig,
 }: NewsFeedHeaderProps) {
   const [topicDropdownOpen, setTopicDropdownOpen] = useState(false);
   const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
@@ -341,15 +341,17 @@ export function NewsFeedHeader({
 
         {/* Right side - Actions */}
         <div className="flex items-center gap-2">
-          {onOpenFilter && (
+          {/* Config Button */}
+          {onOpenConfig && (
             <Button
               variant="outline"
               size="sm"
-              onClick={onOpenFilter}
+              onClick={onOpenConfig}
               className="gap-2"
+              title="Configure Incident Tracking"
             >
-              <Filter className="w-4 h-4" />
-              Filter
+              <SlidersHorizontal className="w-4 h-4" />
+              Config
             </Button>
           )}
           <Button
@@ -363,41 +365,6 @@ export function NewsFeedHeader({
             {loading ? 'Generating...' : 'Refresh'}
           </Button>
         </div>
-      </div>
-
-      {/* Active filters display */}
-      <div className="mt-2 flex items-center gap-2 text-sm text-gray-500">
-        <span>
-          Showing articles from{' '}
-          <span className="font-medium text-gray-700">
-            {dateRangeOptions.find((o) => o.value === config.dateRange)?.label ||
-              config.dateRange}
-          </span>
-        </span>
-        {selectedTopics.length > 0 && (
-          <>
-            <span className="text-gray-300">|</span>
-            <span>
-              Topics:{' '}
-              <span className="font-medium text-gray-700">
-                {selectedTopics.length <= 2
-                  ? selectedTopics.join(', ')
-                  : `${selectedTopics.slice(0, 2).join(', ')} +${selectedTopics.length - 2}`}
-              </span>
-            </span>
-          </>
-        )}
-        {selectedProfileId && profiles.find((p) => p.id === selectedProfileId) && (
-          <>
-            <span className="text-gray-300">|</span>
-            <span>
-              Profile:{' '}
-              <span className="font-medium text-gray-700">
-                {profiles.find((p) => p.id === selectedProfileId)?.name}
-              </span>
-            </span>
-          </>
-        )}
       </div>
     </div>
   );

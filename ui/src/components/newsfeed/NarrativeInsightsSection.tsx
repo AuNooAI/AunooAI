@@ -71,7 +71,7 @@ export function NarrativeInsightsSection({ themes, loading, onArticleClick, curr
           <Brain className="w-5 h-5 text-indigo-500" />
           <h2 className="text-xl font-semibold text-gray-900">Narratives</h2>
         </div>
-        <p className="text-sm text-gray-500">No recent narratives, click refresh</p>
+        <p className="text-sm text-gray-600">No recent narratives, click refresh</p>
       </section>
     );
   }
@@ -82,7 +82,7 @@ export function NarrativeInsightsSection({ themes, loading, onArticleClick, curr
       <div className="flex items-center gap-2 mb-4">
         <Brain className="w-5 h-5 text-indigo-500" />
         <h2 className="text-xl font-semibold text-gray-900">Narratives</h2>
-        <span className="text-sm text-gray-500 ml-2">
+        <span className="text-sm text-gray-600 ml-2">
           {themes.length} theme{themes.length !== 1 ? 's' : ''} identified
         </span>
       </div>
@@ -170,7 +170,7 @@ function ThemeCard({ theme, expanded, onToggleExpand, onArticleClick, currentTop
                 </span>
               )}
             </div>
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-gray-600">
               {theme.article_count} article{theme.article_count !== 1 ? 's' : ''}
             </span>
           </div>
@@ -187,7 +187,7 @@ function ThemeCard({ theme, expanded, onToggleExpand, onArticleClick, currentTop
 
           {/* Source Metrics (if available) */}
           {(theme.confidence || theme.source_count) && (
-            <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+            <div className="flex items-center gap-3 mt-2 text-xs text-gray-600">
               {theme.confidence && (
                 <span className="flex items-center gap-1">
                   <span className="font-medium">{Math.round(theme.confidence)}%</span> confidence
@@ -203,8 +203,8 @@ function ThemeCard({ theme, expanded, onToggleExpand, onArticleClick, currentTop
           {theme.key_entities && theme.key_entities.length > 0 && (
             <div className="mt-3">
               <div className="flex items-center gap-1 mb-1">
-                <Tag className="w-3 h-3 text-gray-400" />
-                <span className="text-xs text-gray-500 font-medium">Key Entities</span>
+                <Tag className="w-3 h-3 text-gray-500" />
+                <span className="text-xs text-gray-600 font-medium">Key Entities</span>
               </div>
               <div className="flex flex-wrap gap-1">
                 {theme.key_entities.slice(0, expanded ? undefined : 4).map((entity, i) => (
@@ -216,7 +216,7 @@ function ThemeCard({ theme, expanded, onToggleExpand, onArticleClick, currentTop
                   </span>
                 ))}
                 {!expanded && theme.key_entities.length > 4 && (
-                  <span className="text-xs text-gray-400">
+                  <span className="text-xs text-gray-600">
                     +{theme.key_entities.length - 4} more
                   </span>
                 )}
@@ -227,7 +227,7 @@ function ThemeCard({ theme, expanded, onToggleExpand, onArticleClick, currentTop
           {/* Expanded: Articles List */}
           {expanded && theme.articles && theme.articles.length > 0 && (
             <div className="mt-4 pt-3 border-t border-gray-100">
-              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
                 Articles in Theme
               </h4>
               <div className="space-y-2">
@@ -239,7 +239,7 @@ function ThemeCard({ theme, expanded, onToggleExpand, onArticleClick, currentTop
                   />
                 ))}
                 {theme.articles.length > 5 && (
-                  <p className="text-xs text-gray-400">
+                  <p className="text-xs text-gray-600">
                     +{theme.articles.length - 5} more articles
                   </p>
                 )}
@@ -252,12 +252,12 @@ function ThemeCard({ theme, expanded, onToggleExpand, onArticleClick, currentTop
             <div className="mt-4 pt-3 border-t border-gray-100">
               <div className="flex items-center gap-1 mb-2">
                 <Lightbulb className="w-3 h-3 text-yellow-500" />
-                <span className="text-xs text-gray-500 font-medium">Research Suggestions</span>
+                <span className="text-xs text-gray-600 font-medium">Research Suggestions</span>
               </div>
               <ul className="space-y-1">
                 {theme.research_suggestions.map((suggestion, i) => (
                   <li key={i} className="text-xs text-gray-600 flex items-start gap-1">
-                    <span className="text-gray-400">•</span>
+                    <span className="text-gray-500">•</span>
                     {suggestion}
                   </li>
                 ))}
@@ -385,17 +385,17 @@ function ThemeArticleLink({ article, onClick }: { article: ThemeArticle; onClick
           <p className="text-xs font-medium text-gray-900 line-clamp-1">
             {article.title}
           </p>
-          <p className="text-xs text-gray-500 mt-0.5">
+          <p className="text-xs text-gray-600 mt-0.5">
             {article.news_source}
             {article.publication_date && ` • ${new Date(article.publication_date).toLocaleDateString()}`}
           </p>
           {(article.short_summary || article.summary) && (
-            <p className="text-xs text-gray-400 mt-1 line-clamp-2 italic">
+            <p className="text-xs text-gray-500 mt-1 line-clamp-2 italic">
               {article.short_summary || article.summary}
             </p>
           )}
         </div>
-        <ExternalLink className="w-3 h-3 text-gray-400 shrink-0" />
+        <ExternalLink className="w-3 h-3 text-gray-500 shrink-0" />
       </div>
     </a>
   );

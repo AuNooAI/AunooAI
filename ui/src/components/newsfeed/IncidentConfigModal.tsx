@@ -14,6 +14,11 @@ import {
   RotateCcw,
   Eye,
   Check,
+  Sparkles,
+  Users,
+  Loader2,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 import {
   Dialog,
@@ -29,12 +34,69 @@ import { Label } from '../ui/label';
 import { Textarea } from '../ui/textarea';
 import { Input } from '../ui/input';
 import { Checkbox } from '../ui/checkbox';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../ui/select';
 import {
   type IncidentConfig,
   getIncidentConfig,
   saveIncidentConfig,
   resetIncidentConfigToDefaults,
 } from '../../services/narrativeExplorerApi';
+
+// Six Articles config types
+interface PersonaDefinition {
+  name?: string;
+  priorities: string;
+  riskAppetite: string;
+  focus: string;
+}
+
+interface SixArticlesConfig {
+  systemPrompt: string | null;
+  personas: Record<string, PersonaDefinition>;
+  formatSpec: string | null;
+}
+
+// Default prompt template for six articles
+const DEFAULT_SIX_ARTICLES_PROMPT = `🎯 {persona} Daily Top-{article_count} AI Articles — Analyst Prompt
+
+You are an analyst selecting the {article_count} most important articles published in the last 24 hours for {persona_description} interested in AI's strategic, technical, and societal impacts, with specific focus on {persona_focus}.
+{starred_instruction}
+
+{audience_profile}
+
+## Selection Rules
+Choose exactly {article_count} articles from the provided corpus (news, filings, research, regulator posts). Each must score high on at least two:
+1) Strategic relevance, 2) Novelty, 3) Credibility, 4) Representativeness (captures a bigger debate/trend).
+
+- **Diversity**: Cover ≥3 domains (e.g., policy, business/market, tech/R&D, workforce/society).
+- **No redundancy**: Don't select multiple pieces on the same event unless they provide non-overlapping value (e.g., a filing + a data-driven analysis).
+- **Recency**: Past 24 hours only.
+
+## Article Corpus
+{articles_summary}
+
+{bias_context}
+{source_context}
+
+## What to Output per Article
+
+**title** — Full headline with source and date: "Headline (Source, YYYY-MM-DD, Author)"
+**source** — Publisher name (e.g., "Reuters")
+**date** — YYYY-MM-DD
+**url** — Plain canonical URL (no markdown, no tracking params)
+**executive_takeaway** — 1 sentence: the critical gist for a CEO in ~15 words
+**summary** — 2–3 sentences of core facts/developments
+**strategic_relevance** — 1 short paragraph on why this matters (policy, competition, tech, workforce, risk posture)
+**time_horizon** — Immediate (0–6m) | Medium (6–18m) | Long-term (18m+)
+**risk_opportunity** — "risk" | "opportunity" | "mixed" + brief rationale
+**signal_strength** — "weak" | "moderate" | "strong" with a short justification
+**executive_action** — Array of 1–2 bullets: what to watch, decide, or delegate now
+**category** — "policy" | "market" | "tech" | "workforce" | "security" | "society"
+**scores** — Optional scoring object: {"relevance": 0-5, "novelty": 0-5, "credibility": 0-5, "representativeness": 0-5}
+
+Return ONLY a valid JSON array with the articles. No markdown, no explanations.`;
+
+const RISK_APPETITES = ['low', 'moderate', 'high', 'aggressive'];
 
 interface IncidentConfigModalProps {
   open: boolean;
@@ -197,10 +259,16 @@ export function IncidentConfigModal({ open, onClose }: IncidentConfigModalProps)
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Six Articles config state
+  const [sixArticlesConfig, setSixArticlesConfig] = useState<SixArticlesConfig | null>(null);
+  const [loadingSixArticles, setLoadingSixArticles] = useState(false);
+  const [editingPersona, setEditingPersona] = useState<string | null>(null);
+
   // Load config when modal opens
   useEffect(() => {
     if (open) {
       loadConfig();
+      loadSixArticlesConfig();
     }
   }, [open]);
 
@@ -256,11 +324,120 @@ export function IncidentConfigModal({ open, onClose }: IncidentConfigModalProps)
     }
   };
 
+  // Load Six Articles config
+  const loadSixArticlesConfig = async () => {
+    setLoadingSixArticles(true);
+    try {
+      const res = await fetch('/api/news-feed/six-articles/config', {
+        credentials: 'include'
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSixArticlesConfig(data);
+      }
+    } catch (err) {
+      console.error('Failed to load six articles config:', err);
+    } finally {
+      setLoadingSixArticles(false);
+    }
+  };
+
+  // Save Six Articles config
+  const saveSixArticlesConfig = async () => {
+    if (!sixArticlesConfig) return;
+
+    try {
+      const res = await fetch('/api/news-feed/six-articles/config', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(sixArticlesConfig)
+      });
+      if (!res.ok) {
+        throw new Error('Failed to save six articles config');
+      }
+    } catch (err) {
+      throw err;
+    }
+  };
+
+  // Update Six Articles persona
+  const updatePersona = (personaId: string, field: keyof PersonaDefinition, value: string) => {
+    if (!sixArticlesConfig) return;
+    setSixArticlesConfig(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        personas: {
+          ...prev.personas,
+          [personaId]: {
+            ...prev.personas[personaId],
+            [field]: value
+          }
+        }
+      };
+    });
+  };
+
+  // Update Six Articles system prompt
+  const updateSixArticlesPrompt = (prompt: string) => {
+    setSixArticlesConfig(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        systemPrompt: prompt === DEFAULT_SIX_ARTICLES_PROMPT ? null : prompt
+      };
+    });
+  };
+
+  // Add custom persona
+  const addCustomPersona = () => {
+    if (!sixArticlesConfig) return;
+    const customId = `Custom_${Date.now()}`;
+    setSixArticlesConfig(prev => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        personas: {
+          ...prev.personas,
+          [customId]: {
+            name: 'Custom Persona',
+            priorities: 'Strategic relevance, Business impact, Innovation',
+            riskAppetite: 'moderate',
+            focus: 'Industry trends, Competitive landscape'
+          }
+        }
+      };
+    });
+    setEditingPersona(customId);
+  };
+
+  // Delete custom persona
+  const deletePersona = (personaId: string) => {
+    if (['CEO', 'CMO', 'CTO', 'CISO'].includes(personaId)) return;
+    setSixArticlesConfig(prev => {
+      if (!prev) return prev;
+      const newPersonas = { ...prev.personas };
+      delete newPersonas[personaId];
+      return {
+        ...prev,
+        personas: newPersonas
+      };
+    });
+    if (editingPersona === personaId) {
+      setEditingPersona(null);
+    }
+  };
+
   const handleSave = async () => {
     setSaving(true);
     setError(null);
     try {
       await saveIncidentConfig(config);
+      // Also save Six Articles config if loaded
+      if (sixArticlesConfig) {
+        await saveSixArticlesConfig();
+      }
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save configuration');
@@ -326,6 +503,10 @@ export function IncidentConfigModal({ open, onClose }: IncidentConfigModalProps)
               <TabsTrigger value="guidance" className="flex-1 gap-1 text-xs px-2">
                 <Lightbulb className="w-3.5 h-3.5 shrink-0" />
                 <span className="hidden sm:inline">Guidance</span>
+              </TabsTrigger>
+              <TabsTrigger value="briefing" className="flex-1 gap-1 text-xs px-2">
+                <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline">Briefing</span>
               </TabsTrigger>
             </TabsList>
 
@@ -646,6 +827,196 @@ export function IncidentConfigModal({ open, onClose }: IncidentConfigModalProps)
                     </div>
                   </div>
                 </div>
+              </TabsContent>
+
+              {/* Briefing Tab - Six Articles Configuration */}
+              <TabsContent value="briefing" className="space-y-4 mt-0 overflow-x-hidden">
+                {loadingSixArticles ? (
+                  <div className="flex items-center justify-center py-12">
+                    <Loader2 className="w-8 h-8 animate-spin text-pink-500" />
+                    <span className="ml-2 text-gray-600">Loading briefing configuration...</span>
+                  </div>
+                ) : sixArticlesConfig ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    <div className="lg:col-span-2 space-y-4 min-w-0">
+                      {/* System Prompt */}
+                      <div>
+                        <Label className="font-semibold">Briefing System Prompt</Label>
+                        <p className="text-sm text-gray-500 mb-2">
+                          Customize the prompt used to generate "Your Briefing" articles.
+                        </p>
+                        <Textarea
+                          value={sixArticlesConfig.systemPrompt || DEFAULT_SIX_ARTICLES_PROMPT}
+                          onChange={(e) => updateSixArticlesPrompt(e.target.value)}
+                          rows={16}
+                          className="font-mono text-xs w-full resize-y"
+                          style={{ wordBreak: 'break-word', overflowWrap: 'break-word' }}
+                        />
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="mt-2"
+                          onClick={() => updateSixArticlesPrompt(DEFAULT_SIX_ARTICLES_PROMPT)}
+                        >
+                          <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+                          Reset to Default
+                        </Button>
+                      </div>
+
+                      {/* Personas */}
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <div>
+                            <Label className="font-semibold flex items-center gap-2">
+                              <Users className="w-4 h-4" />
+                              Executive Personas
+                            </Label>
+                            <p className="text-sm text-gray-500">
+                              Configure how articles are selected for each executive perspective.
+                            </p>
+                          </div>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={addCustomPersona}
+                            className="gap-1"
+                          >
+                            <Plus className="w-4 h-4" />
+                            Add Custom
+                          </Button>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {sixArticlesConfig.personas && Object.entries(sixArticlesConfig.personas).map(([personaId, personaDef]) => {
+                            const isExpanded = editingPersona === personaId;
+                            const isBuiltIn = ['CEO', 'CMO', 'CTO', 'CISO'].includes(personaId);
+
+                            return (
+                              <div
+                                key={personaId}
+                                className={`border rounded-lg p-3 ${isExpanded ? 'ring-2 ring-pink-500' : ''} ${
+                                  isBuiltIn ? 'bg-gray-50' : 'bg-white'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="flex items-center gap-2">
+                                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                      isBuiltIn ? 'bg-gray-200 text-gray-700' : 'bg-pink-100 text-pink-700'
+                                    }`}>
+                                      {isBuiltIn ? personaId : (personaDef.name || personaId)}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    {!isBuiltIn && (
+                                      <button
+                                        onClick={() => deletePersona(personaId)}
+                                        className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded"
+                                        title="Delete persona"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                    <button
+                                      onClick={() => setEditingPersona(isExpanded ? null : personaId)}
+                                      className="text-xs text-pink-600 hover:text-pink-700"
+                                    >
+                                      {isExpanded ? 'Collapse' : 'Edit'}
+                                    </button>
+                                  </div>
+                                </div>
+
+                                {isExpanded ? (
+                                  <div className="space-y-2 mt-2">
+                                    {/* Custom persona name field */}
+                                    {!isBuiltIn && (
+                                      <div>
+                                        <label className="text-xs font-medium text-gray-600 block mb-1">Persona Name</label>
+                                        <Input
+                                          value={personaDef.name || ''}
+                                          onChange={(e) => updatePersona(personaId, 'name', e.target.value)}
+                                          placeholder="e.g., Head of Strategy"
+                                          className="h-8 text-sm"
+                                        />
+                                      </div>
+                                    )}
+                                    <div>
+                                      <label className="text-xs font-medium text-gray-600 block mb-1">Risk Appetite</label>
+                                      <Select
+                                        value={personaDef.riskAppetite}
+                                        onValueChange={(value) => updatePersona(personaId, 'riskAppetite', value)}
+                                      >
+                                        <SelectTrigger className="w-full h-8">
+                                          <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          {RISK_APPETITES.map(ra => (
+                                            <SelectItem key={ra} value={ra}>
+                                              {ra.charAt(0).toUpperCase() + ra.slice(1)}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                    <div>
+                                      <label className="text-xs font-medium text-gray-600 block mb-1">Priorities</label>
+                                      <Textarea
+                                        value={personaDef.priorities}
+                                        onChange={(e) => updatePersona(personaId, 'priorities', e.target.value)}
+                                        className="h-16 text-xs"
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-xs font-medium text-gray-600 block mb-1">Focus Areas</label>
+                                      <Textarea
+                                        value={personaDef.focus}
+                                        onChange={(e) => updatePersona(personaId, 'focus', e.target.value)}
+                                        className="h-16 text-xs"
+                                      />
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="text-xs text-gray-600 space-y-1">
+                                    <p><span className="font-medium">Risk:</span> {personaDef.riskAppetite}</p>
+                                    <p className="truncate"><span className="font-medium">Focus:</span> {personaDef.focus}</p>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Sidebar */}
+                    <div className="space-y-4 min-w-0">
+                      <div className="bg-pink-50 border border-pink-200 rounded-lg p-4">
+                        <h4 className="font-semibold text-pink-900 mb-3 flex items-center gap-2">
+                          <Sparkles className="w-4 h-4" />
+                          About Briefings
+                        </h4>
+                        <p className="text-sm text-pink-800">
+                          "Your Briefing" selects 6 articles tailored to the selected executive persona.
+                          The AI uses the persona's priorities and focus areas to select the most relevant articles.
+                        </p>
+                      </div>
+
+                      <div className="bg-gray-50 rounded-lg p-4">
+                        <h4 className="font-semibold text-gray-900 mb-3">Available Placeholders</h4>
+                        <div className="space-y-2 text-sm">
+                          <PlaceholderItem name="{persona}" desc="Selected persona (CEO, CMO, etc.)" />
+                          <PlaceholderItem name="{article_count}" desc="Number of articles (6)" />
+                          <PlaceholderItem name="{persona_description}" desc="Persona description" />
+                          <PlaceholderItem name="{persona_focus}" desc="Persona focus areas" />
+                          <PlaceholderItem name="{audience_profile}" desc="Org profile context" />
+                          <PlaceholderItem name="{articles_summary}" desc="Article list" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center py-12 text-gray-500">
+                    Failed to load briefing configuration
+                  </div>
+                )}
               </TabsContent>
             </div>
           </Tabs>
