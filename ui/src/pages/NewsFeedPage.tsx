@@ -10,12 +10,7 @@ import {
   AlertCircle,
   Newspaper,
   Plus,
-  Download,
-  SlidersHorizontal,
-  Filter,
   Settings,
-  LayoutGrid,
-  Table,
   GripVertical,
 } from 'lucide-react';
 import { useNewsFeed } from '../hooks/useNewsFeed';
@@ -29,17 +24,12 @@ import { TopicCluster, getCategoryIcon } from '../components/newsfeed/TopicClust
 import { ArticleDetailPanel } from '../components/newsfeed/ArticleDetailPanel';
 import { CategoryViewModal } from '../components/newsfeed/CategoryViewModal';
 import { IncidentConfigModal } from '../components/newsfeed/IncidentConfigModal';
+import { SixArticlesTuneModal } from '../components/SixArticlesTuneModal';
 import { type NewsArticle, type ArticleCluster, type ClusterRelatedArticle, getArticleByUri, getClusteredArticles, clusterArticleToNewsArticle } from '../services/newsFeedApi';
-import { FilterPanel, createEmptyFilters, applyFilters, type IncidentFilters, type SortOption } from '../components/newsfeed/FilterPanel';
+import { applyFilters, createEmptyFilters, type IncidentFilters } from '../components/newsfeed/FilterPanel';
 import { NotificationBell } from '../components/gather/NotificationBell';
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import { Button } from '../components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '../components/ui/dropdown-menu';
 import '../components/gather/gather.css';
 
 export function NewsFeedPage() {
@@ -48,6 +38,7 @@ export function NewsFeedPage() {
     articles,
     groupedArticles,
     sixArticles,
+    sixArticlesConfig,
     categories,
     topics: newsFeedTopics,
     profiles: newsFeedProfiles,
@@ -59,6 +50,7 @@ export function NewsFeedPage() {
     error,
     updateConfig,
     fetchArticles,
+    fetchSixArticles,
     starArticle,
     unstarArticle,
     clearError,
@@ -88,10 +80,8 @@ export function NewsFeedPage() {
 
   // UI State
   const [isConfigOpen, setIsConfigOpen] = useState(false);
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [filters, setFilters] = useState<IncidentFilters>(createEmptyFilters());
-  const [sortBy, setSortBy] = useState<SortOption>('date_desc');
-  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+  const [isBriefingConfigOpen, setIsBriefingConfigOpen] = useState(false);
+  const [filters] = useState<IncidentFilters>(createEmptyFilters());
   const [hiddenCategories, setHiddenCategories] = useState<Set<string>>(new Set());
   const [categoryOrder, setCategoryOrder] = useState<string[]>([]);
   const [isCategorySettingsOpen, setIsCategorySettingsOpen] = useState(false);
@@ -291,11 +281,6 @@ export function NewsFeedPage() {
     }
   }, [generateAll, narrativeConfig.selectedTopics]);
 
-  // Clear filters
-  const handleClearFilters = () => {
-    setFilters(createEmptyFilters());
-  };
-
   // Helper to get all articles from clusters for a category
   // This ensures the CategoryViewModal shows the same articles as TopicCluster
   const getCategoryArticlesFromClusters = useCallback((categoryName: string): NewsArticle[] => {
@@ -353,22 +338,6 @@ export function NewsFeedPage() {
       return countB - countA;
     });
 
-  // Export functions
-  const exportMarkdown = () => {
-    // TODO: Implement markdown export
-    alert('Markdown export coming soon');
-  };
-
-  const exportPDF = () => {
-    // TODO: Implement PDF export
-    alert('PDF export coming soon');
-  };
-
-  const exportCSV = () => {
-    // TODO: Implement CSV export
-    alert('CSV export coming soon');
-  };
-
   return (
     <div className="gather-app">
       <div className="gather-layout">
@@ -407,95 +376,9 @@ export function NewsFeedPage() {
           onConfigChange={updateConfig}
           onNarrativeConfigChange={updateNarrativeConfig}
           onRefresh={handleRefresh}
+          onOpenConfig={() => setIsConfigOpen(true)}
         />
 
-        {/* Narrative Explorer Toolbar */}
-        <div className="bg-white border-b border-gray-200 px-6 py-2 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-500">View Options</span>
-            <div className="flex border border-gray-200 rounded-md">
-              <button
-                onClick={() => setViewMode('cards')}
-                className={`px-3 py-1.5 text-sm flex items-center gap-1 ${
-                  viewMode === 'cards'
-                    ? 'bg-pink-50 text-pink-600'
-                    : 'text-gray-600 hover:bg-gray-50'
-                }`}
-                title="Card view"
-              >
-                <LayoutGrid className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setViewMode('table')}
-                className={`px-3 py-1.5 text-sm flex items-center gap-1 border-l border-gray-200 ${
-                  viewMode === 'table'
-                    ? 'bg-pink-50 text-pink-600'
-                    : 'text-gray-600 hover:bg-gray-50'
-                }`}
-                title="Table view"
-              >
-                <Table className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {/* Export Dropdown */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-2">
-                  <Download className="w-4 h-4" />
-                  Export
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={exportMarkdown}>
-                  Export Markdown
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={exportPDF}>
-                  Export PDF
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={exportCSV}>
-                  Export CSV
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-
-            {/* Config Button */}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setIsConfigOpen(true)}
-              className="gap-2"
-              title="Configure Incident Tracking"
-            >
-              <SlidersHorizontal className="w-4 h-4" />
-              Config
-            </Button>
-
-            {/* Filter Button */}
-            <div className="relative">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsFilterOpen(!isFilterOpen)}
-                className={`gap-2 ${isFilterOpen ? 'bg-pink-50 text-pink-600 border-pink-300' : ''}`}
-              >
-                <Filter className="w-4 h-4" />
-                Filter
-              </Button>
-              <FilterPanel
-                open={isFilterOpen}
-                onClose={() => setIsFilterOpen(false)}
-                filters={filters}
-                sortBy={sortBy}
-                onFiltersChange={setFilters}
-                onSortChange={setSortBy}
-                onClearFilters={handleClearFilters}
-              />
-            </div>
-          </div>
-        </div>
 
         {/* Error Alerts */}
         {(error || highlightsError || narrativesError) && (
@@ -561,6 +444,16 @@ export function NewsFeedPage() {
                   onStar={starArticle}
                   onUnstar={unstarArticle}
                   onArticleClick={handleArticleClick}
+                  persona={config.persona}
+                  onPersonaChange={(persona, forceRegenerate) => {
+                    updateConfig({ persona });
+                    if (forceRegenerate) {
+                      // Small delay to ensure config is updated first
+                      setTimeout(() => fetchSixArticles(true), 100);
+                    }
+                  }}
+                  sixArticlesConfig={sixArticlesConfig}
+                  onOpenConfig={() => setIsBriefingConfigOpen(true)}
                 />
 
                 {/* Section 2: Highlights - Incident Tracking */}
@@ -635,6 +528,7 @@ export function NewsFeedPage() {
                     {/* Show remaining categories as clickable chips */}
                     {sortedCategories.length > 9 && (
                       <div className="mt-6 pt-4 border-t border-gray-200">
+                        <h3 className="text-sm font-medium text-gray-600 mb-3">More topics</h3>
                         <div className="flex flex-wrap gap-2">
                           {sortedCategories.slice(9).map((category) => {
                             const catArticles = groupedArticles[category] || [];
@@ -646,7 +540,7 @@ export function NewsFeedPage() {
                                 className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 transition-colors"
                               >
                                 {category}
-                                <span className="ml-1 text-gray-400">({catArticles.length})</span>
+                                <span className="ml-1 text-gray-500">({catArticles.length})</span>
                               </button>
                             );
                           })}
@@ -676,6 +570,16 @@ export function NewsFeedPage() {
       <IncidentConfigModal
         open={isConfigOpen}
         onClose={() => setIsConfigOpen(false)}
+      />
+
+      {/* Six Articles / Briefing Config Modal */}
+      <SixArticlesTuneModal
+        open={isBriefingConfigOpen}
+        onOpenChange={setIsBriefingConfigOpen}
+        onConfigSaved={() => {
+          // Refresh six articles after config is saved
+          fetchSixArticles(true);
+        }}
       />
 
       {/* Article Detail Slide-in Panel */}

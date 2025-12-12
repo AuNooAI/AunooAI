@@ -4,7 +4,7 @@
  * indicators, and action items
  */
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Sparkles,
   ExternalLink,
@@ -19,10 +19,21 @@ import {
   Building2,
   Star,
   StarOff,
-  MessageSquare
+  MessageSquare,
+  User,
+  RefreshCw,
+  Settings2
 } from 'lucide-react';
-import { type NewsArticle, type SixArticlesReport, type TopStory } from '../../services/newsFeedApi';
+import { type NewsArticle, type SixArticlesReport, type TopStory, type Persona, type SixArticlesConfig } from '../../services/newsFeedApi';
 import { Skeleton } from '../ui/skeleton';
+
+// Default personas (fallback if config not loaded)
+const DEFAULT_PERSONAS: { value: string; label: string; description: string }[] = [
+  { value: 'CEO', label: 'CEO', description: 'Strategic growth & market position' },
+  { value: 'CMO', label: 'CMO', description: 'Brand, marketing & customer trends' },
+  { value: 'CTO', label: 'CTO', description: 'Technology & innovation focus' },
+  { value: 'CISO', label: 'CISO', description: 'Security & risk management' },
+];
 
 interface BriefingSectionProps {
   articles: NewsArticle[];
@@ -32,6 +43,10 @@ interface BriefingSectionProps {
   onStar: (uri: string) => void;
   onUnstar: (uri: string) => void;
   onArticleClick?: (article: NewsArticle) => void;
+  persona?: Persona;
+  onPersonaChange?: (persona: Persona, forceRegenerate?: boolean) => void;
+  sixArticlesConfig?: SixArticlesConfig;
+  onOpenConfig?: () => void;
 }
 
 // Get color for risk/opportunity indicator
@@ -76,6 +91,62 @@ function getCategoryStyle(category?: string): { bg: string; text: string } {
   return styles[lower] || { bg: 'bg-gray-100', text: 'text-gray-600' };
 }
 
+// Tooltip explanations for badges
+function getTimeHorizonTooltip(value: string): string {
+  const lower = value.toLowerCase();
+  if (lower.includes('immediate')) return 'Immediate impact expected within days to weeks';
+  if (lower.includes('short')) return 'Short-term impact expected within 1-3 months';
+  if (lower.includes('medium')) return 'Medium-term impact expected within 3-12 months';
+  if (lower.includes('long')) return 'Long-term impact expected over 1+ years';
+  return `Time horizon: ${value}`;
+}
+
+function getRiskOpportunityTooltip(value: string): string {
+  const lower = value.toLowerCase();
+  if (lower.includes('risk')) return 'This story represents a potential threat or challenge to monitor';
+  if (lower.includes('opportunity')) return 'This story represents a potential advantage or opening to pursue';
+  if (lower.includes('mixed')) return 'This story contains both risks and opportunities';
+  return `Classification: ${value}`;
+}
+
+function getSignalStrengthTooltip(value: string): string {
+  const lower = value.toLowerCase();
+  if (lower.includes('weak')) return 'Early signal - may develop into something significant';
+  if (lower.includes('moderate')) return 'Growing signal - worth monitoring closely';
+  if (lower.includes('strong')) return 'Strong signal - high confidence in impact assessment';
+  return `Signal strength: ${value}`;
+}
+
+// Badge component with hover tooltip
+function BadgeWithTooltip({
+  children,
+  tooltip,
+  className
+}: {
+  children: React.ReactNode;
+  tooltip: string;
+  className?: string;
+}) {
+  const [showTooltip, setShowTooltip] = useState(false);
+
+  return (
+    <div className="relative">
+      <span
+        className={`cursor-help ${className}`}
+        onMouseEnter={() => setShowTooltip(true)}
+        onMouseLeave={() => setShowTooltip(false)}
+      >
+        {children}
+      </span>
+      {showTooltip && (
+        <div className="absolute right-0 top-full mt-1 z-50 w-48 p-2 text-xs text-white bg-gray-800 rounded shadow-lg pointer-events-none">
+          {tooltip}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function BriefingSection({
   articles,
   sixArticles,
@@ -84,8 +155,26 @@ export function BriefingSection({
   onStar,
   onUnstar,
   onArticleClick,
+  persona = 'CEO',
+  onPersonaChange,
+  sixArticlesConfig,
+  onOpenConfig,
 }: BriefingSectionProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
+  const [showPersonaDropdown, setShowPersonaDropdown] = useState(false);
+
+  // Build personas list from config (includes custom personas)
+  const personas = useMemo(() => {
+    if (!sixArticlesConfig?.personas) {
+      return DEFAULT_PERSONAS;
+    }
+
+    return Object.entries(sixArticlesConfig.personas).map(([key, config]) => ({
+      value: key,
+      label: key,
+      description: config.focus || `${key} perspective`,
+    }));
+  }, [sixArticlesConfig]);
 
   // Get top stories from six articles report
   const topStories = sixArticles?.articles || [];
@@ -95,16 +184,15 @@ export function BriefingSection({
     return story.executive_takeaway || story.strategic_relevance || story.time_horizon;
   });
 
-  // Debug logging
-  console.log('[BriefingSection] Raw sixArticles:', sixArticles);
-  console.log('[BriefingSection] topStories count:', topStories.length);
-  console.log('[BriefingSection] hasExecutiveData:', hasExecutiveData);
-  if (topStories.length > 0) {
-    const first = topStories[0] as any;
-    console.log('[BriefingSection] First story:', first);
-    console.log('[BriefingSection] First story executive_takeaway:', first.executive_takeaway);
-    console.log('[BriefingSection] First story strategic_relevance:', first.strategic_relevance);
-  }
+  const currentPersona = personas.find(p => p.value === persona) || personas[0];
+
+  // Handle persona change with force regenerate
+  const handlePersonaChange = (newPersona: string) => {
+    if (onPersonaChange) {
+      onPersonaChange(newPersona as Persona, true); // Force regenerate
+    }
+    setShowPersonaDropdown(false);
+  };
 
   return (
     <section className="mb-8">
@@ -117,6 +205,71 @@ export function BriefingSection({
             <span className="text-xs text-gray-600 ml-2">
               Updated {new Date(sixArticles.generated_at).toLocaleTimeString()}
             </span>
+          )}
+        </div>
+
+        {/* Right side controls */}
+        <div className="flex items-center gap-2">
+          {/* Tune Button */}
+          {onOpenConfig && (
+            <button
+              onClick={onOpenConfig}
+              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              title="Configure briefing settings"
+            >
+              <Settings2 className="w-5 h-5" />
+            </button>
+          )}
+
+          {/* Persona Selector */}
+          {onPersonaChange && (
+            <div className="relative">
+              <button
+                onClick={() => setShowPersonaDropdown(!showPersonaDropdown)}
+                disabled={loadingSixArticles}
+                className="flex items-center gap-2 px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                {loadingSixArticles ? (
+                  <RefreshCw className="w-4 h-4 text-pink-500 animate-spin" />
+                ) : (
+                  <User className="w-4 h-4 text-gray-500" />
+                )}
+                <span className="font-medium text-gray-700">{currentPersona.label}</span>
+                <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showPersonaDropdown ? 'rotate-180' : ''}`} />
+              </button>
+
+              {showPersonaDropdown && (
+                <>
+                  {/* Backdrop */}
+                  <div
+                    className="fixed inset-0 z-10"
+                    onClick={() => setShowPersonaDropdown(false)}
+                  />
+                  {/* Dropdown */}
+                  <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1 max-h-80 overflow-y-auto">
+                    {personas.map((p) => (
+                      <button
+                        key={p.value}
+                        onClick={() => handlePersonaChange(p.value)}
+                        className={`w-full px-4 py-2 text-left hover:bg-gray-50 transition-colors ${
+                          persona === p.value ? 'bg-pink-50' : ''
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className={`font-medium ${persona === p.value ? 'text-pink-600' : 'text-gray-900'}`}>
+                            {p.label}
+                          </span>
+                          {persona === p.value && (
+                            <span className="text-pink-500">✓</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{p.description}</p>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -135,15 +288,18 @@ export function BriefingSection({
 
       {/* Loading State */}
       {loadingSixArticles && !sixArticles ? (
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Skeleton className="h-48 rounded-lg" />
+          <Skeleton className="h-48 rounded-lg" />
+          <Skeleton className="h-48 rounded-lg" />
           <Skeleton className="h-48 rounded-lg" />
           <Skeleton className="h-48 rounded-lg" />
           <Skeleton className="h-48 rounded-lg" />
         </div>
       ) : topStories.length > 0 ? (
-        /* Executive Briefing Cards - always show if we have topStories */
-        <div className="space-y-4">
-          {topStories.map((story, index) => {
+        /* Executive Briefing Cards - 2x3 grid layout */
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {topStories.slice(0, 6).map((story, index) => {
             const storyAny = story as any;
             const storyUri = storyAny.url || storyAny.uri || storyAny.primary_article?.uri || `story-${index}`;
             return (
@@ -346,25 +502,34 @@ function BriefingCard({ story, index, isExpanded, onToggle, isStarred, onStar, o
               )}
             </button>
 
-            {/* Executive Indicators */}
+            {/* Executive Indicators with tooltips */}
             <div className="flex flex-col gap-1 items-end">
               {storyData.time_horizon && (
-                <span className={`text-xs px-2 py-0.5 rounded ${timeStyle.bg} ${timeStyle.text}`}>
+                <BadgeWithTooltip
+                  tooltip={getTimeHorizonTooltip(storyData.time_horizon)}
+                  className={`text-xs px-2 py-0.5 rounded ${timeStyle.bg} ${timeStyle.text}`}
+                >
                   <Clock className="w-3 h-3 inline mr-1" />
                   {storyData.time_horizon}
-                </span>
+                </BadgeWithTooltip>
               )}
               {storyData.risk_opportunity && (
-                <span className={`text-xs px-2 py-0.5 rounded flex items-center gap-1 ${riskStyle.bg} ${riskStyle.text}`}>
+                <BadgeWithTooltip
+                  tooltip={getRiskOpportunityTooltip(storyData.risk_opportunity)}
+                  className={`text-xs px-2 py-0.5 rounded flex items-center gap-1 ${riskStyle.bg} ${riskStyle.text}`}
+                >
                   {riskStyle.icon}
                   {storyData.risk_opportunity}
-                </span>
+                </BadgeWithTooltip>
               )}
               {storyData.signal_strength && (
-                <span className={`text-xs px-2 py-0.5 rounded ${signalStyle.bg} ${signalStyle.text}`}>
+                <BadgeWithTooltip
+                  tooltip={getSignalStrengthTooltip(storyData.signal_strength)}
+                  className={`text-xs px-2 py-0.5 rounded ${signalStyle.bg} ${signalStyle.text}`}
+                >
                   <Zap className="w-3 h-3 inline mr-1" />
                   {storyData.signal_strength}
-                </span>
+                </BadgeWithTooltip>
               )}
             </div>
 

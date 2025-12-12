@@ -40,7 +40,7 @@ export function NarrativeThemeCard({
         {/* Perspective Breakdown */}
         {story.perspective_breakdown && Object.keys(story.perspective_breakdown).length > 0 && (
           <div className="mt-4 space-y-2">
-            <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+            <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wide">
               Perspectives
             </h4>
             <div className="space-y-2">
@@ -63,7 +63,7 @@ export function NarrativeThemeCard({
         {/* Primary Article */}
         <div className="mt-4 p-3 bg-gray-50 rounded-lg">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-gray-500">Primary Source</span>
+            <span className="text-xs font-medium text-gray-600">Primary Source</span>
             <ArticleBiasIndicator
               bias={story.primary_article.source.bias}
               factuality={story.primary_article.source.factuality}
@@ -79,7 +79,7 @@ export function NarrativeThemeCard({
             {story.primary_article.title}
             <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
           </a>
-          <p className="text-xs text-gray-500 mt-1">
+          <p className="text-xs text-gray-600 mt-1">
             {story.primary_article.source.name}
           </p>
         </div>
@@ -89,7 +89,7 @@ export function NarrativeThemeCard({
           <div className="mt-3">
             <button
               onClick={onToggleExpand}
-              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700"
+              className="flex items-center gap-1 text-xs text-gray-600 hover:text-gray-700"
             >
               <ChevronRight className={`w-4 h-4 transition-transform ${expanded ? 'rotate-90' : ''}`} />
               {story.related_articles.length} related articles
@@ -107,7 +107,7 @@ export function NarrativeThemeCard({
 
         {/* Factuality Assessment */}
         {story.factuality_assessment && (
-          <div className="mt-3 text-xs text-gray-500">
+          <div className="mt-3 text-xs text-gray-600">
             <span className="font-medium">Assessment:</span> {story.factuality_assessment}
           </div>
         )}
@@ -129,7 +129,7 @@ function RelatedArticleItem({ article }: { article: RelatedArticle }) {
         >
           {article.title}
         </a>
-        <span className="text-gray-400">{article.source}</span>
+        <span className="text-gray-600">{article.source}</span>
       </div>
     </div>
   );
