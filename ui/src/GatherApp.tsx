@@ -35,7 +35,7 @@ function GatherApp() {
     checkingKeywords,
     refresh,
     saveSettings,
-    toggleAutoProcessing,
+    toggleCollection,
     createGroup,
     removeGroup,
     addKeywordToGroup,
@@ -98,9 +98,9 @@ function GatherApp() {
     }
   };
 
-  // Handle auto-processing toggle
-  const handleToggleAutoProcessing = async () => {
-    await toggleAutoProcessing();
+  // Handle auto-collection toggle
+  const handleToggleCollection = async () => {
+    await toggleCollection();
   };
 
   // Handle run check for specific group
@@ -176,10 +176,9 @@ function GatherApp() {
 
           <main className="gather-main">
             <GatherHeader
-          settings={settings}
           status={status}
           checkingKeywords={checkingKeywords}
-          onToggleAutoProcessing={handleToggleAutoProcessing}
+          onToggleCollection={handleToggleCollection}
           onUpdateNow={handleUpdateNow}
           onOpenAutoCollect={() => setIsAutoCollectOpen(true)}
           onOpenManageKeywords={() => setIsManageKeywordsOpen(true)}

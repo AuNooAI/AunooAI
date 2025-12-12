@@ -272,6 +272,16 @@ export async function triggerKeywordCheck(
   });
 }
 
+// Toggle scheduled collection (is_enabled)
+export async function toggleScheduledCollection(
+  enabled: boolean
+): Promise<{ status: string; enabled: boolean }> {
+  return fetchJson(`${API_BASE}/toggle-polling`, {
+    method: 'POST',
+    body: JSON.stringify({ enabled }),
+  });
+}
+
 // Test process a single article through enrichment workflow
 export interface TestProcessStep {
   name: string;
