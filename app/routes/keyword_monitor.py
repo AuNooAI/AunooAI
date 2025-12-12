@@ -115,6 +115,480 @@ class KeywordMonitorSettings(BaseModel):
 class PollingToggle(BaseModel):
     enabled: bool
 
+
+@router.get("/groups")
+async def get_groups(db=Depends(get_database_instance), session=Depends(verify_session)):
+    """Get all keyword monitoring groups."""
+    try:
+        groups = db.facade.get_all_keyword_groups()
+        return [
+            {
+                "id": g["id"],
+                "name": g["name"],
+                "topic": g["topic"],
+                "created_at": g.get("created_at"),
+                "provider": g.get("provider"),
+                "source": g.get("source"),
+            }
+            for g in groups
+        ]
+    except Exception as e:
+        logger.error(f"Error getting keyword groups: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/keywords")
+async def get_keywords(
+    group_id: Optional[int] = None,
+    db=Depends(get_database_instance),
+    session=Depends(verify_session)
+):
+    """Get all monitored keywords, optionally filtered by group_id."""
+    try:
+        keywords = db.facade.get_monitored_keywords()
+        if group_id is not None:
+            keywords = [k for k in keywords if k.get("group_id") == group_id]
+        return [
+            {
+                "id": k["id"],
+                "group_id": k["group_id"],
+                "keyword": k["keyword"],
+                "created_at": k.get("created_at"),
+                "last_checked": k.get("last_checked"),
+            }
+            for k in keywords
+        ]
+    except Exception as e:
+        logger.error(f"Error getting keywords: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/group-summary")
+async def get_group_summaries(db=Depends(get_database_instance), session=Depends(verify_session)):
+    """Get summary statistics for all keyword groups (for Gather cards)."""
+    try:
+        groups = db.facade.get_all_keyword_groups()
+        keywords = db.facade.get_monitored_keywords()
+        relevance_stats = db.facade.get_keyword_relevance_stats()
+
+        # Get monitoring status
+        status = db.facade.get_keyword_monitoring_counter()
+
+        # Get relevance threshold from settings
+        settings = db.facade.get_keyword_monitor_settings_by_id(1)
+        relevance_threshold = settings.get('min_relevance_threshold', 0.39) if settings else 0.39
+
+        summaries = []
+        for group in groups:
+            group_id = group["id"]
+            group_keywords = [k for k in keywords if k.get("group_id") == group_id]
+            group_stats = [s for s in relevance_stats if s.get("group_id") == group_id]
+
+            # Calculate totals (handle None values)
+            total_articles = sum((s.get("total_matches") or 0) for s in group_stats)
+            avg_relevance = (
+                sum((s.get("avg_relevance") or 0) for s in group_stats) / len(group_stats) * 100
+                if group_stats else 0
+            )
+            high_relevance_pct = (
+                sum((s.get("high_relevance_pct") or 0) for s in group_stats) / len(group_stats)
+                if group_stats else 0
+            )
+
+            # Find last checked time
+            last_checked = None
+            for kw in group_keywords:
+                kw_last = kw.get("last_checked")
+                if kw_last:
+                    if last_checked is None or kw_last > last_checked:
+                        last_checked = kw_last
+
+            # Determine status
+            status_value = "never_run"
+            if status and status.get("last_error"):
+                status_value = "error"
+            elif last_checked:
+                status_value = "success"
+
+            # Get detailed article stats for this group (pass relevance threshold)
+            article_stats = db.facade.get_group_article_stats(group_id, relevance_threshold)
+
+            # Calculate relevance percentage (relevant / total scored)
+            total_scored = article_stats.get('relevant_count', 0) + article_stats.get('irrelevant_count', 0)
+            relevance_pct = round((article_stats.get('relevant_count', 0) / total_scored * 100) if total_scored > 0 else 0)
+
+            summaries.append({
+                "id": group_id,
+                "name": group["name"],
+                "topic": group["topic"],
+                "keyword_count": len(group_keywords),
+                "total_articles": article_stats.get('total_count', 0),
+                "avg_relevance": round(avg_relevance),
+                "relevance_pct": relevance_pct,  # % of scored articles that are relevant
+                "last_checked": last_checked,
+                "last_error": status.get("last_error") if status else None,
+                "status": status_value,
+                # Relevance-based article counts
+                "relevant_count": article_stats.get('relevant_count', 0),
+                "irrelevant_count": article_stats.get('irrelevant_count', 0),
+                "unscored_count": article_stats.get('unscored_count', 0),
+                # Time-based counts
+                "articles_past_24h": article_stats.get('articles_past_24h', 0),
+                "articles_past_week": article_stats.get('articles_past_week', 0),
+                "articles_past_month": article_stats.get('articles_past_month', 0),
+                "daily_counts": article_stats.get('daily_counts', []),
+            })
+
+        return summaries
+    except Exception as e:
+        logger.error(f"Error getting group summaries: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/group/{group_id}/articles")
+async def get_group_articles(
+    group_id: int,
+    limit: int = 20,
+    db=Depends(get_database_instance),
+    session=Depends(verify_session)
+):
+    """Get recent articles for a keyword group."""
+    try:
+        # Get articles matched to this group
+        articles = db.facade.get_articles_for_keyword_group(group_id, limit=limit)
+        return [
+            {
+                "id": a.get("id"),
+                "uri": a.get("uri") or a.get("url"),
+                "title": a.get("title"),
+                "source": a.get("source"),
+                "publication_date": a.get("publication_date"),
+                "detected_at": a.get("detected_at"),
+                # Scores
+                "keyword_relevance_score": a.get("keyword_relevance_score"),
+                "topic_alignment_score": a.get("topic_alignment_score"),
+                "overall_match_explanation": a.get("overall_match_explanation"),
+                # Content
+                "category": a.get("category"),
+                "summary": a.get("summary"),
+                # Enrichment fields with explanations
+                "sentiment": a.get("sentiment"),
+                "sentiment_explanation": a.get("sentiment_explanation"),
+                "time_to_impact": a.get("time_to_impact"),
+                "time_to_impact_explanation": a.get("time_to_impact_explanation"),
+                "driver_type": a.get("driver_type"),
+                "driver_type_explanation": a.get("driver_type_explanation"),
+            }
+            for a in articles
+        ]
+    except Exception as e:
+        logger.error(f"Error getting group articles: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class TestProcessRequest(BaseModel):
+    article_uri: str
+    group_id: int
+
+
+@router.post("/test-process-article")
+async def test_process_article(
+    request: TestProcessRequest,
+    db=Depends(get_database_instance),
+    session=Depends(verify_session)
+):
+    """
+    Test endpoint to process a single article through the LLM enrichment workflow.
+    Returns step-by-step results for troubleshooting the pipeline.
+    If the article is not in the database, it will scrape the URL first.
+    """
+    from app.services.automated_ingest_service import AutomatedIngestService
+    from app.research import Research
+    from datetime import datetime, timezone
+    import time
+
+    steps = []
+
+    def add_step(name: str, status: str, message: str, details: dict = None):
+        steps.append({
+            "name": name,
+            "status": status,  # "success", "error", "warning", "info"
+            "message": message,
+            "details": details or {}
+        })
+
+    try:
+        # Step 1: Lookup article in database
+        add_step("lookup", "info", f"Looking up article: {request.article_uri[:60]}...")
+
+        article_data = db.facade.get_article_by_uri(request.article_uri)
+        article_dict = None
+
+        needs_scrape = False
+
+        if article_data:
+            # Convert to dict
+            if hasattr(article_data, '_mapping'):
+                article_dict = dict(article_data._mapping)
+            else:
+                article_dict = dict(article_data) if not isinstance(article_data, dict) else article_data
+
+            # Ensure news_source is set (required by analyze_article_content)
+            if not article_dict.get('news_source'):
+                article_dict['news_source'] = article_dict.get('source', 'Unknown')
+
+            # Check if article has content (summary is the main content field in articles table)
+            has_content = bool(article_dict.get('summary'))
+            content_length = len(article_dict.get('summary') or '')
+
+            if has_content:
+                add_step("lookup", "success", "Article found in database with content", {
+                    "title": article_dict.get('title', 'N/A')[:80],
+                    "source": article_dict.get('news_source', 'Unknown'),
+                    "content_length": content_length
+                })
+            else:
+                add_step("lookup", "warning", "Article found but has no content - will re-scrape", {
+                    "title": article_dict.get('title', 'N/A')[:80]
+                })
+                needs_scrape = True
+        else:
+            needs_scrape = True
+            add_step("lookup", "warning", "Article not in database - will attempt to scrape")
+
+        # Step 1b: Scrape the article if needed
+        if needs_scrape:
+            add_step("scrape", "info", f"Scraping article from URL...")
+            scrape_start = time.time()
+
+            try:
+                research = Research(db)
+                scrape_result = await research.scrape_article(request.article_uri)
+                scrape_elapsed = round(time.time() - scrape_start, 2)
+
+                if scrape_result and scrape_result.get('content') and not scrape_result.get('error'):
+                    content = scrape_result['content']
+                    metadata = scrape_result.get('metadata', {})
+
+                    add_step("scrape", "success", f"Scraped content ({scrape_elapsed}s)", {
+                        "content_length": len(content),
+                        "source": scrape_result.get('source', 'Unknown'),
+                        "has_title": bool(metadata.get('title'))
+                    })
+
+                    # Step 1c: Save the scraped article to database
+                    article_exists = article_data is not None
+                    add_step("save_new", "info", f"{'Updating' if article_exists else 'Saving'} article in database...")
+
+                    # Extract title from metadata or content
+                    title = metadata.get('title', '')
+                    if not title:
+                        # Try to extract title from first line of content
+                        lines = content.strip().split('\n')
+                        if lines:
+                            # Remove markdown headers
+                            title = lines[0].lstrip('#').strip()[:200]
+
+                    # Build article data for saving
+                    extracted_source = scrape_result.get('source', research.extract_source(request.article_uri))
+                    new_article_data = {
+                        'uri': request.article_uri,
+                        'url': request.article_uri,
+                        'title': title or 'Untitled Article',
+                        'summary': content[:8000] if content else '',  # Store content in summary field
+                        'news_source': extracted_source,
+                        'publication_date': scrape_result.get('publication_date') or datetime.now(timezone.utc).date().isoformat(),
+                    }
+
+                    try:
+                        db.save_article(new_article_data)
+
+                        # Link article to keyword group if it's a new article
+                        if not article_exists:
+                            from app.database_models import t_keyword_article_matches as keyword_article_matches
+                            from sqlalchemy import insert
+                            db.facade._execute_with_rollback(insert(keyword_article_matches).values(
+                                article_uri=request.article_uri,
+                                keyword_ids='',  # No specific keyword, just group association
+                                group_id=request.group_id,
+                            ))
+                            db.facade.connection.commit()
+
+                        add_step("save_new", "success", f"Article {'updated' if article_exists else 'saved'} to database", {
+                            "title": new_article_data['title'][:60],
+                            "source": new_article_data['news_source']
+                        })
+
+                        # Set article_dict so enrichment can proceed
+                        article_dict = new_article_data
+
+                    except Exception as save_err:
+                        add_step("save_new", "error", f"Failed to save article: {str(save_err)}")
+                        return {
+                            "success": False,
+                            "steps": steps,
+                            "enrichment_fields": {},
+                            "message": f"Article scraped but failed to save: {str(save_err)}"
+                        }
+                else:
+                    error_msg = scrape_result.get('error', 'No content returned') if scrape_result else 'Scrape returned empty'
+                    add_step("scrape", "error", f"Scrape failed ({scrape_elapsed}s): {error_msg}")
+                    return {
+                        "success": False,
+                        "steps": steps,
+                        "enrichment_fields": {},
+                        "message": f"Could not scrape article: {error_msg}"
+                    }
+
+            except Exception as scrape_err:
+                scrape_elapsed = round(time.time() - scrape_start, 2)
+                add_step("scrape", "error", f"Scrape error ({scrape_elapsed}s): {str(scrape_err)}")
+                return {
+                    "success": False,
+                    "steps": steps,
+                    "enrichment_fields": {},
+                    "message": f"Error scraping article: {str(scrape_err)}"
+                }
+
+        # Step 2: Get keyword group and topic
+        add_step("topic", "info", f"Looking up keyword group {request.group_id}...")
+
+        groups = db.facade.get_all_keyword_groups()
+        group = next((g for g in groups if g['id'] == request.group_id), None)
+        if not group:
+            add_step("topic", "error", f"Keyword group {request.group_id} not found")
+            return {
+                "success": False,
+                "steps": steps,
+                "enrichment_fields": {},
+                "message": "Keyword group not found"
+            }
+
+        topic = group['topic']
+        article_dict['topic'] = topic
+        add_step("topic", "success", f"Using topic: {topic}", {"group_name": group['name']})
+
+        # Step 3: Initialize LLM
+        add_step("model", "info", "Initializing LLM model...")
+
+        ingest_service = AutomatedIngestService(db)
+        configured_model = ingest_service.get_llm_client()
+        llm_params = ingest_service.get_llm_parameters()
+
+        add_step("model", "success", f"Using model: {configured_model}", {
+            "temperature": llm_params.get('temperature'),
+            "max_tokens": llm_params.get('max_tokens')
+        })
+
+        # Step 4: Run LLM enrichment
+        add_step("enrich", "info", "Running LLM enrichment analysis...")
+        start_time = time.time()
+
+        try:
+            enriched_article = ingest_service.analyze_article_content(article_dict)
+            elapsed = round(time.time() - start_time, 2)
+
+            # Extract enrichment fields
+            update_fields = {
+                'category': enriched_article.get('category'),
+                'sentiment': enriched_article.get('sentiment'),
+                'sentiment_explanation': enriched_article.get('sentiment_explanation'),
+                'time_to_impact': enriched_article.get('time_to_impact'),
+                'time_to_impact_explanation': enriched_article.get('time_to_impact_explanation'),
+                'driver_type': enriched_article.get('driver_type'),
+                'driver_type_explanation': enriched_article.get('driver_type_explanation'),
+                'future_signal': enriched_article.get('future_signal'),
+                'future_signal_explanation': enriched_article.get('future_signal_explanation'),
+            }
+
+            # Filter out None values
+            update_fields = {k: v for k, v in update_fields.items() if v is not None}
+
+            if not update_fields:
+                add_step("enrich", "warning", f"LLM returned no enrichment fields ({elapsed}s)", {
+                    "elapsed_seconds": elapsed
+                })
+                return {
+                    "success": False,
+                    "steps": steps,
+                    "enrichment_fields": {},
+                    "message": f"LLM analysis completed but returned no enrichment data. Model: {configured_model}"
+                }
+
+            add_step("enrich", "success", f"Enrichment complete ({elapsed}s)", {
+                "elapsed_seconds": elapsed,
+                "fields_extracted": list(update_fields.keys())
+            })
+
+        except Exception as analysis_error:
+            elapsed = round(time.time() - start_time, 2)
+            add_step("enrich", "error", f"LLM analysis failed: {str(analysis_error)}", {
+                "elapsed_seconds": elapsed,
+                "error_type": type(analysis_error).__name__
+            })
+            return {
+                "success": False,
+                "steps": steps,
+                "enrichment_fields": {},
+                "message": f"LLM analysis failed: {str(analysis_error)}"
+            }
+
+        # Step 5: Save to database
+        add_step("save", "info", "Saving enrichment fields to database...")
+
+        try:
+            db.facade.update_article_fields(request.article_uri, update_fields)
+            add_step("save", "success", f"Saved {len(update_fields)} fields to database")
+        except Exception as save_error:
+            add_step("save", "error", f"Failed to save: {str(save_error)}")
+            return {
+                "success": False,
+                "steps": steps,
+                "enrichment_fields": update_fields,
+                "message": f"Enrichment succeeded but save failed: {str(save_error)}"
+            }
+
+        logger.info(f"✅ Test process complete for {request.article_uri}: {list(update_fields.keys())}")
+
+        return {
+            "success": True,
+            "steps": steps,
+            "enrichment_fields": update_fields,
+            "message": f"Article processed successfully. Updated {len(update_fields)} fields."
+        }
+
+    except Exception as e:
+        logger.error(f"Error in test_process_article: {e}", exc_info=True)
+        add_step("error", "error", f"Unexpected error: {str(e)}")
+        return {
+            "success": False,
+            "steps": steps,
+            "enrichment_fields": {},
+            "message": str(e)
+        }
+
+
+@router.delete("/group/{group_id}/unscored-articles")
+async def delete_unscored_articles(
+    group_id: int,
+    db=Depends(get_database_instance),
+    session=Depends(verify_session)
+):
+    """Delete all unscored articles (no relevance score) for a keyword group."""
+    try:
+        # Get unscored article matches for this group
+        deleted_count = db.facade.delete_unscored_article_matches(group_id)
+        logger.info(f"🗑️ Deleted {deleted_count} unscored article matches for group {group_id}")
+        return {
+            "success": True,
+            "deleted_count": deleted_count,
+            "message": f"Deleted {deleted_count} unscored articles"
+        }
+    except Exception as e:
+        logger.error(f"Error deleting unscored articles for group {group_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/groups")
 async def create_group(group: KeywordGroup, db=Depends(get_database_instance), session=Depends(verify_session)):
     try:
@@ -328,6 +802,9 @@ async def check_now(
 
         else:
             # Quick synchronous operation
+            from app.tasks.keyword_monitor import _background_task_status
+            from datetime import datetime
+
             monitor = KeywordMonitor(db)
 
             if group_id:
@@ -337,16 +814,23 @@ async def check_now(
             result = await monitor.check_keywords(group_id=group_id)
             logger.info(f"Result from check_keywords(): {result}")
 
+            # Update the global status so UI shows correct "Last check" time
+            _background_task_status["last_check_time"] = datetime.now()
+
             if result is None:
                 logger.error("check_keywords() returned None!")
+                _background_task_status["last_error"] = "Keyword check returned None"
                 raise HTTPException(status_code=500, detail="Keyword check returned None - check collector initialization")
 
             if result.get("success", False):
+                _background_task_status["last_error"] = None
                 logger.info(f"Keyword check completed successfully: {result.get('new_articles', 0)} new articles found")
                 return result
             else:
-                logger.error(f"Keyword check failed: {result.get('error', 'Unknown error')}")
-                raise HTTPException(status_code=500, detail=result.get('error', 'Unknown error'))
+                error_msg = result.get('error', 'Unknown error')
+                _background_task_status["last_error"] = error_msg
+                logger.error(f"Keyword check failed: {error_msg}")
+                raise HTTPException(status_code=500, detail=error_msg)
             
     except ValueError as e:
         logger.error(f"Value error in check_now: {str(e)}")

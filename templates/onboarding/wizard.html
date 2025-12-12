@@ -1840,9 +1840,9 @@ async function completeOnboarding() {
         if (response.ok) {
             showSuccessMessage("Onboarding completed successfully!");
 
-            // Redirect to keyword alerts page after a short delay
+            // Redirect to gather page after a short delay
             setTimeout(() => {
-                window.location.href = '/keyword-alerts';
+                window.location.href = '/gather';
             }, 2000);
         } else {
             const error = await response.json();

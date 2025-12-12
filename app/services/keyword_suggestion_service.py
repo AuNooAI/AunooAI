@@ -22,7 +22,8 @@ LOW_RELEVANCE_THRESHOLD = 0.4
 HIGH_RELEVANCE_THRESHOLD = 0.7
 
 # Prompt for analyzing keyword performance and suggesting improvements
-SUGGESTION_PROMPT = """You are analyzing keyword performance for a news monitoring system.
+# This is the basic prompt - provider-specific rules are added dynamically
+SUGGESTION_PROMPT_BASE = """You are analyzing keyword performance for a news monitoring system.
 
 Current keyword: "{keyword}"
 Topic being monitored: "{topic}"
@@ -34,31 +35,57 @@ This keyword was used to search for news articles. Here are some article titles 
 
 The keyword is bringing back too many irrelevant articles. Analyze WHY this is happening and suggest improvements.
 
-IMPORTANT - All suggested keywords must follow these rules (for news API compatibility):
-1. Use SIMPLE, SINGLE-WORD or TWO-WORD keywords only
-2. NO Boolean operators (AND, OR, NOT)
-3. NO parentheses, brackets, or special characters
-4. NO quoted phrases
-5. Keep each keyword under 30 characters
-6. For exclusions, prefix with minus sign: -term
+{keyword_rules}
 
 You can suggest TWO types of improvements:
-1. REPLACEMENTS: A more specific keyword to replace the current one
-2. EXCLUSIONS: Terms to exclude (prefixed with -) that will be appended to the current keyword
+1. REPLACEMENTS: A more focused keyword/query to replace the current one (MUST follow the keyword rules above)
+2. EXCLUSIONS: Terms to exclude that will filter out irrelevant results
 
-Respond with ONLY valid JSON in this exact format:
+Respond with ONLY valid JSON:
+
 {{
-    "analysis": "Brief explanation of why the current keyword has low relevance (what pattern causes false positives)",
+    "analysis": "Brief explanation of why the current keyword has low relevance",
     "suggested_replacements": [
-        {{"keyword": "more specific keyword", "reason": "why this is better"}}
+        {{"keyword": "YOUR_REPLACEMENT_KEYWORD_HERE", "reason": "why this is better"}}
     ],
     "suggested_exclusions": [
-        {{"keyword": "-exclusion term", "reason": "what irrelevant content it filters"}}
+        {{"keyword": "-term", "reason": "what it filters out"}}
     ],
     "confidence": 0.85
 }}
 
-IMPORTANT: Respond with ONLY the JSON object, no explanations or markdown."""
+CRITICAL: Replace YOUR_REPLACEMENT_KEYWORD_HERE with an actual keyword following the rules above. Respond with ONLY the JSON."""
+
+# Provider-specific keyword rules
+KEYWORD_RULES_THENEWSAPI = """CRITICAL: This API uses TheNewsAPI boolean query syntax.
+
+REQUIRED FORMAT for all suggested keywords:
+(term1 | term2) + (term3 | term4)
+
+Where | means OR and + means AND. Use quotes for phrases.
+
+Example: If the topic is "AI regulation", a valid suggestion is:
+("AI regulation" | "AI law") + (EU | US | policy)
+
+NOT valid: "AI regulation law" (missing boolean operators)
+
+Analyze which OR terms in the current query are causing irrelevant matches, then suggest a more focused boolean query that removes those problematic terms."""
+
+KEYWORD_RULES_SIMPLE = """IMPORTANT - All suggested keywords must follow these rules (for news API compatibility):
+1. Use SIMPLE, SINGLE-WORD or TWO-WORD keywords only
+2. NO Boolean operators (AND, OR, NOT, |, +)
+3. NO parentheses, brackets, or special characters
+4. NO quoted phrases
+5. Keep each keyword under 30 characters
+6. For exclusions, prefix with minus sign: -term"""
+
+# Map provider names to their rules
+PROVIDER_KEYWORD_RULES = {
+    'thenewsapi': KEYWORD_RULES_THENEWSAPI,
+    'newsdata': KEYWORD_RULES_SIMPLE,
+    'newsapi': KEYWORD_RULES_SIMPLE,  # NewsAPI has limited boolean support
+    'default': KEYWORD_RULES_SIMPLE,
+}
 
 
 class KeywordSuggestionService:
@@ -147,7 +174,7 @@ class KeywordSuggestionService:
         self,
         keyword_id: int,
         group_id: int,
-        model: str = "gpt-4o-mini"
+        model: str = None
     ) -> Dict[str, Any]:
         """
         Use LLM to analyze low-relevance articles and suggest keyword improvements.
@@ -155,7 +182,7 @@ class KeywordSuggestionService:
         Args:
             keyword_id: ID of the monitored keyword
             group_id: ID of the keyword group
-            model: LLM model to use
+            model: LLM model to use (if None, uses configured default from settings)
 
         Returns:
             Dictionary with analysis and suggestions
@@ -170,6 +197,14 @@ class KeywordSuggestionService:
 
             group_info = self.db.facade.get_keyword_group_by_id(group_id)
             topic = group_info.get('topic', '') if group_info else ''
+
+            # Get model from settings if not provided
+            if not model:
+                try:
+                    settings = self.db.facade.get_keyword_monitor_settings_by_id(1)
+                    model = settings.get('default_llm_model', 'gpt-4o-mini') if settings else 'gpt-4o-mini'
+                except Exception:
+                    model = 'gpt-4o-mini'
 
             # Get topic description if available
             topic_description = ""
@@ -191,14 +226,14 @@ class KeywordSuggestionService:
                     "message": f"Need at least {MIN_ARTICLES_FOR_ANALYSIS} matched articles to analyze. Currently have {performance.get('total_matches', 0)}."
                 }
 
-            # Get low relevance article titles for analysis
-            low_relevance_titles = self.db.facade.get_low_relevance_article_titles_for_keyword(
+            # Get low relevance articles with URLs for analysis
+            low_relevance_articles = self.db.facade.get_low_relevance_articles_for_keyword(
                 keyword_id,
                 threshold=LOW_RELEVANCE_THRESHOLD,
                 limit=15
             )
 
-            if not low_relevance_titles:
+            if not low_relevance_articles:
                 return {
                     "keyword_id": keyword_id,
                     "keyword": keyword_text,
@@ -207,17 +242,38 @@ class KeywordSuggestionService:
                     "message": "This keyword has good relevance. No low-relevance articles found to analyze."
                 }
 
-            # Format titles for prompt
-            titles_text = "\n".join([f"- {title}" for title in low_relevance_titles[:15]])
+            # Format titles for LLM prompt (just titles, not URLs)
+            titles_text = "\n".join([f"- {article['title']}" for article in low_relevance_articles[:15]])
 
             description_line = f"Topic description: {topic_description}" if topic_description else ""
 
-            # Build prompt
-            prompt = SUGGESTION_PROMPT.format(
+            # Get provider from keyword_monitor_settings (this is what's actually used for searches)
+            # Fall back to group's provider if settings not available
+            provider = ''
+            try:
+                settings = self.db.facade.get_keyword_monitor_settings_by_id(1)
+                if settings:
+                    provider = (settings.get('provider') or '').lower()
+                    logger.debug(f"Got provider from settings: {provider}")
+            except Exception as e:
+                logger.warning(f"Could not get provider from settings: {e}")
+
+            # Fallback to group's provider if settings unavailable
+            if not provider and group_info:
+                provider = (group_info.get('provider') or '').lower()
+                logger.debug(f"Using fallback provider from group: {provider}")
+
+            keyword_rules = PROVIDER_KEYWORD_RULES.get(provider, PROVIDER_KEYWORD_RULES['default'])
+
+            logger.info(f"Using keyword rules for provider '{provider}': {'compound queries allowed' if provider == 'thenewsapi' else 'simple keywords only'}")
+
+            # Build prompt with provider-specific rules
+            prompt = SUGGESTION_PROMPT_BASE.format(
                 keyword=keyword_text,
                 topic=topic,
                 description_line=description_line,
-                low_relevance_titles=titles_text
+                low_relevance_titles=titles_text,
+                keyword_rules=keyword_rules
             )
 
             # Call LLM
@@ -255,16 +311,35 @@ class KeywordSuggestionService:
                         "error": "Failed to parse LLM response"
                     }
 
-            # Normalize suggested keywords
-            from app.utils.keyword_normalizer import normalize_keyword
+            # Normalize suggested keywords (but skip for TheNewsAPI which supports boolean syntax)
+            if provider != 'thenewsapi':
+                from app.utils.keyword_normalizer import normalize_keyword
 
-            for suggestion_list in ['suggested_replacements', 'suggested_additions', 'suggested_exclusions']:
-                if suggestion_list in suggestions:
-                    for item in suggestions[suggestion_list]:
-                        if 'keyword' in item:
-                            normalized = normalize_keyword(item['keyword'])
-                            if normalized:
-                                item['keyword'] = normalized
+                for suggestion_list in ['suggested_replacements', 'suggested_additions', 'suggested_exclusions']:
+                    if suggestion_list in suggestions:
+                        for item in suggestions[suggestion_list]:
+                            if 'keyword' in item:
+                                normalized = normalize_keyword(item['keyword'])
+                                if normalized:
+                                    item['keyword'] = normalized
+            else:
+                # For TheNewsAPI, just clean up whitespace but preserve boolean syntax
+                for suggestion_list in ['suggested_replacements', 'suggested_additions', 'suggested_exclusions']:
+                    if suggestion_list in suggestions:
+                        for item in suggestions[suggestion_list]:
+                            if 'keyword' in item:
+                                # Just trim whitespace, preserve boolean operators
+                                item['keyword'] = ' '.join(item['keyword'].split())
+
+            # Include full article data with URLs for the UI
+            sample_articles = [
+                {
+                    "title": article['title'],
+                    "url": article.get('url', ''),
+                    "relevance_score": round(article.get('keyword_relevance_score', 0) * 100)
+                }
+                for article in low_relevance_articles[:5]
+            ]
 
             return {
                 "keyword_id": keyword_id,
@@ -279,7 +354,9 @@ class KeywordSuggestionService:
                     "exclusions": suggestions.get("suggested_exclusions", [])
                 },
                 "confidence": suggestions.get("confidence", 0.5),
-                "sample_low_relevance_titles": low_relevance_titles[:5],
+                "sample_low_relevance_articles": sample_articles,
+                # Keep titles for backwards compatibility
+                "sample_low_relevance_titles": [a['title'] for a in low_relevance_articles[:5]],
                 "analyzed_at": datetime.utcnow().isoformat()
             }
 

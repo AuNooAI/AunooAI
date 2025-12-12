@@ -110,7 +110,7 @@ export function SharedNavigation({ currentPage }: SharedNavigationProps) {
             {/* Gather */}
             <li>
               <a
-                href="/keyword-alerts"
+                href="/gather"
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-all ${
                   currentPage === 'gather'
                     ? 'bg-pink-50 text-pink-600'

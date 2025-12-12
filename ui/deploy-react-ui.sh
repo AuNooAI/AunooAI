@@ -1,5 +1,5 @@
 #!/bin/bash
-# Deploy React UI for Trend Convergence Dashboard
+# Deploy React UI for Trend Convergence Dashboard and Gather
 # This script builds the React app and deploys it to the static directory
 
 set -e  # Exit on error
@@ -80,6 +80,56 @@ sed -i "s|/static/trend-convergence/assets/index-[^.]*\.js|/static/trend-converg
 echo "✅ Template updated successfully!"
 echo ""
 
+# ================================
+# GATHER PAGE DEPLOYMENT
+# ================================
+echo "================================"
+echo "  Deploying Gather Page"
+echo "================================"
+echo ""
+
+GATHER_TEMPLATE="$PROJECT_ROOT/templates/gather_react.html"
+
+# Extract the hash from gather assets
+if [ -f "$STATIC_DIR/index-gather.html" ]; then
+    GATHER_CSS=$(grep -oP 'gather-[^.]+\.css' "$STATIC_DIR/index-gather.html" | head -1)
+    GATHER_JS=$(grep -oP 'gather-[^.]+\.js' "$STATIC_DIR/index-gather.html" | head -1)
+
+    echo "  📄 Gather CSS: $GATHER_CSS"
+    echo "  📄 Gather JS: $GATHER_JS"
+
+    if [ -f "$GATHER_TEMPLATE" ]; then
+        # Backup the template
+        cp "$GATHER_TEMPLATE" "$GATHER_TEMPLATE.backup"
+
+        # Update CSS file
+        if [ -n "$GATHER_CSS" ]; then
+            sed -i "s|/static/trend-convergence/assets/gather-[^.]*\.css|/static/trend-convergence/assets/$GATHER_CSS|" "$GATHER_TEMPLATE"
+        fi
+
+        # Update JS file
+        if [ -n "$GATHER_JS" ]; then
+            sed -i "s|/static/trend-convergence/assets/gather-[^.]*\.js|/static/trend-convergence/assets/$GATHER_JS|" "$GATHER_TEMPLATE"
+        fi
+
+        # Also update shared CSS (index.css) if gather uses it
+        if [ -n "$INDEX_CSS" ]; then
+            sed -i "s|/static/trend-convergence/assets/index-[^.]*\.css|/static/trend-convergence/assets/$INDEX_CSS|" "$GATHER_TEMPLATE"
+        fi
+
+        # Also update shared JS (index.js) for modulepreload
+        if [ -n "$INDEX_JS" ]; then
+            sed -i "s|/static/trend-convergence/assets/index-[^.]*\.js|/static/trend-convergence/assets/$INDEX_JS|" "$GATHER_TEMPLATE"
+        fi
+
+        echo "✅ Gather template updated successfully!"
+    else
+        echo "⚠️  Gather template not found: $GATHER_TEMPLATE"
+    fi
+else
+    echo "⚠️  index-gather.html not found in build output"
+fi
+
 echo ""
 echo "✅ Deployment complete!"
 echo ""
@@ -87,6 +137,9 @@ echo "📊 Build artifacts:"
 ls -lh "$STATIC_DIR/assets" | head -20
 echo ""
 echo "🌐 React UI is now available at: /trend-convergence"
-echo "📝 Template updated: $TEMPLATE_FILE"
+echo "🌐 Gather is now available at: /gather"
+echo "📝 Templates updated:"
+echo "   - $TEMPLATE_FILE"
+echo "   - $GATHER_TEMPLATE"
 echo ""
 echo "================================"

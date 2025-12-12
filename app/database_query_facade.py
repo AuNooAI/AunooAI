@@ -318,6 +318,23 @@ class DatabaseQueryFacade:
             )
         return self._execute_with_rollback(statement).mappings().fetchall()
 
+    def get_monitored_keywords_by_group_id(self, group_id: int):
+        """Get all monitored keywords for a specific group."""
+        statement = select(
+                monitored_keywords.c.id,
+                monitored_keywords.c.keyword,
+                monitored_keywords.c.last_checked,
+                monitored_keywords.c.group_id,
+                keyword_groups.c.topic,
+                keyword_groups.c.name.label('group_name')
+            ).select_from(
+                monitored_keywords
+                .join(keyword_groups, monitored_keywords.c.group_id == keyword_groups.c.id)
+            ).where(
+                monitored_keywords.c.group_id == group_id
+            )
+        return self._execute_with_rollback(statement).mappings().fetchall()
+
     def get_monitored_keywords_for_topic(self, params):
         statement = select(
             monitored_keywords.c.keyword
@@ -2801,6 +2818,27 @@ class DatabaseQueryFacade:
 
         return result.rowcount
 
+    def delete_unscored_article_matches(self, group_id: int) -> int:
+        """
+        Delete article matches that have no relevance score (unscored) for a keyword group.
+        These are articles that were collected but never processed for relevance.
+        """
+        # Join with articles to check for NULL keyword_relevance_score
+        statement = delete(keyword_article_matches).where(
+            keyword_article_matches.c.group_id == group_id,
+            keyword_article_matches.c.article_uri.in_(
+                select(articles.c.uri).where(
+                    or_(
+                        articles.c.keyword_relevance_score == None,
+                        articles.c.keyword_relevance_score == 0
+                    )
+                )
+            )
+        )
+        result = self._execute_with_rollback(statement)
+        self.connection.commit()
+        return result.rowcount
+
     def delete_keyword_article_matches_from_old_table_structure(self, ids_str, keyword_ids):
         statement = delete(keyword_alerts).where(keyword_alerts.c.keyword_id.in_(keyword_ids))
         result = self._execute_with_rollback(statement)
@@ -3387,6 +3425,142 @@ class DatabaseQueryFacade:
 
         result = self._execute_with_rollback(statement).mappings().fetchone()
         return dict(result) if result else None
+
+    def get_all_keyword_groups(self):
+        """Get all keyword groups."""
+        statement = select(
+            keyword_groups.c.id,
+            keyword_groups.c.name,
+            keyword_groups.c.topic,
+            keyword_groups.c.created_at,
+            keyword_groups.c.provider,
+            keyword_groups.c.source
+        ).order_by(keyword_groups.c.name)
+        return self._execute_with_rollback(statement).mappings().fetchall()
+
+    def get_articles_for_keyword_group(self, group_id: int, limit: int = 20):
+        """Get recent articles matched to a specific keyword group.
+
+        Returns articles with all enrichment fields including explanations.
+        """
+        query = text("""
+            SELECT DISTINCT
+                kam.id,
+                a.uri,
+                a.title,
+                a.news_source as source,
+                a.publication_date,
+                kam.detected_at,
+                a.keyword_relevance_score,
+                a.topic_alignment_score,
+                a.overall_match_explanation,
+                a.category,
+                a.summary,
+                a.sentiment,
+                a.sentiment_explanation,
+                a.time_to_impact,
+                a.time_to_impact_explanation,
+                a.driver_type,
+                a.driver_type_explanation
+            FROM keyword_article_matches kam
+            JOIN articles a ON kam.article_uri = a.uri
+            WHERE kam.group_id = :group_id
+            ORDER BY kam.detected_at DESC
+            LIMIT :limit
+        """)
+        result = self._execute_with_rollback(query, {'group_id': group_id, 'limit': limit})
+        return result.mappings().fetchall()
+
+    def get_group_article_stats(self, group_id: int, relevance_threshold: float = 0.39):
+        """Get article statistics for a keyword group including time-based counts.
+
+        Returns dict with:
+        - total_count: total articles collected for this group
+        - relevant_count: articles that passed relevance scoring (>= threshold)
+        - irrelevant_count: articles that didn't pass relevance scoring (< threshold)
+        - unscored_count: articles without any relevance score (for troubleshooting)
+        - articles_past_week: count of articles added in past 7 days
+        - articles_past_month: count of articles added in past 30 days
+        - daily_counts: list of (date, count) tuples for sparkline (past 30 days)
+        """
+        query = text("""
+            SELECT
+                COUNT(*) as total_count,
+                COUNT(CASE WHEN a.keyword_relevance_score >= :threshold THEN 1 END) as relevant_count,
+                COUNT(CASE WHEN a.keyword_relevance_score IS NOT NULL AND a.keyword_relevance_score < :threshold THEN 1 END) as irrelevant_count,
+                COUNT(CASE WHEN a.keyword_relevance_score IS NULL THEN 1 END) as unscored_count,
+                COUNT(CASE WHEN kam.detected_at::timestamp >= NOW() - INTERVAL '24 hours' THEN 1 END) as articles_past_24h,
+                COUNT(CASE WHEN kam.detected_at::timestamp >= NOW() - INTERVAL '7 days' THEN 1 END) as articles_past_week,
+                COUNT(CASE WHEN kam.detected_at::timestamp >= NOW() - INTERVAL '30 days' THEN 1 END) as articles_past_month
+            FROM keyword_article_matches kam
+            JOIN articles a ON kam.article_uri = a.uri
+            WHERE kam.group_id = :group_id
+        """)
+        result = self._execute_with_rollback(query, {'group_id': group_id, 'threshold': relevance_threshold})
+        row = result.mappings().fetchone()
+
+        # Get daily counts for sparkline
+        daily_query = text("""
+            SELECT
+                DATE(kam.detected_at::timestamp) as date,
+                COUNT(*) as count
+            FROM keyword_article_matches kam
+            WHERE kam.group_id = :group_id
+              AND kam.detected_at::timestamp >= NOW() - INTERVAL '30 days'
+            GROUP BY DATE(kam.detected_at::timestamp)
+            ORDER BY date
+        """)
+        daily_result = self._execute_with_rollback(daily_query, {'group_id': group_id})
+        daily_counts = [(str(r['date']), r['count']) for r in daily_result.mappings().fetchall()]
+
+        return {
+            'total_count': row['total_count'] if row else 0,
+            'relevant_count': row['relevant_count'] if row else 0,
+            'irrelevant_count': row['irrelevant_count'] if row else 0,
+            'unscored_count': row['unscored_count'] if row else 0,
+            'articles_past_24h': row['articles_past_24h'] if row else 0,
+            'articles_past_week': row['articles_past_week'] if row else 0,
+            'articles_past_month': row['articles_past_month'] if row else 0,
+            'daily_counts': daily_counts,
+        }
+
+    def get_group_last_run_stats(self, group_id: int):
+        """Get stats from the last collection run for a keyword group.
+
+        Returns dict with saved/not_saved counts from the most recent collection.
+        """
+        # Get the most recent detected_at timestamp for this group
+        last_run_query = text("""
+            SELECT MAX(detected_at::timestamp) as last_run
+            FROM keyword_article_matches
+            WHERE group_id = :group_id
+        """)
+        last_run_result = self._execute_with_rollback(last_run_query, {'group_id': group_id})
+        last_run_row = last_run_result.mappings().fetchone()
+
+        if not last_run_row or not last_run_row['last_run']:
+            return {'last_run_saved': 0, 'last_run_not_saved': 0}
+
+        # Get articles from the last run (within 1 hour of most recent)
+        stats_query = text("""
+            SELECT
+                COUNT(CASE WHEN a.category IS NOT NULL AND a.category != '' THEN 1 END) as saved_count,
+                COUNT(CASE WHEN a.category IS NULL OR a.category = '' THEN 1 END) as not_saved_count
+            FROM keyword_article_matches kam
+            JOIN articles a ON kam.article_uri = a.uri
+            WHERE kam.group_id = :group_id
+              AND kam.detected_at::timestamp >= CAST(:last_run AS timestamp) - INTERVAL '1 hour'
+        """)
+        result = self._execute_with_rollback(stats_query, {
+            'group_id': group_id,
+            'last_run': last_run_row['last_run']
+        })
+        row = result.mappings().fetchone()
+
+        return {
+            'last_run_saved': row['saved_count'] if row else 0,
+            'last_run_not_saved': row['not_saved_count'] if row else 0,
+        }
 
     def toggle_polling(self, toggle):
         statement = select(
@@ -4297,6 +4471,29 @@ class DatabaseQueryFacade:
         self.connection.commit()
 
         return result.rowcount
+
+    def update_article_fields(self, uri: str, fields: dict) -> int:
+        """
+        Update specific fields on an article by URI.
+
+        Args:
+            uri: Article URI
+            fields: Dictionary of field names to values to update
+
+        Returns:
+            Number of rows updated
+        """
+        if not fields:
+            return 0
+
+        statement = update(articles).where(articles.c.uri == uri).values(**fields)
+        result = self._execute_with_rollback(statement)
+        self.connection.commit()
+        return result.rowcount
+
+    def get_article_by_uri(self, uri: str):
+        """Get article by URI (alias for get_article_by_url)."""
+        return self.get_article_by_url(uri)
 
     def upsert_article(self, article_data: dict):
         """
@@ -9527,6 +9724,41 @@ class DatabaseQueryFacade:
             'limit': limit
         })
         return [row['title'] for row in result.mappings().fetchall()]
+
+    def get_low_relevance_articles_for_keyword(self, keyword_id: int, threshold: float = 0.4, limit: int = 10):
+        """Get sample low-relevance articles with title and URL for a keyword.
+
+        Args:
+            keyword_id: ID of the monitored keyword
+            threshold: Relevance score threshold (default 0.4)
+            limit: Maximum number of articles to return
+
+        Returns list of dicts with title and url from articles with keyword_relevance_score < threshold
+        """
+        query = text("""
+            WITH keyword_matches AS (
+                SELECT
+                    kam.article_uri,
+                    kam.group_id,
+                    unnest(string_to_array(kam.keyword_ids, ','))::int as keyword_id
+                FROM keyword_article_matches kam
+            )
+            SELECT a.title, a.url, a.keyword_relevance_score
+            FROM keyword_matches km
+            JOIN articles a ON km.article_uri = a.uri
+            WHERE km.keyword_id = :keyword_id
+            AND a.keyword_relevance_score IS NOT NULL
+            AND a.keyword_relevance_score < :threshold
+            ORDER BY a.keyword_relevance_score ASC
+            LIMIT :limit
+        """)
+
+        result = self._execute_with_rollback(query, {
+            'keyword_id': keyword_id,
+            'threshold': threshold,
+            'limit': limit
+        })
+        return [dict(row) for row in result.mappings().fetchall()]
 
     # =====================================================
     # Keyword Suggestion/Improvement Methods

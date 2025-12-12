@@ -57,6 +57,7 @@
         input: {
           main: path.resolve(__dirname, 'index.html'),
           operations: path.resolve(__dirname, 'index-operations.html'),
+          gather: path.resolve(__dirname, 'index-gather.html'),
         },
       },
     },
