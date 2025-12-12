@@ -502,7 +502,8 @@ async def run_keyword_check_task(progress_callback=None, group_id=None):
         group_id: Optional group ID to filter keywords by specific group
     """
     from app.database import get_database_instance
-    from app.tasks.keyword_monitor import KeywordMonitor
+    from app.tasks.keyword_monitor import KeywordMonitor, _background_task_status
+    from datetime import datetime
 
     try:
         db = get_database_instance()
@@ -517,18 +518,23 @@ async def run_keyword_check_task(progress_callback=None, group_id=None):
         # Run the keyword check with optional group_id filter and pass progress_callback through
         result = await monitor.check_keywords(group_id=group_id, progress_callback=progress_callback)
 
+        # Update the global status so UI shows correct "Last check" time
+        _background_task_status["last_check_time"] = datetime.now()
+
         if progress_callback:
             articles_found = result.get('new_articles', 0) if result else 0
             group_info = f" for group {group_id}" if group_id else ""
             progress_callback(100, f"Keyword check{group_info} completed: {articles_found} new articles found")
 
         if result is None:
+            _background_task_status["last_error"] = "Keyword check returned None"
             return {
                 "success": False,
                 "error": "Keyword check returned None - check collector initialization"
             }
 
         if result.get("success", False):
+            _background_task_status["last_error"] = None
             logger.info(f"Background keyword check completed: {result.get('new_articles', 0)} new articles found")
             return {
                 "success": True,
@@ -538,6 +544,7 @@ async def run_keyword_check_task(progress_callback=None, group_id=None):
             }
         else:
             error_msg = result.get('error', 'Unknown error')
+            _background_task_status["last_error"] = error_msg
             logger.error(f"Background keyword check failed: {error_msg}")
             return {
                 "success": False,
@@ -546,6 +553,7 @@ async def run_keyword_check_task(progress_callback=None, group_id=None):
 
     except Exception as e:
         logger.error(f"Keyword check task failed: {e}")
+        _background_task_status["last_error"] = str(e)
         return {
             "success": False,
             "error": str(e)
