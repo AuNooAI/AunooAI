@@ -1328,21 +1328,36 @@ Remember to cite your sources and provide actionable insights where possible."""
             conn.commit()  # CRITICAL: Commit to close transaction
             return 0
 
-    def save_signal_instruction(self, name: str, description: str, instruction: str, topic: str = None, is_active: bool = True) -> bool:
+    def save_signal_instruction(self, name: str, description: str, instruction: str, topic: str = None,
+                                is_active: bool = True, generate_report: bool = False,
+                                report_prompt: str = None, config: dict = None) -> bool:
         """Save a custom signal instruction for threat hunting."""
+        import json
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
                 # NOTE: signal_instructions table created via Alembic migration
                 # See: alembic/versions/b6a5ff4214f5_add_incident_status_table.py
 
-                # Insert or replace signal instruction
+                # Serialize config to JSON
+                config_json = json.dumps(config) if config else None
+
+                # Insert or update signal instruction (PostgreSQL ON CONFLICT)
                 cursor.execute("""
-                    INSERT OR REPLACE INTO signal_instructions 
-                    (name, description, instruction, topic, is_active, updated_at)
-                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, (name, description, instruction, topic, is_active))
-                
+                    INSERT INTO signal_instructions
+                    (name, description, instruction, topic, is_active, generate_report, report_prompt, config, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT (name) DO UPDATE SET
+                        description = EXCLUDED.description,
+                        instruction = EXCLUDED.instruction,
+                        topic = EXCLUDED.topic,
+                        is_active = EXCLUDED.is_active,
+                        generate_report = EXCLUDED.generate_report,
+                        report_prompt = EXCLUDED.report_prompt,
+                        config = EXCLUDED.config,
+                        updated_at = CURRENT_TIMESTAMP
+                """, (name, description, instruction, topic, is_active, generate_report, report_prompt, config_json))
+
                 conn.commit()
                 logger.info(f"Saved signal instruction: {name}")
                 return True
@@ -1354,46 +1369,59 @@ Remember to cite your sources and provide actionable insights where possible."""
 
     def get_signal_instructions(self, topic: str = None, active_only: bool = True) -> List[Dict]:
         """Get signal instructions, optionally filtered by topic."""
+        import json
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
                 # NOTE: signal_instructions table created via Alembic migration
                 # See: alembic/versions/b6a5ff4214f5_add_incident_status_table.py
 
-                # Query signal instructions
+                # Query signal instructions with new report fields
                 if topic:
                     if active_only:
                         cursor.execute("""
-                            SELECT id, name, description, instruction, topic, is_active, created_at, updated_at
-                            FROM signal_instructions 
+                            SELECT id, name, description, instruction, topic, is_active, created_at, updated_at,
+                                   generate_report, report_prompt, config
+                            FROM signal_instructions
                             WHERE (topic = ? OR topic IS NULL) AND is_active = TRUE
                             ORDER BY updated_at DESC
                         """, (topic,))
                     else:
                         cursor.execute("""
-                            SELECT id, name, description, instruction, topic, is_active, created_at, updated_at
-                            FROM signal_instructions 
+                            SELECT id, name, description, instruction, topic, is_active, created_at, updated_at,
+                                   generate_report, report_prompt, config
+                            FROM signal_instructions
                             WHERE (topic = ? OR topic IS NULL)
                             ORDER BY updated_at DESC
                         """, (topic,))
                 else:
                     if active_only:
                         cursor.execute("""
-                            SELECT id, name, description, instruction, topic, is_active, created_at, updated_at
-                            FROM signal_instructions 
+                            SELECT id, name, description, instruction, topic, is_active, created_at, updated_at,
+                                   generate_report, report_prompt, config
+                            FROM signal_instructions
                             WHERE is_active = TRUE
                             ORDER BY updated_at DESC
                         """)
                     else:
                         cursor.execute("""
-                            SELECT id, name, description, instruction, topic, is_active, created_at, updated_at
-                            FROM signal_instructions 
+                            SELECT id, name, description, instruction, topic, is_active, created_at, updated_at,
+                                   generate_report, report_prompt, config
+                            FROM signal_instructions
                             ORDER BY updated_at DESC
                         """)
-                
+
                 results = cursor.fetchall()
                 instructions = []
                 for row in results:
+                    config_data = row[10] if len(row) > 10 else None
+                    # Parse config JSON if it's a string
+                    if isinstance(config_data, str):
+                        try:
+                            config_data = json.loads(config_data)
+                        except:
+                            config_data = None
+
                     instructions.append({
                         'id': row[0],
                         'name': row[1],
@@ -1402,9 +1430,12 @@ Remember to cite your sources and provide actionable insights where possible."""
                         'topic': row[4],
                         'is_active': bool(row[5]),
                         'created_at': row[6],
-                        'updated_at': row[7]
+                        'updated_at': row[7],
+                        'generate_report': bool(row[8]) if len(row) > 8 else False,
+                        'report_prompt': row[9] if len(row) > 9 else None,
+                        'config': config_data
                     })
-                
+
                 return instructions
             except Exception as e:
                 logger.error(f"Error getting signal instructions: {e}")
@@ -1425,27 +1456,33 @@ Remember to cite your sources and provide actionable insights where possible."""
                 logger.error(f"Error deleting signal instruction: {e}")
                 return False
 
-    def save_signal_alert(self, article_uri: str, instruction_id: int, instruction_name: str, 
-                         confidence: float, threat_level: str, summary: str, detected_at: str = None) -> bool:
+    def save_signal_alert(self, article_uri: str, instruction_id: int, instruction_name: str,
+                         confidence: float, threat_level: str, summary: str, detected_at: str = None,
+                         reasoning: str = None) -> bool:
         """Save a signal alert when an article matches a signal instruction."""
         from datetime import datetime
-        
+
         if not detected_at:
             detected_at = datetime.now().isoformat()
-        
+
         with self.get_connection() as conn:
             cursor = conn.cursor()
             try:
                 # NOTE: signal_alerts table created via Alembic migration
                 # See: alembic/versions/b6a5ff4214f5_add_incident_status_table.py
 
-                # Insert or replace alert
+                # Insert or update alert (PostgreSQL ON CONFLICT)
                 cursor.execute("""
-                    INSERT OR REPLACE INTO signal_alerts 
-                    (article_uri, instruction_id, instruction_name, confidence, threat_level, summary, detected_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (article_uri, instruction_id, instruction_name, confidence, threat_level, summary, detected_at))
-                
+                    INSERT INTO signal_alerts
+                    (article_uri, instruction_id, instruction_name, confidence, threat_level, summary, detected_at, reasoning)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT (article_uri, instruction_id) DO UPDATE SET
+                        confidence = EXCLUDED.confidence,
+                        threat_level = EXCLUDED.threat_level,
+                        summary = EXCLUDED.summary,
+                        reasoning = EXCLUDED.reasoning
+                """, (article_uri, instruction_id, instruction_name, confidence, threat_level, summary, detected_at, reasoning))
+
                 conn.commit()
                 logger.info(f"Saved signal alert for article {article_uri} with instruction {instruction_name}")
                 return True
@@ -1467,53 +1504,53 @@ Remember to cite your sources and provide actionable insights where possible."""
                 if topic:
                     # If topic filter is specified, use JOIN
                     query = """
-                    SELECT sa.id, sa.article_uri, sa.instruction_id, sa.instruction_name, 
+                    SELECT sa.id, sa.article_uri, sa.instruction_id, sa.instruction_name,
                            sa.confidence, sa.threat_level, sa.summary, sa.detected_at,
-                           sa.is_acknowledged, sa.acknowledged_at,
+                           sa.is_acknowledged, sa.acknowledged_at, sa.reasoning,
                            a.title, a.news_source, a.publication_date
                     FROM signal_alerts sa
                     LEFT JOIN articles a ON sa.article_uri = a.uri
                     WHERE 1=1
                     """
                     params = []
-                    
+
                     if instruction_id:
                         query += " AND sa.instruction_id = ?"
                         params.append(instruction_id)
-                    
+
                     if acknowledged is not None:
                         query += " AND sa.is_acknowledged = ?"
                         # Convert Python boolean to SQLite integer (0/1)
                         params.append(1 if acknowledged else 0)
-                    
+
                     query += " AND (a.topic = ? OR a.title LIKE ? OR a.summary LIKE ?)"
                     topic_pattern = f"%{topic}%"
                     params.extend([topic, topic_pattern, topic_pattern])
-                    
+
                     query += " ORDER BY sa.detected_at DESC LIMIT ?"
                     params.append(limit)
                 else:
                     # If no topic filter, still JOIN to get article details
                     query = """
-                    SELECT sa.id, sa.article_uri, sa.instruction_id, sa.instruction_name, 
+                    SELECT sa.id, sa.article_uri, sa.instruction_id, sa.instruction_name,
                            sa.confidence, sa.threat_level, sa.summary, sa.detected_at,
-                           sa.is_acknowledged, sa.acknowledged_at,
+                           sa.is_acknowledged, sa.acknowledged_at, sa.reasoning,
                            a.title, a.news_source, a.publication_date
                     FROM signal_alerts sa
                     LEFT JOIN articles a ON sa.article_uri = a.uri
                     WHERE 1=1
                     """
                     params = []
-                    
+
                     if instruction_id:
                         query += " AND sa.instruction_id = ?"
                         params.append(instruction_id)
-                    
+
                     if acknowledged is not None:
                         query += " AND sa.is_acknowledged = ?"
                         # Convert Python boolean to SQLite integer (0/1)
                         params.append(1 if acknowledged else 0)
-                    
+
                     query += " ORDER BY sa.detected_at DESC LIMIT ?"
                     params.append(limit)
                 
@@ -1546,9 +1583,10 @@ Remember to cite your sources and provide actionable insights where possible."""
                         'detected_at': row[7],
                         'is_acknowledged': bool(row[8]),
                         'acknowledged_at': row[9],
-                        'article_title': row[10],
-                        'article_source': row[11],
-                        'article_publication_date': row[12]
+                        'reasoning': row[10],
+                        'article_title': row[11],
+                        'article_source': row[12],
+                        'article_publication_date': row[13]
                     })
                 
                 return alerts

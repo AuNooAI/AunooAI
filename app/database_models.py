@@ -195,6 +195,30 @@ t_saved_executive_briefings = Table(
     Index('idx_saved_exec_briefings_created', 'created_at')
 )
 
+t_saved_signal_reports = Table(
+    'saved_signal_reports', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('instruction_id', Integer, ForeignKey('signal_instructions.id', ondelete='SET NULL')),
+    Column('instruction_name', Text, nullable=False),
+    Column('topic', Text),
+    Column('username', Text, ForeignKey('users.username', ondelete='SET NULL')),
+    Column('name', String(255), nullable=False),
+    Column('description', Text),
+    Column('report_prompt', Text),
+    Column('report_content', Text),
+    Column('alerts_data', JSONB),  # Signal alerts that triggered this
+    Column('article_uris', ARRAY(Text)),
+    Column('articles_used', Integer),
+    Column('config', JSONB),  # Generation config (model, etc.)
+    Column('model_used', String(100)),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    UniqueConstraint('topic', 'username', 'name', name='uq_saved_signal_reports_topic_user_name'),
+    Index('idx_saved_signal_reports_topic', 'topic'),
+    Index('idx_saved_signal_reports_user', 'username'),
+    Index('idx_saved_signal_reports_instruction', 'instruction_id'),
+    Index('idx_saved_signal_reports_created', 'created_at')
+)
+
 t_analysis_versions = Table(
     'analysis_versions', metadata,
     Column('id', Integer, primary_key=True),

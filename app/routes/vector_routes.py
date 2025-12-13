@@ -2370,6 +2370,28 @@ class _SignalInstructionRequest(BaseModel):
     instruction: str = Field(..., description="LLM instruction for detecting this signal")
     topic: Optional[str] = Field(None, description="Topic to apply this signal to")
     is_active: bool = Field(True, description="Whether this signal is active")
+    generate_report: bool = Field(False, description="Whether to generate reports when matches are found")
+    report_prompt: Optional[str] = Field(None, description="Custom prompt for report generation")
+
+    @field_validator('topic')
+    @classmethod
+    def sanitize_topic(cls, v: str) -> str:
+        """Sanitize topic name - strip whitespace and normalize spaces."""
+        if v:
+            import re
+            return re.sub(r'\s+', ' ', v.strip())
+        return v
+
+
+class _UpdateSignalInstructionRequest(BaseModel):
+    """Request for updating signal instructions."""
+    name: Optional[str] = Field(None, description="Name of the signal instruction")
+    description: Optional[str] = Field(None, description="Description of what this signal watches for")
+    instruction: Optional[str] = Field(None, description="LLM instruction for detecting this signal")
+    topic: Optional[str] = Field(None, description="Topic to apply this signal to")
+    is_active: Optional[bool] = Field(None, description="Whether this signal is active")
+    generate_report: Optional[bool] = Field(None, description="Whether to generate reports")
+    report_prompt: Optional[str] = Field(None, description="Custom prompt for report generation")
 
     @field_validator('topic')
     @classmethod
@@ -2396,17 +2418,54 @@ async def save_signal_instruction(
             description=req.description,
             instruction=req.instruction,
             topic=req.topic,
-            is_active=req.is_active
+            is_active=req.is_active,
+            generate_report=req.generate_report,
+            report_prompt=req.report_prompt
         )
-        
+
         if success:
             return {"success": True, "message": f"Signal instruction '{req.name}' saved successfully"}
         else:
             raise HTTPException(status_code=500, detail="Failed to save signal instruction")
-            
+
     except Exception as exc:
         logger.error("Error saving signal instruction: %s", exc)
         raise HTTPException(status_code=500, detail="Signal instruction save error")
+
+
+@router.put("/signal-instructions/{instruction_id}")
+async def update_signal_instruction(
+    instruction_id: int,
+    req: _UpdateSignalInstructionRequest,
+    session=Depends(verify_session),
+):
+    """Update a signal instruction by ID."""
+    logger = logging.getLogger(__name__)
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+
+        success = db.facade.update_signal_instruction(
+            instruction_id=instruction_id,
+            name=req.name,
+            description=req.description,
+            instruction=req.instruction,
+            topic=req.topic,
+            is_active=req.is_active,
+            generate_report=req.generate_report,
+            report_prompt=req.report_prompt
+        )
+
+        if success:
+            return {"success": True, "message": "Signal instruction updated successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Signal instruction not found")
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error updating signal instruction: %s", exc)
+        raise HTTPException(status_code=500, detail="Signal instruction update error")
 
 @router.get("/signal-instructions")
 async def get_signal_instructions(
@@ -2807,6 +2866,9 @@ class _RunSignalRequest(BaseModel):
     max_articles: int = Field(100, ge=10, le=500, description="Maximum articles to analyze")
     model: str = Field("gpt-4o-mini", description="AI model to use")
     tag_flagged_articles: bool = Field(True, description="Tag articles that match signals")
+    generate_report: bool = Field(False, description="Generate a report from matches")
+    report_prompt: Optional[str] = Field(None, description="Custom prompt for report generation")
+    report_name: Optional[str] = Field(None, description="Name for the generated report")
 
     @field_validator('topic')
     @classmethod
@@ -2901,21 +2963,25 @@ async def run_signal_instructions(
             # Create analysis prompt
             system_prompt = f"""
             You are a threat intelligence analyst. Analyze the provided articles using this signal instruction:
-            
+
             SIGNAL: {instruction['name']}
             DESCRIPTION: {instruction['description']}
             INSTRUCTION: {instruction['instruction']}
-            
+
             For EACH article that matches the signal, return a separate JSON object:
             {{
                 "article_uri": "exact_uri_from_input",
                 "signal_detected": true,
                 "confidence": 0.0-1.0,
-                "summary": "Why this article matches the signal",
+                "summary": "Brief summary of what was detected",
+                "reasoning": "Detailed explanation of why this article is relevant and matches the signal criteria",
                 "threat_level": "low"|"medium"|"high",
                 "recommended_action": "What analysts should do"
             }}
-            
+
+            IMPORTANT: The "reasoning" field should explain WHY this article is relevant - what specific content,
+            entities, events, or patterns in the article triggered the match. This helps users understand the significance.
+
             Return a JSON array of all matching articles: [{{}}, {{}}, ...]
             If no articles match, return an empty array: []
             """
@@ -2947,7 +3013,8 @@ async def run_signal_instructions(
                                     confidence = match.get('confidence', 0.5)
                                     threat_level = match.get('threat_level', 'medium')
                                     summary = match.get('summary', 'Signal detected')
-                                    
+                                    reasoning = match.get('reasoning', '')
+
                                     # Save alert to database
                                     alert_saved = db.facade.save_signal_alert(
                                         article_uri=article_uri,
@@ -2955,19 +3022,22 @@ async def run_signal_instructions(
                                         instruction_name=instruction['name'],
                                         confidence=confidence,
                                         threat_level=threat_level,
-                                        summary=summary
+                                        summary=summary,
+                                        reasoning=reasoning
                                     )
-                                    
+
                                     if alert_saved:
                                         alerts_created.append({
                                             'article_uri': article_uri,
                                             'instruction_name': instruction['name'],
+                                            'instruction_id': instruction['id'],
                                             'confidence': confidence,
                                             'threat_level': threat_level,
-                                            'summary': summary
+                                            'summary': summary,
+                                            'reasoning': reasoning
                                         })
                                         total_matches += 1
-                                        
+
                                         # Tag the article if requested
                                         if req.tag_flagged_articles:
                                             tag_name = f"SIGNAL_{instruction['name'].replace(' ', '_').upper()}"
@@ -2985,6 +3055,104 @@ async def run_signal_instructions(
             except Exception as signal_error:
                 logger.error(f"Error running signal {instruction['name']}: {signal_error}")
         
+        # Generate report if requested (from request or from agent settings) and matches found
+        report_data = None
+
+        # Check if any of the run instructions have generate_report=true
+        instructions_with_report = [inst for inst in instructions if inst.get('generate_report', False)]
+        should_generate_report = req.generate_report or len(instructions_with_report) > 0
+
+        if should_generate_report and alerts_created:
+            try:
+                logger.info(f"Generating signal report for {len(alerts_created)} matches")
+
+                # Get instruction details for report
+                instruction_names = list(set(a['instruction_name'] for a in alerts_created))
+                instruction_ids = list(set(a['instruction_id'] for a in alerts_created))
+
+                # Build default report prompt if not provided
+                default_prompt = """
+Analyze the following signal matches and create a comprehensive intelligence report.
+
+## Your Task
+1. Summarize the key findings across all matched articles
+2. Identify common themes and patterns
+3. Assess the overall significance and urgency
+4. Provide actionable recommendations
+5. Note any gaps or areas requiring further investigation
+
+Format your response as a structured markdown report with clear sections.
+"""
+                # Use report_prompt from request, or from first instruction with report enabled, or default
+                report_prompt = req.report_prompt
+                if not report_prompt and instructions_with_report:
+                    report_prompt = instructions_with_report[0].get('report_prompt')
+                if not report_prompt:
+                    report_prompt = default_prompt
+
+                # Build article summaries for report
+                alerts_summary = "\n\n".join([
+                    f"### Match {i+1}: {a['instruction_name']}\n"
+                    f"**Article URI:** {a['article_uri']}\n"
+                    f"**Threat Level:** {a['threat_level']}\n"
+                    f"**Confidence:** {a['confidence']}\n"
+                    f"**Summary:** {a['summary']}\n"
+                    f"**Reasoning:** {a['reasoning']}"
+                    for i, a in enumerate(alerts_created)
+                ])
+
+                full_prompt = f"""
+{report_prompt}
+
+## Signal Instructions Analyzed
+{', '.join(instruction_names)}
+
+## Matched Articles ({len(alerts_created)} matches)
+{alerts_summary}
+"""
+
+                report_messages = [
+                    {"role": "system", "content": "You are an intelligence analyst creating comprehensive reports from signal detection data."},
+                    {"role": "user", "content": full_prompt}
+                ]
+
+                report_content = await run_in_threadpool(ai_model.generate_response, report_messages)
+
+                if report_content and not ("⚠️" in report_content or "unavailable" in report_content.lower()):
+                    # Generate report name if not provided
+                    from datetime import datetime
+                    report_name = req.report_name or f"Signal Report - {instruction_names[0]} - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+
+                    # Save the report
+                    report_id = db.facade.create_saved_signal_report(
+                        instruction_id=instruction_ids[0] if len(instruction_ids) == 1 else None,
+                        instruction_name=', '.join(instruction_names),
+                        name=report_name,
+                        topic=req.topic,
+                        description=f"Auto-generated report from {len(alerts_created)} signal matches",
+                        report_prompt=report_prompt,
+                        report_content=report_content,
+                        alerts_data=alerts_created,
+                        article_uris=[a['article_uri'] for a in alerts_created],
+                        articles_used=len(alerts_created),
+                        config={'days_back': req.days_back, 'max_articles': req.max_articles},
+                        model_used=req.model
+                    )
+
+                    report_data = {
+                        'id': report_id,
+                        'name': report_name,
+                        'content': report_content,
+                        'articles_used': len(alerts_created)
+                    }
+                    logger.info(f"Generated signal report ID: {report_id}")
+                else:
+                    logger.warning("Report generation returned empty or error response")
+
+            except Exception as report_error:
+                logger.error(f"Error generating signal report: {report_error}")
+                # Don't fail the whole operation if report generation fails
+
         return {
             "success": True,
             "message": f"Analyzed {len(articles)} articles with {len(instructions)} signal instructions",
@@ -2992,9 +3160,10 @@ async def run_signal_instructions(
             "total_matches": total_matches,
             "instructions_run": len(instructions),
             "articles_analyzed": len(articles),
-            "analysis_period": f"{start_date_dt.strftime('%Y-%m-%d')} to {end_date_dt.strftime('%Y-%m-%d')}"
+            "analysis_period": f"{start_date_dt.strftime('%Y-%m-%d')} to {end_date_dt.strftime('%Y-%m-%d')}",
+            "report": report_data
         }
-        
+
     except Exception as exc:
         logger.error("Error in run signal instructions: %s", exc)
         raise HTTPException(status_code=500, detail="Signal runner error")
@@ -3068,6 +3237,110 @@ async def acknowledge_alert(
     except Exception as exc:
         logger.error("Error acknowledging alert: %s", exc)
         raise HTTPException(status_code=500, detail="Alert acknowledgment error")
+
+# ------------------------------------------------------------------
+# Signal Reports endpoints
+# ------------------------------------------------------------------
+
+@router.get("/signal-reports")
+async def get_signal_reports(
+    topic: Optional[str] = Query(None, description="Filter by topic"),
+    instruction_id: Optional[int] = Query(None, description="Filter by instruction ID"),
+    limit: int = Query(100, ge=1, le=500, description="Maximum reports to return"),
+    session=Depends(verify_session_optional),
+):
+    """Get saved signal reports."""
+    logger = logging.getLogger(__name__)
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+
+        reports = db.facade.get_saved_signal_reports(
+            topic=topic,
+            instruction_id=instruction_id,
+            limit=limit
+        )
+
+        return {
+            "success": True,
+            "reports": reports,
+            "total": len(reports)
+        }
+
+    except Exception as exc:
+        logger.error("Error getting signal reports: %s", exc)
+        raise HTTPException(status_code=500, detail="Signal reports retrieval error")
+
+
+@router.get("/signal-reports/{report_id}")
+async def get_signal_report_by_id(
+    report_id: int,
+    session=Depends(verify_session_optional),
+):
+    """Get a specific signal report by ID."""
+    logger = logging.getLogger(__name__)
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+
+        report = db.facade.get_saved_signal_report_by_id(report_id)
+
+        if report:
+            return {"success": True, "report": report}
+        else:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error getting signal report: %s", exc)
+        raise HTTPException(status_code=500, detail="Signal report retrieval error")
+
+
+@router.delete("/signal-reports/{report_id}")
+async def delete_signal_report(
+    report_id: int,
+    session=Depends(verify_session),
+):
+    """Delete a signal report."""
+    logger = logging.getLogger(__name__)
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+
+        success = db.facade.delete_saved_signal_report(report_id)
+
+        if success:
+            return {"success": True, "message": "Report deleted successfully"}
+        else:
+            raise HTTPException(status_code=404, detail="Report not found")
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error deleting signal report: %s", exc)
+        raise HTTPException(status_code=500, detail="Signal report deletion error")
+
+
+@router.get("/signal-reports-count")
+async def get_signal_reports_count(
+    topic: Optional[str] = Query(None, description="Filter by topic"),
+    session=Depends(verify_session_optional),
+):
+    """Get count of signal reports."""
+    logger = logging.getLogger(__name__)
+    try:
+        from app.database import get_database_instance
+        db = get_database_instance()
+
+        count = db.facade.get_signal_report_count(topic=topic)
+
+        return {"success": True, "count": count}
+
+    except Exception as exc:
+        logger.error("Error getting signal report count: %s", exc)
+        raise HTTPException(status_code=500, detail="Signal report count error")
+
 
 # ------------------------------------------------------------------
 # Analysis cache endpoints
