@@ -5689,6 +5689,9 @@ class DatabaseQueryFacade:
                     'instruction': row['instruction'],
                     'topic': row['topic'],
                     'is_active': bool(row['is_active']),
+                    'generate_report': bool(row.get('generate_report', False)),
+                    'report_prompt': row.get('report_prompt'),
+                    'config': row.get('config'),
                     'created_at': row['created_at'],
                     'updated_at': row['updated_at']
                 })
@@ -5698,7 +5701,8 @@ class DatabaseQueryFacade:
             return []
 
     def save_signal_instruction(self, name: str, description: str, instruction: str,
-                               topic: str = None, is_active: bool = True) -> bool:
+                               topic: str = None, is_active: bool = True,
+                               generate_report: bool = False, report_prompt: str = None) -> bool:
         """Save a custom signal instruction for threat hunting.
 
         Args:
@@ -5707,6 +5711,8 @@ class DatabaseQueryFacade:
             instruction: The instruction text for the AI
             topic: Optional topic to associate with
             is_active: Whether the instruction is active
+            generate_report: Whether to generate reports when matches are found
+            report_prompt: Custom prompt for report generation
 
         Returns:
             True if successfully saved, False otherwise
@@ -5714,13 +5720,15 @@ class DatabaseQueryFacade:
         try:
             # PostgreSQL uses INSERT ... ON CONFLICT instead of INSERT OR REPLACE
             query = """
-            INSERT INTO signal_instructions (name, description, instruction, topic, is_active, updated_at)
-            VALUES (:name, :description, :instruction, :topic, :is_active, CURRENT_TIMESTAMP)
+            INSERT INTO signal_instructions (name, description, instruction, topic, is_active, generate_report, report_prompt, updated_at)
+            VALUES (:name, :description, :instruction, :topic, :is_active, :generate_report, :report_prompt, CURRENT_TIMESTAMP)
             ON CONFLICT (name) DO UPDATE SET
                 description = :description,
                 instruction = :instruction,
                 topic = :topic,
                 is_active = :is_active,
+                generate_report = :generate_report,
+                report_prompt = :report_prompt,
                 updated_at = CURRENT_TIMESTAMP
             """
             self._execute_with_rollback(text(query), {
@@ -5728,13 +5736,86 @@ class DatabaseQueryFacade:
                 'description': description,
                 'instruction': instruction,
                 'topic': topic,
-                'is_active': is_active
+                'is_active': is_active,
+                'generate_report': generate_report,
+                'report_prompt': report_prompt
             })
             self.connection.commit()
             self.logger.info(f"Saved signal instruction: {name}")
             return True
         except Exception as e:
             self.logger.error(f"Error saving signal instruction: {e}")
+            return False
+
+    def update_signal_instruction(self, instruction_id: int, name: str = None,
+                                  description: str = None, instruction: str = None,
+                                  topic: str = None, is_active: bool = None,
+                                  generate_report: bool = None, report_prompt: str = None,
+                                  config: dict = None) -> bool:
+        """Update a signal instruction by ID.
+
+        Args:
+            instruction_id: ID of the instruction to update
+            name: New name (optional)
+            description: New description (optional)
+            instruction: New instruction text (optional)
+            topic: New topic (optional)
+            is_active: New active status (optional)
+            generate_report: Whether to generate reports (optional)
+            report_prompt: Custom report prompt (optional)
+            config: Additional configuration (optional)
+
+        Returns:
+            True if successfully updated, False otherwise
+        """
+        try:
+            # Build dynamic update query based on provided fields
+            updates = []
+            params = {'instruction_id': instruction_id}
+
+            if name is not None:
+                updates.append("name = :name")
+                params['name'] = name
+            if description is not None:
+                updates.append("description = :description")
+                params['description'] = description
+            if instruction is not None:
+                updates.append("instruction = :instruction")
+                params['instruction'] = instruction
+            if topic is not None:
+                updates.append("topic = :topic")
+                params['topic'] = topic if topic else None
+            if is_active is not None:
+                updates.append("is_active = :is_active")
+                params['is_active'] = is_active
+            if generate_report is not None:
+                updates.append("generate_report = :generate_report")
+                params['generate_report'] = generate_report
+            if report_prompt is not None:
+                updates.append("report_prompt = :report_prompt")
+                params['report_prompt'] = report_prompt if report_prompt else None
+            if config is not None:
+                updates.append("config = :config")
+                params['config'] = json.dumps(config) if config else None
+
+            if not updates:
+                return True  # Nothing to update
+
+            updates.append("updated_at = CURRENT_TIMESTAMP")
+
+            query = f"""
+            UPDATE signal_instructions
+            SET {', '.join(updates)}
+            WHERE id = :instruction_id
+            """
+            result = self._execute_with_rollback(text(query), params)
+            self.connection.commit()
+            updated = result.rowcount > 0
+            if updated:
+                self.logger.info(f"Updated signal instruction ID: {instruction_id}")
+            return updated
+        except Exception as e:
+            self.logger.error(f"Error updating signal instruction {instruction_id}: {e}")
             return False
 
     def delete_signal_instruction(self, instruction_id: int) -> bool:
@@ -5760,7 +5841,8 @@ class DatabaseQueryFacade:
 
     def save_signal_alert(self, article_uri: str, instruction_id: int,
                          instruction_name: str, confidence: float,
-                         threat_level: str, summary: str) -> Optional[int]:
+                         threat_level: str, summary: str,
+                         reasoning: str = None) -> Optional[int]:
         """Save a signal alert.
 
         Args:
@@ -5770,6 +5852,7 @@ class DatabaseQueryFacade:
             confidence: Confidence score (0.0 to 1.0)
             threat_level: Threat level (e.g., 'low', 'medium', 'high', 'critical')
             summary: Summary of the alert
+            reasoning: Explanation of why this article was flagged
 
         Returns:
             ID of the created alert, or None if failed
@@ -5777,12 +5860,13 @@ class DatabaseQueryFacade:
         try:
             query = """
             INSERT INTO signal_alerts
-            (article_uri, instruction_id, instruction_name, confidence, threat_level, summary)
-            VALUES (:article_uri, :instruction_id, :instruction_name, :confidence, :threat_level, :summary)
+            (article_uri, instruction_id, instruction_name, confidence, threat_level, summary, reasoning)
+            VALUES (:article_uri, :instruction_id, :instruction_name, :confidence, :threat_level, :summary, :reasoning)
             ON CONFLICT (article_uri, instruction_id) DO UPDATE SET
                 confidence = :confidence,
                 threat_level = :threat_level,
                 summary = :summary,
+                reasoning = :reasoning,
                 detected_at = CURRENT_TIMESTAMP
             RETURNING id
             """
@@ -5792,7 +5876,8 @@ class DatabaseQueryFacade:
                 'instruction_name': instruction_name,
                 'confidence': confidence,
                 'threat_level': threat_level,
-                'summary': summary
+                'summary': summary,
+                'reasoning': reasoning
             })
             self.connection.commit()
             row = result.fetchone()
@@ -9555,6 +9640,216 @@ class DatabaseQueryFacade:
                 }
             }
         }
+
+    # ========================================================================
+    # SAVED SIGNAL REPORTS CRUD
+    # ========================================================================
+
+    def create_saved_signal_report(
+        self,
+        instruction_id: int,
+        instruction_name: str,
+        name: str,
+        username: str = None,
+        topic: str = None,
+        description: str = None,
+        report_prompt: str = None,
+        report_content: str = None,
+        alerts_data: list = None,
+        article_uris: list = None,
+        articles_used: int = None,
+        config: dict = None,
+        model_used: str = None
+    ) -> int:
+        """Create a new saved signal report.
+
+        Args:
+            instruction_id: Signal instruction ID
+            instruction_name: Name of the signal instruction
+            name: Report name
+            username: Optional username
+            topic: Optional topic
+            description: Optional description
+            report_prompt: The prompt used to generate the report
+            report_content: Generated report content (markdown)
+            alerts_data: Signal alerts that triggered this report
+            article_uris: List of article URIs analyzed
+            articles_used: Number of articles used
+            config: Generation config
+            model_used: AI model used
+
+        Returns:
+            ID of the created saved signal report
+        """
+        try:
+            from app.database_models import t_saved_signal_reports
+            from sqlalchemy import insert
+            import json
+
+            # Ensure alerts_data is JSON-serializable
+            alerts_json = json.loads(json.dumps(alerts_data, default=str)) if alerts_data else []
+
+            statement = insert(t_saved_signal_reports).values(
+                instruction_id=instruction_id,
+                instruction_name=instruction_name,
+                name=name,
+                username=username,
+                topic=topic,
+                description=description,
+                report_prompt=report_prompt,
+                report_content=report_content,
+                alerts_data=alerts_json,
+                article_uris=article_uris,
+                articles_used=articles_used,
+                config=config,
+                model_used=model_used
+            ).returning(t_saved_signal_reports.c.id)
+
+            result = self._execute_with_rollback(statement)
+            row = result.fetchone()
+            self.logger.info(f"Created saved signal report '{name}' (ID: {row[0]})")
+            return row[0]
+        except Exception as e:
+            self.logger.error(f"Error creating saved signal report: {e}")
+            raise
+
+    def get_saved_signal_reports(
+        self,
+        topic: str = None,
+        username: str = None,
+        instruction_id: int = None,
+        limit: int = 100
+    ) -> list:
+        """Get saved signal reports with optional filters.
+
+        Returns list of report summaries sorted by creation date desc.
+        """
+        try:
+            from app.database_models import t_saved_signal_reports
+            from sqlalchemy import select
+
+            statement = select(
+                t_saved_signal_reports.c.id,
+                t_saved_signal_reports.c.instruction_id,
+                t_saved_signal_reports.c.instruction_name,
+                t_saved_signal_reports.c.name,
+                t_saved_signal_reports.c.description,
+                t_saved_signal_reports.c.topic,
+                t_saved_signal_reports.c.articles_used,
+                t_saved_signal_reports.c.model_used,
+                t_saved_signal_reports.c.created_at
+            )
+
+            # Apply filters
+            conditions = []
+            if topic:
+                conditions.append(t_saved_signal_reports.c.topic == topic)
+            if username:
+                conditions.append(t_saved_signal_reports.c.username == username)
+            if instruction_id:
+                conditions.append(t_saved_signal_reports.c.instruction_id == instruction_id)
+
+            if conditions:
+                from sqlalchemy import and_
+                statement = statement.where(and_(*conditions))
+
+            statement = statement.order_by(
+                t_saved_signal_reports.c.created_at.desc()
+            ).limit(limit)
+
+            results = self._execute_with_rollback(statement).fetchall()
+            return [dict(r._mapping) for r in results]
+        except Exception as e:
+            self.logger.error(f"Error getting saved signal reports: {e}")
+            return []
+
+    def get_saved_signal_report_by_id(
+        self,
+        report_id: int,
+        username: str = None
+    ) -> dict:
+        """Get a specific saved signal report by ID.
+
+        Returns full report data or None if not found.
+        """
+        try:
+            from app.database_models import t_saved_signal_reports
+            from sqlalchemy import select
+
+            statement = select(t_saved_signal_reports).where(
+                t_saved_signal_reports.c.id == report_id
+            )
+
+            # Optionally filter by username
+            if username:
+                statement = statement.where(
+                    t_saved_signal_reports.c.username == username
+                )
+
+            result = self._execute_with_rollback(statement).fetchone()
+            if result:
+                return dict(result._mapping)
+            return None
+        except Exception as e:
+            self.logger.error(f"Error retrieving saved signal report {report_id}: {e}")
+            return None
+
+    def delete_saved_signal_report(
+        self,
+        report_id: int,
+        username: str = None
+    ) -> bool:
+        """Delete a saved signal report."""
+        try:
+            from app.database_models import t_saved_signal_reports
+            from sqlalchemy import delete
+
+            statement = delete(t_saved_signal_reports).where(
+                t_saved_signal_reports.c.id == report_id
+            )
+
+            # Optionally filter by username
+            if username:
+                statement = statement.where(
+                    t_saved_signal_reports.c.username == username
+                )
+
+            result = self._execute_with_rollback(statement)
+            deleted = result.rowcount > 0
+            if deleted:
+                self.logger.info(f"Deleted saved signal report {report_id}")
+            return deleted
+        except Exception as e:
+            self.logger.error(f"Error deleting saved signal report {report_id}: {e}")
+            return False
+
+    def get_signal_report_count(
+        self,
+        topic: str = None,
+        username: str = None
+    ) -> int:
+        """Get count of saved signal reports."""
+        try:
+            from app.database_models import t_saved_signal_reports
+            from sqlalchemy import select, func
+
+            statement = select(func.count(t_saved_signal_reports.c.id))
+
+            conditions = []
+            if topic:
+                conditions.append(t_saved_signal_reports.c.topic == topic)
+            if username:
+                conditions.append(t_saved_signal_reports.c.username == username)
+
+            if conditions:
+                from sqlalchemy import and_
+                statement = statement.where(and_(*conditions))
+
+            result = self._execute_with_rollback(statement).scalar()
+            return result or 0
+        except Exception as e:
+            self.logger.error(f"Error getting signal report count: {e}")
+            return 0
 
     # =====================================================
     # Keyword Relevance Analysis Methods

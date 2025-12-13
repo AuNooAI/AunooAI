@@ -2137,3 +2137,162 @@
 .gather-main section.mb-6 .space-y-1 > div.group:hover {
   background-color: #f3f4f6;
 }
+
+/* ============================================
+   Explore Page Tab Navigation
+   ============================================ */
+
+.explore-tab-navigation {
+  display: flex;
+  gap: 4px;
+  padding: 8px 24px;
+  background-color: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.explore-tab-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #6b7280;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.explore-tab-btn:hover {
+  color: #374151;
+  background-color: #f3f4f6;
+}
+
+.explore-tab-btn.active {
+  color: #ec4899;
+  background-color: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.explore-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: white;
+  background-color: #ef4444;
+  border-radius: 10px;
+}
+
+/* Badge styling fixes for visibility */
+.research-agents-section [class*="badge"],
+.research-agent-card [class*="badge"] {
+  font-weight: 600;
+}
+
+/* Destructive/alert badges - ensure red with white text */
+.research-agents-section [data-slot="badge"][class*="destructive"],
+.research-agent-card .bg-red-100 {
+  background-color: #fee2e2 !important;
+  color: #dc2626 !important;
+}
+
+/* Alert count badge in section header */
+.research-agents-section > .flex > .flex [data-slot="badge"] {
+  background-color: #ef4444 !important;
+  color: white !important;
+}
+
+/* ============================================
+   Research Agents Section Styles
+   ============================================ */
+
+/* Section styling to match other sections */
+.research-agents-section {
+  padding-bottom: 24px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+/* Section header with pink accent */
+.research-agents-section > .flex > .flex.items-center.gap-2 h2 {
+  padding-left: 12px;
+  border-left: 3px solid #ec4899;
+}
+
+/* Agent card styling */
+.research-agent-card {
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.research-agent-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  border-color: #d1d5db;
+}
+
+/* Alert item styling */
+.research-agent-card .space-y-2 > div {
+  transition: background-color 0.15s ease;
+}
+
+.research-agent-card .space-y-2 > div:hover {
+  background-color: #f3f4f6;
+}
+
+/* Badge styling for threat levels */
+.research-agents-section .badge-high {
+  background-color: #fef2f2;
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+.research-agents-section .badge-medium {
+  background-color: #fefce8;
+  color: #ca8a04;
+  border-color: #fef08a;
+}
+
+.research-agents-section .badge-low {
+  background-color: #f0fdf4;
+  color: #16a34a;
+  border-color: #bbf7d0;
+}
+
+/* Running state animation */
+.research-agent-card[data-running="true"] {
+  border-color: #ec4899;
+}
+
+.research-agent-card[data-running="true"]::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #ec4899, #f472b6, #ec4899);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Empty state styling */
+.research-agents-section .bg-gray-50.rounded-lg.p-8 {
+  border: 1px dashed #d1d5db;
+}
+
+/* Instruction text styling */
+.research-agent-card .text-sm.text-gray-700.bg-gray-50.p-2.rounded {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}

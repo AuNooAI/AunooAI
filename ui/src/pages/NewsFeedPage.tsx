@@ -12,14 +12,20 @@ import {
   Plus,
   Settings,
   GripVertical,
+  Bot,
+  Rss,
+  FileText,
 } from 'lucide-react';
 import { useNewsFeed } from '../hooks/useNewsFeed';
 import { useNarrativeExplorer } from '../hooks/useNarrativeExplorer';
+import { useResearchAgents } from '../hooks/useResearchAgents';
 import { SharedNavigation } from '../components/SharedNavigation';
 import { NewsFeedHeader } from '../components/newsfeed/NewsFeedHeader';
 import { BriefingSection } from '../components/newsfeed/BriefingSection';
 import { HighlightsSection } from '../components/newsfeed/HighlightsSection';
 import { NarrativeInsightsSection } from '../components/newsfeed/NarrativeInsightsSection';
+import { ResearchAgentsSection } from '../components/newsfeed/ResearchAgentsSection';
+import { SignalReportsTab } from '../components/newsfeed/SignalReportsTab';
 import { TopicCluster, getCategoryIcon } from '../components/newsfeed/TopicCluster';
 import { ArticleDetailPanel } from '../components/newsfeed/ArticleDetailPanel';
 import { CategoryViewModal } from '../components/newsfeed/CategoryViewModal';
@@ -27,6 +33,7 @@ import { IncidentConfigModal } from '../components/newsfeed/IncidentConfigModal'
 import { SixArticlesTuneModal } from '../components/SixArticlesTuneModal';
 import { type NewsArticle, type ArticleCluster, type ClusterRelatedArticle, getArticleByUri, getClusteredArticles, clusterArticleToNewsArticle } from '../services/newsFeedApi';
 import { applyFilters, createEmptyFilters, type IncidentFilters } from '../components/newsfeed/FilterPanel';
+import { getSignalReportsCount } from '../services/researchAgentsApi';
 import { NotificationBell } from '../components/gather/NotificationBell';
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import { Button } from '../components/ui/button';
@@ -78,7 +85,29 @@ export function NewsFeedPage() {
     clearErrors: clearNarrativeErrors,
   } = useNarrativeExplorer();
 
+  // Research Agents hook
+  const {
+    agents: researchAgents,
+    alerts: researchAlerts,
+    unacknowledgedCount: researchAlertsCount,
+    loading: loadingResearchAgents,
+    loadingAgents,
+    loadingAlerts,
+    runningAgents,
+    error: researchAgentsError,
+    addAgent,
+    updateAgent,
+    removeAgent,
+    runAgent,
+    runAllAgents,
+    acknowledgeOne,
+    acknowledgeAll,
+    clearError: clearResearchAgentsError,
+  } = useResearchAgents(config.topic);
+
   // UI State
+  const [currentTab, setCurrentTab] = useState<'feed' | 'agents' | 'reports'>('feed');
+  const [reportsCount, setReportsCount] = useState(0);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isBriefingConfigOpen, setIsBriefingConfigOpen] = useState(false);
   const [filters] = useState<IncidentFilters>(createEmptyFilters());
@@ -185,6 +214,19 @@ export function NewsFeedPage() {
       console.error('Failed to load category settings:', e);
     }
   }, []);
+
+  // Fetch signal reports count
+  useEffect(() => {
+    const fetchReportsCount = async () => {
+      try {
+        const response = await getSignalReportsCount({ topic: config.topic || undefined });
+        setReportsCount(response.count || 0);
+      } catch (err) {
+        console.error('Failed to fetch reports count:', err);
+      }
+    };
+    fetchReportsCount();
+  }, [config.topic]);
 
   // Fetch clusters when categories change
   useEffect(() => {
@@ -365,20 +407,52 @@ export function NewsFeedPage() {
           </div>
         </div>
 
-        {/* Filters Header */}
-        <NewsFeedHeader
-          config={config}
-          narrativeConfig={narrativeConfig}
-          topics={topics}
-          profiles={profiles}
-          models={models}
-          loading={loading || isGeneratingAnalyses}
-          onConfigChange={updateConfig}
-          onNarrativeConfigChange={updateNarrativeConfig}
-          onRefresh={handleRefresh}
-          onOpenConfig={() => setIsConfigOpen(true)}
-        />
+        {/* Filters Header - only show on feed tab */}
+        {currentTab === 'feed' && (
+          <NewsFeedHeader
+            config={config}
+            narrativeConfig={narrativeConfig}
+            topics={topics}
+            profiles={profiles}
+            models={models}
+            loading={loading || isGeneratingAnalyses}
+            onConfigChange={updateConfig}
+            onNarrativeConfigChange={updateNarrativeConfig}
+            onRefresh={handleRefresh}
+            onOpenConfig={() => setIsConfigOpen(true)}
+          />
+        )}
 
+        {/* Tab Navigation */}
+        <div className="explore-tab-navigation">
+          <button
+            className={`explore-tab-btn ${currentTab === 'feed' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('feed')}
+          >
+            <Rss className="w-4 h-4" />
+            News Feed
+          </button>
+          <button
+            className={`explore-tab-btn ${currentTab === 'agents' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('agents')}
+          >
+            <Bot className="w-4 h-4" />
+            Research Agents
+            {researchAlertsCount > 0 && (
+              <span className="explore-tab-badge">{researchAlertsCount}</span>
+            )}
+          </button>
+          <button
+            className={`explore-tab-btn ${currentTab === 'reports' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('reports')}
+          >
+            <FileText className="w-4 h-4" />
+            Reports
+            {reportsCount > 0 && (
+              <span className="explore-tab-badge">{reportsCount}</span>
+            )}
+          </button>
+        </div>
 
         {/* Error Alerts */}
         {(error || highlightsError || narrativesError) && (
@@ -425,54 +499,57 @@ export function NewsFeedPage() {
         {/* Main Content Area */}
         <main className="gather-main">
           <div className="max-w-7xl mx-auto">
-            {/* Loading State */}
-            {loading && articles.length === 0 ? (
-              <div className="flex items-center justify-center h-64">
-                <div className="flex flex-col items-center gap-4">
-                  <Loader2 className="w-8 h-8 animate-spin text-pink-500" />
-                  <p className="text-gray-500">Loading articles...</p>
-                </div>
-              </div>
-            ) : (
+            {/* Feed Tab Content */}
+            {currentTab === 'feed' && (
               <>
-                {/* Section 1: Your Briefing - Top Stories (executive summary at top) */}
-                <BriefingSection
-                  articles={articles}
-                  sixArticles={sixArticles}
-                  loadingSixArticles={loadingSixArticles}
-                  starredArticles={starredArticles}
-                  onStar={starArticle}
-                  onUnstar={unstarArticle}
-                  onArticleClick={handleArticleClick}
-                  persona={config.persona}
-                  onPersonaChange={(persona, forceRegenerate) => {
-                    updateConfig({ persona });
-                    if (forceRegenerate) {
-                      // Small delay to ensure config is updated first
-                      setTimeout(() => fetchSixArticles(true), 100);
-                    }
-                  }}
-                  sixArticlesConfig={sixArticlesConfig}
-                  onOpenConfig={() => setIsBriefingConfigOpen(true)}
-                />
+                {/* Loading State */}
+                {loading && articles.length === 0 ? (
+                  <div className="flex items-center justify-center h-64">
+                    <div className="flex flex-col items-center gap-4">
+                      <Loader2 className="w-8 h-8 animate-spin text-pink-500" />
+                      <p className="text-gray-500">Loading articles...</p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    {/* Section 1: Your Briefing - Top Stories (executive summary at top) */}
+                    <BriefingSection
+                      articles={articles}
+                      sixArticles={sixArticles}
+                      loadingSixArticles={loadingSixArticles}
+                      starredArticles={starredArticles}
+                      onStar={starArticle}
+                      onUnstar={unstarArticle}
+                      onArticleClick={handleArticleClick}
+                      persona={config.persona}
+                      onPersonaChange={(persona, forceRegenerate) => {
+                        updateConfig({ persona });
+                        if (forceRegenerate) {
+                          // Small delay to ensure config is updated first
+                          setTimeout(() => fetchSixArticles(true), 100);
+                        }
+                      }}
+                      sixArticlesConfig={sixArticlesConfig}
+                      onOpenConfig={() => setIsBriefingConfigOpen(true)}
+                    />
 
-                {/* Section 2: Highlights - Incident Tracking */}
-                <HighlightsSection
-                  incidents={filteredIncidents}
-                  loading={loadingHighlights}
-                  onIncidentUpdate={handleIncidentUpdate}
-                  onArticleClick={handleArticleClick}
-                />
+                    {/* Section 2: Highlights - Incident Tracking */}
+                    <HighlightsSection
+                      incidents={filteredIncidents}
+                      loading={loadingHighlights}
+                      onIncidentUpdate={handleIncidentUpdate}
+                      onArticleClick={handleArticleClick}
+                    />
 
-                {/* Section 3: Narratives - Article Themes */}
-                <NarrativeInsightsSection
-                  themes={themes}
-                  loading={loadingNarratives}
-                  onArticleClick={handleArticleClick}
-                  currentTopic={config.topic}
-                />
+                    {/* Section 3: Narratives - Article Themes */}
+                    <NarrativeInsightsSection
+                      themes={themes}
+                      loading={loadingNarratives}
+                      onArticleClick={handleArticleClick}
+                      currentTopic={config.topic}
+                    />
 
-                {/* Section 4: Your Topics - Google News style multi-column grid */}
+                    {/* Section 4: Your Topics - Google News style multi-column grid */}
                 {sortedCategories.length > 0 && (
                   <div className="mt-8">
                     <div className="flex items-center justify-between mb-6">
@@ -550,17 +627,46 @@ export function NewsFeedPage() {
                   </div>
                 )}
 
-                {/* Empty State */}
-                {articles.length === 0 && !loading && (
-                  <div className="flex flex-col items-center justify-center h-64 text-center">
-                    <Newspaper className="w-12 h-12 text-gray-300 mb-4" />
-                    <h3 className="text-lg font-medium text-gray-900">No articles found</h3>
-                    <p className="text-gray-500 mt-1">
-                      Try adjusting your date range or topic filters
-                    </p>
-                  </div>
+                    {/* Empty State */}
+                    {articles.length === 0 && !loading && (
+                      <div className="flex flex-col items-center justify-center h-64 text-center">
+                        <Newspaper className="w-12 h-12 text-gray-300 mb-4" />
+                        <h3 className="text-lg font-medium text-gray-900">No articles found</h3>
+                        <p className="text-gray-500 mt-1">
+                          Try adjusting your date range or topic filters
+                        </p>
+                      </div>
+                    )}
+                  </>
                 )}
               </>
+            )}
+
+            {/* Research Agents Tab Content */}
+            {currentTab === 'agents' && (
+              <ResearchAgentsSection
+                agents={researchAgents}
+                alerts={researchAlerts}
+                unacknowledgedCount={researchAlertsCount}
+                loading={loadingResearchAgents}
+                loadingAgents={loadingAgents}
+                loadingAlerts={loadingAlerts}
+                runningAgents={runningAgents}
+                error={researchAgentsError}
+                onAddAgent={addAgent}
+                onUpdateAgent={updateAgent}
+                onDeleteAgent={removeAgent}
+                onRunAgent={(agentId, options) => runAgent(agentId, { topic: config.topic, daysBack: options?.daysBack, tagArticles: options?.tagArticles })}
+                onRunAllAgents={(options) => runAllAgents({ topic: config.topic, daysBack: options?.daysBack, tagArticles: options?.tagArticles })}
+                onAcknowledgeAlert={acknowledgeOne}
+                onAcknowledgeAll={acknowledgeAll}
+                topics={topics.map(t => t.name)}
+              />
+            )}
+
+            {/* Signal Reports Tab Content */}
+            {currentTab === 'reports' && (
+              <SignalReportsTab topic={config.topic || undefined} />
             )}
           </div>
         </main>

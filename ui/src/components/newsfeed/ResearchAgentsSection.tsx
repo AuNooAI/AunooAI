@@ -1,0 +1,457 @@
+/**
+ * Research Agents Section
+ * Displays research agents (signal instructions) and their alerts
+ */
+
+import { useState } from 'react';
+import {
+  Bot,
+  Plus,
+  Play,
+  Trash2,
+  Pencil,
+  Bell,
+  CheckCircle,
+  AlertTriangle,
+  AlertCircle,
+  Loader2,
+  ChevronDown,
+  ChevronRight,
+  ExternalLink,
+  Calendar,
+  FileText,
+  Workflow,
+} from 'lucide-react';
+import { Button } from '../ui/button';
+import { AddAgentModal } from './AddAgentModal';
+import { RunAgentModal, type RunAgentOptions } from './RunAgentModal';
+import { type ResearchAgent, type SignalAlert, type CreateAgentRequest, type UpdateAgentRequest } from '../../services/researchAgentsApi';
+
+interface ResearchAgentsSectionProps {
+  agents: ResearchAgent[];
+  alerts: SignalAlert[];
+  unacknowledgedCount: number;
+  loading: boolean;
+  loadingAgents: boolean;
+  loadingAlerts: boolean;
+  runningAgents: Set<number>;
+  error: string | null;
+  onAddAgent: (agent: CreateAgentRequest) => Promise<boolean>;
+  onUpdateAgent: (agentId: number, updates: UpdateAgentRequest) => Promise<boolean>;
+  onDeleteAgent: (agentId: number) => Promise<boolean>;
+  onRunAgent: (agentId: number, options?: { daysBack?: number; tagArticles?: boolean }) => Promise<boolean>;
+  onRunAllAgents: (options?: { daysBack?: number; tagArticles?: boolean }) => Promise<boolean>;
+  onAcknowledgeAlert: (alertId: number) => Promise<boolean>;
+  onAcknowledgeAll: () => Promise<number>;
+  topics?: string[];
+}
+
+export function ResearchAgentsSection({
+  agents,
+  alerts,
+  unacknowledgedCount,
+  loading,
+  loadingAgents,
+  loadingAlerts,
+  runningAgents,
+  error,
+  onAddAgent,
+  onUpdateAgent,
+  onDeleteAgent,
+  onRunAgent,
+  onRunAllAgents,
+  onAcknowledgeAlert,
+  onAcknowledgeAll,
+  topics = [],
+}: ResearchAgentsSectionProps) {
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [editingAgent, setEditingAgent] = useState<ResearchAgent | null>(null);
+  const [isRunModalOpen, setIsRunModalOpen] = useState(false);
+  const [runModalAgent, setRunModalAgent] = useState<ResearchAgent | null>(null);
+  const [expandedAgents, setExpandedAgents] = useState<Set<number>>(new Set());
+  const [runningAll, setRunningAll] = useState(false);
+
+  const toggleAgentExpanded = (agentId: number) => {
+    setExpandedAgents(prev => {
+      const next = new Set(prev);
+      if (next.has(agentId)) {
+        next.delete(agentId);
+      } else {
+        next.add(agentId);
+      }
+      return next;
+    });
+  };
+
+  const handleRunAgent = (agent: ResearchAgent) => {
+    setRunModalAgent(agent);
+    setIsRunModalOpen(true);
+  };
+
+  const handleRunAll = () => {
+    setRunModalAgent(null); // null means run all
+    setIsRunModalOpen(true);
+  };
+
+  const handleRunConfirm = async (options: RunAgentOptions) => {
+    if (runModalAgent) {
+      // Run single agent
+      await onRunAgent(runModalAgent.id, { daysBack: options.daysBack, tagArticles: options.tagArticles });
+    } else {
+      // Run all agents
+      setRunningAll(true);
+      try {
+        await onRunAllAgents({ daysBack: options.daysBack, tagArticles: options.tagArticles });
+      } finally {
+        setRunningAll(false);
+      }
+    }
+    setIsRunModalOpen(false);
+    setRunModalAgent(null);
+  };
+
+  const getThreatLevelColor = (level: string) => {
+    switch (level?.toLowerCase()) {
+      case 'high':
+        return 'bg-red-100 text-red-800 border-red-200';
+      case 'medium':
+        return 'bg-amber-100 text-amber-800 border-amber-200';
+      case 'low':
+        return 'bg-green-100 text-green-800 border-green-200';
+      default:
+        return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
+
+  const getThreatLevelIcon = (level: string) => {
+    switch (level?.toLowerCase()) {
+      case 'high':
+        return <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />;
+      case 'medium':
+        return <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />;
+      default:
+        return <Bell className="w-4 h-4 text-gray-600 shrink-0" />;
+    }
+  };
+
+  // Group alerts by agent
+  const alertsByAgent: Record<number, SignalAlert[]> = {};
+  alerts.forEach(alert => {
+    if (!alertsByAgent[alert.instruction_id]) {
+      alertsByAgent[alert.instruction_id] = [];
+    }
+    alertsByAgent[alert.instruction_id].push(alert);
+  });
+
+  return (
+    <section className="research-agents-section mb-8">
+      {/* Section Header */}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Bot className="w-5 h-5 text-pink-500" />
+          <h2 className="text-xl font-semibold text-gray-900">Research Agents</h2>
+          {unacknowledgedCount > 0 && (
+            <span className="ml-2 px-2 py-0.5 text-xs font-semibold bg-red-500 text-white rounded-full">
+              {unacknowledgedCount} alert{unacknowledgedCount !== 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRunAll}
+            disabled={runningAll || runningAgents.size > 0 || agents.filter(a => a.is_active).length === 0}
+          >
+            {runningAll || runningAgents.size > 0 ? (
+              <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+            ) : (
+              <Play className="w-4 h-4 mr-1" />
+            )}
+            Run All
+          </Button>
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => setIsAddModalOpen(true)}
+            className="bg-pink-500 hover:bg-pink-600"
+          >
+            <Plus className="w-4 h-4 mr-1" />
+            Add Agent
+          </Button>
+        </div>
+      </div>
+
+      {/* Error Display */}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-4 flex items-center gap-2">
+          <AlertCircle className="w-4 h-4 text-red-600" />
+          <span className="text-sm text-red-800">{error}</span>
+        </div>
+      )}
+
+      {/* Loading State */}
+      {loadingAgents && agents.length === 0 ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-6 h-6 animate-spin text-pink-500" />
+          <span className="ml-2 text-gray-500">Loading research agents...</span>
+        </div>
+      ) : agents.length === 0 ? (
+        /* Empty State */
+        <div className="bg-gray-50 rounded-lg p-8 text-center border border-dashed border-gray-300">
+          <Bot className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-900 mb-2">No Research Agents Yet</h3>
+          <p className="text-gray-500 mb-4 max-w-md mx-auto">
+            Create AI-powered research agents to automatically monitor your news feed for specific topics,
+            threats, opportunities, or custom criteria.
+          </p>
+          <Button
+            onClick={() => setIsAddModalOpen(true)}
+            className="bg-pink-500 hover:bg-pink-600"
+          >
+            <Plus className="w-4 h-4 mr-1" />
+            Create Your First Agent
+          </Button>
+        </div>
+      ) : (
+        /* Agent List */
+        <div className="space-y-3">
+          {agents.map(agent => {
+            const agentAlerts = alertsByAgent[agent.id] || [];
+            const isExpanded = expandedAgents.has(agent.id);
+            const isRunning = runningAgents.has(agent.id);
+
+            return (
+              <div
+                key={agent.id}
+                className="research-agent-card bg-white border border-gray-200 rounded-lg overflow-hidden"
+              >
+                {/* Agent Header */}
+                <div className="flex items-center justify-between p-3 bg-gray-50">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <button
+                      onClick={() => toggleAgentExpanded(agent.id)}
+                      className="p-1 hover:bg-gray-200 rounded transition-colors"
+                    >
+                      {isExpanded ? (
+                        <ChevronDown className="w-4 h-4 text-gray-500" />
+                      ) : (
+                        <ChevronRight className="w-4 h-4 text-gray-500" />
+                      )}
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-gray-900">
+                          {agent.name}
+                        </span>
+                        <span className={`px-2 py-0.5 text-xs font-medium rounded-full ${
+                          agent.is_active
+                            ? 'bg-green-100 text-green-700'
+                            : 'bg-gray-100 text-gray-600'
+                        }`}>
+                          {agent.is_active ? 'Active' : 'Paused'}
+                        </span>
+                        {agent.topic && (
+                          <span className="px-2 py-0.5 text-xs font-medium bg-blue-50 text-blue-700 rounded-full">
+                            {agent.topic}
+                          </span>
+                        )}
+                        {agentAlerts.length > 0 && (
+                          <span className="px-2 py-0.5 text-xs font-semibold bg-red-500 text-white rounded-full">
+                            {agentAlerts.length} match{agentAlerts.length !== 1 ? 'es' : ''}
+                          </span>
+                        )}
+                      </div>
+                      {agent.description && (
+                        <p className="text-sm text-gray-500 truncate mt-0.5">
+                          {agent.description}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 ml-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleRunAgent(agent)}
+                      disabled={isRunning || !agent.is_active}
+                      title={!agent.is_active ? 'Agent is paused' : 'Run this agent'}
+                    >
+                      {isRunning ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Play className="w-4 h-4" />
+                      )}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setEditingAgent(agent)}
+                      title="Edit agent"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onDeleteAgent(agent.id)}
+                      className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      title="Delete agent"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Expanded Content */}
+                {isExpanded && (
+                  <div className="p-3 border-t border-gray-100">
+                    <div className="mb-3">
+                      <h4 className="text-xs font-medium text-gray-500 uppercase mb-1">
+                        Research Instruction
+                      </h4>
+                      <p className="text-sm text-gray-700 bg-gray-50 p-2 rounded font-mono">
+                        {agent.instruction}
+                      </p>
+                    </div>
+
+                    {/* Agent Alerts */}
+                    {agentAlerts.length > 0 ? (
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-xs font-medium text-gray-500 uppercase">
+                            Matches ({agentAlerts.length})
+                          </h4>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => onAcknowledgeAll()}
+                            className="text-xs h-7"
+                          >
+                            <CheckCircle className="w-3 h-3 mr-1" />
+                            Dismiss All
+                          </Button>
+                        </div>
+                        <div className="space-y-2 max-h-80 overflow-y-auto">
+                          {agentAlerts.map(alert => (
+                            <div
+                              key={alert.id}
+                              className="p-3 bg-gray-50 rounded-lg border border-gray-100"
+                            >
+                              <div className="flex items-start gap-3">
+                                {getThreatLevelIcon(alert.threat_level)}
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 mb-1">
+                                    <a
+                                      href={alert.article_uri}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="font-medium text-gray-900 hover:text-pink-600 line-clamp-1"
+                                    >
+                                      {alert.article_title}
+                                    </a>
+                                    <span className={`px-2 py-0.5 text-xs font-medium rounded border ${getThreatLevelColor(alert.threat_level)}`}>
+                                      {alert.threat_level || 'info'}
+                                    </span>
+                                  </div>
+
+                                  {/* Reasoning - Why this article is relevant */}
+                                  {alert.reasoning && (
+                                    <div className="mt-2 p-2 bg-white rounded border-l-2 border-pink-300">
+                                      <p className="text-xs font-medium text-gray-500 mb-1">Why this is relevant:</p>
+                                      <p className="text-sm text-gray-700">{alert.reasoning}</p>
+                                    </div>
+                                  )}
+
+                                  <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
+                                    {alert.article_source && (
+                                      <span>{alert.article_source}</span>
+                                    )}
+                                    {alert.article_date && (
+                                      <span>{new Date(alert.article_date).toLocaleDateString()}</span>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <a
+                                    href={alert.article_uri}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-1.5 hover:bg-gray-200 rounded"
+                                    title="Open article"
+                                  >
+                                    <ExternalLink className="w-4 h-4 text-gray-400" />
+                                  </a>
+                                  <button
+                                    onClick={() => onAcknowledgeAlert(alert.id)}
+                                    className="p-1.5 hover:bg-green-100 rounded"
+                                    title="Dismiss"
+                                  >
+                                    <CheckCircle className="w-4 h-4 text-gray-400 hover:text-green-600" />
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-gray-500 text-center py-4 bg-gray-50 rounded">
+                        No matches found yet. Run the agent to analyze recent articles.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Add Agent Modal */}
+      <AddAgentModal
+        open={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
+        onSave={async (agent) => {
+          const success = await onAddAgent(agent);
+          if (success) {
+            setIsAddModalOpen(false);
+          }
+          return success;
+        }}
+        topics={topics}
+        loading={loading}
+      />
+
+      {/* Edit Agent Modal */}
+      <AddAgentModal
+        open={!!editingAgent}
+        onClose={() => setEditingAgent(null)}
+        onSave={async (agent) => {
+          if (!editingAgent) return false;
+          const success = await onUpdateAgent(editingAgent.id, agent);
+          if (success) {
+            setEditingAgent(null);
+          }
+          return success;
+        }}
+        topics={topics}
+        loading={loading}
+        editAgent={editingAgent}
+      />
+
+      {/* Run Agent Modal */}
+      <RunAgentModal
+        open={isRunModalOpen}
+        onClose={() => {
+          setIsRunModalOpen(false);
+          setRunModalAgent(null);
+        }}
+        onRun={handleRunConfirm}
+        agentName={runModalAgent?.name}
+        isRunningAll={!runModalAgent}
+        loading={runningAll || runningAgents.size > 0}
+      />
+    </section>
+  );
+}
