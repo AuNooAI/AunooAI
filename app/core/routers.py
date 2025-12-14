@@ -48,6 +48,7 @@ def register_routers(app: FastAPI):
     from app.routes.executive_briefing_routes import router as executive_briefing_router
     from app.routes.sampling_routes import router as sampling_router
     from app.routes.gather_routes import router as gather_router
+    from app.routes.pam_routes import router as pam_router
 
     # Register database routes
     app.include_router(database.router)
@@ -159,5 +160,8 @@ def register_routers(app: FastAPI):
 
     # Gather page routes (React-based keyword monitoring)
     app.include_router(gather_router)
+
+    # Power, Attention & Money (PAM) dashboard routes
+    app.include_router(pam_router)
 
     logger.info("All routers registered successfully")

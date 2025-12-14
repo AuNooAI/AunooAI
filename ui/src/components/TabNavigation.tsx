@@ -67,6 +67,11 @@ const tabs: Tab[] = [
     label: 'Newsletter',
     tooltip: 'Generate professional newsletters with curated headlines, analysis, and market insights'
   },
+  {
+    id: 'pam',
+    label: 'Power, Attention & Money',
+    tooltip: 'Track power flows, attention economy, and financial dynamics reshaping the knowledge economy'
+  },
 ];
 
 export function TabNavigation({ activeTab, onTabChange }: TabNavigationProps) {

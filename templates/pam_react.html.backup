@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Gather - AuNoo AI</title>
+    <title>Power, Attention & Money - AuNoo AI</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -37,7 +37,7 @@
         {% endif %}
       };
     </script>
-    <script type="module" crossorigin src="/static/trend-convergence/assets/gather-DgKY_UBK.js"></script>
+    <script type="module" crossorigin src="/static/trend-convergence/assets/pam-nZdZH0ft.js"></script>
     <link rel="modulepreload" crossorigin href="/static/trend-convergence/assets/index-CmIjZhMD.js">
   </head>
 
