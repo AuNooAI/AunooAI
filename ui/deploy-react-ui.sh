@@ -59,12 +59,15 @@ MAIN_JS=$(grep -oP 'main-[^.]+\.js' "$STATIC_DIR/index.html" | head -1)
 INDEX_JS=$(grep -oP 'index-[^.]+\.js' "$STATIC_DIR/index.html" | head -1)
 # NotificationBell CSS contains gather.css styles - find from gather build
 NOTIFICATIONBELL_CSS=$(ls "$STATIC_DIR/assets/" | grep -oP 'NotificationBell-[^.]+\.css' | head -1)
+# PAMDashboard CSS for PAM tab
+PAMDASHBOARD_CSS=$(ls "$STATIC_DIR/assets/" | grep -oP 'PAMDashboard-[^.]+\.css' | head -1)
 
 echo "  📄 Index CSS: $INDEX_CSS"
 echo "  📄 Main CSS: $MAIN_CSS"
 echo "  📄 Main JS: $MAIN_JS"
 echo "  📄 Index JS: $INDEX_JS"
 echo "  📄 NotificationBell CSS: $NOTIFICATIONBELL_CSS"
+echo "  📄 PAMDashboard CSS: $PAMDASHBOARD_CSS"
 
 # Update the Jinja2 template with new asset hashes
 echo "🔧 Updating Jinja2 template with new asset hashes..."
@@ -78,6 +81,11 @@ sed -i "s|/static/trend-convergence/assets/main-[^.]*\.css|/static/trend-converg
 # Update NotificationBell CSS (contains gather.css)
 if [ -n "$NOTIFICATIONBELL_CSS" ]; then
     sed -i "s|/static/trend-convergence/assets/NotificationBell-[^.]*\.css|/static/trend-convergence/assets/$NOTIFICATIONBELL_CSS|" "$TEMPLATE_FILE"
+fi
+
+# Update PAMDashboard CSS
+if [ -n "$PAMDASHBOARD_CSS" ]; then
+    sed -i "s|/static/trend-convergence/assets/PAMDashboard-[^.]*\.css|/static/trend-convergence/assets/$PAMDASHBOARD_CSS|" "$TEMPLATE_FILE"
 fi
 
 # Update JS files (lines 28-29)
@@ -190,6 +198,56 @@ else
     echo "⚠️  index-newsfeed.html not found in build output"
 fi
 
+# ================================
+# PAM PAGE DEPLOYMENT
+# ================================
+echo "================================"
+echo "  Deploying PAM Page"
+echo "================================"
+echo ""
+
+PAM_TEMPLATE="$PROJECT_ROOT/templates/pam_react.html"
+
+# Extract the hash from pam assets
+if [ -f "$STATIC_DIR/index-pam.html" ]; then
+    PAM_JS=$(grep -oP 'pam-[^.]+\.js' "$STATIC_DIR/index-pam.html" | head -1)
+
+    echo "  📄 PAM JS: $PAM_JS"
+
+    if [ -f "$PAM_TEMPLATE" ]; then
+        # Backup the template
+        cp "$PAM_TEMPLATE" "$PAM_TEMPLATE.backup"
+
+        # Update JS file
+        if [ -n "$PAM_JS" ]; then
+            sed -i "s|/static/trend-convergence/assets/pam-[^.]*\.js|/static/trend-convergence/assets/$PAM_JS|" "$PAM_TEMPLATE"
+            # Also replace PLACEHOLDER if this is first deployment
+            sed -i "s|/static/trend-convergence/assets/pam-PLACEHOLDER\.js|/static/trend-convergence/assets/$PAM_JS|" "$PAM_TEMPLATE"
+        fi
+
+        # Also update shared CSS (index.css)
+        if [ -n "$INDEX_CSS" ]; then
+            sed -i "s|/static/trend-convergence/assets/index-[^.]*\.css|/static/trend-convergence/assets/$INDEX_CSS|" "$PAM_TEMPLATE"
+        fi
+
+        # Also update NotificationBell CSS
+        if [ -n "$NOTIFICATIONBELL_CSS" ]; then
+            sed -i "s|/static/trend-convergence/assets/NotificationBell-[^.]*\.css|/static/trend-convergence/assets/$NOTIFICATIONBELL_CSS|" "$PAM_TEMPLATE"
+        fi
+
+        # Also update shared JS (index.js) for modulepreload
+        if [ -n "$INDEX_JS" ]; then
+            sed -i "s|/static/trend-convergence/assets/index-[^.]*\.js|/static/trend-convergence/assets/$INDEX_JS|" "$PAM_TEMPLATE"
+        fi
+
+        echo "✅ PAM template updated successfully!"
+    else
+        echo "⚠️  PAM template not found: $PAM_TEMPLATE"
+    fi
+else
+    echo "⚠️  index-pam.html not found in build output"
+fi
+
 echo ""
 echo "✅ Deployment complete!"
 echo ""
@@ -199,9 +257,11 @@ echo ""
 echo "🌐 React UI is now available at: /trend-convergence"
 echo "🌐 Gather is now available at: /gather"
 echo "🌐 Explore is now available at: /explore"
+echo "🌐 PAM is now available at: /pam"
 echo "📝 Templates updated:"
 echo "   - $TEMPLATE_FILE"
 echo "   - $GATHER_TEMPLATE"
 echo "   - $EXPLORE_TEMPLATE"
+echo "   - $PAM_TEMPLATE"
 echo ""
 echo "================================"

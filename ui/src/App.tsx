@@ -37,6 +37,9 @@ import { EOSTuneModal } from './components/EOSTuneModal';
 import { Newsletter } from './components/Newsletter';
 import { useNewsletter } from './hooks/useNewsletter';
 import { NewsletterTuneModal } from './components/NewsletterTuneModal';
+import { PAMDashboard } from './components/pam';
+import { usePAM, PAM_STAGES } from './hooks/usePAM';
+import { PAMTuneModal } from './components/PAMTuneModal';
 import { FocusGroup } from './components/FocusGroup';
 import { useFocusGroup } from './hooks/useFocusGroup';
 import { FGTuneModal } from './components/FGTuneModal';
@@ -143,6 +146,16 @@ function App() {
   const [isEbTuneOpen, setIsEbTuneOpen] = useState(false);
   const [showEbPodcastModal, setShowEbPodcastModal] = useState(false);
 
+  // PAM (Power, Attention & Money) state - lifted from PAMDashboard component
+  const pam = usePAM();
+  const [pamAnalysisType, setPamAnalysisType] = useState<'comprehensive' | 'power' | 'attention' | 'money'>('comprehensive');
+  const [pamTimeHorizon, setPamTimeHorizon] = useState<'current' | '6_months' | '1_year' | '5_years' | '2030'>('1_year');
+  const [pamTrendFocus, setPamTrendFocus] = useState<string[]>(['T1', 'T2', 'T3', 'T4', 'T5']);
+  const [pamDaysBack, setPamDaysBack] = useState(90);
+  const [pamArticleLimit, setPamArticleLimit] = useState(100);
+  const [isPamTuneOpen, setIsPamTuneOpen] = useState(false);
+  const [pamActiveView, setPamActiveView] = useState<'executive' | 'power' | 'attention' | 'money' | 'scenarios'>('executive');
+
   // Load saved SIO config on mount
   useEffect(() => {
     const loadSioConfig = async () => {
@@ -236,6 +249,17 @@ function App() {
     };
     loadEbConfig();
   }, []);
+
+  // Load PAM definitions and cached report when PAM tab is selected
+  useEffect(() => {
+    if (activeTab === 'pam') {
+      pam.loadDefinitions();
+      // Auto-load cached report if no data is currently loaded
+      if (!pam.data && !pam.isGenerating && !pam.isLoadingCache) {
+        pam.loadCachedReport();
+      }
+    }
+  }, [activeTab, pam.loadDefinitions, pam.loadCachedReport, pam.data, pam.isGenerating, pam.isLoadingCache]);
 
   // Fetch prompt preview when Tune modal opens
   useEffect(() => {
@@ -790,9 +814,9 @@ function App() {
                       </Select>
                     </div>
 
-                    {/* Analysis Timeframe */}
+                    {/* Data Range */}
                     <div>
-                      <label className="text-sm font-semibold mb-2 block">Analysis Timeframe</label>
+                      <label className="text-sm font-semibold mb-2 block">Data Range (Days Back)</label>
                       <Select
                         value={config.timeframe_days.toString()}
                         onValueChange={(value) => updateConfig({ timeframe_days: parseInt(value) })}
@@ -874,9 +898,9 @@ function App() {
                       </div>
                     </div>
 
-                    {/* Article Sample Size */}
+                    {/* Article Limit */}
                     <div>
-                      <label className="text-sm font-semibold mb-2 block">Article Sample Size</label>
+                      <label className="text-sm font-semibold mb-2 block">Article Limit</label>
                       <Select
                         value={config.custom_limit?.toString() || 'auto'}
                         onValueChange={(value) => {
@@ -1092,15 +1116,27 @@ function App() {
                       deep_dive_topic: newsletterDeepDiveTopic || undefined,
                       model: config.model,
                     });
+                  } else if (activeTab === 'pam') {
+                    // PAM searches across ALL topics using trend-specific semantic queries
+                    pam.startGeneration({
+                      topic: '', // Empty = search all topics
+                      analysisType: pamAnalysisType,
+                      entityType: 'publisher', // Publisher perspective by default
+                      timeHorizon: pamTimeHorizon,
+                      trendFocus: pamTrendFocus as ('T1' | 'T2' | 'T3' | 'T4' | 'T5')[],
+                      daysBack: pamDaysBack,
+                      articleLimit: pamArticleLimit,
+                      model: config.model, // Use global model from Configure
+                    });
                   } else {
                     generateAnalysis(true);
                   }
                 }}
-                disabled={loading || sio.isScanning || eos.isGenerating || focusGroup.isGenerating || executiveBriefing.isGenerating || newsletter.isGenerating}
+                disabled={loading || sio.isScanning || eos.isGenerating || focusGroup.isGenerating || executiveBriefing.isGenerating || newsletter.isGenerating || pam.isGenerating}
                 className="p-2 hover:bg-gray-100 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
-                title={activeTab === 'intelligence-brief' ? 'Generate situation assessment' : activeTab === 'extreme-outliers' ? 'Generate extreme outlier scenarios' : activeTab === 'focus-group' ? 'Generate focus group personas' : activeTab === 'executive-briefing' ? 'Generate executive briefing' : activeTab === 'newsletter' ? 'Generate newsletter' : 'Refresh analysis (bypass cache)'}
+                title={activeTab === 'intelligence-brief' ? 'Generate situation assessment' : activeTab === 'extreme-outliers' ? 'Generate extreme outlier scenarios' : activeTab === 'focus-group' ? 'Generate focus group personas' : activeTab === 'executive-briefing' ? 'Generate executive briefing' : activeTab === 'newsletter' ? 'Generate newsletter' : activeTab === 'pam' ? 'Generate PAM analysis' : 'Refresh analysis (bypass cache)'}
               >
-                <RefreshCw className={`w-4 h-4 text-gray-700 ${(loading || sio.isScanning || eos.isGenerating || focusGroup.isGenerating || executiveBriefing.isGenerating || newsletter.isGenerating) ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-4 h-4 text-gray-700 ${(loading || sio.isScanning || eos.isGenerating || focusGroup.isGenerating || executiveBriefing.isGenerating || newsletter.isGenerating || pam.isGenerating) ? 'animate-spin' : ''}`} />
               </button>
             </div>
           </div>
@@ -1109,13 +1145,16 @@ function App() {
         {/* Action Buttons */}
         <div className="bg-white px-6 py-3 border-b border-gray-200 flex justify-between items-center">
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setIsConfigOpen(true)}
-              className="px-4 py-2 text-pink-500 hover:bg-pink-50 rounded-md text-sm font-medium flex items-center gap-2"
-            >
-              <Settings className="w-4 h-4" />
-              Configure
-            </button>
+            {/* Configure button - hidden for PAM since it has its own complete Tune modal */}
+            {activeTab !== 'pam' && (
+              <button
+                onClick={() => setIsConfigOpen(true)}
+                className="px-4 py-2 text-pink-500 hover:bg-pink-50 rounded-md text-sm font-medium flex items-center gap-2"
+              >
+                <Settings className="w-4 h-4" />
+                Configure
+              </button>
+            )}
             <button
               onClick={() => {
                 console.log('🔧 Tune button clicked');
@@ -1129,6 +1168,8 @@ function App() {
                   setIsFgTuneOpen(true);
                 } else if (activeTab === 'executive-briefing') {
                   setIsEbTuneOpen(true);
+                } else if (activeTab === 'pam') {
+                  setIsPamTuneOpen(true);
                 } else {
                   setIsPromptEditorOpen(true);
                 }
@@ -1725,6 +1766,18 @@ function App() {
               onLoadNewsletter={newsletter.loadContent}
               showSaveDialog={showNewsletterSaveDialog}
               onSaveDialogChange={setShowNewsletterSaveDialog}
+            />
+          ) : activeTab === 'pam' ? (
+            <PAMDashboard
+              topic={config.topic}
+              isGenerating={pam.isGenerating}
+              currentStage={pam.currentStage}
+              stageProgress={pam.stageProgress}
+              data={pam.data}
+              error={pam.error}
+              activeView={pamActiveView}
+              onViewChange={setPamActiveView}
+              onClearError={pam.clearError}
             />
           ) : loading ? (
             <div className="flex items-center justify-center h-64">
@@ -3359,6 +3412,22 @@ function App() {
         articleCount={ebArticleCount}
         onPersonaChange={setEbPersona}
         onArticleCountChange={setEbArticleCount}
+      />
+
+      {/* PAM Tune Modal - Configuration for Power, Attention & Money analysis */}
+      <PAMTuneModal
+        isOpen={isPamTuneOpen}
+        onOpenChange={setIsPamTuneOpen}
+        analysisType={pamAnalysisType}
+        onAnalysisTypeChange={setPamAnalysisType}
+        timeHorizon={pamTimeHorizon}
+        onTimeHorizonChange={setPamTimeHorizon}
+        trendFocus={pamTrendFocus}
+        onTrendFocusChange={setPamTrendFocus}
+        daysBack={pamDaysBack}
+        onDaysBackChange={setPamDaysBack}
+        articleLimit={pamArticleLimit}
+        onArticleLimitChange={setPamArticleLimit}
       />
       </div>
     </div>
