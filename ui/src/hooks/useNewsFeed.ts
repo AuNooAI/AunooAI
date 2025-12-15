@@ -176,7 +176,7 @@ export function useNewsFeed(): UseNewsFeedReturn {
   // Fetch articles when config changes
   useEffect(() => {
     fetchArticles();
-  }, [config.dateRange, config.topic, config.page, config.perPage, config.profileId]);
+  }, [config.dateRange, config.topic, config.page, config.perPage, config.profileId, config.model]);
 
 
   const loadInitialData = async () => {
