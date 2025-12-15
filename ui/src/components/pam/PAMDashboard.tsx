@@ -24,14 +24,42 @@ import TrendsRadarCompact, { TREND_TO_PILLAR } from './TrendsRadarCompact';
 import ScenarioMiniMatrix from './ScenarioMiniMatrix';
 import RecommendationCard from './RecommendationCard';
 
+// Qualitative level type and helpers
+type QualitativeLevel = 'none' | 'low' | 'medium' | 'high' | 'very_high';
+
+const LEVEL_CONFIG: Record<QualitativeLevel, { label: string; color: string; bgColor: string; numericEquiv: number }> = {
+  none: { label: 'None', color: 'text-gray-500', bgColor: 'bg-gray-100', numericEquiv: 0 },
+  low: { label: 'Low', color: 'text-green-600', bgColor: 'bg-green-100', numericEquiv: 25 },
+  medium: { label: 'Medium', color: 'text-yellow-600', bgColor: 'bg-yellow-100', numericEquiv: 50 },
+  high: { label: 'High', color: 'text-orange-600', bgColor: 'bg-orange-100', numericEquiv: 75 },
+  very_high: { label: 'Very High', color: 'text-red-600', bgColor: 'bg-red-100', numericEquiv: 95 },
+};
+
+// Convert qualitative level to numeric (for backward compatibility with overall calculations)
+const levelToNumeric = (level: string | undefined | null): number => {
+  if (!level) return 50; // Default to medium
+  const config = LEVEL_CONFIG[level as QualitativeLevel];
+  return config?.numericEquiv ?? 50;
+};
+
+// Get level from numeric score (for backward compatibility with old data)
+const numericToLevel = (score: number | undefined | null): QualitativeLevel => {
+  if (score === null || score === undefined) return 'medium';
+  if (score <= 10) return 'none';
+  if (score <= 35) return 'low';
+  if (score <= 60) return 'medium';
+  if (score <= 80) return 'high';
+  return 'very_high';
+};
+
 // Score explanations
 const SCORE_EXPLANATIONS = {
-  power: "Power Index measures infrastructure control, regulatory influence, network centrality, and IP positioning. Higher scores indicate greater concentration of power in the knowledge economy.",
-  attention: "Attention Index measures AI visibility, brand recognition, citation exposure, and GEO readiness. Higher scores indicate greater risk of attention being diverted away from traditional channels.",
+  power: "Power level measures infrastructure control, regulatory influence, network centrality, and IP positioning. Higher levels indicate greater concentration of power in the knowledge economy.",
+  attention: "Attention level measures AI visibility, brand recognition, citation exposure, and GEO readiness. Higher levels indicate greater risk of attention being diverted away from traditional channels.",
   money: "Money Flow tracks funding patterns, M&A activity, revenue concentration, and cost dynamics. Higher scores indicate greater financial disruption or consolidation.",
-  overall: "Overall threat assessment combining all PAM dimensions. 0-39: Low, 40-54: Moderate, 55-69: Elevated, 70-79: High, 80+: Critical.",
+  overall: "Overall threat assessment combining all PAM dimensions. Based on qualitative levels for Power/Attention and numeric score for Money.",
   trend: "Trend score indicates the current intensity and momentum of this trend based on recent article coverage. Higher scores mean the trend is more prominent in current news.",
-  analysis: "Score from 0-100 indicating the strength or risk level of this dimension. Higher scores generally indicate greater disruption potential or market concentration.",
+  analysis: "Assessment indicating the strength or risk level of this dimension. Higher levels generally indicate greater disruption potential or market concentration.",
 };
 
 // Calculate threat level dynamically from scores (in case cached data has wrong value)
@@ -319,7 +347,7 @@ const ConfigUsedIndicator: React.FC<ConfigUsedProps> = ({ config, architectureVe
   );
 };
 
-// Score Card component
+// Score Card component (for Money - keeps numeric score)
 const ScoreCard: React.FC<{
   label: string;
   score: number;
@@ -355,6 +383,54 @@ const ScoreCard: React.FC<{
             <DataSourceBadge source={dataSource} />
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+};
+
+// Level Card component (for Power/Attention - qualitative display)
+const LevelCard: React.FC<{
+  label: string;
+  level: string | undefined | null;
+  numericFallback?: number;
+  icon: React.ReactNode;
+  iconBgColor: string;
+  explanation?: string;
+}> = ({ label, level, numericFallback, icon, iconBgColor, explanation }) => {
+  // Determine the level - prefer explicit level, fall back to converting numeric
+  const effectiveLevel: QualitativeLevel = level
+    ? (level as QualitativeLevel)
+    : numericToLevel(numericFallback);
+
+  const config = LEVEL_CONFIG[effectiveLevel] || LEVEL_CONFIG.medium;
+
+  return (
+    <Card>
+      <CardContent className="pt-6">
+        <div className="flex items-center justify-between">
+          <div className={`p-2 rounded-lg ${iconBgColor}`}>
+            {icon}
+          </div>
+          <div className="text-right">
+            <p className={`text-2xl font-bold ${config.color}`}>{config.label}</p>
+            <div className="flex items-center justify-end gap-1">
+              <p className="text-sm text-gray-500">{label}</p>
+              {explanation && <InfoTooltip text={explanation} />}
+            </div>
+          </div>
+        </div>
+        {/* Level indicator bar */}
+        <div className="mt-3 flex gap-1">
+          {(['none', 'low', 'medium', 'high', 'very_high'] as QualitativeLevel[]).map((lvl) => {
+            const isActive = ['none', 'low', 'medium', 'high', 'very_high'].indexOf(lvl) <= ['none', 'low', 'medium', 'high', 'very_high'].indexOf(effectiveLevel);
+            return (
+              <div
+                key={lvl}
+                className={`h-2 flex-1 rounded-sm ${isActive ? config.bgColor : 'bg-gray-200'}`}
+              />
+            );
+          })}
+        </div>
       </CardContent>
     </Card>
   );
@@ -489,10 +565,17 @@ const ExecutiveOverview: React.FC<{
   // State to show all recommendations
   const [showAllRecommendations, setShowAllRecommendations] = useState(false);
 
-  // Calculate threat level dynamically from actual scores (ignores cached/stale threat level)
-  const powerScore = data.scores?.powerScore || 0;
-  const attentionScore = data.scores?.attentionScore || 0;
-  const moneyScore = data.scores?.moneyScore || 0;
+  // Extract qualitative levels (new format) and numeric scores (for backward compatibility)
+  // All pillars now use qualitative levels: none, low, medium, high, very_high
+  const powerLevel = data.power?.powerLevel || data.power?.power_level || null;
+  const attentionLevel = data.attention?.attentionLevel || data.attention?.attention_level || null;
+  const moneyLevel = data.money?.moneyLevel || data.money?.money_level || null;
+
+  // Convert levels to numeric for overall threat calculation (backward compat)
+  const powerScore = powerLevel ? levelToNumeric(powerLevel) : (data.scores?.powerScore || 0);
+  const attentionScore = attentionLevel ? levelToNumeric(attentionLevel) : (data.scores?.attentionScore || 0);
+  const moneyScore = moneyLevel ? levelToNumeric(moneyLevel) : (data.scores?.moneyScore || 0);
+
   const threatLevel = calculateThreatLevel(powerScore, attentionScore, moneyScore);
   const overallScore = calculateOverallScore(powerScore, attentionScore, moneyScore);
 
@@ -553,27 +636,30 @@ const ExecutiveOverview: React.FC<{
         </CardContent>
       </Card>
 
-      {/* Score Cards - Compact */}
+      {/* PAM Cards - Power/Attention use qualitative levels, Money uses numeric */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <ScoreCard
+        <LevelCard
           label="Power"
-          score={powerScore}
+          level={powerLevel}
+          numericFallback={powerScore}
           icon={<Zap className="w-4 h-4 text-yellow-600" />}
-          color="bg-yellow-100"
+          iconBgColor="bg-yellow-100"
           explanation={SCORE_EXPLANATIONS.power}
         />
-        <ScoreCard
+        <LevelCard
           label="Attention"
-          score={attentionScore}
+          level={attentionLevel}
+          numericFallback={attentionScore}
           icon={<Eye className="w-4 h-4 text-blue-600" />}
-          color="bg-blue-100"
+          iconBgColor="bg-blue-100"
           explanation={SCORE_EXPLANATIONS.attention}
         />
-        <ScoreCard
+        <LevelCard
           label="Money"
-          score={moneyScore}
+          level={moneyLevel}
+          numericFallback={moneyScore}
           icon={<DollarSign className="w-4 h-4 text-green-600" />}
-          color="bg-green-100"
+          iconBgColor="bg-green-100"
           explanation={SCORE_EXPLANATIONS.money}
         />
         <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={handleScenarioClick}>
@@ -697,33 +783,37 @@ const PowerView: React.FC<{ data: PAMData; articles: Article[]; regulatoryEvents
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <AnalysisSection
               title="Infrastructure Control"
+              level={power.infrastructureControl?.level}
               score={power.infrastructureControl?.score}
-              items={power.infrastructureControl?.developments || power.infrastructureControl?.keyPlayers}
-              badge={power.infrastructureControl?.concentrationLevel}
+              items={power.infrastructureControl?.developments || power.infrastructureControl?.keyPlayers || power.infrastructureControl?.key_findings}
+              badge={power.infrastructureControl?.concentrationLevel || power.infrastructureControl?.trend}
               articles={articles}
             />
             <AnalysisSection
               title="Regulatory Influence"
+              level={power.regulatoryInfluence?.level}
               score={power.regulatoryInfluence?.score}
               items={[
-                ...(power.regulatoryInfluence?.activeRegulations || []),
-                ...(power.regulatoryInfluence?.keyDevelopments || [])
+                ...(power.regulatoryInfluence?.activeRegulations || power.regulatoryInfluence?.active_regulations || []),
+                ...(power.regulatoryInfluence?.keyDevelopments || power.regulatoryInfluence?.key_developments || [])
               ].filter(Boolean)}
-              badge={power.regulatoryInfluence?.direction}
+              badge={power.regulatoryInfluence?.direction || power.regulatoryInfluence?.trend}
               articles={articles}
             />
             <AnalysisSection
               title="Network Centrality"
+              level={power.networkCentrality?.level}
               score={power.networkCentrality?.score}
-              items={power.networkCentrality?.influentialEntities}
-              description={power.networkCentrality?.collaborationTrends}
+              items={power.networkCentrality?.influentialEntities || power.networkCentrality?.key_partnerships}
+              description={power.networkCentrality?.collaborationTrends || power.networkCentrality?.emerging_alliances?.join(', ')}
               articles={articles}
             />
             <AnalysisSection
               title="IP Positioning"
+              level={power.ipPositioning?.level}
               score={power.ipPositioning?.score}
-              items={power.ipPositioning?.keyDeals}
-              description={power.ipPositioning?.trends}
+              items={power.ipPositioning?.keyDeals || power.ipPositioning?.licensing_trends}
+              description={power.ipPositioning?.trends || power.ipPositioning?.patent_activity}
               articles={articles}
             />
           </div>
@@ -904,84 +994,112 @@ const AttentionView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* AI Engine Visibility with detailed metrics */}
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="font-medium">AI Engine Visibility</h4>
-                {attention.aiVisibility?.score != null && (
-                  <div className="flex items-center gap-1">
-                    <span className="text-lg font-semibold">{Math.round(attention.aiVisibility.score)}/100</span>
-                    <InfoTooltip text={SCORE_EXPLANATIONS.analysis} />
+            {/* AI Engine Visibility with qualitative level */}
+            {(() => {
+              const aiVisLevel = attention.aiVisibility?.level || (attention.aiVisibility?.score != null ? numericToLevel(attention.aiVisibility.score) : null);
+              const aiVisConfig = aiVisLevel ? LEVEL_CONFIG[aiVisLevel as QualitativeLevel] : null;
+              return (
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-medium">AI Engine Visibility</h4>
+                    {aiVisConfig && (
+                      <div className="flex items-center gap-1">
+                        <span className={`text-lg font-semibold ${aiVisConfig.color}`}>{aiVisConfig.label}</span>
+                        <InfoTooltip text={SCORE_EXPLANATIONS.analysis} />
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-              {attention.aiVisibility?.score != null && (
-                <Progress value={attention.aiVisibility.score} className="h-2 mb-3" />
-              )}
-              <div className="space-y-2 text-sm">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1">
-                    <span className="text-gray-500">Training data exposure:</span>
-                    <InfoTooltip text={ATTENTION_METRIC_EXPLANATIONS.trainingDataExposure} />
+                  {aiVisConfig && (
+                    <div className="flex gap-1 mb-3">
+                      {(['none', 'low', 'medium', 'high', 'very_high'] as QualitativeLevel[]).map((lvl) => {
+                        const isActive = ['none', 'low', 'medium', 'high', 'very_high'].indexOf(lvl) <= ['none', 'low', 'medium', 'high', 'very_high'].indexOf(aiVisLevel as QualitativeLevel);
+                        return (
+                          <div key={lvl} className={`h-2 flex-1 rounded-sm ${isActive ? aiVisConfig.bgColor : 'bg-gray-200'}`} />
+                        );
+                      })}
+                    </div>
+                  )}
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1">
+                        <span className="text-gray-500">Training data exposure:</span>
+                        <InfoTooltip text={ATTENTION_METRIC_EXPLANATIONS.trainingDataExposure} />
+                      </div>
+                      <span className="font-medium capitalize">{attention.aiVisibility?.trainingDataExposure || attention.aiVisibility?.training_data_exposure || 'N/A'}</span>
+                    </div>
                   </div>
-                  <span className="font-medium capitalize">{attention.aiVisibility?.trainingDataExposure || 'N/A'}</span>
+                  {/* Description with citations */}
+                  {(attention.aiVisibility?.trainingDataExposureDescription || attention.aiVisibility?.training_data_exposure_description) && (
+                    <p className="mt-3 pt-3 border-t border-gray-200 text-sm text-gray-600">
+                      <CitationText text={attention.aiVisibility.trainingDataExposureDescription || attention.aiVisibility.training_data_exposure_description} articles={articles} />
+                    </p>
+                  )}
                 </div>
-              </div>
-              {/* Description with citations */}
-              {attention.aiVisibility?.trainingDataExposureDescription && (
-                <p className="mt-3 pt-3 border-t border-gray-200 text-sm text-gray-600">
-                  <CitationText text={attention.aiVisibility.trainingDataExposureDescription} articles={articles} />
-                </p>
-              )}
-            </div>
+              );
+            })()}
             <AnalysisSection
               title="Brand Visibility"
+              level={attention.brandVisibility?.level}
               score={attention.brandVisibility?.score}
               description={attention.brandVisibility?.trafficTrends}
-              items={attention.brandVisibility?.keyChannels}
+              items={attention.brandVisibility?.keyChannels || attention.brandVisibility?.key_channels}
+              badge={attention.brandVisibility?.trend}
               articles={articles}
             />
-            {/* Synthesis Exposure with detailed metrics */}
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="font-medium">Synthesis Exposure</h4>
-                {attention.synthesisExposure?.score != null && (
-                  <div className="flex items-center gap-1">
-                    <span className="text-lg font-semibold">{Math.round(attention.synthesisExposure.score)}/100</span>
-                    <InfoTooltip text={ATTENTION_METRIC_EXPLANATIONS.synthesisExposure} />
+            {/* Synthesis Exposure with qualitative level */}
+            {(() => {
+              const synthLevel = attention.synthesisExposure?.level || (attention.synthesisExposure?.score != null ? numericToLevel(attention.synthesisExposure.score) : null);
+              const synthConfig = synthLevel ? LEVEL_CONFIG[synthLevel as QualitativeLevel] : null;
+              return (
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-medium">Synthesis Exposure</h4>
+                    {synthConfig && (
+                      <div className="flex items-center gap-1">
+                        <span className={`text-lg font-semibold ${synthConfig.color}`}>{synthConfig.label}</span>
+                        <InfoTooltip text={ATTENTION_METRIC_EXPLANATIONS.synthesisExposure} />
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-              {attention.synthesisExposure?.score != null && (
-                <Progress value={attention.synthesisExposure.score} className="h-2 mb-3" />
-              )}
-              <div className="space-y-2 text-sm">
-                {attention.synthesisExposure?.zeroClickRisk && (
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1">
-                      <span className="text-gray-500">Zero-click risk:</span>
-                      <InfoTooltip text={ATTENTION_METRIC_EXPLANATIONS.zeroClickRisk} />
+                  {synthConfig && (
+                    <div className="flex gap-1 mb-3">
+                      {(['none', 'low', 'medium', 'high', 'very_high'] as QualitativeLevel[]).map((lvl) => {
+                        const isActive = ['none', 'low', 'medium', 'high', 'very_high'].indexOf(lvl) <= ['none', 'low', 'medium', 'high', 'very_high'].indexOf(synthLevel as QualitativeLevel);
+                        return (
+                          <div key={lvl} className={`h-2 flex-1 rounded-sm ${isActive ? synthConfig.bgColor : 'bg-gray-200'}`} />
+                        );
+                      })}
                     </div>
-                    <Badge variant="outline" className="capitalize">{attention.synthesisExposure.zeroClickRisk}</Badge>
+                  )}
+                  <div className="space-y-2 text-sm">
+                    {(attention.synthesisExposure?.zeroClickRisk || attention.synthesisExposure?.zero_click_risk) && (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1">
+                          <span className="text-gray-500">Zero-click risk:</span>
+                          <InfoTooltip text={ATTENTION_METRIC_EXPLANATIONS.zeroClickRisk} />
+                        </div>
+                        <Badge variant="outline" className="capitalize">{attention.synthesisExposure.zeroClickRisk || attention.synthesisExposure.zero_click_risk}</Badge>
+                      </div>
+                    )}
+                    {(attention.synthesisExposure?.attributionQuality || attention.synthesisExposure?.attribution_quality) && (
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-1">
+                          <span className="text-gray-500">Attribution quality:</span>
+                          <InfoTooltip text={ATTENTION_METRIC_EXPLANATIONS.attributionRate} />
+                        </div>
+                        <span className="font-medium capitalize">{attention.synthesisExposure.attributionQuality || attention.synthesisExposure.attribution_quality}</span>
+                      </div>
+                    )}
                   </div>
-                )}
-                {attention.synthesisExposure?.attributionRate !== undefined && (
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1">
-                      <span className="text-gray-500">Attribution rate:</span>
-                      <InfoTooltip text={ATTENTION_METRIC_EXPLANATIONS.attributionRate} />
-                    </div>
-                    <span className="font-medium">{Math.round(attention.synthesisExposure.attributionRate)}/100</span>
-                  </div>
-                )}
-              </div>
-              {/* Description with citations */}
-              {attention.synthesisExposure?.description && (
-                <p className="mt-3 pt-3 border-t border-gray-200 text-sm text-gray-600">
-                  <CitationText text={attention.synthesisExposure.description} articles={articles} />
-                </p>
-              )}
-            </div>
+                  {/* Description with citations */}
+                  {attention.synthesisExposure?.description && (
+                    <p className="mt-3 pt-3 border-t border-gray-200 text-sm text-gray-600">
+                      <CitationText text={attention.synthesisExposure.description} articles={articles} />
+                    </p>
+                  )}
+                </div>
+              );
+            })()}
           </div>
           {/* Key Attention Events */}
           {attention.keyEvents && attention.keyEvents.length > 0 && (
@@ -1104,152 +1222,51 @@ const MoneyView: React.FC<{ data: PAMData; articles: Article[]; financialEvents:
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <h4 className="font-medium mb-2">Funding Flows</h4>
-              <p className="text-2xl font-bold text-green-600 mb-2">
-                {money.fundingFlows?.totalEstimatedUsd || 'N/A'}
-              </p>
-              <div className="space-y-1 text-sm">
-                <div className="flex items-center gap-1">
-                  <span className="text-gray-500">VC Activity:</span>
-                  <span className="capitalize">{money.fundingFlows?.vcActivity || 'N/A'}</span>
-                  <InfoTooltip text={MONEY_METRIC_EXPLANATIONS.vcActivity} />
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className="text-gray-500">Government:</span>
-                  <span className="capitalize">{money.fundingFlows?.governmentFunding || 'N/A'}</span>
-                  <InfoTooltip text={MONEY_METRIC_EXPLANATIONS.governmentFunding} />
-                </div>
-              </div>
-              {money.fundingFlows?.keyDeals && money.fundingFlows.keyDeals.length > 0 && (
-                <ul className="mt-2 space-y-1">
-                  {money.fundingFlows.keyDeals.slice(0, 3).map((deal: any, i: number) => (
-                    <li key={i} className="text-sm text-gray-600">
-                      • <CitationText text={typeof deal === 'string' ? deal : deal.deal} articles={articles} />
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <h4 className="font-medium mb-2">Revenue Concentration</h4>
-              <p className="text-xl font-bold text-gray-900 mb-2 capitalize">
-                {money.revenueConcentration?.concentrationLevel || 'Unknown'}
-              </p>
-              {money.revenueConcentration?.topPlayersShare && money.revenueConcentration.topPlayersShare > 0 ? (
-                <p className="text-sm text-gray-500">
-                  Top players share: {money.revenueConcentration.topPlayersShare}%
-                </p>
-              ) : (
-                <p className="text-sm text-gray-400 italic">Market share data not available</p>
-              )}
-              {money.revenueConcentration?.trend && (
-                <p className="text-sm text-gray-500 mt-1">
-                  <span className="capitalize">{money.revenueConcentration.trend}</span>
-                </p>
-              )}
-              {money.revenueConcentration?.keyMetrics && money.revenueConcentration.keyMetrics.length > 0 && (
-                <ul className="mt-2 space-y-1">
-                  {money.revenueConcentration.keyMetrics.slice(0, 3).map((metric: string, i: number) => (
-                    <li key={i} className="text-sm text-gray-600">
-                      • <CitationText text={metric} articles={articles} />
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            {/* M&A Activity with explanations and citations */}
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <div className="flex items-center justify-between mb-2">
-                <h4 className="font-medium">M&A Activity</h4>
-                <InfoTooltip text={MONEY_METRIC_EXPLANATIONS.maActivity} />
-              </div>
-              <p className="text-xl font-bold text-gray-900 mb-2 capitalize">
-                {money.maActivity?.activityLevel || 'Unknown'}
-              </p>
-              <div className="flex items-center gap-1 text-sm text-gray-500 mb-2">
-                <span className="capitalize">{money.maActivity?.consolidationTrend || 'stable'}</span>
-                <InfoTooltip text={MONEY_METRIC_EXPLANATIONS.consolidationTrend} />
-              </div>
-              {money.maActivity?.recentDeals && money.maActivity.recentDeals.length > 0 && (
-                <ul className="mt-2 space-y-2">
-                  {money.maActivity.recentDeals.slice(0, 3).map((deal: any, i: number) => (
-                    <li key={i} className="text-sm text-gray-600">
-                      <div className="flex items-start gap-1">
-                        <span>•</span>
-                        <div>
-                          <span className="font-medium">{deal.acquirer}</span>
-                          <span className="text-gray-400"> → </span>
-                          <span className="font-medium">{deal.target}</span>
-                          {deal.value && <span className="text-green-600 ml-1">({deal.value})</span>}
-                          {deal.type && !HIDDEN_DEAL_TYPES.includes(deal.type.toLowerCase()) && (
-                            <Badge variant="outline" className="ml-1 text-xs capitalize">{deal.type}</Badge>
-                          )}
-                          {/* Show citation if available */}
-                          {deal.citations && deal.citations.length > 0 && (
-                            <span className="ml-1">
-                              <CitationText text={`[${deal.citations.join('][')}]`} articles={articles} />
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {(!money.maActivity?.recentDeals || money.maActivity.recentDeals.length === 0) && (
-                <p className="text-sm text-gray-400 italic">No recent deals found in analyzed articles</p>
-              )}
-            </div>
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <h4 className="font-medium mb-2">Cost Dynamics</h4>
-              <div className="grid grid-cols-2 gap-3 mb-3">
-                <div className="p-2 bg-white rounded border border-gray-200">
-                  <p className="text-xs text-gray-500 mb-1">Compute Costs</p>
-                  <p className={`text-sm font-medium capitalize ${
-                    money.costDynamics?.computeCostTrend === 'decreasing' ? 'text-green-600' :
-                    money.costDynamics?.computeCostTrend === 'increasing' ? 'text-red-600' :
-                    'text-gray-700'
-                  }`}>
-                    {money.costDynamics?.computeCostTrend || 'N/A'}
-                  </p>
-                </div>
-                <div className="p-2 bg-white rounded border border-gray-200">
-                  <p className="text-xs text-gray-500 mb-1">Publishing Costs</p>
-                  <p className="text-sm font-medium text-gray-700 capitalize">
-                    {money.costDynamics?.publishingCosts || 'N/A'}
-                  </p>
-                </div>
-              </div>
-              {money.costDynamics?.keyFactors && money.costDynamics.keyFactors.length > 0 && (
-                <div className="mt-2">
-                  <p className="text-xs text-gray-500 mb-1">Key Factors</p>
-                  <ul className="space-y-1">
-                    {money.costDynamics.keyFactors.slice(0, 3).map((factor: string, i: number) => (
-                      <li key={i} className="text-sm text-gray-600">
-                        • <CitationText text={factor} articles={articles} />
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {/* Cost Articles Search Results */}
-              {money.costArticlesSearch?.articlesFound > 0 && (
-                <div className="mt-3 p-2 bg-white rounded border border-gray-200">
-                  <p className="text-xs text-gray-500 mb-2">
-                    Cost-Related Articles Found: <span className="font-medium text-gray-700">{money.costArticlesSearch.articlesFound}</span>
-                  </p>
-                  <ul className="space-y-1 max-h-32 overflow-y-auto">
-                    {money.costArticlesSearch.articles?.slice(0, 5).map((art: any, i: number) => (
-                      <li key={i} className="text-xs text-gray-600">
-                        • <span className="font-medium">{art.title?.substring(0, 60)}...</span>
-                        <span className="text-gray-400 ml-1">({art.source})</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
+            {/* Funding Flows - with qualitative level display */}
+            <AnalysisSection
+              title="Funding Flows"
+              level={money.fundingFlows?.level || (money.fundingFlows?.vcActivity === 'increasing' ? 'high' : money.fundingFlows?.vcActivity === 'stable' ? 'medium' : money.fundingFlows?.vcActivity === 'decreasing' ? 'low' : undefined) || (money.fundingFlows?.vc_activity === 'increasing' ? 'high' : money.fundingFlows?.vc_activity === 'stable' ? 'medium' : money.fundingFlows?.vc_activity === 'decreasing' ? 'low' : undefined)}
+              badge={money.fundingFlows?.vcActivity || money.fundingFlows?.vc_activity}
+              description={money.fundingFlows?.totalEstimatedUsd || money.fundingFlows?.total_estimated_usd}
+              items={[
+                ...(money.fundingFlows?.keyInvestments || money.fundingFlows?.key_investments || []),
+                ...(money.fundingFlows?.governmentFunding ? [`Government: ${money.fundingFlows.governmentFunding}`] : []),
+                ...(money.fundingFlows?.government_funding ? [`Government: ${money.fundingFlows.government_funding}`] : [])
+              ].filter(Boolean)}
+              articles={articles}
+            />
+
+            {/* Revenue Concentration - with qualitative level display (fallback: concentrationLevel maps to level) */}
+            <AnalysisSection
+              title="Revenue Concentration"
+              level={money.revenueConcentration?.level || money.revenueConcentration?.concentrationLevel || money.revenueConcentration?.concentration_level}
+              badge={money.revenueConcentration?.trend}
+              items={money.revenueConcentration?.licensingTrends || money.revenueConcentration?.licensing_trends || []}
+              articles={articles}
+            />
+
+            {/* M&A Activity - with qualitative level display (fallback: activityLevel/activity_intensity maps to level) */}
+            <AnalysisSection
+              title="M&A Activity"
+              level={money.maActivity?.level || money.maActivity?.activityLevel || money.maActivity?.activity_intensity}
+              badge={money.maActivity?.consolidationTrend || money.maActivity?.consolidation_trend}
+              items={[
+                ...(money.maActivity?.keyDeals || money.maActivity?.key_deals || []),
+                ...(money.maActivity?.keyAcquirers?.map((a: string) => `Key acquirer: ${a}`) || money.maActivity?.key_acquirers?.map((a: string) => `Key acquirer: ${a}`) || [])
+              ].filter(Boolean)}
+              articles={articles}
+            />
+
+            {/* Cost Dynamics - with qualitative level display */}
+            <AnalysisSection
+              title="Cost Dynamics"
+              level={money.costDynamics?.level}
+              badge={money.costDynamics?.computeCostTrend || money.costDynamics?.compute_cost_trend}
+              description={money.costDynamics?.publishingCostTrend ? `Publishing: ${money.costDynamics.publishingCostTrend}` :
+                          (money.costDynamics?.publishing_cost_trend ? `Publishing: ${money.costDynamics.publishing_cost_trend}` : undefined)}
+              items={money.costDynamics?.keyFindings || money.costDynamics?.key_findings || []}
+              articles={articles}
+            />
           </div>
           {/* Licensing Trends */}
           {money.licensingTrends && (
@@ -1685,25 +1702,46 @@ const CitationText: React.FC<{
 const AnalysisSection: React.FC<{
   title: string;
   score?: number;
+  level?: string;  // New: qualitative level (none, low, medium, high, very_high)
   items?: string[];
   description?: string;
   badge?: string;
   articles?: Article[];
-}> = ({ title, score, items, description, badge, articles = [] }) => {
+}> = ({ title, score, level, items, description, badge, articles = [] }) => {
   const hasContent = description || (items && items.length > 0);
+
+  // Prefer qualitative level if provided, otherwise fall back to numeric
+  const effectiveLevel: QualitativeLevel | null = level
+    ? (level as QualitativeLevel)
+    : (score != null ? numericToLevel(score) : null);
+
+  const levelConfig = effectiveLevel ? LEVEL_CONFIG[effectiveLevel] : null;
 
   return (
     <div className="p-4 bg-gray-50 rounded-lg">
       <div className="flex items-center justify-between mb-2">
         <h4 className="font-medium">{title}</h4>
-        {score != null && (
+        {effectiveLevel && levelConfig && (
           <div className="flex items-center gap-1">
-            <span className="text-lg font-semibold">{Math.round(score)}/100</span>
+            <span className={`text-lg font-semibold ${levelConfig.color}`}>{levelConfig.label}</span>
             <InfoTooltip text={SCORE_EXPLANATIONS.analysis} />
           </div>
         )}
       </div>
-      {score != null && <Progress value={score} className="h-2 mb-2" />}
+      {/* Level indicator bar for qualitative display */}
+      {effectiveLevel && levelConfig && (
+        <div className="flex gap-1 mb-2">
+          {(['none', 'low', 'medium', 'high', 'very_high'] as QualitativeLevel[]).map((lvl) => {
+            const isActive = ['none', 'low', 'medium', 'high', 'very_high'].indexOf(lvl) <= ['none', 'low', 'medium', 'high', 'very_high'].indexOf(effectiveLevel);
+            return (
+              <div
+                key={lvl}
+                className={`h-2 flex-1 rounded-sm ${isActive ? levelConfig.bgColor : 'bg-gray-200'}`}
+              />
+            );
+          })}
+        </div>
+      )}
       {badge && (
         <Badge variant="outline" className="mb-2 capitalize">{badge}</Badge>
       )}

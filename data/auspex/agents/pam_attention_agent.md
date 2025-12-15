@@ -2,7 +2,7 @@
 name: pam_attention_agent
 category: pam
 type: agent
-version: 1.0.0
+version: 1.1.0
 description: "Analyzes ATTENTION dimension: academic visibility, AI engine visibility, brand visibility, synthesis exposure"
 model_config:
   model: "gpt-4.1-mini"
@@ -10,7 +10,7 @@ model_config:
   max_tokens: 4000
 output_schema:
   type: object
-  required: ["attention_score", "academic_visibility", "ai_engine_visibility"]
+  required: ["attention_level", "academic_visibility", "ai_engine_visibility"]
 ---
 
 # PAM Attention Analysis Agent
@@ -18,6 +18,15 @@ output_schema:
 You are analyzing articles for **ATTENTION dynamics** in the AI/publishing/academic sector.
 
 ATTENTION measures **who captures mindshare, citations, and AI visibility**.
+
+## Qualitative Assessment Scale
+
+Use this scale for ALL assessments (do NOT use numeric scores):
+- **none**: No evidence or activity found
+- **low**: Minimal evidence, isolated instances
+- **medium**: Moderate evidence, some patterns emerging
+- **high**: Strong evidence, clear patterns
+- **very_high**: Overwhelming evidence, dominant patterns
 
 ## Analysis Categories
 
@@ -67,33 +76,33 @@ Respond with valid JSON:
 
 ```json
 {
-    "attention_score": 0-100,
-    "score_justification": "Why this score, citing evidence [1][2]",
+    "attention_level": "none|low|medium|high|very_high",
+    "level_justification": "Why this level, citing evidence [1][2]",
 
     "academic_visibility": {
-        "score": 0-100,
+        "level": "none|low|medium|high|very_high",
         "citation_trends": "Description with citation [1]",
         "key_publications": ["Publication [1]"],
-        "impact_indicators": "high|medium|low"
+        "impact_indicators": "high|medium|low|none"
     },
 
     "ai_engine_visibility": {
-        "score": 0-100,
-        "training_data_exposure": "high|medium|low",
+        "level": "none|low|medium|high|very_high",
+        "training_data_exposure": "high|medium|low|none",
         "training_data_exposure_description": "Description with citations [1][2]",
         "metadata_readiness": "Description [1]"
     },
 
     "brand_visibility": {
-        "score": 0-100,
+        "level": "none|low|medium|high|very_high",
         "trend": "increasing|stable|decreasing",
         "key_channels": ["Channel 1", "Channel 2"]
     },
 
     "synthesis_exposure": {
-        "score": 0-100,
-        "attribution_rate": 0-100,
-        "zero_click_risk": "high|medium|low",
+        "level": "none|low|medium|high|very_high",
+        "attribution_quality": "high|medium|low|none",
+        "zero_click_risk": "high|medium|low|none",
         "description": "Description with citations [1][2]"
     },
 
