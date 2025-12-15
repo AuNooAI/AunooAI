@@ -10,7 +10,6 @@ import {
   RefreshCw,
   Check,
   X,
-  Cpu,
   Building2,
   Tag,
   SlidersHorizontal,
@@ -19,6 +18,13 @@ import { type NewsFeedConfig, type Topic, type OrganizationalProfile, type AIMod
 import { type NarrativeExplorerConfig } from '../../hooks/useNarrativeExplorer';
 import { type DateRange } from '../../services/newsFeedApi';
 import { Button } from '../ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../ui/select';
 
 interface NewsFeedHeaderProps {
   config: NewsFeedConfig;
@@ -56,19 +62,19 @@ export function NewsFeedHeader({
   onOpenConfig,
 }: NewsFeedHeaderProps) {
   const [topicDropdownOpen, setTopicDropdownOpen] = useState(false);
-  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [dateDropdownOpen, setDateDropdownOpen] = useState(false);
 
-  const selectedTopics = narrativeConfig.selectedTopics || [];
-  const selectedModel = config.model || 'gpt-4o-mini';
-  const selectedProfileId = config.profileId;
+  // Use local state for model to match working pattern from LLMConfigModal
+  const [localModel, setLocalModel] = useState(config.model || 'gpt-4o-mini');
 
-  // Get display label for model
-  const getModelLabel = () => {
-    const model = models.find((m) => m.id === selectedModel);
-    return model?.name || selectedModel;
-  };
+  // Sync local model with config when it changes externally
+  useEffect(() => {
+    setLocalModel(config.model || 'gpt-4o-mini');
+  }, [config.model]);
+
+  const selectedTopics = narrativeConfig.selectedTopics || [];
+  const selectedProfileId = config.profileId;
 
   // Get display label for profile
   const getProfileLabel = () => {
@@ -102,11 +108,11 @@ export function NewsFeedHeader({
     onConfigChange({ topic: undefined });
   };
 
-  // Handle model change
-  const setModel = (modelId: string) => {
+  // Handle model change - update local state immediately, then propagate to parent
+  const handleModelChange = (modelId: string) => {
+    setLocalModel(modelId);
     onConfigChange({ model: modelId });
     onNarrativeConfigChange({ model: modelId });
-    setModelDropdownOpen(false);
   };
 
   // Handle profile change
@@ -230,62 +236,28 @@ export function NewsFeedHeader({
             )}
           </div>
 
-          {/* Model Dropdown */}
-          <div className="relative">
-            <button
-              onClick={() => setModelDropdownOpen(!modelDropdownOpen)}
-              className="flex items-center gap-2 px-3 py-2 text-sm bg-white border border-gray-200 rounded-md hover:border-gray-300 min-w-[140px] justify-between"
-            >
-              <div className="flex items-center gap-2">
-                <Cpu className="w-4 h-4 text-gray-500" />
-                <span className="truncate">{getModelLabel()}</span>
-              </div>
-              <ChevronDown className="w-4 h-4 text-gray-400" />
-            </button>
-
-            {modelDropdownOpen && (
-              <DropdownMenu onClose={() => setModelDropdownOpen(false)}>
-                <div className="py-1">
-                  {models.length > 0 ? (
-                    models.map((model) => (
-                      <button
-                        key={model.id}
-                        onClick={() => setModel(model.id)}
-                        className="w-full px-3 py-2 text-sm text-left hover:bg-gray-50 flex items-center gap-2"
-                      >
-                        <Check
-                          className={`w-4 h-4 ${
-                            selectedModel === model.id
-                              ? 'text-green-500'
-                              : 'invisible'
-                          }`}
-                        />
-                        <span>{model.name}</span>
-                        <span className="text-xs text-gray-400">({model.provider})</span>
-                      </button>
-                    ))
-                  ) : (
-                    <>
-                      {['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini', 'gpt-4.1'].map((id) => (
-                        <button
-                          key={id}
-                          onClick={() => setModel(id)}
-                          className="w-full px-3 py-2 text-sm text-left hover:bg-gray-50 flex items-center gap-2"
-                        >
-                          <Check
-                            className={`w-4 h-4 ${
-                              selectedModel === id ? 'text-green-500' : 'invisible'
-                            }`}
-                          />
-                          {id}
-                        </button>
-                      ))}
-                    </>
-                  )}
-                </div>
-              </DropdownMenu>
-            )}
-          </div>
+          {/* Model Select */}
+          <Select value={localModel} onValueChange={handleModelChange}>
+            <SelectTrigger className="w-auto min-w-[140px]">
+              <SelectValue placeholder="Select model" />
+            </SelectTrigger>
+            <SelectContent>
+              {models.length > 0 ? (
+                models.map((model) => (
+                  <SelectItem key={model.name} value={model.name}>
+                    {model.name} ({model.provider})
+                  </SelectItem>
+                ))
+              ) : (
+                <>
+                  <SelectItem value="gpt-4o-mini">GPT-4o Mini</SelectItem>
+                  <SelectItem value="gpt-4o">GPT-4o</SelectItem>
+                  <SelectItem value="gpt-4.1-mini">GPT-4.1 Mini</SelectItem>
+                  <SelectItem value="gpt-4.1">GPT-4.1</SelectItem>
+                </>
+              )}
+            </SelectContent>
+          </Select>
 
           {/* Profile Dropdown */}
           <div className="relative">
@@ -387,8 +359,16 @@ function DropdownMenu({
       }
     };
 
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    // Use requestAnimationFrame to skip the current event loop
+    // This ensures the opening click completes before we listen for closes
+    const frameId = requestAnimationFrame(() => {
+      document.addEventListener('click', handleClickOutside);
+    });
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      document.removeEventListener('click', handleClickOutside);
+    };
   }, [onClose]);
 
   return (

@@ -234,6 +234,7 @@ export interface SixArticlesParams {
   articleCount?: number;
   forceRegenerate?: boolean;
   starredArticles?: string[];
+  model?: string;
 }
 
 // API Functions
@@ -326,6 +327,7 @@ export async function getSixArticles(params: SixArticlesParams): Promise<SixArti
   if (params.starredArticles?.length) {
     queryParams.append('starred_articles', params.starredArticles.join(','));
   }
+  if (params.model) queryParams.append('model', params.model);
 
   const response = await fetch(`/api/news-feed/six-articles?${queryParams}`, {
     credentials: 'include',
