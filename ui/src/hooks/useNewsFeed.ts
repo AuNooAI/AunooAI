@@ -266,6 +266,7 @@ export function useNewsFeed(): UseNewsFeedReturn {
         articleCount: config.articleCount,
         forceRegenerate,
         starredArticles: starredArticles.length > 0 ? starredArticles : undefined,
+        model: config.model,
       });
 
       setSixArticles(response);
@@ -275,7 +276,7 @@ export function useNewsFeed(): UseNewsFeedReturn {
     } finally {
       setLoadingSixArticles(false);
     }
-  }, [config.dateRange, config.topic, config.profileId, config.persona, config.articleCount, starredArticles]);
+  }, [config.dateRange, config.topic, config.profileId, config.persona, config.articleCount, starredArticles, config.model]);
 
   // Fetch six articles briefing when relevant config changes
   useEffect(() => {

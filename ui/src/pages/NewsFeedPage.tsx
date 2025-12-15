@@ -40,6 +40,8 @@ import { Button } from '../components/ui/button';
 import '../components/gather/gather.css';
 
 export function NewsFeedPage() {
+  console.log('[NewsFeedPage] Component rendering');
+
   // Articles hook
   const {
     articles,
