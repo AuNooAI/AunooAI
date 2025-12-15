@@ -59,15 +59,17 @@ MAIN_JS=$(grep -oP 'main-[^.]+\.js' "$STATIC_DIR/index.html" | head -1)
 INDEX_JS=$(grep -oP 'index-[^.]+\.js' "$STATIC_DIR/index.html" | head -1)
 # NotificationBell CSS contains gather.css styles - find from gather build
 NOTIFICATIONBELL_CSS=$(ls "$STATIC_DIR/assets/" | grep -oP 'NotificationBell-[^.]+\.css' | head -1)
-# PAMDashboard CSS for PAM tab
-PAMDASHBOARD_CSS=$(ls "$STATIC_DIR/assets/" | grep -oP 'PAMDashboard-[^.]+\.css' | head -1)
+# PAM CSS files
+PAM_CSS=$(ls "$STATIC_DIR/assets/" | grep -oP 'pam-[^.]+\.css' | head -1)
+USEPAM_CSS=$(ls "$STATIC_DIR/assets/" | grep -oP 'usePAM-[^.]+\.css' | head -1)
 
 echo "  📄 Index CSS: $INDEX_CSS"
 echo "  📄 Main CSS: $MAIN_CSS"
 echo "  📄 Main JS: $MAIN_JS"
 echo "  📄 Index JS: $INDEX_JS"
 echo "  📄 NotificationBell CSS: $NOTIFICATIONBELL_CSS"
-echo "  📄 PAMDashboard CSS: $PAMDASHBOARD_CSS"
+echo "  📄 PAM CSS: $PAM_CSS"
+echo "  📄 usePAM CSS: $USEPAM_CSS"
 
 # Update the Jinja2 template with new asset hashes
 echo "🔧 Updating Jinja2 template with new asset hashes..."
@@ -83,9 +85,13 @@ if [ -n "$NOTIFICATIONBELL_CSS" ]; then
     sed -i "s|/static/trend-convergence/assets/NotificationBell-[^.]*\.css|/static/trend-convergence/assets/$NOTIFICATIONBELL_CSS|" "$TEMPLATE_FILE"
 fi
 
-# Update PAMDashboard CSS
-if [ -n "$PAMDASHBOARD_CSS" ]; then
-    sed -i "s|/static/trend-convergence/assets/PAMDashboard-[^.]*\.css|/static/trend-convergence/assets/$PAMDASHBOARD_CSS|" "$TEMPLATE_FILE"
+# Update PAM CSS files (handle both old PAMDashboard-* and new pam-* naming)
+if [ -n "$PAM_CSS" ]; then
+    sed -i "s|/static/trend-convergence/assets/pam-[^.]*\.css|/static/trend-convergence/assets/$PAM_CSS|" "$TEMPLATE_FILE"
+    sed -i "s|/static/trend-convergence/assets/PAMDashboard-[^.]*\.css|/static/trend-convergence/assets/$PAM_CSS|" "$TEMPLATE_FILE"
+fi
+if [ -n "$USEPAM_CSS" ]; then
+    sed -i "s|/static/trend-convergence/assets/usePAM-[^.]*\.css|/static/trend-convergence/assets/$USEPAM_CSS|" "$TEMPLATE_FILE"
 fi
 
 # Update JS files (lines 28-29)
@@ -233,6 +239,14 @@ if [ -f "$STATIC_DIR/index-pam.html" ]; then
         # Also update NotificationBell CSS
         if [ -n "$NOTIFICATIONBELL_CSS" ]; then
             sed -i "s|/static/trend-convergence/assets/NotificationBell-[^.]*\.css|/static/trend-convergence/assets/$NOTIFICATIONBELL_CSS|" "$PAM_TEMPLATE"
+        fi
+
+        # Also update PAM CSS files
+        if [ -n "$PAM_CSS" ]; then
+            sed -i "s|/static/trend-convergence/assets/pam-[^.]*\.css|/static/trend-convergence/assets/$PAM_CSS|" "$PAM_TEMPLATE"
+        fi
+        if [ -n "$USEPAM_CSS" ]; then
+            sed -i "s|/static/trend-convergence/assets/usePAM-[^.]*\.css|/static/trend-convergence/assets/$USEPAM_CSS|" "$PAM_TEMPLATE"
         fi
 
         # Also update shared JS (index.js) for modulepreload

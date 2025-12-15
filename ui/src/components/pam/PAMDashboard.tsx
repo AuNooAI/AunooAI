@@ -10,16 +10,19 @@
  * - No internal header or controls
  */
 
-import React, { useState, useMemo } from 'react';
-import { Loader2, AlertCircle, BarChart3, Zap, Eye, DollarSign, Target, TrendingUp, TrendingDown, Minus, BookOpen, ExternalLink, ChevronDown, ChevronUp, Info, HelpCircle } from 'lucide-react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Loader2, AlertCircle, BarChart3, Zap, Eye, DollarSign, Target, TrendingUp, TrendingDown, Minus, BookOpen, ExternalLink, ChevronDown, ChevronUp, Info, HelpCircle, Database, Bot, Globe, GraduationCap, Lightbulb, Scale, Building2, Calendar, Briefcase } from 'lucide-react';
 import { Alert, AlertDescription } from '../ui/alert';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Progress } from '../ui/progress';
 import { Badge } from '../ui/badge';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../ui/tooltip';
-import type { PAMData, TrendStatus, ReferenceArticle } from '../../hooks/usePAM';
+import type { PAMData, TrendStatus, ReferenceArticle, Recommendation } from '../../hooks/usePAM';
 import { renderCitationsAsLinks, Article } from '../../utils/citationRenderer';
 import '../../styles/citations.css';
+import TrendsRadarCompact, { TREND_TO_PILLAR } from './TrendsRadarCompact';
+import ScenarioMiniMatrix from './ScenarioMiniMatrix';
+import RecommendationCard from './RecommendationCard';
 
 // Score explanations
 const SCORE_EXPLANATIONS = {
@@ -46,19 +49,45 @@ const calculateOverallScore = (powerScore: number, attentionScore: number, money
   return Math.round(((powerScore * 0.35) + (attentionScore * 0.35) + (moneyScore * 0.30)) * 10) / 10;
 };
 
+// Format currency values properly (handle billions, millions, thousands)
+const formatCurrency = (value: number | null | undefined): string => {
+  if (value === null || value === undefined) return 'N/A';
+
+  const absValue = Math.abs(value);
+
+  if (absValue >= 1_000_000_000) {
+    // Billions
+    const billions = value / 1_000_000_000;
+    return `$${billions.toFixed(billions >= 10 ? 0 : 1)}B`;
+  } else if (absValue >= 1_000_000) {
+    // Millions
+    const millions = value / 1_000_000;
+    return `$${millions.toFixed(millions >= 100 ? 0 : 1)}M`;
+  } else if (absValue >= 1_000) {
+    // Thousands
+    const thousands = value / 1_000;
+    return `$${thousands.toFixed(0)}K`;
+  } else {
+    return `$${value.toFixed(0)}`;
+  }
+};
+
+// Deal types that should be hidden (internal metadata)
+const HIDDEN_DEAL_TYPES = ['horizontal', 'vertical', 'internal', 'unknown'];
+
 const SCENARIO_EXPLANATIONS = {
   probability: "Probability percentage indicates how likely this scenario is based on current trend analysis. Derived from PAM scores and trend velocities.",
   mostLikely: "The 'Most Likely' scenario is determined by analyzing current power structures, attention flows, and money movements. It represents the trajectory we're most likely heading toward if current trends continue.",
 };
 
-// Metric explanations for Attention pillar
+// Metric explanations for Attention pillar (evaluated indirectly via news reporting)
 const ATTENTION_METRIC_EXPLANATIONS = {
-  trainingDataExposure: "Training Data Exposure indicates how likely your content is to be included in AI model training datasets. Low = rarely used, Medium = sometimes used, High = frequently scraped for AI training.",
-  metadataReadiness: "Metadata Readiness measures how well-structured your content metadata is for AI consumption (0-100). Higher scores indicate better machine-readable metadata.",
-  provenanceStrength: "Provenance Strength measures how well your content maintains attribution chains and origin verification (0-100). Important for trust and regulatory compliance.",
-  synthesisExposure: "Synthesis Exposure measures how often your content appears in AI-generated summaries and answers without proper attribution.",
-  zeroClickRisk: "Zero-Click Risk indicates how often users get answers from AI without visiting your site. Low = users still visit, High = answers synthesized without clicks.",
-  attributionRate: "Attribution Rate shows how often AI systems credit your content when using it (0-100). Higher is better for brand visibility.",
+  trainingDataExposure: "Training Data Exposure indicates the prevalence of content being used in AI training datasets, as reported in news and disclosed agreements. Low = rarely mentioned, Medium = some coverage, High = frequently reported.",
+  metadataReadiness: "Metadata Readiness measures how well-structured publisher content metadata is for AI consumption (0-100), based on industry assessments and reported standards adoption.",
+  provenanceStrength: "Provenance Strength measures how well publisher content maintains attribution chains and origin verification (0-100), based on reported compliance and trust initiatives.",
+  synthesisExposure: "Synthesis Exposure measures how often publisher content appears in AI-generated summaries without attribution, based on reported trends and industry studies.",
+  zeroClickRisk: "Zero-Click Risk assesses the trend of users getting AI-synthesized answers instead of visiting publisher sites, based on news coverage and industry reports. Low = minimal impact reported, High = significant displacement reported.",
+  attributionRate: "Attribution Rate reflects how often AI systems properly credit source content (0-100), based on news coverage of attribution practices and licensing agreements.",
 };
 
 // Metric explanations for Money pillar
@@ -68,6 +97,33 @@ const MONEY_METRIC_EXPLANATIONS = {
   vcActivity: "VC Activity tracks venture capital investment trends in the knowledge economy. Increasing = more funding flowing in.",
   governmentFunding: "Government Funding tracks public research grants and subsidies. Increasing = more policy support for the sector.",
 };
+
+// Event types for extracted events
+interface FinancialEvent {
+  id: string;
+  event_date: string;
+  event_type: string;
+  acquirer: string;
+  target: string;
+  deal_value_usd: number | null;
+  funding_round: string | null;
+  headline: string;
+  summary: string;
+  strategic_significance: string;
+}
+
+interface RegulatoryEvent {
+  id: string;
+  event_date: string;
+  jurisdiction: string;
+  regulation_name: string;
+  event_type: string;
+  headline: string;
+  summary: string;
+  publisher_implications: string;
+  tech_implications: string;
+  t4_impact_score: number | null;
+}
 
 // Stage definitions for progress indicator
 export const PAM_STAGES = [
@@ -154,6 +210,115 @@ const InfoTooltip: React.FC<{ text: string; className?: string }> = ({ text, cla
   </Tooltip>
 );
 
+// Data Source Badge - shows whether metric is measured or LLM-estimated
+type DataSourceType = 'measured' | 'external_api' | 'llm_analysis' | 'calculated';
+
+const DATA_SOURCE_CONFIG: Record<DataSourceType, { label: string; icon: React.ReactNode; color: string; description: string }> = {
+  measured: {
+    label: 'Measured',
+    icon: <Database className="w-3 h-3" />,
+    color: 'bg-green-100 text-green-700 border-green-200',
+    description: 'Based on countable metrics from article analysis'
+  },
+  external_api: {
+    label: 'External API',
+    icon: <Globe className="w-3 h-3" />,
+    color: 'bg-blue-100 text-blue-700 border-blue-200',
+    description: 'Data from external APIs (Semantic Scholar, Google Search)'
+  },
+  llm_analysis: {
+    label: 'LLM Analysis',
+    icon: <Bot className="w-3 h-3" />,
+    color: 'bg-purple-100 text-purple-700 border-purple-200',
+    description: 'Estimated by AI model analysis'
+  },
+  calculated: {
+    label: 'Calculated',
+    icon: <BarChart3 className="w-3 h-3" />,
+    color: 'bg-amber-100 text-amber-700 border-amber-200',
+    description: 'Derived from weighted formula of other metrics'
+  }
+};
+
+const DataSourceBadge: React.FC<{ source: DataSourceType; className?: string }> = ({ source, className = '' }) => {
+  const config = DATA_SOURCE_CONFIG[source];
+  if (!config) return null;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs border ${config.color} ${className}`}>
+          {config.icon}
+          <span className="hidden sm:inline">{config.label}</span>
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs bg-gray-900 text-white text-xs p-2">
+        {config.description}
+      </TooltipContent>
+    </Tooltip>
+  );
+};
+
+// Config used indicator for v2 analysis
+interface ConfigUsedProps {
+  config?: {
+    relevanceThreshold?: number;
+    articlesPerTopic?: number;
+    enableExternalData?: boolean;
+    parallelAgents?: boolean;
+    models?: {
+      power?: string;
+      attention?: string;
+      money?: string;
+      trend?: string;
+    };
+  };
+  architectureVersion?: string;
+}
+
+const ConfigUsedIndicator: React.FC<ConfigUsedProps> = ({ config, architectureVersion }) => {
+  if (!config && !architectureVersion) return null;
+
+  const isV2 = architectureVersion === '2.0';
+
+  return (
+    <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+      <div className="flex items-center gap-2 mb-2">
+        <Badge variant={isV2 ? 'default' : 'outline'} className={isV2 ? 'bg-pink-500' : ''}>
+          {isV2 ? 'v2.0 Agent Architecture' : 'v1.0 Legacy'}
+        </Badge>
+        {config?.enableExternalData && (
+          <Badge variant="outline" className="text-blue-600 border-blue-200">
+            <Globe className="w-3 h-3 mr-1" />
+            External Data
+          </Badge>
+        )}
+        {config?.parallelAgents && (
+          <Badge variant="outline" className="text-green-600 border-green-200">
+            Parallel Agents
+          </Badge>
+        )}
+      </div>
+      {config && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-gray-600">
+          {config.relevanceThreshold && (
+            <span>Relevance: {config.relevanceThreshold}</span>
+          )}
+          {config.articlesPerTopic && (
+            <span>Articles/Topic: {config.articlesPerTopic}</span>
+          )}
+          {config.models?.power && (
+            <span>Power: {config.models.power.split('/').pop()}</span>
+          )}
+          {config.models?.attention && (
+            <span>Attention: {config.models.attention.split('/').pop()}</span>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Score Card component
 const ScoreCard: React.FC<{
   label: string;
@@ -161,7 +326,8 @@ const ScoreCard: React.FC<{
   icon: React.ReactNode;
   color: string;
   explanation?: string;
-}> = ({ label, score, icon, color, explanation }) => {
+  dataSource?: DataSourceType;
+}> = ({ label, score, icon, color, explanation, dataSource }) => {
   const getScoreClass = (score: number) => {
     if (score >= 70) return 'text-red-500';
     if (score >= 50) return 'text-yellow-500';
@@ -184,6 +350,11 @@ const ScoreCard: React.FC<{
           </div>
         </div>
         <Progress value={score} className="mt-3 h-2" />
+        {dataSource && (
+          <div className="mt-2 flex justify-end">
+            <DataSourceBadge source={dataSource} />
+          </div>
+        )}
       </CardContent>
     </Card>
   );
@@ -232,7 +403,7 @@ const TrendItem: React.FC<{ trend: TrendStatus; articles?: Article[] }> = ({ tre
           </div>
           <div className="flex items-center gap-2">
             {getVelocityIcon(trend.velocity)}
-            <span className="text-sm font-semibold">{trend.score}%</span>
+            <span className="text-sm font-semibold">{Math.round(trend.score)}%</span>
             {isExpanded ? <ChevronUp className="w-4 h-4 text-gray-400" /> : <ChevronDown className="w-4 h-4 text-gray-400" />}
           </div>
         </div>
@@ -302,8 +473,22 @@ const TrendItem: React.FC<{ trend: TrendStatus; articles?: Article[] }> = ({ tre
   );
 };
 
-// Executive Overview View
-const ExecutiveOverview: React.FC<{ data: PAMData; articles: Article[] }> = ({ data, articles }) => {
+// Urgency order for sorting recommendations
+const URGENCY_ORDER: Record<string, number> = {
+  immediate: 0,
+  near_term: 1,
+  medium_term: 2,
+};
+
+// Executive Overview View - REDESIGNED
+const ExecutiveOverview: React.FC<{
+  data: PAMData;
+  articles: Article[];
+  onViewChange: (view: 'power' | 'attention' | 'money' | 'scenarios') => void;
+}> = ({ data, articles, onViewChange }) => {
+  // State to show all recommendations
+  const [showAllRecommendations, setShowAllRecommendations] = useState(false);
+
   // Calculate threat level dynamically from actual scores (ignores cached/stale threat level)
   const powerScore = data.scores?.powerScore || 0;
   const attentionScore = data.scores?.attentionScore || 0;
@@ -311,149 +496,191 @@ const ExecutiveOverview: React.FC<{ data: PAMData; articles: Article[] }> = ({ d
   const threatLevel = calculateThreatLevel(powerScore, attentionScore, moneyScore);
   const overallScore = calculateOverallScore(powerScore, attentionScore, moneyScore);
 
+  // Handle trend click -> switch to relevant pillar tab
+  const handleTrendClick = (trendId: string) => {
+    const pillar = TREND_TO_PILLAR[trendId];
+    if (pillar) {
+      onViewChange(pillar);
+    }
+  };
+
+  // Handle scenario click -> switch to scenarios tab
+  const handleScenarioClick = () => {
+    onViewChange('scenarios');
+  };
+
+  // Sort recommendations by urgency
+  const sortedRecommendations = [...(data.strategicRecommendations || [])]
+    .sort((a, b) => (URGENCY_ORDER[a.urgency] || 2) - (URGENCY_ORDER[b.urgency] || 2));
+
   return (
     <div className="space-y-6">
-      {/* Headline */}
-      {data.executiveSummary?.headline && (
-        <Card className="border-l-4 border-l-pink-500">
-          <CardContent className="pt-6">
-            <p className="text-lg font-medium text-gray-900">
+      {/* Headline with Trajectory and Dominant Trend */}
+      <Card className="border-l-4 border-l-pink-500">
+        <CardContent className="pt-4 pb-4">
+          {data.executiveSummary?.headline && (
+            <p className="text-lg font-medium text-gray-900 mb-2">
               <CitationText text={data.executiveSummary.headline} articles={articles} />
             </p>
-          </CardContent>
-        </Card>
-      )}
+          )}
+          <div className="flex flex-wrap items-center gap-3 text-sm">
+            {/* Overall Trajectory */}
+            {data.trendAnalysis?.overallTrajectory && (
+              <span className="text-gray-600">
+                <strong>Trajectory:</strong> {data.trendAnalysis.overallTrajectory}
+              </span>
+            )}
+            {/* Dominant Trend */}
+            {data.trendAnalysis?.dominantTrend && (
+              <Badge
+                className="bg-red-100 text-red-700 cursor-pointer hover:bg-red-200"
+                onClick={() => handleTrendClick(data.trendAnalysis?.dominantTrend?.split(':')[0] || '')}
+              >
+                Dominant: {data.trendAnalysis.dominantTrend}
+              </Badge>
+            )}
+            {/* Threat Level */}
+            <Badge className={`${
+              threatLevel === 'critical' ? 'bg-red-600 text-white' :
+              threatLevel === 'high' ? 'bg-orange-500 text-white' :
+              threatLevel === 'elevated' ? 'bg-yellow-500 text-white' :
+              threatLevel === 'moderate' ? 'bg-blue-500 text-white' :
+              'bg-green-500 text-white'
+            }`}>
+              {threatLevel.toUpperCase()} ({overallScore})
+            </Badge>
+          </div>
+        </CardContent>
+      </Card>
 
-      {/* Score Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {/* Score Cards - Compact */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <ScoreCard
-          label="Power Index"
+          label="Power"
           score={powerScore}
-          icon={<Zap className="w-5 h-5 text-yellow-600" />}
+          icon={<Zap className="w-4 h-4 text-yellow-600" />}
           color="bg-yellow-100"
           explanation={SCORE_EXPLANATIONS.power}
         />
         <ScoreCard
-          label="Attention Index"
+          label="Attention"
           score={attentionScore}
-          icon={<Eye className="w-5 h-5 text-blue-600" />}
+          icon={<Eye className="w-4 h-4 text-blue-600" />}
           color="bg-blue-100"
           explanation={SCORE_EXPLANATIONS.attention}
         />
         <ScoreCard
-          label="Money Flow"
+          label="Money"
           score={moneyScore}
-          icon={<DollarSign className="w-5 h-5 text-green-600" />}
+          icon={<DollarSign className="w-4 h-4 text-green-600" />}
           color="bg-green-100"
           explanation={SCORE_EXPLANATIONS.money}
         />
-        <Card>
-          <CardContent className="pt-6">
+        <Card className="cursor-pointer hover:shadow-md transition-shadow" onClick={handleScenarioClick}>
+          <CardContent className="pt-4 pb-4">
             <div className="text-center">
-              <div className="flex items-center justify-center gap-1">
-                <p className="text-sm text-gray-500 uppercase tracking-wide">Threat Level</p>
-                <InfoTooltip text={SCORE_EXPLANATIONS.overall} />
-              </div>
-              <p className={`text-2xl font-bold mt-2 ${
-                threatLevel === 'critical' ? 'text-red-600' :
-                threatLevel === 'high' ? 'text-orange-500' :
-                threatLevel === 'elevated' ? 'text-yellow-500' :
-                threatLevel === 'moderate' ? 'text-blue-500' :
-                'text-green-500'
-              }`}>
-                {threatLevel.toUpperCase()}
+              <p className="text-xs text-gray-500 uppercase">Most Likely</p>
+              <p className="text-sm font-bold mt-1 text-pink-600">
+                {data.scenarioAnalysis?.mostLikely?.replace(/_/g, ' ') || 'Unknown'}
               </p>
-              <p className="text-xs text-gray-400 mt-1">Overall: {overallScore}</p>
             </div>
           </CardContent>
         </Card>
       </div>
 
-      {/* Trends and Insights Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Trend Radar */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Target className="w-5 h-5 text-pink-500" />
-              2030 Trends Radar
-              <InfoTooltip text={SCORE_EXPLANATIONS.trend} />
-            </CardTitle>
-            <p className="text-xs text-gray-500 mt-1">Click any trend to see key drivers, evidence, and implications</p>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {(data.trendAnalysis?.trends || []).map(trend => (
-              <TrendItem key={trend.id} trend={trend} articles={articles} />
-            ))}
-          </CardContent>
-        </Card>
+      {/* Trends Radar + Scenario Matrix - Side by Side */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Trends Radar - 2 columns */}
+        <div className="lg:col-span-2">
+          <TrendsRadarCompact
+            trends={data.trendAnalysis?.trends || []}
+            onTrendClick={handleTrendClick}
+          />
+        </div>
 
-        {/* Key Insights */}
-        <div className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Key Events</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ul className="space-y-2">
-                {(data.executiveSummary?.keyEvents || []).slice(0, 5).map((event, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
-                    <span className="text-pink-500 mt-1">•</span>
-                    <CitationText text={event} articles={articles} />
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Emerging Signals</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ul className="space-y-2">
-                {(data.executiveSummary?.emergingSignals || []).slice(0, 5).map((signal, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
-                    <span className="text-blue-500 mt-1">→</span>
-                    <CitationText text={signal} articles={articles} />
-                  </li>
-                ))}
-              </ul>
-            </CardContent>
-          </Card>
+        {/* Scenario Mini Matrix - 1 column */}
+        <div>
+          <ScenarioMiniMatrix
+            scenarios={data.scenarioAnalysis?.scenarios}
+            mostLikely={data.scenarioAnalysis?.mostLikely}
+            probabilityShift={data.trendAnalysis?.scenarioImplications?.probabilityShift}
+            onClick={handleScenarioClick}
+          />
         </div>
       </div>
 
-      {/* Strategic Priorities */}
-      {data.executiveSummary?.strategicPriorities && data.executiveSummary.strategicPriorities.length > 0 && (
+      {/* Strategic Recommendations */}
+      {sortedRecommendations.length > 0 && (
         <Card>
-          <CardHeader>
-            <CardTitle>Strategic Priorities</CardTitle>
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center gap-2">
+              <Lightbulb className="w-5 h-5 text-amber-500" />
+              Strategic Recommendations
+            </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {data.executiveSummary.strategicPriorities.map((p, i) => (
-                <div key={i} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                  <Badge className={
-                    p.urgency === 'immediate' ? 'bg-red-100 text-red-700' :
-                    p.urgency === 'near_term' ? 'bg-yellow-100 text-yellow-700' :
-                    'bg-green-100 text-green-700'
-                  }>
-                    {p.urgency.replace('_', ' ')}
-                  </Badge>
-                  <span className="text-sm text-gray-700">{p.priority}</span>
-                </div>
-              ))}
-            </div>
+          <CardContent className="space-y-3">
+            {(showAllRecommendations ? sortedRecommendations : sortedRecommendations.slice(0, 3)).map((rec, i) => (
+              <RecommendationCard
+                key={i}
+                recommendation={rec}
+                onTrendClick={handleTrendClick}
+                compact
+              />
+            ))}
+            {sortedRecommendations.length > 3 && (
+              <button
+                className="text-sm text-pink-600 hover:text-pink-700 font-medium"
+                onClick={() => setShowAllRecommendations(!showAllRecommendations)}
+              >
+                {showAllRecommendations
+                  ? '← Show fewer recommendations'
+                  : `View all ${sortedRecommendations.length} recommendations →`}
+              </button>
+            )}
           </CardContent>
         </Card>
       )}
+
+      {/* Key Events & Emerging Signals - Collapsed */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Key Events</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-1.5">
+              {(data.executiveSummary?.keyEvents || []).slice(0, 4).map((event, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                  <span className="text-pink-500 mt-0.5">•</span>
+                  <CitationText text={event} articles={articles} />
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Emerging Signals</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-1.5">
+              {(data.executiveSummary?.emergingSignals || []).slice(0, 4).map((signal, i) => (
+                <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
+                  <span className="text-blue-500 mt-0.5">→</span>
+                  <CitationText text={signal} articles={articles} />
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 };
 
 // Power View (simplified)
-const PowerView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data, articles }) => {
+const PowerView: React.FC<{ data: PAMData; articles: Article[]; regulatoryEvents: RegulatoryEvent[]; eventsLoading: boolean }> = ({ data, articles, regulatoryEvents, eventsLoading }) => {
   const power = data.powerAnalysis;
   if (!power) return <EmptyState message="No power analysis available" />;
 
@@ -500,6 +727,66 @@ const PowerView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data, art
               articles={articles}
             />
           </div>
+
+          {/* T2: Agentic AI Tools & Adoption */}
+          {power.t2Evidence && (power.t2Evidence.toolsMentioned?.length > 0 || power.t2Evidence.adoptionSignals?.length > 0) && (
+            <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-medium flex items-center gap-2">
+                  <Bot className="w-4 h-4 text-yellow-600" />
+                  T2: Agentic AI Adoption
+                </h4>
+                {power.t2Evidence.trendDirection && (
+                  <Badge variant="outline" className="capitalize">
+                    {power.t2Evidence.trendDirection}
+                  </Badge>
+                )}
+              </div>
+
+              {/* AI Tools Mentioned */}
+              {power.t2Evidence.toolsMentioned && power.t2Evidence.toolsMentioned.length > 0 && (
+                <div className="mb-3">
+                  <p className="text-xs text-gray-500 uppercase mb-1">AI Tools Mentioned in News</p>
+                  <div className="flex flex-wrap gap-1">
+                    {power.t2Evidence.toolsMentioned.map((tool: string, i: number) => (
+                      <Badge key={i} variant="outline" className="bg-white">
+                        {tool}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Adoption Signals */}
+              {power.t2Evidence.adoptionSignals && power.t2Evidence.adoptionSignals.length > 0 && (
+                <div className="mb-3">
+                  <p className="text-xs text-gray-500 uppercase mb-1">Adoption Signals</p>
+                  <ul className="space-y-1">
+                    {power.t2Evidence.adoptionSignals.slice(0, 5).map((signal: any, i: number) => (
+                      <li key={i} className="text-sm text-gray-700 flex items-start gap-1">
+                        <span className="text-yellow-600">→</span>
+                        <span>
+                          <strong>{signal.entity}</strong>: {signal.toolOrChange}
+                          {signal.source && (
+                            <span className="text-gray-400 ml-1">
+                              <CitationText text={signal.source} articles={articles} />
+                            </span>
+                          )}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Summary */}
+              {power.t2Evidence.summary && power.t2Evidence.summary !== 'No T2 evidence found in articles' && (
+                <p className="text-sm text-gray-600 pt-2 border-t border-yellow-200">
+                  <CitationText text={power.t2Evidence.summary} articles={articles} />
+                </p>
+              )}
+            </div>
+          )}
           {/* Key Events */}
           {power.keyEvents && power.keyEvents.length > 0 && (
             <div className="p-4 bg-gray-50 rounded-lg">
@@ -538,6 +825,65 @@ const PowerView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data, art
           )}
         </CardContent>
       </Card>
+
+      {/* Extracted Regulatory Events */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Scale className="w-5 h-5 text-purple-500" />
+            Extracted Regulatory Events
+            {regulatoryEvents.length > 0 && (
+              <Badge variant="outline" className="ml-2">{regulatoryEvents.length}</Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {eventsLoading ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="w-5 h-5 animate-spin text-purple-500" />
+              <span className="ml-2 text-sm text-gray-500">Loading events...</span>
+            </div>
+          ) : regulatoryEvents.length === 0 ? (
+            <p className="text-sm text-gray-400 italic py-2">No regulatory events extracted yet. Run event extraction from Tune modal.</p>
+          ) : (
+            <div className="space-y-3">
+              {regulatoryEvents.slice(0, 8).map((event) => (
+                <div key={event.id} className="p-3 bg-purple-50 rounded-lg border border-purple-100">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1">
+                      <h5 className="font-medium text-sm">{event.headline}</h5>
+                      <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                        <Badge variant="outline" className="text-xs">{event.jurisdiction}</Badge>
+                        <Badge variant="outline" className="text-xs capitalize">{event.event_type.replace('_', ' ')}</Badge>
+                        {event.event_date && (
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-3 h-3" />
+                            {event.event_date}
+                          </span>
+                        )}
+                      </div>
+                      {event.summary && (
+                        <p className="text-xs text-gray-600 mt-2">{event.summary}</p>
+                      )}
+                      {event.publisher_implications && (
+                        <p className="text-xs text-purple-700 mt-1">
+                          <strong>Publisher impact:</strong> {event.publisher_implications}
+                        </p>
+                      )}
+                    </div>
+                    {event.t4_impact_score && (
+                      <div className="text-right">
+                        <span className="text-lg font-bold text-purple-600">{Math.round(event.t4_impact_score * 100)}</span>
+                        <p className="text-xs text-gray-400">impact</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 };
@@ -558,25 +904,18 @@ const AttentionView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
         </CardHeader>
         <CardContent className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <AnalysisSection
-              title="Academic Visibility"
-              score={attention.academicVisibility?.score}
-              description={attention.academicVisibility?.citationTrends}
-              items={attention.academicVisibility?.keyIndicators}
-              articles={articles}
-            />
             {/* AI Engine Visibility with detailed metrics */}
             <div className="p-4 bg-gray-50 rounded-lg">
               <div className="flex items-center justify-between mb-2">
                 <h4 className="font-medium">AI Engine Visibility</h4>
-                {attention.aiVisibility?.score !== undefined && (
+                {attention.aiVisibility?.score != null && (
                   <div className="flex items-center gap-1">
-                    <span className="text-lg font-semibold">{attention.aiVisibility.score}/100</span>
+                    <span className="text-lg font-semibold">{Math.round(attention.aiVisibility.score)}/100</span>
                     <InfoTooltip text={SCORE_EXPLANATIONS.analysis} />
                   </div>
                 )}
               </div>
-              {attention.aiVisibility?.score !== undefined && (
+              {attention.aiVisibility?.score != null && (
                 <Progress value={attention.aiVisibility.score} className="h-2 mb-3" />
               )}
               <div className="space-y-2 text-sm">
@@ -587,24 +926,6 @@ const AttentionView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
                   </div>
                   <span className="font-medium capitalize">{attention.aiVisibility?.trainingDataExposure || 'N/A'}</span>
                 </div>
-                {attention.aiVisibility?.metadataReadiness !== undefined && (
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1">
-                      <span className="text-gray-500">Metadata readiness:</span>
-                      <InfoTooltip text={ATTENTION_METRIC_EXPLANATIONS.metadataReadiness} />
-                    </div>
-                    <span className="font-medium">{attention.aiVisibility.metadataReadiness}/100</span>
-                  </div>
-                )}
-                {attention.aiVisibility?.provenanceStrength !== undefined && (
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1">
-                      <span className="text-gray-500">Provenance strength:</span>
-                      <InfoTooltip text={ATTENTION_METRIC_EXPLANATIONS.provenanceStrength} />
-                    </div>
-                    <span className="font-medium">{attention.aiVisibility.provenanceStrength}/100</span>
-                  </div>
-                )}
               </div>
               {/* Description with citations */}
               {attention.aiVisibility?.trainingDataExposureDescription && (
@@ -624,14 +945,14 @@ const AttentionView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
             <div className="p-4 bg-gray-50 rounded-lg">
               <div className="flex items-center justify-between mb-2">
                 <h4 className="font-medium">Synthesis Exposure</h4>
-                {attention.synthesisExposure?.score !== undefined && (
+                {attention.synthesisExposure?.score != null && (
                   <div className="flex items-center gap-1">
-                    <span className="text-lg font-semibold">{attention.synthesisExposure.score}/100</span>
+                    <span className="text-lg font-semibold">{Math.round(attention.synthesisExposure.score)}/100</span>
                     <InfoTooltip text={ATTENTION_METRIC_EXPLANATIONS.synthesisExposure} />
                   </div>
                 )}
               </div>
-              {attention.synthesisExposure?.score !== undefined && (
+              {attention.synthesisExposure?.score != null && (
                 <Progress value={attention.synthesisExposure.score} className="h-2 mb-3" />
               )}
               <div className="space-y-2 text-sm">
@@ -650,7 +971,7 @@ const AttentionView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
                       <span className="text-gray-500">Attribution rate:</span>
                       <InfoTooltip text={ATTENTION_METRIC_EXPLANATIONS.attributionRate} />
                     </div>
-                    <span className="font-medium">{attention.synthesisExposure.attributionRate}/100</span>
+                    <span className="font-medium">{Math.round(attention.synthesisExposure.attributionRate)}/100</span>
                   </div>
                 )}
               </div>
@@ -660,39 +981,6 @@ const AttentionView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
                   <CitationText text={attention.synthesisExposure.description} articles={articles} />
                 </p>
               )}
-            </div>
-          </div>
-          {/* GEO Readiness - Placeholder for external data integration */}
-          <div className="p-4 bg-gray-50 rounded-lg border-2 border-dashed border-gray-300">
-            <h4 className="font-medium mb-2">GEO Readiness (Generative Engine Optimization)</h4>
-            <p className="text-sm text-gray-500 mb-3">
-              Measures how well content is optimized for AI discovery and attribution.
-            </p>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
-              <div className="text-center p-2 bg-white rounded opacity-50">
-                <p className="text-lg font-semibold text-gray-400">--</p>
-                <p className="text-xs text-gray-400">Structured Metadata</p>
-              </div>
-              <div className="text-center p-2 bg-white rounded opacity-50">
-                <p className="text-lg font-semibold text-gray-400">--</p>
-                <p className="text-xs text-gray-400">Machine-Readable Rights</p>
-              </div>
-              <div className="text-center p-2 bg-white rounded opacity-50">
-                <p className="text-lg font-semibold text-gray-400">--</p>
-                <p className="text-xs text-gray-400">Provenance Tagging</p>
-              </div>
-              <div className="text-center p-2 bg-white rounded opacity-50">
-                <p className="text-lg font-semibold text-gray-400">--</p>
-                <p className="text-xs text-gray-400">API Accessibility</p>
-              </div>
-              <div className="text-center p-2 bg-white rounded opacity-50">
-                <p className="text-lg font-semibold text-gray-400">--</p>
-                <p className="text-xs text-gray-400">AI Training Licensing</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-amber-600 bg-amber-50 p-2 rounded">
-              <Info className="w-4 h-4" />
-              <span>Requires external data source integration (e.g., GEO audit service, metadata crawlers)</span>
             </div>
           </div>
           {/* Key Attention Events */}
@@ -723,6 +1011,69 @@ const AttentionView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
               </ul>
             </div>
           )}
+          {/* Entity Mentions (from monitored brands) */}
+          {(attention.entityMentions && attention.entityMentions.length > 0) || attention.entitySearchResults ? (
+            <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
+              <h4 className="font-medium mb-3 flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-blue-600" />
+                <span className="text-blue-600">Monitored Entity Tracking</span>
+              </h4>
+
+              {/* Show entity search results (SQL ground truth) */}
+              {attention.entitySearchResults && Object.keys(attention.entitySearchResults).length > 0 && (
+                <div className="mb-3 p-2 bg-white rounded border border-blue-100">
+                  <p className="text-xs text-gray-500 mb-2">Database Search Results:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(attention.entitySearchResults).map(([entity, count]: [string, any]) => (
+                      <Badge key={entity} variant="outline" className={`text-xs ${count > 0 ? 'border-blue-300 bg-blue-50' : 'border-gray-200'}`}>
+                        {entity}: {count} article{count !== 1 ? 's' : ''}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Show LLM-analyzed mentions */}
+              {attention.entityMentions && attention.entityMentions.length > 0 ? (
+                <div className="space-y-3">
+                  {attention.entityMentions.map((mention: any, i: number) => (
+                    <div key={i} className="flex items-start justify-between p-3 bg-white rounded border border-blue-100">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-gray-900">{mention.entity}</span>
+                          <Badge variant="outline" className="text-xs border-blue-300">
+                            {mention.mentionCount || mention.mention_count || 1} mention{(mention.mentionCount || mention.mention_count || 1) !== 1 ? 's' : ''}
+                          </Badge>
+                          {mention.sentiment && (
+                            <Badge
+                              variant="outline"
+                              className={`text-xs ${
+                                mention.sentiment === 'positive' ? 'border-green-300 bg-green-50 text-green-700' :
+                                mention.sentiment === 'negative' ? 'border-red-300 bg-red-50 text-red-700' :
+                                'border-gray-300 bg-gray-50 text-gray-600'
+                              }`}
+                            >
+                              {mention.sentiment}
+                            </Badge>
+                          )}
+                        </div>
+                        {mention.context && (
+                          <p className="text-sm text-gray-600 mt-2">{mention.context}</p>
+                        )}
+                        {mention.articles && mention.articles.length > 0 && (
+                          <p className="text-xs text-gray-400 mt-1">
+                            Found in: {mention.articles.join(', ')}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500 italic">No specific entity mentions extracted from the analyzed articles.</p>
+              )}
+            </div>
+          ) : null}
           {attention.summary && (
             <div className="p-4 bg-gray-50 rounded-lg">
               <h4 className="font-medium mb-2">Summary</h4>
@@ -738,7 +1089,7 @@ const AttentionView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
 };
 
 // Money View (simplified)
-const MoneyView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data, articles }) => {
+const MoneyView: React.FC<{ data: PAMData; articles: Article[]; financialEvents: FinancialEvent[]; eventsLoading: boolean }> = ({ data, articles, financialEvents, eventsLoading }) => {
   const money = data.moneyAnalysis;
   if (!money) return <EmptyState message="No money analysis available" />;
 
@@ -785,10 +1136,19 @@ const MoneyView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data, art
               <p className="text-xl font-bold text-gray-900 mb-2 capitalize">
                 {money.revenueConcentration?.concentrationLevel || 'Unknown'}
               </p>
-              <p className="text-sm text-gray-500">
-                Top players share: {money.revenueConcentration?.topPlayersShare}%
-              </p>
-              {money.revenueConcentration?.keyMetrics && (
+              {money.revenueConcentration?.topPlayersShare && money.revenueConcentration.topPlayersShare > 0 ? (
+                <p className="text-sm text-gray-500">
+                  Top players share: {money.revenueConcentration.topPlayersShare}%
+                </p>
+              ) : (
+                <p className="text-sm text-gray-400 italic">Market share data not available</p>
+              )}
+              {money.revenueConcentration?.trend && (
+                <p className="text-sm text-gray-500 mt-1">
+                  <span className="capitalize">{money.revenueConcentration.trend}</span>
+                </p>
+              )}
+              {money.revenueConcentration?.keyMetrics && money.revenueConcentration.keyMetrics.length > 0 && (
                 <ul className="mt-2 space-y-1">
                   {money.revenueConcentration.keyMetrics.slice(0, 3).map((metric: string, i: number) => (
                     <li key={i} className="text-sm text-gray-600">
@@ -822,7 +1182,9 @@ const MoneyView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data, art
                           <span className="text-gray-400"> → </span>
                           <span className="font-medium">{deal.target}</span>
                           {deal.value && <span className="text-green-600 ml-1">({deal.value})</span>}
-                          {deal.type && <Badge variant="outline" className="ml-1 text-xs">{deal.type}</Badge>}
+                          {deal.type && !HIDDEN_DEAL_TYPES.includes(deal.type.toLowerCase()) && (
+                            <Badge variant="outline" className="ml-1 text-xs capitalize">{deal.type}</Badge>
+                          )}
                           {/* Show citation if available */}
                           {deal.citations && deal.citations.length > 0 && (
                             <span className="ml-1">
@@ -841,18 +1203,51 @@ const MoneyView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data, art
             </div>
             <div className="p-4 bg-gray-50 rounded-lg">
               <h4 className="font-medium mb-2">Cost Dynamics</h4>
-              <div className="space-y-1 text-sm">
-                <p><span className="text-gray-500">Compute:</span> <span className="capitalize">{money.costDynamics?.computeCostTrend || 'N/A'}</span></p>
-                <p><span className="text-gray-500">Publishing:</span> <span className="capitalize">{money.costDynamics?.publishingCosts || 'N/A'}</span></p>
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <div className="p-2 bg-white rounded border border-gray-200">
+                  <p className="text-xs text-gray-500 mb-1">Compute Costs</p>
+                  <p className={`text-sm font-medium capitalize ${
+                    money.costDynamics?.computeCostTrend === 'decreasing' ? 'text-green-600' :
+                    money.costDynamics?.computeCostTrend === 'increasing' ? 'text-red-600' :
+                    'text-gray-700'
+                  }`}>
+                    {money.costDynamics?.computeCostTrend || 'N/A'}
+                  </p>
+                </div>
+                <div className="p-2 bg-white rounded border border-gray-200">
+                  <p className="text-xs text-gray-500 mb-1">Publishing Costs</p>
+                  <p className="text-sm font-medium text-gray-700 capitalize">
+                    {money.costDynamics?.publishingCosts || 'N/A'}
+                  </p>
+                </div>
               </div>
-              {money.costDynamics?.keyFactors && (
-                <ul className="mt-2 space-y-1">
-                  {money.costDynamics.keyFactors.slice(0, 3).map((factor: string, i: number) => (
-                    <li key={i} className="text-sm text-gray-600">
-                      • <CitationText text={factor} articles={articles} />
-                    </li>
-                  ))}
-                </ul>
+              {money.costDynamics?.keyFactors && money.costDynamics.keyFactors.length > 0 && (
+                <div className="mt-2">
+                  <p className="text-xs text-gray-500 mb-1">Key Factors</p>
+                  <ul className="space-y-1">
+                    {money.costDynamics.keyFactors.slice(0, 3).map((factor: string, i: number) => (
+                      <li key={i} className="text-sm text-gray-600">
+                        • <CitationText text={factor} articles={articles} />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {/* Cost Articles Search Results */}
+              {money.costArticlesSearch?.articlesFound > 0 && (
+                <div className="mt-3 p-2 bg-white rounded border border-gray-200">
+                  <p className="text-xs text-gray-500 mb-2">
+                    Cost-Related Articles Found: <span className="font-medium text-gray-700">{money.costArticlesSearch.articlesFound}</span>
+                  </p>
+                  <ul className="space-y-1 max-h-32 overflow-y-auto">
+                    {money.costArticlesSearch.articles?.slice(0, 5).map((art: any, i: number) => (
+                      <li key={i} className="text-xs text-gray-600">
+                        • <span className="font-medium">{art.title?.substring(0, 60)}...</span>
+                        <span className="text-gray-400 ml-1">({art.source})</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
             </div>
           </div>
@@ -925,6 +1320,81 @@ const MoneyView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data, art
               <p className="text-gray-700">
                 <CitationText text={money.summary} articles={articles} />
               </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Extracted Financial Events */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Briefcase className="w-5 h-5 text-emerald-500" />
+            Extracted M&A & Funding Events
+            {financialEvents.length > 0 && (
+              <Badge variant="outline" className="ml-2">{financialEvents.length}</Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {eventsLoading ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="w-5 h-5 animate-spin text-emerald-500" />
+              <span className="ml-2 text-sm text-gray-500">Loading events...</span>
+            </div>
+          ) : financialEvents.length === 0 ? (
+            <p className="text-sm text-gray-400 italic py-2">No financial events extracted yet. Run event extraction from Tune modal.</p>
+          ) : (
+            <div className="space-y-3">
+              {financialEvents.slice(0, 10).map((event) => (
+                <div key={event.id} className="p-3 bg-emerald-50 rounded-lg border border-emerald-100">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1">
+                      <h5 className="font-medium text-sm">{event.headline}</h5>
+                      <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                        <Badge
+                          variant="outline"
+                          className={`text-xs capitalize ${
+                            event.event_type === 'acquisition' ? 'border-red-200 bg-red-50 text-red-700' :
+                            event.event_type === 'funding_round' ? 'border-blue-200 bg-blue-50 text-blue-700' :
+                            event.event_type === 'partnership' ? 'border-purple-200 bg-purple-50 text-purple-700' :
+                            event.event_type === 'merger' ? 'border-orange-200 bg-orange-50 text-orange-700' :
+                            'border-gray-200'
+                          }`}
+                        >
+                          {event.event_type.replace('_', ' ')}
+                        </Badge>
+                        {event.event_date && (
+                          <span className="flex items-center gap-1">
+                            <Calendar className="w-3 h-3" />
+                            {event.event_date}
+                          </span>
+                        )}
+                      </div>
+                      {(event.acquirer || event.target) && (
+                        <p className="text-xs text-gray-600 mt-1">
+                          <span className="font-medium">{event.acquirer || 'Unknown'}</span>
+                          <span className="text-gray-400 mx-1">→</span>
+                          <span className="font-medium">{event.target || 'Unknown'}</span>
+                        </p>
+                      )}
+                      {event.strategic_significance && (
+                        <p className="text-xs text-emerald-700 mt-1">
+                          <strong>Significance:</strong> {event.strategic_significance}
+                        </p>
+                      )}
+                    </div>
+                    {event.deal_value_usd && (
+                      <div className="text-right">
+                        <span className="text-lg font-bold text-emerald-600">
+                          {formatCurrency(event.deal_value_usd)}
+                        </span>
+                        <p className="text-xs text-gray-400">deal value</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </CardContent>
@@ -1052,7 +1522,7 @@ const ScenariosView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
                   const scenarioData = scenarios.scenarios?.[s.id];
                   const isMostLikely = mostLikelyNormalized === s.id;
                   const probability = scenarioData?.currentProbability
-                    ? (scenarioData.currentProbability * 100).toFixed(0)
+                    ? scenarioData.currentProbability.toFixed(0)
                     : '--';
 
                   return (
@@ -1089,7 +1559,7 @@ const ScenariosView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
                   const scenarioData = scenarios.scenarios?.[s.id];
                   const isMostLikely = mostLikelyNormalized === s.id;
                   const probability = scenarioData?.currentProbability
-                    ? (scenarioData.currentProbability * 100).toFixed(0)
+                    ? scenarioData.currentProbability.toFixed(0)
                     : '--';
 
                   return (
@@ -1226,14 +1696,14 @@ const AnalysisSection: React.FC<{
     <div className="p-4 bg-gray-50 rounded-lg">
       <div className="flex items-center justify-between mb-2">
         <h4 className="font-medium">{title}</h4>
-        {score !== undefined && (
+        {score != null && (
           <div className="flex items-center gap-1">
-            <span className="text-lg font-semibold">{score}/100</span>
+            <span className="text-lg font-semibold">{Math.round(score)}/100</span>
             <InfoTooltip text={SCORE_EXPLANATIONS.analysis} />
           </div>
         )}
       </div>
-      {score !== undefined && <Progress value={score} className="h-2 mb-2" />}
+      {score != null && <Progress value={score} className="h-2 mb-2" />}
       {badge && (
         <Badge variant="outline" className="mb-2 capitalize">{badge}</Badge>
       )}
@@ -1413,6 +1883,51 @@ export const PAMDashboard: React.FC<PAMDashboardProps> = ({
   onViewChange,
   onClearError,
 }) => {
+  // State for extracted events
+  const [financialEvents, setFinancialEvents] = useState<FinancialEvent[]>([]);
+  const [regulatoryEvents, setRegulatoryEvents] = useState<RegulatoryEvent[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
+
+  // Fetch extracted events on mount and when data changes
+  useEffect(() => {
+    const fetchEvents = async () => {
+      setEventsLoading(true);
+      try {
+        const [finRes, regRes] = await Promise.all([
+          fetch('/api/pam/events/financial?days_back=90&limit=20', { credentials: 'include' }),
+          fetch('/api/pam/events/regulatory?days_back=90&limit=15', { credentials: 'include' }),
+        ]);
+
+        if (finRes.ok) {
+          const finData = await finRes.json();
+          setFinancialEvents(finData.data?.events || []);
+        }
+        if (regRes.ok) {
+          const regData = await regRes.json();
+          setRegulatoryEvents(regData.data?.events || []);
+        }
+      } catch (err) {
+        console.error('Failed to fetch extracted events:', err);
+      } finally {
+        setEventsLoading(false);
+      }
+    };
+
+    fetchEvents();
+  }, [data]); // Refetch when data changes
+
+  // Convert reference articles to Article format for citation renderer
+  // IMPORTANT: This must be called before any early returns to keep hook count stable
+  const citationArticles: Article[] = useMemo(() => {
+    return (data?.referenceArticles || []).map(article => ({
+      id: article.id,
+      url: article.uri,
+      uri: article.uri,
+      title: article.title,
+      source: article.source,
+    }));
+  }, [data?.referenceArticles]);
+
   // Error state
   if (error) {
     return (
@@ -1492,26 +2007,15 @@ export const PAMDashboard: React.FC<PAMDashboardProps> = ({
     );
   }
 
-  // Convert reference articles to Article format for citation renderer
-  const citationArticles: Article[] = useMemo(() => {
-    return (data?.referenceArticles || []).map(article => ({
-      id: article.id,
-      url: article.uri,
-      uri: article.uri,
-      title: article.title,
-      source: article.source,
-    }));
-  }, [data?.referenceArticles]);
-
   // Data available - show dashboard
   return (
     <div className="p-6">
       <ViewTabs activeView={activeView} onViewChange={onViewChange} />
 
-      {activeView === 'executive' && <ExecutiveOverview data={data} articles={citationArticles} />}
-      {activeView === 'power' && <PowerView data={data} articles={citationArticles} />}
+      {activeView === 'executive' && <ExecutiveOverview data={data} articles={citationArticles} onViewChange={onViewChange} />}
+      {activeView === 'power' && <PowerView data={data} articles={citationArticles} regulatoryEvents={regulatoryEvents} eventsLoading={eventsLoading} />}
       {activeView === 'attention' && <AttentionView data={data} articles={citationArticles} />}
-      {activeView === 'money' && <MoneyView data={data} articles={citationArticles} />}
+      {activeView === 'money' && <MoneyView data={data} articles={citationArticles} financialEvents={financialEvents} eventsLoading={eventsLoading} />}
       {activeView === 'scenarios' && <ScenariosView data={data} articles={citationArticles} />}
 
       {/* Footer with metadata */}
@@ -1520,6 +2024,66 @@ export const PAMDashboard: React.FC<PAMDashboardProps> = ({
         <span>Model: {data.modelUsed}</span>
         <span>Generated: {new Date(data.createdAt).toLocaleString()}</span>
       </div>
+
+      {/* v2 Config Used indicator */}
+      <ConfigUsedIndicator
+        config={data.configUsed}
+        architectureVersion={data.architectureVersion}
+      />
+
+      {/* Data Sources Summary for v2 */}
+      {data.scores?.dataSources && (
+        <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+          <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+            <Database className="w-4 h-4 text-gray-500" />
+            Data Sources Used
+          </h4>
+          <div className="grid grid-cols-3 gap-4 text-xs">
+            <div>
+              <span className="text-gray-500 flex items-center gap-1">
+                <Zap className="w-3 h-3" /> Power:
+              </span>
+              <div className="flex flex-wrap gap-1 mt-1">
+                {data.scores.dataSources.power && data.scores.dataSources.power.length > 0 ? (
+                  data.scores.dataSources.power.map((s: string, i: number) => (
+                    <DataSourceBadge key={i} source={s as DataSourceType} />
+                  ))
+                ) : (
+                  <span className="text-gray-400 italic">Article database</span>
+                )}
+              </div>
+            </div>
+            <div>
+              <span className="text-gray-500 flex items-center gap-1">
+                <Eye className="w-3 h-3" /> Attention:
+              </span>
+              <div className="flex flex-wrap gap-1 mt-1">
+                {data.scores.dataSources.attention && data.scores.dataSources.attention.length > 0 ? (
+                  data.scores.dataSources.attention.map((s: string, i: number) => (
+                    <DataSourceBadge key={i} source={s as DataSourceType} />
+                  ))
+                ) : (
+                  <span className="text-gray-400 italic">Article database</span>
+                )}
+              </div>
+            </div>
+            <div>
+              <span className="text-gray-500 flex items-center gap-1">
+                <DollarSign className="w-3 h-3" /> Money:
+              </span>
+              <div className="flex flex-wrap gap-1 mt-1">
+                {data.scores.dataSources.money && data.scores.dataSources.money.length > 0 ? (
+                  data.scores.dataSources.money.map((s: string, i: number) => (
+                    <DataSourceBadge key={i} source={s as DataSourceType} />
+                  ))
+                ) : (
+                  <span className="text-gray-400 italic">Article database</span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* AI Disclaimer */}
       <AIDisclaimer modelUsed={data.modelUsed} />

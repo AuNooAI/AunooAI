@@ -640,7 +640,8 @@ class DatabaseQueryFacade:
             organizational_profiles.c.custom_context,
             organizational_profiles.c.is_default,
             organizational_profiles.c.created_at,
-            organizational_profiles.c.updated_at
+            organizational_profiles.c.updated_at,
+            organizational_profiles.c.monitored_brands
         ).order_by(
             organizational_profiles.c.is_default.desc(),
             organizational_profiles.c.name.asc()
@@ -664,9 +665,10 @@ class DatabaseQueryFacade:
             stakeholder_focus=params[10],
             competitive_landscape=params[11],
             regulatory_environment=params[12],
-            custom_context=params[13]
+            custom_context=params[13],
+            monitored_brands=params[14] if len(params) > 14 else None
         )
-        
+
         return self._execute_with_rollback(statement)
 
     def delete_organisational_profile(self, profile_id):
@@ -709,7 +711,8 @@ class DatabaseQueryFacade:
             organizational_profiles.c.custom_context,
             organizational_profiles.c.is_default,
             organizational_profiles.c.created_at,
-            organizational_profiles.c.updated_at
+            organizational_profiles.c.updated_at,
+            organizational_profiles.c.monitored_brands
         ).where(
             organizational_profiles.c.id == profile_id
         )
@@ -730,7 +733,7 @@ class DatabaseQueryFacade:
         statement = update(
             organizational_profiles
         ).where(
-            organizational_profiles.c.id == params[14]
+            organizational_profiles.c.id == params[15]
         ).values(
             name = params[0],
             description = params[1],
@@ -746,6 +749,7 @@ class DatabaseQueryFacade:
             competitive_landscape = params[11],
             regulatory_environment = params[12],
             custom_context = params[13],
+            monitored_brands = params[14],
             updated_at = func.current_timestamp()
         )
         self._execute_with_rollback(statement)

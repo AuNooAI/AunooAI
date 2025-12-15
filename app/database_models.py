@@ -536,6 +536,7 @@ t_organizational_profiles = Table(
     Column('updated_at', TIMESTAMP, default=text('CURRENT_TIMESTAMP')),
     Column('is_default', Boolean, default=text('FALSE')),
     Column('region', Text),
+    Column('monitored_brands', Text),  # JSON array of brand names to track in PAM analysis
     Index('idx_org_profiles_default', 'is_default'),
     Index('idx_org_profiles_industry', 'industry'),
     Index('idx_org_profiles_name', 'name')

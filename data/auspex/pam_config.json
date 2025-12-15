@@ -1,0 +1,255 @@
+{
+    "title": "Power, Attention & Money Analysis",
+    "description": "Strategic intelligence for the AI-disrupted knowledge economy",
+    "version": "2.1.0",
+
+    "defaults": {
+        "days_back": 90,
+        "article_limit": 100,
+        "relevance_threshold": 0.65,
+        "articles_per_topic": 20,
+        "enable_external_data": true,
+        "parallel_agents": true
+    },
+
+    "keyword_preset": "scholarly_publishing",
+
+    "deep_search_keywords": {
+        "presets": {
+            "scholarly_publishing": {
+                "description": "Academic publishing, research, and AI in knowledge economy",
+                "cost_dynamics": [
+                    "cost cutting", "cost-cutting", "layoffs", "layoff", "job cuts",
+                    "budget cuts", "budget reduction", "restructuring", "downsizing",
+                    "compute costs", "gpu costs", "infrastructure costs", "cloud costs",
+                    "training costs", "ai costs", "operating costs", "publishing costs",
+                    "price increase", "price cut", "pricing", "subscription costs",
+                    "revenue decline", "losses", "profitability", "margins", "burn rate",
+                    "open access costs", "apc", "article processing charge"
+                ],
+                "ma_activity": [
+                    "acquisition", "acquired", "acquires", "merger", "merged", "merging",
+                    "takeover", "buyout", "purchase", "deal", "transaction",
+                    "funding round", "series a", "series b", "series c", "series d",
+                    "venture capital", "investment", "investor", "ipo", "valuation",
+                    "private equity", "strategic investment", "joint venture"
+                ],
+                "regulatory": [
+                    "regulation", "regulatory", "compliance", "law", "legislation",
+                    "eu ai act", "ai act", "gdpr", "copyright", "intellectual property",
+                    "licensing", "license agreement", "content rights", "fair use",
+                    "opt-out", "training data rights", "c2pa", "provenance",
+                    "watermark", "content credentials", "ai governance", "ai ethics"
+                ],
+                "entity_variations": {
+                    "Wiley": ["Wiley", "John Wiley", "Wiley Publishing"],
+                    "Elsevier": ["Elsevier", "Elsevier B.V.", "RELX"],
+                    "Springer": ["Springer", "Springer Nature", "Nature Publishing"],
+                    "Pearson": ["Pearson", "Pearson Education", "Pearson PLC"]
+                }
+            },
+            "healthcare_ai": {
+                "description": "Healthcare, medical AI, and life sciences",
+                "cost_dynamics": [
+                    "cost cutting", "cost-cutting", "layoffs", "layoff", "job cuts",
+                    "budget cuts", "restructuring", "downsizing", "cost containment",
+                    "healthcare costs", "medical costs", "drug pricing", "pharma costs",
+                    "r&d costs", "clinical trial costs", "manufacturing costs",
+                    "hospital costs", "insurance costs", "reimbursement",
+                    "revenue decline", "losses", "profitability", "margins"
+                ],
+                "ma_activity": [
+                    "acquisition", "acquired", "acquires", "merger", "merged",
+                    "takeover", "buyout", "pharma deal", "biotech acquisition",
+                    "funding round", "series a", "series b", "series c",
+                    "venture capital", "investment", "ipo", "valuation",
+                    "strategic partnership", "licensing deal", "collaboration"
+                ],
+                "regulatory": [
+                    "fda", "fda approval", "ema", "regulatory approval", "clinical trial",
+                    "hipaa", "patient privacy", "medical device regulation",
+                    "drug approval", "510k", "pma", "breakthrough therapy",
+                    "ai medical device", "samd", "digital therapeutics",
+                    "real world evidence", "post-market surveillance"
+                ],
+                "entity_variations": {
+                    "Pfizer": ["Pfizer", "Pfizer Inc"],
+                    "Johnson & Johnson": ["Johnson & Johnson", "J&J", "Janssen"],
+                    "Roche": ["Roche", "Roche Holding", "Genentech"],
+                    "Novartis": ["Novartis", "Novartis AG", "Sandoz"]
+                }
+            },
+            "fintech": {
+                "description": "Financial technology, banking, and payments",
+                "cost_dynamics": [
+                    "cost cutting", "cost-cutting", "layoffs", "layoff", "job cuts",
+                    "restructuring", "downsizing", "efficiency", "automation savings",
+                    "operating costs", "compliance costs", "infrastructure costs",
+                    "transaction costs", "processing fees", "interchange fees",
+                    "interest margins", "net interest income", "provisions",
+                    "write-offs", "impairments", "cost-to-income ratio"
+                ],
+                "ma_activity": [
+                    "acquisition", "acquired", "acquires", "merger", "merged",
+                    "takeover", "buyout", "fintech deal", "bank acquisition",
+                    "funding round", "series a", "series b", "series c",
+                    "venture capital", "investment", "ipo", "spac", "valuation",
+                    "strategic investment", "partnership"
+                ],
+                "regulatory": [
+                    "regulation", "regulatory", "compliance", "sec", "finra",
+                    "banking regulation", "basel", "capital requirements",
+                    "aml", "anti-money laundering", "kyc", "know your customer",
+                    "gdpr", "psd2", "open banking", "consumer protection",
+                    "crypto regulation", "stablecoin", "cbdc", "digital assets"
+                ],
+                "entity_variations": {
+                    "JPMorgan": ["JPMorgan", "JP Morgan", "Chase", "JPMorgan Chase"],
+                    "Goldman Sachs": ["Goldman Sachs", "Goldman", "GS"],
+                    "Stripe": ["Stripe", "Stripe Inc"],
+                    "PayPal": ["PayPal", "PayPal Holdings", "Venmo"]
+                }
+            },
+            "media_entertainment": {
+                "description": "Media, entertainment, streaming, and content",
+                "cost_dynamics": [
+                    "cost cutting", "cost-cutting", "layoffs", "layoff", "job cuts",
+                    "budget cuts", "restructuring", "downsizing", "content costs",
+                    "production costs", "licensing costs", "streaming costs",
+                    "subscriber acquisition cost", "churn", "arpu",
+                    "advertising revenue", "cord cutting", "subscriber losses"
+                ],
+                "ma_activity": [
+                    "acquisition", "acquired", "acquires", "merger", "merged",
+                    "takeover", "buyout", "media deal", "studio acquisition",
+                    "content deal", "licensing agreement", "distribution deal",
+                    "streaming rights", "sports rights", "exclusive content"
+                ],
+                "regulatory": [
+                    "regulation", "fcc", "content moderation", "section 230",
+                    "copyright", "dmca", "licensing", "music rights",
+                    "streaming regulation", "net neutrality", "media ownership",
+                    "antitrust", "competition", "market dominance"
+                ],
+                "entity_variations": {
+                    "Netflix": ["Netflix", "Netflix Inc"],
+                    "Disney": ["Disney", "Walt Disney", "Disney+"],
+                    "Warner Bros": ["Warner Bros", "Warner Bros Discovery", "HBO"],
+                    "Spotify": ["Spotify", "Spotify Technology"]
+                }
+            }
+        }
+    },
+
+    "agents": {
+        "power": {
+            "model": "gpt-4.1-mini",
+            "temperature": 0.3,
+            "max_tokens": 4000,
+            "prompt_file": "pam_power_agent.md"
+        },
+        "attention": {
+            "model": "gpt-4.1-mini",
+            "temperature": 0.3,
+            "max_tokens": 4000,
+            "prompt_file": "pam_attention_agent.md"
+        },
+        "money": {
+            "model": "gpt-4.1-mini",
+            "temperature": 0.3,
+            "max_tokens": 4000,
+            "prompt_file": "pam_money_agent.md"
+        },
+        "trends": {
+            "model": "gpt-4.1-mini",
+            "temperature": 0.3,
+            "max_tokens": 3000,
+            "prompt_file": "pam_trend_agent.md"
+        },
+        "synthesis": {
+            "model": "gpt-4.1",
+            "temperature": 0.4,
+            "max_tokens": 5000,
+            "prompt_file": "pam_synthesis_agent.md"
+        }
+    },
+
+    "external_data": {
+        "semantic_scholar": {
+            "enabled": true,
+            "used_by": ["attention"],
+            "rate_limit": 100,
+            "cache_ttl_hours": 24
+        },
+        "google_search": {
+            "enabled": true,
+            "used_by": ["power", "money"],
+            "rate_limit": 95,
+            "cache_ttl_hours": 24
+        },
+        "crunchbase": {
+            "enabled": false,
+            "used_by": ["money"],
+            "requires_api_key": true
+        }
+    },
+
+    "trend_calculator": {
+        "weights": {
+            "article_volume": 0.25,
+            "recency": 0.20,
+            "source_authority": 0.20,
+            "velocity": 0.20,
+            "external_signals": 0.15
+        },
+        "normalization": {
+            "article_count_baseline": 20,
+            "article_count_max": 100
+        },
+        "velocity_thresholds": {
+            "accelerating": 20,
+            "decelerating": -15
+        }
+    },
+
+    "score_calculation": {
+        "pillar_weights": {
+            "power": 0.35,
+            "attention": 0.35,
+            "money": 0.30
+        },
+        "threat_levels": {
+            "critical": 80,
+            "high": 70,
+            "elevated": 55,
+            "moderate": 40
+        }
+    },
+
+    "scenarios_2030": {
+        "S1": {
+            "name": "Trusted Ecosystem",
+            "regulation": "high",
+            "concentration": "low",
+            "base_probability": 20
+        },
+        "S2": {
+            "name": "Fragmented Compliance",
+            "regulation": "high",
+            "concentration": "high",
+            "base_probability": 25
+        },
+        "S3": {
+            "name": "Open Chaos",
+            "regulation": "low",
+            "concentration": "low",
+            "base_probability": 15
+        },
+        "S4": {
+            "name": "Behemoth Control",
+            "regulation": "low",
+            "concentration": "high",
+            "base_probability": 40
+        }
+    }
+}
