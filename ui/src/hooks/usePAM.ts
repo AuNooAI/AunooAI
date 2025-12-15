@@ -64,6 +64,17 @@ export interface PAMScores {
   moneyScore: number;
   overallScore: number;
   threatLevel: 'low' | 'moderate' | 'elevated' | 'high' | 'critical';
+  // v2 data source indicators
+  weightsUsed?: {
+    power: number;
+    attention: number;
+    money: number;
+  };
+  dataSources?: {
+    power: string[];
+    attention: string[];
+    money: string[];
+  };
 }
 
 export interface ExecutiveSummary {
@@ -105,6 +116,16 @@ export interface PowerAnalysis {
     score: number;
     keyDeals: string[];
     trends: string;
+  };
+  // T2: Agentic AI Evidence
+  t2Evidence?: {
+    trendName: string;
+    evidenceCount: number;
+    trendDirection: string;
+    toolsMentioned: string[];
+    adoptionSignals: Array<{ entity: string; toolOrChange: string; source: string }>;
+    automationExamples: string[];
+    summary: string;
   };
   keyEvents: Array<{ event: string; impact: string; source: string }>;
   summary: string;
@@ -217,6 +238,20 @@ export interface ReferenceArticle {
   matchedTrend: string;
 }
 
+// v2 Config used in analysis
+export interface PAMConfigUsed {
+  relevanceThreshold?: number;
+  articlesPerTopic?: number;
+  enableExternalData?: boolean;
+  parallelAgents?: boolean;
+  models?: {
+    power?: string;
+    attention?: string;
+    money?: string;
+    trend?: string;
+  };
+}
+
 export interface PAMData {
   runId: string;
   topic: string;
@@ -246,6 +281,14 @@ export interface PAMData {
   modelUsed: string;
   durationSeconds: number;
   createdAt: string;
+  // v2 fields
+  architectureVersion?: string;
+  configUsed?: PAMConfigUsed;
+  pillarQueries?: {
+    power: string[];
+    attention: string[];
+    money: string[];
+  };
 }
 
 export interface TrendDefinition {
@@ -386,6 +429,9 @@ export function usePAM(): UsePAMReturn {
             moneyScore: cachedContent.scores?.money_score || 50,
             overallScore: cachedContent.scores?.overall_score || 50,
             threatLevel: cachedContent.scores?.threat_level || 'moderate',
+            // v2 fields
+            weightsUsed: cachedContent.scores?.weights_used ? transformKeys(cachedContent.scores.weights_used) : undefined,
+            dataSources: cachedContent.scores?.data_sources ? transformKeys(cachedContent.scores.data_sources) : undefined,
           },
           powerAnalysis: cachedContent.power_analysis ? transformKeys(cachedContent.power_analysis) : null,
           attentionAnalysis: cachedContent.attention_analysis ? transformKeys(cachedContent.attention_analysis) : null,
@@ -407,6 +453,10 @@ export function usePAM(): UsePAMReturn {
           modelUsed: cachedContent.model_used || '',
           durationSeconds: cachedContent.duration_seconds || 0,
           createdAt: cachedContent.created_at || new Date().toISOString(),
+          // v2 fields
+          architectureVersion: cachedContent.architecture_version,
+          configUsed: cachedContent.config_used ? transformKeys(cachedContent.config_used) : undefined,
+          pillarQueries: cachedContent.pillar_queries ? transformKeys(cachedContent.pillar_queries) : undefined,
         };
 
         console.log('📊 Loaded cached PAM report:', {
@@ -478,6 +528,9 @@ export function usePAM(): UsePAMReturn {
             moneyScore: resultData.scores?.money_score || 50,
             overallScore: resultData.scores?.overall_score || 50,
             threatLevel: resultData.scores?.threat_level || 'moderate',
+            // v2 fields
+            weightsUsed: resultData.scores?.weights_used ? transformKeys(resultData.scores.weights_used) : undefined,
+            dataSources: resultData.scores?.data_sources ? transformKeys(resultData.scores.data_sources) : undefined,
           },
           powerAnalysis: resultData.power_analysis ? transformKeys(resultData.power_analysis) : null,
           attentionAnalysis: resultData.attention_analysis ? transformKeys(resultData.attention_analysis) : null,
@@ -499,6 +552,10 @@ export function usePAM(): UsePAMReturn {
           modelUsed: resultData.model_used || '',
           durationSeconds: resultData.duration_seconds || 0,
           createdAt: resultData.created_at || new Date().toISOString(),
+          // v2 fields
+          architectureVersion: resultData.architecture_version,
+          configUsed: resultData.config_used ? transformKeys(resultData.config_used) : undefined,
+          pillarQueries: resultData.pillar_queries ? transformKeys(resultData.pillar_queries) : undefined,
         };
 
         console.log('📊 Transformed PAM data:', transformedData);

@@ -1,3 +1,8 @@
+/**
+ * PAM Dashboard Entry Point
+ * Power, Attention & Money Analysis
+ * v2.0 - Agent-based architecture with external data providers
+ */
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import PAMApp from './PAMApp'

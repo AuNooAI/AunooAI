@@ -1678,12 +1678,19 @@
                                 
                                 <div class="mb-3">
                                     <label for="profileCustomContext" class="form-label">Additional Context</label>
-                                    <textarea class="form-control" id="profileCustomContext" rows="3" 
+                                    <textarea class="form-control" id="profileCustomContext" rows="3"
                                             placeholder="Any additional context or specific considerations for this organization"></textarea>
+                                </div>
+
+                                <div class="mb-3">
+                                    <label for="profileMonitoredBrands" class="form-label">Brand Names to Monitor</label>
+                                    <textarea class="form-control" id="profileMonitoredBrands" rows="2"
+                                            placeholder="Comma-separated list of brand names to track in PAM analysis (e.g., Elsevier, Springer Nature, Wiley)"></textarea>
+                                    <small class="text-muted">These brands will be tracked for mentions in the Attention pillar analysis</small>
                                 </div>
                             </form>
                         </div>
-                        
+
                         <div id="profileEditorPlaceholder" class="text-center text-muted py-5">
                             <i class="fas fa-building fa-3x mb-3 opacity-50"></i>
                             <p>Select a profile to edit or create a new one</p>
@@ -2360,6 +2367,7 @@ function clearProfileForm() {
     document.getElementById('profileCompetitiveLandscape').value = '';
     document.getElementById('profileRegulatoryEnvironment').value = '';
     document.getElementById('profileCustomContext').value = '';
+    document.getElementById('profileMonitoredBrands').value = '';
 }
 
 function populateProfileForm(profile) {
@@ -2377,6 +2385,7 @@ function populateProfileForm(profile) {
     document.getElementById('profileCompetitiveLandscape').value = (profile.competitive_landscape || []).join(', ');
     document.getElementById('profileRegulatoryEnvironment').value = (profile.regulatory_environment || []).join(', ');
     document.getElementById('profileCustomContext').value = profile.custom_context || '';
+    document.getElementById('profileMonitoredBrands').value = (profile.monitored_brands || []).join(', ');
 }
 
 async function saveProfile() {
@@ -2400,7 +2409,8 @@ async function saveProfile() {
         stakeholder_focus: document.getElementById('profileStakeholderFocus').value.split(',').map(s => s.trim()).filter(s => s),
         competitive_landscape: document.getElementById('profileCompetitiveLandscape').value.split(',').map(s => s.trim()).filter(s => s),
         regulatory_environment: document.getElementById('profileRegulatoryEnvironment').value.split(',').map(s => s.trim()).filter(s => s),
-        custom_context: document.getElementById('profileCustomContext').value
+        custom_context: document.getElementById('profileCustomContext').value,
+        monitored_brands: document.getElementById('profileMonitoredBrands').value.split(',').map(s => s.trim()).filter(s => s)
     };
     
     try {

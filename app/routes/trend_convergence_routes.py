@@ -95,6 +95,7 @@ class ProfileCreateRequest(BaseModel):
     competitive_landscape: List[str] = []
     regulatory_environment: List[str] = []
     custom_context: Optional[str] = None
+    monitored_brands: List[str] = []  # Brand names to track in PAM analysis
 
 def calculate_optimal_sample_size(model: str, sample_size_mode: str = 'auto', custom_limit: int = None) -> int:
     """Calculate optimal sample size based on model capabilities and mode"""
@@ -2585,7 +2586,8 @@ async def create_organizational_profile(
             json.dumps(profile_data.stakeholder_focus),
             json.dumps(profile_data.competitive_landscape),
             json.dumps(profile_data.regulatory_environment),
-            profile_data.custom_context
+            profile_data.custom_context,
+            json.dumps(profile_data.monitored_brands) if profile_data.monitored_brands else None
         ))
         
         return {"success": True, "profile_id": profile_id, "message": "Profile created successfully"}
@@ -2632,6 +2634,7 @@ async def update_organizational_profile(
             json.dumps(profile_data.competitive_landscape),
             json.dumps(profile_data.regulatory_environment),
             profile_data.custom_context,
+            json.dumps(profile_data.monitored_brands) if profile_data.monitored_brands else None,
             profile_id
         ))
         

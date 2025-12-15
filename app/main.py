@@ -3523,8 +3523,8 @@ async def debug_topics():
     topics = ["AI and Machine Learning", "Trend Monitoring", "Competitor Analysis"]
     return topics
 
-@app.get("/submit-article", response_class=HTMLResponse)
-async def submit_article_page(request: Request, session=Depends(verify_session)):
+@app.get("/submit-articles", response_class=HTMLResponse)
+async def submit_articles_page(request: Request, session=Depends(verify_session)):
     return templates.TemplateResponse(
         "submit_article.html", 
         get_template_context(request)
