@@ -10,11 +10,12 @@ import {
   AlertCircle,
   Newspaper,
   Plus,
-  Settings,
+  Settings2,
   GripVertical,
   Bot,
   Rss,
   FileText,
+  Check,
 } from 'lucide-react';
 import { useNewsFeed } from '../hooks/useNewsFeed';
 import { useNarrativeExplorer } from '../hooks/useNarrativeExplorer';
@@ -38,6 +39,22 @@ import { NotificationBell } from '../components/gather/NotificationBell';
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import { Button } from '../components/ui/button';
 import '../components/gather/gather.css';
+
+// Section visibility settings
+interface VisibleSections {
+  briefing: boolean;
+  incidents: boolean;
+  narratives: boolean;
+  topics: boolean;
+}
+
+const VISIBLE_SECTIONS_KEY = 'explore_visibleSections';
+const DEFAULT_VISIBLE_SECTIONS: VisibleSections = {
+  briefing: true,
+  incidents: true,
+  narratives: true,
+  topics: true,
+};
 
 export function NewsFeedPage() {
   console.log('[NewsFeedPage] Component rendering');
@@ -115,11 +132,37 @@ export function NewsFeedPage() {
   const [filters] = useState<IncidentFilters>(createEmptyFilters());
   const [hiddenCategories, setHiddenCategories] = useState<Set<string>>(new Set());
   const [categoryOrder, setCategoryOrder] = useState<string[]>([]);
-  const [isCategorySettingsOpen, setIsCategorySettingsOpen] = useState(false);
   const [selectedArticle, setSelectedArticle] = useState<NewsArticle | null>(null);
   const [selectedArticleRelated, setSelectedArticleRelated] = useState<ClusterRelatedArticle[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<{ name: string; topic?: string } | null>(null);
   const [loadingArticleDetail, setLoadingArticleDetail] = useState(false);
+
+  // Section visibility state with localStorage persistence
+  const [visibleSections, setVisibleSections] = useState<VisibleSections>(() => {
+    try {
+      const saved = localStorage.getItem(VISIBLE_SECTIONS_KEY);
+      if (saved) {
+        return { ...DEFAULT_VISIBLE_SECTIONS, ...JSON.parse(saved) };
+      }
+    } catch (e) {
+      console.warn('Failed to load visible sections from localStorage:', e);
+    }
+    return DEFAULT_VISIBLE_SECTIONS;
+  });
+
+  // Persist visible sections to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(VISIBLE_SECTIONS_KEY, JSON.stringify(visibleSections));
+    } catch (e) {
+      console.warn('Failed to save visible sections to localStorage:', e);
+    }
+  }, [visibleSections]);
+
+  // Toggle section visibility
+  const toggleSection = useCallback((section: keyof VisibleSections) => {
+    setVisibleSections(prev => ({ ...prev, [section]: !prev[section] }));
+  }, []);
 
   // Clustering state - clusters grouped by category
   const [categoryClusters, setCategoryClusters] = useState<Record<string, ArticleCluster[]>>({});
@@ -300,30 +343,58 @@ export function NewsFeedPage() {
     }
   };
 
-  // Refresh handler - fetches articles AND generates all analyses
+  // Refresh handler - fetches articles AND generates analyses for VISIBLE sections only
   const handleRefresh = useCallback(async () => {
-    // Fetch articles first
+    // Fetch articles first (always needed for Latest News section)
     await fetchArticles();
-    // Then generate all analyses (Highlights + Narratives) - force regenerate
-    if (narrativeConfig.selectedTopics.length > 0) {
-      await generateAll(true);
-    }
-  }, [fetchArticles, generateAll, narrativeConfig.selectedTopics]);
 
-  // Force regenerate
+    // Only generate for visible sections - saves API calls and time
+    if (narrativeConfig.selectedTopics.length > 0) {
+      const promises: Promise<void>[] = [];
+
+      if (visibleSections.incidents) {
+        promises.push(generateHighlights(true));
+      }
+      if (visibleSections.narratives) {
+        promises.push(generateNarratives(true));
+      }
+
+      if (promises.length > 0) {
+        await Promise.all(promises);
+      }
+    }
+
+    // Fetch briefing only if visible
+    if (visibleSections.briefing) {
+      await fetchSixArticles(true);
+    }
+  }, [fetchArticles, fetchSixArticles, generateHighlights, generateNarratives, narrativeConfig.selectedTopics, visibleSections]);
+
+  // Force regenerate - respects visibility
   const handleForceRegenerate = useCallback(async () => {
     if (narrativeConfig.selectedTopics.length > 0) {
-      await generateAll(true);
+      const promises: Promise<void>[] = [];
+
+      if (visibleSections.incidents) {
+        promises.push(generateHighlights(true));
+      }
+      if (visibleSections.narratives) {
+        promises.push(generateNarratives(true));
+      }
+
+      if (promises.length > 0) {
+        await Promise.all(promises);
+      }
     }
-  }, [generateAll, narrativeConfig.selectedTopics]);
+  }, [generateHighlights, generateNarratives, narrativeConfig.selectedTopics, visibleSections]);
 
   // Handle incident update (refresh after status change/delete)
   const handleIncidentUpdate = useCallback(() => {
-    // Re-fetch incidents after status update
-    if (narrativeConfig.selectedTopics.length > 0) {
-      generateAll(false);
+    // Re-fetch incidents only if section is visible
+    if (narrativeConfig.selectedTopics.length > 0 && visibleSections.incidents) {
+      generateHighlights(false);
     }
-  }, [generateAll, narrativeConfig.selectedTopics]);
+  }, [generateHighlights, narrativeConfig.selectedTopics, visibleSections.incidents]);
 
   // Helper to get all articles from clusters for a category
   // This ensures the CategoryViewModal shows the same articles as TopicCluster
@@ -395,9 +466,22 @@ export function NewsFeedPage() {
           <div className="gather-top-bar-left">
             <span className="gather-top-bar-title">Explore</span>
             <span className="gather-top-bar-separator">/</span>
-            <span className="gather-top-bar-subtitle">News Feed</span>
+            <span className="gather-top-bar-subtitle">
+              {currentTab === 'agents' ? 'Research Agents' : currentTab === 'reports' ? 'Reports' : 'News Feed'}
+            </span>
           </div>
           <div className="gather-top-bar-right">
+            {currentTab === 'feed' && (
+              <SectionSettingsDropdown
+                visibleSections={visibleSections}
+                onToggleSection={toggleSection}
+                categories={sortedCategories}
+                allCategories={categories}
+                hiddenCategories={hiddenCategories}
+                onToggleCategory={toggleCategoryVisibility}
+                onReorderCategories={updateCategoryOrder}
+              />
+            )}
             <NotificationBell />
             <a
               href="/trend-convergence?onboarding=true"
@@ -409,21 +493,19 @@ export function NewsFeedPage() {
           </div>
         </div>
 
-        {/* Filters Header - only show on feed tab */}
-        {currentTab === 'feed' && (
-          <NewsFeedHeader
-            config={config}
-            narrativeConfig={narrativeConfig}
-            topics={topics}
-            profiles={profiles}
-            models={models}
-            loading={loading || isGeneratingAnalyses}
-            onConfigChange={updateConfig}
-            onNarrativeConfigChange={updateNarrativeConfig}
-            onRefresh={handleRefresh}
-            onOpenConfig={() => setIsConfigOpen(true)}
-          />
-        )}
+        {/* Filters Header - visible on all tabs for consistent UI */}
+        <NewsFeedHeader
+          config={config}
+          narrativeConfig={narrativeConfig}
+          topics={topics}
+          profiles={profiles}
+          models={models}
+          loading={loading || isGeneratingAnalyses}
+          onConfigChange={updateConfig}
+          onNarrativeConfigChange={updateNarrativeConfig}
+          onRefresh={handleRefresh}
+          onOpenConfig={currentTab === 'feed' ? () => setIsConfigOpen(true) : undefined}
+        />
 
         {/* Tab Navigation */}
         <div className="explore-tab-navigation">
@@ -515,70 +597,53 @@ export function NewsFeedPage() {
                 ) : (
                   <>
                     {/* Section 1: Your Briefing - Top Stories (executive summary at top) */}
-                    <BriefingSection
-                      articles={articles}
-                      sixArticles={sixArticles}
-                      loadingSixArticles={loadingSixArticles}
-                      starredArticles={starredArticles}
-                      onStar={starArticle}
-                      onUnstar={unstarArticle}
-                      onArticleClick={handleArticleClick}
-                      persona={config.persona}
-                      onPersonaChange={(persona, forceRegenerate) => {
-                        updateConfig({ persona });
-                        if (forceRegenerate) {
-                          // Small delay to ensure config is updated first
-                          setTimeout(() => fetchSixArticles(true), 100);
-                        }
-                      }}
-                      sixArticlesConfig={sixArticlesConfig}
-                      onOpenConfig={() => setIsBriefingConfigOpen(true)}
-                    />
+                    {visibleSections.briefing && (
+                      <BriefingSection
+                        articles={articles}
+                        sixArticles={sixArticles}
+                        loadingSixArticles={loadingSixArticles}
+                        starredArticles={starredArticles}
+                        onStar={starArticle}
+                        onUnstar={unstarArticle}
+                        onArticleClick={handleArticleClick}
+                        persona={config.persona}
+                        onPersonaChange={(persona, forceRegenerate) => {
+                          updateConfig({ persona });
+                          if (forceRegenerate) {
+                            // Small delay to ensure config is updated first
+                            setTimeout(() => fetchSixArticles(true), 100);
+                          }
+                        }}
+                        sixArticlesConfig={sixArticlesConfig}
+                        onOpenConfig={() => setIsBriefingConfigOpen(true)}
+                      />
+                    )}
 
                     {/* Section 2: Highlights - Incident Tracking */}
-                    <HighlightsSection
-                      incidents={filteredIncidents}
-                      loading={loadingHighlights}
-                      onIncidentUpdate={handleIncidentUpdate}
-                      onArticleClick={handleArticleClick}
-                    />
+                    {visibleSections.incidents && (
+                      <HighlightsSection
+                        incidents={filteredIncidents}
+                        loading={loadingHighlights}
+                        onIncidentUpdate={handleIncidentUpdate}
+                        onArticleClick={handleArticleClick}
+                      />
+                    )}
 
                     {/* Section 3: Narratives - Article Themes */}
-                    <NarrativeInsightsSection
-                      themes={themes}
-                      loading={loadingNarratives}
-                      onArticleClick={handleArticleClick}
-                      currentTopic={config.topic}
-                    />
+                    {visibleSections.narratives && (
+                      <NarrativeInsightsSection
+                        themes={themes}
+                        loading={loadingNarratives}
+                        onArticleClick={handleArticleClick}
+                        currentTopic={config.topic}
+                      />
+                    )}
 
                     {/* Section 4: Your Topics - Google News style multi-column grid */}
-                {sortedCategories.length > 0 && (
+                {visibleSections.topics && sortedCategories.length > 0 && (
                   <div className="mt-8">
                     <div className="flex items-center justify-between mb-6">
-                      <div className="flex items-center gap-2">
-                        <h2 className="text-xl font-semibold text-gray-900">Your topics</h2>
-                      </div>
-                      {/* Gear icon for category settings */}
-                      <div className="relative">
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setIsCategorySettingsOpen(!isCategorySettingsOpen)}
-                          className="gap-1"
-                        >
-                          <Settings className="w-4 h-4" />
-                          Manage
-                        </Button>
-                        {isCategorySettingsOpen && (
-                          <CategorySettingsPanel
-                            categories={sortedCategories}
-                            hiddenCategories={hiddenCategories}
-                            onToggle={toggleCategoryVisibility}
-                            onReorder={updateCategoryOrder}
-                            onClose={() => setIsCategorySettingsOpen(false)}
-                          />
-                        )}
-                      </div>
+                      <h2 className="text-xl font-semibold text-gray-900">Latest News</h2>
                     </div>
 
                     {/* Multi-column grid layout like Google News */}
@@ -591,6 +656,7 @@ export function NewsFeedPage() {
                           <TopicCluster
                             key={category}
                             category={category}
+                            topic={categoryTopic}
                             articles={categoryArticles}
                             clusters={clusters}
                             starredArticles={starredArticles}
@@ -725,27 +791,42 @@ export function NewsFeedPage() {
   );
 }
 
-// Category Settings Panel - for showing/hiding and reordering categories
-function CategorySettingsPanel({
-  categories,
-  hiddenCategories,
-  onToggle,
-  onReorder,
-  onClose,
-}: {
+// Section Settings Dropdown - combined control for sections and categories
+interface SectionSettingsDropdownProps {
+  visibleSections: VisibleSections;
+  onToggleSection: (section: keyof VisibleSections) => void;
   categories: string[];
+  allCategories: string[];
   hiddenCategories: Set<string>;
-  onToggle: (category: string) => void;
-  onReorder: (newOrder: string[]) => void;
-  onClose: () => void;
-}) {
+  onToggleCategory: (category: string) => void;
+  onReorderCategories: (newOrder: string[]) => void;
+}
+
+function SectionSettingsDropdown({
+  visibleSections,
+  onToggleSection,
+  categories,
+  allCategories,
+  hiddenCategories,
+  onToggleCategory,
+  onReorderCategories,
+}: SectionSettingsDropdownProps) {
+  const [showSettings, setShowSettings] = useState(false);
+  const [activeTab, setActiveTab] = useState<'sections' | 'categories'>('sections');
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
+  const sections = [
+    { id: 'briefing' as keyof VisibleSections, label: 'Your Briefing' },
+    { id: 'incidents' as keyof VisibleSections, label: 'Incidents' },
+    { id: 'narratives' as keyof VisibleSections, label: 'Narratives' },
+    { id: 'topics' as keyof VisibleSections, label: 'Latest News' },
+  ];
+
+  // Drag handlers for categories
   const handleDragStart = (e: React.DragEvent, index: number) => {
     setDraggedIndex(index);
     e.dataTransfer.effectAllowed = 'move';
-    // Set drag image opacity
     const target = e.currentTarget as HTMLElement;
     target.style.opacity = '0.5';
   };
@@ -767,55 +848,131 @@ function CategorySettingsPanel({
     e.preventDefault();
     if (draggedIndex === null || draggedIndex === dropIndex) return;
 
-    const newOrder = [...categories];
+    const newOrder = [...allCategories];
     const [draggedItem] = newOrder.splice(draggedIndex, 1);
     newOrder.splice(dropIndex, 0, draggedItem);
-    onReorder(newOrder);
+    onReorderCategories(newOrder);
     setDraggedIndex(null);
     setDragOverIndex(null);
   };
 
   return (
-    <div className="absolute right-0 top-full mt-1 w-72 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
-      <div className="p-3 border-b border-gray-200">
-        <h4 className="font-semibold text-gray-900">Manage Categories</h4>
-        <p className="text-xs text-gray-500 mt-1">
-          Drag to reorder, click to show/hide
-        </p>
-      </div>
-      <div className="max-h-80 overflow-y-auto p-2">
-        {categories.map((category, index) => (
+    <div className="relative">
+      <button
+        onClick={() => setShowSettings(!showSettings)}
+        className="gather-icon-button"
+        title="Manage Sections"
+      >
+        <Settings2 className="w-5 h-5" />
+      </button>
+
+      {showSettings && (
+        <>
+          {/* Backdrop to close dropdown when clicking outside */}
           <div
-            key={category}
-            draggable
-            onDragStart={(e) => handleDragStart(e, index)}
-            onDragEnd={handleDragEnd}
-            onDragOver={(e) => handleDragOver(e, index)}
-            onDrop={(e) => handleDrop(e, index)}
-            className={`flex items-center gap-2 px-2 py-2 rounded cursor-grab active:cursor-grabbing transition-colors ${
-              dragOverIndex === index && draggedIndex !== index
-                ? 'bg-pink-50 border-t-2 border-pink-300'
-                : 'hover:bg-gray-50'
-            } ${draggedIndex === index ? 'opacity-50' : ''}`}
-          >
-            <GripVertical className="w-4 h-4 text-gray-400 shrink-0" />
-            <input
-              type="checkbox"
-              checked={!hiddenCategories.has(category)}
-              onChange={() => onToggle(category)}
-              onClick={(e) => e.stopPropagation()}
-              className="rounded border-gray-300 text-pink-500 focus:ring-pink-500 shrink-0"
-            />
-            <span className="text-sm text-gray-700 flex-1 truncate">{category}</span>
-            <span className="text-xs text-gray-400">#{index + 1}</span>
+            className="fixed inset-0 z-40"
+            onClick={() => setShowSettings(false)}
+          />
+
+          <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+            {/* Tab buttons */}
+            <div className="flex border-b border-gray-200">
+              <button
+                className={`flex-1 px-4 py-2 text-sm font-medium ${
+                  activeTab === 'sections'
+                    ? 'text-pink-600 border-b-2 border-pink-500'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+                onClick={() => setActiveTab('sections')}
+              >
+                Sections
+              </button>
+              <button
+                className={`flex-1 px-4 py-2 text-sm font-medium ${
+                  activeTab === 'categories'
+                    ? 'text-pink-600 border-b-2 border-pink-500'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+                onClick={() => setActiveTab('categories')}
+              >
+                Categories
+              </button>
+            </div>
+
+            {/* Sections tab content */}
+            {activeTab === 'sections' && (
+              <div className="p-2">
+                <p className="text-xs text-gray-500 px-2 py-1 mb-1">
+                  Show or hide page sections
+                </p>
+                {sections.map((section) => (
+                  <button
+                    key={section.id}
+                    onClick={() => onToggleSection(section.id)}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-gray-50 transition-colors"
+                  >
+                    <span className="text-sm text-gray-700">{section.label}</span>
+                    {visibleSections[section.id] ? (
+                      <Check className="w-4 h-4 text-pink-500" />
+                    ) : (
+                      <div className="w-4 h-4" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Categories tab content */}
+            {activeTab === 'categories' && (
+              <div className="p-2">
+                <p className="text-xs text-gray-500 px-2 py-1 mb-1">
+                  Drag to reorder, click to show/hide
+                </p>
+                <div className="max-h-64 overflow-y-auto">
+                  {allCategories.map((category, index) => (
+                    <div
+                      key={category}
+                      draggable
+                      onDragStart={(e) => handleDragStart(e, index)}
+                      onDragEnd={handleDragEnd}
+                      onDragOver={(e) => handleDragOver(e, index)}
+                      onDrop={(e) => handleDrop(e, index)}
+                      className={`flex items-center gap-2 px-2 py-2 rounded cursor-grab active:cursor-grabbing transition-colors ${
+                        dragOverIndex === index && draggedIndex !== index
+                          ? 'bg-pink-50 border-t-2 border-pink-300'
+                          : 'hover:bg-gray-50'
+                      } ${draggedIndex === index ? 'opacity-50' : ''}`}
+                    >
+                      <GripVertical className="w-4 h-4 text-gray-400 shrink-0" />
+                      <input
+                        type="checkbox"
+                        checked={!hiddenCategories.has(category)}
+                        onChange={() => onToggleCategory(category)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="rounded border-gray-300 text-pink-500 focus:ring-pink-500 shrink-0"
+                      />
+                      <span className="text-sm text-gray-700 flex-1 truncate">{category}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Done button */}
+            <div className="p-2 border-t border-gray-200">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full"
+                onClick={() => setShowSettings(false)}
+              >
+                Done
+              </Button>
+            </div>
           </div>
-        ))}
-      </div>
-      <div className="p-2 border-t border-gray-200">
-        <Button variant="ghost" size="sm" className="w-full" onClick={onClose}>
-          Done
-        </Button>
-      </div>
+        </>
+      )}
     </div>
   );
 }
+

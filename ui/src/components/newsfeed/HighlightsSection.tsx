@@ -3,12 +3,15 @@
  * Matches createIndividualIncidentCard from news_feed_new.html
  */
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Crosshair,
   AlertTriangle,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   ExternalLink,
   Search,
   Eye,
@@ -19,6 +22,7 @@ import {
   Building,
   Calendar,
   Info,
+  X,
 } from 'lucide-react';
 import {
   type Incident,
@@ -49,9 +53,40 @@ interface HighlightsSectionProps {
 
 export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArticleClick }: HighlightsSectionProps) {
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
-  const [showAll, setShowAll] = useState(false);
+  const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
 
-  const displayedIncidents = showAll ? incidents : incidents.slice(0, 6);
+  // Arrow scroll navigation
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [showLeftArrow, setShowLeftArrow] = useState(false);
+  const [showRightArrow, setShowRightArrow] = useState(false);
+
+  const checkScrollArrows = () => {
+    if (scrollRef.current) {
+      const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
+      setShowLeftArrow(scrollLeft > 0);
+      setShowRightArrow(scrollLeft < scrollWidth - clientWidth - 1);
+    }
+  };
+
+  const scroll = (direction: 'left' | 'right') => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollBy({
+        left: direction === 'left' ? -240 : 240,
+        behavior: 'smooth'
+      });
+    }
+  };
+
+  // Check scroll arrows when incidents change
+  useEffect(() => {
+    checkScrollArrows();
+    window.addEventListener('resize', checkScrollArrows);
+    return () => window.removeEventListener('resize', checkScrollArrows);
+  }, [incidents.length]);
+
+  const selectedIncident = selectedIncidentId
+    ? incidents.find((i, idx) => (i.id || i.name || `incident-${idx}`) === selectedIncidentId)
+    : null;
 
   const toggleExpand = (id: string) => {
     setExpandedCards((prev) => {
@@ -63,6 +98,10 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
       }
       return next;
     });
+  };
+
+  const handleCompactCardClick = (incidentId: string) => {
+    setSelectedIncidentId(selectedIncidentId === incidentId ? null : incidentId);
   };
 
   // Empty state - simple inline text
@@ -91,48 +130,170 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
 
       {/* Loading State */}
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-64 rounded-lg" />
+        <div className="flex overflow-x-auto gap-3 pb-2 snap-x">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="flex-shrink-0 w-[220px] h-[100px] rounded-lg" />
           ))}
         </div>
       ) : (
         <>
-          {/* Incidents Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {displayedIncidents.map((incident) => (
+          {/* Compact Incidents - horizontal scroll with arrows */}
+          <div className="relative">
+            {/* Left Arrow */}
+            {showLeftArrow && (
+              <button
+                onClick={() => scroll('left')}
+                className="absolute left-0 top-0 bottom-0 z-10 px-2 bg-gradient-to-r from-gray-50 via-gray-50/90 to-transparent flex items-center"
+              >
+                <div className="bg-white hover:bg-gray-100 rounded-full p-1.5 shadow-sm border border-gray-200">
+                  <ChevronLeft className="w-4 h-4 text-gray-600" />
+                </div>
+              </button>
+            )}
+
+            <div
+              ref={scrollRef}
+              onScroll={checkScrollArrows}
+              className="flex overflow-x-auto gap-3 pb-2 snap-x scrollbar-hide"
+            >
+              {incidents.map((incident, index) => {
+                const incidentKey = incident.id || incident.name || `incident-${index}`;
+                return (
+                  <CompactIncidentCard
+                    key={incidentKey}
+                    incident={incident}
+                    onClick={() => handleCompactCardClick(incidentKey)}
+                  />
+                );
+              })}
+            </div>
+
+            {/* Right Arrow */}
+            {showRightArrow && (
+              <button
+                onClick={() => scroll('right')}
+                className="absolute right-0 top-0 bottom-0 z-10 px-2 bg-gradient-to-l from-gray-50 via-gray-50/90 to-transparent flex items-center"
+              >
+                <div className="bg-white hover:bg-gray-100 rounded-full p-1.5 shadow-sm border border-gray-200">
+                  <ChevronRight className="w-4 h-4 text-gray-600" />
+                </div>
+              </button>
+            )}
+          </div>
+
+          {/* Expanded Card Detail (when a compact card is clicked) */}
+          {selectedIncident && (
+            <div className="mt-4">
               <IncidentCard
-                key={incident.id}
-                incident={incident}
-                expanded={expandedCards.has(incident.id)}
-                onToggleExpand={() => toggleExpand(incident.id)}
+                incident={selectedIncident}
+                expanded={true}
+                onToggleExpand={() => setSelectedIncidentId(null)}
                 onIncidentUpdate={onIncidentUpdate}
                 onArticleClick={onArticleClick}
               />
-            ))}
-          </div>
-
-          {/* Show More/Less Button */}
-          {incidents.length > 6 && (
-            <div className="mt-4 text-center">
-              <Button variant="ghost" onClick={() => setShowAll(!showAll)} className="gap-2">
-                {showAll ? (
-                  <>
-                    <ChevronUp className="w-4 h-4" />
-                    Show Less
-                  </>
-                ) : (
-                  <>
-                    <ChevronDown className="w-4 h-4" />
-                    Show {incidents.length - 6} More Incidents
-                  </>
-                )}
-              </Button>
             </div>
           )}
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * Compact incident card for horizontal scroll display
+ * Shows: headline, type, significance stripe, topic
+ */
+interface CompactIncidentCardProps {
+  incident: Incident;
+  onClick?: () => void;
+}
+
+function CompactIncidentCard({ incident, onClick }: CompactIncidentCardProps) {
+  const [showTooltip, setShowTooltip] = useState(false);
+  const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0 });
+  const cardRef = useRef<HTMLDivElement>(null);
+  const name = incident.name || incident.title || 'Unnamed Incident';
+  const type = incident.type || 'event';
+  const significance = incident.significance || 'medium';
+  const tooltipContent = incident.description || incident.summary;
+
+  // Get border color based on significance (matching BriefingCard pattern)
+  const significanceBorder =
+    significance === 'high' ? 'border-t-red-500' :
+    significance === 'medium' ? 'border-t-yellow-500' :
+    'border-t-blue-500';
+
+  const handleMouseEnter = () => {
+    if (cardRef.current) {
+      const rect = cardRef.current.getBoundingClientRect();
+      // Position tooltip above the card, centered horizontally
+      // Clamp to viewport bounds
+      const tooltipWidth = 288; // w-72 = 18rem = 288px
+      let left = rect.left + (rect.width / 2) - (tooltipWidth / 2);
+      // Keep tooltip within viewport
+      left = Math.max(8, Math.min(left, window.innerWidth - tooltipWidth - 8));
+      const top = rect.top - 8; // 8px gap above card
+      setTooltipPos({ top, left });
+    }
+    setShowTooltip(true);
+  };
+
+  return (
+    <div
+      ref={cardRef}
+      className="relative"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={() => setShowTooltip(false)}
+    >
+      <div
+        onClick={onClick}
+        className={`flex-shrink-0 w-[220px] bg-white border border-gray-200 border-t-4 ${significanceBorder} rounded-lg p-3 cursor-pointer hover:shadow-md hover:border-gray-300 transition-all snap-start`}
+      >
+        {/* Title */}
+        <h4 className="font-semibold text-gray-900 text-sm line-clamp-2 mb-2 min-h-[40px]">
+          {name}
+        </h4>
+
+        {/* Badges row */}
+        <div className="flex flex-wrap gap-1">
+          <span className={`text-[10px] px-1.5 py-0.5 rounded ${getTypeBadgeColor(type)}`}>
+            {type}
+          </span>
+          {incident.topic && (
+            <span
+              className="text-[10px] px-1.5 py-0.5 rounded"
+              style={{ backgroundColor: getTopicColor(incident.topic), color: 'white' }}
+            >
+              {incident.topic}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Hover tooltip - rendered via portal to escape overflow containers */}
+      {showTooltip && (tooltipContent || incident.organizational_relevance) && createPortal(
+        <div
+          className="fixed z-[9999] w-72 p-3 bg-white rounded-lg shadow-lg border border-gray-200 pointer-events-none"
+          style={{
+            top: tooltipPos.top,
+            left: tooltipPos.left,
+            transform: 'translateY(-100%)'
+          }}
+        >
+          {tooltipContent && (
+            <p className="text-xs text-gray-600 leading-relaxed line-clamp-4">
+              {tooltipContent}
+            </p>
+          )}
+          {incident.organizational_relevance && (
+            <p className="text-xs text-blue-600 mt-2 line-clamp-2">
+              <strong>Why it matters:</strong> {incident.organizational_relevance}
+            </p>
+          )}
+        </div>,
+        document.body
+      )}
+    </div>
   );
 }
 
@@ -247,13 +408,20 @@ function IncidentCard({ incident, expanded, onToggleExpand, onIncidentUpdate, on
                 </span>
               )}
             </div>
-            <div className="flex gap-1 shrink-0">
+            <div className="flex items-center gap-2 shrink-0">
               <span className={`text-xs px-2 py-0.5 rounded ${getTypeBadgeColor(type)}`}>
                 {type}
               </span>
               <span className={`text-xs px-2 py-0.5 rounded ${getSignificanceBadgeColor(significance)}`}>
                 {significance}
               </span>
+              <button
+                onClick={onToggleExpand}
+                className="p-1 hover:bg-gray-100 rounded-full transition-colors"
+                title="Close"
+              >
+                <X className="w-4 h-4 text-gray-500" />
+              </button>
             </div>
           </div>
 
@@ -375,7 +543,7 @@ function IncidentCard({ incident, expanded, onToggleExpand, onIncidentUpdate, on
           )}
 
           {/* Investigation Leads */}
-          {expanded && incident.investigation_leads && incident.investigation_leads.length > 0 && (
+          {expanded && Array.isArray(incident.investigation_leads) && incident.investigation_leads.length > 0 && (
             <div className="mt-3 pt-3 border-t border-gray-100">
               <p className="text-xs text-gray-500 font-medium mb-2">Investigation Leads:</p>
               <div className="flex flex-wrap gap-1">
