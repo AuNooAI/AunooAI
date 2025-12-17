@@ -151,10 +151,10 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
     return (
       <div className="mt-3">
         {/* Timeline track */}
-        <div className="relative h-2 bg-gray-300 rounded-full">
+        <div className="relative h-2 bg-gray-300 dark:bg-gray-600 rounded-full">
           {/* Active range indicator */}
           <div
-            className="absolute top-0 h-full bg-gradient-to-r from-gray-600 to-gray-800 rounded-full"
+            className="absolute top-0 h-full bg-gradient-to-r from-gray-600 to-gray-800 dark:from-gray-400 dark:to-gray-200 rounded-full"
             style={{
               left: `${startPercent}%`,
               width: `${rangeWidth}%`,
@@ -162,17 +162,17 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
           />
           {/* Start marker */}
           <div
-            className="absolute top-1/2 w-3 h-3 bg-white border-2 border-gray-800 rounded-full shadow-sm"
+            className="absolute top-1/2 w-3 h-3 bg-white dark:bg-gray-200 border-2 border-gray-800 dark:border-gray-400 rounded-full shadow-sm"
             style={{ left: `${startPercent}%`, transform: 'translate(-50%, -50%)' }}
           />
           {/* End marker */}
           <div
-            className="absolute top-1/2 w-3 h-3 bg-white border-2 border-gray-800 rounded-full shadow-sm"
+            className="absolute top-1/2 w-3 h-3 bg-white dark:bg-gray-200 border-2 border-gray-800 dark:border-gray-400 rounded-full shadow-sm"
             style={{ left: `${endPercent}%`, transform: 'translate(-50%, -50%)' }}
           />
         </div>
         {/* Year labels */}
-        <div className="flex justify-between text-[9px] text-gray-700 font-medium mt-1">
+        <div className="flex justify-between text-[9px] text-gray-700 dark:text-gray-300 font-medium mt-1">
           <span>2025<br/>Present</span>
           <span>2029<br/>Short</span>
           <span>2033<br/>Mid</span>
@@ -217,17 +217,17 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
   return (
     <div className="space-y-8">
       {/* Three Horizons Visualization */}
-      <div className="bg-white border border-gray-200 rounded-xl shadow-sm" style={{ overflow: 'visible' }}>
+      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm" style={{ overflow: 'visible' }}>
         {/* Title and Description */}
-        <div className="border-b border-gray-200 bg-gradient-to-r from-blue-50 via-purple-50 to-green-50 px-6 py-4">
-          <h3 className="text-lg font-bold text-gray-900">Three Horizons Model</h3>
-          <p className="text-sm text-gray-600 mt-1">
+        <div className="border-b border-gray-200 dark:border-gray-700 bg-gradient-to-r from-blue-50 via-purple-50 to-green-50 dark:from-blue-900/30 dark:via-purple-900/30 dark:to-green-900/30 px-6 py-4">
+          <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Three Horizons Model</h3>
+          <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
             Visualizing the transition from current systems (H1) through emerging innovations (H2) to future visions (H3)
           </p>
         </div>
 
         {/* Waves Container */}
-        <div className="relative bg-gradient-to-br from-pink-50 via-purple-50 to-blue-50" style={{ height: '500px' }}>
+        <div className="relative bg-gradient-to-br from-pink-50 via-purple-50 to-blue-50 dark:from-pink-900/20 dark:via-purple-900/20 dark:to-blue-900/20" style={{ height: '500px' }}>
           {/* SVG Three Horizons Waves */}
           <svg className="absolute inset-0 w-full h-full" viewBox="0 0 100 100" preserveAspectRatio="none">
             <defs>
@@ -356,9 +356,9 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
               'border-green-600'; // h3
 
             const bgColor =
-              scenario.type === 'h1' ? 'bg-blue-50' :
-              scenario.type === 'h2' ? 'bg-purple-50' :
-              'bg-green-50'; // h3
+              scenario.type === 'h1' ? 'bg-blue-50 dark:bg-blue-900/50' :
+              scenario.type === 'h2' ? 'bg-purple-50 dark:bg-purple-900/50' :
+              'bg-green-50 dark:bg-green-900/50'; // h3
 
             return (
               <div
@@ -372,7 +372,7 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
               >
                 {/* Small card with title */}
                 <div className={`${bgColor} border-2 ${borderColor} rounded px-2 py-1 shadow-md hover:shadow-xl transition-all max-w-[140px]`}>
-                  <div className="text-[9px] font-bold text-gray-900 leading-tight line-clamp-2">
+                  <div className="text-[9px] font-bold text-gray-900 dark:text-gray-100 leading-tight line-clamp-2">
                     {scenario.title}
                   </div>
                 </div>
@@ -397,8 +397,8 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
         </div>
 
         {/* Timeline at bottom */}
-        <div className="border-t border-gray-200 bg-gray-50 px-8 py-3">
-          <div className="flex justify-between text-sm text-gray-600">
+        <div className="border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-8 py-3">
+          <div className="flex justify-between text-sm text-gray-600 dark:text-gray-300">
             <div><span className="font-semibold">2025</span><br/><span className="text-xs">Present</span></div>
             <div><span className="font-semibold">2029</span><br/><span className="text-xs">Short-term</span></div>
             <div><span className="font-semibold">2033</span><br/><span className="text-xs">Mid-term</span></div>
@@ -430,20 +430,20 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
               </div>
 
               {/* Scenario cards */}
-              <div className="bg-gray-50 rounded-b-lg p-3 space-y-3 flex-1">
+              <div className="bg-gray-50 dark:bg-gray-900 rounded-b-lg p-3 space-y-3 flex-1">
                 {typeScenarios.length > 0 ? (
                   typeScenarios.map((scenario, idx) => (
                     <div
                       key={idx}
-                      className="bg-white rounded-lg p-3 border border-gray-200 hover:shadow-lg transition-shadow cursor-pointer"
+                      className="bg-white dark:bg-gray-800 rounded-lg p-3 border border-gray-200 dark:border-gray-700 hover:shadow-lg transition-shadow cursor-pointer"
                       onClick={() => setSelectedScenario(scenario)}
                     >
                       {/* Title with edit icon */}
                       <div className="flex items-start justify-between mb-2">
-                        <h4 className="font-semibold text-sm text-gray-900 flex-1 leading-tight">
+                        <h4 className="font-semibold text-sm text-gray-900 dark:text-gray-100 flex-1 leading-tight">
                           {scenario.title}
                         </h4>
-                        <button className="text-gray-400 hover:text-gray-600 ml-2 flex-shrink-0">
+                        <button className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 ml-2 flex-shrink-0">
                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                           </svg>
@@ -452,7 +452,7 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
 
                       {/* Description with citations */}
                       <p
-                        className="text-xs text-gray-800 mb-3 leading-relaxed"
+                        className="text-xs text-gray-800 dark:text-gray-200 mb-3 leading-relaxed"
                         dangerouslySetInnerHTML={{ __html: replaceCitations(scenario.description) }}
                       />
 
@@ -461,7 +461,7 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
                     </div>
                   ))
                 ) : (
-                  <p className="text-xs text-gray-500 text-center py-4">No {label.toLowerCase()} scenarios</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 text-center py-4">No {label.toLowerCase()} scenarios</p>
                 )}
               </div>
             </div>
@@ -472,16 +472,16 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
       {/* Detailed scenario modal */}
       {selectedScenario && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+          <div className="bg-white dark:bg-gray-800 rounded-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-bold text-gray-900">{selectedScenario.title}</h2>
+                <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">{selectedScenario.title}</h2>
                 <div className="flex items-center gap-3 mt-1">
-                  <span className="text-sm text-gray-500">{selectedScenario.timeframe}</span>
+                  <span className="text-sm text-gray-500 dark:text-gray-400">{selectedScenario.timeframe}</span>
                   <span className={`text-xs px-2 py-1 rounded-full font-medium ${
-                    selectedScenario.type === 'h1' ? 'bg-blue-100 text-blue-800' :
-                    selectedScenario.type === 'h2' ? 'bg-purple-100 text-purple-800' :
-                    'bg-green-100 text-green-800' // h3
+                    selectedScenario.type === 'h1' ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200' :
+                    selectedScenario.type === 'h2' ? 'bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-200' :
+                    'bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-200' // h3
                   }`}>
                     {selectedScenario.type === 'h1' ? 'Current' :
                      selectedScenario.type === 'h2' ? 'Transition' :
@@ -491,31 +491,31 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
               </div>
               <button
                 onClick={() => setSelectedScenario(null)}
-                className="text-gray-400 hover:text-gray-600"
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
               >
                 <X className="w-6 h-6" />
               </button>
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <h3 className="font-semibold text-gray-700 mb-2">Description</h3>
+                <h3 className="font-semibold text-gray-700 dark:text-gray-300 mb-2">Description</h3>
                 <p
-                  className="text-gray-600 leading-relaxed"
+                  className="text-gray-600 dark:text-gray-300 leading-relaxed"
                   dangerouslySetInnerHTML={{ __html: replaceCitations(selectedScenario.description) }}
                 />
               </div>
               {selectedScenario.sentiment && (
                 <div>
-                  <h3 className="font-semibold text-gray-700 mb-2">Sentiment</h3>
-                  <span className="text-gray-600">{selectedScenario.sentiment}</span>
+                  <h3 className="font-semibold text-gray-700 dark:text-gray-300 mb-2">Sentiment</h3>
+                  <span className="text-gray-600 dark:text-gray-300">{selectedScenario.sentiment}</span>
                 </div>
               )}
               {selectedScenario.drivers && selectedScenario.drivers.length > 0 && (
                 <div>
-                  <h3 className="font-semibold text-gray-700 mb-2">Key Drivers</h3>
+                  <h3 className="font-semibold text-gray-700 dark:text-gray-300 mb-2">Key Drivers</h3>
                   <ul className="space-y-2">
                     {selectedScenario.drivers.map((driver, idx) => (
-                      <li key={idx} className="text-gray-600">
+                      <li key={idx} className="text-gray-600 dark:text-gray-300">
                         <span className="font-medium">{driver.type}:</span> {driver.description}
                       </li>
                     ))}
@@ -524,10 +524,10 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
               )}
               {selectedScenario.signals && selectedScenario.signals.length > 0 && (
                 <div>
-                  <h3 className="font-semibold text-gray-700 mb-2">Signals</h3>
+                  <h3 className="font-semibold text-gray-700 dark:text-gray-300 mb-2">Signals</h3>
                   <ul className="list-disc list-inside space-y-1">
                     {selectedScenario.signals.map((signal, idx) => (
-                      <li key={idx} className="text-gray-600">{signal}</li>
+                      <li key={idx} className="text-gray-600 dark:text-gray-300">{signal}</li>
                     ))}
                   </ul>
                 </div>

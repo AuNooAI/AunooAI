@@ -25,34 +25,34 @@ interface TooltipPosition {
 
 const colorClasses = {
   orange: {
-    bg: 'bg-orange-100',
-    text: 'text-orange-900',
-    bar: 'bg-orange-300',
+    bg: 'bg-orange-100 dark:bg-orange-900/40',
+    text: 'text-orange-900 dark:text-orange-100',
+    bar: 'bg-orange-300 dark:bg-orange-500',
   },
   purple: {
-    bg: 'bg-purple-100',
-    text: 'text-purple-900',
-    bar: 'bg-purple-300',
+    bg: 'bg-purple-100 dark:bg-purple-900/40',
+    text: 'text-purple-900 dark:text-purple-100',
+    bar: 'bg-purple-300 dark:bg-purple-500',
   },
   green: {
-    bg: 'bg-green-100',
-    text: 'text-green-900',
-    bar: 'bg-green-300',
+    bg: 'bg-green-100 dark:bg-green-900/40',
+    text: 'text-green-900 dark:text-green-100',
+    bar: 'bg-green-300 dark:bg-green-500',
   },
   blue: {
-    bg: 'bg-blue-100',
-    text: 'text-blue-900',
-    bar: 'bg-blue-300',
+    bg: 'bg-blue-100 dark:bg-blue-900/40',
+    text: 'text-blue-900 dark:text-blue-100',
+    bar: 'bg-blue-300 dark:bg-blue-500',
   },
   pink: {
-    bg: 'bg-pink-100',
-    text: 'text-pink-900',
-    bar: 'bg-pink-300',
+    bg: 'bg-pink-100 dark:bg-pink-900/40',
+    text: 'text-pink-900 dark:text-pink-100',
+    bar: 'bg-pink-300 dark:bg-pink-500',
   },
   lime: {
-    bg: 'bg-lime-100',
-    text: 'text-lime-900',
-    bar: 'bg-lime-300',
+    bg: 'bg-lime-100 dark:bg-lime-900/40',
+    text: 'text-lime-900 dark:text-lime-100',
+    bar: 'bg-lime-300 dark:bg-lime-500',
   },
 };
 
@@ -184,11 +184,11 @@ export function ImpactTimelineCard({
             {/* Citation popup on hover/click */}
             {showCitations && (
               <div
-                className="absolute left-0 top-8 z-10 bg-white border border-gray-300 rounded-lg shadow-lg p-3 min-w-[300px] max-w-[400px]"
+                className="absolute left-0 top-8 z-10 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-lg shadow-lg p-3 min-w-[300px] max-w-[400px]"
                 onMouseEnter={() => setShowCitations(true)}
                 onMouseLeave={() => setShowCitations(false)}
               >
-                <div className="text-xs font-semibold mb-2 text-gray-700">Sources:</div>
+                <div className="text-xs font-semibold mb-2 text-gray-700 dark:text-gray-300">Sources:</div>
                 <div className="space-y-1.5">
                   {citations.slice(0, 5).map((citation, idx) => (
                     <div key={idx} className="text-xs">
@@ -196,7 +196,7 @@ export function ImpactTimelineCard({
                         href={citation.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-600 hover:underline"
+                        className="text-blue-600 dark:text-blue-400 hover:underline"
                       >
                         [{idx + 1}] {citation.title}
                       </a>
@@ -222,10 +222,10 @@ export function ImpactTimelineCard({
       </div>
 
       {/* Right: Timeline */}
-      <div className="bg-white border border-gray-200 rounded-xl p-5 flex items-center">
+      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5 flex items-center">
         <div className="flex-1" ref={timelineContainerRef}>
           {/* Year labels - FIXED 2025-2040 */}
-          <div className="flex justify-between text-xs text-gray-700 mb-2 px-1">
+          <div className="flex justify-between text-xs text-gray-700 dark:text-gray-300 mb-2 px-1">
             <span>2025</span>
             <span>2040</span>
           </div>
@@ -233,7 +233,7 @@ export function ImpactTimelineCard({
           {/* Timeline bar with tooltips */}
           <div className="relative h-40">
             {/* Background bar - full width gray (2025-2040) */}
-            <div className="absolute top-16 left-0 right-0 h-2 bg-gray-200 rounded-full"></div>
+            <div className="absolute top-16 left-0 right-0 h-2 bg-gray-200 dark:bg-gray-600 rounded-full"></div>
 
             {/* Colored segment showing this card's impact period */}
             <div
@@ -283,7 +283,7 @@ export function ImpactTimelineCard({
                       if (el) labelRefs.current.set(idx, el);
                       else labelRefs.current.delete(idx);
                     }}
-                    className={`absolute left-1/2 transform -translate-x-1/2 ${colors.bar} bg-opacity-70 text-gray-900 text-xs px-2.5 py-1 rounded-md font-medium whitespace-nowrap ${labelTopOffset} group-hover:bg-opacity-100 group-hover:scale-105 transition-all duration-200 shadow-sm`}
+                    className={`absolute left-1/2 transform -translate-x-1/2 ${colors.bar} bg-opacity-70 dark:bg-opacity-80 text-gray-900 dark:text-gray-100 text-xs px-2.5 py-1 rounded-md font-medium whitespace-nowrap ${labelTopOffset} group-hover:bg-opacity-100 group-hover:scale-105 transition-all duration-200 shadow-sm`}
                   >
                     {tooltip.label}
                   </div>

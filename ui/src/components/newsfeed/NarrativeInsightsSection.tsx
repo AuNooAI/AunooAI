@@ -69,9 +69,9 @@ export function NarrativeInsightsSection({ themes, loading, onArticleClick, curr
       <section className="mb-6">
         <div className="flex items-center gap-2 mb-2">
           <Brain className="w-5 h-5 text-indigo-500" />
-          <h2 className="text-xl font-semibold text-gray-900">Narratives</h2>
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Narratives</h2>
         </div>
-        <p className="text-sm text-gray-600">No recent narratives, click refresh</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400">No recent narratives, click refresh</p>
       </section>
     );
   }
@@ -81,8 +81,8 @@ export function NarrativeInsightsSection({ themes, loading, onArticleClick, curr
       {/* Section Header */}
       <div className="flex items-center gap-2 mb-4">
         <Brain className="w-5 h-5 text-indigo-500" />
-        <h2 className="text-xl font-semibold text-gray-900">Narratives</h2>
-        <span className="text-sm text-gray-600 ml-2">
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Narratives</h2>
+        <span className="text-sm text-gray-600 dark:text-gray-400 ml-2">
           {themes.length} theme{themes.length !== 1 ? 's' : ''} identified
         </span>
       </div>
@@ -148,14 +148,14 @@ interface ThemeCardProps {
 
 function ThemeCard({ theme, expanded, onToggleExpand, onArticleClick, currentTopic }: ThemeCardProps) {
   const sentimentColors: Record<string, string> = {
-    'positive': 'bg-green-100 text-green-700',
-    'negative': 'bg-red-100 text-red-700',
-    'neutral': 'bg-gray-100 text-gray-700',
-    'mixed': 'bg-yellow-100 text-yellow-700',
+    'positive': 'bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300',
+    'negative': 'bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300',
+    'neutral': 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300',
+    'mixed': 'bg-yellow-100 dark:bg-yellow-900/50 text-yellow-700 dark:text-yellow-300',
   };
 
   return (
-    <Card className="overflow-hidden hover:shadow-md transition-shadow">
+    <Card className="overflow-hidden hover:shadow-md transition-shadow dark:bg-gray-800 dark:border-gray-700">
       <CardContent className="p-0">
         {/* Theme indicator stripe */}
         <div className="h-1 bg-gradient-to-r from-indigo-500 to-purple-500" />
@@ -165,29 +165,29 @@ function ThemeCard({ theme, expanded, onToggleExpand, onArticleClick, currentTop
           <div className="flex items-start justify-between gap-2 mb-2">
             <div className="flex items-center gap-2">
               {theme.sentiment && (
-                <span className={`text-xs px-2 py-0.5 rounded ${sentimentColors[theme.sentiment.toLowerCase()] || 'bg-gray-100 text-gray-700'}`}>
+                <span className={`text-xs px-2 py-0.5 rounded ${sentimentColors[theme.sentiment.toLowerCase()] || 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}>
                   {theme.sentiment}
                 </span>
               )}
             </div>
-            <span className="text-xs text-gray-600">
+            <span className="text-xs text-gray-600 dark:text-gray-400">
               {theme.article_count} article{theme.article_count !== 1 ? 's' : ''}
             </span>
           </div>
 
           {/* Theme Name */}
-          <h3 className="font-semibold text-gray-900 text-sm mb-2">
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-sm mb-2">
             {theme.theme_name}
           </h3>
 
           {/* Theme Summary / Description - always show full */}
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-gray-600 dark:text-gray-300">
             {theme.theme_summary || theme.description}
           </p>
 
           {/* Source Metrics (if available) */}
           {(theme.confidence || theme.source_count) && (
-            <div className="flex items-center gap-3 mt-2 text-xs text-gray-600">
+            <div className="flex items-center gap-3 mt-2 text-xs text-gray-600 dark:text-gray-400">
               {theme.confidence && (
                 <span className="flex items-center gap-1">
                   <span className="font-medium">{Math.round(theme.confidence)}%</span> confidence

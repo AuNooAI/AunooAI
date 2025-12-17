@@ -593,7 +593,7 @@ export function NewsFeedPage() {
                   <div className="flex items-center justify-center h-64">
                     <div className="flex flex-col items-center gap-4">
                       <Loader2 className="w-8 h-8 animate-spin text-pink-500" />
-                      <p className="text-gray-500">Loading articles...</p>
+                      <p className="text-gray-500 dark:text-gray-400">Loading articles...</p>
                     </div>
                   </div>
                 ) : (
@@ -645,7 +645,7 @@ export function NewsFeedPage() {
                 {visibleSections.topics && sortedCategories.length > 0 && (
                   <div className="mt-8">
                     <div className="flex items-center justify-between mb-6">
-                      <h2 className="text-xl font-semibold text-gray-900">Latest News</h2>
+                      <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Latest News</h2>
                     </div>
 
                     {/* Multi-column grid layout like Google News */}
@@ -674,8 +674,8 @@ export function NewsFeedPage() {
 
                     {/* Show remaining categories as clickable chips */}
                     {sortedCategories.length > 9 && (
-                      <div className="mt-6 pt-4 border-t border-gray-200">
-                        <h3 className="text-sm font-medium text-gray-600 mb-3">More topics</h3>
+                      <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+                        <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-3">More topics</h3>
                         <div className="flex flex-wrap gap-2">
                           {sortedCategories.slice(9).map((category) => {
                             const catArticles = groupedArticles[category] || [];
@@ -684,10 +684,10 @@ export function NewsFeedPage() {
                               <button
                                 key={category}
                                 onClick={() => setSelectedCategory({ name: category, topic: catTopic })}
-                                className="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-full text-gray-700 transition-colors"
+                                className="px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-gray-700 dark:text-gray-300 transition-colors"
                               >
                                 {category}
-                                <span className="ml-1 text-gray-500">({catArticles.length})</span>
+                                <span className="ml-1 text-gray-500 dark:text-gray-400">({catArticles.length})</span>
                               </button>
                             );
                           })}
@@ -700,9 +700,9 @@ export function NewsFeedPage() {
                     {/* Empty State */}
                     {articles.length === 0 && !loading && (
                       <div className="flex flex-col items-center justify-center h-64 text-center">
-                        <Newspaper className="w-12 h-12 text-gray-300 mb-4" />
-                        <h3 className="text-lg font-medium text-gray-900">No articles found</h3>
-                        <p className="text-gray-500 mt-1">
+                        <Newspaper className="w-12 h-12 text-gray-300 dark:text-gray-600 mb-4" />
+                        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">No articles found</h3>
+                        <p className="text-gray-500 dark:text-gray-400 mt-1">
                           Try adjusting your date range or topic filters
                         </p>
                       </div>
@@ -882,14 +882,14 @@ function SectionSettingsDropdown({
             onClick={() => setShowSettings(false)}
           />
 
-          <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+          <div className="absolute right-0 top-full mt-2 w-72 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50">
             {/* Tab buttons */}
-            <div className="flex border-b border-gray-200">
+            <div className="flex border-b border-gray-200 dark:border-gray-700">
               <button
                 className={`flex-1 px-4 py-2 text-sm font-medium ${
                   activeTab === 'sections'
                     ? 'text-pink-600 border-b-2 border-pink-500'
-                    : 'text-gray-500 hover:text-gray-700'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                 }`}
                 onClick={() => setActiveTab('sections')}
               >
@@ -899,7 +899,7 @@ function SectionSettingsDropdown({
                 className={`flex-1 px-4 py-2 text-sm font-medium ${
                   activeTab === 'categories'
                     ? 'text-pink-600 border-b-2 border-pink-500'
-                    : 'text-gray-500 hover:text-gray-700'
+                    : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
                 }`}
                 onClick={() => setActiveTab('categories')}
               >
@@ -910,16 +910,16 @@ function SectionSettingsDropdown({
             {/* Sections tab content */}
             {activeTab === 'sections' && (
               <div className="p-2">
-                <p className="text-xs text-gray-500 px-2 py-1 mb-1">
+                <p className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1 mb-1">
                   Show or hide page sections
                 </p>
                 {sections.map((section) => (
                   <button
                     key={section.id}
                     onClick={() => onToggleSection(section.id)}
-                    className="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-gray-50 transition-colors"
+                    className="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                   >
-                    <span className="text-sm text-gray-700">{section.label}</span>
+                    <span className="text-sm text-gray-700 dark:text-gray-300">{section.label}</span>
                     {visibleSections[section.id] ? (
                       <Check className="w-4 h-4 text-pink-500" />
                     ) : (
@@ -933,7 +933,7 @@ function SectionSettingsDropdown({
             {/* Categories tab content */}
             {activeTab === 'categories' && (
               <div className="p-2">
-                <p className="text-xs text-gray-500 px-2 py-1 mb-1">
+                <p className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1 mb-1">
                   Drag to reorder, click to show/hide
                 </p>
                 <div className="max-h-64 overflow-y-auto">
@@ -947,8 +947,8 @@ function SectionSettingsDropdown({
                       onDrop={(e) => handleDrop(e, index)}
                       className={`flex items-center gap-2 px-2 py-2 rounded cursor-grab active:cursor-grabbing transition-colors ${
                         dragOverIndex === index && draggedIndex !== index
-                          ? 'bg-pink-50 border-t-2 border-pink-300'
-                          : 'hover:bg-gray-50'
+                          ? 'bg-pink-50 dark:bg-pink-900/30 border-t-2 border-pink-300'
+                          : 'hover:bg-gray-50 dark:hover:bg-gray-700'
                       } ${draggedIndex === index ? 'opacity-50' : ''}`}
                     >
                       <GripVertical className="w-4 h-4 text-gray-400 shrink-0" />
@@ -957,9 +957,9 @@ function SectionSettingsDropdown({
                         checked={!hiddenCategories.has(category)}
                         onChange={() => onToggleCategory(category)}
                         onClick={(e) => e.stopPropagation()}
-                        className="rounded border-gray-300 text-pink-500 focus:ring-pink-500 shrink-0"
+                        className="rounded border-gray-300 dark:border-gray-600 text-pink-500 focus:ring-pink-500 shrink-0"
                       />
-                      <span className="text-sm text-gray-700 flex-1 truncate">{category}</span>
+                      <span className="text-sm text-gray-700 dark:text-gray-300 flex-1 truncate">{category}</span>
                     </div>
                   ))}
                 </div>
@@ -967,7 +967,7 @@ function SectionSettingsDropdown({
             )}
 
             {/* Done button */}
-            <div className="p-2 border-t border-gray-200">
+            <div className="p-2 border-t border-gray-200 dark:border-gray-700">
               <Button
                 variant="ghost"
                 size="sm"

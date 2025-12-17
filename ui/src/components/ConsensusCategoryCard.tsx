@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTheme } from 'next-themes';
 import TimelineVisualization from './TimelineVisualization';
 import SentimentChart from './SentimentChart';
 import DecisionWindows from './DecisionWindows';
@@ -105,6 +106,8 @@ const ConsensusCategoryCard: React.FC<ConsensusCategoryCardProps> = ({
   index = 0
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'dark';
 
   const consensusType = category['1_consensus_type'];
   const timelineConsensus = category['2_timeline_consensus'];
@@ -250,7 +253,7 @@ const ConsensusCategoryCard: React.FC<ConsensusCategoryCardProps> = ({
       {isExpanded && (
         <div className="consensus-card-expanded-content" onClick={(e) => e.stopPropagation()}>
           {/* Full Description */}
-          <div style={{ marginBottom: '24px', fontSize: '15px', lineHeight: '1.6', color: '#374151' }}>
+          <div style={{ marginBottom: '24px', fontSize: '15px', lineHeight: '1.6', color: isDark ? '#d1d5db' : '#374151' }}>
             <p dangerouslySetInnerHTML={{ __html: replaceCitations(category.category_description) }} />
           </div>
 
@@ -326,7 +329,7 @@ const ConsensusCategoryCard: React.FC<ConsensusCategoryCardProps> = ({
               {/* Key Milestones */}
               {timeframeAnalysis.key_milestones && timeframeAnalysis.key_milestones.length > 0 && (
                 <div style={{ marginTop: '16px' }}>
-                  <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px', color: '#6b7280' }}>
+                  <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px', color: isDark ? '#9ca3af' : '#6b7280' }}>
                     Key Milestones
                   </div>
                   <div className="milestones-list">
@@ -355,7 +358,7 @@ const ConsensusCategoryCard: React.FC<ConsensusCategoryCardProps> = ({
               <div className="outliers-grid">
                 {optimisticOutliers.length > 0 && (
                   <div>
-                    <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px', color: '#10b981' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px', color: isDark ? '#6ee7b7' : '#10b981' }}>
                       Optimistic Outliers
                     </div>
                     {optimisticOutliers.map((outlier, index) => (
@@ -373,7 +376,7 @@ const ConsensusCategoryCard: React.FC<ConsensusCategoryCardProps> = ({
                 )}
                 {pessimisticOutliers.length > 0 && (
                   <div>
-                    <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px', color: '#ef4444' }}>
+                    <div style={{ fontSize: '14px', fontWeight: 600, marginBottom: '12px', color: isDark ? '#fca5a5' : '#ef4444' }}>
                       Pessimistic Outliers
                     </div>
                     {pessimisticOutliers.map((outlier, index) => (
