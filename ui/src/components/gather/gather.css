@@ -80,13 +80,14 @@
   background: transparent;
   border: none;
   border-radius: 6px;
-  color: #374151;
+  color: #6b7280;
   cursor: pointer;
-  transition: background 0.2s;
+  transition: all 0.2s;
 }
 
 .gather-top-bar-icon-btn:hover {
-  background: #f3f4f6;
+  background: #fdf2f8;
+  color: #ec4899;
 }
 
 .gather-top-bar-setup-btn {

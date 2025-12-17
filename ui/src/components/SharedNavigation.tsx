@@ -14,6 +14,7 @@ import {
 
 interface SharedNavigationProps {
   currentPage: 'health' | 'anticipate' | 'investigate' | 'gather';
+  onTopicEditorClick?: () => void;
 }
 
 interface UserInfo {
@@ -21,7 +22,7 @@ interface UserInfo {
   email: string;
 }
 
-export function SharedNavigation({ currentPage }: SharedNavigationProps) {
+export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavigationProps) {
   const [expandedSections, setExpandedSections] = useState<{[key: string]: boolean}>({});
   const [userInfo, setUserInfo] = useState<UserInfo>({ username: 'User', email: 'user@example.com' });
 
@@ -157,10 +158,20 @@ export function SharedNavigation({ currentPage }: SharedNavigationProps) {
                     </a>
                   </li>
                   <li>
-                    <a href="/create_topic" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 hover:bg-gray-50 hover:text-pink-600 transition-all">
-                      <FolderPlus className="w-3.5 h-3.5" />
-                      <span className="text-xs">Topic Editor</span>
-                    </a>
+                    {onTopicEditorClick ? (
+                      <button
+                        onClick={onTopicEditorClick}
+                        className="w-full flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 hover:bg-gray-50 hover:text-pink-600 transition-all"
+                      >
+                        <FolderPlus className="w-3.5 h-3.5" />
+                        <span className="text-xs">Topic Editor</span>
+                      </button>
+                    ) : (
+                      <a href="/trend-convergence?onboarding=true" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 hover:bg-gray-50 hover:text-pink-600 transition-all">
+                        <FolderPlus className="w-3.5 h-3.5" />
+                        <span className="text-xs">Topic Editor</span>
+                      </a>
+                    )}
                   </li>
                   <li>
                     <a href="/promptmanager" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 hover:bg-gray-50 hover:text-pink-600 transition-all">
@@ -210,12 +221,6 @@ export function SharedNavigation({ currentPage }: SharedNavigationProps) {
               </button>
               {expandedSections.appInfo && (
                 <ul className="mt-1 space-y-0.5">
-                  <li>
-                    <a href="/health/dashboard" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 hover:bg-gray-50 hover:text-pink-600 transition-all">
-                      <Heart className="w-3.5 h-3.5" />
-                      <span className="text-xs">System Health</span>
-                    </a>
-                  </li>
                   <li>
                     <a href="https://aunoo-ai.gitbook.io/aunoo-ai-kb" target="_blank" rel="noopener noreferrer" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 hover:bg-gray-50 hover:text-pink-600 transition-all">
                       <Book className="w-3.5 h-3.5" />

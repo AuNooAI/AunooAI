@@ -283,7 +283,7 @@ async def root(
             "session": session  # Add session to template context
         })
         
-        return templates.TemplateResponse("index.html", context)
+        return templates.TemplateResponse("operations_react.html", context)
     except Exception as e:
         logger.error(f"Index page error: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))

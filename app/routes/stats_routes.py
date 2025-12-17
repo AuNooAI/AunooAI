@@ -153,9 +153,8 @@ async def index(
             logger.error(f"Error getting last check time: {str(e)}")
             last_check_time = None
 
-        # Serve the Bootstrap Operations HQ dashboard (Community edition)
-        # React version available at /trend-convergence for Enterprise
-        return templates.TemplateResponse("index.html", {
+        # Serve the React Operations HQ dashboard
+        return templates.TemplateResponse("operations_react.html", {
             "request": request,
             "stats": stats,
             "session": session,
