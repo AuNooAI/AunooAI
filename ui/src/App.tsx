@@ -15,7 +15,7 @@ import { OrganizationalProfileModal } from './components/OrganizationalProfileMo
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
 import { Settings, Download, Image as ImageIcon, FileText, RefreshCw, Clock, TrendingUp, Target, Code, Save, Trash2, Plus, X, Zap, Mic } from 'lucide-react';
 import { NotificationBell } from './components/gather/NotificationBell';
-import './components/gather/gather.css';
+import './components/gather/NotificationBell.css';
 import { Button } from './components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from './components/ui/dialog';
@@ -848,13 +848,13 @@ function App() {
               activeTab={activeTab}
             />
             <NotificationBell />
-            <a
-              href="/trend-convergence?onboarding=true"
+            <button
+              onClick={() => setIsOnboardingOpen(true)}
               className="gather-top-bar-setup-btn"
             >
               Set up topic
               <Plus className="w-4 h-4" />
-            </a>
+            </button>
           </div>
         </div>
 

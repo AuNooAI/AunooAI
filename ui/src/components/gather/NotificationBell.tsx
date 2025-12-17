@@ -11,7 +11,7 @@ import {
   SheetTitle,
 } from '../ui/sheet';
 import { useNotifications } from '../../hooks/useNotifications';
-import './gather.css';
+import './NotificationBell.css';
 
 interface NotificationBellProps {
   className?: string;

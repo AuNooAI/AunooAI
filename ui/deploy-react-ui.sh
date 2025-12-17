@@ -188,10 +188,15 @@ if [ -f "$STATIC_DIR/index-newsfeed.html" ]; then
             sed -i "s|/static/trend-convergence/assets/index-[^.]*\.css|/static/trend-convergence/assets/$INDEX_CSS|" "$EXPLORE_TEMPLATE"
         fi
 
-        # Also update NotificationBell/Switch CSS (contains gather.css)
+        # Also update NotificationBell/Switch CSS
         if [ -n "$NOTIFICATIONBELL_CSS" ]; then
             sed -i "s|/static/trend-convergence/assets/NotificationBell-[^.]*\.css|/static/trend-convergence/assets/$NOTIFICATIONBELL_CSS|" "$EXPLORE_TEMPLATE"
             sed -i "s|/static/trend-convergence/assets/switch-[^.]*\.css|/static/trend-convergence/assets/$NOTIFICATIONBELL_CSS|" "$EXPLORE_TEMPLATE"
+        fi
+
+        # Update gather layout CSS (explore uses same layout as gather)
+        if [ -n "$GATHER_CSS" ]; then
+            sed -i "s|/static/trend-convergence/assets/gather-[^.]*\.css|/static/trend-convergence/assets/$GATHER_CSS|" "$EXPLORE_TEMPLATE"
         fi
 
         # Also update shared JS (index.js) for modulepreload
@@ -265,17 +270,76 @@ else
     echo "⚠️  index-pam.html not found in build output"
 fi
 
+# ================================
+# OPERATIONS HQ PAGE DEPLOYMENT
+# ================================
+echo "================================"
+echo "  Deploying Operations HQ Page"
+echo "================================"
+echo ""
+
+OPERATIONS_TEMPLATE="$PROJECT_ROOT/templates/operations_react.html"
+
+# Extract the hash from operations assets
+if [ -f "$STATIC_DIR/index-operations.html" ]; then
+    OPERATIONS_JS=$(grep -oP 'operations-[^.]+\.js' "$STATIC_DIR/index-operations.html" | head -1)
+    # CSS for switch/notification bell component (Vite may name it switch- or NotificationBell-)
+    COMPONENT_CSS=$(grep -oP '(switch|NotificationBell)-[^.]+\.css' "$STATIC_DIR/index-operations.html" | head -1)
+
+    echo "  📄 Operations JS: $OPERATIONS_JS"
+    echo "  📄 Component CSS: $COMPONENT_CSS"
+
+    if [ -f "$OPERATIONS_TEMPLATE" ]; then
+        # Backup the template
+        cp "$OPERATIONS_TEMPLATE" "$OPERATIONS_TEMPLATE.backup"
+
+        # Update JS file
+        if [ -n "$OPERATIONS_JS" ]; then
+            sed -i "s|/static/trend-convergence/assets/operations-[^.]*\.js|/static/trend-convergence/assets/$OPERATIONS_JS|" "$OPERATIONS_TEMPLATE"
+        fi
+
+        # Also update shared CSS (index.css)
+        if [ -n "$INDEX_CSS" ]; then
+            sed -i "s|/static/trend-convergence/assets/index-[^.]*\.css|/static/trend-convergence/assets/$INDEX_CSS|" "$OPERATIONS_TEMPLATE"
+        fi
+
+        # Update component CSS (switch or NotificationBell)
+        if [ -n "$COMPONENT_CSS" ]; then
+            # Check if any component CSS line exists
+            if grep -qE "(switch|NotificationBell)-" "$OPERATIONS_TEMPLATE"; then
+                sed -i "s|/static/trend-convergence/assets/\(switch\|NotificationBell\)-[^.]*\.css|/static/trend-convergence/assets/$COMPONENT_CSS|" "$OPERATIONS_TEMPLATE"
+            else
+                # Add after index CSS line
+                sed -i "/index-.*\.css/a\\    <link rel=\"stylesheet\" crossorigin href=\"/static/trend-convergence/assets/$COMPONENT_CSS\">" "$OPERATIONS_TEMPLATE"
+            fi
+        fi
+
+        # Also update shared JS (index.js) for modulepreload
+        if [ -n "$INDEX_JS" ]; then
+            sed -i "s|/static/trend-convergence/assets/index-[^.]*\.js|/static/trend-convergence/assets/$INDEX_JS|" "$OPERATIONS_TEMPLATE"
+        fi
+
+        echo "✅ Operations HQ template updated successfully!"
+    else
+        echo "⚠️  Operations template not found: $OPERATIONS_TEMPLATE"
+    fi
+else
+    echo "⚠️  index-operations.html not found in build output"
+fi
+
 echo ""
 echo "✅ Deployment complete!"
 echo ""
 echo "📊 Build artifacts:"
 ls -lh "$STATIC_DIR/assets" | head -20
 echo ""
+echo "🌐 Operations HQ is now available at: /"
 echo "🌐 React UI is now available at: /trend-convergence"
 echo "🌐 Gather is now available at: /gather"
 echo "🌐 Explore is now available at: /explore"
 echo "🌐 PAM is now available at: /pam"
 echo "📝 Templates updated:"
+echo "   - $OPERATIONS_TEMPLATE"
 echo "   - $TEMPLATE_FILE"
 echo "   - $GATHER_TEMPLATE"
 echo "   - $EXPLORE_TEMPLATE"

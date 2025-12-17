@@ -138,7 +138,7 @@ function GatherApp() {
     return (
       <div className="gather-app">
         <div className="gather-layout">
-          <SharedNavigation currentPage="gather" />
+          <SharedNavigation currentPage="gather" onTopicEditorClick={() => setIsManageKeywordsOpen(true)} />
           <div className="gather-loading">
             <Loader2 className="gather-loading-spinner" />
             <p>Loading Gather...</p>
@@ -151,7 +151,7 @@ function GatherApp() {
   return (
     <div className="gather-app">
       <div className="gather-layout">
-        <SharedNavigation currentPage="gather" />
+        <SharedNavigation currentPage="gather" onTopicEditorClick={() => setIsManageKeywordsOpen(true)} />
 
         <div className="gather-content-area">
           {/* Top Header Bar */}

@@ -28,6 +28,7 @@ import { NarrativeInsightsSection } from '../components/newsfeed/NarrativeInsigh
 import { ResearchAgentsSection } from '../components/newsfeed/ResearchAgentsSection';
 import { SignalReportsTab } from '../components/newsfeed/SignalReportsTab';
 import { TopicCluster, getCategoryIcon } from '../components/newsfeed/TopicCluster';
+import { OnboardingWizard } from '../components/onboarding/OnboardingWizard';
 import { ArticleDetailPanel } from '../components/newsfeed/ArticleDetailPanel';
 import { CategoryViewModal } from '../components/newsfeed/CategoryViewModal';
 import { IncidentConfigModal } from '../components/newsfeed/IncidentConfigModal';
@@ -129,6 +130,7 @@ export function NewsFeedPage() {
   const [reportsCount, setReportsCount] = useState(0);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isBriefingConfigOpen, setIsBriefingConfigOpen] = useState(false);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [filters] = useState<IncidentFilters>(createEmptyFilters());
   const [hiddenCategories, setHiddenCategories] = useState<Set<string>>(new Set());
   const [categoryOrder, setCategoryOrder] = useState<string[]>([]);
@@ -483,13 +485,13 @@ export function NewsFeedPage() {
               />
             )}
             <NotificationBell />
-            <a
-              href="/trend-convergence?onboarding=true"
+            <button
+              onClick={() => setIsOnboardingOpen(true)}
               className="gather-top-bar-setup-btn"
             >
               Set up topic
               <Plus className="w-4 h-4" />
-            </a>
+            </button>
           </div>
         </div>
 
@@ -786,6 +788,12 @@ export function NewsFeedPage() {
           onClose={() => setSelectedCategory(null)}
         />
       )}
+
+      {/* Onboarding Wizard Modal */}
+      <OnboardingWizard
+        open={isOnboardingOpen}
+        onOpenChange={setIsOnboardingOpen}
+      />
       </div>
     </div>
   );

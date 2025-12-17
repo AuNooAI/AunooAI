@@ -12,8 +12,8 @@
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <!-- React App CSS -->
-    <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/index-BJTOSNrR.css">
-    <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/switch-OtJmNUCu.css">
+    <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/index-CtD2c6S8.css">
+    <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/switch-DTIM0IR6.css">
     <!-- Auspex Chat CSS (loaded after React CSS to ensure proper z-index) -->
     <link rel="stylesheet" href="/static/css/auspex-chat.css">
     <style>
@@ -37,8 +37,8 @@
         {% endif %}
       };
     </script>
-    <script type="module" crossorigin src="/static/trend-convergence/assets/newsfeed-BnrmyHCk.js"></script>
-    <link rel="modulepreload" crossorigin href="/static/trend-convergence/assets/index-c8v1wqSC.js">
+    <script type="module" crossorigin src="/static/trend-convergence/assets/newsfeed-sdgZvaN4.js"></script>
+    <link rel="modulepreload" crossorigin href="/static/trend-convergence/assets/index-BPKFzodS.js">
   </head>
 
   <body>
