@@ -2,6 +2,158 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Base dark mode styles for html and body */
+@layer base {
+  html {
+    @apply bg-white text-gray-900;
+  }
+  html.dark {
+    @apply bg-gray-950 text-gray-100;
+  }
+  body {
+    @apply bg-inherit text-inherit;
+  }
+}
+
+/* Override Bootstrap's !important bg-white in dark mode - using Tailwind grays for consistency */
+html.dark .bg-white,
+.dark .bg-white,
+html.dark [class*="bg-white"],
+.dark [class*="bg-white"] {
+  background-color: #1f2937 !important; /* Tailwind gray-800 */
+}
+html.dark .bg-gray-50,
+.dark .bg-gray-50 {
+  background-color: #111827 !important; /* Tailwind gray-900 */
+}
+html.dark .bg-gray-100,
+.dark .bg-gray-100 {
+  background-color: #1f2937 !important; /* Tailwind gray-800 */
+}
+html.dark .border-gray-200,
+.dark .border-gray-200 {
+  border-color: #374151 !important; /* Tailwind gray-700 */
+}
+html.dark .text-gray-700,
+.dark .text-gray-700 {
+  color: #d1d5db !important; /* Tailwind gray-300 */
+}
+html.dark .text-gray-800,
+.dark .text-gray-800 {
+  color: #f3f4f6 !important; /* Tailwind gray-100 */
+}
+html.dark .text-gray-900,
+.dark .text-gray-900 {
+  color: #f9fafb !important; /* Tailwind gray-50 */
+}
+html.dark .text-gray-950,
+.dark .text-gray-950 {
+  color: #f9fafb !important; /* Tailwind gray-50 */
+}
+html.dark .text-gray-600,
+.dark .text-gray-600 {
+  color: #9ca3af !important; /* Tailwind gray-400 */
+}
+html.dark .text-gray-500,
+.dark .text-gray-500 {
+  color: #6b7280 !important; /* Tailwind gray-500 */
+}
+html.dark .hover\:bg-gray-50:hover,
+.dark .hover\:bg-gray-50:hover {
+  background-color: #374151 !important; /* Tailwind gray-700 */
+}
+html.dark thead.bg-gray-50,
+.dark thead.bg-gray-50 {
+  background-color: #111827 !important; /* Tailwind gray-900 */
+}
+
+/* Card component dark mode */
+html.dark [data-slot="card"],
+.dark [data-slot="card"] {
+  background-color: #1f2937 !important; /* Tailwind gray-800 */
+  border-color: #374151 !important; /* Tailwind gray-700 */
+}
+html.dark [data-slot="card-header"],
+.dark [data-slot="card-header"] {
+  color: #f3f4f6 !important; /* Tailwind gray-100 */
+}
+html.dark [data-slot="card-title"],
+.dark [data-slot="card-title"] {
+  color: #f3f4f6 !important; /* Tailwind gray-100 */
+}
+html.dark [data-slot="card-description"],
+.dark [data-slot="card-description"] {
+  color: #9ca3af !important; /* Tailwind gray-400 */
+}
+html.dark [data-slot="card-content"],
+.dark [data-slot="card-content"] {
+  color: #e5e7eb !important; /* Tailwind gray-200 */
+}
+
+/* Focus Group specific overrides */
+html.dark .bg-indigo-50,
+.dark .bg-indigo-50 {
+  background-color: rgba(79, 70, 229, 0.2) !important; /* indigo-900/20 */
+}
+html.dark .bg-indigo-100,
+.dark .bg-indigo-100 {
+  background-color: rgba(79, 70, 229, 0.3) !important; /* indigo-900/30 */
+}
+html.dark .bg-blue-50,
+.dark .bg-blue-50 {
+  background-color: rgba(59, 130, 246, 0.2) !important; /* blue-900/20 */
+}
+html.dark .bg-green-50,
+.dark .bg-green-50 {
+  background-color: rgba(34, 197, 94, 0.2) !important; /* green-900/20 */
+}
+html.dark .bg-red-50,
+.dark .bg-red-50 {
+  background-color: rgba(239, 68, 68, 0.2) !important; /* red-900/20 */
+}
+html.dark .bg-yellow-50,
+.dark .bg-yellow-50 {
+  background-color: rgba(234, 179, 8, 0.2) !important; /* yellow-900/20 */
+}
+html.dark .bg-orange-50,
+.dark .bg-orange-50 {
+  background-color: rgba(249, 115, 22, 0.2) !important; /* orange-900/20 */
+}
+html.dark .bg-purple-50,
+.dark .bg-purple-50 {
+  background-color: rgba(168, 85, 247, 0.2) !important; /* purple-900/20 */
+}
+html.dark .bg-pink-50,
+.dark .bg-pink-50 {
+  background-color: rgba(236, 72, 153, 0.2) !important; /* pink-900/20 */
+}
+html.dark .bg-rose-50,
+.dark .bg-rose-50 {
+  background-color: rgba(244, 63, 94, 0.2) !important; /* rose-900/20 */
+}
+html.dark .bg-amber-50,
+.dark .bg-amber-50 {
+  background-color: rgba(245, 158, 11, 0.2) !important; /* amber-900/20 */
+}
+
+/* Text color fixes for dark mode */
+html.dark .text-indigo-600,
+.dark .text-indigo-600 {
+  color: #a5b4fc !important; /* indigo-300 */
+}
+html.dark .text-green-700,
+.dark .text-green-700 {
+  color: #86efac !important; /* green-300 */
+}
+html.dark .text-red-700,
+.dark .text-red-700 {
+  color: #fca5a5 !important; /* red-300 */
+}
+html.dark .text-blue-700,
+.dark .text-blue-700 {
+  color: #93c5fd !important; /* blue-300 */
+}
+
 /* Thin scrollbar styling */
 .scrollbar-thin {
   scrollbar-width: thin;

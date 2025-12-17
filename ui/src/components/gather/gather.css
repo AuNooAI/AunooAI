@@ -2297,3 +2297,493 @@
   font-size: 0.8125rem;
   line-height: 1.5;
 }
+
+/* ============================================
+   DARK MODE STYLES
+   ============================================ */
+
+/* App Container - Dark Mode */
+.dark .gather-app {
+  background-color: #111827;
+}
+
+/* Top Header Bar - Dark Mode */
+.dark .gather-top-bar {
+  background: #1f2937;
+  border-bottom-color: #374151;
+}
+
+.dark .gather-top-bar-left {
+  color: #e5e7eb;
+}
+
+.dark .gather-top-bar-separator {
+  color: #6b7280;
+}
+
+.dark .gather-top-bar-subtitle {
+  color: #9ca3af;
+}
+
+.dark .gather-top-bar-icon-btn {
+  color: #9ca3af;
+}
+
+.dark .gather-top-bar-icon-btn:hover {
+  background: #374151;
+  color: #ec4899;
+}
+
+.dark .gather-top-bar-setup-btn {
+  background: #374151;
+  color: #e5e7eb;
+}
+
+.dark .gather-top-bar-setup-btn:hover {
+  background: #4b5563;
+}
+
+/* Main Content Area - Dark Mode */
+.dark .gather-main {
+  background-color: #111827;
+}
+
+.dark .gather-loading {
+  color: #9ca3af;
+}
+
+/* Header - Dark Mode */
+.dark .gather-header {
+  background: #1f2937;
+  border-color: #374151;
+}
+
+.dark .gather-header-title h1 {
+  color: #f3f4f6;
+}
+
+.dark .gather-header-subtitle {
+  color: #9ca3af;
+}
+
+.dark .gather-status-label {
+  color: #6b7280;
+}
+
+.dark .gather-status-value {
+  color: #e5e7eb;
+}
+
+.dark .gather-header-controls {
+  border-top-color: #374151;
+}
+
+.dark .gather-toggle-label {
+  color: #e5e7eb;
+}
+
+.dark .gather-toggle-status {
+  color: #6b7280;
+  background: #374151;
+}
+
+.dark .gather-toggle-status.active {
+  color: #10b981;
+  background: #064e3b;
+}
+
+/* Cards - Dark Mode */
+.dark .gather-card {
+  background: #1f2937;
+  border-color: #374151;
+}
+
+.dark .gather-card:hover {
+  border-color: #4b5563;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.dark .gather-card-title {
+  color: #f3f4f6;
+}
+
+.dark .gather-card-subtitle {
+  color: #9ca3af;
+}
+
+.dark .gather-card-topic-badge {
+  color: #f472b6;
+  background: #831843;
+}
+
+.dark .gather-card-metrics {
+  background: #111827;
+  border-top-color: #374151;
+}
+
+.dark .gather-metric-value {
+  color: #f3f4f6;
+}
+
+.dark .gather-metric-label {
+  color: #6b7280;
+}
+
+.dark .gather-card-footer {
+  border-top-color: #374151;
+}
+
+.dark .gather-card-last-checked {
+  color: #6b7280;
+}
+
+/* Empty State - Dark Mode */
+.dark .gather-empty-state {
+  background: #1f2937;
+  border-color: #374151;
+}
+
+.dark .gather-empty-icon {
+  background: #374151;
+  color: #6b7280;
+}
+
+.dark .gather-empty-state h3 {
+  color: #e5e7eb;
+}
+
+.dark .gather-empty-state p {
+  color: #9ca3af;
+}
+
+/* Detail Panel - Dark Mode */
+.dark [data-slot="sheet-content"] {
+  background-color: #1f2937 !important;
+  color: #f3f4f6 !important;
+}
+
+.dark [data-slot="sheet-title"] {
+  color: #f3f4f6 !important;
+}
+
+.dark [data-slot="sheet-description"] {
+  color: #9ca3af !important;
+}
+
+.dark .gather-detail-panel {
+  background-color: #1f2937 !important;
+}
+
+.dark .gather-detail-title {
+  color: #f3f4f6;
+}
+
+.dark .gather-detail-meta {
+  color: #9ca3af;
+}
+
+.dark .gather-detail-section {
+  border-bottom-color: #374151;
+}
+
+.dark .gather-detail-section-title {
+  color: #9ca3af;
+}
+
+.dark .gather-detail-stat {
+  background: #111827;
+}
+
+.dark .gather-detail-stat-value {
+  color: #f3f4f6;
+}
+
+.dark .gather-detail-stat-label {
+  color: #9ca3af;
+}
+
+/* Keywords - Dark Mode */
+.dark .gather-keyword-item,
+.dark .gather-keyword-item-enhanced {
+  background: #111827;
+}
+
+.dark .gather-keyword-item-enhanced:hover,
+.dark .gather-keyword-item:hover {
+  background: #1f2937;
+}
+
+.dark .gather-keyword-text {
+  color: #e5e7eb;
+}
+
+.dark .gather-keyword-stats {
+  color: #9ca3af;
+}
+
+/* Articles - Dark Mode */
+.dark .gather-article-item {
+  background: #111827;
+}
+
+.dark .gather-article-item:hover {
+  background: #1f2937;
+}
+
+.dark .gather-article-title {
+  color: #f3f4f6;
+}
+
+.dark .gather-article-meta {
+  color: #9ca3af;
+}
+
+.dark .gather-article-date {
+  color: #6b7280;
+}
+
+/* Modals - Dark Mode */
+.dark .gather-modal-section {
+  border-bottom-color: #374151;
+}
+
+.dark .gather-modal-section-title {
+  color: #e5e7eb;
+}
+
+.dark .gather-form-hint {
+  color: #6b7280;
+}
+
+.dark .gather-toggle-desc {
+  color: #9ca3af;
+}
+
+.dark .gather-provider-name {
+  color: #e5e7eb;
+}
+
+.dark .gather-provider-desc {
+  color: #9ca3af;
+}
+
+/* New Group Form - Dark Mode */
+.dark .gather-new-group-form {
+  background: #111827;
+}
+
+/* Groups List - Dark Mode */
+.dark .gather-group-item {
+  border-color: #374151;
+}
+
+.dark .gather-group-header:hover {
+  background: #111827;
+}
+
+.dark .gather-group-name {
+  color: #e5e7eb;
+}
+
+.dark .gather-keyword-row {
+  background: #111827;
+}
+
+/* Test Modal - Dark Mode */
+.dark .gather-test-step-value {
+  color: #e5e7eb;
+}
+
+.dark .gather-test-step-key {
+  color: #9ca3af;
+}
+
+/* Notification Sheet - Dark Mode */
+.dark .gather-notification-sheet-header {
+  border-bottom-color: #374151;
+}
+
+.dark .gather-notification-sheet-item {
+  border-bottom-color: #374151;
+}
+
+.dark .gather-notification-sheet-item:hover {
+  background: #111827;
+}
+
+.dark .gather-notification-sheet-item.unread {
+  background: #1e3a5f;
+}
+
+.dark .gather-notification-sheet-item.unread:hover {
+  background: #1e4976;
+}
+
+.dark .gather-notification-sheet-item-title {
+  color: #f3f4f6;
+}
+
+.dark .gather-notification-sheet-item-message {
+  color: #9ca3af;
+}
+
+.dark .gather-notification-sheet-item-time {
+  color: #6b7280;
+}
+
+.dark .gather-notification-sheet-footer {
+  border-top-color: #374151;
+}
+
+.dark .gather-notification-empty {
+  color: #6b7280;
+}
+
+/* Explore Tab Navigation - Dark Mode */
+.dark .explore-tab-navigation {
+  background-color: #1f2937;
+  border-bottom-color: #374151;
+}
+
+.dark .explore-tab-btn {
+  color: #9ca3af;
+}
+
+.dark .explore-tab-btn:hover {
+  color: #e5e7eb;
+  background-color: #374151;
+}
+
+.dark .explore-tab-btn.active {
+  color: #ec4899;
+  background-color: #111827;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+/* Research Agents - Dark Mode */
+.dark .research-agents-section {
+  border-bottom-color: #374151;
+}
+
+.dark .research-agent-card {
+  background: #1f2937;
+  border-color: #374151;
+}
+
+.dark .research-agent-card:hover {
+  border-color: #4b5563;
+}
+
+/* Section dividers - Dark Mode */
+.dark .gather-main > div > section.mb-8 {
+  border-bottom-color: #374151;
+}
+
+/* Topic cluster rows - Dark Mode */
+.dark .gather-main section.mb-6 .space-y-1 > div.group:nth-child(odd) {
+  background-color: #1f2937;
+}
+
+.dark .gather-main section.mb-6 .space-y-1 > div.group:nth-child(even) {
+  background-color: #111827;
+}
+
+.dark .gather-main section.mb-6 .space-y-1 > div.group:hover {
+  background-color: #374151;
+}
+
+/* Typography - Dark Mode */
+.dark .gather-main h2.text-xl {
+  color: #f3f4f6;
+}
+
+/* Suggestions Popover - Dark Mode */
+.dark .gather-suggestions-popover {
+  background: #1f2937 !important;
+  border-color: #374151 !important;
+}
+
+.dark .gather-suggestions-analysis {
+  background: #111827;
+  color: #d1d5db;
+}
+
+.dark .gather-suggestion-item {
+  background: #111827;
+  border-color: #374151;
+}
+
+.dark .gather-suggestion-item:hover {
+  background: #1f2937;
+  border-color: #4b5563;
+}
+
+.dark .gather-suggestion-keyword {
+  color: #f3f4f6;
+}
+
+.dark .gather-suggestion-reason {
+  color: #9ca3af;
+}
+
+/* Hover Card - Dark Mode */
+.dark .gather-article-hover-card {
+  background: #1f2937 !important;
+  border-color: #374151 !important;
+}
+
+.dark .gather-hover-section {
+  border-bottom-color: #374151;
+}
+
+.dark .gather-hover-section-title {
+  color: #9ca3af;
+}
+
+.dark .gather-hover-score-label {
+  color: #9ca3af;
+}
+
+.dark .gather-hover-score-value {
+  color: #e5e7eb;
+}
+
+.dark .gather-hover-explanation {
+  color: #9ca3af;
+}
+
+.dark .gather-hover-summary {
+  color: #e5e7eb;
+}
+
+/* Link Button - Dark Mode */
+.dark .gather-link-button {
+  color: #9ca3af;
+}
+
+.dark .gather-link-button:hover {
+  color: #ec4899;
+  background: #831843;
+}
+
+/* Test Button - Dark Mode */
+.dark .gather-test-button {
+  border-color: #374151;
+  color: #6b7280;
+}
+
+.dark .gather-test-button:hover {
+  background: #374151;
+  color: #a78bfa;
+  border-color: #6d28d9;
+}
+
+/* Icon Button - Dark Mode */
+.dark .gather-icon-button {
+  color: #9ca3af;
+}
+
+.dark .gather-icon-button:hover {
+  background: #374151;
+  color: #ec4899;
+}

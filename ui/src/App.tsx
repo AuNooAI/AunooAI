@@ -817,7 +817,7 @@ function App() {
   };
 
   return (
-    <div className="h-screen bg-gray-50 overflow-auto">
+    <div className="h-screen bg-gray-50 dark:bg-gray-950 overflow-auto">
       <div className="flex min-h-full min-w-[1064px]">
       {/* Shared Navigation */}
       <SharedNavigation currentPage="anticipate" />
@@ -825,13 +825,13 @@ function App() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0 h-screen">
         {/* Top Header */}
-        <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
+        <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 flex items-center justify-between">
           {/* Breadcrumb and Dashboard Selector */}
-          <div className="flex items-center gap-4 text-sm text-gray-700">
+          <div className="flex items-center gap-4 text-sm text-gray-700 dark:text-gray-300">
             <div className="flex items-center gap-2">
               <span>Explore</span>
               <span>/</span>
-              <span className="font-medium text-gray-950">Strategic Recommendations</span>
+              <span className="font-medium text-gray-950 dark:text-gray-100">Strategic Recommendations</span>
               <span>•</span>
               <span>Current indicators and potential disruption scenarios</span>
             </div>
@@ -1043,7 +1043,7 @@ function App() {
             </Dialog>
 
         {/* Sub-header with tabs */}
-        <div className="bg-white px-6 py-4">
+        <div className="bg-white dark:bg-gray-900 px-6 py-4">
           <TabNavigation
             activeTab={activeTab}
             onTabChange={setActiveTab}
@@ -1053,7 +1053,7 @@ function App() {
         </div>
 
         {/* Topic and Controls */}
-        <div className="bg-white px-6 py-4 border-b border-gray-200">
+        <div className="bg-white dark:bg-gray-900 px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               {/* Topic Selector */}
@@ -1222,13 +1222,13 @@ function App() {
         </div>
 
         {/* Action Buttons */}
-        <div className="bg-white px-6 py-3 border-b border-gray-200 flex justify-between items-center">
+        <div className="bg-white dark:bg-gray-900 px-6 py-3 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
           <div className="flex items-center gap-2">
             {/* Configure button - hidden for PAM since it has its own complete Tune modal */}
             {activeTab !== 'pam' && (
               <button
                 onClick={() => setIsConfigOpen(true)}
-                className="px-4 py-2 text-pink-500 hover:bg-pink-50 rounded-md text-sm font-medium flex items-center gap-2"
+                className="px-4 py-2 text-pink-500 hover:bg-pink-50 dark:hover:bg-pink-900/30 rounded-md text-sm font-medium flex items-center gap-2"
               >
                 <Settings className="w-4 h-4" />
                 Configure
@@ -1253,7 +1253,7 @@ function App() {
                   setIsPromptEditorOpen(true);
                 }
               }}
-              className="px-4 py-2 text-pink-500 hover:bg-pink-50 rounded-md text-sm font-medium flex items-center gap-2"
+              className="px-4 py-2 text-pink-500 hover:bg-pink-50 dark:hover:bg-pink-900/30 rounded-md text-sm font-medium flex items-center gap-2"
             >
               <FileText className="w-4 h-4" />
               Tune
@@ -1887,8 +1887,8 @@ function App() {
               {activeTab === 'impact-timeline' && (
                 <>
                   {/* Dashboard Description */}
-                  <div className="mb-6 p-4 bg-blue-50 border-l-4 border-blue-500 rounded-r-lg">
-                    <p className="text-sm text-gray-700">
+                  <div className="mb-6 p-4 bg-blue-50 dark:bg-blue-900/30 border-l-4 border-blue-500 rounded-r-lg">
+                    <p className="text-sm text-gray-700 dark:text-gray-200">
                       <strong>Impact Timeline:</strong> Visualize key impacts and developments over time to understand when changes will occur.
                     </p>
                   </div>
@@ -2096,28 +2096,28 @@ function App() {
               {activeTab === 'market-signals' && (
                 <>
                   {/* Dashboard Description */}
-                  <div className="mb-6 p-4 bg-purple-50 border-l-4 border-purple-500 rounded-r-lg">
-                    <p className="text-sm text-gray-700">
+                  <div className="mb-6 p-4 bg-purple-50 dark:bg-purple-900/30 border-l-4 border-purple-500 rounded-r-lg">
+                    <p className="text-sm text-gray-700 dark:text-gray-200">
                       <strong>Market Signals & Strategic Risks:</strong> Identify emerging trends, disruption scenarios, and strategic opportunities to stay ahead of market changes.
                     </p>
                   </div>
 
                   {/* Future Signal Table */}
-                  <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                  <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl overflow-hidden">
                     <table className="w-full">
-                      <thead className="bg-gray-50">
+                      <thead className="bg-gray-50 dark:bg-gray-900">
                         <tr>
-                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800">Future Signal</th>
-                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800">Impact</th>
-                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800">Timeline</th>
-                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800">Confidence</th>
+                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800 dark:text-gray-200">Future Signal</th>
+                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800 dark:text-gray-200">Impact</th>
+                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800 dark:text-gray-200">Timeline</th>
+                          <th className="text-left px-6 py-3 text-sm font-semibold text-gray-800 dark:text-gray-200">Confidence</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-200">
+                      <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
                         {('future_signals' in data ? data.future_signals : []).map((signal: any, idx: number) => {
                           const html = renderCitationsAsLinks(signal.description || '', articleList);
                           return (
-                            <tr key={idx} className="hover:bg-gray-50">
+                            <tr key={idx} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                               <td className="px-6 py-4">
                                 <div className="text-sm font-medium text-gray-950">{signal.signal}</div>
                                 <div className="text-xs text-gray-600 mt-1" dangerouslySetInnerHTML={{ __html: html }} />
@@ -2292,8 +2292,8 @@ function App() {
               {activeTab === 'consensus' && (
                 <>
                   {/* Dashboard Description */}
-                  <div className="mb-6 p-4 bg-green-50 border-l-4 border-green-500 rounded-r-lg">
-                    <p className="text-sm text-gray-700">
+                  <div className="mb-6 p-4 bg-green-50 dark:bg-green-900/30 border-l-4 border-green-500 rounded-r-lg">
+                    <p className="text-sm text-gray-700 dark:text-gray-200">
                       <strong>Consensus Analysis:</strong> Analyze convergent themes across multiple sources and identify areas of agreement, emerging consensus, and divergent viewpoints.
                     </p>
                   </div>
@@ -2388,8 +2388,8 @@ function App() {
               {activeTab === 'strategic-recommendations' && (
               <>
                 {/* Dashboard Description */}
-                <div className="mb-6 p-4 bg-pink-50 border-l-4 border-pink-500 rounded-r-lg">
-                  <p className="text-sm text-gray-700">
+                <div className="mb-6 p-4 bg-pink-50 dark:bg-pink-900/30 border-l-4 border-pink-500 rounded-r-lg">
+                  <p className="text-sm text-gray-700 dark:text-gray-200">
                     <strong>Strategic Recommendations:</strong> Actionable strategic insights across near, mid, and long-term horizons to guide decision-making.
                   </p>
                 </div>
@@ -2398,15 +2398,15 @@ function App() {
                 <div>
                 <div className="grid grid-cols-3 gap-6">
                   {/* Near-term */}
-                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                    <div className="bg-green-50 p-6 border-b border-green-100">
+                  <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                    <div className="bg-green-50 dark:bg-green-900/30 p-6 border-b border-green-100 dark:border-green-800">
                       <div className="flex items-center gap-2 mb-2">
-                        <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
-                          <Clock className="w-4 h-4 text-green-700" />
+                        <div className="w-8 h-8 rounded-full bg-green-100 dark:bg-green-800 flex items-center justify-center">
+                          <Clock className="w-4 h-4 text-green-700 dark:text-green-300" />
                         </div>
-                        <h3 className="font-bold text-sm text-gray-900">NEAR-TERM</h3>
+                        <h3 className="font-bold text-sm text-gray-900 dark:text-gray-100">NEAR-TERM</h3>
                       </div>
-                      <div className="text-sm font-medium text-gray-700">
+                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
                         {data.strategic_recommendations?.near_term?.timeframe || '2025-2027'}
                       </div>
                     </div>
@@ -2416,7 +2416,7 @@ function App() {
                           const text = typeof trend === 'string' ? trend : trend.name || trend.description;
                           const html = renderCitationsAsLinks(text, articleList);
                           return (
-                            <li key={idx} className="text-sm text-gray-700 leading-relaxed flex gap-2">
+                            <li key={idx} className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed flex gap-2">
                               <span className="text-green-600 font-bold">•</span>
                               <span dangerouslySetInnerHTML={{ __html: html }} />
                             </li>
@@ -2430,15 +2430,15 @@ function App() {
                   </div>
 
                   {/* Mid-term */}
-                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                    <div className="bg-amber-50 p-6 border-b border-amber-100">
+                  <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                    <div className="bg-amber-50 dark:bg-amber-900/30 p-6 border-b border-amber-100 dark:border-amber-800">
                       <div className="flex items-center gap-2 mb-2">
-                        <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center">
-                          <TrendingUp className="w-4 h-4 text-amber-700" />
+                        <div className="w-8 h-8 rounded-full bg-amber-100 dark:bg-amber-800 flex items-center justify-center">
+                          <TrendingUp className="w-4 h-4 text-amber-700 dark:text-amber-300" />
                         </div>
-                        <h3 className="font-bold text-sm text-gray-900">MID-TERM</h3>
+                        <h3 className="font-bold text-sm text-gray-900 dark:text-gray-100">MID-TERM</h3>
                       </div>
-                      <div className="text-sm font-medium text-gray-700">
+                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
                         {data.strategic_recommendations?.mid_term?.timeframe || '2027-2032'}
                       </div>
                     </div>
@@ -2448,7 +2448,7 @@ function App() {
                           const text = typeof trend === 'string' ? trend : trend.name || trend.description;
                           const html = renderCitationsAsLinks(text, articleList);
                           return (
-                            <li key={idx} className="text-sm text-gray-700 leading-relaxed flex gap-2">
+                            <li key={idx} className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed flex gap-2">
                               <span className="text-amber-600 font-bold">•</span>
                               <span dangerouslySetInnerHTML={{ __html: html }} />
                             </li>
@@ -2462,15 +2462,15 @@ function App() {
                   </div>
 
                   {/* Long-term */}
-                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                    <div className="bg-rose-50 p-6 border-b border-rose-100">
+                  <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                    <div className="bg-rose-50 dark:bg-rose-900/30 p-6 border-b border-rose-100 dark:border-rose-800">
                       <div className="flex items-center gap-2 mb-2">
-                        <div className="w-8 h-8 rounded-full bg-rose-100 flex items-center justify-center">
-                          <Target className="w-4 h-4 text-rose-700" />
+                        <div className="w-8 h-8 rounded-full bg-rose-100 dark:bg-rose-800 flex items-center justify-center">
+                          <Target className="w-4 h-4 text-rose-700 dark:text-rose-300" />
                         </div>
-                        <h3 className="font-bold text-sm text-gray-900">LONG-TERM (2032+)</h3>
+                        <h3 className="font-bold text-sm text-gray-900 dark:text-gray-100">LONG-TERM (2032+)</h3>
                       </div>
-                      <div className="text-sm font-medium text-gray-700">
+                      <div className="text-sm font-medium text-gray-700 dark:text-gray-300">
                         {data.strategic_recommendations?.long_term?.timeframe || '2032+'}
                       </div>
                     </div>
@@ -2480,7 +2480,7 @@ function App() {
                           const text = typeof trend === 'string' ? trend : trend.name || trend.description;
                           const html = renderCitationsAsLinks(text, articleList);
                           return (
-                            <li key={idx} className="text-sm text-gray-700 leading-relaxed flex gap-2">
+                            <li key={idx} className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed flex gap-2">
                               <span className="text-rose-600 font-bold">•</span>
                               <span dangerouslySetInnerHTML={{ __html: html }} />
                             </li>
@@ -2572,8 +2572,8 @@ function App() {
               {activeTab === 'future-horizons' && (
                 <>
                   {/* Dashboard Description */}
-                  <div className="mb-6 p-4 bg-indigo-50 border-l-4 border-indigo-500 rounded-r-lg">
-                    <p className="text-sm text-gray-700">
+                  <div className="mb-6 p-4 bg-indigo-50 dark:bg-indigo-900/30 border-l-4 border-indigo-500 rounded-r-lg">
+                    <p className="text-sm text-gray-700 dark:text-gray-200">
                       <strong>Future Horizons:</strong> Explore long-term scenarios and future possibilities to prepare for what's ahead.
                     </p>
                   </div>

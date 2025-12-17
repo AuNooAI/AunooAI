@@ -6,10 +6,13 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import PAMApp from './PAMApp'
+import { ThemeProvider } from './components/ThemeProvider'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <PAMApp />
+    <ThemeProvider>
+      <PAMApp />
+    </ThemeProvider>
   </React.StrictMode>,
 )

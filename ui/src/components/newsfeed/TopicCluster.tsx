@@ -106,16 +106,16 @@ export function TopicCluster({
           className="flex items-center gap-2 group"
         >
           {topic && (
-            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300">
               {topic}
             </span>
           )}
-          <h2 className="text-base font-semibold text-gray-900 group-hover:text-blue-600">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600">
             {category}
           </h2>
           <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
         </button>
-        <span className="text-xs text-gray-600 font-medium">
+        <span className="text-xs text-gray-600 dark:text-gray-400 font-medium">
           {totalArticles} {totalArticles === 1 ? 'article' : 'articles'}
         </span>
       </div>
@@ -176,7 +176,7 @@ function StoryRow({ cluster, onArticleClick }: StoryRowProps) {
     <div className="group relative">
       {/* Main story row */}
       <div
-        className="py-2.5 px-3 rounded-md bg-white/80 hover:bg-white hover:shadow-sm transition-all border border-transparent hover:border-gray-200"
+        className="py-2.5 px-3 rounded-md bg-white/80 dark:bg-gray-800/80 hover:bg-white dark:hover:bg-gray-800 hover:shadow-sm transition-all border border-transparent hover:border-gray-200 dark:hover:border-gray-600"
         onMouseEnter={() => setShowTooltip(true)}
         onMouseLeave={() => setShowTooltip(false)}
       >
@@ -185,15 +185,15 @@ function StoryRow({ cluster, onArticleClick }: StoryRowProps) {
           onClick={handleArticleClick}
           className="text-left w-full"
         >
-          <h3 className="text-sm font-medium text-gray-900 leading-snug line-clamp-2 group-hover:text-blue-600">
+          <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100 leading-snug line-clamp-2 group-hover:text-blue-600 dark:group-hover:text-blue-400">
             {cluster.primary.title}
           </h3>
         </button>
 
         {/* Summary tooltip on hover */}
         {showTooltip && cluster.primary.summary && (
-          <div className="absolute left-full top-0 ml-2 z-50 w-72 p-3 bg-white rounded-lg shadow-lg border border-gray-200 pointer-events-none">
-            <p className="text-xs text-gray-600 leading-relaxed line-clamp-4">
+          <div className="absolute left-full top-0 ml-2 z-50 w-72 p-3 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 pointer-events-none">
+            <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed line-clamp-4">
               {cluster.primary.summary}
             </p>
             {cluster.primary.sentiment && (
@@ -204,7 +204,7 @@ function StoryRow({ cluster, onArticleClick }: StoryRowProps) {
                 {cluster.primary.time_to_impact && (
                   <>
                     <span className="text-gray-400">•</span>
-                    <span className="text-gray-600">{cluster.primary.time_to_impact}</span>
+                    <span className="text-gray-600 dark:text-gray-400">{cluster.primary.time_to_impact}</span>
                   </>
                 )}
               </div>
@@ -215,15 +215,15 @@ function StoryRow({ cluster, onArticleClick }: StoryRowProps) {
         {/* Source info row */}
         <div className="flex items-center gap-2 mt-1.5 text-xs">
           {/* Primary source */}
-          <span className="font-medium text-gray-700">
+          <span className="font-medium text-gray-700 dark:text-gray-300">
             {cluster.primary.news_source}
           </span>
 
           {/* Time ago */}
           {cluster.primary.publication_date && (
             <>
-              <span className="text-gray-400">·</span>
-              <span className="text-gray-600">
+              <span className="text-gray-400 dark:text-gray-500">·</span>
+              <span className="text-gray-600 dark:text-gray-400">
                 {formatTimeAgo(cluster.primary.publication_date)}
               </span>
             </>
@@ -232,10 +232,10 @@ function StoryRow({ cluster, onArticleClick }: StoryRowProps) {
           {/* Related sources count - Google News style */}
           {hasRelated && (
             <>
-              <span className="text-gray-400">·</span>
+              <span className="text-gray-400 dark:text-gray-500">·</span>
               <button
                 onClick={() => setShowRelated(!showRelated)}
-                className="flex items-center gap-1 text-gray-600 hover:text-blue-600"
+                className="flex items-center gap-1 text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
               >
                 <Layers className="w-3 h-3" />
                 <span className="font-medium">{totalSources} sources</span>
@@ -247,23 +247,23 @@ function StoryRow({ cluster, onArticleClick }: StoryRowProps) {
 
       {/* Expandable full coverage panel */}
       {hasRelated && showRelated && (
-        <div className="mx-2 mb-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
-          <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
+        <div className="mx-2 mb-2 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
+          <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
             Full Coverage ({totalSources} sources)
           </div>
           <div className="space-y-2">
             {/* Primary article */}
             <button
               onClick={handleArticleClick}
-              className="block w-full text-left p-2 bg-white rounded hover:bg-blue-50 transition-colors border border-transparent hover:border-blue-200"
+              className="block w-full text-left p-2 bg-white dark:bg-gray-800 rounded hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors border border-transparent hover:border-blue-200 dark:hover:border-blue-700"
             >
               <div className="flex items-center gap-2 text-xs mb-1">
-                <span className="font-semibold text-blue-600">{cluster.primary.news_source}</span>
+                <span className="font-semibold text-blue-600 dark:text-blue-400">{cluster.primary.news_source}</span>
                 {cluster.primary.publication_date && (
-                  <span className="text-gray-600">{formatTimeAgo(cluster.primary.publication_date)}</span>
+                  <span className="text-gray-600 dark:text-gray-400">{formatTimeAgo(cluster.primary.publication_date)}</span>
                 )}
               </div>
-              <p className="text-sm text-gray-900 line-clamp-2">{cluster.primary.title}</p>
+              <p className="text-sm text-gray-900 dark:text-gray-100 line-clamp-2">{cluster.primary.title}</p>
             </button>
 
             {/* Related articles */}
@@ -285,21 +285,21 @@ function StoryRow({ cluster, onArticleClick }: StoryRowProps) {
                 <button
                   key={related.uri}
                   onClick={() => onArticleClick?.(relatedArticle)}
-                  className="block w-full text-left p-2 bg-white rounded hover:bg-blue-50 transition-colors border border-transparent hover:border-blue-200"
+                  className="block w-full text-left p-2 bg-white dark:bg-gray-800 rounded hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors border border-transparent hover:border-blue-200 dark:hover:border-blue-700"
                 >
                   <div className="flex items-center gap-2 text-xs mb-1">
-                    <span className="font-medium text-gray-600">{related.news_source}</span>
+                    <span className="font-medium text-gray-600 dark:text-gray-300">{related.news_source}</span>
                     {related.publication_date && (
-                      <span className="text-gray-600">{formatTimeAgo(related.publication_date)}</span>
+                      <span className="text-gray-600 dark:text-gray-400">{formatTimeAgo(related.publication_date)}</span>
                     )}
                   </div>
-                  <p className="text-sm text-gray-700 line-clamp-2">{related.title}</p>
+                  <p className="text-sm text-gray-700 dark:text-gray-200 line-clamp-2">{related.title}</p>
                 </button>
               );
             })}
 
             {cluster.related.length > 4 && (
-              <p className="text-xs text-gray-600 text-center py-1">
+              <p className="text-xs text-gray-600 dark:text-gray-400 text-center py-1">
                 +{cluster.related.length - 4} more sources covering this story
               </p>
             )}
