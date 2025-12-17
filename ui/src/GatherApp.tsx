@@ -16,6 +16,7 @@ import { ProcessingStatusBadge } from './components/gather/ProcessingStatusBadge
 import { NotificationBell } from './components/gather/NotificationBell';
 import { Alert, AlertDescription } from './components/ui/alert';
 import { Loader2, AlertCircle, Plus } from 'lucide-react';
+import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
 import type { KeywordGroupSummary } from './services/gatherApi';
 import { getRecentArticlesForGroup, deleteUnscoredArticles } from './services/gatherApi';
 import './components/gather/gather.css';
@@ -54,6 +55,7 @@ function GatherApp() {
   const [isManageKeywordsOpen, setIsManageKeywordsOpen] = useState(false);
   const [isTestProcessOpen, setIsTestProcessOpen] = useState(false);
   const [testProcessArticle, setTestProcessArticle] = useState<{ uri: string; groupId: number } | null>(null);
+  const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
 
   // Handle test process for specific article
   const handleTestProcessArticle = (uri: string, groupId: number) => {
@@ -166,7 +168,7 @@ function GatherApp() {
               <NotificationBell />
               <button
                 className="gather-top-bar-setup-btn"
-                onClick={() => setIsManageKeywordsOpen(true)}
+                onClick={() => setIsOnboardingOpen(true)}
               >
                 Set up topic
                 <Plus className="w-4 h-4" />
@@ -280,6 +282,12 @@ function GatherApp() {
         groups={groups}
         onSuccess={refresh}
         preloadArticle={testProcessArticle}
+      />
+
+      {/* Onboarding Wizard */}
+      <OnboardingWizard
+        open={isOnboardingOpen}
+        onOpenChange={setIsOnboardingOpen}
       />
     </div>
   );

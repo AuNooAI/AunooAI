@@ -3,7 +3,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Clock, Newspaper, TrendingUp, Tags, Folder, Cpu, HardDrive, Activity, Key, RefreshCw, Settings, Plus, Play, Pause, X, ChevronDown, RotateCw, Database } from 'lucide-react';
+import { Clock, Newspaper, TrendingUp, Tags, Folder, Cpu, HardDrive, Activity, Key, RefreshCw, Settings, Plus, Play, Pause, X, ChevronDown, RotateCw, Database, Settings2, GripVertical, Check } from 'lucide-react';
 import { SharedNavigation } from '../components/SharedNavigation';
 import { WorldClockConfig, type ClockConfig } from '../components/WorldClockConfig';
 import { Button } from '../components/ui/button';
@@ -143,6 +143,61 @@ const SCROLL_SPEEDS: Record<string, number> = {
   fast: 30
 };
 
+// Section visibility settings
+interface VisibleSections {
+  worldClock: boolean;
+  ticker: boolean;
+  healthStatus: boolean;
+  statsCards: boolean;
+}
+
+interface VisibleMetrics {
+  cpu: boolean;
+  memory: boolean;
+  disk: boolean;
+  apiKeys: boolean;
+  autopolling: boolean;
+  database: boolean;
+}
+
+const VISIBLE_SECTIONS_KEY = 'operations_visibleSections';
+const VISIBLE_METRICS_KEY = 'operations_visibleMetrics';
+const METRICS_ORDER_KEY = 'operations_metricsOrder';
+
+const DEFAULT_VISIBLE_SECTIONS: VisibleSections = {
+  worldClock: true,
+  ticker: true,
+  healthStatus: true,
+  statsCards: true,
+};
+
+const DEFAULT_VISIBLE_METRICS: VisibleMetrics = {
+  cpu: true,
+  memory: true,
+  disk: true,
+  apiKeys: true,
+  autopolling: true,
+  database: true,
+};
+
+const DEFAULT_METRICS_ORDER = ['cpu', 'memory', 'disk', 'apiKeys', 'autopolling', 'database'];
+
+const SECTION_LABELS: Record<keyof VisibleSections, string> = {
+  worldClock: 'World Clock',
+  ticker: 'News Ticker',
+  healthStatus: 'Health Status Banner',
+  statsCards: 'Statistics Cards',
+};
+
+const METRICS_LABELS: Record<keyof VisibleMetrics, string> = {
+  cpu: 'CPU',
+  memory: 'Memory',
+  disk: 'Disk',
+  apiKeys: 'API Keys',
+  autopolling: 'Auto-polling',
+  database: 'Database',
+};
+
 const DEFAULT_TIMEZONES: ClockConfig[] = [
   { timezone: 'America/Los_Angeles', city: 'San Francisco' },
   { timezone: 'America/New_York', city: 'New York' },
@@ -176,6 +231,24 @@ export function OperationsHQ() {
     const saved = localStorage.getItem('tickerConfig');
     return saved ? JSON.parse(saved) : DEFAULT_TICKER_CONFIG;
   });
+
+  // Section visibility state
+  const [visibleSections, setVisibleSections] = useState<VisibleSections>(() => {
+    const saved = localStorage.getItem(VISIBLE_SECTIONS_KEY);
+    return saved ? { ...DEFAULT_VISIBLE_SECTIONS, ...JSON.parse(saved) } : DEFAULT_VISIBLE_SECTIONS;
+  });
+  const [visibleMetrics, setVisibleMetrics] = useState<VisibleMetrics>(() => {
+    const saved = localStorage.getItem(VISIBLE_METRICS_KEY);
+    return saved ? { ...DEFAULT_VISIBLE_METRICS, ...JSON.parse(saved) } : DEFAULT_VISIBLE_METRICS;
+  });
+  const [metricsOrder, setMetricsOrder] = useState<string[]>(() => {
+    const saved = localStorage.getItem(METRICS_ORDER_KEY);
+    return saved ? JSON.parse(saved) : DEFAULT_METRICS_ORDER;
+  });
+  const [manageSettingsOpen, setManageSettingsOpen] = useState(false);
+  const [manageSettingsTab, setManageSettingsTab] = useState<'sections' | 'metrics'>('sections');
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dropIndex, setDropIndex] = useState<number | null>(null);
 
   // Update clocks every second
   useEffect(() => {
@@ -214,6 +287,57 @@ export function OperationsHQ() {
     localStorage.setItem('worldClockTimezones', JSON.stringify(newClocks));
   };
 
+  // Persist visibility settings
+  useEffect(() => {
+    localStorage.setItem(VISIBLE_SECTIONS_KEY, JSON.stringify(visibleSections));
+  }, [visibleSections]);
+
+  useEffect(() => {
+    localStorage.setItem(VISIBLE_METRICS_KEY, JSON.stringify(visibleMetrics));
+  }, [visibleMetrics]);
+
+  useEffect(() => {
+    localStorage.setItem(METRICS_ORDER_KEY, JSON.stringify(metricsOrder));
+  }, [metricsOrder]);
+
+  // Toggle section visibility
+  const toggleSection = (section: keyof VisibleSections) => {
+    setVisibleSections(prev => ({ ...prev, [section]: !prev[section] }));
+  };
+
+  // Toggle metric visibility
+  const toggleMetric = (metric: keyof VisibleMetrics) => {
+    setVisibleMetrics(prev => ({ ...prev, [metric]: !prev[metric] }));
+  };
+
+  // Drag and drop handlers for metrics reordering
+  const handleDragStart = (e: React.DragEvent, index: number) => {
+    setDragIndex(index);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    setDropIndex(index);
+  };
+
+  const handleDragEnd = () => {
+    setDragIndex(null);
+    setDropIndex(null);
+  };
+
+  const handleDrop = (e: React.DragEvent, targetIndex: number) => {
+    e.preventDefault();
+    if (dragIndex === null || dragIndex === targetIndex) return;
+
+    const newOrder = [...metricsOrder];
+    const [removed] = newOrder.splice(dragIndex, 1);
+    newOrder.splice(targetIndex, 0, removed);
+    setMetricsOrder(newOrder);
+    setDragIndex(null);
+    setDropIndex(null);
+  };
+
   // Fetch ticker articles based on config
   const fetchTickerArticles = async () => {
     try {
@@ -224,8 +348,8 @@ export function OperationsHQ() {
         setTickerArticles(articles.slice(0, tickerConfig.articleCount).map((a: any) => ({
           title: a.title,
           uri: a.uri || a.url || a.link,
-          source: a.source || a.source_name,
-          published_at: a.published_at || a.date || a.published
+          source: a.news_source || a.source || a.source_name,
+          published_at: a.publication_date || a.published_at || a.date || a.published
         })));
       }
     } catch (error) {
@@ -334,6 +458,123 @@ export function OperationsHQ() {
 
           {/* Right Icons */}
           <div className="gather-top-bar-right">
+            {/* Manage Settings Button */}
+            <div className="relative">
+              <button
+                onClick={() => setManageSettingsOpen(!manageSettingsOpen)}
+                className="gather-top-bar-icon-btn"
+                title="Manage Sections"
+              >
+                <Settings2 className="w-5 h-5" />
+              </button>
+
+              {/* Settings Dropdown */}
+              {manageSettingsOpen && (
+                <>
+                  {/* Backdrop */}
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setManageSettingsOpen(false)}
+                  />
+                  {/* Dropdown Panel */}
+                  <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+                    {/* Tabs */}
+                    <div className="flex border-b border-gray-200">
+                      <button
+                        onClick={() => setManageSettingsTab('sections')}
+                        className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                          manageSettingsTab === 'sections'
+                            ? 'text-pink-600 border-b-2 border-pink-500'
+                            : 'text-gray-600 hover:text-gray-900'
+                        }`}
+                      >
+                        Sections
+                      </button>
+                      <button
+                        onClick={() => setManageSettingsTab('metrics')}
+                        className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                          manageSettingsTab === 'metrics'
+                            ? 'text-pink-600 border-b-2 border-pink-500'
+                            : 'text-gray-600 hover:text-gray-900'
+                        }`}
+                      >
+                        Metrics
+                      </button>
+                    </div>
+
+                    {/* Sections Tab */}
+                    {manageSettingsTab === 'sections' && (
+                      <div className="p-2">
+                        <p className="text-xs text-gray-500 px-2 py-1 mb-1">
+                          Show or hide page sections
+                        </p>
+                        {(Object.keys(SECTION_LABELS) as Array<keyof VisibleSections>).map((section) => (
+                          <button
+                            key={section}
+                            onClick={() => toggleSection(section)}
+                            className="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-gray-50 transition-colors"
+                          >
+                            <span className="text-sm text-gray-700">{SECTION_LABELS[section]}</span>
+                            {visibleSections[section] ? (
+                              <Check className="w-4 h-4 text-pink-500" />
+                            ) : (
+                              <div className="w-4 h-4" />
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Metrics Tab */}
+                    {manageSettingsTab === 'metrics' && (
+                      <div className="p-2">
+                        <p className="text-xs text-gray-500 px-2 py-1 mb-1">
+                          Drag to reorder, click to show/hide
+                        </p>
+                        <div className="max-h-64 overflow-y-auto">
+                          {metricsOrder.map((metricKey, index) => (
+                            <div
+                              key={metricKey}
+                              draggable
+                              onDragStart={(e) => handleDragStart(e, index)}
+                              onDragEnd={handleDragEnd}
+                              onDragOver={(e) => handleDragOver(e, index)}
+                              onDrop={(e) => handleDrop(e, index)}
+                              className={`flex items-center gap-2 px-2 py-2 rounded cursor-grab transition-colors ${
+                                dragIndex === index ? 'opacity-50' : ''
+                              } ${
+                                dropIndex === index && dragIndex !== index ? 'border-t-2 border-pink-500' : ''
+                              } hover:bg-gray-50`}
+                            >
+                              <GripVertical className="w-4 h-4 text-gray-400 shrink-0" />
+                              <input
+                                type="checkbox"
+                                checked={visibleMetrics[metricKey as keyof VisibleMetrics]}
+                                onChange={() => toggleMetric(metricKey as keyof VisibleMetrics)}
+                                className="rounded border-gray-300 text-pink-500 focus:ring-pink-500"
+                              />
+                              <span className="text-sm text-gray-700 flex-1 truncate">
+                                {METRICS_LABELS[metricKey as keyof VisibleMetrics]}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Footer */}
+                    <div className="p-2 border-t border-gray-200">
+                      <button
+                        onClick={() => setManageSettingsOpen(false)}
+                        className="w-full px-3 py-2 text-sm font-medium text-pink-600 hover:bg-pink-50 rounded transition-colors"
+                      >
+                        Done
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
             <NotificationBell />
             <button
               onClick={() => setIsOnboardingOpen(true)}
@@ -346,7 +587,7 @@ export function OperationsHQ() {
         </div>
 
         {/* News Ticker */}
-        {tickerVisible && tickerConfig.enabled && (
+        {visibleSections.ticker && tickerVisible && tickerConfig.enabled && (
           <div className="bg-gray-50 border-b border-gray-200 border-l-4 border-l-blue-500 h-11 flex items-stretch overflow-hidden">
             <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white px-4 font-bold text-xs uppercase flex items-center tracking-wider">
               Latest
@@ -417,7 +658,7 @@ export function OperationsHQ() {
         )}
 
         {/* Show ticker button when hidden */}
-        {!tickerVisible && (
+        {visibleSections.ticker && !tickerVisible && (
           <button
             onClick={toggleTicker}
             className="w-full bg-gray-100 hover:bg-gray-200 border-b border-gray-200 py-1 text-xs text-gray-500 flex items-center justify-center gap-1 transition-colors"
@@ -432,7 +673,7 @@ export function OperationsHQ() {
           <div className="w-full">
 
           {/* System Health Status - Top Priority */}
-          {healthData && (
+          {visibleSections.healthStatus && healthData && (
             <div className="mb-6">
               {/* Health Status Header */}
               <div className="bg-white rounded-lg shadow-md p-6 text-center">
@@ -458,6 +699,7 @@ export function OperationsHQ() {
           )}
 
           {/* World Clock */}
+          {visibleSections.worldClock && (
           <div className="bg-white rounded-lg shadow-md mb-6 p-6">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
@@ -487,8 +729,10 @@ export function OperationsHQ() {
             ))}
           </div>
         </div>
+          )}
 
         {/* Stats Cards */}
+        {visibleSections.statsCards && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
           <div className="bg-white rounded-lg shadow-md p-6 hover:shadow-lg transition-shadow cursor-pointer"
                onClick={() => window.location.href = '/database-editor'}>
@@ -534,231 +778,253 @@ export function OperationsHQ() {
             </div>
           </div>
         </div>
+        )}
 
         {/* System Health Metrics */}
-        {healthData && (
+        {healthData && metricsOrder.some(m => visibleMetrics[m as keyof VisibleMetrics]) && (
           <div className="mb-6">
             <h2 className="text-xl font-bold text-gray-800 mb-4">Detailed Metrics</h2>
-            {/* Metrics Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {/* CPU */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <div className="flex items-center gap-3 mb-4 pb-3 border-b-2 border-pink-500">
-                  <Cpu className="w-6 h-6 text-pink-500" />
-                  <h3 className="text-lg font-semibold">CPU</h3>
-                </div>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Process:</span>
-                    <span className="font-semibold">{healthData.cpu.process_percent}%</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">System:</span>
-                    <span className="font-semibold">{healthData.cpu.system_percent}%</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Cores:</span>
-                    <span className="font-semibold">{healthData.cpu.core_count}</span>
-                  </div>
-                  {healthData.cpu.load_average && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-700">Load (1/5/15m):</span>
-                      <span className="font-semibold text-xs">
-                        {healthData.cpu.load_average.map(l => l.toFixed(2)).join(' / ')}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
+            {/* Metrics Grid - Dynamic rendering based on order and visibility */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-6">
+              {metricsOrder.map((metricKey) => {
+                if (!visibleMetrics[metricKey as keyof VisibleMetrics]) return null;
 
-              {/* Memory */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <div className="flex items-center gap-3 mb-4 pb-3 border-b-2 border-pink-500">
-                  <HardDrive className="w-6 h-6 text-pink-500" />
-                  <h3 className="text-lg font-semibold">Memory</h3>
-                </div>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Process RSS:</span>
-                    <span className="font-semibold">{healthData.memory.process.rss_mb} MB</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Process %:</span>
-                    <span className="font-semibold">{healthData.memory.process.percent}%</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Threads:</span>
-                    <span className="font-semibold">{healthData.memory.process.num_threads}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">System:</span>
-                    <span className="font-semibold">{healthData.memory.system.used_gb} / {healthData.memory.system.total_gb} GB</span>
-                  </div>
-                  <div className="mt-3">
-                    <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
-                      <div
-                        className={`h-full flex items-center justify-center text-white text-xs font-semibold ${getProgressColor(healthData.memory.system.percent)}`}
-                        style={{ width: `${healthData.memory.system.percent}%` }}
-                      >
-                        {healthData.memory.system.percent}%
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Disk */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <div className="flex items-center gap-3 mb-4 pb-3 border-b-2 border-pink-500">
-                  <HardDrive className="w-6 h-6 text-pink-500" />
-                  <h3 className="text-lg font-semibold">Disk</h3>
-                </div>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Used:</span>
-                    <span className="font-semibold">{healthData.disk.root.used_gb} / {healthData.disk.root.total_gb} GB</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Free:</span>
-                    <span className="font-semibold">{healthData.disk.root.free_gb} GB</span>
-                  </div>
-                  <div className="mt-3">
-                    <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
-                      <div
-                        className={`h-full flex items-center justify-center text-white text-xs font-semibold ${getProgressColor(healthData.disk.root.percent)}`}
-                        style={{ width: `${healthData.disk.root.percent}%` }}
-                      >
-                        {healthData.disk.root.percent}%
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* API Keys */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <div className="flex items-center gap-3 mb-4 pb-3 border-b-2 border-pink-500">
-                  <Key className="w-6 h-6 text-pink-500" />
-                  <h3 className="text-lg font-semibold">API Keys</h3>
-                </div>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Status:</span>
-                    <span className={`font-semibold ${
-                      healthData.api_health?.status === 'healthy' ? 'text-green-600' :
-                      healthData.api_health?.status === 'degraded' ? 'text-yellow-600' : 'text-red-600'
-                    }`}>
-                      {healthData.api_health?.status === 'healthy' ? 'All Configured' :
-                       healthData.api_health?.status === 'degraded' ? 'Partial' : 'Critical'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Configured:</span>
-                    <span className="font-semibold">{healthData.api_health?.configured_count || 0} / {healthData.api_health?.total_checked || 3}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">News Collector:</span>
-                    <span className={`font-semibold ${healthData.api_health?.apis?.collector === 'configured' ? 'text-green-600' : 'text-red-600'}`}>
-                      {healthData.api_health?.apis?.collector === 'configured' ? '✓' : '✗'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">AI Provider:</span>
-                    <span className={`font-semibold ${healthData.api_health?.apis?.ai_provider === 'configured' ? 'text-green-600' : 'text-red-600'}`}>
-                      {healthData.api_health?.apis?.ai_provider === 'configured' ? '✓' : '✗'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Firecrawl:</span>
-                    <span className={`font-semibold ${healthData.api_health?.apis?.firecrawl === 'configured' ? 'text-green-600' : 'text-red-600'}`}>
-                      {healthData.api_health?.apis?.firecrawl === 'configured' ? '✓' : '✗'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Auto-polling */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <div className="flex items-center gap-3 mb-4 pb-3 border-b-2 border-pink-500">
-                  <RefreshCw className="w-6 h-6 text-pink-500" />
-                  <h3 className="text-lg font-semibold">Auto-polling</h3>
-                </div>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Status:</span>
-                    <span className={`font-semibold ${
-                      healthData.autopolling?.is_enabled ? 'text-green-600' : 'text-gray-500'
-                    }`}>
-                      {healthData.autopolling?.is_enabled ? 'Enabled' :
-                       healthData.autopolling?.status === 'unknown' ? 'Not Configured' : 'Disabled'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Requests Today:</span>
-                    <span className="font-semibold">
-                      {healthData.autopolling?.requests_today ?? '--'} / {healthData.autopolling?.daily_limit ?? '--'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Last Run:</span>
-                    <span className="font-semibold text-xs">
-                      {healthData.autopolling?.last_run ?
-                        new Date(healthData.autopolling.last_run).toLocaleString() : '--'}
-                    </span>
-                  </div>
-                  {healthData.autopolling?.daily_limit && healthData.autopolling?.requests_today !== undefined && (
-                    <div className="mt-3">
-                      <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
-                        <div
-                          className={`h-full flex items-center justify-center text-white text-xs font-semibold ${
-                            getProgressColor((healthData.autopolling.requests_today / healthData.autopolling.daily_limit) * 100)
-                          }`}
-                          style={{ width: `${Math.min((healthData.autopolling.requests_today / healthData.autopolling.daily_limit) * 100, 100)}%` }}
-                        >
-                          {Math.round((healthData.autopolling.requests_today / healthData.autopolling.daily_limit) * 100)}%
+                switch (metricKey) {
+                  case 'cpu':
+                    return (
+                      <div key="cpu" className="bg-white rounded-lg shadow-md p-6">
+                        <div className="flex items-center gap-3 mb-4 pb-3 border-b-2 border-pink-500">
+                          <Cpu className="w-6 h-6 text-pink-500" />
+                          <h3 className="text-lg font-semibold">CPU</h3>
+                        </div>
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">Process:</span>
+                            <span className="font-semibold">{healthData.cpu.process_percent}%</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">System:</span>
+                            <span className="font-semibold">{healthData.cpu.system_percent}%</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">Cores:</span>
+                            <span className="font-semibold">{healthData.cpu.core_count}</span>
+                          </div>
+                          {healthData.cpu.load_average && (
+                            <div className="flex justify-between">
+                              <span className="text-gray-700">Load (1/5/15m):</span>
+                              <span className="font-semibold text-xs">
+                                {healthData.cpu.load_average.map(l => l.toFixed(2)).join(' / ')}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       </div>
-                    </div>
-                  )}
-                </div>
-              </div>
+                    );
 
-              {/* Database */}
-              <div className="bg-white rounded-lg shadow-md p-6">
-                <div className="flex items-center gap-3 mb-4 pb-3 border-b-2 border-pink-500">
-                  <Database className="w-6 h-6 text-pink-500" />
-                  <h3 className="text-lg font-semibold">Database</h3>
-                </div>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Status:</span>
-                    <span className={`font-semibold ${
-                      healthData.database?.status === 'healthy' ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {healthData.database?.status === 'healthy' ? '✓ Healthy' : '✗ Unhealthy'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Articles:</span>
-                    <span className="font-semibold">{healthData.database?.article_count?.toLocaleString() ?? '--'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Size:</span>
-                    <span className="font-semibold">{healthData.database?.size_mb ?? '--'} MB</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-700">Locked:</span>
-                    <span className={`font-semibold ${healthData.database?.locked ? 'text-red-600' : 'text-green-600'}`}>
-                      {healthData.database?.locked ? 'Yes' : 'No'}
-                    </span>
-                  </div>
-                  {healthData.database?.error && (
-                    <div className="mt-2 text-xs text-red-600 bg-red-50 p-2 rounded">
-                      {healthData.database.error}
-                    </div>
-                  )}
-                </div>
-              </div>
+                  case 'memory':
+                    return (
+                      <div key="memory" className="bg-white rounded-lg shadow-md p-6">
+                        <div className="flex items-center gap-3 mb-4 pb-3 border-b-2 border-pink-500">
+                          <HardDrive className="w-6 h-6 text-pink-500" />
+                          <h3 className="text-lg font-semibold">Memory</h3>
+                        </div>
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">Process RSS:</span>
+                            <span className="font-semibold">{healthData.memory.process.rss_mb} MB</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">Process %:</span>
+                            <span className="font-semibold">{healthData.memory.process.percent}%</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">Threads:</span>
+                            <span className="font-semibold">{healthData.memory.process.num_threads}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">System:</span>
+                            <span className="font-semibold">{healthData.memory.system.used_gb} / {healthData.memory.system.total_gb} GB</span>
+                          </div>
+                          <div className="mt-3">
+                            <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+                              <div
+                                className={`h-full flex items-center justify-center text-white text-xs font-semibold ${getProgressColor(healthData.memory.system.percent)}`}
+                                style={{ width: `${healthData.memory.system.percent}%` }}
+                              >
+                                {healthData.memory.system.percent}%
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+
+                  case 'disk':
+                    return (
+                      <div key="disk" className="bg-white rounded-lg shadow-md p-6">
+                        <div className="flex items-center gap-3 mb-4 pb-3 border-b-2 border-pink-500">
+                          <HardDrive className="w-6 h-6 text-pink-500" />
+                          <h3 className="text-lg font-semibold">Disk</h3>
+                        </div>
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">Used:</span>
+                            <span className="font-semibold">{healthData.disk.root.used_gb} / {healthData.disk.root.total_gb} GB</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">Free:</span>
+                            <span className="font-semibold">{healthData.disk.root.free_gb} GB</span>
+                          </div>
+                          <div className="mt-3">
+                            <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+                              <div
+                                className={`h-full flex items-center justify-center text-white text-xs font-semibold ${getProgressColor(healthData.disk.root.percent)}`}
+                                style={{ width: `${healthData.disk.root.percent}%` }}
+                              >
+                                {healthData.disk.root.percent}%
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    );
+
+                  case 'apiKeys':
+                    return (
+                      <div key="apiKeys" className="bg-white rounded-lg shadow-md p-6">
+                        <div className="flex items-center gap-3 mb-4 pb-3 border-b-2 border-pink-500">
+                          <Key className="w-6 h-6 text-pink-500" />
+                          <h3 className="text-lg font-semibold">API Keys</h3>
+                        </div>
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">Status:</span>
+                            <span className={`font-semibold ${
+                              healthData.api_health?.status === 'healthy' ? 'text-green-600' :
+                              healthData.api_health?.status === 'degraded' ? 'text-yellow-600' : 'text-red-600'
+                            }`}>
+                              {healthData.api_health?.status === 'healthy' ? 'All Configured' :
+                               healthData.api_health?.status === 'degraded' ? 'Partial' : 'Critical'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">Configured:</span>
+                            <span className="font-semibold">{healthData.api_health?.configured_count || 0} / {healthData.api_health?.total_checked || 3}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">News Collector:</span>
+                            <span className={`font-semibold ${healthData.api_health?.apis?.collector === 'configured' ? 'text-green-600' : 'text-red-600'}`}>
+                              {healthData.api_health?.apis?.collector === 'configured' ? '✓' : '✗'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">AI Provider:</span>
+                            <span className={`font-semibold ${healthData.api_health?.apis?.ai_provider === 'configured' ? 'text-green-600' : 'text-red-600'}`}>
+                              {healthData.api_health?.apis?.ai_provider === 'configured' ? '✓' : '✗'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">Firecrawl:</span>
+                            <span className={`font-semibold ${healthData.api_health?.apis?.firecrawl === 'configured' ? 'text-green-600' : 'text-red-600'}`}>
+                              {healthData.api_health?.apis?.firecrawl === 'configured' ? '✓' : '✗'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+
+                  case 'autopolling':
+                    return (
+                      <div key="autopolling" className="bg-white rounded-lg shadow-md p-6">
+                        <div className="flex items-center gap-3 mb-4 pb-3 border-b-2 border-pink-500">
+                          <RefreshCw className="w-6 h-6 text-pink-500" />
+                          <h3 className="text-lg font-semibold">Auto-polling</h3>
+                        </div>
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">Status:</span>
+                            <span className={`font-semibold ${
+                              healthData.autopolling?.is_enabled ? 'text-green-600' : 'text-gray-500'
+                            }`}>
+                              {healthData.autopolling?.is_enabled ? 'Enabled' :
+                               healthData.autopolling?.status === 'unknown' ? 'Not Configured' : 'Disabled'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">Requests Today:</span>
+                            <span className="font-semibold">
+                              {healthData.autopolling?.requests_today ?? '--'} / {healthData.autopolling?.daily_limit ?? '--'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">Last Run:</span>
+                            <span className="font-semibold text-xs">
+                              {healthData.autopolling?.last_run ?
+                                new Date(healthData.autopolling.last_run).toLocaleString() : '--'}
+                            </span>
+                          </div>
+                          {healthData.autopolling?.daily_limit && healthData.autopolling?.requests_today !== undefined && (
+                            <div className="mt-3">
+                              <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+                                <div
+                                  className={`h-full flex items-center justify-center text-white text-xs font-semibold ${
+                                    getProgressColor((healthData.autopolling.requests_today / healthData.autopolling.daily_limit) * 100)
+                                  }`}
+                                  style={{ width: `${Math.min((healthData.autopolling.requests_today / healthData.autopolling.daily_limit) * 100, 100)}%` }}
+                                >
+                                  {Math.round((healthData.autopolling.requests_today / healthData.autopolling.daily_limit) * 100)}%
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+
+                  case 'database':
+                    return (
+                      <div key="database" className="bg-white rounded-lg shadow-md p-6">
+                        <div className="flex items-center gap-3 mb-4 pb-3 border-b-2 border-pink-500">
+                          <Database className="w-6 h-6 text-pink-500" />
+                          <h3 className="text-lg font-semibold">Database</h3>
+                        </div>
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">Status:</span>
+                            <span className={`font-semibold ${
+                              healthData.database?.status === 'healthy' ? 'text-green-600' : 'text-red-600'
+                            }`}>
+                              {healthData.database?.status === 'healthy' ? '✓ Healthy' : '✗ Unhealthy'}
+                            </span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">Articles:</span>
+                            <span className="font-semibold">{healthData.database?.article_count?.toLocaleString() ?? '--'}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">Size:</span>
+                            <span className="font-semibold">{healthData.database?.size_mb ?? '--'} MB</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-gray-700">Locked:</span>
+                            <span className={`font-semibold ${healthData.database?.locked ? 'text-red-600' : 'text-green-600'}`}>
+                              {healthData.database?.locked ? 'Yes' : 'No'}
+                            </span>
+                          </div>
+                          {healthData.database?.error && (
+                            <div className="mt-2 text-xs text-red-600 bg-red-50 p-2 rounded">
+                              {healthData.database.error}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+
+                  default:
+                    return null;
+                }
+              })}
             </div>
           </div>
         )}
@@ -882,31 +1148,61 @@ export function OperationsHQ() {
             <div className="space-y-3">
               <Label>Display Options</Label>
               <div className="flex items-center justify-between">
-                <span className="text-sm">Show article source</span>
-                <Switch
-                  checked={tickerConfig.showSource}
-                  onCheckedChange={(checked) => setTickerConfig({ ...tickerConfig, showSource: checked })}
-                  className="data-[state=checked]:bg-pink-500 data-[state=unchecked]:bg-gray-300"
-                />
+                <span className="text-sm text-gray-700">Show article source</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={tickerConfig.showSource}
+                  onClick={() => setTickerConfig({ ...tickerConfig, showSource: !tickerConfig.showSource })}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    tickerConfig.showSource ? 'bg-pink-500' : 'bg-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      tickerConfig.showSource ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm">Show publish time</span>
-                <Switch
-                  checked={tickerConfig.showTime}
-                  onCheckedChange={(checked) => setTickerConfig({ ...tickerConfig, showTime: checked })}
-                  className="data-[state=checked]:bg-pink-500 data-[state=unchecked]:bg-gray-300"
-                />
+                <span className="text-sm text-gray-700">Show publish time</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={tickerConfig.showTime}
+                  onClick={() => setTickerConfig({ ...tickerConfig, showTime: !tickerConfig.showTime })}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    tickerConfig.showTime ? 'bg-pink-500' : 'bg-gray-300'
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                      tickerConfig.showTime ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
               </div>
             </div>
 
             {/* Enable Ticker */}
             <div className="flex items-center justify-between pt-2 border-t">
-              <span className="font-medium">Enable ticker on page load</span>
-              <Switch
-                checked={tickerConfig.enabled}
-                onCheckedChange={(checked) => setTickerConfig({ ...tickerConfig, enabled: checked })}
-                className="data-[state=checked]:bg-pink-500 data-[state=unchecked]:bg-gray-300"
-              />
+              <span className="font-medium text-gray-700">Enable ticker on page load</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={tickerConfig.enabled}
+                onClick={() => setTickerConfig({ ...tickerConfig, enabled: !tickerConfig.enabled })}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                  tickerConfig.enabled ? 'bg-pink-500' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                    tickerConfig.enabled ? 'translate-x-6' : 'translate-x-1'
+                  }`}
+                />
+              </button>
             </div>
           </div>
           <DialogFooter className="flex gap-2">
