@@ -58,7 +58,7 @@ MAIN_CSS=$(grep -oP 'main-[^.]+\.css' "$STATIC_DIR/index.html" | head -1)
 MAIN_JS=$(grep -oP 'main-[^.]+\.js' "$STATIC_DIR/index.html" | head -1)
 INDEX_JS=$(grep -oP 'index-[^.]+\.js' "$STATIC_DIR/index.html" | head -1)
 # Switch CSS contains NotificationBell/gather.css styles - find from build
-NOTIFICATIONBELL_CSS=$(ls "$STATIC_DIR/assets/" | grep -oP 'switch-[^.]+\.css' | head -1)
+NOTIFICATIONBELL_CSS=$(ls "$STATIC_DIR/assets/" | grep -oP '(switch|label)-[^.]+\.css' | head -1)
 # PAM CSS files
 PAM_CSS=$(ls "$STATIC_DIR/assets/" | grep -oP 'pam-[^.]+\.css' | head -1)
 USEPAM_CSS=$(ls "$STATIC_DIR/assets/" | grep -oP 'usePAM-[^.]+\.css' | head -1)
@@ -84,6 +84,7 @@ sed -i "s|/static/trend-convergence/assets/main-[^.]*\.css|/static/trend-converg
 if [ -n "$NOTIFICATIONBELL_CSS" ]; then
     sed -i "s|/static/trend-convergence/assets/NotificationBell-[^.]*\.css|/static/trend-convergence/assets/$NOTIFICATIONBELL_CSS|" "$TEMPLATE_FILE"
     sed -i "s|/static/trend-convergence/assets/switch-[^.]*\.css|/static/trend-convergence/assets/$NOTIFICATIONBELL_CSS|" "$TEMPLATE_FILE"
+    sed -i "s|/static/trend-convergence/assets/label-[^.]*\.css|/static/trend-convergence/assets/$NOTIFICATIONBELL_CSS|" "$TEMPLATE_FILE"
 fi
 
 # Update PAM CSS files (handle both old PAMDashboard-* and new pam-* naming)
@@ -143,6 +144,7 @@ if [ -f "$STATIC_DIR/index-gather.html" ]; then
         if [ -n "$NOTIFICATIONBELL_CSS" ]; then
             sed -i "s|/static/trend-convergence/assets/NotificationBell-[^.]*\.css|/static/trend-convergence/assets/$NOTIFICATIONBELL_CSS|" "$GATHER_TEMPLATE"
             sed -i "s|/static/trend-convergence/assets/switch-[^.]*\.css|/static/trend-convergence/assets/$NOTIFICATIONBELL_CSS|" "$GATHER_TEMPLATE"
+            sed -i "s|/static/trend-convergence/assets/label-[^.]*\.css|/static/trend-convergence/assets/$NOTIFICATIONBELL_CSS|" "$GATHER_TEMPLATE"
         fi
 
         # Also update shared JS (index.js) for modulepreload
@@ -192,6 +194,7 @@ if [ -f "$STATIC_DIR/index-newsfeed.html" ]; then
         if [ -n "$NOTIFICATIONBELL_CSS" ]; then
             sed -i "s|/static/trend-convergence/assets/NotificationBell-[^.]*\.css|/static/trend-convergence/assets/$NOTIFICATIONBELL_CSS|" "$EXPLORE_TEMPLATE"
             sed -i "s|/static/trend-convergence/assets/switch-[^.]*\.css|/static/trend-convergence/assets/$NOTIFICATIONBELL_CSS|" "$EXPLORE_TEMPLATE"
+            sed -i "s|/static/trend-convergence/assets/label-[^.]*\.css|/static/trend-convergence/assets/$NOTIFICATIONBELL_CSS|" "$EXPLORE_TEMPLATE"
         fi
 
         # Update gather layout CSS (explore uses same layout as gather)
@@ -284,7 +287,7 @@ OPERATIONS_TEMPLATE="$PROJECT_ROOT/templates/operations_react.html"
 if [ -f "$STATIC_DIR/index-operations.html" ]; then
     OPERATIONS_JS=$(grep -oP 'operations-[^.]+\.js' "$STATIC_DIR/index-operations.html" | head -1)
     # CSS for switch/notification bell component (Vite may name it switch- or NotificationBell-)
-    COMPONENT_CSS=$(grep -oP '(switch|NotificationBell)-[^.]+\.css' "$STATIC_DIR/index-operations.html" | head -1)
+    COMPONENT_CSS=$(grep -oP '(switch|NotificationBell|label)-[^.]+\.css' "$STATIC_DIR/index-operations.html" | head -1)
 
     echo "  📄 Operations JS: $OPERATIONS_JS"
     echo "  📄 Component CSS: $COMPONENT_CSS"
@@ -306,8 +309,8 @@ if [ -f "$STATIC_DIR/index-operations.html" ]; then
         # Update component CSS (switch or NotificationBell)
         if [ -n "$COMPONENT_CSS" ]; then
             # Check if any component CSS line exists
-            if grep -qE "(switch|NotificationBell)-" "$OPERATIONS_TEMPLATE"; then
-                sed -i "s|/static/trend-convergence/assets/\(switch\|NotificationBell\)-[^.]*\.css|/static/trend-convergence/assets/$COMPONENT_CSS|" "$OPERATIONS_TEMPLATE"
+            if grep -qE "(switch|NotificationBell|label)-" "$OPERATIONS_TEMPLATE"; then
+                sed -i "s|/static/trend-convergence/assets/\(switch\|NotificationBell\|label\)-[^.]*\.css|/static/trend-convergence/assets/$COMPONENT_CSS|" "$OPERATIONS_TEMPLATE"
             else
                 # Add after index CSS line
                 sed -i "/index-.*\.css/a\\    <link rel=\"stylesheet\" crossorigin href=\"/static/trend-convergence/assets/$COMPONENT_CSS\">" "$OPERATIONS_TEMPLATE"
