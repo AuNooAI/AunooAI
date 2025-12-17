@@ -235,6 +235,8 @@ function ThemeCard({ theme, expanded, onToggleExpand, onArticleClick, currentTop
                   <ThemeArticleLink
                     key={i}
                     article={article}
+                    themeSentiment={theme.sentiment}
+                    themeConfidence={theme.confidence}
                     onClick={onArticleClick ? () => onArticleClick(themeArticleToNewsArticle(article)) : undefined}
                   />
                 ))}
@@ -364,7 +366,27 @@ Write follow-up questions as natural language that users would ask, not as techn
   );
 }
 
-function ThemeArticleLink({ article, onClick }: { article: ThemeArticle; onClick?: () => void }) {
+function ThemeArticleLink({
+  article,
+  themeSentiment,
+  themeConfidence,
+  onClick
+}: {
+  article: ThemeArticle;
+  themeSentiment?: string;
+  themeConfidence?: number;
+  onClick?: () => void;
+}) {
+  const [showTooltip, setShowTooltip] = useState(false);
+  const tooltipContent = article.short_summary || article.summary;
+
+  const sentimentColors: Record<string, string> = {
+    'positive': 'bg-green-100 text-green-700',
+    'negative': 'bg-red-100 text-red-700',
+    'neutral': 'bg-gray-100 text-gray-700',
+    'mixed': 'bg-yellow-100 text-yellow-700',
+  };
+
   const handleClick = (e: React.MouseEvent) => {
     if (onClick) {
       e.preventDefault();
@@ -373,30 +395,63 @@ function ThemeArticleLink({ article, onClick }: { article: ThemeArticle; onClick
   };
 
   return (
-    <a
-      href={article.uri}
-      target={onClick ? undefined : "_blank"}
-      rel={onClick ? undefined : "noopener noreferrer"}
-      onClick={handleClick}
-      className="block p-2 rounded bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer"
+    <div
+      className="relative"
+      onMouseEnter={() => setShowTooltip(true)}
+      onMouseLeave={() => setShowTooltip(false)}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-medium text-gray-900 line-clamp-1">
-            {article.title}
-          </p>
-          <p className="text-xs text-gray-600 mt-0.5">
-            {article.news_source}
-            {article.publication_date && ` • ${new Date(article.publication_date).toLocaleDateString()}`}
-          </p>
-          {(article.short_summary || article.summary) && (
-            <p className="text-xs text-gray-500 mt-1 line-clamp-2 italic">
-              {article.short_summary || article.summary}
+      <a
+        href={article.uri}
+        target={onClick ? undefined : "_blank"}
+        rel={onClick ? undefined : "noopener noreferrer"}
+        onClick={handleClick}
+        className="block p-2 rounded bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer"
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-medium text-gray-900 line-clamp-1">
+              {article.title}
             </p>
-          )}
+            <p className="text-xs text-gray-600 mt-0.5">
+              {article.news_source}
+              {article.publication_date && ` • ${new Date(article.publication_date).toLocaleDateString()}`}
+            </p>
+          </div>
+          <ExternalLink className="w-3 h-3 text-gray-500 shrink-0" />
         </div>
-        <ExternalLink className="w-3 h-3 text-gray-500 shrink-0" />
-      </div>
-    </a>
+      </a>
+
+      {/* Hover tooltip with full summary and theme metadata */}
+      {showTooltip && tooltipContent && (
+        <div className="absolute left-0 bottom-full mb-1 z-50 w-80 p-3 bg-white rounded-lg shadow-lg border border-gray-200 pointer-events-none">
+          <p className="text-xs text-gray-600 leading-relaxed">
+            {tooltipContent}
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+            <span className="font-medium text-gray-700">{article.news_source}</span>
+            {article.publication_date && (
+              <>
+                <span className="text-gray-400">•</span>
+                <span className="text-gray-500">{new Date(article.publication_date).toLocaleDateString()}</span>
+              </>
+            )}
+            {themeSentiment && (
+              <>
+                <span className="text-gray-400">•</span>
+                <span className={`px-1.5 py-0.5 rounded ${sentimentColors[themeSentiment.toLowerCase()] || 'bg-gray-100 text-gray-700'}`}>
+                  {themeSentiment}
+                </span>
+              </>
+            )}
+            {themeConfidence && (
+              <>
+                <span className="text-gray-400">•</span>
+                <span className="text-indigo-600">{Math.round(themeConfidence)}% confidence</span>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
   );
 }

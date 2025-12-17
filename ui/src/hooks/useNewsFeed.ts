@@ -99,7 +99,20 @@ const DEFAULT_CONFIG: NewsFeedConfig = {
 const STORAGE_KEYS = {
   CONFIG: 'newsFeed_config',
   STARRED: 'newsFeed_starred',
+  SIX_ARTICLES: 'newsFeed_sixArticles',
 };
+
+// Cache interface for sixArticles
+interface SixArticlesCache {
+  data: SixArticlesReport;
+  key: string;
+  cachedAt: string;
+}
+
+// Generate cache key for sixArticles based on config
+function generateSixArticlesCacheKey(config: NewsFeedConfig): string {
+  return `${config.persona}_${config.topic || 'all'}_${config.dateRange}_${config.profileId || 'none'}`;
+}
 
 export function useNewsFeed(): UseNewsFeedReturn {
   // Load config from localStorage
@@ -128,10 +141,32 @@ export function useNewsFeed(): UseNewsFeedReturn {
     return [];
   };
 
+  // Load cached sixArticles from localStorage
+  const loadCachedSixArticles = (currentConfig: NewsFeedConfig): SixArticlesReport | null => {
+    try {
+      const cached = localStorage.getItem(STORAGE_KEYS.SIX_ARTICLES);
+      if (cached) {
+        const cacheEntry: SixArticlesCache = JSON.parse(cached);
+        const currentKey = generateSixArticlesCacheKey(currentConfig);
+        if (cacheEntry.key === currentKey) {
+          console.log('[useNewsFeed] Loaded sixArticles from cache');
+          return cacheEntry.data;
+        }
+      }
+    } catch (err) {
+      console.error('Error loading cached sixArticles:', err);
+    }
+    return null;
+  };
+
   // State
   const [articles, setArticles] = useState<NewsArticle[]>([]);
   const [groupedArticles, setGroupedArticles] = useState<Record<string, NewsArticle[]>>({});
-  const [sixArticles, setSixArticles] = useState<SixArticlesReport | null>(null);
+  // Initialize sixArticles from cache if available
+  const [sixArticles, setSixArticles] = useState<SixArticlesReport | null>(() => {
+    const initialConfig = loadStoredConfig();
+    return loadCachedSixArticles(initialConfig);
+  });
   const [availableDates, setAvailableDates] = useState<AvailableDate[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [topics, setTopics] = useState<Topic[]>([]);
@@ -270,6 +305,19 @@ export function useNewsFeed(): UseNewsFeedReturn {
       });
 
       setSixArticles(response);
+
+      // Save to cache
+      try {
+        const cacheEntry: SixArticlesCache = {
+          data: response,
+          key: generateSixArticlesCacheKey(config),
+          cachedAt: new Date().toISOString(),
+        };
+        localStorage.setItem(STORAGE_KEYS.SIX_ARTICLES, JSON.stringify(cacheEntry));
+        console.log('[useNewsFeed] Saved sixArticles to cache');
+      } catch (err) {
+        console.error('Error saving sixArticles to cache:', err);
+      }
     } catch (err) {
       console.error('Error fetching six articles:', err);
       setError(err instanceof Error ? err.message : 'Failed to fetch six articles briefing');

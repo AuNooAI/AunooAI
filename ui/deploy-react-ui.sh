@@ -57,8 +57,8 @@ INDEX_CSS=$(grep -oP 'index-[^.]+\.css' "$STATIC_DIR/index.html" | head -1)
 MAIN_CSS=$(grep -oP 'main-[^.]+\.css' "$STATIC_DIR/index.html" | head -1)
 MAIN_JS=$(grep -oP 'main-[^.]+\.js' "$STATIC_DIR/index.html" | head -1)
 INDEX_JS=$(grep -oP 'index-[^.]+\.js' "$STATIC_DIR/index.html" | head -1)
-# NotificationBell CSS contains gather.css styles - find from gather build
-NOTIFICATIONBELL_CSS=$(ls "$STATIC_DIR/assets/" | grep -oP 'NotificationBell-[^.]+\.css' | head -1)
+# Switch CSS contains NotificationBell/gather.css styles - find from build
+NOTIFICATIONBELL_CSS=$(ls "$STATIC_DIR/assets/" | grep -oP 'switch-[^.]+\.css' | head -1)
 # PAM CSS files
 PAM_CSS=$(ls "$STATIC_DIR/assets/" | grep -oP 'pam-[^.]+\.css' | head -1)
 USEPAM_CSS=$(ls "$STATIC_DIR/assets/" | grep -oP 'usePAM-[^.]+\.css' | head -1)
@@ -80,9 +80,10 @@ cp "$TEMPLATE_FILE" "$TEMPLATE_FILE.backup"
 # Update CSS files (lines 15-16)
 sed -i "s|/static/trend-convergence/assets/index-[^.]*\.css|/static/trend-convergence/assets/$INDEX_CSS|" "$TEMPLATE_FILE"
 sed -i "s|/static/trend-convergence/assets/main-[^.]*\.css|/static/trend-convergence/assets/$MAIN_CSS|" "$TEMPLATE_FILE"
-# Update NotificationBell CSS (contains gather.css)
+# Update NotificationBell/Switch CSS (contains gather.css)
 if [ -n "$NOTIFICATIONBELL_CSS" ]; then
     sed -i "s|/static/trend-convergence/assets/NotificationBell-[^.]*\.css|/static/trend-convergence/assets/$NOTIFICATIONBELL_CSS|" "$TEMPLATE_FILE"
+    sed -i "s|/static/trend-convergence/assets/switch-[^.]*\.css|/static/trend-convergence/assets/$NOTIFICATIONBELL_CSS|" "$TEMPLATE_FILE"
 fi
 
 # Update PAM CSS files (handle both old PAMDashboard-* and new pam-* naming)
@@ -138,9 +139,10 @@ if [ -f "$STATIC_DIR/index-gather.html" ]; then
             sed -i "s|/static/trend-convergence/assets/index-[^.]*\.css|/static/trend-convergence/assets/$INDEX_CSS|" "$GATHER_TEMPLATE"
         fi
 
-        # Also update NotificationBell CSS (contains gather.css)
+        # Also update NotificationBell/Switch CSS (contains gather.css)
         if [ -n "$NOTIFICATIONBELL_CSS" ]; then
             sed -i "s|/static/trend-convergence/assets/NotificationBell-[^.]*\.css|/static/trend-convergence/assets/$NOTIFICATIONBELL_CSS|" "$GATHER_TEMPLATE"
+            sed -i "s|/static/trend-convergence/assets/switch-[^.]*\.css|/static/trend-convergence/assets/$NOTIFICATIONBELL_CSS|" "$GATHER_TEMPLATE"
         fi
 
         # Also update shared JS (index.js) for modulepreload
@@ -186,9 +188,10 @@ if [ -f "$STATIC_DIR/index-newsfeed.html" ]; then
             sed -i "s|/static/trend-convergence/assets/index-[^.]*\.css|/static/trend-convergence/assets/$INDEX_CSS|" "$EXPLORE_TEMPLATE"
         fi
 
-        # Also update NotificationBell CSS (contains gather.css)
+        # Also update NotificationBell/Switch CSS (contains gather.css)
         if [ -n "$NOTIFICATIONBELL_CSS" ]; then
             sed -i "s|/static/trend-convergence/assets/NotificationBell-[^.]*\.css|/static/trend-convergence/assets/$NOTIFICATIONBELL_CSS|" "$EXPLORE_TEMPLATE"
+            sed -i "s|/static/trend-convergence/assets/switch-[^.]*\.css|/static/trend-convergence/assets/$NOTIFICATIONBELL_CSS|" "$EXPLORE_TEMPLATE"
         fi
 
         # Also update shared JS (index.js) for modulepreload

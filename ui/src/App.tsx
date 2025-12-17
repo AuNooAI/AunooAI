@@ -5,7 +5,7 @@
 import { useState, useEffect } from 'react';
 import { useTrendConvergence } from './hooks/useTrendConvergence';
 import { SharedNavigation } from './components/SharedNavigation';
-import { TabNavigation } from './components/TabNavigation';
+import { TabNavigation, TabSettingsDropdown } from './components/TabNavigation';
 import { TimelineBar } from './components/TimelineBar';
 import { ConvergenceCard } from './components/ConvergenceCard';
 import ConsensusCategoryCard from './components/ConsensusCategoryCard';
@@ -13,7 +13,9 @@ import { ImpactTimelineCard } from './components/ImpactTimelineCard';
 import { FutureHorizons } from './components/FutureHorizons';
 import { OrganizationalProfileModal } from './components/OrganizationalProfileModal';
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
-import { Bell, Settings, Download, Image as ImageIcon, FileText, RefreshCw, Clock, TrendingUp, Target, Code, Save, Trash2, Plus, X, Zap, Mic } from 'lucide-react';
+import { Settings, Download, Image as ImageIcon, FileText, RefreshCw, Clock, TrendingUp, Target, Code, Save, Trash2, Plus, X, Zap, Mic } from 'lucide-react';
+import { NotificationBell } from './components/gather/NotificationBell';
+import './components/gather/gather.css';
 import { Button } from './components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './components/ui/select';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from './components/ui/dialog';
@@ -155,6 +157,73 @@ function App() {
   const [pamArticleLimit, setPamArticleLimit] = useState(100);
   const [isPamTuneOpen, setIsPamTuneOpen] = useState(false);
   const [pamActiveView, setPamActiveView] = useState<'executive' | 'power' | 'attention' | 'money' | 'scenarios'>('executive');
+
+  // Tab visibility state with localStorage persistence
+  const HIDDEN_TABS_KEY = 'anticipate_hiddenTabs';
+  const TAB_ORDER_KEY = 'anticipate_tabOrder';
+
+  const [hiddenTabs, setHiddenTabs] = useState<Set<string>>(() => {
+    try {
+      const saved = localStorage.getItem(HIDDEN_TABS_KEY);
+      if (saved) {
+        return new Set(JSON.parse(saved));
+      }
+    } catch (e) {
+      console.warn('Failed to load hidden tabs from localStorage:', e);
+    }
+    return new Set();
+  });
+
+  const [tabOrder, setTabOrder] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(TAB_ORDER_KEY);
+      if (saved) {
+        return JSON.parse(saved);
+      }
+    } catch (e) {
+      console.warn('Failed to load tab order from localStorage:', e);
+    }
+    return [];
+  });
+
+  // Persist hidden tabs to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(HIDDEN_TABS_KEY, JSON.stringify([...hiddenTabs]));
+    } catch (e) {
+      console.warn('Failed to save hidden tabs to localStorage:', e);
+    }
+  }, [hiddenTabs]);
+
+  // Persist tab order to localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem(TAB_ORDER_KEY, JSON.stringify(tabOrder));
+    } catch (e) {
+      console.warn('Failed to save tab order to localStorage:', e);
+    }
+  }, [tabOrder]);
+
+  // Toggle tab visibility
+  const toggleTabVisibility = (tabId: string) => {
+    setHiddenTabs(prev => {
+      const next = new Set(prev);
+      if (next.has(tabId)) {
+        next.delete(tabId);
+      } else {
+        // Don't hide the currently active tab
+        if (tabId !== activeTab) {
+          next.add(tabId);
+        }
+      }
+      return next;
+    });
+  };
+
+  // Reorder tabs
+  const reorderTabs = (newOrder: string[]) => {
+    setTabOrder(newOrder);
+  };
 
   // Load saved SIO config on mount
   useEffect(() => {
@@ -770,17 +839,22 @@ function App() {
           </div>
 
           {/* Right Icons */}
-          <div className="flex items-center gap-2">
-            <button className="p-2 hover:bg-gray-100 rounded-md">
-              <Bell className="w-5 h-5 text-gray-700" />
-            </button>
-            <button
-              onClick={() => setIsOnboardingOpen(true)}
-              className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-md text-sm font-medium flex items-center gap-2 text-gray-950"
+          <div className="gather-top-bar-right">
+            <TabSettingsDropdown
+              hiddenTabs={hiddenTabs}
+              onToggleTabVisibility={toggleTabVisibility}
+              tabOrder={tabOrder}
+              onReorderTabs={reorderTabs}
+              activeTab={activeTab}
+            />
+            <NotificationBell />
+            <a
+              href="/trend-convergence?onboarding=true"
+              className="gather-top-bar-setup-btn"
             >
               Set up topic
-              <span className="text-gray-500">+</span>
-            </button>
+              <Plus className="w-4 h-4" />
+            </a>
           </div>
         </div>
 
@@ -970,7 +1044,12 @@ function App() {
 
         {/* Sub-header with tabs */}
         <div className="bg-white px-6 py-4">
-          <TabNavigation activeTab={activeTab} onTabChange={setActiveTab} />
+          <TabNavigation
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            hiddenTabs={hiddenTabs}
+            tabOrder={tabOrder}
+          />
         </div>
 
         {/* Topic and Controls */}

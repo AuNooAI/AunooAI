@@ -103,8 +103,13 @@ export function TopicCluster({
       <div className="flex items-center justify-between mb-3">
         <button
           onClick={() => onSeeMore?.(category, topic)}
-          className="flex items-center gap-1 group"
+          className="flex items-center gap-2 group"
         >
+          {topic && (
+            <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
+              {topic}
+            </span>
+          )}
           <h2 className="text-base font-semibold text-gray-900 group-hover:text-blue-600">
             {category}
           </h2>

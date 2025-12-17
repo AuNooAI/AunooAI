@@ -4,7 +4,8 @@
  * indicators, and action items
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Sparkles,
   ExternalLink,
@@ -16,13 +17,16 @@ import {
   Zap,
   ChevronDown,
   ChevronUp,
+  ChevronLeft,
+  ChevronRight,
   Building2,
   Star,
   StarOff,
   MessageSquare,
   User,
   RefreshCw,
-  Settings2
+  Settings2,
+  X
 } from 'lucide-react';
 import { type NewsArticle, type SixArticlesReport, type TopStory, type Persona, type SixArticlesConfig } from '../../services/newsFeedApi';
 import { Skeleton } from '../ui/skeleton';
@@ -74,6 +78,15 @@ function getTimeHorizonStyle(value?: string): { bg: string; text: string } {
   if (lower === 'immediate') return { bg: 'bg-red-50', text: 'text-red-600' };
   if (lower === 'medium') return { bg: 'bg-amber-50', text: 'text-amber-600' };
   return { bg: 'bg-green-50', text: 'text-green-600' };
+}
+
+// Get card gradient based on risk/opportunity
+function getCardGradient(riskOpp?: string): string {
+  if (!riskOpp) return 'bg-gradient-to-br from-white to-gray-50';
+  const lower = riskOpp.toLowerCase();
+  if (lower === 'opportunity') return 'bg-gradient-to-br from-white to-green-50/50';
+  if (lower === 'risk') return 'bg-gradient-to-br from-white to-red-50/50';
+  return 'bg-gradient-to-br from-white to-amber-50/50'; // mixed
 }
 
 // Get category badge style
@@ -163,6 +176,28 @@ export function BriefingSection({
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [showPersonaDropdown, setShowPersonaDropdown] = useState(false);
 
+  // Arrow scroll navigation
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [showLeftArrow, setShowLeftArrow] = useState(false);
+  const [showRightArrow, setShowRightArrow] = useState(false);
+
+  const checkScrollArrows = () => {
+    if (scrollRef.current) {
+      const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
+      setShowLeftArrow(scrollLeft > 0);
+      setShowRightArrow(scrollLeft < scrollWidth - clientWidth - 1);
+    }
+  };
+
+  const scroll = (direction: 'left' | 'right') => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollBy({
+        left: direction === 'left' ? -240 : 240,
+        behavior: 'smooth'
+      });
+    }
+  };
+
   // Build personas list from config (includes custom personas)
   const personas = useMemo(() => {
     if (!sixArticlesConfig?.personas) {
@@ -183,6 +218,13 @@ export function BriefingSection({
     const story = s as any;
     return story.executive_takeaway || story.strategic_relevance || story.time_horizon;
   });
+
+  // Check scroll arrows when stories change or on mount
+  useEffect(() => {
+    checkScrollArrows();
+    window.addEventListener('resize', checkScrollArrows);
+    return () => window.removeEventListener('resize', checkScrollArrows);
+  }, [topStories.length]);
 
   const currentPersona = personas.find(p => p.value === persona) || personas[0];
 
@@ -288,47 +330,89 @@ export function BriefingSection({
 
       {/* Loading State */}
       {loadingSixArticles && !sixArticles ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Skeleton className="h-48 rounded-lg" />
-          <Skeleton className="h-48 rounded-lg" />
-          <Skeleton className="h-48 rounded-lg" />
-          <Skeleton className="h-48 rounded-lg" />
-          <Skeleton className="h-48 rounded-lg" />
-          <Skeleton className="h-48 rounded-lg" />
+        <div className="flex overflow-x-auto gap-3 pb-2 snap-x">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="flex-shrink-0 w-[220px] h-[100px] rounded-lg" />
+          ))}
         </div>
       ) : topStories.length > 0 ? (
-        /* Executive Briefing Cards - 2x3 grid layout */
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {topStories.slice(0, 6).map((story, index) => {
-            const storyAny = story as any;
-            const storyUri = storyAny.url || storyAny.uri || storyAny.primary_article?.uri || `story-${index}`;
-            return (
-              <BriefingCard
-                key={storyUri}
-                story={story}
-                index={index}
-                isExpanded={expandedIndex === index}
-                onToggle={() => setExpandedIndex(expandedIndex === index ? null : index)}
-                isStarred={starredArticles.includes(storyUri)}
-                onStar={onStar}
-                onUnstar={onUnstar}
-              />
-            );
-          })}
+        /* Compact Briefing Cards - horizontal scroll with arrows */
+        <div className="relative">
+          {/* Left Arrow */}
+          {showLeftArrow && (
+            <button
+              onClick={() => scroll('left')}
+              className="absolute left-0 top-0 bottom-0 z-10 px-2 bg-gradient-to-r from-gray-50 via-gray-50/90 to-transparent flex items-center"
+            >
+              <div className="bg-white hover:bg-gray-100 rounded-full p-1.5 shadow-sm border border-gray-200">
+                <ChevronLeft className="w-4 h-4 text-gray-600" />
+              </div>
+            </button>
+          )}
+
+          <div
+            ref={scrollRef}
+            onScroll={checkScrollArrows}
+            className="flex overflow-x-auto gap-3 pb-2 snap-x scrollbar-hide"
+          >
+            {topStories.slice(0, 6).map((story, index) => {
+              const storyAny = story as any;
+              const storyUri = storyAny.url || storyAny.uri || storyAny.primary_article?.uri || `story-${index}`;
+              return (
+                <CompactBriefingCard
+                  key={storyUri}
+                  story={story}
+                  onClick={() => setExpandedIndex(expandedIndex === index ? null : index)}
+                />
+              );
+            })}
+          </div>
+
+          {/* Right Arrow */}
+          {showRightArrow && (
+            <button
+              onClick={() => scroll('right')}
+              className="absolute right-0 top-0 bottom-0 z-10 px-2 bg-gradient-to-l from-gray-50 via-gray-50/90 to-transparent flex items-center"
+            >
+              <div className="bg-white hover:bg-gray-100 rounded-full p-1.5 shadow-sm border border-gray-200">
+                <ChevronRight className="w-4 h-4 text-gray-600" />
+              </div>
+            </button>
+          )}
         </div>
       ) : (
         /* Fallback to simple article list if no six articles data */
-        <div className="space-y-3">
+        <div className="flex overflow-x-auto gap-3 pb-2 snap-x">
           {articles.slice(0, 6).map((article) => (
             <div
               key={article.uri}
-              className="p-4 bg-white border border-gray-200 rounded-lg hover:shadow-md transition-shadow cursor-pointer"
+              className="flex-shrink-0 w-[220px] p-3 bg-white border border-gray-200 rounded-lg hover:shadow-md transition-shadow cursor-pointer snap-start"
               onClick={() => onArticleClick?.(article)}
             >
-              <h3 className="font-medium text-gray-900">{article.title}</h3>
-              <p className="text-sm text-gray-600 mt-1">{article.source?.name}</p>
+              <h4 className="font-medium text-gray-900 text-sm line-clamp-2">{article.title}</h4>
+              <p className="text-xs text-gray-600 mt-1">{article.source?.name}</p>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Expanded Card Detail (when a compact card is clicked) */}
+      {expandedIndex !== null && topStories[expandedIndex] && (
+        <div className="mt-4">
+          <BriefingCard
+            story={topStories[expandedIndex]}
+            index={expandedIndex}
+            isExpanded={true}
+            onToggle={() => setExpandedIndex(null)}
+            isStarred={starredArticles.includes(
+              (topStories[expandedIndex] as any).url ||
+              (topStories[expandedIndex] as any).uri ||
+              (topStories[expandedIndex] as any).primary_article?.uri ||
+              `story-${expandedIndex}`
+            )}
+            onStar={onStar}
+            onUnstar={onUnstar}
+          />
         </div>
       )}
 
@@ -355,7 +439,113 @@ export function BriefingSection({
 }
 
 /**
- * Individual briefing card with executive intelligence
+ * Compact briefing card for horizontal scroll display
+ * Shows: headline, risk_opportunity, time_horizon, signal_strength
+ */
+interface CompactBriefingCardProps {
+  story: TopStory;
+  onClick?: () => void;
+}
+
+function CompactBriefingCard({ story, onClick }: CompactBriefingCardProps) {
+  const [showTooltip, setShowTooltip] = useState(false);
+  const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0 });
+  const cardRef = useRef<HTMLDivElement>(null);
+  const storyData = story as any;
+
+  const riskStyle = getRiskOpportunityStyle(storyData.risk_opportunity);
+  const signalStyle = getSignalStrengthStyle(storyData.signal_strength);
+  const timeStyle = getTimeHorizonStyle(storyData.time_horizon);
+  const cardGradient = getCardGradient(storyData.risk_opportunity);
+
+  const displayTitle = storyData.title || storyData.headline || storyData.primary_article?.title || 'Untitled';
+  const tooltipContent = storyData.executive_takeaway || storyData.summary || storyData.primary_article?.summary;
+
+  const handleMouseEnter = () => {
+    if (cardRef.current) {
+      const rect = cardRef.current.getBoundingClientRect();
+      // Position tooltip above the card, centered horizontally
+      // Clamp to viewport bounds
+      const tooltipWidth = 288; // w-72 = 18rem = 288px
+      let left = rect.left + (rect.width / 2) - (tooltipWidth / 2);
+      // Keep tooltip within viewport
+      left = Math.max(8, Math.min(left, window.innerWidth - tooltipWidth - 8));
+      const top = rect.top - 8; // 8px gap above card
+      setTooltipPos({ top, left });
+    }
+    setShowTooltip(true);
+  };
+
+  return (
+    <div
+      ref={cardRef}
+      className="relative"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={() => setShowTooltip(false)}
+    >
+      <div
+        onClick={onClick}
+        className={`flex-shrink-0 w-[220px] ${cardGradient} border border-gray-200 rounded-lg p-3 cursor-pointer hover:shadow-md hover:border-gray-300 transition-all snap-start`}
+      >
+        {/* Title */}
+        <h4 className="font-medium text-gray-900 text-sm line-clamp-2 mb-3 min-h-[40px]">
+          {displayTitle}
+        </h4>
+
+        {/* Badges row */}
+        <div className="flex flex-wrap gap-1">
+          {storyData.risk_opportunity && (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded flex items-center gap-0.5 ${riskStyle.bg} ${riskStyle.text}`}>
+              {riskStyle.icon}
+              {storyData.risk_opportunity}
+            </span>
+          )}
+          {storyData.time_horizon && (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded ${timeStyle.bg} ${timeStyle.text}`}>
+              {storyData.time_horizon}
+            </span>
+          )}
+          {storyData.signal_strength && (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded ${signalStyle.bg} ${signalStyle.text}`}>
+              {storyData.signal_strength}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Hover tooltip - rendered via portal to escape overflow containers */}
+      {showTooltip && tooltipContent && createPortal(
+        <div
+          className="fixed z-[9999] w-72 p-3 bg-white rounded-lg shadow-lg border border-gray-200 pointer-events-none"
+          style={{
+            top: tooltipPos.top,
+            left: tooltipPos.left,
+            transform: 'translateY(-100%)'
+          }}
+        >
+          <p className="text-xs text-gray-600 leading-relaxed line-clamp-4">
+            {tooltipContent}
+          </p>
+          <div className="mt-2 flex items-center gap-2 text-xs">
+            {storyData.category && (
+              <span className="font-medium text-gray-700">{storyData.category}</span>
+            )}
+            {storyData.source && (
+              <>
+                <span className="text-gray-400">•</span>
+                <span className="text-gray-500">{storyData.source}</span>
+              </>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
+
+/**
+ * Individual briefing card with executive intelligence (full version)
  */
 interface BriefingCardProps {
   story: TopStory;
@@ -491,16 +681,27 @@ function BriefingCard({ story, index, isExpanded, onToggle, isStarred, onStar, o
 
           {/* Right side - indicators and expand */}
           <div className="flex flex-col items-end gap-2">
-            <button
-              onClick={handleStarClick}
-              className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"
-            >
-              {isStarred ? (
-                <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-              ) : (
-                <StarOff className="w-4 h-4 text-gray-400" />
+            <div className="flex items-center gap-1">
+              <button
+                onClick={handleStarClick}
+                className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                {isStarred ? (
+                  <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
+                ) : (
+                  <StarOff className="w-4 h-4 text-gray-400" />
+                )}
+              </button>
+              {isExpanded && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onToggle(); }}
+                  className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"
+                  title="Close"
+                >
+                  <X className="w-4 h-4 text-gray-500" />
+                </button>
               )}
-            </button>
+            </div>
 
             {/* Executive Indicators with tooltips */}
             <div className="flex flex-col gap-1 items-end">
