@@ -79,7 +79,7 @@ class KeywordMonitor:
                     self.is_enabled = settings['is_enabled']
                     self.daily_request_limit = settings['daily_request_limit']
                     self.search_date_range = settings['search_date_range'] or 7  # Default to 7 days if not set
-                    self.provider = settings['provider'] or 'newsapi'  # Default to newsapi if not set
+                    self.provider = settings['provider']  # No default - must be configured
                 else:
                     # Use defaults
                     self.check_interval = 1440  # 24 hours
@@ -90,7 +90,7 @@ class KeywordMonitor:
                     self.is_enabled = True
                     self.daily_request_limit = 100
                     self.search_date_range = 7  # Default to 7 days
-                    self.provider = 'newsapi'  # Default provider
+                    self.provider = None  # No default provider
 
         except Exception as e:
             logger.error(f"Error loading settings: {str(e)}")
@@ -103,7 +103,7 @@ class KeywordMonitor:
             self.is_enabled = True
             self.daily_request_limit = 100
             self.search_date_range = 7  # Default to 7 days
-            self.provider = 'newsapi'  # Default provider
+            self.provider = None  # No default provider
 
     def _create_collector(self, provider: str):
         """Factory method to create individual collector instance"""

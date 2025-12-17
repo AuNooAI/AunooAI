@@ -134,7 +134,7 @@ class DatabaseCreator:
                     is_enabled BOOLEAN NOT NULL DEFAULT 1,
                     daily_request_limit INTEGER NOT NULL DEFAULT 100,
                     search_date_range INTEGER NOT NULL DEFAULT 7,
-                    provider TEXT DEFAULT 'newsapi',
+                    provider TEXT,
                     auto_ingest_enabled BOOLEAN DEFAULT 0,
                     min_relevance_threshold REAL DEFAULT 0.0,
                     quality_control_enabled BOOLEAN DEFAULT 1,
