@@ -304,9 +304,9 @@ export function NewsFeedPage() {
   const handleRefresh = useCallback(async () => {
     // Fetch articles first
     await fetchArticles();
-    // Then generate all analyses (Highlights + Narratives)
+    // Then generate all analyses (Highlights + Narratives) - force regenerate
     if (narrativeConfig.selectedTopics.length > 0) {
-      await generateAll(false);
+      await generateAll(true);
     }
   }, [fetchArticles, generateAll, narrativeConfig.selectedTopics]);
 
