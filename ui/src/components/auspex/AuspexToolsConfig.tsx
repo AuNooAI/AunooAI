@@ -254,7 +254,6 @@ function ToolToggle({
       <Switch
         checked={enabled}
         onCheckedChange={onToggle}
-        className="data-[state=checked]:bg-pink-500"
       />
       <div className="flex-1 min-w-0">
         <Label className="text-sm font-medium text-gray-900 dark:text-gray-100 cursor-pointer" onClick={onToggle}>

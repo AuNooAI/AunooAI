@@ -317,6 +317,12 @@ export async function* startDeepResearch(params: DeepResearchParams): AsyncGener
 
           // Handle final report - this is the main content
           if (parsed.stage === 'complete' && parsed.report) {
+            // Debug: Check if report contains chart markers
+            const hasChartMarker = parsed.report.includes('<!-- CHART_DATA:');
+            console.log('[Auspex Service] Received complete report, hasChartMarker:', hasChartMarker);
+            if (hasChartMarker) {
+              console.log('[Auspex Service] Report preview:', parsed.report.substring(0, 800));
+            }
             yield '\n---\n\n';
             yield parsed.report;
           }

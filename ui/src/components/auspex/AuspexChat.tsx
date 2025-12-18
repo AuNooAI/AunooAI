@@ -59,6 +59,8 @@ export function AuspexChat({ buttonClassName }: AuspexChatProps) {
     customLimit,
     includeCharts,
     researchMode,
+    visibleTools,
+    toolOrder,
 
     // Actions
     setSelectedTopic,
@@ -69,6 +71,8 @@ export function AuspexChat({ buttonClassName }: AuspexChatProps) {
     updateToolsConfig,
     setIncludeCharts,
     setResearchMode,
+    setVisibleTools,
+    setToolOrder,
 
     // Chat actions
     createSession,
@@ -150,12 +154,16 @@ export function AuspexChat({ buttonClassName }: AuspexChatProps) {
         toolsConfig={toolsConfig}
         includeCharts={includeCharts}
         researchMode={researchMode}
+        visibleTools={visibleTools}
+        toolOrder={toolOrder}
         onSampleSizeModeChange={setSampleSizeMode}
         onSamplingStrategyChange={setSamplingStrategy}
         onCustomLimitChange={setCustomLimit}
         onToolsConfigChange={updateToolsConfig}
         onIncludeChartsChange={setIncludeCharts}
         onResearchModeChange={setResearchMode}
+        onVisibleToolsChange={setVisibleTools}
+        onToolOrderChange={setToolOrder}
         isLoading={isLoading}
         isStreaming={isStreaming}
         onSendMessage={sendMessage}

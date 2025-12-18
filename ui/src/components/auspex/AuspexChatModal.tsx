@@ -9,10 +9,12 @@ import * as VisuallyHidden from '@radix-ui/react-visually-hidden';
 
 // Chart data extraction utility
 interface ChartData {
-  type: string;
-  format: string;
+  type?: string;
+  format?: string;
+  chart_type?: string;  // Backend uses this for sentiment_donut, etc.
   title?: string;
   data: any;
+  layout?: any;
 }
 
 function extractChartsFromContent(content: string): { text: string; charts: ChartData[] } {
@@ -55,6 +57,8 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   History,
   MessageSquare,
   Trash2,
@@ -63,7 +67,10 @@ import {
   Bookmark,
   Sparkles,
   PanelRightClose,
-  PanelRightOpen
+  PanelRightOpen,
+  Settings2,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { cn } from '../ui/utils';
 import { AuspexChatMessages } from './AuspexChatMessages';
@@ -132,12 +139,16 @@ interface AuspexChatModalProps {
   toolsConfig: ToolsConfig;
   includeCharts: boolean;
   researchMode: ResearchMode;
+  visibleTools: string[];
+  toolOrder: string[];
   onSampleSizeModeChange: (mode: SampleSizeMode) => void;
   onSamplingStrategyChange: (strategy: SamplingStrategy) => void;
   onCustomLimitChange: (limit: number) => void;
   onToolsConfigChange: (config: ToolsConfig) => void;
   onIncludeChartsChange: (include: boolean) => void;
   onResearchModeChange: (mode: ResearchMode) => void;
+  onVisibleToolsChange: (tools: string[]) => void;
+  onToolOrderChange: (order: string[]) => void;
   isLoading: boolean;
   isStreaming: boolean;
   onSendMessage: (text: string) => void;
@@ -172,12 +183,16 @@ export function AuspexChatModal({
   toolsConfig,
   includeCharts,
   researchMode,
+  visibleTools,
+  toolOrder,
   onSampleSizeModeChange,
   onSamplingStrategyChange,
   onCustomLimitChange,
   onToolsConfigChange,
   onIncludeChartsChange,
   onResearchModeChange,
+  onVisibleToolsChange,
+  onToolOrderChange,
   isLoading,
   isStreaming,
   onSendMessage,
@@ -191,10 +206,55 @@ export function AuspexChatModal({
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [isToolsConfigOpen, setIsToolsConfigOpen] = useState(false);
+  const [isToolSettingsOpen, setIsToolSettingsOpen] = useState(false);
   const [rightPanelTab, setRightPanelTab] = useState<'insights' | 'saved' | 'charts'>('insights');
   const [isMinimized, setIsMinimized] = useState(false);
   const chartRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const inputRef = useRef<AuspexChatInputHandle>(null);
+
+  // Get sorted and filtered tools based on visibility and order
+  const displayedTools = useMemo(() => {
+    // Filter to only visible tools
+    const visible = pluginTools.filter(tool => visibleTools.includes(tool.name));
+    // Sort by toolOrder
+    return visible.sort((a, b) => {
+      const aIndex = toolOrder.indexOf(a.name);
+      const bIndex = toolOrder.indexOf(b.name);
+      // Tools not in order go to end
+      if (aIndex === -1) return 1;
+      if (bIndex === -1) return -1;
+      return aIndex - bIndex;
+    });
+  }, [pluginTools, visibleTools, toolOrder]);
+
+  // Helper to toggle tool visibility
+  const toggleToolVisibility = (toolName: string) => {
+    if (visibleTools.includes(toolName)) {
+      onVisibleToolsChange(visibleTools.filter(t => t !== toolName));
+    } else {
+      onVisibleToolsChange([...visibleTools, toolName]);
+    }
+  };
+
+  // Helper to move tool up in order
+  const moveToolUp = (toolName: string) => {
+    const idx = toolOrder.indexOf(toolName);
+    if (idx > 0) {
+      const newOrder = [...toolOrder];
+      [newOrder[idx - 1], newOrder[idx]] = [newOrder[idx], newOrder[idx - 1]];
+      onToolOrderChange(newOrder);
+    }
+  };
+
+  // Helper to move tool down in order
+  const moveToolDown = (toolName: string) => {
+    const idx = toolOrder.indexOf(toolName);
+    if (idx < toolOrder.length - 1) {
+      const newOrder = [...toolOrder];
+      [newOrder[idx], newOrder[idx + 1]] = [newOrder[idx + 1], newOrder[idx]];
+      onToolOrderChange(newOrder);
+    }
+  };
 
   // Handle delete with confirmation
   const handleDeleteSession = (chatId: number) => {
@@ -218,7 +278,16 @@ export function AuspexChatModal({
   const { processedMessages, allCharts } = useMemo(() => {
     const processed = messages.map(msg => {
       if (msg.role === 'assistant') {
+        // Debug: Check if content contains chart markers
+        const hasChartMarker = msg.content.includes('<!-- CHART_DATA:');
+        if (hasChartMarker) {
+          console.log('[Auspex] Found CHART_DATA marker in message');
+          console.log('[Auspex] Content preview:', msg.content.substring(0, 500));
+        }
         const { text, charts } = extractChartsFromContent(msg.content);
+        if (charts.length > 0) {
+          console.log('[Auspex] Extracted charts:', charts.length, charts);
+        }
         return { ...msg, content: text, charts };
       }
       return { ...msg, charts: [] as ChartData[] };
@@ -234,6 +303,7 @@ export function AuspexChatModal({
       }))
     );
 
+    console.log('[Auspex] Total charts found:', charts.length);
     return { processedMessages: processed, allCharts: charts };
   }, [messages]);
 
@@ -245,48 +315,89 @@ export function AuspexChatModal({
     }
   }, [allCharts.length]);
 
-  // Render charts using Plotly
+  // State to track when chart containers are ready
+  const [chartContainersReady, setChartContainersReady] = useState(0);
+
+  // Render charts using Plotly - delayed to ensure DOM is ready
   useEffect(() => {
     if (typeof window !== 'undefined' && (window as any).Plotly && allCharts.length > 0) {
-      allCharts.forEach((chart) => {
-        const container = chartRefs.current.get(chart.messageIndex * 100 + chart.chartIndex);
-        if (container && chart.format === 'json' && chart.data) {
-          try {
-            const plotlyData = chart.data;
-            // Override layout for better display in panel
-            const enhancedLayout = {
-              ...plotlyData.layout,
-              paper_bgcolor: 'transparent',
-              plot_bgcolor: 'transparent',
-              font: { color: '#6b7280', size: 11 },
-              margin: { t: 50, r: 30, b: 50, l: 50 },
-              title: plotlyData.layout?.title ? {
-                ...plotlyData.layout.title,
-                font: { size: 13, color: '#374151' }
-              } : undefined,
-              legend: plotlyData.layout?.legend ? {
-                ...plotlyData.layout.legend,
-                font: { size: 10 }
-              } : undefined
-            };
-            (window as any).Plotly.newPlot(
-              container,
-              plotlyData.data || [],
-              enhancedLayout,
-              {
-                responsive: true,
-                displayModeBar: 'hover',  // Only show on hover
-                modeBarButtonsToRemove: ['sendDataToCloud', 'lasso2d', 'select2d', 'autoScale2d'],
-                displaylogo: false
+      // Small delay to ensure refs are set after JSX renders
+      const timeoutId = setTimeout(() => {
+        console.log('[Auspex] Rendering charts:', allCharts.length);
+        allCharts.forEach((chart) => {
+          const containerKey = chart.messageIndex * 100 + chart.chartIndex;
+          const container = chartRefs.current.get(containerKey);
+          console.log('[Auspex] Chart container for key', containerKey, ':', container ? 'found' : 'NOT FOUND');
+
+          if (container && chart.data) {
+            try {
+              let plotlyData: any[];
+              let plotlyLayout: any;
+
+              // Handle different chart formats from backend
+              if (chart.chart_type === 'sentiment_donut' && chart.data.labels && chart.data.values) {
+                // Convert sentiment_donut format to Plotly pie chart
+                plotlyData = [{
+                  type: 'pie',
+                  labels: chart.data.labels,
+                  values: chart.data.values,
+                  marker: { colors: chart.data.colors },
+                  hole: 0.4,
+                  textinfo: 'label+percent',
+                  textposition: 'outside'
+                }];
+                plotlyLayout = {
+                  title: chart.layout?.title || 'Sentiment Distribution',
+                  showlegend: chart.layout?.showlegend ?? true
+                };
+              } else if (chart.format === 'json' && chart.data.data) {
+                // Original format with nested data.data
+                plotlyData = chart.data.data;
+                plotlyLayout = chart.data.layout || {};
+              } else if (Array.isArray(chart.data)) {
+                // Direct Plotly data array
+                plotlyData = chart.data;
+                plotlyLayout = chart.layout || {};
+              } else {
+                console.warn('[Auspex] Unknown chart format:', chart);
+                return;
               }
-            );
-          } catch (e) {
-            console.error('Error rendering chart:', e);
+
+              // Enhanced layout for better display
+              const enhancedLayout = {
+                ...plotlyLayout,
+                paper_bgcolor: 'transparent',
+                plot_bgcolor: 'transparent',
+                font: { color: '#6b7280', size: 11 },
+                margin: { t: 50, r: 30, b: 50, l: 50 },
+                title: typeof plotlyLayout.title === 'string'
+                  ? { text: plotlyLayout.title, font: { size: 13, color: '#374151' } }
+                  : plotlyLayout.title,
+                legend: { font: { size: 10 } }
+              };
+
+              console.log('[Auspex] Calling Plotly.newPlot with:', { plotlyData, enhancedLayout });
+              (window as any).Plotly.newPlot(
+                container,
+                plotlyData,
+                enhancedLayout,
+                {
+                  responsive: true,
+                  displayModeBar: 'hover',
+                  modeBarButtonsToRemove: ['sendDataToCloud', 'lasso2d', 'select2d', 'autoScale2d'],
+                  displaylogo: false
+                }
+              );
+            } catch (e) {
+              console.error('[Auspex] Error rendering chart:', e);
+            }
           }
-        }
-      });
+        });
+      }, 100);  // Small delay for DOM to be ready
+
+      return () => clearTimeout(timeoutId);
     }
-  }, [allCharts]);
+  }, [allCharts, chartContainersReady]);
 
   const handleExport = () => {
     const content = onExportChat();
@@ -313,7 +424,8 @@ export function AuspexChatModal({
     <>
       <DialogPrimitive.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
         <DialogPrimitive.Portal>
-          <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/50" />
+          {/* Hide overlay when minimized */}
+          {!isMinimized && <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/50" />}
           <DialogPrimitive.Content
             className={cn(
               "fixed z-50 flex flex-col bg-white dark:bg-gray-900 transition-all duration-300",
@@ -321,7 +433,7 @@ export function AuspexChatModal({
                 ? "bottom-4 right-4 w-[500px] h-[600px] rounded-lg shadow-2xl border border-gray-200 dark:border-gray-700"
                 : "inset-0"
             )}
-            onPointerDownOutside={(e) => e.preventDefault()}
+            onPointerDownOutside={(e) => isMinimized ? undefined : e.preventDefault()}
             aria-describedby={undefined}
           >
             {/* Visually hidden title for accessibility */}
@@ -330,25 +442,31 @@ export function AuspexChatModal({
             </VisuallyHidden.Root>
 
             {/* Header */}
-            <div className="flex-shrink-0 flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900">
+            <div className={cn(
+              "flex-shrink-0 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900",
+              isMinimized ? "px-2 py-1" : "px-4 py-2"
+            )}>
+              <div className="flex items-center justify-between">
               {/* Left: Title */}
-              <div className="flex flex-col">
-                <div className="flex items-center gap-2">
-                  <Bot className="w-5 h-5 text-pink-500" />
-                  <span className="text-base font-semibold text-gray-900 dark:text-gray-100">
-                    Auspex AI Assistant
-                  </span>
-                </div>
-                <span className="text-xs text-gray-500 dark:text-gray-400 ml-7">
-                  Your AI-powered research companion
+              <div className={cn("flex items-center gap-2", isMinimized && "flex-shrink-0")}>
+                <Bot className={cn(isMinimized ? "w-4 h-4" : "w-5 h-5", "text-pink-500")} />
+                <span className={cn(
+                  "font-semibold text-gray-900 dark:text-gray-100",
+                  isMinimized ? "text-sm" : "text-base"
+                )}>
+                  {isMinimized ? "Auspex" : "Auspex AI Assistant"}
                 </span>
               </div>
 
-              {/* Center: Controls in a row */}
-              <div className="flex items-center gap-3">
+              {/* Center: Controls - simplified when minimized */}
+              <div className={cn("flex items-center", isMinimized ? "gap-1" : "gap-3")}>
+                {/* Topic selector - always shown but smaller when minimized */}
                 <Select value={selectedTopic} onValueChange={onTopicChange}>
-                  <SelectTrigger className="w-[180px] h-9 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 [&>span]:text-gray-900 dark:[&>span]:text-gray-100">
-                    <SelectValue placeholder="Select topic..." className="text-gray-900 dark:text-gray-100" />
+                  <SelectTrigger className={cn(
+                    "h-8 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 [&>span]:text-gray-900 dark:[&>span]:text-gray-100",
+                    isMinimized ? "w-[120px]" : "w-[180px]"
+                  )}>
+                    <SelectValue placeholder="Topic..." className="text-gray-900 dark:text-gray-100" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__all__">All Topics</SelectItem>
@@ -358,8 +476,12 @@ export function AuspexChatModal({
                   </SelectContent>
                 </Select>
 
+                {/* Model selector - always shown but smaller when minimized */}
                 <Select value={selectedModel} onValueChange={onModelChange}>
-                  <SelectTrigger className="w-[180px] h-9 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 [&>span]:text-gray-900 dark:[&>span]:text-gray-100">
+                  <SelectTrigger className={cn(
+                    "h-8 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 [&>span]:text-gray-900 dark:[&>span]:text-gray-100",
+                    isMinimized ? "w-[100px]" : "w-[180px]"
+                  )}>
                     <SelectValue placeholder="Model..." className="text-gray-900 dark:text-gray-100" />
                   </SelectTrigger>
                   <SelectContent>
@@ -369,8 +491,10 @@ export function AuspexChatModal({
                   </SelectContent>
                 </Select>
 
+                {/* Sample size - hidden when minimized */}
+                {!isMinimized && (
                 <Select value={sampleSizeMode} onValueChange={onSampleSizeModeChange}>
-                  <SelectTrigger className="w-[120px] h-9 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600">
+                  <SelectTrigger className="w-[120px] h-8 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -381,9 +505,12 @@ export function AuspexChatModal({
                     <SelectItem value="custom">Custom</SelectItem>
                   </SelectContent>
                 </Select>
+                )}
 
+                {/* Sampling strategy - hidden when minimized */}
+                {!isMinimized && (
                 <Select value={samplingStrategy} onValueChange={onSamplingStrategyChange}>
-                  <SelectTrigger className="w-[140px] h-9 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600">
+                  <SelectTrigger className="w-[140px] h-8 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -395,8 +522,10 @@ export function AuspexChatModal({
                     <SelectItem value="balanced_topics">Topic Balanced</SelectItem>
                   </SelectContent>
                 </Select>
+                )}
 
-                {/* Context Badge */}
+                {/* Context Badge - hidden when minimized */}
+                {!isMinimized && (
                 <div
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 dark:bg-blue-900/30 rounded border border-blue-200 dark:border-blue-800 cursor-help"
                   title={`Token Breakdown:
@@ -413,35 +542,42 @@ Sample size: ${stats.articles} articles`}
                     Context: {stats.articles} articles, ~{stats.tokens.toLocaleString()} tokens ({stats.percentage.toFixed(1)}%)
                   </span>
                 </div>
+                )}
 
-                {/* Action Icons */}
-                <div className="flex items-center gap-1">
-                  <button onClick={onNewChat} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded" title="New chat">
-                    <Plus className="w-5 h-5 text-gray-600 dark:text-gray-300" />
-                  </button>
-                  <button onClick={handleExport} disabled={messages.length === 0} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded" title="Export">
-                    <Download className="w-5 h-5 text-gray-600 dark:text-gray-300" />
-                  </button>
-                  <button onClick={() => setIsToolsConfigOpen(true)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded" title="Tools config">
-                    <Wrench className="w-5 h-5 text-gray-600 dark:text-gray-300" />
-                  </button>
+                {/* Action Icons - fewer when minimized */}
+                <div className="flex items-center gap-0.5">
+                  {!isMinimized && (
+                  <>
+                    <button onClick={onNewChat} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded" title="New chat">
+                      <Plus className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+                    </button>
+                    <button onClick={handleExport} disabled={messages.length === 0} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded" title="Export">
+                      <Download className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+                    </button>
+                    <button onClick={() => setIsToolsConfigOpen(true)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded" title="Tools config">
+                      <Wrench className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+                    </button>
+                  </>
+                  )}
                   <button
                     onClick={() => setIsMinimized(!isMinimized)}
-                    className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+                    className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
                     title={isMinimized ? "Maximize" : "Minimize"}
                   >
-                    {isMinimized ? <Maximize2 className="w-5 h-5 text-gray-600 dark:text-gray-300" /> : <Minimize2 className="w-5 h-5 text-gray-600 dark:text-gray-300" />}
+                    {isMinimized ? <Maximize2 className="w-4 h-4 text-gray-600 dark:text-gray-300" /> : <Minimize2 className="w-5 h-5 text-gray-600 dark:text-gray-300" />}
                   </button>
-                  <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded" title="Close">
-                    <X className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+                  <button onClick={onClose} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded" title="Close">
+                    <X className={cn(isMinimized ? "w-4 h-4" : "w-5 h-5", "text-gray-600 dark:text-gray-300")} />
                   </button>
                 </div>
+              </div>
               </div>
             </div>
 
             {/* Body */}
             <div className="flex-1 flex overflow-hidden">
-              {/* Left Sidebar */}
+              {/* Left Sidebar - hidden when minimized */}
+              {!isMinimized && (
               <div className={cn(
                 'flex-shrink-0 bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 flex flex-col transition-all duration-300',
                 isSidebarOpen ? 'w-56' : 'w-0 overflow-hidden'
@@ -520,9 +656,10 @@ Sample size: ${stats.articles} articles`}
                   )}
                 </div>
               </div>
+              )}
 
-              {/* Sidebar collapsed toggle */}
-              {!isSidebarOpen && (
+              {/* Sidebar collapsed toggle - hidden when minimized */}
+              {!isMinimized && !isSidebarOpen && (
                 <button
                   onClick={() => setIsSidebarOpen(true)}
                   className="flex-shrink-0 w-6 flex items-center justify-center bg-gray-50 dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800"
@@ -536,8 +673,9 @@ Sample size: ${stats.articles} articles`}
                 {/* Messages */}
                 <AuspexChatMessages messages={processedMessages} isLoading={isLoading} />
 
-                {/* Bottom: Analysis Tools */}
+                {/* Bottom: Analysis Tools - hidden when minimized */}
                 <div className="flex-shrink-0 border-t border-gray-200 dark:border-gray-700">
+                  {!isMinimized && (
                   <div className="px-4 py-2 bg-gray-50 dark:bg-gray-900 flex items-center gap-4">
                     {/* Deep Research */}
                     <div className="flex items-center gap-2">
@@ -583,12 +721,90 @@ Sample size: ${stats.articles} articles`}
                     {/* Separator */}
                     <div className="h-6 w-px bg-gray-300 dark:bg-gray-600" />
 
-                    {/* Analysis Tools Label */}
-                    <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Analysis Tools:</span>
+                    {/* Analysis Tools Label with Settings */}
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Analysis Tools:</span>
+                      <div className="relative">
+                        <button
+                          onClick={() => setIsToolSettingsOpen(!isToolSettingsOpen)}
+                          className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                          title="Configure visible tools"
+                        >
+                          <Settings2 className="w-4 h-4" />
+                        </button>
+                        {/* Tool Settings Dropdown */}
+                        {isToolSettingsOpen && (
+                          <div className="absolute top-full left-0 mt-1 w-64 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50 max-h-80 overflow-y-auto">
+                            <div className="p-2 border-b border-gray-200 dark:border-gray-700">
+                              <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Tool Visibility & Order</span>
+                            </div>
+                            <div className="p-2 space-y-1">
+                              {toolOrder.map((toolName, idx) => {
+                                const tool = pluginTools.find(t => t.name === toolName);
+                                if (!tool) return null;
+                                const isVisible = visibleTools.includes(toolName);
+                                return (
+                                  <div key={toolName} className="flex items-center gap-2 py-1 px-2 rounded hover:bg-gray-100 dark:hover:bg-gray-700">
+                                    <button
+                                      onClick={() => toggleToolVisibility(toolName)}
+                                      className={cn(
+                                        'p-1 rounded',
+                                        isVisible ? 'text-green-500' : 'text-gray-400'
+                                      )}
+                                      title={isVisible ? 'Hide tool' : 'Show tool'}
+                                    >
+                                      {isVisible ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                                    </button>
+                                    <span className={cn(
+                                      'flex-1 text-sm truncate',
+                                      isVisible ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400'
+                                    )}>
+                                      {formatToolName(toolName)}
+                                    </span>
+                                    <div className="flex items-center gap-0.5">
+                                      <button
+                                        onClick={() => moveToolUp(toolName)}
+                                        disabled={idx === 0}
+                                        className="p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-30"
+                                        title="Move up"
+                                      >
+                                        <ChevronUp className="w-4 h-4 text-gray-500" />
+                                      </button>
+                                      <button
+                                        onClick={() => moveToolDown(toolName)}
+                                        disabled={idx === toolOrder.length - 1}
+                                        className="p-0.5 rounded hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-30"
+                                        title="Move down"
+                                      >
+                                        <ChevronDown className="w-4 h-4 text-gray-500" />
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div className="p-2 border-t border-gray-200 dark:border-gray-700 flex gap-2">
+                              <button
+                                onClick={() => onVisibleToolsChange(pluginTools.map(t => t.name))}
+                                className="flex-1 px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-gray-600 dark:text-gray-300"
+                              >
+                                Show All
+                              </button>
+                              <button
+                                onClick={() => onVisibleToolsChange([])}
+                                className="flex-1 px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-gray-600 dark:text-gray-300"
+                              >
+                                Hide All
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
 
                     {/* Tool buttons - horizontal row */}
                     <div className="flex items-center gap-2 flex-wrap">
-                      {pluginTools.map((tool) => (
+                      {displayedTools.map((tool) => (
                         <button
                           key={tool.name}
                           onClick={() => handleToolClick(tool)}
@@ -606,14 +822,15 @@ Sample size: ${stats.articles} articles`}
                       ))}
                     </div>
                   </div>
+                  )}
 
                   {/* Input */}
                   <AuspexChatInput ref={inputRef} onSend={onSendMessage} disabled={isDisabled} isStreaming={isStreaming} />
                 </div>
               </div>
 
-              {/* Right Panel collapsed toggle */}
-              {!isRightPanelOpen && (
+              {/* Right Panel collapsed toggle - hidden when minimized */}
+              {!isMinimized && !isRightPanelOpen && (
                 <button
                   onClick={() => setIsRightPanelOpen(true)}
                   className="flex-shrink-0 w-6 flex items-center justify-center bg-gray-100 dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 hover:bg-gray-200 dark:hover:bg-gray-700"
@@ -623,7 +840,8 @@ Sample size: ${stats.articles} articles`}
                 </button>
               )}
 
-              {/* Right Panel - wider for better chart display */}
+              {/* Right Panel - wider for better chart display - hidden when minimized */}
+              {!isMinimized && (
               <div className={cn(
                 'flex-shrink-0 bg-gray-100 dark:bg-gray-800 border-l border-gray-200 dark:border-gray-700 flex flex-col transition-all duration-300',
                 isRightPanelOpen ? 'w-96' : 'w-0 overflow-hidden'
@@ -728,7 +946,13 @@ Sample size: ${stats.articles} articles`}
                             )}
                             <div
                               ref={(el) => {
-                                if (el) chartRefs.current.set(chart.messageIndex * 100 + chart.chartIndex, el);
+                                const key = chart.messageIndex * 100 + chart.chartIndex;
+                                // Only set and trigger if this is a new element
+                                if (el && !chartRefs.current.has(key)) {
+                                  chartRefs.current.set(key, el);
+                                  // Trigger re-render to run the chart rendering effect
+                                  setChartContainersReady(prev => prev + 1);
+                                }
                               }}
                               className="min-h-[250px] w-full"
                             />
@@ -739,6 +963,7 @@ Sample size: ${stats.articles} articles`}
                   )}
                 </div>
               </div>
+              )}
             </div>
           </DialogPrimitive.Content>
         </DialogPrimitive.Portal>
