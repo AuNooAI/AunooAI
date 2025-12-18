@@ -143,11 +143,9 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
             {showLeftArrow && (
               <button
                 onClick={() => scroll('left')}
-                className="absolute left-0 top-0 bottom-0 z-10 px-2 bg-gradient-to-r from-gray-50 via-gray-50/90 to-transparent flex items-center"
+                className="absolute left-1 top-1/2 -translate-y-1/2 z-10 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full p-2 shadow-lg border border-gray-200 dark:border-gray-600"
               >
-                <div className="bg-white hover:bg-gray-100 rounded-full p-1.5 shadow-sm border border-gray-200">
-                  <ChevronLeft className="w-4 h-4 text-gray-600" />
-                </div>
+                <ChevronLeft className="w-5 h-5 text-gray-600 dark:text-gray-300" />
               </button>
             )}
 
@@ -172,11 +170,9 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
             {showRightArrow && (
               <button
                 onClick={() => scroll('right')}
-                className="absolute right-0 top-0 bottom-0 z-10 px-2 bg-gradient-to-l from-gray-50 via-gray-50/90 to-transparent flex items-center"
+                className="absolute right-1 top-1/2 -translate-y-1/2 z-10 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full p-2 shadow-lg border border-gray-200 dark:border-gray-600"
               >
-                <div className="bg-white hover:bg-gray-100 rounded-full p-1.5 shadow-sm border border-gray-200">
-                  <ChevronRight className="w-4 h-4 text-gray-600" />
-                </div>
+                <ChevronRight className="w-5 h-5 text-gray-600 dark:text-gray-300" />
               </button>
             )}
           </div>
