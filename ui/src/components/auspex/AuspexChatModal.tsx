@@ -334,30 +334,88 @@ export function AuspexChatModal({
               let plotlyData: any[];
               let plotlyLayout: any;
 
-              // Handle different chart formats from backend
-              if (chart.chart_type === 'sentiment_donut' && chart.data.labels && chart.data.values) {
-                // Convert sentiment_donut format to Plotly pie chart
-                plotlyData = [{
-                  type: 'pie',
-                  labels: chart.data.labels,
-                  values: chart.data.values,
-                  marker: { colors: chart.data.colors },
-                  hole: 0.4,
-                  textinfo: 'label+percent',
-                  textposition: 'outside'
-                }];
-                plotlyLayout = {
-                  title: chart.layout?.title || 'Sentiment Distribution',
-                  showlegend: chart.layout?.showlegend ?? true
+              // Vibrant sentiment colors (case-insensitive lookup)
+              const SENTIMENT_COLORS: Record<string, string> = {
+                'positive': '#22c55e',   // Green
+                'negative': '#ef4444',   // Red
+                'neutral': '#94a3b8',    // Slate gray
+                'mixed': '#f59e0b',      // Amber
+                'critical': '#f97316',   // Orange
+                'hyperbolic': '#3b82f6', // Blue
+                'unknown': '#6b7280',    // Gray
+              };
+
+              const getColor = (label: string) =>
+                SENTIMENT_COLORS[label.toLowerCase()] || '#6b7280';
+
+              // Helper to enhance pie chart with consistent styling
+              const enhancePieChart = (labels: string[], values: number[], title: string) => {
+                const colors = labels.map(getColor);
+                const total = values.reduce((a, b) => a + b, 0);
+                const legendLabels = labels.map((label, i) => {
+                  const pct = ((values[i] / total) * 100).toFixed(1);
+                  return `${label} (${pct}%)`;
+                });
+
+                return {
+                  data: [{
+                    type: 'pie',
+                    labels: legendLabels,
+                    values: values,
+                    marker: { colors },
+                    hole: 0.4,
+                    textinfo: 'none',
+                    hovertemplate: '<b>%{label}</b><br>Count: %{value}<extra></extra>'
+                  }],
+                  layout: {
+                    title: { text: title, font: { size: 11 }, y: 0.98, x: 0.5, xanchor: 'center' },
+                    showlegend: true,
+                    legend: { orientation: 'h', yanchor: 'top', y: -0.05, xanchor: 'center', x: 0.5, font: { size: 9 } }
+                  }
                 };
-              } else if (chart.format === 'json' && chart.data.data) {
-                // Original format with nested data.data
-                plotlyData = chart.data.data;
-                plotlyLayout = chart.data.layout || {};
-              } else if (Array.isArray(chart.data)) {
-                // Direct Plotly data array
-                plotlyData = chart.data;
-                plotlyLayout = chart.layout || {};
+              };
+
+              // Extract data based on format
+              let rawData: any[] = [];
+              let rawLayout: any = {};
+              const chartTitle = chart.title || chart.layout?.title || chart.data?.layout?.title || 'Chart';
+
+              // Format 1: deep_research format (direct data.labels/values)
+              if (chart.data?.labels && chart.data?.values) {
+                const enhanced = enhancePieChart(chart.data.labels, chart.data.values, chartTitle);
+                plotlyData = enhanced.data;
+                plotlyLayout = enhanced.layout;
+              }
+              // Format 2: Nested Plotly JSON (data.data array)
+              else if (chart.data?.data && Array.isArray(chart.data.data)) {
+                rawData = chart.data.data;
+                rawLayout = chart.data.layout || {};
+
+                // Check if first trace is a pie chart - enhance it
+                const firstTrace = rawData[0];
+                if (firstTrace?.type === 'pie' && firstTrace?.labels && firstTrace?.values) {
+                  const enhanced = enhancePieChart(firstTrace.labels, firstTrace.values, chartTitle);
+                  plotlyData = enhanced.data;
+                  plotlyLayout = enhanced.layout;
+                } else {
+                  plotlyData = rawData;
+                  plotlyLayout = rawLayout;
+                }
+              }
+              // Format 3: Direct Plotly data array
+              else if (Array.isArray(chart.data)) {
+                rawData = chart.data;
+                rawLayout = chart.layout || {};
+
+                const firstTrace = rawData[0];
+                if (firstTrace?.type === 'pie' && firstTrace?.labels && firstTrace?.values) {
+                  const enhanced = enhancePieChart(firstTrace.labels, firstTrace.values, chartTitle);
+                  plotlyData = enhanced.data;
+                  plotlyLayout = enhanced.layout;
+                } else {
+                  plotlyData = rawData;
+                  plotlyLayout = rawLayout;
+                }
               } else {
                 console.warn('[Auspex] Unknown chart format:', chart);
                 return;
@@ -368,12 +426,20 @@ export function AuspexChatModal({
                 ...plotlyLayout,
                 paper_bgcolor: 'transparent',
                 plot_bgcolor: 'transparent',
-                font: { color: '#6b7280', size: 11 },
-                margin: { t: 50, r: 30, b: 50, l: 50 },
+                font: { color: '#6b7280', size: 10 },
+                margin: { t: 40, r: 20, b: 60, l: 20, autoexpand: true },
+                autosize: true,
                 title: typeof plotlyLayout.title === 'string'
-                  ? { text: plotlyLayout.title, font: { size: 13, color: '#374151' } }
+                  ? { text: plotlyLayout.title, font: { size: 12, color: '#374151' }, y: 0.95 }
                   : plotlyLayout.title,
-                legend: { font: { size: 10 } }
+                legend: plotlyLayout.legend || {
+                  orientation: 'h',
+                  yanchor: 'top',
+                  y: -0.1,
+                  xanchor: 'center',
+                  x: 0.5,
+                  font: { size: 9 }
+                }
               };
 
               console.log('[Auspex] Calling Plotly.newPlot with:', { plotlyData, enhancedLayout });
@@ -950,13 +1016,8 @@ Sample size: ${stats.articles} articles`}
                         allCharts.map((chart, idx) => (
                           <div
                             key={chart.id}
-                            className="bg-white dark:bg-gray-800 rounded-lg p-3 shadow-sm border border-gray-200 dark:border-gray-700"
+                            className="bg-white dark:bg-gray-800 rounded-lg p-2 shadow-sm border border-gray-200 dark:border-gray-700"
                           >
-                            {chart.title && (
-                              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                                {chart.title}
-                              </h4>
-                            )}
                             <div
                               ref={(el) => {
                                 const key = chart.messageIndex * 100 + chart.chartIndex;
@@ -967,7 +1028,7 @@ Sample size: ${stats.articles} articles`}
                                   setChartContainersReady(prev => prev + 1);
                                 }
                               }}
-                              className="min-h-[250px] w-full"
+                              className="min-h-[280px] w-full"
                             />
                           </div>
                         ))

@@ -280,16 +280,22 @@ class TrendAnalysisHandler(ToolHandler):
         }
 
     def _analyze_signal_trends(self, articles: List[Dict]) -> Dict:
-        """Analyze future signal distribution."""
+        """Analyze future signal and time to impact distribution."""
         signal_counts = defaultdict(int)
+        time_to_impact_counts = defaultdict(int)
 
         for article in articles:
             signal = article.get("future_signal", "No Signal")
             signal_counts[signal] += 1
 
+            time_impact = article.get("time_to_impact", "")
+            if time_impact and time_impact.strip():
+                time_to_impact_counts[time_impact] += 1
+
         return {
             "distribution": dict(signal_counts),
-            "top_signals": sorted(signal_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+            "top_signals": sorted(signal_counts.items(), key=lambda x: x[1], reverse=True)[:5],
+            "time_to_impact": dict(time_to_impact_counts)
         }
 
     def _generate_time_series(self, articles: List[Dict], days: int) -> Dict:
@@ -436,7 +442,8 @@ class TrendAnalysisHandler(ToolHandler):
             if sent is not None and count > 0:
                 sentiment_labels.append(sent.capitalize() if sent else "Unknown")
                 sentiment_values.append(count)
-                sentiment_colors.append(colors.get(sent, "#999"))
+                # Convert to lowercase for color lookup since DB stores capitalized sentiments
+                sentiment_colors.append(colors.get(sent.lower() if sent else "unknown", "#999"))
 
         sentiment_chart = {
             "data": [
@@ -457,7 +464,139 @@ class TrendAnalysisHandler(ToolHandler):
             }
         }
 
-        return {
+        charts = {
             "coverage": coverage_chart,
             "sentiment": sentiment_chart
         }
+
+        # Category distribution chart (horizontal bar)
+        category_data = analysis.get("categories", {})
+        top_categories = category_data.get("top_categories", [])
+        if top_categories:
+            # Colors for categories - use a gradient palette
+            category_colors = [
+                "#3b82f6", "#8b5cf6", "#ec4899", "#f97316", "#eab308",
+                "#22c55e", "#14b8a6", "#06b6d4", "#6366f1", "#a855f7"
+            ]
+            cat_labels = [cat[0] for cat in top_categories[:10]]
+            cat_values = [cat[1] for cat in top_categories[:10]]
+            cat_colors = category_colors[:len(cat_labels)]
+
+            charts["categories"] = {
+                "data": [
+                    {
+                        "x": cat_values,
+                        "y": cat_labels,
+                        "type": "bar",
+                        "orientation": "h",
+                        "marker": {"color": cat_colors}
+                    }
+                ],
+                "layout": {
+                    "title": "Top Categories",
+                    "xaxis": {"title": "Article Count"},
+                    "yaxis": {"autorange": "reversed"},
+                    "margin": {"l": 150}
+                }
+            }
+
+        # Future signals distribution chart (pie)
+        signals_data = analysis.get("signals", {})
+        signal_distribution = signals_data.get("distribution", {})
+        if signal_distribution:
+            # Filter out "No Signal" and empty values
+            filtered_signals = {k: v for k, v in signal_distribution.items()
+                              if k and k != "No Signal" and v > 0}
+            if filtered_signals:
+                signal_colors = {
+                    "emerging technology": "#3b82f6",      # Blue
+                    "market disruption": "#f97316",        # Orange
+                    "regulatory change": "#ef4444",        # Red
+                    "industry shift": "#8b5cf6",           # Purple
+                    "competitive threat": "#dc2626",       # Dark red
+                    "innovation opportunity": "#22c55e",   # Green
+                    "consumer trend": "#ec4899",           # Pink
+                    "economic indicator": "#eab308",       # Yellow
+                    "policy impact": "#14b8a6",            # Teal
+                    "strategic development": "#6366f1",    # Indigo
+                }
+                sig_labels = list(filtered_signals.keys())
+                sig_values = list(filtered_signals.values())
+                sig_colors = [signal_colors.get(s.lower(), "#6b7280") for s in sig_labels]
+
+                charts["future_signals"] = {
+                    "data": [
+                        {
+                            "labels": sig_labels,
+                            "values": sig_values,
+                            "type": "pie",
+                            "hole": 0.4,
+                            "marker": {"colors": sig_colors},
+                            "textinfo": "label+percent",
+                            "textposition": "outside"
+                        }
+                    ],
+                    "layout": {
+                        "title": "Future Signals Distribution",
+                        "showlegend": True,
+                        "legend": {"orientation": "h", "y": -0.1}
+                    }
+                }
+
+        # Time to Impact chart (horizontal bar)
+        time_to_impact_data = signals_data.get("time_to_impact", {})
+        if time_to_impact_data:
+            # Define order for time horizons (short-term to long-term)
+            time_order = [
+                "Immediate", "Days", "Weeks", "1-3 Months", "3-6 Months",
+                "6-12 Months", "1-2 Years", "2-5 Years", "5+ Years", "Ongoing"
+            ]
+            time_colors = {
+                "immediate": "#ef4444",     # Red - urgent
+                "days": "#f97316",          # Orange
+                "weeks": "#eab308",         # Yellow
+                "1-3 months": "#22c55e",    # Green
+                "3-6 months": "#14b8a6",    # Teal
+                "6-12 months": "#3b82f6",   # Blue
+                "1-2 years": "#6366f1",     # Indigo
+                "2-5 years": "#8b5cf6",     # Purple
+                "5+ years": "#a855f7",      # Violet
+                "ongoing": "#6b7280",       # Gray
+            }
+
+            # Sort by time horizon order
+            sorted_times = []
+            for t in time_order:
+                for key, value in time_to_impact_data.items():
+                    if key.lower() == t.lower() and value > 0:
+                        sorted_times.append((key, value))
+                        break
+            # Add any not in our predefined order
+            for key, value in time_to_impact_data.items():
+                if value > 0 and not any(k.lower() == key.lower() for k, _ in sorted_times):
+                    sorted_times.append((key, value))
+
+            if sorted_times:
+                tti_labels = [t[0] for t in sorted_times]
+                tti_values = [t[1] for t in sorted_times]
+                tti_colors = [time_colors.get(t[0].lower(), "#6b7280") for t in sorted_times]
+
+                charts["time_to_impact"] = {
+                    "data": [
+                        {
+                            "x": tti_values,
+                            "y": tti_labels,
+                            "type": "bar",
+                            "orientation": "h",
+                            "marker": {"color": tti_colors}
+                        }
+                    ],
+                    "layout": {
+                        "title": "Time to Impact Distribution",
+                        "xaxis": {"title": "Article Count"},
+                        "yaxis": {"autorange": "reversed"},
+                        "margin": {"l": 120}
+                    }
+                }
+
+        return charts

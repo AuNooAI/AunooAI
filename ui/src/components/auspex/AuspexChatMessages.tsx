@@ -219,23 +219,23 @@ function WelcomeMessage() {
 
 export function AuspexChatMessages({ messages, isLoading }: AuspexChatMessagesProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
-  // Get last message content for scroll dependency (triggers during streaming)
-  const lastMessageContent = messages.length > 0 ? messages[messages.length - 1].content : '';
+  // Check if the last message is still streaming
+  const isStreaming = messages.length > 0 && messages[messages.length - 1].isStreaming;
 
   // Auto-scroll to bottom when messages change or content updates during streaming
   useEffect(() => {
-    if (containerRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
-    }
-  }, [messages, lastMessageContent]);
+    // Use smooth scrolling to the bottom anchor
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, [messages, isStreaming]);
 
   return (
     <div
       ref={containerRef}
       className="flex-1 overflow-y-auto"
     >
-      {messages.length === 0 ? (
+      {messages.length === 0 && !isLoading ? (
         <WelcomeMessage />
       ) : (
         <div className="divide-y divide-gray-100 dark:divide-gray-800">
@@ -245,13 +245,20 @@ export function AuspexChatMessages({ messages, isLoading }: AuspexChatMessagesPr
         </div>
       )}
 
-      {/* Loading indicator */}
-      {isLoading && messages.length === 0 && (
-        <div className="flex items-center justify-center p-8">
-          <Loader2 className="w-6 h-6 animate-spin text-pink-500" />
-          <span className="ml-2 text-gray-500">Loading...</span>
+      {/* Loading indicator - shows at bottom when waiting for response */}
+      {isLoading && !isStreaming && (
+        <div className="flex items-center gap-3 p-4 bg-white dark:bg-gray-900">
+          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-pink-100 dark:bg-pink-900/30 flex items-center justify-center">
+            <Loader2 className="w-4 h-4 animate-spin text-pink-600 dark:text-pink-400" />
+          </div>
+          <div className="text-sm text-gray-500 dark:text-gray-400">
+            Auspex is thinking...
+          </div>
         </div>
       )}
+
+      {/* Scroll anchor at bottom */}
+      <div ref={bottomRef} />
     </div>
   );
 }
