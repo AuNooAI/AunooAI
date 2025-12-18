@@ -41,20 +41,49 @@ export interface PluginTool {
   category?: string;
 }
 
-// Model context limits (in tokens)
+// Model context limits (in tokens) - Source: https://github.com/taylorwilsdon/llm-context-limits
 const MODEL_CONTEXT_LIMITS: Record<string, number> = {
+  // OpenAI GPT-4.1 series (1M+ context)
+  'gpt-4.1': 1048000,
+  'gpt-4.1-mini': 1048000,
+  'gpt-4.1-nano': 1048000,
+  // OpenAI GPT-4o series
   'gpt-4o': 128000,
   'gpt-4o-mini': 128000,
-  'gpt-4.1': 128000,
-  'gpt-4.1-mini': 128000,
+  // OpenAI GPT-4
   'gpt-4-turbo': 128000,
-  'gpt-4': 8192,
-  'gpt-3.5-turbo': 16385,
+  'gpt-4': 128000,
+  // OpenAI GPT-3.5
+  'gpt-3.5-turbo': 16000,
+  // OpenAI o-series
+  'o1': 200000,
+  'o1-mini': 128000,
+  'o1-preview': 128000,
+  'o1-pro': 200000,
+  'o3': 128000,
+  'o3-mini': 200000,
+  'o4-mini': 128000,
+  // Anthropic Claude
+  'claude-3.7-sonnet': 200000,
+  'claude-3.5-sonnet': 200000,
+  'claude-3.5-haiku': 200000,
   'claude-3-opus': 200000,
   'claude-3-sonnet': 200000,
   'claude-3-haiku': 200000,
-  'claude-3.5-sonnet': 200000,
   'claude-sonnet-4': 200000,
+  // DeepSeek
+  'deepseek-chat': 64000,
+  'deepseek-reasoner': 64000,
+  // Google Gemini
+  'gemini-2.0-flash': 1048000,
+  'gemini-2.5-pro': 1048000,
+  'gemma-3': 128000,
+  // Mistral
+  'mistral-large': 32000,
+  'mistral-medium': 32000,
+  'mistral-small': 32000,
+  'mistral-nemo': 128000,
+  // Default
   'default': 128000
 };
 

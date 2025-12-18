@@ -82,11 +82,11 @@ function getTimeHorizonStyle(value?: string): { bg: string; text: string } {
 
 // Get card gradient based on risk/opportunity
 function getCardGradient(riskOpp?: string): string {
-  if (!riskOpp) return 'bg-gradient-to-br from-white to-gray-50';
+  if (!riskOpp) return 'bg-gradient-to-br from-white to-gray-50 dark:from-gray-800 dark:to-gray-900';
   const lower = riskOpp.toLowerCase();
-  if (lower === 'opportunity') return 'bg-gradient-to-br from-white to-green-50/50';
-  if (lower === 'risk') return 'bg-gradient-to-br from-white to-red-50/50';
-  return 'bg-gradient-to-br from-white to-amber-50/50'; // mixed
+  if (lower === 'opportunity') return 'bg-gradient-to-br from-white to-green-50/50 dark:from-gray-800 dark:to-green-900/30';
+  if (lower === 'risk') return 'bg-gradient-to-br from-white to-red-50/50 dark:from-gray-800 dark:to-red-900/30';
+  return 'bg-gradient-to-br from-white to-amber-50/50 dark:from-gray-800 dark:to-amber-900/30'; // mixed
 }
 
 // Get category badge style
@@ -342,11 +342,9 @@ export function BriefingSection({
           {showLeftArrow && (
             <button
               onClick={() => scroll('left')}
-              className="absolute left-0 top-0 bottom-0 z-10 px-2 bg-gradient-to-r from-gray-50 via-gray-50/90 to-transparent flex items-center"
+              className="absolute left-1 top-1/2 -translate-y-1/2 z-10 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full p-2 shadow-lg border border-gray-200 dark:border-gray-600"
             >
-              <div className="bg-white hover:bg-gray-100 rounded-full p-1.5 shadow-sm border border-gray-200">
-                <ChevronLeft className="w-4 h-4 text-gray-600" />
-              </div>
+              <ChevronLeft className="w-5 h-5 text-gray-600 dark:text-gray-300" />
             </button>
           )}
 
@@ -372,11 +370,9 @@ export function BriefingSection({
           {showRightArrow && (
             <button
               onClick={() => scroll('right')}
-              className="absolute right-0 top-0 bottom-0 z-10 px-2 bg-gradient-to-l from-gray-50 via-gray-50/90 to-transparent flex items-center"
+              className="absolute right-1 top-1/2 -translate-y-1/2 z-10 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full p-2 shadow-lg border border-gray-200 dark:border-gray-600"
             >
-              <div className="bg-white hover:bg-gray-100 rounded-full p-1.5 shadow-sm border border-gray-200">
-                <ChevronRight className="w-4 h-4 text-gray-600" />
-              </div>
+              <ChevronRight className="w-5 h-5 text-gray-600 dark:text-gray-300" />
             </button>
           )}
         </div>
@@ -386,11 +382,11 @@ export function BriefingSection({
           {articles.slice(0, 6).map((article) => (
             <div
               key={article.uri}
-              className="flex-shrink-0 w-[220px] p-3 bg-white border border-gray-200 rounded-lg hover:shadow-md transition-shadow cursor-pointer snap-start"
+              className="flex-shrink-0 w-[220px] p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:shadow-md transition-shadow cursor-pointer snap-start"
               onClick={() => onArticleClick?.(article)}
             >
-              <h4 className="font-medium text-gray-900 text-sm line-clamp-2">{article.title}</h4>
-              <p className="text-xs text-gray-600 mt-1">{article.source?.name}</p>
+              <h4 className="font-medium text-gray-900 dark:text-gray-100 text-sm line-clamp-2">{article.title}</h4>
+              <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">{article.source?.name}</p>
             </div>
           ))}
         </div>
@@ -485,10 +481,10 @@ function CompactBriefingCard({ story, onClick }: CompactBriefingCardProps) {
     >
       <div
         onClick={onClick}
-        className={`flex-shrink-0 w-[220px] ${cardGradient} border border-gray-200 rounded-lg p-3 cursor-pointer hover:shadow-md hover:border-gray-300 transition-all snap-start`}
+        className={`flex-shrink-0 w-[220px] ${cardGradient} border border-gray-200 dark:border-gray-700 rounded-lg p-3 cursor-pointer hover:shadow-md hover:border-gray-300 dark:hover:border-gray-600 transition-all snap-start`}
       >
         {/* Title */}
-        <h4 className="font-medium text-gray-900 text-sm line-clamp-2 mb-3 min-h-[40px]">
+        <h4 className="font-medium text-gray-900 dark:text-gray-100 text-sm line-clamp-2 mb-3 min-h-[40px]">
           {displayTitle}
         </h4>
 

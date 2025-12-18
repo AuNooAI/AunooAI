@@ -13,6 +13,7 @@ import {
   sendChatMessage,
   startDeepResearch,
   getPluginTools,
+  getModelContextLimit,
   type Topic,
   type Model,
   type ChatSession,
@@ -404,7 +405,7 @@ export function useAuspexChat(): UseAuspexChatReturn {
             topic: selectedTopic || undefined,
             sampleSizeMode,
             samplingStrategy,
-            customLimit: sampleSizeMode === 'custom' ? customLimit : undefined,
+            customLimit: calculateOptimalSampleSize(),  // Always send calculated sample size
             toolsConfig,
             includeCharts
           });
@@ -472,10 +473,22 @@ export function useAuspexChat(): UseAuspexChatReturn {
       case 'custom':
         return customLimit;
       case 'auto':
-      default:
-        return 50;
+      default: {
+        // Calculate optimal size based on model context limit
+        const contextLimit = getModelContextLimit(selectedModel);
+        const systemPromptTokens = 2000;   // Reserved for system prompt
+        const responseTokens = 4000;        // Reserved for AI response
+        const overheadTokens = 1000;        // Buffer for formatting, etc.
+        const tokensPerArticle = 800;       // Average tokens per article
+
+        const availableTokens = contextLimit - systemPromptTokens - responseTokens - overheadTokens;
+        const maxArticles = Math.floor(availableTokens / tokensPerArticle);
+
+        // Clamp between 50 and 300 (MAX_CITATION_LIMIT)
+        return Math.max(50, Math.min(300, maxArticles));
+      }
     }
-  }, [sampleSizeMode, customLimit]);
+  }, [sampleSizeMode, customLimit, selectedModel]);
 
   return {
     // Data

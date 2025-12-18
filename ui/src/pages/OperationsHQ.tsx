@@ -682,7 +682,7 @@ export function OperationsHQ() {
                   {healthData.status.toUpperCase()}
                 </div>
                 <p className="text-gray-700 dark:text-gray-300 mt-2">
-                  Uptime: {healthData.uptime.days}d {healthData.uptime.hours % 24}h {healthData.uptime.minutes % 60}m
+                  Uptime: {Math.floor(healthData.uptime.days)}d {Math.floor(healthData.uptime.hours % 24)}h {Math.floor(healthData.uptime.minutes % 60)}m
                 </p>
 
                 {healthData.warnings && healthData.warnings.length > 0 && (

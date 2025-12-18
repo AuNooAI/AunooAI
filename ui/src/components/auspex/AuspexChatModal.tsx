@@ -493,6 +493,7 @@ export function AuspexChatModal({
 
                 {/* Sample size - hidden when minimized */}
                 {!isMinimized && (
+                <>
                 <Select value={sampleSizeMode} onValueChange={onSampleSizeModeChange}>
                   <SelectTrigger className="w-[120px] h-8 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600">
                     <SelectValue />
@@ -505,6 +506,18 @@ export function AuspexChatModal({
                     <SelectItem value="custom">Custom</SelectItem>
                   </SelectContent>
                 </Select>
+                {sampleSizeMode === 'custom' && (
+                  <input
+                    type="number"
+                    min="10"
+                    max="500"
+                    value={customLimit}
+                    onChange={(e) => onCustomLimitChange(parseInt(e.target.value) || 50)}
+                    className="w-[70px] h-8 px-2 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border border-gray-300 dark:border-gray-600 rounded-md"
+                    placeholder="50"
+                  />
+                )}
+                </>
                 )}
 
                 {/* Sampling strategy - hidden when minimized */}
@@ -635,7 +648,7 @@ Sample size: ${stats.articles} articles`}
                             {session.title || `Chat ${session.id}`}
                           </p>
                           <div className="flex items-center gap-1.5 text-xs text-gray-400 mt-0.5">
-                            <span>{new Date(session.updated_at || session.created_at).toLocaleDateString()}</span>
+                            <span>{new Date(session.updated_at || session.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                             {session.message_count && (
                               <>
                                 <MessageSquare className="w-3 h-3" />
@@ -645,7 +658,7 @@ Sample size: ${stats.articles} articles`}
                           </div>
                           <button
                             onClick={(e) => { e.stopPropagation(); handleDeleteSession(session.id); }}
-                            className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500"
+                            className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30"
                             title="Delete this chat"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
