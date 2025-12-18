@@ -17,6 +17,7 @@ import { NotificationBell } from './components/gather/NotificationBell';
 import { Alert, AlertDescription } from './components/ui/alert';
 import { Loader2, AlertCircle, Plus } from 'lucide-react';
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
+import { AuspexChat } from './components/auspex';
 import type { KeywordGroupSummary } from './services/gatherApi';
 import { getRecentArticlesForGroup, deleteUnscoredArticles } from './services/gatherApi';
 import './components/gather/gather.css';
@@ -289,6 +290,7 @@ function GatherApp() {
         open={isOnboardingOpen}
         onOpenChange={setIsOnboardingOpen}
       />
+      <AuspexChat />
     </div>
   );
 }

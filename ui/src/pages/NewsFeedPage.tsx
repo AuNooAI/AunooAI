@@ -29,6 +29,7 @@ import { ResearchAgentsSection } from '../components/newsfeed/ResearchAgentsSect
 import { SignalReportsTab } from '../components/newsfeed/SignalReportsTab';
 import { TopicCluster, getCategoryIcon } from '../components/newsfeed/TopicCluster';
 import { OnboardingWizard } from '../components/onboarding/OnboardingWizard';
+import { AuspexChat } from '../components/auspex';
 import { ArticleDetailPanel } from '../components/newsfeed/ArticleDetailPanel';
 import { CategoryViewModal } from '../components/newsfeed/CategoryViewModal';
 import { IncidentConfigModal } from '../components/newsfeed/IncidentConfigModal';
@@ -794,6 +795,7 @@ export function NewsFeedPage() {
         open={isOnboardingOpen}
         onOpenChange={setIsOnboardingOpen}
       />
+      <AuspexChat />
       </div>
     </div>
   );

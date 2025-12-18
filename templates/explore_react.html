@@ -12,20 +12,11 @@
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <!-- React App CSS -->
-    <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/index-CZOmQQua.css">
-    <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/label-DTIM0IR6.css">
+    <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/index-n9cZ-_fG.css">
+    <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/NotificationBell-DTIM0IR6.css">
     <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/gather-DjbWcq85.css">
-    <!-- Auspex Chat CSS (loaded after React CSS to ensure proper z-index) -->
-    <link rel="stylesheet" href="/static/css/auspex-chat.css">
-    <style>
-      /* Ensure Auspex button is visible above React app */
-      .floating-chat-button {
-        z-index: 9999 !important;
-      }
-      .chat-modal {
-        z-index: 9998 !important;
-      }
-    </style>
+    <!-- Plotly for Auspex charts -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
     <!-- Inject user session data for React app -->
     <script>
       window.userSession = {
@@ -38,26 +29,14 @@
         {% endif %}
       };
     </script>
-    <script type="module" crossorigin src="/static/trend-convergence/assets/newsfeed-DFFG13-k.js"></script>
-    <link rel="modulepreload" crossorigin href="/static/trend-convergence/assets/index-sz9z9tkQ.js">
+    <script type="module" crossorigin src="/static/trend-convergence/assets/newsfeed-CvUFR60h.js"></script>
+    <link rel="modulepreload" crossorigin href="/static/trend-convergence/assets/index-CYMj7les.js">
   </head>
 
   <body>
     <div id="root"></div>
 
-    {% if session.get('user') %}
-    <!-- Include Auspex Chat Component -->
-    {% include 'auspex-chat.html' %}
-    {% endif %}
-
     <!-- Bootstrap Bundle (includes Popper) -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-
-    {% if session.get('user') %}
-    <!-- Marked.js for markdown rendering -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <!-- Auspex Chat JavaScript -->
-    <script src="/static/js/auspex-chat.js?v={{ range(1000, 9999) | random }}"></script>
-    {% endif %}
   </body>
 </html>

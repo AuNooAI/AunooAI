@@ -316,7 +316,14 @@ class TrendAnalysisHandler(ToolHandler):
         # Fill in missing dates
         dates = []
         counts = []
-        sentiments = {"positive": [], "negative": [], "neutral": [], "mixed": []}
+
+        # Dynamically capture all sentiment categories from the data
+        all_sentiments = set()
+        for day_data in daily_sentiment.values():
+            all_sentiments.update(day_data.keys())
+        # Ensure we always have the basic ones even if no data
+        all_sentiments.update({"positive", "negative", "neutral", "mixed", "critical"})
+        sentiments = {sent: [] for sent in all_sentiments}
 
         current = datetime.now() - timedelta(days=days)
         while current <= datetime.now():
@@ -395,7 +402,9 @@ class TrendAnalysisHandler(ToolHandler):
             "positive": "#28a745",
             "negative": "#dc3545",
             "neutral": "#6c757d",
-            "mixed": "#ffc107"
+            "mixed": "#ffc107",
+            "critical": "#fb923c",
+            "unknown": "#9ca3af"
         })
 
         # Coverage over time chart
@@ -417,24 +426,34 @@ class TrendAnalysisHandler(ToolHandler):
             }
         }
 
-        # Sentiment stacked area chart
+        # Sentiment pie chart - show overall distribution
+        sentiment_counts = analysis.get("sentiment", {}).get("counts", {})
+        sentiment_labels = []
+        sentiment_values = []
+        sentiment_colors = []
+
+        for sent, count in sentiment_counts.items():
+            if sent is not None and count > 0:
+                sentiment_labels.append(sent.capitalize() if sent else "Unknown")
+                sentiment_values.append(count)
+                sentiment_colors.append(colors.get(sent, "#999"))
+
         sentiment_chart = {
             "data": [
                 {
-                    "x": time_series["dates"],
-                    "y": time_series["sentiment_series"].get(sent, []),
-                    "type": "scatter",
-                    "mode": "lines",
-                    "stackgroup": "one",
-                    "name": sent.capitalize(),
-                    "line": {"color": colors.get(sent, "#999")}
+                    "labels": sentiment_labels,
+                    "values": sentiment_values,
+                    "type": "pie",
+                    "hole": 0.4,  # Makes it a donut chart
+                    "marker": {"colors": sentiment_colors},
+                    "textinfo": "label+percent",
+                    "textposition": "outside"
                 }
-                for sent in ["positive", "neutral", "negative", "mixed"]
             ],
             "layout": {
-                "title": "Sentiment Distribution Over Time",
-                "xaxis": {"title": "Date"},
-                "yaxis": {"title": "Articles"}
+                "title": "Sentiment Distribution",
+                "showlegend": True,
+                "legend": {"orientation": "h", "y": -0.1}
             }
         }
 

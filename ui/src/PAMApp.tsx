@@ -10,6 +10,7 @@ import { PAMDashboard } from './components/pam';
 import { SharedNavigation } from './components/SharedNavigation';
 import { usePAM } from './hooks/usePAM';
 import './components/pam/PAMDashboard.css';
+import { AuspexChat } from './components/auspex';
 
 // Types for topics
 interface Topic {
@@ -114,6 +115,7 @@ const PAMApp: React.FC = () => {
           </div>
         )}
       </main>
+      <AuspexChat />
     </div>
   );
 };

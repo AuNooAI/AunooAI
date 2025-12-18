@@ -438,14 +438,23 @@ class PromptToolHandler(ToolHandler):
 
         execution_time = int((time.time() - start_time) * 1000)
 
+        # Generate chart data based on action results
+        chart_data = self._generate_charts_from_actions(action_results)
+
+        result_data = {
+            'analysis': llm_response or self._generate_basic_analysis(action_results, articles),
+            'article_count': len(articles),
+            'actions_performed': list(action_results.keys()),
+            'action_results': action_results
+        }
+
+        if chart_data:
+            result_data['chart_data'] = chart_data
+            self.logger.info(f"Generated {len(chart_data)} charts from action results")
+
         return ToolResult(
             success=True,
-            data={
-                'analysis': llm_response or self._generate_basic_analysis(action_results, articles),
-                'article_count': len(articles),
-                'actions_performed': list(action_results.keys()),
-                'action_results': action_results
-            },
+            data=result_data,
             message=f"Analyzed {len(articles)} articles using {len(action_results)} actions",
             execution_time_ms=execution_time
         )
@@ -649,6 +658,104 @@ class PromptToolHandler(ToolHandler):
             },
             'total_articles': total
         }
+
+    def _generate_charts_from_actions(self, action_results: Dict) -> Dict:
+        """Generate Plotly-compatible charts from action results."""
+        charts = {}
+
+        # Bias chart (pie + bar)
+        if 'bias' in action_results and not action_results['bias'].get('error'):
+            bias_data = action_results['bias']
+            dist = bias_data.get('distribution', {})
+
+            if dist:
+                # Color mapping for bias categories
+                bias_colors = {
+                    'Far-Left': '#1e40af', 'Left': '#2563eb', 'Center-Left': '#60a5fa',
+                    'Center': '#9ca3af', 'Center-Right': '#f87171', 'Right': '#dc2626',
+                    'Far-Right': '#7f1d1d', 'Pro-Science': '#059669', 'Conspiracy/Pseudoscience': '#7c3aed',
+                    'Unknown': '#d1d5db'
+                }
+
+                labels = list(dist.keys())
+                values = list(dist.values())
+                colors = [bias_colors.get(label, '#999') for label in labels]
+
+                charts['bias_distribution'] = {
+                    "data": [{
+                        "labels": labels,
+                        "values": values,
+                        "type": "pie",
+                        "hole": 0.4,
+                        "marker": {"colors": colors},
+                        "textinfo": "label+percent",
+                        "textposition": "outside",
+                        "sort": False
+                    }],
+                    "layout": {
+                        "title": "Political Bias Distribution",
+                        "showlegend": True,
+                        "legend": {"orientation": "h", "y": -0.1}
+                    }
+                }
+
+        # Sentiment chart (pie)
+        if 'sentiment' in action_results:
+            sent_data = action_results['sentiment']
+            dist = sent_data.get('distribution', {})
+
+            if dist:
+                sentiment_colors = {
+                    'Positive': '#28a745', 'Negative': '#dc3545', 'Neutral': '#6c757d',
+                    'Mixed': '#ffc107', 'Critical': '#fb923c', 'Unknown': '#9ca3af'
+                }
+
+                labels = list(dist.keys())
+                values = list(dist.values())
+                colors = [sentiment_colors.get(label, '#999') for label in labels]
+
+                charts['sentiment_distribution'] = {
+                    "data": [{
+                        "labels": labels,
+                        "values": values,
+                        "type": "pie",
+                        "hole": 0.4,
+                        "marker": {"colors": colors},
+                        "textinfo": "label+percent",
+                        "textposition": "outside"
+                    }],
+                    "layout": {
+                        "title": "Sentiment Distribution",
+                        "showlegend": True,
+                        "legend": {"orientation": "h", "y": -0.1}
+                    }
+                }
+
+        # Future signals chart (bar)
+        if 'future_signals' in action_results and not action_results['future_signals'].get('error'):
+            future_data = action_results['future_signals']
+            signals = future_data.get('future_signals', {}).get('distribution', {})
+
+            if signals:
+                labels = list(signals.keys())
+                values = list(signals.values())
+
+                charts['future_signals'] = {
+                    "data": [{
+                        "x": values,
+                        "y": labels,
+                        "type": "bar",
+                        "orientation": "h",
+                        "marker": {"color": "#8b5cf6"}
+                    }],
+                    "layout": {
+                        "title": "Future Impact Signals",
+                        "xaxis": {"title": "Article Count"},
+                        "yaxis": {"title": "Signal Type", "autorange": "reversed"}
+                    }
+                }
+
+        return charts
 
     def _format_articles_for_prompt(self, articles: List[Dict], max_chars: int = 50000) -> str:
         """Format articles for LLM context with URLs for citation."""
