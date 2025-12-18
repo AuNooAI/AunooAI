@@ -1485,6 +1485,7 @@ class AuspexService:
                     topic = None  # Set to None to skip topic filtering in tools
 
                 plugin_results, is_final_response = await self._check_plugin_tools(message, topic, chat_id)
+                plugin_chart_markers = []  # Store chart markers from plugin tools
                 if plugin_results:
                     if is_final_response:
                         # Plugin produced a complete LLM response - return directly
@@ -1496,6 +1497,12 @@ class AuspexService:
                             "role": "assistant",
                             "content": plugin_results
                         })
+                        # Extract chart markers from plugin results to yield directly to user
+                        import re
+                        chart_pattern = r'<!-- CHART_DATA:.*?:END_CHART -->'
+                        plugin_chart_markers = re.findall(chart_pattern, plugin_results, re.DOTALL)
+                        if plugin_chart_markers:
+                            logger.info(f"Extracted {len(plugin_chart_markers)} chart markers from plugin results")
 
                 # Only use additional tools if plugin didn't produce a final response
                 if not plugin_final_response:
@@ -1524,6 +1531,13 @@ class AuspexService:
 
             # Generate response using LLM or return plugin response directly
             full_response = ""
+
+            # Add plugin tool chart markers to chart_marker
+            for marker in plugin_chart_markers:
+                if chart_marker:
+                    chart_marker += "\n" + marker
+                else:
+                    chart_marker = marker
 
             # If we have a chart, yield it first as a special marker
             if chart_marker:
@@ -1986,7 +2000,23 @@ PRIORITIZE insights relevant to these concerns and tailor analysis to this organ
                     # This is an LLM-generated response - return directly
                     is_final = True
                     logger.info(f"Plugin tool {best_tool.name} produced final LLM response ({len(analysis)} chars)")
-                    return analysis, is_final
+
+                    # Append chart markers if chart_data exists
+                    response = analysis
+                    if 'chart_data' in result.data:
+                        import json
+                        chart_data = result.data['chart_data']
+                        for chart_name, chart_config in chart_data.items():
+                            chart_marker = {
+                                "type": chart_name,
+                                "format": "json",
+                                "title": chart_config.get("layout", {}).get("title", chart_name.replace("_", " ").title()),
+                                "data": chart_config
+                            }
+                            response += f"\n\n<!-- CHART_DATA:{json.dumps(chart_marker)}:END_CHART -->"
+                        logger.info(f"Appended {len(chart_data)} chart markers to final response")
+
+                    return response, is_final
 
                 # Format result for inclusion in LLM context
                 return self._format_plugin_result(best_tool.name, result), is_final
@@ -2040,6 +2070,19 @@ PRIORITIZE insights relevant to these concerns and tailor analysis to this organ
 
         output_parts.append(f"\nExecution time: {result.execution_time_ms}ms")
         output_parts.append("[/TOOL]\n")
+
+        # Add chart markers if chart_data is present
+        if "chart_data" in data:
+            import json
+            chart_data = data["chart_data"]
+            for chart_name, chart_config in chart_data.items():
+                chart_marker = {
+                    "type": chart_name,
+                    "format": "json",  # Must be 'json' to match frontend check
+                    "title": chart_config.get("layout", {}).get("title", chart_name.replace("_", " ").title()),
+                    "data": chart_config
+                }
+                output_parts.append(f"\n<!-- CHART_DATA:{json.dumps(chart_marker)}:END_CHART -->")
 
         return "\n".join(output_parts)
 

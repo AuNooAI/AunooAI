@@ -26,6 +26,7 @@ import {
 import { Switch } from '../components/ui/switch';
 import '../components/gather/NotificationBell.css';
 import { OnboardingWizard } from '../components/onboarding/OnboardingWizard';
+import { AuspexChat } from '../components/auspex';
 
 interface Stats {
   total_articles: number;
@@ -1215,6 +1216,7 @@ export function OperationsHQ() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <AuspexChat />
     </div>
   );
 }

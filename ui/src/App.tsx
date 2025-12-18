@@ -48,6 +48,7 @@ import { FGTuneModal } from './components/FGTuneModal';
 import { ExecutiveBriefing } from './components/ExecutiveBriefing';
 import { useExecutiveBriefing } from './hooks/useExecutiveBriefing';
 import { EBTuneModal } from './components/EBTuneModal';
+import { AuspexChat } from './components/auspex';
 
 function App() {
   const {
@@ -3509,6 +3510,9 @@ function App() {
         onArticleLimitChange={setPamArticleLimit}
       />
       </div>
+
+      {/* Auspex AI Chat */}
+      <AuspexChat />
     </div>
   );
 }
