@@ -57,6 +57,8 @@ interface UseAuspexChatReturn {
   customLimit: number;
   includeCharts: boolean;
   researchMode: ResearchMode;
+  visibleTools: string[];
+  toolOrder: string[];
 
   // Actions
   setSelectedTopic: (topic: string) => void;
@@ -67,6 +69,8 @@ interface UseAuspexChatReturn {
   updateToolsConfig: (config: Record<string, boolean>) => void;
   setIncludeCharts: (include: boolean) => void;
   setResearchMode: (mode: ResearchMode) => void;
+  setVisibleTools: (tools: string[]) => void;
+  setToolOrder: (order: string[]) => void;
 
   // Chat actions
   createSession: () => Promise<void>;
@@ -90,7 +94,9 @@ const STORAGE_KEYS = {
   customLimit: 'auspex_custom_limit',
   toolsConfig: 'auspex_tools_config',
   includeCharts: 'auspex_include_charts',
-  researchMode: 'auspex_research_mode'
+  researchMode: 'auspex_research_mode',
+  visibleTools: 'auspex_visible_tools',
+  toolOrder: 'auspex_tool_order'
 };
 
 export function useAuspexChat(): UseAuspexChatReturn {
@@ -118,6 +124,8 @@ export function useAuspexChat(): UseAuspexChatReturn {
   const [customLimit, setCustomLimitState] = useState<number>(50);
   const [includeCharts, setIncludeChartsState] = useState<boolean>(false);
   const [researchMode, setResearchModeState] = useState<ResearchMode>('off');
+  const [visibleTools, setVisibleToolsState] = useState<string[]>([]);
+  const [toolOrder, setToolOrderState] = useState<string[]>([]);
 
   // Refs for SSE cancellation
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -151,6 +159,8 @@ export function useAuspexChat(): UseAuspexChatReturn {
         const savedToolsConfig = localStorage.getItem(STORAGE_KEYS.toolsConfig);
         const savedIncludeCharts = localStorage.getItem(STORAGE_KEYS.includeCharts);
         const savedResearchMode = localStorage.getItem(STORAGE_KEYS.researchMode) as ResearchMode;
+        const savedVisibleTools = localStorage.getItem(STORAGE_KEYS.visibleTools);
+        const savedToolOrder = localStorage.getItem(STORAGE_KEYS.toolOrder);
 
         if (savedTopic && topicsData.some(t => t.name === savedTopic)) {
           setSelectedTopicState(savedTopic);
@@ -173,6 +183,27 @@ export function useAuspexChat(): UseAuspexChatReturn {
           }
         } else {
           setToolsConfig(defaultConfig);
+        }
+
+        // Initialize visible tools and tool order
+        const allToolNames = toolsData.map(t => t.name);
+        if (savedVisibleTools) {
+          try {
+            setVisibleToolsState(JSON.parse(savedVisibleTools));
+          } catch {
+            setVisibleToolsState(allToolNames);
+          }
+        } else {
+          setVisibleToolsState(allToolNames);
+        }
+        if (savedToolOrder) {
+          try {
+            setToolOrderState(JSON.parse(savedToolOrder));
+          } catch {
+            setToolOrderState(allToolNames);
+          }
+        } else {
+          setToolOrderState(allToolNames);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load initial data');
@@ -241,6 +272,16 @@ export function useAuspexChat(): UseAuspexChatReturn {
   const setResearchMode = useCallback((mode: ResearchMode) => {
     setResearchModeState(mode);
     localStorage.setItem(STORAGE_KEYS.researchMode, mode);
+  }, []);
+
+  const setVisibleTools = useCallback((tools: string[]) => {
+    setVisibleToolsState(tools);
+    localStorage.setItem(STORAGE_KEYS.visibleTools, JSON.stringify(tools));
+  }, []);
+
+  const setToolOrder = useCallback((order: string[]) => {
+    setToolOrderState(order);
+    localStorage.setItem(STORAGE_KEYS.toolOrder, JSON.stringify(order));
   }, []);
 
   // Chat actions
@@ -461,6 +502,8 @@ export function useAuspexChat(): UseAuspexChatReturn {
     customLimit,
     includeCharts,
     researchMode,
+    visibleTools,
+    toolOrder,
 
     // Actions
     setSelectedTopic,
@@ -471,6 +514,8 @@ export function useAuspexChat(): UseAuspexChatReturn {
     updateToolsConfig,
     setIncludeCharts,
     setResearchMode,
+    setVisibleTools,
+    setToolOrder,
 
     // Chat actions
     createSession,
