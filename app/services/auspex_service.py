@@ -1075,6 +1075,9 @@ class AuspexService:
         # Initialize smart query router for intelligent data retrieval
         self.query_router = QueryRouter(self.db)
 
+        # Cache for last fetched articles - used for chart generation to avoid duplicate searches
+        self._last_chat_articles: List[Dict] = []
+
         self._ensure_default_prompt()
     
     def _ensure_default_prompt(self):
@@ -1410,6 +1413,9 @@ class AuspexService:
         if not model:
             model = DEFAULT_MODEL
 
+        # Clear cached articles from previous requests
+        self._last_chat_articles = []
+
         # Update context manager for the specific model being used
         self._update_context_manager_for_model(model)
 
@@ -1453,7 +1459,8 @@ class AuspexService:
                 system_prompt_content = custom_prompt
             else:
                 # Get system prompt and enhance it with topic information and profile context
-                system_prompt = self.get_enhanced_system_prompt(chat_id, tools_config)
+                # Pass include_charts to let Auspex know it can use chart visualizations
+                system_prompt = self.get_enhanced_system_prompt(chat_id, tools_config, include_charts)
                 system_prompt_content = system_prompt['content']
 
             # Prepare messages with system prompt
@@ -1466,16 +1473,15 @@ class AuspexService:
             use_tools = tools_config and any(tools_config.values()) if tools_config else True
             needs_tools = use_tools and await self._should_use_tools(message)
 
-            # Check for chart request - either from message keywords or include_charts toggle
+            # Check for explicit chart request in message (e.g., "show me a chart")
+            # Note: include_charts toggle is handled AFTER plugin tools, to avoid duplicating
+            # when plugins like Trend Analysis already generate their own charts
             chart_type = self._detect_chart_request(message)
-            # If charts are enabled via toggle and no specific chart type detected, default to sentiment_donut
-            if include_charts and not chart_type:
-                chart_type = "sentiment_donut"
-                logger.info(f"Charts enabled via toggle - using default chart type: {chart_type}")
             chart_marker = None
             logger.info(f"Chart detection result for message '{message}': chart_type={chart_type}, include_charts={include_charts}")
 
             plugin_final_response = None
+            plugin_chart_markers = []  # Store chart markers from plugin tools - initialize outside if block
             if needs_tools:
                 # First check for plugin tools that might handle this query
                 chat = self.db.get_auspex_chat(chat_id)
@@ -1485,7 +1491,6 @@ class AuspexService:
                     topic = None  # Set to None to skip topic filtering in tools
 
                 plugin_results, is_final_response = await self._check_plugin_tools(message, topic, chat_id)
-                plugin_chart_markers = []  # Store chart markers from plugin tools
                 if plugin_results:
                     if is_final_response:
                         # Plugin produced a complete LLM response - return directly
@@ -1515,13 +1520,26 @@ class AuspexService:
                             "content": f"[TOOLS] {tool_results}"
                         })
 
+                    # Only generate a chart if explicitly requested in the user's message
+                    # The include_charts toggle affects the system prompt to tell Auspex it CAN use charts,
+                    # but doesn't auto-generate them. Plugin tools generate their own charts.
                     # If chart request detected, generate chart from articles
                     # For cross-topic mode (topic=None), we can still generate charts
                     if chart_type:
                         chart_topic_label = topic if topic else "All Topics"
                         logger.info(f"Chart request detected: generating {chart_type} chart for topic '{chart_topic_label}'")
-                        chart_articles = await self._get_articles_for_chart(topic, limit)
-                        logger.info(f"Retrieved {len(chart_articles)} articles for chart generation")
+
+                        # Use cached articles from the main query (same articles used for LLM context)
+                        # This avoids a duplicate vector search and ensures chart matches the analysis
+                        if self._last_chat_articles:
+                            chart_articles = self._last_chat_articles
+                            logger.info(f"Using {len(chart_articles)} cached articles for chart generation (same as LLM context)")
+                        else:
+                            # Fallback to separate search if cache is empty (shouldn't happen normally)
+                            logger.warning("No cached articles available, falling back to separate search")
+                            chart_articles = await self._get_articles_for_chart(topic, limit)
+                            logger.info(f"Retrieved {len(chart_articles)} articles for chart generation via fallback")
+
                         if chart_articles:
                             chart_title = f"Sentiment Distribution for {chart_topic_label}" if chart_type == "sentiment_donut" else None
                             chart_marker = self._generate_chart_for_articles(chart_articles, chart_type, chart_title)
@@ -1580,8 +1598,14 @@ class AuspexService:
             except:
                 pass
 
-    def get_enhanced_system_prompt(self, chat_id: int, tools_config: Dict = None) -> Dict:
-        """Get enhanced system prompt with topic-specific information and organizational profile."""
+    def get_enhanced_system_prompt(self, chat_id: int, tools_config: Dict = None, include_charts: bool = False) -> Dict:
+        """Get enhanced system prompt with topic-specific information and organizational profile.
+
+        Args:
+            chat_id: The chat ID to get context for
+            tools_config: Optional tools configuration
+            include_charts: If True, tells Auspex it can request chart visualizations
+        """
         try:
             # Get base prompt
             base_prompt = self.get_system_prompt()
@@ -1702,6 +1726,7 @@ CURRENT SESSION CONTEXT:
 - Topic: {topic_display}
 - Profile: {profile.get('name', 'None') if profile_id else 'None'}
 - Tools: {self._format_active_tools(tools_config)}
+- Charts: {'ENABLED - You can include chart visualizations (pie charts, bar charts, etc.) in your analysis when appropriate. Request charts by mentioning them in your response.' if include_charts else 'Not enabled'}
 - Focus: {'Cross-topic analysis using strategic foresight methodology' if is_cross_topic else f'Apply strategic foresight methodology specific to {topic_display}'} with organizational context"""
 
                 return {
@@ -2528,7 +2553,11 @@ I cannot provide analysis about "{', '.join(detected_entities)}" because no arti
                 optimized_articles = self.context_manager.optimize_article_selection(
                     articles_for_optimization, message, budget["articles"], user_limit=limit
                 )
-                
+
+                # Cache articles for chart generation (avoid duplicate searches)
+                self._last_chat_articles = optimized_articles
+                logger.info(f"Cached {len(optimized_articles)} articles for potential chart generation")
+
                 # Format with optimized context
                 optimized_context = self.context_manager.format_optimized_context(
                     optimized_articles, message, query_type

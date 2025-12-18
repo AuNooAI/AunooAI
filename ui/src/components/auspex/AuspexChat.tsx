@@ -19,7 +19,7 @@
  * ```
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuspexChat } from '../../hooks/useAuspexChat';
 import { AuspexChatButton } from './AuspexChatButton';
@@ -116,12 +116,15 @@ export function AuspexChat({ buttonClassName }: AuspexChatProps) {
     createSession();
   };
 
-  // Show error toast if there's an error
-  if (error) {
-    console.error('Auspex Chat Error:', error);
-    // Could integrate with a toast library here
-    clearError();
-  }
+  // Show error alert when error state changes
+  useEffect(() => {
+    if (error) {
+      console.error('Auspex Chat Error:', error);
+      // Show user-friendly error notification
+      alert(`Auspex Error: ${error}`);
+      clearError();
+    }
+  }, [error, clearError]);
 
   return (
     <>
