@@ -374,12 +374,37 @@ export async function* startDeepResearch(params: DeepResearchParams): AsyncGener
   }
 }
 
+// Article Stats Types (backend-computed from retrieved articles)
+export interface ArticleStats {
+  total_articles: number;
+  sentiment_breakdown: {
+    positive: number;
+    neutral: number;
+    negative: number;
+    mixed: number;
+    critical: number;
+  };
+  category_distribution: Record<string, number>;
+  source_distribution: Record<string, number>;
+  signal_distribution: Record<string, number>;
+  time_to_impact_distribution: Record<string, number>;
+  date_range: {
+    earliest: string | null;
+    latest: string | null;
+  };
+  top_sources: Array<{
+    name: string;
+    count: number;
+    sample_url?: string;
+  }>;
+}
+
 // Chat Insights Types and API
 export interface ChatInsights {
   key_themes: string[];
   main_findings: string[];
   sentiment_overview: string;
-  recommendations: string[];
+  notable_quotes: string[];
   data_coverage: {
     articles_discussed: number;
     time_period: string;
@@ -395,7 +420,7 @@ export interface GenerateInsightsResponse {
 
 export async function generateInsights(
   chatId: number,
-  focus?: 'themes' | 'sentiment' | 'recommendations'
+  focus?: 'themes' | 'sentiment' | 'quotes'
 ): Promise<GenerateInsightsResponse> {
   const response = await fetch(`${API_BASE}/chat/insights`, {
     method: 'POST',

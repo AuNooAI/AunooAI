@@ -20,6 +20,7 @@ import {
   type PluginTool,
   type ResearchMode
 } from '../services/auspexService';
+import { extractArticleStats, type BackendArticleStats } from '../utils/insightsParser';
 
 export type SampleSizeMode = 'auto' | 'balanced' | 'comprehensive' | 'focused' | 'custom';
 export type SamplingStrategy = 'auto' | 'recency_diversity' | 'quality_first' | 'latest' | 'diverse' | 'balanced_topics';
@@ -40,6 +41,7 @@ interface UseAuspexChatReturn {
   sessions: ChatSession[];
   messages: Message[];
   pluginTools: PluginTool[];
+  backendArticleStats: BackendArticleStats | null;
 
   // Selection state
   selectedTopic: string;
@@ -107,6 +109,7 @@ export function useAuspexChat(): UseAuspexChatReturn {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [pluginTools, setPluginTools] = useState<PluginTool[]>([]);
+  const [backendArticleStats, setBackendArticleStats] = useState<BackendArticleStats | null>(null);
 
   // Selection state
   const [selectedTopic, setSelectedTopicState] = useState<string>('');
@@ -313,6 +316,16 @@ export function useAuspexChat(): UseAuspexChatReturn {
         content: m.content,
         timestamp: new Date(m.timestamp)
       })));
+
+      // Try to extract stats from the last assistant message (for sessions created after the update)
+      const assistantMessages = messagesData.filter(m => m.role === 'assistant');
+      if (assistantMessages.length > 0) {
+        const lastMessage = assistantMessages[assistantMessages.length - 1];
+        const stats = extractArticleStats(lastMessage.content);
+        setBackendArticleStats(stats);
+      } else {
+        setBackendArticleStats(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load messages');
     } finally {
@@ -327,6 +340,7 @@ export function useAuspexChat(): UseAuspexChatReturn {
       if (currentChatId === chatId) {
         setCurrentChatId(null);
         setMessages([]);
+        setBackendArticleStats(null);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete session');
@@ -420,6 +434,21 @@ export function useAuspexChat(): UseAuspexChatReturn {
         ));
       }
 
+      // Debug: Log final content to check for chart markers
+      console.log('[useAuspexChat] Full response length:', fullContent.length);
+      if (fullContent.includes('CHART_DATA')) {
+        console.log('[useAuspexChat] Response contains CHART_DATA marker');
+        console.log('[useAuspexChat] Marker index:', fullContent.indexOf('CHART_DATA'));
+      } else {
+        console.log('[useAuspexChat] No CHART_DATA marker found in response');
+      }
+
+      // Extract backend article stats from the response (if present)
+      const stats = extractArticleStats(fullContent);
+      if (stats) {
+        setBackendArticleStats(stats);
+      }
+
       // Mark as complete
       setMessages(prev => prev.map(m =>
         m.id === assistantMessageId
@@ -438,6 +467,7 @@ export function useAuspexChat(): UseAuspexChatReturn {
   const clearMessages = useCallback(() => {
     setMessages([]);
     setCurrentChatId(null);
+    setBackendArticleStats(null);
   }, []);
 
   const exportChat = useCallback(() => {
@@ -497,6 +527,7 @@ export function useAuspexChat(): UseAuspexChatReturn {
     sessions,
     messages,
     pluginTools,
+    backendArticleStats,
 
     // Selection state
     selectedTopic,

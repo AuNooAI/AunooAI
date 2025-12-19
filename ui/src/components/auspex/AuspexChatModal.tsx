@@ -24,20 +24,29 @@ function extractChartsFromContent(content: string): { text: string; charts: Char
   const charts: ChartData[] = [];
   let textContent = content;
 
+  // Debug: Log if content contains chart markers
+  if (content.includes('CHART_DATA')) {
+    console.log('[Chart Extract] Content contains CHART_DATA, length:', content.length);
+    console.log('[Chart Extract] Content snippet around marker:', content.substring(content.indexOf('CHART_DATA') - 10, content.indexOf('CHART_DATA') + 200));
+  }
+
   let match;
   while ((match = chartRegex.exec(content)) !== null) {
+    console.log('[Chart Extract] Found chart match, JSON length:', match[1].length);
     try {
       const chartData = JSON.parse(match[1]);
+      console.log('[Chart Extract] Parsed chart successfully:', chartData.type || 'unknown type');
       charts.push(chartData);
       textContent = textContent.replace(match[0], '');
     } catch (e) {
-      // Silent fail - chart marker might be incomplete during streaming
+      console.warn('[Chart Extract] Failed to parse chart JSON:', e, 'JSON preview:', match[1].substring(0, 200));
     }
   }
 
   // Remove error markers
   textContent = textContent.replace(errorRegex, '');
 
+  console.log('[Chart Extract] Final result: charts found:', charts.length);
   return { text: textContent.trim(), charts };
 }
 import {
@@ -77,6 +86,7 @@ import { AuspexChatInput, AuspexChatInputHandle } from './AuspexChatInput';
 import { AuspexToolsConfig } from './AuspexToolsConfig';
 import { InsightsPanel } from './InsightsPanel';
 import type { SampleSizeMode, SamplingStrategy, ResearchMode } from '../../hooks/useAuspexChat';
+import type { BackendArticleStats } from '../../utils/insightsParser';
 
 interface Topic {
   name: string;
@@ -158,6 +168,7 @@ interface AuspexChatModalProps {
   onClearAllSessions: () => void;
   onExportChat: () => string;
   contextStats?: ContextStats;
+  backendArticleStats?: BackendArticleStats | null;
 }
 
 function formatToolName(name: string): string {
@@ -201,7 +212,8 @@ export function AuspexChatModal({
   onDeleteSession,
   onClearAllSessions,
   onExportChat,
-  contextStats
+  contextStats,
+  backendArticleStats
 }: AuspexChatModalProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
@@ -354,8 +366,8 @@ export function AuspexChatModal({
                 'unknown': '#6b7280',    // Gray
               };
 
-              const getColor = (label: string) =>
-                SENTIMENT_COLORS[label.toLowerCase()] || '#6b7280';
+              const getColor = (label: string | null | undefined) =>
+                label ? (SENTIMENT_COLORS[label.toLowerCase()] || '#6b7280') : '#6b7280';
 
               // Vibrant color palette for charts
               const CHART_COLORS = [
@@ -372,18 +384,21 @@ export function AuspexChatModal({
               ];
 
               // Helper to enhance pie chart with consistent styling
-              const enhancePieChart = (labels: string[], values: number[], title: string) => {
+              const enhancePieChart = (labels: (string | null)[], values: number[], title: string) => {
+                // Normalize labels - replace null/undefined with 'Unknown'
+                const normalizedLabels = labels.map(l => l || 'Unknown');
+
                 // Check if labels are sentiment-related (use sentiment colors) or general (use chart colors)
-                const isSentimentChart = labels.some(l =>
-                  ['positive', 'negative', 'neutral', 'mixed', 'critical'].includes((l || '').toLowerCase())
+                const isSentimentChart = normalizedLabels.some(l =>
+                  ['positive', 'negative', 'neutral', 'mixed', 'critical'].includes(l.toLowerCase())
                 );
 
                 const colors = isSentimentChart
-                  ? labels.map(getColor)
-                  : labels.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]);
+                  ? normalizedLabels.map(getColor)
+                  : normalizedLabels.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]);
 
                 const total = values.reduce((a, b) => a + b, 0);
-                const legendLabels = labels.map((label, i) => {
+                const legendLabels = normalizedLabels.map((label, i) => {
                   const pct = ((values[i] / total) * 100).toFixed(1);
                   return `${label} (${pct}%)`;
                 });
@@ -599,15 +614,15 @@ export function AuspexChatModal({
                 {/* Topic selector - always shown but smaller when minimized */}
                 <Select value={selectedTopic} onValueChange={onTopicChange}>
                   <SelectTrigger className={cn(
-                    "h-8 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 [&>span]:text-gray-900 dark:[&>span]:text-gray-100",
+                    "h-8 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 border-gray-300 dark:border-gray-600 [&>span]:text-gray-900 dark:[&>span]:text-gray-100 [&>span]:truncate [&>span]:max-w-[calc(100%-20px)]",
                     isMinimized ? "w-[120px]" : "w-[180px]"
                   )}>
                     <SelectValue placeholder="Topic..." className="text-gray-900 dark:text-gray-100" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="max-w-[280px]">
                     <SelectItem value="__all__">All Topics</SelectItem>
                     {topics.map((t) => (
-                      <SelectItem key={t.name} value={t.name}>{t.display_name}</SelectItem>
+                      <SelectItem key={t.name} value={t.name} className="truncate">{t.display_name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -1040,6 +1055,7 @@ Sample size: ${stats.articles} articles`}
                     <InsightsPanel
                       messages={messages.map(m => ({ role: m.role, content: m.content }))}
                       chatId={currentChatId}
+                      backendArticleStats={backendArticleStats}
                     />
                   )}
                   {rightPanelTab === 'charts' && (

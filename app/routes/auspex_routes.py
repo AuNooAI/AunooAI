@@ -451,49 +451,51 @@ async def generate_chat_insights(req: GenerateInsightsRequest, session=Depends(v
         focus_prompt = "Focus primarily on identifying the main themes and topics discussed."
     elif req.focus == "sentiment":
         focus_prompt = "Focus primarily on the overall sentiment trends and emotional tone of the coverage."
-    elif req.focus == "recommendations":
-        focus_prompt = "Focus primarily on extracting actionable recommendations and next steps."
+    elif req.focus == "quotes":
+        focus_prompt = "Focus primarily on extracting the most interesting quotes, statistics, and specific datapoints."
 
     # Get ALL assistant messages for comprehensive analysis
     # Include more content per message for better context
     recent_conversation = conversation[-30:]  # Increase to 30 messages
     conversation_text = "\n\n".join([f"[{m['role'].upper()}]\n{m['content'][:8000]}" for m in recent_conversation])
 
-    summary_prompt = f"""Analyze this Auspex strategic intelligence conversation and extract the KEY INSIGHTS discussed.
+    summary_prompt = f"""Summarize this conversation and extract the MOST INTERESTING datapoints.
 
 {focus_prompt}
 
-CRITICAL - READ ALL ASSISTANT RESPONSES CAREFULLY AND EXTRACT:
+EXTRACT FROM THE CONVERSATION:
 
-1. key_themes: List 3-5 SPECIFIC topics/subjects discussed in the analysis
-   GOOD EXAMPLES: "AI fraud detection innovations", "December 2025 coverage spike", "Neutral sentiment dominance in AI coverage", "Autonomous vehicle ML advances"
-   BAD EXAMPLES (DO NOT USE): "trend analysis", "sentiment distribution", "article coverage", "data analysis", "strategic implications"
+1. key_themes: List 3-5 SPECIFIC topics discussed
+   GOOD: "AI fraud detection", "December 2025 coverage spike", "autonomous vehicle safety"
+   BAD: "trend analysis", "data analysis", "strategic implications"
 
-2. main_findings: List 3-5 SPECIFIC facts, statistics, or conclusions from the conversation
-   GOOD EXAMPLES: "Coverage peaked December 4, 2025 with 233 articles", "54.1% of articles had neutral sentiment", "AI will accelerate vs evolve gradually split 297-297"
-   BAD EXAMPLES (DO NOT USE): "Analysis was conducted", "Multiple categories were identified", "Sentiment was analyzed"
+2. main_findings: List 3-5 of the MOST INTERESTING specific facts, numbers, or quotes from the articles
+   GOOD: "Coverage peaked December 4 with 233 articles", "67% of hospitals now use AI diagnostics", "Tesla's FSD drove 2 billion miles without intervention"
+   BAD: "Analysis was conducted", "Sentiment was analyzed", "Multiple sources covered this"
 
-3. sentiment_overview: What was the actual emotional tone of the coverage being analyzed?
+3. sentiment_overview: One sentence on the overall tone of the coverage
 
-4. recommendations: What actionable next steps were suggested?
+4. notable_quotes: 1-2 interesting direct quotes or statistics from the articles mentioned
 
-5. data_coverage: Extract actual numbers mentioned (articles count, time period, sources)
+5. data_coverage: Numbers mentioned (article count, time period, sources)
 
-IMPORTANT: Your response must be ONLY valid JSON, no other text.
+DO NOT add recommendations or advice. Just summarize what was found.
+
+IMPORTANT: Respond ONLY with valid JSON.
 
 {{
-    "key_themes": ["specific topic from discussion"],
-    "main_findings": ["specific fact or statistic mentioned"],
-    "sentiment_overview": "actual sentiment findings",
-    "recommendations": ["actionable recommendation"],
+    "key_themes": ["specific topic"],
+    "main_findings": ["interesting specific fact or number"],
+    "sentiment_overview": "brief sentiment summary",
+    "notable_quotes": ["interesting quote or statistic"],
     "data_coverage": {{
         "articles_discussed": <number>,
-        "time_period": "date range mentioned",
+        "time_period": "date range",
         "sources_mentioned": <number>
     }}
 }}
 
-CONVERSATION TO ANALYZE:
+CONVERSATION:
 {conversation_text}
 """
 
@@ -502,7 +504,7 @@ CONVERSATION TO ANALYZE:
         model = get_ai_model("gpt-4o-mini")
 
         response = model.generate_response([
-            {"role": "system", "content": "You are extracting key insights from an intelligence conversation. Extract SPECIFIC topics discussed (like 'AI fraud detection', 'December coverage spike') and SPECIFIC facts/statistics mentioned (like '233 articles on Dec 4', '54% neutral sentiment'). NEVER use generic phrases like 'trend analysis' or 'data analysis'. Respond only with valid JSON."},
+            {"role": "system", "content": "You summarize conversations by extracting the most INTERESTING and SPECIFIC datapoints. Find surprising numbers, notable quotes, and key facts. NEVER use generic phrases like 'analysis was conducted'. DO NOT add recommendations. Just summarize what was discussed. Respond only with valid JSON."},
             {"role": "user", "content": summary_prompt}
         ])
 
@@ -523,7 +525,7 @@ CONVERSATION TO ANALYZE:
                 "key_themes": [],
                 "main_findings": [response[:500]],
                 "sentiment_overview": "Analysis completed but structured extraction failed",
-                "recommendations": [],
+                "notable_quotes": [],
                 "data_coverage": {"articles_discussed": 0, "time_period": "unknown", "sources_mentioned": 0}
             }
 
