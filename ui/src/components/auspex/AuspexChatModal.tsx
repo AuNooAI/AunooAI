@@ -64,7 +64,6 @@ import {
   Trash2,
   Info,
   BarChart3,
-  Bookmark,
   Sparkles,
   PanelRightClose,
   PanelRightOpen,
@@ -76,6 +75,7 @@ import { cn } from '../ui/utils';
 import { AuspexChatMessages } from './AuspexChatMessages';
 import { AuspexChatInput, AuspexChatInputHandle } from './AuspexChatInput';
 import { AuspexToolsConfig } from './AuspexToolsConfig';
+import { InsightsPanel } from './InsightsPanel';
 import type { SampleSizeMode, SamplingStrategy, ResearchMode } from '../../hooks/useAuspexChat';
 
 interface Topic {
@@ -207,7 +207,7 @@ export function AuspexChatModal({
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [isToolsConfigOpen, setIsToolsConfigOpen] = useState(false);
   const [isToolSettingsOpen, setIsToolSettingsOpen] = useState(false);
-  const [rightPanelTab, setRightPanelTab] = useState<'insights' | 'saved' | 'charts'>('insights');
+  const [rightPanelTab, setRightPanelTab] = useState<'insights' | 'charts'>('insights');
   const [isMinimized, setIsMinimized] = useState(false);
   const chartRefs = useRef<Map<number, HTMLDivElement>>(new Map());
   const inputRef = useRef<AuspexChatInputHandle>(null);
@@ -318,9 +318,18 @@ export function AuspexChatModal({
   // State to track when chart containers are ready
   const [chartContainersReady, setChartContainersReady] = useState(0);
 
+  // Re-render charts when switching to charts tab
+  useEffect(() => {
+    if (rightPanelTab === 'charts' && allCharts.length > 0) {
+      // Clear existing refs and trigger re-render
+      chartRefs.current.clear();
+      setChartContainersReady(prev => prev + 1);
+    }
+  }, [rightPanelTab, allCharts.length]);
+
   // Render charts using Plotly - delayed to ensure DOM is ready
   useEffect(() => {
-    if (typeof window !== 'undefined' && (window as any).Plotly && allCharts.length > 0) {
+    if (typeof window !== 'undefined' && (window as any).Plotly && allCharts.length > 0 && rightPanelTab === 'charts') {
       // Small delay to ensure refs are set after JSX renders
       const timeoutId = setTimeout(() => {
         console.log('[Auspex] Rendering charts:', allCharts.length);
@@ -348,9 +357,31 @@ export function AuspexChatModal({
               const getColor = (label: string) =>
                 SENTIMENT_COLORS[label.toLowerCase()] || '#6b7280';
 
+              // Vibrant color palette for charts
+              const CHART_COLORS = [
+                '#3b82f6', // Blue
+                '#22c55e', // Green
+                '#f59e0b', // Amber
+                '#ef4444', // Red
+                '#8b5cf6', // Purple
+                '#ec4899', // Pink
+                '#14b8a6', // Teal
+                '#f97316', // Orange
+                '#6366f1', // Indigo
+                '#84cc16', // Lime
+              ];
+
               // Helper to enhance pie chart with consistent styling
               const enhancePieChart = (labels: string[], values: number[], title: string) => {
-                const colors = labels.map(getColor);
+                // Check if labels are sentiment-related (use sentiment colors) or general (use chart colors)
+                const isSentimentChart = labels.some(l =>
+                  ['positive', 'negative', 'neutral', 'mixed', 'critical'].includes((l || '').toLowerCase())
+                );
+
+                const colors = isSentimentChart
+                  ? labels.map(getColor)
+                  : labels.map((_, i) => CHART_COLORS[i % CHART_COLORS.length]);
+
                 const total = values.reduce((a, b) => a + b, 0);
                 const legendLabels = labels.map((label, i) => {
                   const pct = ((values[i] / total) * 100).toFixed(1);
@@ -375,6 +406,37 @@ export function AuspexChatModal({
                 };
               };
 
+              // Helper to enhance bar charts with colorful styling
+              const enhanceBarChart = (trace: any, title: string) => {
+                const isHorizontal = trace.orientation === 'h';
+                const values = isHorizontal ? trace.x : trace.y;
+                const labels = isHorizontal ? trace.y : trace.x;
+                const numBars = values?.length || 0;
+
+                // Generate colors for each bar
+                const colors = Array.from({ length: numBars }, (_, i) => CHART_COLORS[i % CHART_COLORS.length]);
+
+                // Calculate left margin based on longest label
+                let leftMargin = 20;
+                if (isHorizontal && labels) {
+                  const maxLabelLength = Math.max(...labels.map((l: any) => (l || '').toString().length));
+                  leftMargin = Math.min(Math.max(maxLabelLength * 7, 100), 200);
+                }
+
+                return {
+                  data: [{
+                    ...trace,
+                    marker: { color: colors }
+                  }],
+                  layout: {
+                    title: { text: title, font: { size: 11 }, y: 0.98, x: 0.5, xanchor: 'center' },
+                    margin: { t: 40, r: 20, b: 40, l: leftMargin },
+                    yaxis: isHorizontal ? { autorange: 'reversed', tickfont: { size: 9 } } : {},
+                    xaxis: { tickfont: { size: 9 } }
+                  }
+                };
+              };
+
               // Extract data based on format
               let rawData: any[] = [];
               let rawLayout: any = {};
@@ -391,12 +453,16 @@ export function AuspexChatModal({
                 rawData = chart.data.data;
                 rawLayout = chart.data.layout || {};
 
-                // Check if first trace is a pie chart - enhance it
+                // Check chart type and enhance accordingly
                 const firstTrace = rawData[0];
                 if (firstTrace?.type === 'pie' && firstTrace?.labels && firstTrace?.values) {
                   const enhanced = enhancePieChart(firstTrace.labels, firstTrace.values, chartTitle);
                   plotlyData = enhanced.data;
                   plotlyLayout = enhanced.layout;
+                } else if (firstTrace?.type === 'bar') {
+                  const enhanced = enhanceBarChart(firstTrace, chartTitle);
+                  plotlyData = enhanced.data;
+                  plotlyLayout = { ...rawLayout, ...enhanced.layout };
                 } else {
                   plotlyData = rawData;
                   plotlyLayout = rawLayout;
@@ -412,6 +478,10 @@ export function AuspexChatModal({
                   const enhanced = enhancePieChart(firstTrace.labels, firstTrace.values, chartTitle);
                   plotlyData = enhanced.data;
                   plotlyLayout = enhanced.layout;
+                } else if (firstTrace?.type === 'bar') {
+                  const enhanced = enhanceBarChart(firstTrace, chartTitle);
+                  plotlyData = enhanced.data;
+                  plotlyLayout = { ...rawLayout, ...enhanced.layout };
                 } else {
                   plotlyData = rawData;
                   plotlyLayout = rawLayout;
@@ -463,7 +533,7 @@ export function AuspexChatModal({
 
       return () => clearTimeout(timeoutId);
     }
-  }, [allCharts, chartContainersReady]);
+  }, [allCharts, chartContainersReady, rightPanelTab]);
 
   const handleExport = () => {
     const content = onExportChat();
@@ -942,18 +1012,6 @@ Sample size: ${stats.articles} articles`}
                         Insights
                       </button>
                       <button
-                        onClick={() => setRightPanelTab('saved')}
-                        className={cn(
-                          'px-3 py-2 text-xs font-medium transition-colors rounded-t',
-                          rightPanelTab === 'saved'
-                            ? 'bg-white dark:bg-gray-700 text-pink-600 dark:text-pink-400'
-                            : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-                        )}
-                      >
-                        <Bookmark className="w-4 h-4 mx-auto mb-0.5" />
-                        Saved
-                      </button>
-                      <button
                         onClick={() => setRightPanelTab('charts')}
                         className={cn(
                           'px-3 py-2 text-xs font-medium transition-colors rounded-t',
@@ -979,26 +1037,10 @@ Sample size: ${stats.articles} articles`}
                 {/* Panel Content */}
                 <div className="flex-1 overflow-y-auto p-4">
                   {rightPanelTab === 'insights' && (
-                    <div className="text-center py-8 text-gray-400">
-                      <Sparkles className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                      <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
-                        AI Insights
-                      </h3>
-                      <p className="text-xs text-gray-400">
-                        Insights from your conversation will appear here as you chat with Auspex
-                      </p>
-                    </div>
-                  )}
-                  {rightPanelTab === 'saved' && (
-                    <div className="text-center py-8 text-gray-400">
-                      <Bookmark className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                      <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
-                        Saved Items
-                      </h3>
-                      <p className="text-xs text-gray-400">
-                        Save important responses or findings for later reference
-                      </p>
-                    </div>
+                    <InsightsPanel
+                      messages={messages.map(m => ({ role: m.role, content: m.content }))}
+                      chatId={currentChatId}
+                    />
                   )}
                   {rightPanelTab === 'charts' && (
                     <div className="space-y-4">

@@ -2,11 +2,10 @@
  * AuspexChatMessages - Message display area for the chat
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Bot, User, Copy, Check, Loader2 } from 'lucide-react';
-import { useState } from 'react';
 import { cn } from '../ui/utils';
 
 interface Message {
@@ -144,8 +143,18 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-function MessageBubble({ message }: { message: Message }) {
+interface MessageBubbleProps {
+  message: Message;
+}
+
+function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === 'user';
+
+  const messageContent = message.content ? (
+    <MessageContent content={message.content} />
+  ) : message.isStreaming ? (
+    <span className="text-gray-400">...</span>
+  ) : null;
 
   return (
     <div
@@ -167,7 +176,7 @@ function MessageBubble({ message }: { message: Message }) {
       </div>
 
       {/* Content */}
-      <div className="flex-1 min-w-0 overflow-hidden">
+      <div className="flex-1 min-w-0 overflow-hidden select-text">
         <div className="flex items-center gap-2 mb-1">
           <span className="font-medium text-sm text-gray-900 dark:text-gray-100">
             {isUser ? 'You' : 'Auspex'}
@@ -183,11 +192,7 @@ function MessageBubble({ message }: { message: Message }) {
           )}
         </div>
         <div className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed">
-          {message.content ? (
-            <MessageContent content={message.content} />
-          ) : message.isStreaming ? (
-            <span className="text-gray-400">...</span>
-          ) : null}
+          {messageContent}
         </div>
       </div>
 
