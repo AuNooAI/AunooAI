@@ -373,3 +373,42 @@ export async function* startDeepResearch(params: DeepResearchParams): AsyncGener
     }
   }
 }
+
+// Chat Insights Types and API
+export interface ChatInsights {
+  key_themes: string[];
+  main_findings: string[];
+  sentiment_overview: string;
+  recommendations: string[];
+  data_coverage: {
+    articles_discussed: number;
+    time_period: string;
+    sources_mentioned: number;
+  };
+}
+
+export interface GenerateInsightsResponse {
+  insights: ChatInsights | null;
+  generated_at?: string;
+  message?: string;
+}
+
+export async function generateInsights(
+  chatId: number,
+  focus?: 'themes' | 'sentiment' | 'recommendations'
+): Promise<GenerateInsightsResponse> {
+  const response = await fetch(`${API_BASE}/chat/insights`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chat_id: chatId,
+      focus
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to generate insights: ${response.statusText}`);
+  }
+
+  return response.json();
+}

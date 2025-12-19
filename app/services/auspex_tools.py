@@ -681,7 +681,9 @@ Analyzing the {len(articles)} most recent articles
             # Analyze sentiment distribution
             sentiment_counts = {}
             for article in articles:
-                sentiment = article.get('sentiment', 'Unknown')
+                sentiment = article.get('sentiment') or 'Unknown'
+                if sentiment in (None, 'None', '', 'null'):
+                    sentiment = 'Unknown'
                 sentiment_counts[sentiment] = sentiment_counts.get(sentiment, 0) + 1
 
             total_articles = len(articles)
@@ -720,7 +722,9 @@ Analyzing the {len(articles)} most recent articles
             # Analyze category distribution
             category_counts = {}
             for article in articles:
-                category = article.get('category', 'Uncategorized')
+                category = article.get('category') or 'Uncategorized'
+                if category in (None, 'None', '', 'null'):
+                    category = 'Uncategorized'
                 category_counts[category] = category_counts.get(category, 0) + 1
 
             total_articles = len(articles)
@@ -954,7 +958,9 @@ Analyzing the {len(articles)} most recent articles
         """Analyze sentiment breakdown."""
         sentiment_counts = {}
         for article in articles:
-            sentiment = article.get('sentiment', 'Unknown')
+            sentiment = article.get('sentiment') or 'Unknown'
+            if sentiment in (None, 'None', '', 'null'):
+                sentiment = 'Unknown'
             sentiment_counts[sentiment] = sentiment_counts.get(sentiment, 0) + 1
         
         total = len(articles)

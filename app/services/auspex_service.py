@@ -1726,7 +1726,7 @@ CURRENT SESSION CONTEXT:
 - Topic: {topic_display}
 - Profile: {profile.get('name', 'None') if profile_id else 'None'}
 - Tools: {self._format_active_tools(tools_config)}
-- Charts: {'ENABLED - You can include chart visualizations (pie charts, bar charts, etc.) in your analysis when appropriate. Request charts by mentioning them in your response.' if include_charts else 'Not enabled'}
+- Charts: {'ENABLED - Charts are automatically generated in the Charts panel. Do NOT use markdown image syntax like ![name](url) in your response - just describe the data trends and findings in text. The system will generate interactive charts separately.' if include_charts else 'Not enabled'}
 - Focus: {'Cross-topic analysis using strategic foresight methodology' if is_cross_topic else f'Apply strategic foresight methodology specific to {topic_display}'} with organizational context"""
 
                 return {

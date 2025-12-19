@@ -4960,6 +4960,13 @@ class DatabaseQueryFacade:
         result = self._execute_with_rollback(query).mappings().fetchall()
         articles_list = [dict(row) for row in result]
 
+        # Normalize null/empty categories and sentiments
+        for article in articles_list:
+            if not article.get('category') or article.get('category') in ('None', 'null', ''):
+                article['category'] = 'Uncategorized'
+            if not article.get('sentiment') or article.get('sentiment') in ('None', 'null', ''):
+                article['sentiment'] = 'Unknown'
+
         return articles_list, total_count
 
     def get_recent_articles_by_topic(self, topic_name=None, limit=10, start_date=None, end_date=None):
@@ -5009,12 +5016,17 @@ class DatabaseQueryFacade:
         articles_list = [dict(row) for row in result]
         logger.info(f"Found {len(articles_list)} articles in database")
 
-        # Convert tags string back to list
+        # Convert tags string back to list and normalize null values
         for article in articles_list:
             if article['tags']:
                 article['tags'] = article['tags'].split(',')
             else:
                 article['tags'] = []
+            # Normalize null/empty categories and sentiments
+            if not article.get('category') or article.get('category') in ('None', 'null', ''):
+                article['category'] = 'Uncategorized'
+            if not article.get('sentiment') or article.get('sentiment') in ('None', 'null', ''):
+                article['sentiment'] = 'Unknown'
 
         return articles_list
 
