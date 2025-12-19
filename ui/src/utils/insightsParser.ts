@@ -273,3 +273,96 @@ export function formatNumber(num: number): string {
   }
   return num.toString();
 }
+
+/**
+ * Backend-computed article stats type (matches ArticleStats in auspexService.ts)
+ */
+export interface BackendArticleStats {
+  total_articles: number;
+  sentiment_breakdown: {
+    positive: number;
+    neutral: number;
+    negative: number;
+    mixed: number;
+    critical: number;
+  };
+  category_distribution: Record<string, number>;
+  source_distribution: Record<string, number>;
+  signal_distribution: Record<string, number>;
+  time_to_impact_distribution: Record<string, number>;
+  date_range: {
+    earliest: string | null;
+    latest: string | null;
+  };
+  top_sources: Array<{
+    name: string;
+    count: number;
+    sample_url?: string;
+  }>;
+}
+
+/**
+ * Extract backend-computed article stats from content
+ * Looks for <!-- ARTICLE_STATS:...:END_STATS --> markers
+ */
+export function extractArticleStats(content: string): BackendArticleStats | null {
+  const statsPattern = /<!-- ARTICLE_STATS:(.*?):END_STATS -->/s;
+  const match = content.match(statsPattern);
+
+  if (!match || !match[1]) {
+    return null;
+  }
+
+  try {
+    const statsJson = match[1].trim();
+    const stats = JSON.parse(statsJson) as BackendArticleStats;
+    return stats;
+  } catch (e) {
+    console.warn('Failed to parse article stats:', e);
+    return null;
+  }
+}
+
+/**
+ * Remove all special markers from content for display
+ * Removes: ARTICLE_STATS, CHART_DATA markers
+ */
+export function stripMarkers(content: string): string {
+  let cleaned = content;
+
+  // Remove article stats markers
+  cleaned = cleaned.replace(/<!-- ARTICLE_STATS:.*?:END_STATS -->\n*/gs, '');
+
+  // Remove chart data markers (but keep them - charts are processed separately)
+  // Note: Charts are handled by AuspexChatModal, we just clean the display
+  cleaned = cleaned.replace(/<!-- CHART_DATA:.*?:END_CHART -->\n*/gs, '');
+
+  // Trim leading/trailing whitespace
+  return cleaned.trim();
+}
+
+/**
+ * Convert backend article stats to the ConversationStats format for display
+ */
+export function backendStatsToConversationStats(backendStats: BackendArticleStats): ConversationStats {
+  return {
+    totalArticles: backendStats.total_articles,
+    sentimentBreakdown: {
+      positive: backendStats.sentiment_breakdown.positive,
+      neutral: backendStats.sentiment_breakdown.neutral,
+      negative: backendStats.sentiment_breakdown.negative,
+      mixed: backendStats.sentiment_breakdown.mixed
+    },
+    categoryDistribution: backendStats.category_distribution,
+    sourceCount: Object.keys(backendStats.source_distribution).length,
+    topSources: backendStats.top_sources.map(s => s.name),
+    sourceLinks: backendStats.top_sources
+      .filter(s => s.sample_url)
+      .map(s => ({
+        name: s.name,
+        url: s.sample_url!
+      })),
+    signalTypes: backendStats.signal_distribution,
+    timeToImpact: backendStats.time_to_impact_distribution
+  };
+}

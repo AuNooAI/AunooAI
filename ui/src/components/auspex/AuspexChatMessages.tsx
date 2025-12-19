@@ -2,11 +2,12 @@
  * AuspexChatMessages - Message display area for the chat
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Bot, User, Copy, Check, Loader2 } from 'lucide-react';
 import { cn } from '../ui/utils';
+import { stripMarkers } from '../../utils/insightsParser';
 
 interface Message {
   id: string;
@@ -22,6 +23,9 @@ interface AuspexChatMessagesProps {
 }
 
 function MessageContent({ content }: { content: string }) {
+  // Strip out special markers (ARTICLE_STATS, CHART_DATA) before rendering
+  const cleanContent = useMemo(() => stripMarkers(content), [content]);
+
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
@@ -109,7 +113,7 @@ function MessageContent({ content }: { content: string }) {
         ),
       }}
     >
-      {content}
+      {cleanContent}
     </ReactMarkdown>
   );
 }

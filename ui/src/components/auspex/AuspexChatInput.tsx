@@ -3,8 +3,9 @@
  */
 
 import { useState, useRef, useEffect, KeyboardEvent, forwardRef, useImperativeHandle } from 'react';
-import { Send, Bookmark, Loader2 } from 'lucide-react';
+import { Send, Bookmark, Loader2, Info } from 'lucide-react';
 import { cn } from '../ui/utils';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui/tooltip';
 
 interface AuspexChatInputProps {
   onSend: (message: string) => void;
@@ -154,8 +155,21 @@ export const AuspexChatInput = forwardRef<AuspexChatInputHandle, AuspexChatInput
       </div>
 
       {/* Help text */}
-      <p className="mt-2 text-xs text-gray-400">
+      <p className="mt-2 text-xs text-gray-400 flex items-center gap-1.5">
         Press Enter to send, Shift+Enter for new line
+        <TooltipProvider delayDuration={200}>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Info className="w-3.5 h-3.5 text-gray-500 hover:text-gray-300 cursor-help" />
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-xs">
+              <p className="font-medium mb-1">Query depth auto-detected:</p>
+              <p className="text-gray-400">• Quick: "Any news on AI?"</p>
+              <p className="text-gray-400">• Standard: "Summarize coverage on climate"</p>
+              <p className="text-gray-400">• Deep: "Analyze trends and implications"</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
       </p>
     </div>
   );

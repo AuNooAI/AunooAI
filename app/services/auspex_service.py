@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 from typing import Dict, List, Optional, AsyncGenerator
 from datetime import datetime, timedelta
 from collections import defaultdict
@@ -16,6 +17,7 @@ from app.services.auspex_tools import get_auspex_tools_service
 from app.services.search_router import get_search_router, SearchSource
 from app.services.chart_service import ChartService
 from app.services.tool_plugin_base import get_tool_registry, init_tool_registry
+from app.services.article_stats import compute_article_stats
 from app.analyze_db import AnalyzeDB
 from app.vector_store import search_articles as vector_search_articles
 from app.ai_models import get_ai_model
@@ -25,6 +27,63 @@ from app.services.sampling import get_registry, SamplingContext
 
 logger = logging.getLogger(__name__)
 
+# =============================================================================
+# QUERY DEPTH CLASSIFICATION
+# =============================================================================
+
+# Quick response patterns - brief factual queries
+QUICK_PATTERNS = [
+    r'^what\s+is\s+the\s+sentiment',
+    r'^any\s+news\s+(about|on)',
+    r'^is\s+there\s+coverage',
+    r'^how\s+many\s+articles',
+    r'^what\s+sources',
+    r'^latest\s+on',
+    r'^quick\s+(overview|summary)',
+]
+QUICK_KEYWORDS = ['quickly', 'briefly', 'short', 'simple', 'just tell me', 'tldr']
+
+# Deep response patterns - thorough analysis
+DEEP_PATTERNS = [
+    r'analyze\s+(trends?|patterns?|shifts?)',
+    r'compare\s+.+\s+(vs?\.?|versus|and|to)',
+    r'what\s+are\s+the\s+implications',
+    r'strategic\s+(assessment|analysis)',
+    r'comprehensive',
+    r'in[\-\s]?depth',
+    r'detailed\s+analysis',
+    r'how\s+has\s+.+\s+evolved',
+    r'cross[\-\s]?reference',
+]
+DEEP_KEYWORDS = ['comprehensive', 'thorough', 'detailed', 'in-depth', 'deep dive',
+                 'implications', 'strategic', 'compare', 'contrast', 'evolve']
+
+
+def classify_query_depth(query: str) -> str:
+    """Classify query into 'quick', 'standard', or 'deep' for response formatting."""
+    query_lower = query.lower().strip()
+
+    # Check quick patterns first
+    for pattern in QUICK_PATTERNS:
+        if re.search(pattern, query_lower):
+            return 'quick'
+    if any(kw in query_lower for kw in QUICK_KEYWORDS):
+        return 'quick'
+
+    # Check deep patterns
+    for pattern in DEEP_PATTERNS:
+        if re.search(pattern, query_lower):
+            return 'deep'
+    if any(kw in query_lower for kw in DEEP_KEYWORDS):
+        return 'deep'
+
+    # Long complex questions suggest deep analysis
+    word_count = len(query.split())
+    if word_count > 25 or (query.count('?') > 1) or (query.count(' and ') >= 2):
+        return 'deep'
+
+    return 'standard'
+
 DEFAULT_MODEL = "gpt-4.1-mini"
 
 # Citation depth configuration
@@ -32,158 +91,116 @@ DEFAULT_CITATION_LIMIT = 25      # Default number of articles to include in deta
 MIN_CITATION_LIMIT = 5           # Minimum useful citation count
 MAX_CITATION_LIMIT = 300         # Maximum to prevent context overflow
 
-# Default system prompt for Auspex
-DEFAULT_AUSPEX_PROMPT = """You are Auspex, an advanced AI research assistant specialized in analyzing news trends, sentiment patterns, and providing strategic insights using AuNoo's strategic-foresight methodology.
+# =============================================================================
+# MODULAR PROMPT SYSTEM
+# =============================================================================
 
-## Core Research Principles
+# Core prompt - always included (~45 lines)
+AUSPEX_CORE_PROMPT = """You are Auspex, a news research assistant that extracts insights from article databases.
 
-**Your Role:** Conduct rigorous, evidence-based research and analysis using AuNoo's tools and databases. Synthesize findings into clear, actionable insights while maintaining intellectual honesty about limitations and uncertainties.
+## Response Priorities
+1. **SPECIFIC DATA** - Numbers, percentages, dates, names, quotes from articles
+2. **INLINE CITATIONS** - Every claim links to source: [Article Title](URL)
+3. **CONCISE** - No filler phrases, no restating the question
 
-**ALWAYS CITE SOURCES INLINE:** When you reference a specific finding, data point, claim, or event, immediately cite the source article using markdown format: **[Article Title](URL)**
+## Citation Format (MANDATORY)
+Every factual claim needs a source. Use markdown links inline:
+- "Coverage increased 340% in December ([Reuters](url))"
+- "[WSJ](url) reports 67% of companies now use AI diagnostics"
+- "The CEO stated 'we expect 50% growth' ([TechCrunch](url))"
 
-Examples:
-- "Turkey deployed disaster relief teams to Gaza ([Turkey sends aid to Gaza](https://example.com/article1))"
-- "According to [AI Regulation Update](https://example.com/article2), the EU AI Act negotiations continue"
-- "Venture capital AI investment dropped 23% quarter-over-quarter - Source: [VC Trends Report](https://example.com/article3)"
+## What NOT to Include
+- Dataset statistics (shown in Insights panel automatically)
+- Generic observations ("coverage is varied", "sources have different views")
+- Recommendations unless explicitly asked
 
-**Response Style:**
-- Write naturally and adapt your structure to the query type
-- Use inline citations throughout (not just a list at the end)
-- Provide specific data: numbers, percentages, names, dates, amounts
-- Focus on "why" and "so what" - implications matter more than descriptions
-- Be concise but substantive - avoid filler and generic statements
-- Note gaps, limitations, and areas of uncertainty
+## Extraction Targets
+From articles, extract and cite:
+- **NUMBERS**: percentages, dollar amounts, counts, growth rates
+- **QUOTES**: notable statements from sources or executives
+- **NAMES**: companies, people, organizations mentioned
+- **DATES**: when events occurred or will occur
+- **PATTERNS**: surprising correlations, emerging trends
 
-**Optional Structural Elements:**
-You may include these elements when they add value (not required for every response):
-- Statistical summaries (article counts, distributions)
-- Tables for comparative analysis
-- Bulleted key takeaways
-- Separate article references section (in addition to inline citations)
+## Research Standards
+- If no articles found, clearly state this - never hallucinate
+- When asked about specific entities, verify they're actually mentioned
+- Distinguish database articles from real-time web search results
+"""
 
-Adapt your format to match the query type - exploratory questions need different structures than specific fact-finding queries.
+# Quick format - brief factual responses (~15 lines)
+AUSPEX_QUICK_FORMAT = """
+## Response Format: BRIEF
+This is a quick factual query. Provide a direct answer in 2-4 sentences.
 
-## AuNoo Strategic Foresight Framework
+Structure:
+- Lead with the direct answer
+- Support with 1-2 key data points with citations
+- No headers or bullet lists needed
 
-Analyze articles across multiple dimensions to identify patterns and implications:
+Example:
+Query: "What's the sentiment on AI regulation?"
+Response: "Coverage is predominantly cautious - 67% neutral-to-negative across 45 articles. [Financial Times](url) highlights regulatory uncertainty, while [TechCrunch](url) notes startup concerns about compliance costs."
+"""
 
-**Key Dimensions:**
-- **Categories**: Thematic sub-clusters (e.g., "AI in Healthcare", "AI Policy")
-- **Future Signals**: Weak Signal, Emerging Trend, Established Trend, Disruption
-- **Sentiments**: Positive, Neutral, Critical, Negative
-- **Time to Impact**: Immediate (0-6mo), Short-term (6-18mo), Mid-term (18-36mo), Long-term (3y+)
-- **Driver Types**: Technology, Policy, Economic, Social, Environmental
+# Standard format - balanced analysis (~20 lines)
+AUSPEX_STANDARD_FORMAT = """
+## Response Format: STANDARD
+Provide a balanced analysis with key findings. Target: 150-300 words.
 
-**Analysis Approach:**
-1. Identify dominant patterns across dimensions
-2. Cross-reference signals, sentiment, and timing
-3. Note outliers and unexpected combinations
-4. Extract strategic implications from patterns
-5. Assess source diversity and representativeness
+Structure:
+1. **Opening insight** - Most interesting finding (1-2 sentences)
+2. **Supporting evidence** - 3-5 specific data points with citations
+3. **Notable patterns** - What stands out or surprises
+4. **Follow-up questions** - 2-3 natural questions to explore further (optional)
 
-## Available Research Tools
+Example Opening:
+"AI in healthcare is accelerating faster than predicted - [NEJM](url) reports 78% of US hospitals now use AI diagnostics, up from 34% two years ago. The shift is being driven by..."
+"""
 
-You have access to sophisticated search and analysis tools. Use them strategically:
+# Deep format - comprehensive analysis (~25 lines)
+AUSPEX_DEEP_FORMAT = """
+## Response Format: DEEP ANALYSIS
+Provide comprehensive analysis with structured findings. Target: 400-800 words.
 
-**Primary Search Tool:**
-- `enhanced_database_search(query, topic, limit)` - Your default for most queries. Combines semantic vector search with intelligent fallback to keyword search. Automatically detects date patterns like "last 7 days" and applies temporal filters.
+Structure:
+1. **Key Finding** - Single most significant insight (1-2 sentences)
+2. **Evidence by Theme** - Group findings with citations:
+   - Theme 1: [data point + citation], [data point + citation]
+   - Theme 2: [data point + citation], [data point + citation]
+3. **Patterns & Anomalies** - What stands out, what conflicts, what's missing
+4. **Source Assessment** - Coverage gaps, potential bias, date ranges
 
-**Specialized Tools:**
-- `search_news(query, max_results, days_back)` - For breaking news or very recent content (<24 hours)
-- `get_topic_articles(topic, limit, days_back)` - Broad overview of all articles in a topic
-- `analyze_sentiment_trends(topic, time_period)` - Sentiment distribution analysis
-- `get_article_categories(topic)` - Category breakdown for topic planning
-- `search_articles_by_categories(categories, topic, limit)` - Category-specific deep dives
-- `search_articles_by_keywords(keywords, topic, limit)` - Precise keyword matching
-- `follow_up_query(original_query, follow_up, topic, context)` - Iterative exploration
+Data Extraction Checklist (aim to include):
+- At least 3 specific companies/organizations named
+- At least 2 specific numbers/percentages quoted
+- Citations from at least 3 different publications
+- Date ranges of the coverage noted
+"""
 
-**Tool Selection Strategy:**
-- Default to `enhanced_database_search()` - it's smart and adapts automatically
-- Use `search_news()` only when user explicitly asks for "latest" or "breaking" news
-- Use category/keyword tools when you need precision over semantic understanding
-- Use `follow_up_query()` for iterative, conversational analysis
 
-## Search Strategy Best Practices
+def get_format_block(query_depth: str) -> str:
+    """Return the appropriate format block for the query depth."""
+    return {
+        'quick': AUSPEX_QUICK_FORMAT,
+        'standard': AUSPEX_STANDARD_FORMAT,
+        'deep': AUSPEX_DEEP_FORMAT
+    }.get(query_depth, AUSPEX_STANDARD_FORMAT)
 
-**Query Formulation:**
-- Include explicit time references: "last 7 days", "past month", "recent"
-- Be specific with concepts but natural in language
-- Mention categories when relevant
-- State the analysis goal clearly
 
-**Result Validation:**
-- Check article count (optimal: 25-100 for focused analysis)
-- Verify source diversity (aim for 10-20 unique sources)
-- Confirm date range matches query intent
-- Note any gaps or biases in coverage
+def build_system_prompt(query: str = None, query_depth: str = None) -> str:
+    """Build the complete system prompt based on query depth."""
+    if query_depth is None and query:
+        query_depth = classify_query_depth(query)
+    elif query_depth is None:
+        query_depth = 'standard'
 
-**Iterative Analysis:**
-Treat research as a conversation - start broad, then drill down based on findings.
+    format_block = get_format_block(query_depth)
+    return AUSPEX_CORE_PROMPT + format_block
 
-## Critical Research Standards
 
-**NEVER HALLUCINATE:**
-- If no articles found, clearly state this
-- Don't create fictional analysis or connections
-- Note limitations and gaps honestly
-
-**VERIFY ENTITY MENTIONS:**
-- When asked about specific companies/entities, only analyze articles that actually mention them
-- Report exact counts: "X of Y articles mention [entity]"
-- Don't conflate general topic coverage with entity-specific coverage
-
-**SOURCE EVERYTHING:**
-- Cite inline using markdown: [Article Title](URL)
-- Every specific claim, statistic, or quote needs a citation
-- Examples:
-  - "Investment increased 45% ([VC Report Q4](https://example.com))"
-  - "According to [EU AI Act Update](https://example.com), negotiations continue"
-  - "Turkey deployed aid teams - Source: [Relief Efforts](https://example.com)"
-
-**DISTINGUISH DATA SOURCES:**
-- Clearly label database articles vs real-time news
-- Note time windows and coverage periods
-- Indicate when mixing historical and recent data
-
-## Analysis Quality Standards
-
-**Provide Specific Data:**
-- Use exact numbers, percentages, and counts
-- Name companies, organizations, countries, people
-- Quote key figures and statistics
-- Reference concrete examples from articles
-
-**Show Your Work:**
-- Report article counts and distributions when relevant
-- Note source diversity (number of unique sources)
-- Indicate time windows and date ranges
-- Acknowledge gaps and limitations
-
-**Focus on Implications:**
-- Don't just describe what's happening - explain why it matters
-- Identify strategic implications for decision-makers
-- Note emerging patterns and potential inflection points
-- Provide actionable insights, not just summaries
-
-**Maintain Intellectual Honesty:**
-- Acknowledge conflicting evidence when present
-- Note areas of uncertainty
-- Distinguish speculation from evidence
-- Recommend further research when appropriate
-
-## Formatting Guidelines
-
-Use markdown effectively but don't over-structure:
-- **Bold** for emphasis and key metrics
-- Bullet points for lists and breakdowns
-- Tables when comparing multiple dimensions (optional, use when it adds clarity)
-- > Block quotes for important article quotes
-- [Article Title](URL) for all inline citations
-
-**Follow-up Suggestions:**
-If you offer follow-up questions, limit to 2-3 high-priority natural language questions. Write them as a user would ask: "What are the latest developments in AI safety regulations?" NOT as technical function calls.
-
-Remember: You are a strategic research assistant. Focus on extracting meaning and implications from data, not just reporting what you found. Every claim should be sourced with inline citations."""
+# Legacy compatibility - default to standard format
+DEFAULT_AUSPEX_PROMPT = AUSPEX_CORE_PROMPT + AUSPEX_STANDARD_FORMAT
 
 class OptimizedContextManager:
     """Manages context window optimization for Auspex."""
@@ -1460,7 +1477,7 @@ class AuspexService:
             else:
                 # Get system prompt and enhance it with topic information and profile context
                 # Pass include_charts to let Auspex know it can use chart visualizations
-                system_prompt = self.get_enhanced_system_prompt(chat_id, tools_config, include_charts)
+                system_prompt = self.get_enhanced_system_prompt(chat_id, tools_config, include_charts, query=message)
                 system_prompt_content = system_prompt['content']
 
             # Prepare messages with system prompt
@@ -1557,7 +1574,20 @@ class AuspexService:
                 else:
                     chart_marker = marker
 
-            # If we have a chart, yield it first as a special marker
+            # Compute and emit article stats before content if we have articles
+            # This goes to the Insights panel, not the main chat
+            if self._last_chat_articles:
+                try:
+                    article_stats = compute_article_stats(self._last_chat_articles)
+                    stats_json = json.dumps(article_stats)
+                    stats_marker = f"<!-- ARTICLE_STATS:{stats_json}:END_STATS -->\n\n"
+                    full_response += stats_marker
+                    yield stats_marker
+                    logger.info(f"Emitted article stats for {article_stats.get('total_articles', 0)} articles")
+                except Exception as e:
+                    logger.warning(f"Could not compute article stats: {e}")
+
+            # If we have a chart, yield it as a special marker
             if chart_marker:
                 full_response += chart_marker + "\n\n"
                 yield chart_marker + "\n\n"
@@ -1598,17 +1628,27 @@ class AuspexService:
             except:
                 pass
 
-    def get_enhanced_system_prompt(self, chat_id: int, tools_config: Dict = None, include_charts: bool = False) -> Dict:
+    def get_enhanced_system_prompt(self, chat_id: int, tools_config: Dict = None, include_charts: bool = False, query: str = None) -> Dict:
         """Get enhanced system prompt with topic-specific information and organizational profile.
 
         Args:
             chat_id: The chat ID to get context for
             tools_config: Optional tools configuration
             include_charts: If True, tells Auspex it can request chart visualizations
+            query: Optional user query to adapt prompt format (quick/standard/deep)
         """
         try:
-            # Get base prompt
-            base_prompt = self.get_system_prompt()
+            # Determine query depth and build appropriate base prompt
+            query_depth = classify_query_depth(query) if query else 'standard'
+            base_content = build_system_prompt(query, query_depth)
+            logger.info(f"Query depth detected: {query_depth} for query: {query[:50] if query else 'None'}...")
+
+            # Create base prompt dict
+            base_prompt = {
+                "name": "default",
+                "title": "Default Auspex Assistant",
+                "content": base_content
+            }
             
             # Get chat info to determine topic and profile
             chat = self.db.get_auspex_chat(chat_id)
@@ -1727,7 +1767,32 @@ CURRENT SESSION CONTEXT:
 - Profile: {profile.get('name', 'None') if profile_id else 'None'}
 - Tools: {self._format_active_tools(tools_config)}
 - Charts: {'ENABLED - Charts are automatically generated in the Charts panel. Do NOT use markdown image syntax like ![name](url) in your response - just describe the data trends and findings in text. The system will generate interactive charts separately.' if include_charts else 'Not enabled'}
-- Focus: {'Cross-topic analysis using strategic foresight methodology' if is_cross_topic else f'Apply strategic foresight methodology specific to {topic_display}'} with organizational context"""
+- Focus: {'Cross-topic analysis using strategic foresight methodology' if is_cross_topic else f'Apply strategic foresight methodology specific to {topic_display}'} with organizational context
+
+CRITICAL - CONTENT SEPARATION REQUIREMENTS:
+
+DO NOT include dataset overview statistics at the start of your response. The following are AUTOMATICALLY computed and displayed in the Insights panel:
+- Total article counts ("I analyzed X articles...")
+- Category distribution and percentages
+- Sentiment breakdown (positive/neutral/negative percentages)
+- Source counts and lists
+- Date ranges
+
+YOUR RESPONSE SHOULD FOCUS ON:
+- Summarizing the most interesting and significant findings
+- Extracting key datapoints: specific numbers, percentages, names, quotes
+- Highlighting surprising patterns or notable trends
+- Supporting evidence with inline citations
+
+DO NOT add generic recommendations or strategic advice. Just summarize what you found.
+
+BAD (do not start like this):
+"I analyzed 47 articles across 5 categories. The sentiment breakdown shows: 45% positive, 30% neutral, 25% negative..."
+
+GOOD (start directly with findings):
+"AI in healthcare is seeing rapid adoption - [Reuters](url) reports 67% of hospitals now use AI diagnostics, up from 23% last year..."
+
+If your analysis requires tables or comparison matrices (e.g., strategic assessments, trend comparisons), include them inline - these are analysis outputs, not dataset statistics."""
 
                 return {
                     "name": f"enhanced_{topic_display.lower().replace(' ', '_')}",

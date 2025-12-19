@@ -4,24 +4,28 @@
 
 import { useState, useMemo } from 'react';
 import { Sparkles, RefreshCw, BarChart2, Lightbulb, TrendingUp, AlertCircle, ExternalLink, Copy, Check, Download } from 'lucide-react';
-import { parseConversationStats, hasEnoughContent, formatNumber, type ConversationStats } from '../../utils/insightsParser';
+import { parseConversationStats, hasEnoughContent, formatNumber, backendStatsToConversationStats, type ConversationStats, type BackendArticleStats } from '../../utils/insightsParser';
 import { generateInsights, type ChatInsights } from '../../services/auspexService';
 
 interface InsightsPanelProps {
   messages: Array<{ role: string; content: string }>;
   chatId: number | null;
+  backendArticleStats?: BackendArticleStats | null;
 }
 
-export function InsightsPanel({ messages, chatId }: InsightsPanelProps) {
+export function InsightsPanel({ messages, chatId, backendArticleStats }: InsightsPanelProps) {
   const [aiInsights, setAiInsights] = useState<ChatInsights | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copiedLinks, setCopiedLinks] = useState(false);
 
-  // Auto-compute stats from messages
+  // Use backend stats if available, otherwise parse from messages
   const stats = useMemo<ConversationStats>(() => {
+    if (backendArticleStats) {
+      return backendStatsToConversationStats(backendArticleStats);
+    }
     return parseConversationStats(messages);
-  }, [messages]);
+  }, [backendArticleStats, messages]);
 
   const hasContent = hasEnoughContent(messages);
 
@@ -74,13 +78,12 @@ export function InsightsPanel({ messages, chatId }: InsightsPanelProps) {
       markdown += `${aiInsights.sentiment_overview}\n\n`;
     }
 
-    // Recommendations
-    if (aiInsights.recommendations && aiInsights.recommendations.length > 0) {
-      markdown += `## Recommendations\n\n`;
-      aiInsights.recommendations.forEach(rec => {
-        markdown += `- ${rec}\n`;
+    // Notable Quotes/Datapoints
+    if (aiInsights.notable_quotes && aiInsights.notable_quotes.length > 0) {
+      markdown += `## Notable Datapoints\n\n`;
+      aiInsights.notable_quotes.forEach(quote => {
+        markdown += `> "${quote}"\n\n`;
       });
-      markdown += `\n`;
     }
 
     // Data Coverage
@@ -353,13 +356,13 @@ export function InsightsPanel({ messages, chatId }: InsightsPanelProps) {
               </div>
             )}
 
-            {/* Recommendations */}
-            {aiInsights.recommendations && aiInsights.recommendations.length > 0 && (
+            {/* Notable Quotes */}
+            {aiInsights.notable_quotes && aiInsights.notable_quotes.length > 0 && (
               <div>
-                <h5 className="text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Recommendations</h5>
-                <ul className="list-disc list-inside text-gray-600 dark:text-gray-400 text-xs space-y-0.5">
-                  {aiInsights.recommendations.slice(0, 3).map((rec, i) => (
-                    <li key={i} className="leading-tight">{rec}</li>
+                <h5 className="text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Notable Datapoints</h5>
+                <ul className="text-gray-600 dark:text-gray-400 text-xs space-y-1">
+                  {aiInsights.notable_quotes.slice(0, 3).map((quote, i) => (
+                    <li key={i} className="leading-tight italic border-l-2 border-pink-300 pl-2">"{quote}"</li>
                   ))}
                 </ul>
               </div>

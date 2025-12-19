@@ -41,7 +41,7 @@ export function AuspexChat({ buttonClassName }: AuspexChatProps) {
     sessions,
     messages,
     pluginTools,
-    savedSnippets,
+    backendArticleStats,
 
     // Selection state
     selectedTopic,
@@ -83,10 +83,6 @@ export function AuspexChat({ buttonClassName }: AuspexChatProps) {
     sendMessage,
     clearMessages,
     exportChat,
-
-    // Snippet actions
-    saveTextSnippet,
-    removeSnippet,
 
     // Utility
     clearError,
@@ -181,9 +177,7 @@ export function AuspexChat({ buttonClassName }: AuspexChatProps) {
         onClearAllSessions={clearAllSessions}
         onExportChat={exportChat}
         contextStats={contextStats}
-        savedSnippets={savedSnippets}
-        onSaveSnippet={saveTextSnippet}
-        onDeleteSnippet={removeSnippet}
+        backendArticleStats={backendArticleStats}
       />
     </>
   );
