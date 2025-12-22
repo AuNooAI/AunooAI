@@ -1917,10 +1917,10 @@ function App() {
 
                   {/* Key Insights from Evidence Synthesis */}
                   {data.key_insights && data.key_insights.length > 0 && (
-                    <div className="mt-8 bg-cyan-50 border border-cyan-200 rounded-xl p-6">
+                    <div className="mt-8 bg-cyan-50 dark:bg-cyan-900/30 border border-cyan-200 dark:border-cyan-800 rounded-xl p-6">
                       <div className="flex items-center gap-2 mb-4">
-                        <FileText className="w-5 h-5 text-cyan-600" />
-                        <h2 className="text-xl font-bold">Key Insights from Evidence Synthesis</h2>
+                        <FileText className="w-5 h-5 text-cyan-600 dark:text-cyan-400" />
+                        <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Key Insights from Evidence Synthesis</h2>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         {data.key_insights.map((insight, idx) => {
@@ -1931,10 +1931,10 @@ function App() {
                             <div key={idx} className="flex gap-3">
                               <div className={`w-3 h-3 ${dotColor} rounded-full mt-1 shrink-0`}></div>
                               <div className="flex-1">
-                                <div className="text-sm font-semibold text-gray-950 mb-1">
+                                <div className="text-sm font-semibold text-gray-950 dark:text-gray-100 mb-1">
                                   {typeof insight === 'string' ? insight : insight.quote || insight.insight}
                                 </div>
-                                <div className="text-xs text-gray-700 mb-2">
+                                <div className="text-xs text-gray-700 dark:text-gray-300 mb-2">
                                   {typeof insight === 'string' ? '' : insight.relevance || insight.source || ''}
                                 </div>
                                 {/* Article Citations for Key Insight (supports both single and multiple citations) */}
@@ -1949,7 +1949,7 @@ function App() {
                                   if (citationList.length === 0) return null;
 
                                   return (
-                                    <div className="text-xs mt-1 pt-1 border-t border-gray-300">
+                                    <div className="text-xs mt-1 pt-1 border-t border-gray-300 dark:border-gray-600">
                                       <div className="space-y-1">
                                         {citationList.map((citation: any, idx: number) => (
                                           <a
@@ -1957,7 +1957,7 @@ function App() {
                                             href={citation.url}
                                             target="_blank"
                                             rel="noopener noreferrer"
-                                            className="text-cyan-700 hover:underline flex items-center gap-1"
+                                            className="text-cyan-700 dark:text-cyan-400 hover:underline flex items-center gap-1"
                                           >
                                             <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
@@ -2349,10 +2349,10 @@ function App() {
 
                   {/* Key Insights from Evidence Synthesis */}
                   {data.key_insights && data.key_insights.length > 0 && (
-                    <div className="mt-8 bg-cyan-50 border border-cyan-200 rounded-xl p-6">
+                    <div className="mt-8 bg-cyan-50 dark:bg-cyan-900/30 border border-cyan-200 dark:border-cyan-800 rounded-xl p-6">
                       <div className="flex items-center gap-2 mb-4">
-                        <FileText className="w-5 h-5 text-cyan-600" />
-                        <h2 className="text-xl font-bold">Key Insights from Evidence Synthesis</h2>
+                        <FileText className="w-5 h-5 text-cyan-600 dark:text-cyan-400" />
+                        <h2 className="text-xl font-bold text-gray-900 dark:text-gray-100">Key Insights from Evidence Synthesis</h2>
                       </div>
                       <div className="grid grid-cols-2 gap-4">
                         {data.key_insights.map((insight, idx) => {
@@ -2363,10 +2363,10 @@ function App() {
                             <div key={idx} className="flex gap-3">
                               <div className={`w-3 h-3 ${dotColor} rounded-full mt-1 shrink-0`}></div>
                               <div>
-                                <div className="text-sm font-semibold text-gray-950 mb-1">
+                                <div className="text-sm font-semibold text-gray-950 dark:text-gray-100 mb-1">
                                   {typeof insight === 'string' ? insight : insight.quote || insight.insight}
                                 </div>
-                                <div className="text-xs text-gray-700">
+                                <div className="text-xs text-gray-700 dark:text-gray-300">
                                   {typeof insight === 'string' ? '' : insight.relevance || insight.source || ''}
                                 </div>
                               </div>
