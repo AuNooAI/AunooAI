@@ -108,14 +108,14 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
 
     // Distribute cards within their type group to prevent overlap
     // Spread them across the X axis more aggressively
-    const spreadFactor = totalInType > 1 ? (typeIndex / (totalInType - 1) - 0.5) * 40 : 0;
+    const spreadFactor = totalInType > 1 ? (typeIndex / (totalInType - 1) - 0.5) * 55 : 0;
     const x = Math.min(92, Math.max(8, baseX + spreadFactor));
 
     // Get Y position on the curve for this X
     let y = getYOnCurve(x, scenario.type);
 
     // Add alternating vertical offset to prevent overlap
-    const verticalOffset = (typeIndex % 3 - 1) * 8;
+    const verticalOffset = (typeIndex % 3 - 1) * 12;
     y += verticalOffset;
 
     return { x, y };
@@ -371,8 +371,8 @@ export function FutureHorizons({ scenarios, articleList = [] }: FutureHorizonsPr
                 onClick={() => setSelectedScenario(scenario)}
               >
                 {/* Small card with title */}
-                <div className={`${bgColor} border-2 ${borderColor} rounded px-2 py-1 shadow-md hover:shadow-xl transition-all max-w-[140px]`}>
-                  <div className="text-[9px] font-bold text-gray-900 dark:text-gray-100 leading-tight line-clamp-2">
+                <div className={`${bgColor} border-2 ${borderColor} rounded px-2 py-1 shadow-md hover:shadow-xl transition-all max-w-[160px]`}>
+                  <div className="text-[9px] font-bold text-gray-900 dark:text-gray-100 leading-tight">
                     {scenario.title}
                   </div>
                 </div>
