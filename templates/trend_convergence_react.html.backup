@@ -12,7 +12,7 @@
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <!-- React App CSS -->
-    <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/index-BIz29lmN.css">
+    <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/index-DuOBzKdd.css">
     <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/main-6AneiG_Z.css">
     <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/pam-DYSXyrHV.css">
     <link rel="stylesheet" crossorigin href="/static/trend-convergence/assets/NotificationBell-DTIM0IR6.css">
@@ -28,8 +28,8 @@
         {% endif %}
       };
     </script>
-    <script type="module" crossorigin src="/static/trend-convergence/assets/main-QY5x0VNP.js"></script>
-    <link rel="modulepreload" crossorigin href="/static/trend-convergence/assets/index-DwozOKH2.js">
+    <script type="module" crossorigin src="/static/trend-convergence/assets/main-76H9cxqH.js"></script>
+    <link rel="modulepreload" crossorigin href="/static/trend-convergence/assets/index-C-ugEiII.js">
   </head>
 
   <body>
