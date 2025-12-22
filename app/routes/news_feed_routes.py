@@ -574,7 +574,12 @@ async def get_six_articles_config(
     Returns user-specific config or defaults if none exists
     """
     try:
-        username = session.get("user")
+        # Extract username from session (handles both nested and OAuth formats)
+        user = session.get("user")
+        if user and isinstance(user, dict):
+            username = user.get("username")
+        else:
+            username = user
 
         # Try to load user-specific config from database
         config = db.facade.get_six_articles_config(username)
@@ -628,7 +633,12 @@ async def save_six_articles_config(
     Stored per-user in database
     """
     try:
-        username = session.get("user")
+        # Extract username from session (handles both nested and OAuth formats)
+        user = session.get("user")
+        if user and isinstance(user, dict):
+            username = user.get("username")
+        else:
+            username = user
 
         # Validate config structure
         if "personas" in config:
