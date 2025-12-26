@@ -12,6 +12,8 @@ class ArxivCollector(ArticleCollector):
     
     def __init__(self):
         self.client = arxiv.Client()
+        # Track API requests for compatibility with keyword monitor/status UI
+        self.requests_today = 0
         # Mapping of our topics to arXiv categories
         self.topic_category_mapping = {
             "AI and Machine Learning": [
@@ -131,6 +133,9 @@ class ArxivCollector(ArticleCollector):
                 sort_by=sort_criterion
             )
 
+            # Count this as a single API usage for status tracking
+            self.requests_today += 1
+
             results = []
             for result in self.client.results(search):
                 article = {
@@ -172,6 +177,8 @@ class ArxivCollector(ArticleCollector):
             search = arxiv.Search(id_list=[arxiv_id])
             
             # Replace async for with getting first result
+            # Count this lookup as an API usage
+            self.requests_today += 1
             results = list(self.client.results(search))
             if results:
                 result = results[0]
