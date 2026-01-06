@@ -508,6 +508,13 @@ function App() {
     }
   }, [config.topic]);
 
+  // Sync Configure modal timeframe with Executive Briefing days back
+  useEffect(() => {
+    if (config.timeframe_days > 0) {
+      setEbDaysBack(config.timeframe_days);
+    }
+  }, [config.timeframe_days]);
+
   // Saved Dashboards handlers
   async function loadSavedDashboardsForTopic(topic: string, autoLoad: boolean = false) {
     try {
@@ -880,6 +887,7 @@ function App() {
                           <SelectValue placeholder="Cloud Repatriation" />
                         </SelectTrigger>
                         <SelectContent>
+                          <SelectItem value="__all__">ALL Topics</SelectItem>
                           {topics.map((topic) => (
                             <SelectItem key={topic.name} value={topic.name}>
                               {topic.display_name}
@@ -900,11 +908,13 @@ function App() {
                           <SelectValue placeholder="All Time" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="0">All Time</SelectItem>
+                          <SelectItem value="1">Last 24 hours</SelectItem>
+                          <SelectItem value="7">Last 7 days</SelectItem>
                           <SelectItem value="30">Last 30 days</SelectItem>
                           <SelectItem value="90">Last 90 days</SelectItem>
                           <SelectItem value="180">Last 180 days</SelectItem>
                           <SelectItem value="365">Last year</SelectItem>
+                          <SelectItem value="0">All Time</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
@@ -1066,6 +1076,7 @@ function App() {
                   <SelectValue placeholder="Select Topic" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="__all__">ALL Topics</SelectItem>
                   {allTopics.map((topic) => (
                     <SelectItem key={topic} value={topic}>
                       {topic}
@@ -1181,7 +1192,7 @@ function App() {
                     });
                   } else if (activeTab === 'executive-briefing') {
                     executiveBriefing.startGeneration({
-                      topic: config.topic || '',
+                      topic: config.topic === '__all__' ? '' : (config.topic || ''),
                       persona: ebPersona,
                       article_count: ebArticleCount,
                       days_back: ebDaysBack,

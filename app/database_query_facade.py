@@ -564,6 +564,19 @@ class DatabaseQueryFacade:
         # Import raw_articles table for LEFT JOIN
         from app.database_models import t_raw_articles as raw_articles_table
 
+        # Build base conditions
+        conditions = [
+            # NOTE: publication_date is TEXT, use strftime() to match DB format
+            articles.c.publication_date >= start_date.strftime('%Y-%m-%d'),
+            articles.c.publication_date <= end_date.strftime('%Y-%m-%d %H:%M:%S'),
+            articles.c.summary != '',
+            articles.c.summary != None,
+        ]
+
+        # Only filter by topic if one is specified (not None, empty, or "__all__")
+        if topic and topic != "__all__":
+            conditions.append(articles.c.topic == topic)
+
         statement = select(
             articles.c.title,
             articles.c.summary,
@@ -580,16 +593,7 @@ class DatabaseQueryFacade:
                 raw_articles_table,
                 articles.c.uri == raw_articles_table.c.uri
             )
-        ).where(
-            and_(
-                articles.c.topic == topic,
-                # NOTE: publication_date is TEXT, use strftime() to match DB format
-                articles.c.publication_date >= start_date.strftime('%Y-%m-%d'),
-                articles.c.publication_date <= end_date.strftime('%Y-%m-%d %H:%M:%S'),
-                articles.c.summary != '',
-                articles.c.summary != None,
-            )
-        )
+        ).where(and_(*conditions))
         if consistency_mode in [ConsistencyMode.DETERMINISTIC, ConsistencyMode.LOW_VARIANCE]:
             statement = statement.order_by(articles.c.publication_date.desc(), articles.c.title.asc())
         else:
@@ -2171,15 +2175,18 @@ class DatabaseQueryFacade:
         start_str = start_date.isoformat() if hasattr(start_date, 'isoformat') else str(start_date)
         end_str = end_date.isoformat() if hasattr(end_date, 'isoformat') else str(end_date)
 
-        statement = select(
-            articles
-        ).where(
-            articles.c.topic == topic,
+        # Build base query with date filters
+        statement = select(articles).where(
             articles.c.publication_date >= start_str,
             articles.c.publication_date <= end_str
-        ).order_by(
-            articles.c.publication_date.desc()
         )
+
+        # Only filter by topic if one is specified (not None, empty, or "__all__")
+        if topic and topic != "__all__":
+            statement = statement.where(articles.c.topic == topic)
+
+        statement = statement.order_by(articles.c.publication_date.desc())
+
         if limit:
             statement = statement.limit(limit)
 
