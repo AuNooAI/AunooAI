@@ -869,14 +869,18 @@ export function ExecutiveBriefing({
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700">Days Back</label>
-                <input
-                  type="number"
-                  value={daysBack}
-                  onChange={(e) => onDaysBackChange(Number(e.target.value))}
-                  min={1}
-                  max={90}
-                  className="mt-1 w-full px-3 py-2 border rounded-md text-sm"
-                />
+                <Select value={daysBack.toString()} onValueChange={(v) => onDaysBackChange(parseInt(v))}>
+                  <SelectTrigger className="mt-1 w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">Last 24 hours</SelectItem>
+                    <SelectItem value="7">Last 7 days</SelectItem>
+                    <SelectItem value="30">Last 30 days</SelectItem>
+                    <SelectItem value="60">Last 60 days</SelectItem>
+                    <SelectItem value="90">Last 90 days</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
