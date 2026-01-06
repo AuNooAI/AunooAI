@@ -46,6 +46,25 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
         
         # Set the provider-level API key (same key works for all models from that provider)
         if provider == "openai":
+            # Test OpenAI key by listing models
+            try:
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                    async with session.get(
+                        "https://api.openai.com/v1/models",
+                        headers={"Authorization": f"Bearer {api_key}"}
+                    ) as resp:
+                        if resp.status == 401:
+                            raise HTTPException(status_code=400, detail="Invalid OpenAI API key")
+                        elif resp.status != 200:
+                            error_data = await resp.json()
+                            error_msg = error_data.get('error', {}).get('message', 'Invalid OpenAI API key')
+                            raise HTTPException(status_code=400, detail=error_msg)
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"OpenAI validation error: {e}")
+                raise HTTPException(status_code=400, detail="Invalid OpenAI API key")
+
             env_var = "OPENAI_API_KEY"
             logger.info(f"Setting OpenAI API key")
 
@@ -79,6 +98,41 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
             logger.info(f"Successfully configured OpenAI API key")
 
         elif provider == "anthropic":
+            # Test Anthropic key by making a minimal API call
+            try:
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15)) as session:
+                    async with session.post(
+                        "https://api.anthropic.com/v1/messages",
+                        headers={
+                            "x-api-key": api_key,
+                            "anthropic-version": "2023-06-01",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            "model": "claude-3-haiku-20240307",
+                            "max_tokens": 1,
+                            "messages": [{"role": "user", "content": "hi"}]
+                        }
+                    ) as resp:
+                        if resp.status == 401:
+                            raise HTTPException(status_code=400, detail="Invalid Anthropic API key")
+                        elif resp.status == 400:
+                            # 400 can mean invalid request but key is valid, check error type
+                            error_data = await resp.json()
+                            error_type = error_data.get('error', {}).get('type', '')
+                            if 'authentication' in error_type.lower() or 'api_key' in error_type.lower():
+                                raise HTTPException(status_code=400, detail="Invalid Anthropic API key")
+                            # Otherwise key is valid, just bad request format
+                        elif resp.status not in [200, 201]:
+                            error_data = await resp.json()
+                            error_msg = error_data.get('error', {}).get('message', 'Invalid Anthropic API key')
+                            raise HTTPException(status_code=400, detail=error_msg)
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Anthropic validation error: {e}")
+                raise HTTPException(status_code=400, detail="Invalid Anthropic API key")
+
             env_var = "ANTHROPIC_API_KEY"
             logger.info(f"Setting Anthropic API key")
 
@@ -112,6 +166,26 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
             logger.info(f"Successfully configured Anthropic API key")
 
         elif provider == "gemini":
+            # Test Gemini key by listing models
+            try:
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                    async with session.get(
+                        f"https://generativelanguage.googleapis.com/v1/models?key={api_key}"
+                    ) as resp:
+                        if resp.status == 400:
+                            error_data = await resp.json()
+                            error_msg = error_data.get('error', {}).get('message', '')
+                            if 'API key' in error_msg:
+                                raise HTTPException(status_code=400, detail="Invalid Gemini API key")
+                            raise HTTPException(status_code=400, detail=error_msg or "Invalid Gemini API key")
+                        elif resp.status != 200:
+                            raise HTTPException(status_code=400, detail="Invalid Gemini API key")
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"Gemini validation error: {e}")
+                raise HTTPException(status_code=400, detail="Invalid Gemini API key")
+
             env_var = "GEMINI_API_KEY"
             logger.info(f"Setting Gemini API key")
 
@@ -252,6 +326,23 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
                 raise HTTPException(status_code=400, detail=f"Firecrawl error: {error_msg}")
                     
         elif provider == "thenewsapi":
+            # Test TheNewsAPI key
+            try:
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                    async with session.get(
+                        "https://api.thenewsapi.com/v1/news/top",
+                        params={"locale": "us", "limit": "1", "api_token": api_key}
+                    ) as resp:
+                        if resp.status != 200:
+                            error_data = await resp.json()
+                            error_msg = error_data.get('error', {}).get('message', 'Invalid TheNewsAPI API key')
+                            raise HTTPException(status_code=400, detail=error_msg)
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"TheNewsAPI validation error: {e}")
+                raise HTTPException(status_code=400, detail="Invalid TheNewsAPI API key")
+
             # Save TheNewsAPI key
             primary_env_var = 'PROVIDER_THENEWSAPI_KEY'
             secondary_env_var = 'THENEWSAPI_KEY'
@@ -292,6 +383,23 @@ async def validate_api_key(request: Request, key_data: Dict = Body(...)):
             os.environ[secondary_env_var] = api_key
 
         elif provider == "newsdata":
+            # Test NewsData.io key
+            try:
+                async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                    async with session.get(
+                        "https://newsdata.io/api/1/latest",
+                        params={"apikey": api_key, "country": "us", "size": 1}
+                    ) as resp:
+                        if resp.status != 200:
+                            error_data = await resp.json()
+                            error_msg = error_data.get('results', {}).get('message', 'Invalid NewsData.io API key')
+                            raise HTTPException(status_code=400, detail=error_msg)
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"NewsData.io validation error: {e}")
+                raise HTTPException(status_code=400, detail="Invalid NewsData.io API key")
+
             # Save NewsData.io key
             primary_env_var = 'PROVIDER_NEWSDATA_API_KEY'
             secondary_env_var = 'NEWSDATA_API_KEY'
