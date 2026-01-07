@@ -5725,7 +5725,8 @@ class DatabaseQueryFacade:
 
     def save_signal_instruction(self, name: str, description: str, instruction: str,
                                topic: str = None, is_active: bool = True,
-                               generate_report: bool = False, report_prompt: str = None) -> bool:
+                               generate_report: bool = False, report_prompt: str = None,
+                               config: dict = None) -> bool:
         """Save a custom signal instruction for threat hunting.
 
         Args:
@@ -5736,6 +5737,7 @@ class DatabaseQueryFacade:
             is_active: Whether the instruction is active
             generate_report: Whether to generate reports when matches are found
             report_prompt: Custom prompt for report generation
+            config: Additional configuration (e.g., model selection)
 
         Returns:
             True if successfully saved, False otherwise
@@ -5743,8 +5745,8 @@ class DatabaseQueryFacade:
         try:
             # PostgreSQL uses INSERT ... ON CONFLICT instead of INSERT OR REPLACE
             query = """
-            INSERT INTO signal_instructions (name, description, instruction, topic, is_active, generate_report, report_prompt, updated_at)
-            VALUES (:name, :description, :instruction, :topic, :is_active, :generate_report, :report_prompt, CURRENT_TIMESTAMP)
+            INSERT INTO signal_instructions (name, description, instruction, topic, is_active, generate_report, report_prompt, config, updated_at)
+            VALUES (:name, :description, :instruction, :topic, :is_active, :generate_report, :report_prompt, :config, CURRENT_TIMESTAMP)
             ON CONFLICT (name) DO UPDATE SET
                 description = :description,
                 instruction = :instruction,
@@ -5752,6 +5754,7 @@ class DatabaseQueryFacade:
                 is_active = :is_active,
                 generate_report = :generate_report,
                 report_prompt = :report_prompt,
+                config = :config,
                 updated_at = CURRENT_TIMESTAMP
             """
             self._execute_with_rollback(text(query), {
@@ -5761,7 +5764,8 @@ class DatabaseQueryFacade:
                 'topic': topic,
                 'is_active': is_active,
                 'generate_report': generate_report,
-                'report_prompt': report_prompt
+                'report_prompt': report_prompt,
+                'config': json.dumps(config) if config else None
             })
             self.connection.commit()
             self.logger.info(f"Saved signal instruction: {name}")

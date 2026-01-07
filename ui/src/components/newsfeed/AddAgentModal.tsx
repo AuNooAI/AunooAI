@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Bot, Loader2, X, Bell, FileText, Workflow, Info, Tag, ChevronDown, ChevronRight, Pencil } from 'lucide-react';
+import { Bot, Loader2, X, Bell, FileText, Workflow, Info, Tag, ChevronDown, ChevronRight, Pencil, Cpu } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -26,6 +26,7 @@ import {
 import { Switch } from '../ui/switch';
 import { Checkbox } from '../ui/checkbox';
 import { type CreateAgentRequest, type ResearchAgent } from '../../services/researchAgentsApi';
+import { getAvailableModels } from '../../services/newsFeedApi';
 
 interface AddAgentModalProps {
   open: boolean;
@@ -60,9 +61,12 @@ export function AddAgentModal({
   const [description, setDescription] = useState('');
   const [instruction, setInstruction] = useState('');
   const [topic, setTopic] = useState<string>('');
+  const [model, setModel] = useState<string>('');
   const [isActive, setIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [availableModels, setAvailableModels] = useState<Array<{ id: string; name: string; provider: string }>>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
 
   // Actions configuration
   const [actionNotify, setActionNotify] = useState(true);
@@ -74,6 +78,17 @@ export function AddAgentModal({
 
   const isEditMode = !!editAgent;
 
+  // Load available models when modal opens
+  useEffect(() => {
+    if (open && availableModels.length === 0 && !loadingModels) {
+      setLoadingModels(true);
+      getAvailableModels()
+        .then(models => setAvailableModels(models))
+        .catch(() => setAvailableModels([]))
+        .finally(() => setLoadingModels(false));
+    }
+  }, [open, availableModels.length, loadingModels]);
+
   // Populate form when editing
   useEffect(() => {
     if (editAgent && open) {
@@ -81,6 +96,9 @@ export function AddAgentModal({
       setDescription(editAgent.description || '');
       setInstruction(editAgent.instruction || '');
       setTopic(editAgent.topic || '');
+      // Extract model from config if present
+      const configModel = editAgent.config?.model as string | undefined;
+      setModel(configModel || '');
       setIsActive(editAgent.is_active !== false);
       setActionReport(editAgent.generate_report || false);
       setReportPrompt(editAgent.report_prompt || DEFAULT_REPORT_PROMPT);
@@ -94,6 +112,7 @@ export function AddAgentModal({
     setDescription('');
     setInstruction('');
     setTopic('');
+    setModel('');
     setIsActive(true);
     setActionNotify(true);
     setActionTagArticles(true);
@@ -134,6 +153,7 @@ export function AddAgentModal({
         is_active: isActive,
         generate_report: actionReport,
         report_prompt: actionReport ? reportPrompt.trim() : null,
+        config: model ? { model } : null,
       });
 
       if (success) {
@@ -243,6 +263,34 @@ export function AddAgentModal({
             </Select>
             <p className="text-xs text-gray-500">
               Optionally limit this agent to articles from a specific topic
+            </p>
+          </div>
+
+          {/* Model Selection */}
+          <div className="space-y-2">
+            <Label htmlFor="agent-model" className="flex items-center gap-2">
+              <Cpu className="w-4 h-4 text-purple-500" />
+              AI Model
+            </Label>
+            <Select
+              value={model || '__default__'}
+              onValueChange={(val) => setModel(val === '__default__' ? '' : val)}
+              disabled={saving || loading || loadingModels}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={loadingModels ? "Loading models..." : "Default (gpt-4o-mini)"} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__default__">Default (gpt-4o-mini)</SelectItem>
+                {availableModels.map((m) => (
+                  <SelectItem key={m.id} value={m.id}>
+                    {m.name} ({m.provider})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-gray-500">
+              Select the AI model to use for analyzing articles
             </p>
           </div>
 

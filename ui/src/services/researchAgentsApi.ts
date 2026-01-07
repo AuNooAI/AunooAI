@@ -56,6 +56,7 @@ export interface CreateAgentRequest {
   is_active?: boolean;
   generate_report?: boolean;
   report_prompt?: string | null;
+  config?: Record<string, unknown> | null;
 }
 
 export interface UpdateAgentRequest {
@@ -66,6 +67,7 @@ export interface UpdateAgentRequest {
   is_active?: boolean;
   generate_report?: boolean;
   report_prompt?: string | null;
+  config?: Record<string, unknown> | null;
 }
 
 export interface RunAgentsRequest {
@@ -169,6 +171,7 @@ export async function createResearchAgent(
       is_active: agent.is_active !== false,
       generate_report: agent.generate_report || false,
       report_prompt: agent.report_prompt || null,
+      config: agent.config || null,
     }),
   });
 }

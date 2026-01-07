@@ -2460,6 +2460,7 @@ class _SignalInstructionRequest(BaseModel):
     is_active: bool = Field(True, description="Whether this signal is active")
     generate_report: bool = Field(False, description="Whether to generate reports when matches are found")
     report_prompt: Optional[str] = Field(None, description="Custom prompt for report generation")
+    config: Optional[dict] = Field(None, description="Additional config (e.g., model selection)")
 
     @field_validator('topic')
     @classmethod
@@ -2480,6 +2481,7 @@ class _UpdateSignalInstructionRequest(BaseModel):
     is_active: Optional[bool] = Field(None, description="Whether this signal is active")
     generate_report: Optional[bool] = Field(None, description="Whether to generate reports")
     report_prompt: Optional[str] = Field(None, description="Custom prompt for report generation")
+    config: Optional[dict] = Field(None, description="Additional config (e.g., model selection)")
 
     @field_validator('topic')
     @classmethod
@@ -2508,7 +2510,8 @@ async def save_signal_instruction(
             topic=req.topic,
             is_active=req.is_active,
             generate_report=req.generate_report,
-            report_prompt=req.report_prompt
+            report_prompt=req.report_prompt,
+            config=req.config
         )
 
         if success:
@@ -2541,7 +2544,8 @@ async def update_signal_instruction(
             topic=req.topic,
             is_active=req.is_active,
             generate_report=req.generate_report,
-            report_prompt=req.report_prompt
+            report_prompt=req.report_prompt,
+            config=req.config
         )
 
         if success:
