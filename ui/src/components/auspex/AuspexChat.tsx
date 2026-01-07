@@ -19,12 +19,13 @@
  * ```
  */
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useAuspexChat } from '../../hooks/useAuspexChat';
 import { AuspexChatButton } from './AuspexChatButton';
 import { AuspexChatModal } from './AuspexChatModal';
 import { getModelContextLimit } from '../../services/auspexService';
+import { AUSPEX_OPEN_EVENT, type AuspexOpenEventDetail } from '../../utils/auspexEvents';
 
 interface AuspexChatProps {
   /** Additional class names for the floating button */
@@ -33,6 +34,7 @@ interface AuspexChatProps {
 
 export function AuspexChat({ buttonClassName }: AuspexChatProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [initialQuery, setInitialQuery] = useState<string>('');
 
   const {
     // Data
@@ -104,18 +106,36 @@ export function AuspexChat({ buttonClassName }: AuspexChatProps) {
     };
   }, [selectedModel, calculateOptimalSampleSize]);
 
-  const handleOpen = () => {
+  const handleOpen = useCallback(() => {
     setIsOpen(true);
-  };
+  }, []);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     setIsOpen(false);
-  };
+    // Clear initial query when closing
+    setInitialQuery('');
+  }, []);
 
-  const handleNewChat = () => {
+  const handleNewChat = useCallback(() => {
     clearMessages();
     createSession();
-  };
+  }, [clearMessages, createSession]);
+
+  // Listen for global Auspex open events
+  useEffect(() => {
+    const handleAuspexOpen = (event: CustomEvent<AuspexOpenEventDetail>) => {
+      const { query } = event.detail;
+      if (query) {
+        setInitialQuery(query);
+      }
+      setIsOpen(true);
+    };
+
+    window.addEventListener(AUSPEX_OPEN_EVENT, handleAuspexOpen as EventListener);
+    return () => {
+      window.removeEventListener(AUSPEX_OPEN_EVENT, handleAuspexOpen as EventListener);
+    };
+  }, []);
 
   // Show error alert when error state changes
   useEffect(() => {
@@ -178,6 +198,8 @@ export function AuspexChat({ buttonClassName }: AuspexChatProps) {
         onExportChat={exportChat}
         contextStats={contextStats}
         backendArticleStats={backendArticleStats}
+        initialQuery={initialQuery}
+        onInitialQueryHandled={() => setInitialQuery('')}
       />
     </>
   );

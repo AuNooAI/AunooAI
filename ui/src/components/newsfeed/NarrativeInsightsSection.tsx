@@ -15,6 +15,7 @@ import {
   Lightbulb,
   Loader2
 } from 'lucide-react';
+import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import { type ArticleTheme, type ThemeArticle } from '../../services/narrativeExplorerApi';
 import { type NewsArticle } from '../../services/newsFeedApi';
 import { Card, CardContent } from '../ui/card';
@@ -307,7 +308,19 @@ function ThemeCard({ theme, expanded, onToggleExpand, onArticleClick, currentTop
 
                   const additionalUris = theme.articles?.slice(15, 50).map(a => `- ${a.title} — ${a.uri}`).join('\n') || '';
 
+                  // Build theme metadata
+                  const keyEntitiesText = theme.key_entities?.length
+                    ? `Key Entities: ${theme.key_entities.slice(0, 10).join(', ')}`
+                    : '';
+
                   const researchPrompt = `Conduct comprehensive analysis of the theme "${theme.theme_name}" identified from recent ${topicArea} articles.
+
+THEME METADATA:
+${theme.sentiment ? `Sentiment: ${theme.sentiment}` : ''}
+${theme.confidence ? `Confidence: ${Math.round(theme.confidence)}%` : ''}
+${theme.article_count ? `Articles: ${theme.article_count}` : ''}
+${theme.source_count ? `Sources: ${theme.source_count}` : ''}
+${keyEntitiesText}
 
 CONTEXT FROM ARTICLE ANALYSIS:
 This theme emerged from AI analysis of recent articles in the news feed.
@@ -323,36 +336,15 @@ TOPIC AREA: "${topicArea}"
 
 Please use your tools to:
 1. Start with the dataset items above; synthesize cross-article findings and cite URIs.
-2. Identify trends, entities, relationships, and implications grounded in the dataset.
-3. Suggest exactly 2-3 follow-up questions users could ask to expand analysis.
-4. Provide strategic recommendations for decision-makers.
+2. Consider the theme sentiment (${theme.sentiment || 'unknown'}) and ${keyEntitiesText ? 'key entities' : 'entities involved'}.
+3. Identify trends, relationships, and implications grounded in the dataset.
+4. Suggest exactly 2-3 follow-up questions users could ask to expand analysis.
+5. Provide strategic recommendations for decision-makers.
 
 Write follow-up questions as natural language that users would ask, not as technical function calls.`;
 
-                  // Open Auspex floating chat and pre-fill the comprehensive query
-                  const floatingChat = (window as any).floatingChatInstance;
-                  if (floatingChat && floatingChat.modalInstance) {
-                    floatingChat.modalInstance.show();
-                    setTimeout(() => {
-                      const input = document.getElementById('floatingChatInput') as HTMLTextAreaElement;
-                      if (input) {
-                        input.value = researchPrompt;
-                        input.focus();
-                      }
-                    }, 300);
-                  } else {
-                    const chatBtn = document.getElementById('floatingChatBtn');
-                    if (chatBtn) {
-                      chatBtn.click();
-                      setTimeout(() => {
-                        const input = document.getElementById('floatingChatInput') as HTMLTextAreaElement;
-                        if (input) {
-                          input.value = researchPrompt;
-                          input.focus();
-                        }
-                      }, 300);
-                    }
-                  }
+                  // Open Auspex chat modal with the comprehensive query
+                  openAuspexWithQuery(researchPrompt);
                 }}
               >
                 <Search className="w-3 h-3" />

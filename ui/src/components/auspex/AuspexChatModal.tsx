@@ -169,6 +169,10 @@ interface AuspexChatModalProps {
   onExportChat: () => string;
   contextStats?: ContextStats;
   backendArticleStats?: BackendArticleStats | null;
+  /** Initial query to pre-fill in the input when modal opens */
+  initialQuery?: string;
+  /** Callback when the initial query has been handled (inserted into input) */
+  onInitialQueryHandled?: () => void;
 }
 
 function formatToolName(name: string): string {
@@ -213,7 +217,9 @@ export function AuspexChatModal({
   onClearAllSessions,
   onExportChat,
   contextStats,
-  backendArticleStats
+  backendArticleStats,
+  initialQuery,
+  onInitialQueryHandled
 }: AuspexChatModalProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
@@ -326,6 +332,33 @@ export function AuspexChatModal({
       setIsRightPanelOpen(true);
     }
   }, [allCharts.length]);
+
+  // Handle initial query - insert into input when modal opens with a query
+  useEffect(() => {
+    if (isOpen && initialQuery) {
+      // Use polling to wait for inputRef to become available
+      let attempts = 0;
+      const maxAttempts = 20; // 2 seconds max
+
+      const tryInsert = () => {
+        attempts++;
+        if (inputRef.current) {
+          console.log('[AuspexModal] Inserting initial query:', initialQuery.substring(0, 50) + '...');
+          inputRef.current.insertText(initialQuery);
+          onInitialQueryHandled?.();
+        } else if (attempts < maxAttempts) {
+          // Retry after 100ms
+          setTimeout(tryInsert, 100);
+        } else {
+          console.warn('[AuspexModal] Failed to insert initial query - inputRef not available');
+        }
+      };
+
+      // Start with a small delay for initial render
+      const timeoutId = setTimeout(tryInsert, 150);
+      return () => clearTimeout(timeoutId);
+    }
+  }, [isOpen, initialQuery, onInitialQueryHandled]);
 
   // State to track when chart containers are ready
   const [chartContainersReady, setChartContainersReady] = useState(0);

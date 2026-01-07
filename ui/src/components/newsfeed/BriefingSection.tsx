@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { type NewsArticle, type SixArticlesReport, type TopStory, type Persona, type SixArticlesConfig } from '../../services/newsFeedApi';
 import { Skeleton } from '../ui/skeleton';
+import { openAuspexWithQuery } from '../../utils/auspexEvents';
 
 // Default personas (fallback if config not loaded)
 const DEFAULT_PERSONAS: { value: string; label: string; description: string }[] = [
@@ -597,32 +598,44 @@ function BriefingCard({ story, index, isExpanded, onToggle, isStarred, onStar, o
 
   const handleAskAuspex = (e: React.MouseEvent) => {
     e.stopPropagation();
-    // Open Auspex floating chat and pre-fill with article details
-    const floatingChat = (window as any).floatingChatInstance;
-    const prompt = `Analyze this article: "${displayTitle}"\n\nExecutive Takeaway: ${storyData.executive_takeaway || 'N/A'}\n\nStrategic Relevance: ${storyData.strategic_relevance || 'N/A'}`;
 
-    if (floatingChat && floatingChat.modalInstance) {
-      floatingChat.modalInstance.show();
-      setTimeout(() => {
-        const input = document.getElementById('floatingChatInput') as HTMLTextAreaElement;
-        if (input) {
-          input.value = prompt;
-          input.focus();
-        }
-      }, 300);
-    } else {
-      const chatBtn = document.getElementById('floatingChatBtn');
-      if (chatBtn) {
-        chatBtn.click();
-        setTimeout(() => {
-          const input = document.getElementById('floatingChatInput') as HTMLTextAreaElement;
-          if (input) {
-            input.value = prompt;
-            input.focus();
-          }
-        }, 300);
-      }
-    }
+    // Build scores string if available
+    const scoresText = displayScores && Object.keys(displayScores).length > 0
+      ? `Scores: ${displayScores.relevance ? `Relevance=${displayScores.relevance}` : ''}${displayScores.impact ? `, Impact=${displayScores.impact}` : ''}${displayScores.actionability ? `, Actionability=${displayScores.actionability}` : ''}${displayScores.overall ? `, Overall=${displayScores.overall}/5` : ''}`
+      : '';
+
+    // Build executive actions string
+    const actionsText = executiveActions.length > 0
+      ? `Recommended Actions:\n${executiveActions.map((a: string) => `- ${a}`).join('\n')}`
+      : '';
+
+    // Build comprehensive research prompt with full article context
+    const prompt = `Analyze this article: "${displayTitle}"
+${articleUri ? `Article URI: ${articleUri}` : ''}
+${displaySource ? `Source: ${displaySource}` : ''}
+
+ARTICLE CONTEXT:
+Category: ${storyData.category || 'N/A'}
+Time Horizon: ${storyData.time_horizon || 'N/A'}
+Signal Strength: ${storyData.signal_strength || 'N/A'}
+Risk/Opportunity: ${storyData.risk_opportunity || 'N/A'}
+${scoresText}
+
+EXECUTIVE BRIEFING:
+Executive Takeaway: ${storyData.executive_takeaway || 'N/A'}
+Strategic Relevance: ${storyData.strategic_relevance || 'N/A'}
+${actionsText}
+
+${displaySummary ? `ARTICLE SUMMARY:\n${displaySummary}` : ''}
+
+Please provide:
+1. Deeper analysis of the key strategic points
+2. Potential implications for our organization
+3. Additional actions or areas to monitor beyond what's listed
+4. Related trends or developments to watch
+5. Questions to investigate further`;
+
+    openAuspexWithQuery(prompt);
   };
 
   return (

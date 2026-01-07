@@ -24,6 +24,7 @@ import {
   Info,
   X,
 } from 'lucide-react';
+import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import {
   type Incident,
   type IncidentArticle,
@@ -361,9 +362,62 @@ function IncidentCard({ incident, expanded, onToggleExpand, onIncidentUpdate, on
     }
   };
 
-  // Launch Auspex research
-  const launchResearch = (query: string) => {
-    window.location.href = `/auspex?query=${encodeURIComponent(query)}`;
+  // Launch Auspex research with full incident context
+  const launchResearch = (queryOrLead: string, isInvestigationLead: boolean = false) => {
+    // Build entity list
+    const entityList = incident.entities?.slice(0, 10).join(', ') || 'None identified';
+
+    // Build article list (first 10 URIs)
+    const articleList = articleUris.slice(0, 10).map(uri => `- ${uri}`).join('\n');
+    const moreArticles = articleUris.length > 10 ? `... and ${articleUris.length - 10} more articles` : '';
+
+    // Build quality indicators
+    const qualityInfo = [];
+    if (incident.plausibility) qualityInfo.push(`Plausibility: ${incident.plausibility}`);
+    if (incident.source_quality) qualityInfo.push(`Source Quality: ${incident.source_quality}`);
+    const qualityText = qualityInfo.length > 0 ? qualityInfo.join(', ') : '';
+
+    let researchPrompt: string;
+
+    if (isInvestigationLead) {
+      // Investigation lead - include parent incident context
+      researchPrompt = `Research this investigation lead: "${queryOrLead}"
+
+PARENT INCIDENT: "${name}"
+${description ? `Context: ${description}` : ''}
+${incident.organizational_relevance ? `Why This Matters: ${incident.organizational_relevance}` : ''}
+${entityList !== 'None identified' ? `Related Entities: ${entityList}` : ''}
+
+Please investigate this specific angle and provide findings with citations.`;
+    } else {
+      // Full incident investigation
+      researchPrompt = `Investigate this incident: "${name}"
+
+INCIDENT CONTEXT:
+Type: ${type}
+Significance: ${significance}
+${incident.topic ? `Topic: ${incident.topic}` : ''}
+${qualityText ? `Quality Indicators: ${qualityText}` : ''}
+${description ? `Description: ${description}` : ''}
+${incident.organizational_relevance ? `Why This Matters: ${incident.organizational_relevance}` : ''}
+
+Key Entities: ${entityList}
+
+Source Articles (${articleUris.length} total):
+${articleList}
+${moreArticles}
+
+Please analyze:
+1. What is known about this incident from the source articles
+2. Key entities and organizations involved
+3. Timeline of events if available
+4. Potential implications and significance
+5. Related incidents or patterns
+
+Provide comprehensive analysis with citations to the source articles.`;
+    }
+
+    openAuspexWithQuery(researchPrompt);
   };
 
   return (
@@ -546,7 +600,7 @@ function IncidentCard({ incident, expanded, onToggleExpand, onIncidentUpdate, on
                 {incident.investigation_leads.map((lead, i) => (
                   <button
                     key={i}
-                    onClick={() => launchResearch(lead)}
+                    onClick={() => launchResearch(lead, true)}
                     className="text-xs bg-white border border-blue-200 text-blue-600 px-2 py-1 rounded-full hover:bg-blue-50 transition-colors flex items-center gap-1"
                     title={`Research: ${lead}`}
                   >
@@ -596,7 +650,32 @@ function IncidentCard({ incident, expanded, onToggleExpand, onIncidentUpdate, on
                       variant="outline"
                       size="sm"
                       className="text-xs gap-1 h-7"
-                      onClick={() => window.location.href = `/consensus?uri=${encodeURIComponent(articleUris[0])}`}
+                      onClick={() => {
+                        // Build article list with source info (first 20)
+                        const articleList = articleUris.slice(0, 20).map((uri, i) => {
+                          const article = incident.articles?.[i];
+                          const source = article?.news_source || article?.source?.name || 'Unknown';
+                          return `- ${source}: ${uri}`;
+                        }).join('\n');
+                        const moreArticles = articleUris.length > 20 ? `\n... and ${articleUris.length - 20} more sources` : '';
+
+                        const consensusPrompt = `Perform a consensus analysis on: "${name}"
+
+${description ? `CONTEXT: ${description}` : ''}
+
+SOURCE ARTICLES (${articleUris.length} total):
+${articleList}${moreArticles}
+
+Please analyze:
+1. What different sources are reporting about this incident
+2. Points of agreement across sources
+3. Points of disagreement or contradiction
+4. Overall consensus assessment (strong/moderate/weak/disputed)
+5. Key facts: well-established vs. still uncertain
+
+Provide balanced analysis of how this story is being covered across sources, citing specific articles.`;
+                        openAuspexWithQuery(consensusPrompt);
+                      }}
                     >
                       <Scale className="w-3 h-3" />
                       Consensus
