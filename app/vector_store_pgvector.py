@@ -264,7 +264,7 @@ def search_articles(
     """Semantic search in the pgvector index.
 
     Args:
-        query: Search query text
+        query: Search query text (use "*" for all articles)
         top_k: Number of results to return
         metadata_filter: Optional filters (e.g., {"topic": "AI"})
 
@@ -273,22 +273,24 @@ def search_articles(
     """
     logger.info("Vector search: query='%s', top_k=%d, filters=%s", query, top_k, metadata_filter)
 
+    # Handle wildcard query - return all articles (with filters) without vector similarity
+    is_wildcard = query.strip() in ('*', '')
+
     conn = None
     try:
-        # Generate query embedding
-        embeddings = _embed_texts([query])
-        query_embedding = embeddings[0]
+        query_embedding = None
+        if not is_wildcard:
+            # Generate query embedding for semantic search
+            embeddings = _embed_texts([query])
+            query_embedding = embeddings[0]
 
         # Build SQL query with filters
         db = get_database_instance()
         conn = db._temp_get_connection()
 
-        # Convert embedding to PostgreSQL format
-        embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
-
         # Build WHERE clause for filters
         where_clauses = ["embedding IS NOT NULL"]
-        params = {"query_embedding": embedding_str, "limit": top_k}
+        params = {"limit": top_k}
 
         if metadata_filter:
             # Handle complex $and filters from auspex_service.py
@@ -341,27 +343,53 @@ def search_articles(
 
         where_clause = " AND ".join(where_clauses)
 
-        # Use cosine distance operator (<=>)
-        # Lower distance = more similar (0 = identical, 2 = opposite)
-        stmt = text(f"""
-            SELECT
-                uri as id,
-                (embedding <=> CAST(:query_embedding AS vector)) as score,
-                title,
-                news_source,
-                category,
-                future_signal,
-                sentiment,
-                time_to_impact,
-                topic,
-                publication_date,
-                tags,
-                summary
-            FROM articles
-            WHERE {where_clause}
-            ORDER BY embedding <=> CAST(:query_embedding AS vector)
-            LIMIT :limit
-        """)
+        if is_wildcard:
+            # Wildcard query - return all articles matching filters, ordered by date
+            stmt = text(f"""
+                SELECT
+                    uri as id,
+                    0.0 as score,
+                    title,
+                    news_source,
+                    category,
+                    future_signal,
+                    sentiment,
+                    time_to_impact,
+                    topic,
+                    publication_date,
+                    tags,
+                    summary
+                FROM articles
+                WHERE {where_clause}
+                ORDER BY publication_date DESC NULLS LAST
+                LIMIT :limit
+            """)
+        else:
+            # Convert embedding to PostgreSQL format
+            embedding_str = '[' + ','.join(str(x) for x in query_embedding) + ']'
+            params["query_embedding"] = embedding_str
+
+            # Use cosine distance operator (<=>)
+            # Lower distance = more similar (0 = identical, 2 = opposite)
+            stmt = text(f"""
+                SELECT
+                    uri as id,
+                    (embedding <=> CAST(:query_embedding AS vector)) as score,
+                    title,
+                    news_source,
+                    category,
+                    future_signal,
+                    sentiment,
+                    time_to_impact,
+                    topic,
+                    publication_date,
+                    tags,
+                    summary
+                FROM articles
+                WHERE {where_clause}
+                ORDER BY embedding <=> CAST(:query_embedding AS vector)
+                LIMIT :limit
+            """)
 
         result = conn.execute(stmt, params)
 
@@ -846,11 +874,25 @@ def get_vectors_by_metadata(
         # Build WHERE clause
         where_clauses = ["embedding IS NOT NULL"]
         params = {}
+        param_counter = 0
 
         if where:
             for key, value in where.items():
-                where_clauses.append(f"{key} = :{key}")
-                params[key] = value
+                if isinstance(value, dict) and "$in" in value:
+                    # Handle $in operator (ChromaDB-style filter)
+                    in_values = value["$in"]
+                    if in_values:
+                        placeholders = []
+                        for i, v in enumerate(in_values):
+                            param_name = f"in_{param_counter}_{i}"
+                            placeholders.append(f":{param_name}")
+                            params[param_name] = v
+                        where_clauses.append(f"{key} IN ({', '.join(placeholders)})")
+                    param_counter += 1
+                else:
+                    # Simple equality filter
+                    where_clauses.append(f"{key} = :{key}")
+                    params[key] = value
 
         if limit:
             params["limit"] = limit
@@ -1045,6 +1087,81 @@ async def get_by_ids_async(
     """
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, get_by_ids, ids, include)
+
+
+def delete_embeddings(ids: List[str]) -> int:
+    """Delete embeddings for articles by their URIs.
+
+    This sets the embedding column to NULL rather than deleting the article,
+    matching the original ChromaDB behavior where deleting from the vector
+    store didn't affect the relational database.
+
+    Args:
+        ids: List of article URIs to delete embeddings for
+
+    Returns:
+        Number of articles affected
+    """
+    if not ids:
+        return 0
+
+    conn = None
+    try:
+        db = get_database_instance()
+        conn = db._temp_get_connection()
+
+        placeholders = ", ".join(f":id{i}" for i in range(len(ids)))
+        params = {f"id{i}": uri for i, uri in enumerate(ids)}
+
+        stmt = text(f"""
+            UPDATE articles
+            SET embedding = NULL
+            WHERE uri IN ({placeholders})
+        """)
+
+        result = conn.execute(stmt, params)
+        conn.commit()
+
+        affected = result.rowcount
+        logger.info("Deleted embeddings for %d articles", affected)
+        return affected
+
+    except Exception as exc:
+        logger.error("delete_embeddings failed: %s", exc)
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+        return 0
+    finally:
+        if conn:
+            conn.close()
+
+
+def count_embeddings() -> int:
+    """Count the number of articles with embeddings.
+
+    Returns:
+        Number of articles with non-null embeddings
+    """
+    conn = None
+    try:
+        db = get_database_instance()
+        conn = db._temp_get_connection()
+
+        result = conn.execute(text(
+            "SELECT COUNT(*) FROM articles WHERE embedding IS NOT NULL"
+        ))
+        count = result.scalar() or 0
+        return count
+
+    except Exception as exc:
+        logger.error("count_embeddings failed: %s", exc)
+        return 0
+    finally:
+        if conn:
+            conn.close()
 
 
 def check_pgvector_health() -> Dict[str, Any]:
