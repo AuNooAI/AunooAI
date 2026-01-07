@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Bot, Loader2, X, Bell, FileText, Workflow, Info, Tag, ChevronDown, ChevronRight, Pencil, Cpu } from 'lucide-react';
+import { Bot, Loader2, X, Bell, FileText, Workflow, Info, Tag, ChevronDown, ChevronRight, Pencil, Cpu, Search, Mail, MessageCircle } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -74,7 +74,16 @@ export function AddAgentModal({
   const [actionReport, setActionReport] = useState(false);
   const [reportPrompt, setReportPrompt] = useState(DEFAULT_REPORT_PROMPT);
   const [showReportPrompt, setShowReportPrompt] = useState(false);
+  const [actionDeepResearch, setActionDeepResearch] = useState(false);
+  const [actionSendEmail, setActionSendEmail] = useState(false);
+  const [emailRecipient, setEmailRecipient] = useState('');
+  const [showEmailConfig, setShowEmailConfig] = useState(false);
+  const [actionBlueskyDm, setActionBlueskyDm] = useState(false);
+  const [blueskyRecipient, setBlueskyRecipient] = useState('');
+  const [showBlueskyConfig, setShowBlueskyConfig] = useState(false);
   const [actionWorkflow, setActionWorkflow] = useState(false);
+  const [entitiesToMonitor, setEntitiesToMonitor] = useState('');
+  const [entitiesPlaceholder, setEntitiesPlaceholder] = useState('Enter company names, people, or brands to monitor (one per line or comma-separated)');
 
   const isEditMode = !!editAgent;
 
@@ -96,9 +105,23 @@ export function AddAgentModal({
       setDescription(editAgent.description || '');
       setInstruction(editAgent.instruction || '');
       setTopic(editAgent.topic || '');
-      // Extract model from config if present
+      // Extract settings from config if present
       const configModel = editAgent.config?.model as string | undefined;
+      const configDeepResearch = editAgent.config?.deep_research as boolean | undefined;
+      const configSendEmail = editAgent.config?.send_email as boolean | undefined;
+      const configEmailRecipient = editAgent.config?.email_recipient as string | undefined;
+      const configBlueskyDm = editAgent.config?.bluesky_dm as boolean | undefined;
+      const configBlueskyRecipient = editAgent.config?.bluesky_recipient as string | undefined;
+      const configEntities = editAgent.config?.entities_to_monitor as string[] | undefined;
       setModel(configModel || '');
+      setEntitiesToMonitor(configEntities?.join('\n') || '');
+      setActionDeepResearch(configDeepResearch || false);
+      setActionSendEmail(configSendEmail || false);
+      setEmailRecipient(configEmailRecipient || '');
+      setShowEmailConfig(configSendEmail || false);
+      setActionBlueskyDm(configBlueskyDm || false);
+      setBlueskyRecipient(configBlueskyRecipient || '');
+      setShowBlueskyConfig(configBlueskyDm || false);
       setIsActive(editAgent.is_active !== false);
       setActionReport(editAgent.generate_report || false);
       setReportPrompt(editAgent.report_prompt || DEFAULT_REPORT_PROMPT);
@@ -119,7 +142,16 @@ export function AddAgentModal({
     setActionReport(false);
     setReportPrompt(DEFAULT_REPORT_PROMPT);
     setShowReportPrompt(false);
+    setActionDeepResearch(false);
+    setActionSendEmail(false);
+    setEmailRecipient('');
+    setShowEmailConfig(false);
+    setActionBlueskyDm(false);
+    setBlueskyRecipient('');
+    setShowBlueskyConfig(false);
     setActionWorkflow(false);
+    setEntitiesToMonitor('');
+    setEntitiesPlaceholder('Enter company names, people, or brands to monitor (one per line or comma-separated)');
     setError(null);
   };
 
@@ -145,6 +177,29 @@ export function AddAgentModal({
     setError(null);
 
     try {
+      // Build config object with all action settings
+      const config: Record<string, unknown> = {};
+      if (model) config.model = model;
+      if (actionDeepResearch) config.deep_research = true;
+      if (actionSendEmail) {
+        config.send_email = true;
+        if (emailRecipient.trim()) config.email_recipient = emailRecipient.trim();
+      }
+      if (actionBlueskyDm) {
+        config.bluesky_dm = true;
+        if (blueskyRecipient.trim()) config.bluesky_recipient = blueskyRecipient.trim();
+      }
+      if (entitiesToMonitor.trim()) {
+        // Parse comma or newline separated entities
+        const entities = entitiesToMonitor
+          .split(/[,\n]/)
+          .map(e => e.trim())
+          .filter(e => e.length > 0);
+        if (entities.length > 0) {
+          config.entities_to_monitor = entities;
+        }
+      }
+
       const success = await onSave({
         name: name.trim(),
         description: description.trim(),
@@ -153,7 +208,7 @@ export function AddAgentModal({
         is_active: isActive,
         generate_report: actionReport,
         report_prompt: actionReport ? reportPrompt.trim() : null,
-        config: model ? { model } : null,
+        config: Object.keys(config).length > 0 ? config : null,
       });
 
       if (success) {
@@ -183,11 +238,30 @@ export function AddAgentModal({
       name: 'Emerging Threats',
       instruction: 'Watch for emerging security threats, vulnerabilities, data breaches, or cyber attacks. Rate the severity (high/medium/low) and explain the potential impact and affected systems.',
     },
+    {
+      name: 'Adverse Media Screening',
+      instruction: 'Screen for negative news coverage including fraud allegations, corruption, sanctions violations, money laundering, bribery, criminal activity, lawsuits, regulatory fines, environmental violations, or reputational damage. Flag any mentions of individuals or organizations under investigation or facing legal action. Rate risk level (high/medium/low) and summarize the specific adverse finding.',
+      entities: 'Enter company names, individuals, or organizations to screen',
+    },
+    {
+      name: 'Brand Monitoring',
+      instruction: 'Monitor brand mentions across news coverage including product reviews, customer complaints, PR crises, social media controversies, executive scandals, product recalls, or service outages. Track sentiment (positive/negative/neutral) and identify potential reputation risks or opportunities. Flag any coverage that could impact brand perception or require a response.',
+      entities: 'Enter your brand name and any related brands to monitor',
+    },
+    {
+      name: 'Competitor Monitoring',
+      instruction: 'Track competitor news including new product launches, pricing changes, market expansion, executive hires, funding rounds, partnerships, M&A activity, patent filings, and strategic announcements. Identify competitive threats and opportunities. Summarize how each development could impact market position or require a strategic response.',
+      entities: 'Enter competitor company names to track',
+    },
   ];
 
-  const applyExample = (example: { name: string; instruction: string }) => {
+  const applyExample = (example: { name: string; instruction: string; entities?: string }) => {
     setName(example.name);
     setInstruction(example.instruction);
+    if (example.entities) {
+      setEntitiesPlaceholder(example.entities);
+      setEntitiesToMonitor(''); // Clear any existing value so placeholder shows
+    }
     setError(null);
   };
 
@@ -294,6 +368,23 @@ export function AddAgentModal({
             </p>
           </div>
 
+          {/* Quick Start Templates */}
+          <div className="space-y-2">
+            <Label className="text-gray-500">Quick Start Templates</Label>
+            <div className="flex flex-wrap gap-2">
+              {exampleInstructions.map((example) => (
+                <button
+                  key={example.name}
+                  onClick={() => applyExample(example)}
+                  className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-md text-gray-700 transition-colors"
+                  disabled={saving || loading}
+                >
+                  {example.name}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Instruction */}
           <div className="space-y-2">
             <Label htmlFor="agent-instruction">Research Instruction *</Label>
@@ -310,21 +401,20 @@ export function AddAgentModal({
             </p>
           </div>
 
-          {/* Example Instructions */}
+          {/* Entities to Monitor */}
           <div className="space-y-2">
-            <Label className="text-gray-500">Quick Start Templates</Label>
-            <div className="flex flex-wrap gap-2">
-              {exampleInstructions.map((example) => (
-                <button
-                  key={example.name}
-                  onClick={() => applyExample(example)}
-                  className="px-2 py-1 text-xs bg-gray-100 hover:bg-gray-200 rounded-md text-gray-700 transition-colors"
-                  disabled={saving || loading}
-                >
-                  {example.name}
-                </button>
-              ))}
-            </div>
+            <Label htmlFor="agent-entities">Entities to Monitor</Label>
+            <Textarea
+              id="agent-entities"
+              value={entitiesToMonitor}
+              onChange={(e) => setEntitiesToMonitor(e.target.value)}
+              placeholder={entitiesPlaceholder}
+              rows={3}
+              disabled={saving || loading}
+            />
+            <p className="text-xs text-gray-500">
+              Specific entities mentioned here will be prioritized in article matching
+            </p>
           </div>
 
           {/* Actions Section */}
@@ -436,6 +526,139 @@ export function AddAgentModal({
                             Reset to default
                           </button>
                         </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Deep Research Action */}
+              <label className="flex items-start gap-3 p-3 rounded-lg border border-gray-200 cursor-pointer hover:bg-gray-50">
+                <Checkbox
+                  checked={actionDeepResearch}
+                  onCheckedChange={(checked) => setActionDeepResearch(checked as boolean)}
+                  disabled={saving || loading}
+                />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <Search className="w-4 h-4 text-orange-500" />
+                    <span className="font-medium text-gray-900">Deep Research</span>
+                  </div>
+                  <p className="text-sm text-gray-500 mt-0.5">
+                    Trigger a deep research process to gather additional related articles from the dataset
+                  </p>
+                </div>
+              </label>
+
+              {/* Send Email Action */}
+              <div className="rounded-lg border border-gray-200">
+                <label className="flex items-start gap-3 p-3 cursor-pointer hover:bg-gray-50">
+                  <Checkbox
+                    checked={actionSendEmail}
+                    onCheckedChange={(checked) => {
+                      setActionSendEmail(checked as boolean);
+                      if (checked) {
+                        setShowEmailConfig(true);
+                      }
+                    }}
+                    disabled={saving || loading}
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <Mail className="w-4 h-4 text-cyan-500" />
+                      <span className="font-medium text-gray-900">Send Email</span>
+                    </div>
+                    <p className="text-sm text-gray-500 mt-0.5">
+                      Send an email notification when matches are found
+                    </p>
+                  </div>
+                </label>
+
+                {/* Email Configuration */}
+                {actionSendEmail && (
+                  <div className="border-t border-gray-200">
+                    <button
+                      type="button"
+                      onClick={() => setShowEmailConfig(!showEmailConfig)}
+                      className="w-full flex items-center gap-2 p-3 text-sm text-gray-600 hover:bg-gray-50"
+                    >
+                      {showEmailConfig ? (
+                        <ChevronDown className="w-4 h-4" />
+                      ) : (
+                        <ChevronRight className="w-4 h-4" />
+                      )}
+                      <span>Configure Email Recipient</span>
+                    </button>
+
+                    {showEmailConfig && (
+                      <div className="p-3 pt-0 space-y-2">
+                        <Input
+                          value={emailRecipient}
+                          onChange={(e) => setEmailRecipient(e.target.value)}
+                          placeholder="recipient@example.com"
+                          type="email"
+                          disabled={saving || loading}
+                        />
+                        <p className="text-xs text-gray-400">
+                          Leave blank to use the default notification email
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Bluesky DM Action */}
+              <div className="rounded-lg border border-gray-200">
+                <label className="flex items-start gap-3 p-3 cursor-pointer hover:bg-gray-50">
+                  <Checkbox
+                    checked={actionBlueskyDm}
+                    onCheckedChange={(checked) => {
+                      setActionBlueskyDm(checked as boolean);
+                      if (checked) {
+                        setShowBlueskyConfig(true);
+                      }
+                    }}
+                    disabled={saving || loading}
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <MessageCircle className="w-4 h-4 text-sky-500" />
+                      <span className="font-medium text-gray-900">Send Bluesky DM</span>
+                    </div>
+                    <p className="text-sm text-gray-500 mt-0.5">
+                      Send a direct message on Bluesky when matches are found
+                    </p>
+                  </div>
+                </label>
+
+                {/* Bluesky Configuration */}
+                {actionBlueskyDm && (
+                  <div className="border-t border-gray-200">
+                    <button
+                      type="button"
+                      onClick={() => setShowBlueskyConfig(!showBlueskyConfig)}
+                      className="w-full flex items-center gap-2 p-3 text-sm text-gray-600 hover:bg-gray-50"
+                    >
+                      {showBlueskyConfig ? (
+                        <ChevronDown className="w-4 h-4" />
+                      ) : (
+                        <ChevronRight className="w-4 h-4" />
+                      )}
+                      <span>Configure Bluesky Recipient</span>
+                    </button>
+
+                    {showBlueskyConfig && (
+                      <div className="p-3 pt-0 space-y-2">
+                        <Input
+                          value={blueskyRecipient}
+                          onChange={(e) => setBlueskyRecipient(e.target.value)}
+                          placeholder="@username or username.bsky.social"
+                          disabled={saving || loading}
+                        />
+                        <p className="text-xs text-gray-400">
+                          Bluesky handle to receive DM alerts
+                        </p>
                       </div>
                     )}
                   </div>
