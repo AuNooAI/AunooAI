@@ -15,8 +15,12 @@ from app.vector_store import (
     search_articles,
     upsert_article,
     similar_articles,
-    _get_collection as _vector_collection,
-    get_chroma_client,
+)
+from app.vector_store_pgvector import (
+    get_vectors_by_metadata,
+    get_by_ids,
+    delete_embeddings,
+    count_embeddings,
 )
 from app.database import Database, get_database_instance
 
@@ -28,6 +32,49 @@ from app.database import Database, get_database_instance
 router = APIRouter(prefix="/api", tags=["vector-search"])
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Dependency availability checks (run at module load to warn early)
+# ---------------------------------------------------------------------------
+_SKLEARN_AVAILABLE = False
+_UMAP_AVAILABLE = False
+
+try:
+    import sklearn
+    _SKLEARN_AVAILABLE = True
+except ImportError:
+    logger.warning(
+        "scikit-learn is not installed. Some vector analysis features "
+        "(patterns, anomaly detection, clustering) will be limited. "
+        "Install with: pip install scikit-learn"
+    )
+
+try:
+    import umap
+    _UMAP_AVAILABLE = True
+except ImportError:
+    logger.warning(
+        "umap-learn is not installed. UMAP dimensionality reduction will "
+        "fall back to PCA. Install with: pip install umap-learn"
+    )
+
+
+@router.get("/vector-dependencies")
+def check_vector_dependencies():
+    """Check availability of optional dependencies for vector analysis."""
+    return {
+        "sklearn": {
+            "available": _SKLEARN_AVAILABLE,
+            "message": None if _SKLEARN_AVAILABLE else "Install with: pip install scikit-learn",
+            "affects": ["patterns", "anomaly detection", "clustering"]
+        },
+        "umap": {
+            "available": _UMAP_AVAILABLE,
+            "message": None if _UMAP_AVAILABLE else "Install with: pip install umap-learn",
+            "affects": ["UMAP dimensionality reduction (will fallback to PCA)"]
+        },
+        "all_available": _SKLEARN_AVAILABLE and _UMAP_AVAILABLE
+    }
 
 
 @router.get("/vector-search")
@@ -180,29 +227,10 @@ def _fetch_vectors(
     """Return `(vectors, metadatas, ids)` truncated to *limit* items.
 
     Vectors are returned as an ``np.ndarray`` of shape ``(n, dim)`` to
-    allow efficient downstream numeric work.  We always request
-    *embeddings* and *metadatas* so callers can build richer responses.
+    allow efficient downstream numeric work.  Uses pgvector for storage.
     """
-    import numpy as np  # Local import to avoid module-level dependency
-
-    collection = _vector_collection()
-    try:
-        kw = {"include": ["embeddings", "metadatas"]}
-        if limit:
-            kw["limit"] = limit  # type: ignore[assignment]
-        if where:
-            kw["where"] = where  # type: ignore[assignment]
-        res = collection.get(**kw)  # type: ignore[arg-type]
-    except Exception as exc:  # Fallback – corrupted records without embeddings
-        logging.getLogger(__name__).error(
-            "Chroma get() failed: %s", exc
-        )
-        return np.empty((0, 0), dtype=np.float32), [], []
-
-    vectors = np.asarray(res.get("embeddings", []), dtype=np.float32)
-    metadatas = res.get("metadatas", [])
-    ids = res.get("ids", [])
-    return vectors, metadatas, ids
+    # Delegate to pgvector implementation
+    return get_vectors_by_metadata(limit=limit, where=where)
 
 
 @router.get("/embedding_projection")
@@ -249,8 +277,8 @@ def embedding_projection(
     
     try:
         logger.info(f"Embedding projection called with query: {q or 'None'}")
-        
-        # Build metadata filter 
+
+        # Build metadata filter from URL params
         where = None
         if any([topic, category, sentiment, news_source, future_signal]):
             where = {}
@@ -264,36 +292,40 @@ def embedding_projection(
                 where["news_source"] = news_source
             if future_signal:
                 where["future_signal"] = future_signal
-        
-        # Handle pipe operators through executor if present
-        if q and "|" in q:
+
+        # Parse KISSQL for all queries to apply filters and limits consistently
+        # This ensures the visualization matches the search results
+        kissql_limit = None
+        if q:
             from app.kissql.parser import parse_full_query
             from app.kissql.executor import execute_query
-            
-            logger.info("Query contains pipe operators")
-            
+
+            logger.info(f"Parsing KISSQL query: {q}")
+
             # Parse and execute the query with KISSQL
             query_obj = parse_full_query(q)
             result = execute_query(query_obj, top_k=top_k)
-            
+
             # Extract IDs from the filtered results
             filtered_results = result.get("results", [])
             filtered_ids = [r["id"] for r in filtered_results]
-            
+
             # Handle case with no results after filtering
             if not filtered_ids:
-                logger.warning("No results after pipe filtering")
+                logger.warning("No results after KISSQL filtering")
                 return {"points": [], "explain": {}, "centroids": {}}
-                
-            # Add URI filter to where clause
+
+            # Add URI filter to where clause to match exact search results
             if where is None:
                 where = {}
             where["uri"] = {"$in": filtered_ids}
-            
-            logger.info(f"Applied pipe filtering: {len(filtered_ids)} results")
 
-        # Get vectors from Chroma – fetch a bit more than requested but cap at 10k
-        fetch_limit = min(max(top_k * 2, 5000), 10000)
+            # Respect the KISSQL result count as the limit
+            kissql_limit = len(filtered_ids)
+            logger.info(f"Applied KISSQL filtering: {kissql_limit} results")
+
+        # Use KISSQL limit if available, otherwise use the top_k parameter
+        fetch_limit = kissql_limit if kissql_limit else min(max(top_k * 2, 5000), 10000)
 
         vecs, metas, ids = _fetch_vectors(limit=fetch_limit, where=where)
         logger.info(f"📦 Fetched {len(vecs) if vecs.size > 0 else 0} vectors from database")
@@ -341,33 +373,39 @@ def embedding_projection(
             from sklearn.decomposition import PCA
             reducer = PCA(n_components=dims, random_state=42)
         else:  # default UMAP
-            import umap
-            logger.info("🎯 Starting UMAP dimensionality reduction...")
-            
-            # Enable numba logging to match working version
-            import os
-            os.environ['NUMBA_ENABLE_CUDASIM'] = '0'  # Ensure CUDA sim is off
-            
-            # Set numba logging to match working version behavior
-            numba_logger = logging.getLogger('numba')
-            numba_logger.setLevel(logging.DEBUG)
-            
-            # Clear numba cache to avoid compilation issues
-            try:
-                import numba
-                logger.info("🧹 Clearing numba cache to avoid compilation conflicts...")
-                # Force fresh compilation
-                os.environ['NUMBA_CACHE_DIR'] = ''  # Disable cache temporarily
-            except Exception as e:
-                logger.warning(f"Could not configure numba cache: {e}")
-            
-            # Use simple UMAP configuration like working version
-            reducer = umap.UMAP(
-                n_components=dims,
-                metric="cosine",
-                random_state=42,
-            )
-            logger.info("⚙️ UMAP initialized, starting fit_transform...")
+            if not _UMAP_AVAILABLE:
+                # Fall back to PCA if UMAP not installed
+                logger.warning("UMAP not available, falling back to PCA")
+                from sklearn.decomposition import PCA
+                reducer = PCA(n_components=dims, random_state=42)
+            else:
+                import umap
+                logger.info("🎯 Starting UMAP dimensionality reduction...")
+
+                # Enable numba logging to match working version
+                import os
+                os.environ['NUMBA_ENABLE_CUDASIM'] = '0'  # Ensure CUDA sim is off
+
+                # Set numba logging to match working version behavior
+                numba_logger = logging.getLogger('numba')
+                numba_logger.setLevel(logging.DEBUG)
+
+                # Clear numba cache to avoid compilation issues
+                try:
+                    import numba
+                    logger.info("🧹 Clearing numba cache to avoid compilation conflicts...")
+                    # Force fresh compilation
+                    os.environ['NUMBA_CACHE_DIR'] = ''  # Disable cache temporarily
+                except Exception as e:
+                    logger.warning(f"Could not configure numba cache: {e}")
+
+                # Use simple UMAP configuration like working version
+                reducer = umap.UMAP(
+                    n_components=dims,
+                    metric="cosine",
+                    random_state=42,
+                )
+                logger.info("⚙️ UMAP initialized, starting fit_transform...")
         
         # Do dimensionality reduction with timeout monitoring
         import time
@@ -791,9 +829,32 @@ def patterns_endpoint(
         # Process articles to extract patterns
         from collections import Counter, defaultdict
         import re
-        from sklearn.feature_extraction import text as _sk_text
-    
-        STOP_WORDS = set(_sk_text.ENGLISH_STOP_WORDS)
+
+        # Try to use sklearn stop words, fallback to a basic set if not available
+        try:
+            from sklearn.feature_extraction import text as _sk_text
+            STOP_WORDS = set(_sk_text.ENGLISH_STOP_WORDS)
+        except ImportError:
+            # Fallback stop words if sklearn is not installed
+            STOP_WORDS = {
+                "a", "an", "and", "are", "as", "at", "be", "been", "being",
+                "but", "by", "can", "could", "do", "does", "doing", "done",
+                "for", "from", "had", "has", "have", "having", "he", "her",
+                "here", "him", "his", "how", "i", "if", "in", "into", "is",
+                "it", "its", "just", "me", "might", "more", "most", "my",
+                "no", "not", "now", "of", "on", "or", "our", "out", "own",
+                "said", "same", "she", "should", "so", "some", "such", "than",
+                "that", "the", "their", "them", "then", "there", "these",
+                "they", "this", "those", "through", "to", "too", "under",
+                "up", "very", "was", "we", "were", "what", "when", "where",
+                "which", "while", "who", "whom", "why", "will", "with",
+                "would", "you", "your", "about", "after", "all", "also",
+                "any", "because", "before", "between", "both", "each",
+                "few", "first", "get", "got", "http", "https", "www", "com",
+                "new", "news", "like", "make", "many", "may", "one", "only",
+                "other", "over", "say", "says", "see", "since", "still",
+                "take", "think", "time", "two", "use", "using", "way", "well"
+            }
         unigram_counts = Counter()
         bigram_counts = Counter()
         cooc_mat = defaultdict(Counter)
@@ -993,15 +1054,34 @@ def statistics_endpoint(
 
 @router.post("/clean_collection")
 async def clean_collection(session=Depends(verify_session)):
-    """Delete and rebuild the collection.
+    """Clear all embeddings from the articles table.
 
-    This is a helper endpoint to clean up completely.  It deletes the
-    collection and then re-indexes all articles.
+    This removes all vector embeddings but does not delete the articles.
+    To rebuild embeddings, use /api/vector-reindex afterwards.
     """
-    client = get_chroma_client()
-    # Drop only the vector index (does not touch relational DB)
-    client.delete_collection("articles")
-    # To rebuild, hit /api/vector-reindex afterwards
+    from sqlalchemy import text
+    conn = None
+    try:
+        db = get_database_instance()
+        conn = db._temp_get_connection()
+
+        # Clear all embeddings
+        result = conn.execute(text("UPDATE articles SET embedding = NULL"))
+        conn.commit()
+        affected = result.rowcount
+
+        return {
+            "success": True,
+            "message": f"Cleared embeddings from {affected} articles",
+            "next_step": "Use /api/vector-reindex to rebuild embeddings"
+        }
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
 
 # Tag metadata ingestion lives in ``app/vector_store._build_metadata``.
 # Anomaly-detection helpers should sit in a dedicated module.
@@ -1090,16 +1170,24 @@ def embedding_anomalies(
         vecs, metas, ids = _fetch_vectors(limit=fetch_limit, where=where)
         if vecs.size == 0:
             return []
-    
-        # Run anomaly detection
-        from sklearn.ensemble import IsolationForest
+
         import numpy as np
-    
-        iso = IsolationForest(contamination=0.02, random_state=42)
-        anomaly_score = -iso.fit(vecs).decision_function(vecs)
-    
+
+        # Run anomaly detection - try sklearn first, fallback to distance-based
+        try:
+            from sklearn.ensemble import IsolationForest
+            iso = IsolationForest(contamination=0.02, random_state=42)
+            anomaly_score = -iso.fit(vecs).decision_function(vecs)
+        except ImportError:
+            # Fallback: Use distance from centroid as anomaly score
+            # Articles far from the mean embedding are considered anomalies
+            logger.info("sklearn not available, using distance-based anomaly detection")
+            centroid = np.mean(vecs, axis=0)
+            # Euclidean distance from centroid
+            anomaly_score = np.linalg.norm(vecs - centroid, axis=1)
+
         idx_sorted = np.argsort(anomaly_score)[::-1][:top_k]
-    
+
         anomaly_results = [
             {
                 "id": ids[i],
@@ -1108,7 +1196,7 @@ def embedding_anomalies(
             }
             for i in idx_sorted
         ]
-        
+
         logger.info(f"Generated {len(anomaly_results)} anomaly results")
         return anomaly_results
     except Exception as e:
@@ -3508,12 +3596,11 @@ async def article_deep_dive(
             " strategic/sentiment breakdown, notable examples, conclusion, and final thoughts. Limit 900–1200 words."
         )
 
-    # Fetch document + metadata for the article
-    collection = _vector_collection()
+    # Fetch document + metadata for the article using pgvector
     try:
-        res = collection.get(ids=req.ids[:1], include=["metadatas", "documents"])  # type: ignore[arg-type]
+        res = get_by_ids(ids=req.ids[:1], include=["metadatas", "documents"])
     except Exception as exc:
-        logger.error("Chroma get failed for article-deep-dive: %s", exc)
+        logger.error("pgvector get failed for article-deep-dive: %s", exc)
         raise HTTPException(status_code=500, detail="Vector store error")
 
     metas: list[dict] = res.get("metadatas", [])
@@ -3671,14 +3758,14 @@ async def delete_article_from_vector(
     article_id: str,
     session=Depends(verify_session),
 ):
-    """Delete an article from the vector database.
-    
-    This removes the article from the ChromaDB collection but does not affect
-    the relational database. Use this when you want to remove articles from
+    """Delete an article's embedding from the vector database.
+
+    This removes the embedding from the article but does not delete the article
+    itself from the database. Use this when you want to remove articles from
     vector search results while keeping them in the main database.
     """
     logger = logging.getLogger(__name__)
-    
+
     # Decode the article_id in case it's URL encoded
     try:
         decoded_id = urllib.parse.unquote(article_id)
@@ -3687,26 +3774,17 @@ async def delete_article_from_vector(
     except Exception as e:
         logger.warning(f"Could not decode article_id: {e}")
         decoded_id = article_id
-    
+
     try:
-        collection = _vector_collection()
-        
-        # First, let's try a broader search to find the article
-        # by searching for articles that contain the domain or part of the URL
+        # Try both the original and decoded versions
+        article_ids_to_try = [decoded_id, article_id] if article_id != decoded_id else [article_id]
         found_id = None
-        
-        # Try both the original and decoded versions first
-        article_ids_to_try = [article_id, decoded_id]
-        if article_id != decoded_id:
-            article_ids_to_try = [decoded_id, article_id]  # Try decoded first
-        else:
-            article_ids_to_try = [article_id]
-        
-        # Try direct ID lookup first
+
+        # Try direct ID lookup first using pgvector
         for try_id in article_ids_to_try:
             try:
                 logger.info(f"Checking if article exists with ID: {try_id}")
-                result = collection.get(ids=[try_id], include=["metadatas"])
+                result = get_by_ids(ids=[try_id], include=["metadatas"])
                 if result.get("ids") and try_id in result["ids"]:
                     found_id = try_id
                     logger.info(f"Found article with direct ID lookup: {found_id}")
@@ -3714,122 +3792,81 @@ async def delete_article_from_vector(
                 else:
                     logger.info(f"Article not found with ID: {try_id}")
             except Exception as e:
-                logger.warning(
-                    f"Error checking article with ID '{try_id}': {e}"
-                )
+                logger.warning(f"Error checking article with ID '{try_id}': {e}")
                 continue
-        
+
         # If direct lookup failed, try searching by metadata
         if not found_id:
             logger.info("Direct ID lookup failed, trying metadata search")
             try:
-                # Extract domain and path for searching
                 if "://" in decoded_id:
-                    # Try to find by searching for the URL in metadata
-                    # Get a larger sample to search through
-                    all_results = collection.get(
-                        limit=1000, 
-                        include=["metadatas"],
-                        where=None
-                    )
-                    ids = all_results.get("ids", [])
-                    metadatas = all_results.get("metadatas", [])
-                    
+                    # Get articles with embeddings to search through
+                    vectors, metadatas, ids = get_vectors_by_metadata(limit=1000)
+
                     logger.info(f"Searching through {len(ids)} articles for match")
-                    
-                    # Look for exact matches or close matches
-                    for i, (stored_id, metadata) in enumerate(zip(ids, metadatas)):
+
+                    for stored_id, metadata in zip(ids, metadatas):
                         # Check if the stored ID matches our target
                         if stored_id == decoded_id or stored_id == article_id:
                             found_id = stored_id
                             logger.info(f"Found exact match: {found_id}")
                             break
-                        
-                        # Check if URI in metadata matches
-                        stored_uri = metadata.get("uri", "")
-                        if stored_uri == decoded_id or stored_uri == article_id:
-                            found_id = stored_id
-                            logger.info(f"Found by URI metadata: {found_id}")
-                            break
-                        
-                        # Check for partial URL matches (domain + path)
-                        if (decoded_id in stored_id or stored_id in decoded_id or
-                            decoded_id in stored_uri or stored_uri in decoded_id):
+
+                        # Check for partial URL matches
+                        if (decoded_id in stored_id or stored_id in decoded_id):
                             found_id = stored_id
                             logger.info(f"Found by partial match: {found_id}")
                             break
-                    
-                    # Log some debug info about what we found
-                    if not found_id:
-                        domain = decoded_id.split("://")[1].split("/")[0]
-                        domain_matches = [
-                            id for id in ids if domain in id
-                        ]
-                        logger.info(f"No exact match found. Found {len(domain_matches)} articles from {domain}")
-                        if domain_matches:
-                            logger.info(f"Sample {domain} articles: {domain_matches[:3]}")
-                            
+
             except Exception as search_e:
                 logger.warning(f"Error during metadata search: {search_e}")
-        
+
         if not found_id:
-            # Get some debug info about what IDs actually exist
-            try:
-                sample_results = collection.get(limit=10, include=["metadatas"])
-                existing_ids = sample_results.get("ids", [])
-                logger.info(f"Vector DB contains articles, sample IDs: {existing_ids[:3]}")
-                
-                # Count total
-                total_count = collection.count()
-                logger.info(f"Total articles in vector DB: {total_count}")
-                
-            except Exception as debug_e:
-                logger.warning(f"Could not get debug info: {debug_e}")
-            
+            total_count = count_embeddings()
+            logger.info(f"Total articles with embeddings: {total_count}")
+
             raise HTTPException(
-                status_code=404, 
+                status_code=404,
                 detail=(
                     f"Article not found in vector database. "
                     f"Searched for: {article_ids_to_try}. "
-                    f"The article appears in search results but cannot be found "
-                    f"for deletion. This might indicate an ID format mismatch. "
                     f"Try running a vector reindex to sync the databases."
                 )
             )
-        
-        # Delete the article from the vector database
+
+        # Delete the embedding from the article
         try:
-            collection.delete(ids=[found_id])
-            logger.info(
-                f"Successfully deleted article '{found_id}' from vector "
-                f"database"
-            )
-            
-            return {
-                "success": True,
-                "message": "Article deleted from vector database",
-                "deleted_id": found_id,
-                "original_id": article_id,
-                "search_method": "direct" if found_id in article_ids_to_try else "metadata_search"
-            }
-            
-        except Exception as e:
-            logger.error("Error deleting article from vector database: %s", e)
-            raise HTTPException(
-                status_code=500, 
-                detail=(
-                    "Failed to delete article from vector database: "
-                    f"{str(e)}"
+            affected = delete_embeddings([found_id])
+            if affected > 0:
+                logger.info(f"Successfully deleted embedding for article '{found_id}'")
+                return {
+                    "success": True,
+                    "message": "Article embedding deleted from vector database",
+                    "deleted_id": found_id,
+                    "original_id": article_id,
+                    "search_method": "direct" if found_id in article_ids_to_try else "metadata_search"
+                }
+            else:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Delete operation returned 0 affected rows"
                 )
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("Error deleting embedding: %s", e)
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to delete embedding: {str(e)}"
             )
-            
+
     except HTTPException:
-        # Re-raise HTTP exceptions
         raise
     except Exception as e:
         logger.error("Unexpected error in delete_article_from_vector: %s", e)
         raise HTTPException(
-            status_code=500, 
+            status_code=500,
             detail="Internal server error while deleting article"
         )
 
@@ -3840,25 +3877,21 @@ async def vector_debug_info(
 ):
     """Debug endpoint to check what articles exist in the vector database."""
     logger = logging.getLogger(__name__)
-    
+
     try:
-        collection = _vector_collection()
-        
-        # Get all articles (limited to 100 for debugging)
-        result = collection.get(limit=100, include=["metadatas"])
-        ids = result.get("ids", [])
-        metadatas = result.get("metadatas", [])
-        
-        # Count total articles
-        total_count = collection.count()
-        
+        # Get articles with embeddings using pgvector
+        vectors, metadatas, ids = get_vectors_by_metadata(limit=100)
+
+        # Count total articles with embeddings
+        total_count = count_embeddings()
+
         # Group by domain
         domain_counts = {}
         for article_id in ids:
             if "://" in article_id:
                 domain = article_id.split("://")[1].split("/")[0]
                 domain_counts[domain] = domain_counts.get(domain, 0) + 1
-        
+
         return {
             "total_articles": total_count,
             "sample_articles": [
@@ -3872,7 +3905,7 @@ async def vector_debug_info(
             "domain_counts": domain_counts,
             "message": f"Showing first 10 of {len(ids)} articles retrieved (total: {total_count})"
         }
-        
+
     except Exception as e:
         logger.error("Error in vector debug: %s", e)
         return {

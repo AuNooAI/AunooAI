@@ -1020,7 +1020,7 @@
             <div class="filter-panel-content" id="filtersPanel">
                 <!-- Filter Impact Box -->
                 <div id="filterImpact" class="mb-3"></div>
-                
+
                 <!-- Dynamic Facets -->
                 <div id="facetList" class="mb-3"></div>
             </div>
@@ -3735,7 +3735,7 @@ async function loadPatterns(forceRefresh = false){
     if (anomalies.length > 0) {
       outliersHtml += anomalies.map(a => `
         <div class="border-bottom py-1">
-          <a href="#" class="outlier-link" data-id="${a.id}">${a.metadata.title || 'Untitled'}</a>
+          <a href="#" class="outlier-link" data-id="${a.id}">${a.metadata?.title || 'Untitled'}</a>
           <small class="text-muted">score ${a.score.toFixed(3)}</small>
         </div>`).join('');
     } else {
