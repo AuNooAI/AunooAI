@@ -9,6 +9,7 @@ import { X, ExternalLink, Star, StarOff, MessageSquare, Clock, TrendingUp, Build
 import { type NewsArticle, type ClusterRelatedArticle } from '../../services/newsFeedApi';
 import { ArticleBiasIndicator } from './ArticleBiasIndicator';
 import { Button } from '../ui/button';
+import { openAuspexWithQuery } from '../../utils/auspexEvents';
 
 interface ArticleDetailPanelProps {
   article: NewsArticle | null;
@@ -43,30 +44,39 @@ export function ArticleDetailPanel({
   };
 
   const handleAskAuspex = () => {
-    // Open Auspex floating chat and pre-fill with article
-    const floatingChat = (window as any).floatingChatInstance;
-    if (floatingChat && floatingChat.modalInstance) {
-      floatingChat.modalInstance.show();
-      setTimeout(() => {
-        const input = document.getElementById('floatingChatInput') as HTMLTextAreaElement;
-        if (input) {
-          input.value = `Analyze this article: "${article.title}"`;
-          input.focus();
-        }
-      }, 300);
-    } else {
-      const chatBtn = document.getElementById('floatingChatBtn');
-      if (chatBtn) {
-        chatBtn.click();
-        setTimeout(() => {
-          const input = document.getElementById('floatingChatInput') as HTMLTextAreaElement;
-          if (input) {
-            input.value = `Analyze this article: "${article.title}"`;
-            input.focus();
-          }
-        }, 300);
-      }
-    }
+    // Build comprehensive article context
+    const sourceName = article.source?.name || 'Unknown source';
+    const sourceInfo = [];
+    if (article.source?.bias) sourceInfo.push(`Bias: ${article.source.bias}`);
+    if (article.source?.factuality) sourceInfo.push(`Factuality: ${article.source.factuality}`);
+    if (article.source?.credibility_rating) sourceInfo.push(`Credibility: ${article.source.credibility_rating}`);
+    const sourceText = sourceInfo.length > 0 ? sourceInfo.join(', ') : '';
+
+    const tagsText = article.tags
+      ? (Array.isArray(article.tags) ? article.tags.join(', ') : article.tags)
+      : '';
+
+    const prompt = `Analyze this article: "${article.title}"
+Article URI: ${article.uri}
+Source: ${sourceName}${sourceText ? ` (${sourceText})` : ''}
+
+ARTICLE METADATA:
+${article.category ? `Category: ${article.category}` : ''}
+${article.topic ? `Topic: ${article.topic}` : ''}
+${article.sentiment ? `Sentiment: ${article.sentiment}` : ''}
+${article.time_to_impact ? `Time to Impact: ${article.time_to_impact}` : ''}
+${tagsText ? `Tags: ${tagsText}` : ''}
+
+${article.summary ? `SUMMARY:\n${article.summary}` : ''}
+
+Please provide:
+1. Key insights and implications from this article
+2. Entities and organizations mentioned
+3. Potential impact on our organization
+4. Related trends or developments to monitor
+5. Suggested follow-up questions`;
+
+    openAuspexWithQuery(prompt);
   };
 
   const formatDate = (dateStr?: string) => {
