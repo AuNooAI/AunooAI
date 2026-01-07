@@ -3042,23 +3042,49 @@ async def run_signal_instructions(
             logger.info(f"Running signal instruction: {instruction['name']} (ID: {instruction['id']})")
             
             # Prepare articles for this instruction
+            def get_field(article, field, default=''):
+                val = article.get(field) if hasattr(article, 'get') else article.get(field, default)
+                return val if val else default
+
             articles_text = "\n\n".join([
                 f"Article {i+1}:\n"
-                f"Title: {article.get('title') if hasattr(article, 'get') else article['title']}\n"
-                f"Source: {article.get('news_source') if hasattr(article, 'get') else article['news_source']}\n"
-                f"Date: {article.get('publication_date') if hasattr(article, 'get') else article['publication_date']}\n"
-                f"Summary: {article.get('summary') if hasattr(article, 'get') else article['summary']}\n"
-                f"URI: {article.get('uri') if hasattr(article, 'get') else article['uri']}"
+                f"Title: {get_field(article, 'title')}\n"
+                f"Source: {get_field(article, 'news_source')}\n"
+                f"Date: {get_field(article, 'publication_date')}\n"
+                f"Category: {get_field(article, 'category', 'Unknown')}\n"
+                f"Sentiment: {get_field(article, 'sentiment', 'Unknown')}\n"
+                f"Tags: {get_field(article, 'tags', 'None')}\n"
+                f"Topics: {get_field(article, 'extracted_article_topics', 'None')}\n"
+                f"Keywords: {get_field(article, 'extracted_article_keywords', 'None')}\n"
+                f"Summary: {get_field(article, 'summary')}\n"
+                f"URI: {get_field(article, 'uri')}"
                 for i, article in enumerate(articles[:50])  # Limit to 50 articles per instruction
             ])
             
             # Create analysis prompt
+            # Check for entities to monitor in config
+            config = instruction.get('config') or {}
+            entities = config.get('entities_to_monitor', [])
+            entities_section = ""
+            if entities:
+                entities_text = ", ".join(entities)
+                entities_section = f"""
+
+            ENTITIES TO MONITOR:
+            {entities_text}
+
+            IMPORTANT: Prioritize articles that mention any of these specific entities. If an entity appears in an article, flag it with higher confidence and explicitly mention which entity was found in your reasoning.
+            """
+
             system_prompt = f"""
             You are a threat intelligence analyst. Analyze the provided articles using this signal instruction:
 
             SIGNAL: {instruction['name']}
             DESCRIPTION: {instruction['description']}
             INSTRUCTION: {instruction['instruction']}
+            {entities_section}
+            Each article includes: Title, Source, Date, Category, Sentiment, Tags, Topics, Keywords, and Summary.
+            Use ALL of these fields when evaluating matches - Tags, Topics, and Keywords are especially useful for entity matching.
 
             For EACH article that matches the signal, return a separate JSON object:
             {{
@@ -3072,7 +3098,7 @@ async def run_signal_instructions(
             }}
 
             IMPORTANT: The "reasoning" field should explain WHY this article is relevant - what specific content,
-            entities, events, or patterns in the article triggered the match. This helps users understand the significance.
+            entities, tags, keywords, or patterns in the article triggered the match. Reference the specific Tags/Keywords that matched.
 
             Return a JSON array of all matching articles: [{{}}, {{}}, ...]
             If no articles match, return an empty array: []
@@ -3245,6 +3271,125 @@ Format your response as a structured markdown report with clear sections.
                 logger.error(f"Error generating signal report: {report_error}")
                 # Don't fail the whole operation if report generation fails
 
+        # Process additional actions from instruction config (deep_research, send_email)
+        deep_research_results = []
+        email_sent = False
+
+        for instruction in instructions:
+            config = instruction.get('config') or {}
+            instruction_alerts = [a for a in alerts_created if a.get('instruction_id') == instruction['id']]
+
+            if not instruction_alerts:
+                continue  # No matches for this instruction, skip actions
+
+            # Deep Research Action
+            if config.get('deep_research') and instruction_alerts:
+                try:
+                    from app.vector_store import search_articles as vector_search_articles
+
+                    logger.info(f"Running deep research for instruction: {instruction['name']}")
+
+                    # Build search query from matched articles
+                    search_terms = []
+                    for alert in instruction_alerts[:5]:  # Use top 5 matches
+                        if alert.get('summary'):
+                            search_terms.append(alert['summary'])
+
+                    if search_terms:
+                        search_query = " ".join(search_terms[:3])[:500]  # Limit query length
+                        metadata_filter = {"topic": req.topic} if req.topic else None
+
+                        # Search for related articles
+                        related_articles = vector_search_articles(
+                            query=search_query,
+                            top_k=20,
+                            metadata_filter=metadata_filter
+                        )
+
+                        # Filter out articles already matched
+                        matched_uris = {a.get('article_uri') for a in instruction_alerts}
+                        new_related = []
+                        for result in related_articles or []:
+                            metadata = result.get('metadata', {})
+                            uri = metadata.get('uri')
+                            if uri and uri not in matched_uris:
+                                new_related.append({
+                                    'uri': uri,
+                                    'title': metadata.get('title', 'Unknown'),
+                                    'summary': metadata.get('summary', ''),
+                                    'news_source': metadata.get('news_source', 'Unknown'),
+                                    'similarity_score': result.get('score', 0)
+                                })
+
+                        if new_related:
+                            deep_research_results.append({
+                                'instruction_id': instruction['id'],
+                                'instruction_name': instruction['name'],
+                                'related_articles': new_related[:10],
+                                'total_found': len(new_related)
+                            })
+                            logger.info(f"Deep research found {len(new_related)} related articles for {instruction['name']}")
+
+                except Exception as dr_error:
+                    logger.error(f"Error in deep research for {instruction['name']}: {dr_error}")
+
+            # Send Email Action
+            if config.get('send_email') and instruction_alerts:
+                try:
+                    from app.services.email_service import get_email_service
+
+                    email_service = get_email_service()
+                    if email_service.is_available():
+                        # Get recipient from config or use default
+                        recipient = config.get('email_recipient')
+                        if not recipient:
+                            # Try to get user's email from session if available
+                            user_info = session.get('user', {}) if isinstance(session, dict) else {}
+                            recipient = user_info.get('email')
+
+                        if recipient:
+                            success = email_service.send_signal_alert_email(
+                                to_address=recipient,
+                                instruction_name=instruction['name'],
+                                matches=instruction_alerts,
+                                topic=req.topic
+                            )
+                            if success:
+                                email_sent = True
+                                logger.info(f"Email notification sent to {recipient} for {instruction['name']}")
+                        else:
+                            logger.warning(f"No email recipient configured for {instruction['name']}")
+                    else:
+                        logger.warning("Email service not configured - skipping email notification")
+
+                except Exception as email_error:
+                    logger.error(f"Error sending email for {instruction['name']}: {email_error}")
+
+            # Bluesky DM Action
+            if config.get('bluesky_dm') and instruction_alerts:
+                try:
+                    from app.services.bluesky_notification_service import get_bluesky_notification_service
+
+                    bluesky_service = get_bluesky_notification_service()
+                    if bluesky_service.is_available():
+                        recipient = config.get('bluesky_recipient')
+                        if recipient:
+                            success = bluesky_service.send_signal_alert_dm(
+                                recipient_handle=recipient,
+                                instruction_name=instruction['name'],
+                                matches=instruction_alerts,
+                                topic=req.topic
+                            )
+                            if success:
+                                logger.info(f"Bluesky DM sent to {recipient} for {instruction['name']}")
+                        else:
+                            logger.warning(f"No Bluesky recipient configured for {instruction['name']}")
+                    else:
+                        logger.warning("Bluesky notification service not configured - skipping DM")
+
+                except Exception as bluesky_error:
+                    logger.error(f"Error sending Bluesky DM for {instruction['name']}: {bluesky_error}")
+
         return {
             "success": True,
             "message": f"Analyzed {len(articles)} articles with {len(instructions)} signal instructions",
@@ -3253,7 +3398,9 @@ Format your response as a structured markdown report with clear sections.
             "instructions_run": len(instructions),
             "articles_analyzed": len(articles),
             "analysis_period": f"{start_date_dt.strftime('%Y-%m-%d')} to {end_date_dt.strftime('%Y-%m-%d')}",
-            "report": report_data
+            "report": report_data,
+            "deep_research": deep_research_results if deep_research_results else None,
+            "email_sent": email_sent
         }
 
     except Exception as exc:
