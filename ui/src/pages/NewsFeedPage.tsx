@@ -33,6 +33,7 @@ import { AuspexChat } from '../components/auspex';
 import { ArticleDetailPanel } from '../components/newsfeed/ArticleDetailPanel';
 import { CategoryViewModal } from '../components/newsfeed/CategoryViewModal';
 import { IncidentConfigModal } from '../components/newsfeed/IncidentConfigModal';
+import { NarrativesConfigModal } from '../components/newsfeed/NarrativesConfigModal';
 import { SixArticlesTuneModal } from '../components/SixArticlesTuneModal';
 import { type NewsArticle, type ArticleCluster, type ClusterRelatedArticle, getArticleByUri, getClusteredArticles, clusterArticleToNewsArticle } from '../services/newsFeedApi';
 import { applyFilters, createEmptyFilters, type IncidentFilters } from '../components/newsfeed/FilterPanel';
@@ -139,6 +140,7 @@ export function NewsFeedPage() {
   const [currentTab, setCurrentTab] = useState<'feed' | 'agents' | 'reports'>('feed');
   const [reportsCount, setReportsCount] = useState(0);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [isNarrativesConfigOpen, setIsNarrativesConfigOpen] = useState(false);
   const [isBriefingConfigOpen, setIsBriefingConfigOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
   const [filters] = useState<IncidentFilters>(createEmptyFilters());
@@ -264,15 +266,18 @@ export function NewsFeedPage() {
     }
   }, [config.topic]);
 
-  // Sync model and profileId from settings modal to narrative config
+  // Sync model, profileId, and dateRange from settings modal to narrative config
   useEffect(() => {
-    if (config.model !== narrativeConfig.model || config.profileId !== narrativeConfig.profileId) {
-      updateNarrativeConfig({
-        model: config.model,
-        profileId: config.profileId,
-      });
+    const updates: Partial<typeof narrativeConfig> = {};
+    if (config.model !== narrativeConfig.model) updates.model = config.model;
+    if (config.profileId !== narrativeConfig.profileId) updates.profileId = config.profileId;
+    if (config.dateRange !== narrativeConfig.dateRange) updates.dateRange = config.dateRange as any;
+
+    if (Object.keys(updates).length > 0) {
+      console.log('[NewsFeedPage] Syncing config to narrativeConfig:', updates);
+      updateNarrativeConfig(updates);
     }
-  }, [config.model, config.profileId]);
+  }, [config.model, config.profileId, config.dateRange]);
 
   // Load hidden categories and category order from localStorage
   useEffect(() => {
@@ -375,6 +380,11 @@ export function NewsFeedPage() {
 
   // Refresh handler - fetches articles AND generates analyses for VISIBLE sections only
   const handleRefresh = useCallback(async () => {
+    console.log('[NewsFeedPage] handleRefresh called', {
+      selectedTopics: narrativeConfig.selectedTopics,
+      visibleSections
+    });
+
     // Fetch articles first (always needed for Latest News section)
     await fetchArticles();
 
@@ -383,15 +393,20 @@ export function NewsFeedPage() {
       const promises: Promise<void>[] = [];
 
       if (visibleSections.incidents) {
+        console.log('[NewsFeedPage] Adding generateHighlights to promises');
         promises.push(generateHighlights(true));
       }
       if (visibleSections.narratives) {
+        console.log('[NewsFeedPage] Adding generateNarratives to promises');
         promises.push(generateNarratives(true));
       }
 
       if (promises.length > 0) {
+        console.log('[NewsFeedPage] Executing', promises.length, 'promises');
         await Promise.all(promises);
       }
+    } else {
+      console.log('[NewsFeedPage] No topics selected, skipping incidents/narratives');
     }
 
     // Fetch briefing only if visible
@@ -534,7 +549,6 @@ export function NewsFeedPage() {
           onConfigChange={updateConfig}
           onNarrativeConfigChange={updateNarrativeConfig}
           onRefresh={handleRefresh}
-          onOpenConfig={currentTab === 'feed' ? () => setIsConfigOpen(true) : undefined}
         />
 
         {/* Tab Navigation */}
@@ -656,6 +670,7 @@ export function NewsFeedPage() {
                         loading={loadingHighlights}
                         onIncidentUpdate={handleIncidentUpdate}
                         onArticleClick={handleArticleClick}
+                        onOpenConfig={() => setIsConfigOpen(true)}
                       />
                     )}
 
@@ -666,6 +681,7 @@ export function NewsFeedPage() {
                         loading={loadingNarratives}
                         onArticleClick={handleArticleClick}
                         currentTopic={config.topic}
+                        onOpenConfig={() => setIsNarrativesConfigOpen(true)}
                       />
                     )}
 
@@ -776,6 +792,12 @@ export function NewsFeedPage() {
       <IncidentConfigModal
         open={isConfigOpen}
         onClose={() => setIsConfigOpen(false)}
+      />
+
+      {/* Narratives Config Modal */}
+      <NarrativesConfigModal
+        open={isNarrativesConfigOpen}
+        onClose={() => setIsNarrativesConfigOpen(false)}
       />
 
       {/* Six Articles / Briefing Config Modal */}

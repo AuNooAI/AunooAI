@@ -16,6 +16,7 @@ export interface IncidentArticleMetadata {
   factual_reporting?: string;
   mbfc_credibility_rating?: string;
   bias?: string;
+  tags?: string[];
 }
 
 export interface IncidentArticle {
@@ -91,6 +92,12 @@ export interface IncidentTrackingParams {
   model?: string;
   forceRegenerate?: boolean;
   profileId?: number;
+  // Custom configuration (optional)
+  systemPrompt?: string;
+  userPrompt?: string;
+  baseOntology?: string;
+  analysisInstructions?: string;
+  qualityGuidelines?: string;
 }
 
 // Types for Article Insights (Narratives)
@@ -123,6 +130,58 @@ export interface ArticleInsightsParams {
   daysLimit?: number;
   forceRegenerate?: boolean;
   model?: string;
+  // Custom prompt configuration
+  systemPrompt?: string;
+  userPrompt?: string;
+}
+
+// ===== Narratives Config =====
+export interface NarrativesConfig {
+  system_prompt: string;
+  user_prompt: string;
+  additional_instructions: string;
+}
+
+const NARRATIVES_CONFIG_KEY = 'narrativesConfig';
+const INCIDENT_CONFIG_KEY = 'incidentTrackingConfig';
+
+/**
+ * Get narratives configuration from localStorage
+ */
+export function getNarrativesConfig(): NarrativesConfig | null {
+  try {
+    const saved = localStorage.getItem(NARRATIVES_CONFIG_KEY);
+    if (saved) {
+      return JSON.parse(saved);
+    }
+  } catch (err) {
+    console.error('Error loading narratives config:', err);
+  }
+  return null;
+}
+
+// Incident config interface (matches IncidentConfigModal)
+export interface IncidentConfigLocalStorage {
+  system_prompt?: string;
+  user_prompt?: string;
+  base_ontology?: string;
+  analysis_instructions?: string;
+  quality_guidelines?: string;
+}
+
+/**
+ * Get incident tracking configuration from localStorage
+ */
+export function getIncidentConfigFromStorage(): IncidentConfigLocalStorage | null {
+  try {
+    const saved = localStorage.getItem(INCIDENT_CONFIG_KEY);
+    if (saved) {
+      return JSON.parse(saved);
+    }
+  } catch (err) {
+    console.error('Error loading incident config:', err);
+  }
+  return null;
 }
 
 /**
@@ -144,6 +203,12 @@ export async function getIncidentTracking(params: IncidentTrackingParams): Promi
       model: params.model || 'gpt-4o-mini',
       force_regenerate: params.forceRegenerate || false,
       profile_id: params.profileId,
+      // Custom configuration (if provided)
+      system_prompt: params.systemPrompt,
+      user_prompt: params.userPrompt,
+      base_ontology: params.baseOntology,
+      analysis_instructions: params.analysisInstructions,
+      quality_guidelines: params.qualityGuidelines,
     }),
   });
 
@@ -157,20 +222,26 @@ export async function getIncidentTracking(params: IncidentTrackingParams): Promi
 
 /**
  * Get article insights/themes (Narratives)
+ * Uses POST to support custom prompt configuration
  */
 export async function getArticleInsights(params: ArticleInsightsParams): Promise<ArticleTheme[]> {
-  const queryParams = new URLSearchParams();
-
-  if (params.startDate) queryParams.append('start_date', params.startDate);
-  if (params.endDate) queryParams.append('end_date', params.endDate);
-  if (params.daysLimit) queryParams.append('days_limit', params.daysLimit.toString());
-  if (params.forceRegenerate) queryParams.append('force_regenerate', 'true');
-  if (params.model) queryParams.append('model', params.model);
-
   const response = await fetch(
-    `/api/dashboard/article-insights/${encodeURIComponent(params.topic)}?${queryParams}`,
+    `/api/dashboard/article-insights/${encodeURIComponent(params.topic)}`,
     {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
       credentials: 'include',
+      body: JSON.stringify({
+        start_date: params.startDate,
+        end_date: params.endDate,
+        days_limit: params.daysLimit,
+        force_regenerate: params.forceRegenerate || false,
+        model: params.model,
+        system_prompt: params.systemPrompt,
+        user_prompt: params.userPrompt,
+      }),
     }
   );
 
@@ -479,54 +550,54 @@ export function getTopicColor(topic: string): string {
 }
 
 /**
- * Get type badge color for incident type
+ * Get type badge color for incident type (with dark mode support)
  */
 export function getTypeBadgeColor(type: IncidentType): string {
   switch (type) {
-    case 'incident': return 'bg-red-100 text-red-700';
-    case 'entity': return 'bg-blue-100 text-blue-700';
-    case 'expertise': return 'bg-amber-100 text-amber-700';
-    case 'informed_insider': return 'bg-gray-800 text-white';
-    case 'trend_signal': return 'bg-cyan-100 text-cyan-700';
-    case 'strategic_shift': return 'bg-gray-100 text-gray-700';
-    case 'event': return 'bg-green-100 text-green-700';
-    default: return 'bg-gray-100 text-gray-600';
+    case 'incident': return 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300';
+    case 'entity': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300';
+    case 'expertise': return 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300';
+    case 'informed_insider': return 'bg-gray-800 text-white dark:bg-gray-600 dark:text-gray-100';
+    case 'trend_signal': return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/50 dark:text-cyan-300';
+    case 'strategic_shift': return 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200';
+    case 'event': return 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300';
+    default: return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300';
   }
 }
 
 /**
- * Get significance badge color
+ * Get significance badge color (with dark mode support)
  */
 export function getSignificanceBadgeColor(significance: IncidentSignificance): string {
   switch (significance) {
-    case 'high': return 'bg-red-100 text-red-700';
-    case 'medium': return 'bg-yellow-100 text-yellow-700';
-    case 'low': return 'bg-blue-100 text-blue-700';
-    default: return 'bg-gray-100 text-gray-600';
+    case 'high': return 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300';
+    case 'medium': return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300';
+    case 'low': return 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300';
+    default: return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300';
   }
 }
 
 /**
- * Get plausibility badge color
+ * Get plausibility badge color (with dark mode support)
  */
 export function getPlausibilityBadgeColor(plausibility?: Plausibility): string {
   switch (plausibility) {
-    case 'likely': return 'bg-green-100 text-green-700';
-    case 'questionable': return 'bg-yellow-100 text-yellow-700';
-    case 'implausible': return 'bg-red-100 text-red-700';
-    default: return 'bg-gray-100 text-gray-600';
+    case 'likely': return 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300';
+    case 'questionable': return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300';
+    case 'implausible': return 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300';
+    default: return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300';
   }
 }
 
 /**
- * Get source quality badge color
+ * Get source quality badge color (with dark mode support)
  */
 export function getSourceQualityBadgeColor(quality?: SourceQuality): string {
   switch (quality) {
-    case 'high': return 'bg-green-100 text-green-700';
-    case 'mixed': return 'bg-yellow-100 text-yellow-700';
-    case 'low': return 'bg-red-100 text-red-700';
-    default: return 'bg-gray-100 text-gray-600';
+    case 'high': return 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300';
+    case 'mixed': return 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300';
+    case 'low': return 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300';
+    default: return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300';
   }
 }
 

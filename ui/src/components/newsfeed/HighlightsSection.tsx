@@ -23,6 +23,12 @@ import {
   Calendar,
   Info,
   X,
+  MoreVertical,
+  Bookmark,
+  Share2,
+  ThumbsUp,
+  ThumbsDown,
+  Settings2,
 } from 'lucide-react';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import {
@@ -44,15 +50,17 @@ import {
 import { Card, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
 import { Skeleton } from '../ui/skeleton';
+import { AgentSignalBadge, extractSignalTags } from './AgentSignalBadge';
 
 interface HighlightsSectionProps {
   incidents: Incident[];
   loading?: boolean;
   onIncidentUpdate?: () => void;
   onArticleClick?: (article: { uri: string; title?: string }) => void;
+  onOpenConfig?: () => void;
 }
 
-export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArticleClick }: HighlightsSectionProps) {
+export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArticleClick, onOpenConfig }: HighlightsSectionProps) {
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
 
@@ -112,6 +120,16 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
         <div className="flex items-center gap-2 mb-2">
           <Crosshair className="w-5 h-5 text-pink-500" />
           <h2 className="text-xl font-semibold text-gray-900">Incidents</h2>
+          <div className="flex-1" />
+          {onOpenConfig && (
+            <button
+              onClick={onOpenConfig}
+              className="p-1.5 rounded-md hover:bg-gray-100 transition-colors"
+              title="Configure Incidents"
+            >
+              <Settings2 className="w-4 h-4 text-gray-500" />
+            </button>
+          )}
         </div>
         <p className="text-sm text-gray-500">No recent incidents, click refresh</p>
       </section>
@@ -127,6 +145,16 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
         <span className="text-sm text-gray-500 ml-2">
           {incidents.length} incident{incidents.length !== 1 ? 's' : ''} tracked
         </span>
+        <div className="flex-1" />
+        {onOpenConfig && (
+          <button
+            onClick={onOpenConfig}
+            className="p-1.5 rounded-md hover:bg-gray-100 transition-colors"
+            title="Configure Incidents"
+          >
+            <Settings2 className="w-4 h-4 text-gray-500" />
+          </button>
+        )}
       </div>
 
       {/* Loading State */}
@@ -198,95 +226,255 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
 
 /**
  * Compact incident card for horizontal scroll display
- * Shows: headline, type, significance stripe, topic
+ * Shows: date, type badges, headline, plausibility/source ratings, topic
  */
 interface CompactIncidentCardProps {
   incident: Incident;
   onClick?: () => void;
 }
 
+// Badge tooltip explanations for incidents
+function getTypeBadgeTooltip(type: string): string {
+  const lower = type.toLowerCase();
+  if (lower === 'incident') return 'A specific event or occurrence that requires attention';
+  if (lower === 'event') return 'A notable happening or development';
+  if (lower === 'expertise') return 'Expert analysis or specialized knowledge';
+  if (lower === 'trend') return 'An emerging pattern or direction';
+  return `Type: ${type}`;
+}
+
+function getSignificanceTooltip(significance: string): string {
+  const lower = significance.toLowerCase();
+  if (lower === 'high') return 'High significance - requires immediate attention';
+  if (lower === 'medium') return 'Medium significance - worth monitoring';
+  if (lower === 'low') return 'Low significance - for awareness';
+  return `Significance: ${significance}`;
+}
+
+function getPlausibilityTooltip(plausibility: string): string {
+  const lower = plausibility.toLowerCase();
+  if (lower === 'high' || lower === 'plausible') return 'High plausibility - likely to be accurate';
+  if (lower === 'medium') return 'Medium plausibility - some uncertainty';
+  if (lower === 'low' || lower === 'implausible') return 'Low plausibility - treat with caution';
+  return `Plausibility: ${plausibility}`;
+}
+
+function getSourceQualityTooltip(quality: string): string {
+  const lower = quality.toLowerCase();
+  if (lower === 'high') return 'High quality sources - reliable and credible';
+  if (lower === 'medium') return 'Medium quality sources - generally reliable';
+  if (lower === 'low') return 'Low quality sources - verify independently';
+  return `Source quality: ${quality}`;
+}
+
 function CompactIncidentCard({ incident, onClick }: CompactIncidentCardProps) {
-  const [showTooltip, setShowTooltip] = useState(false);
-  const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0 });
-  const cardRef = useRef<HTMLDivElement>(null);
+  const [hoveredBadge, setHoveredBadge] = useState<string | null>(null);
+  const [badgeTooltipPos, setBadgeTooltipPos] = useState({ top: 0, left: 0 });
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const name = incident.name || incident.title || 'Unnamed Incident';
   const type = incident.type || 'event';
   const significance = incident.significance || 'medium';
-  const tooltipContent = incident.description || incident.summary;
+  const displaySummary = incident.description || incident.summary || '';
 
-  // Get border color based on significance (matching BriefingCard pattern)
-  const significanceBorder =
-    significance === 'high' ? 'border-t-red-500' :
-    significance === 'medium' ? 'border-t-yellow-500' :
-    'border-t-blue-500';
-
-  const handleMouseEnter = () => {
-    if (cardRef.current) {
-      const rect = cardRef.current.getBoundingClientRect();
-      // Position tooltip above the card, centered horizontally
-      // Clamp to viewport bounds
-      const tooltipWidth = 288; // w-72 = 18rem = 288px
-      let left = rect.left + (rect.width / 2) - (tooltipWidth / 2);
-      // Keep tooltip within viewport
-      left = Math.max(8, Math.min(left, window.innerWidth - tooltipWidth - 8));
-      const top = rect.top - 8; // 8px gap above card
-      setTooltipPos({ top, left });
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenu(false);
+      }
+    };
+    if (showMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
     }
-    setShowTooltip(true);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showMenu]);
+
+  // Menu action handlers
+  const handleMenuAction = (action: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowMenu(false);
+    // TODO: Implement actual actions
+    console.log(`Menu action: ${action} for incident: ${name}`);
+  };
+
+  // Format date for display
+  const formatDisplayDate = (dateStr?: string | string[]) => {
+    const dateVal = Array.isArray(dateStr) ? dateStr[0] : dateStr;
+    if (!dateVal) return '';
+    try {
+      const date = new Date(dateVal);
+      return date.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      }).replace(/\//g, '.');
+    } catch {
+      return String(dateVal);
+    }
+  };
+
+  // Handle badge hover for tooltip
+  const handleBadgeHover = (badgeType: string, e: React.MouseEvent) => {
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    setBadgeTooltipPos({
+      top: rect.bottom + 4,
+      left: rect.left + rect.width / 2
+    });
+    setHoveredBadge(badgeType);
+  };
+
+  // Get tooltip text for badge
+  const getBadgeTooltipText = (badgeType: string): string => {
+    switch (badgeType) {
+      case 'type':
+        return getTypeBadgeTooltip(type);
+      case 'significance':
+        return getSignificanceTooltip(significance);
+      case 'plausibility':
+        return incident.plausibility ? getPlausibilityTooltip(incident.plausibility) : '';
+      case 'source':
+        return incident.source_quality ? getSourceQualityTooltip(incident.source_quality) : '';
+      default:
+        return '';
+    }
   };
 
   return (
-    <div
-      ref={cardRef}
-      className="relative"
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={() => setShowTooltip(false)}
-    >
+    <div className="relative">
       <div
         onClick={onClick}
-        className={`flex-shrink-0 w-[220px] bg-white border border-gray-200 border-t-4 ${significanceBorder} rounded-lg p-3 cursor-pointer hover:shadow-md hover:border-gray-300 transition-all snap-start`}
+        className="flex-shrink-0 w-[260px] bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4 cursor-pointer hover:shadow-md hover:border-gray-300 dark:hover:border-gray-600 transition-all snap-start"
       >
-        {/* Title */}
-        <h4 className="font-semibold text-gray-900 text-sm line-clamp-2 mb-2 min-h-[40px]">
+        {/* Top row: Date + See More + Menu */}
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-1 text-[11px] text-gray-600 dark:text-gray-300">
+            <Calendar className="w-3 h-3" />
+            <span>{formatDisplayDate(incident.timeline)}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-blue-600 dark:text-blue-400 flex items-center gap-0.5">
+              <ChevronDown className="w-3 h-3" />
+              See More
+            </span>
+            {/* Kebab menu */}
+            <div ref={menuRef} className="relative">
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
+                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+              >
+                <MoreVertical className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+              </button>
+              {showMenu && (
+                <div className="absolute right-0 top-full mt-1 w-36 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
+                  <button
+                    onClick={(e) => handleMenuAction('save', e)}
+                    className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                  >
+                    <Bookmark className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                    Save
+                  </button>
+                  <button
+                    onClick={(e) => handleMenuAction('share', e)}
+                    className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                  >
+                    <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                    Share
+                  </button>
+                  <button
+                    onClick={(e) => handleMenuAction('more', e)}
+                    className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                  >
+                    <ThumbsUp className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                    More like this
+                  </button>
+                  <button
+                    onClick={(e) => handleMenuAction('less', e)}
+                    className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                  >
+                    <ThumbsDown className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                    Less like this
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Title - fully legible */}
+        <h4 className="font-semibold text-gray-900 dark:text-gray-100 text-sm mb-2">
           {name}
         </h4>
 
-        {/* Badges row */}
-        <div className="flex flex-wrap gap-1">
-          <span className={`text-[10px] px-1.5 py-0.5 rounded ${getTypeBadgeColor(type)}`}>
+        {/* Summary - displayed on card */}
+        {displaySummary && (
+          <p className="text-[11px] text-gray-700 dark:text-gray-300 line-clamp-3 mb-2">
+            {displaySummary}
+          </p>
+        )}
+
+        {/* Type + Significance badges row - with hover tooltips */}
+        <div className="flex flex-wrap gap-1 mb-2">
+          <span
+            className={`text-[10px] font-medium px-1.5 py-0.5 rounded cursor-help ${getTypeBadgeColor(type)}`}
+            onMouseEnter={(e) => handleBadgeHover('type', e)}
+            onMouseLeave={() => setHoveredBadge(null)}
+          >
             {type}
           </span>
-          {incident.topic && (
+          <span
+            className={`text-[10px] font-medium px-1.5 py-0.5 rounded cursor-help ${getSignificanceBadgeColor(significance)}`}
+            onMouseEnter={(e) => handleBadgeHover('significance', e)}
+            onMouseLeave={() => setHoveredBadge(null)}
+          >
+            {significance}
+          </span>
+        </div>
+
+        {/* Plausibility + Source Quality badges - with hover tooltips */}
+        <div className="flex flex-wrap gap-1 mb-2">
+          {incident.plausibility && (
             <span
-              className="text-[10px] px-1.5 py-0.5 rounded"
-              style={{ backgroundColor: getTopicColor(incident.topic), color: 'white' }}
+              className={`text-[10px] font-medium px-1.5 py-0.5 rounded cursor-help ${getPlausibilityBadgeColor(incident.plausibility)}`}
+              onMouseEnter={(e) => handleBadgeHover('plausibility', e)}
+              onMouseLeave={() => setHoveredBadge(null)}
             >
-              {incident.topic}
+              {incident.plausibility}
+            </span>
+          )}
+          {incident.source_quality && (
+            <span
+              className={`text-[10px] font-medium px-1.5 py-0.5 rounded cursor-help ${getSourceQualityBadgeColor(incident.source_quality)}`}
+              onMouseEnter={(e) => handleBadgeHover('source', e)}
+              onMouseLeave={() => setHoveredBadge(null)}
+            >
+              {incident.source_quality}
             </span>
           )}
         </div>
+
+        {/* Topic badge */}
+        {incident.topic && (
+          <span
+            className="text-[10px] font-medium px-1.5 py-0.5 rounded"
+            style={{ backgroundColor: getTopicColor(incident.topic), color: 'white' }}
+          >
+            {incident.topic}
+          </span>
+        )}
       </div>
 
-      {/* Hover tooltip - rendered via portal to escape overflow containers */}
-      {showTooltip && (tooltipContent || incident.organizational_relevance) && createPortal(
+      {/* Badge tooltip - rendered via portal */}
+      {hoveredBadge && createPortal(
         <div
-          className="fixed z-[9999] w-72 p-3 bg-white rounded-lg shadow-lg border border-gray-200 pointer-events-none"
+          className="fixed z-[9999] w-48 p-2 bg-gray-900 text-white text-xs rounded shadow-lg pointer-events-none"
           style={{
-            top: tooltipPos.top,
-            left: tooltipPos.left,
-            transform: 'translateY(-100%)'
+            top: badgeTooltipPos.top,
+            left: badgeTooltipPos.left,
+            transform: 'translateX(-50%)'
           }}
         >
-          {tooltipContent && (
-            <p className="text-xs text-gray-600 leading-relaxed line-clamp-4">
-              {tooltipContent}
-            </p>
-          )}
-          {incident.organizational_relevance && (
-            <p className="text-xs text-blue-600 mt-2 line-clamp-2">
-              <strong>Why it matters:</strong> {incident.organizational_relevance}
-            </p>
-          )}
+          {getBadgeTooltipText(hoveredBadge)}
         </div>,
         document.body
       )}
@@ -323,6 +511,11 @@ function IncidentCard({ incident, expanded, onToggleExpand, onIncidentUpdate, on
   // Get articles from either format
   const articles = incident.articles || [];
   const articleUris = incident.article_uris || articles.map((a) => a.uri);
+
+  // Get investigation leads - handle both snake_case and camelCase, ensure it's an array
+  const incidentAny = incident as any;
+  const rawLeads = incident.investigation_leads || incidentAny.investigationLeads;
+  const investigationLeads: string[] = Array.isArray(rawLeads) ? rawLeads : [];
 
   // Timeline handling
   const timeline = incident.timeline;
@@ -420,9 +613,25 @@ Provide comprehensive analysis with citations to the source articles.`;
     openAuspexWithQuery(researchPrompt);
   };
 
+  // Format date for display
+  const formatDisplayDate = (dateStr?: string | string[]) => {
+    const dateVal = Array.isArray(dateStr) ? dateStr[0] : dateStr;
+    if (!dateVal) return '';
+    try {
+      const date = new Date(dateVal);
+      return date.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      }).replace(/\//g, '.');
+    } catch {
+      return String(dateVal);
+    }
+  };
+
   return (
     <Card
-      className={`overflow-hidden hover:shadow-md transition-shadow ${
+      className={`overflow-hidden hover:shadow-md transition-shadow bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 ${
         status === 'seen' ? 'opacity-75' : ''
       } ${isLowQuality ? 'border-l-4 border-l-red-500' : ''}`}
     >
@@ -439,10 +648,25 @@ Provide comprehensive analysis with citations to the source articles.`;
         />
 
         <div className="p-4">
+          {/* Top row: Date + See More/Less */}
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+              <Calendar className="w-3.5 h-3.5" />
+              <span>{formatDisplayDate(incident.timeline)}</span>
+            </div>
+            <button
+              onClick={onToggleExpand}
+              className="flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 hover:text-blue-700"
+            >
+              <ChevronDown className="w-4 h-4" />
+              See More
+            </button>
+          </div>
+
           {/* Header */}
           <div className="flex items-start justify-between gap-2 mb-2">
             <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
-              <h3 className="font-semibold text-gray-900 text-sm break-words">{name}</h3>
+              <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-sm break-words">{name}</h3>
               {incident.topic && (
                 <span
                   className="text-[10px] px-1.5 py-0.5 rounded"
@@ -492,25 +716,29 @@ Provide comprehensive analysis with citations to the source articles.`;
           )}
 
           {/* Description */}
-          <p className={`text-sm text-gray-600 mb-2 ${expanded ? '' : 'line-clamp-3'}`}>
+          <p className={`text-sm text-gray-600 dark:text-gray-400 mb-3 ${expanded ? '' : 'line-clamp-3'}`}>
             {description}
           </p>
 
-          {/* Organizational Relevance */}
+          {/* Strategic Relevance / Why This Matters - quote block style */}
           {incident.organizational_relevance && (
-            <div className="bg-blue-50 border border-blue-100 rounded-lg p-2 mb-2">
-              <p className="text-xs text-blue-800">
-                <Building className="w-3 h-3 inline mr-1" />
-                <strong>Why This Matters:</strong> {incident.organizational_relevance}
+            <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 mb-3 border-l-4 border-blue-500">
+              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">
+                Strategic Relevance
+              </h4>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                {incident.organizational_relevance}
               </p>
             </div>
           )}
 
-          {/* Credibility Summary - Always visible */}
+          {/* Credibility Assessment */}
           {incident.credibility_summary && (
-            <div className="bg-gray-50 rounded-lg p-2 mb-2">
-              <p className="text-xs text-gray-500 font-medium mb-1">Credibility Assessment:</p>
-              <p className={`text-xs text-gray-600 ${expanded ? '' : 'line-clamp-2'}`}>
+            <div className="mb-3">
+              <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
+                Credibility Assessment
+              </h4>
+              <p className={`text-sm text-gray-600 dark:text-gray-400 ${expanded ? '' : 'line-clamp-2'}`}>
                 {incident.credibility_summary}
               </p>
             </div>
@@ -593,15 +821,15 @@ Provide comprehensive analysis with citations to the source articles.`;
           )}
 
           {/* Investigation Leads */}
-          {expanded && Array.isArray(incident.investigation_leads) && incident.investigation_leads.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-gray-100">
-              <p className="text-xs text-gray-500 font-medium mb-2">Investigation Leads:</p>
+          {expanded && investigationLeads.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">Investigation Leads:</p>
               <div className="flex flex-wrap gap-1">
-                {incident.investigation_leads.map((lead, i) => (
+                {investigationLeads.map((lead, i) => (
                   <button
                     key={i}
                     onClick={() => launchResearch(lead, true)}
-                    className="text-xs bg-white border border-blue-200 text-blue-600 px-2 py-1 rounded-full hover:bg-blue-50 transition-colors flex items-center gap-1"
+                    className="text-xs bg-white dark:bg-gray-700 border border-blue-200 dark:border-blue-700 text-blue-600 dark:text-blue-400 px-2 py-1 rounded-full hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors flex items-center gap-1"
                     title={`Research: ${lead}`}
                   >
                     <Search className="w-3 h-3" />
@@ -630,36 +858,30 @@ Provide comprehensive analysis with citations to the source articles.`;
             )}
           </button>
 
-          {/* Action buttons */}
+          {/* Analysis buttons */}
           {expanded && (
-            <div className="mt-3 pt-3 border-t border-gray-100">
-              <div className="mb-2">
-                <p className="text-xs text-gray-500 font-medium mb-1">Analysis</p>
-                <div className="flex flex-wrap gap-1">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-xs gap-1 h-7"
-                    onClick={() => launchResearch(name)}
-                  >
-                    <Search className="w-3 h-3" />
-                    Investigate
-                  </Button>
-                  {articleUris.length > 0 && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-xs gap-1 h-7"
-                      onClick={() => {
-                        // Build article list with source info (first 20)
-                        const articleList = articleUris.slice(0, 20).map((uri, i) => {
-                          const article = incident.articles?.[i];
-                          const source = article?.news_source || article?.source?.name || 'Unknown';
-                          return `- ${source}: ${uri}`;
-                        }).join('\n');
-                        const moreArticles = articleUris.length > 20 ? `\n... and ${articleUris.length - 20} more sources` : '';
+            <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">Analysis</p>
+              <div className="flex flex-wrap items-center gap-4">
+                <button
+                  onClick={() => launchResearch(name)}
+                  className="inline-flex items-center gap-1.5 text-sm text-pink-600 dark:text-pink-400 hover:text-pink-700 dark:hover:text-pink-300 font-medium transition-colors"
+                >
+                  <Search className="w-3.5 h-3.5" />
+                  Investigate
+                </button>
+                {articleUris.length > 0 && (
+                  <button
+                    onClick={() => {
+                      // Build article list with source info (first 20)
+                      const articleList = articleUris.slice(0, 20).map((uri, i) => {
+                        const article = incident.articles?.[i];
+                        const source = article?.news_source || article?.source?.name || 'Unknown';
+                        return `- ${source}: ${uri}`;
+                      }).join('\n');
+                      const moreArticles = articleUris.length > 20 ? `\n... and ${articleUris.length - 20} more sources` : '';
 
-                        const consensusPrompt = `Perform a consensus analysis on: "${name}"
+                      const consensusPrompt = `Perform a consensus analysis on: "${name}"
 
 ${description ? `CONTEXT: ${description}` : ''}
 
@@ -674,51 +896,14 @@ Please analyze:
 5. Key facts: well-established vs. still uncertain
 
 Provide balanced analysis of how this story is being covered across sources, citing specific articles.`;
-                        openAuspexWithQuery(consensusPrompt);
-                      }}
-                    >
-                      <Scale className="w-3 h-3" />
-                      Consensus
-                    </Button>
-                  )}
-                </div>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 font-medium mb-1">Actions</p>
-                <div className="flex flex-wrap gap-1">
-                  {articleUris.length > 0 && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-xs gap-1 h-7"
-                      onClick={() => window.location.href = `/annotate?uri=${encodeURIComponent(articleUris[0])}`}
-                    >
-                      <StickyNote className="w-3 h-3" />
-                    </Button>
-                  )}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-xs gap-1 h-7"
-                    onClick={handleStatusToggle}
-                    disabled={actionLoading}
+                      openAuspexWithQuery(consensusPrompt);
+                    }}
+                    className="inline-flex items-center gap-1.5 text-sm text-pink-600 dark:text-pink-400 hover:text-pink-700 dark:hover:text-pink-300 font-medium transition-colors"
                   >
-                    {status === 'seen' ? (
-                      <EyeOff className="w-3 h-3" />
-                    ) : (
-                      <Eye className="w-3 h-3" />
-                    )}
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="text-xs gap-1 h-7 text-red-600 hover:text-red-700"
-                    onClick={handleDelete}
-                    disabled={actionLoading}
-                  >
-                    <Trash2 className="w-3 h-3" />
-                  </Button>
-                </div>
+                    <Scale className="w-3.5 h-3.5" />
+                    Consensus
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -768,7 +953,7 @@ function ArticleLink({
   onClick,
 }: {
   uri: string;
-  metadata?: { title: string; news_source: string; factual_reporting?: string; mbfc_credibility_rating?: string; bias?: string };
+  metadata?: { title: string; news_source: string; factual_reporting?: string; mbfc_credibility_rating?: string; bias?: string; tags?: string[] };
   article?: IncidentArticle;
   onClick?: () => void;
 }) {
@@ -780,6 +965,7 @@ function ArticleLink({
   const factual = metadata?.factual_reporting || article?.factual_reporting;
   const credibility = metadata?.mbfc_credibility_rating || article?.mbfc_credibility_rating;
   const bias = metadata?.bias || article?.bias;
+  const signalTags = extractSignalTags(metadata?.tags);
 
   const handleClick = (e: React.MouseEvent) => {
     if (onClick) {
@@ -817,11 +1003,19 @@ function ArticleLink({
                   {bias}
                 </span>
               )}
+              {signalTags.length > 0 && (
+                <AgentSignalBadge agentNames={signalTags} compact />
+              )}
             </div>
           ) : (
-            <span className="inline-block text-[10px] bg-amber-100 text-amber-700 px-1 py-0.5 rounded mt-1">
-              📊 AI-Rated
-            </span>
+            <div className="flex flex-wrap gap-1 mt-1">
+              <span className="inline-block text-[10px] bg-yellow-100 text-yellow-700 dark:bg-yellow-900/50 dark:text-yellow-300 px-1 py-0.5 rounded">
+                Factuality Inferred
+              </span>
+              {signalTags.length > 0 && (
+                <AgentSignalBadge agentNames={signalTags} compact />
+              )}
+            </div>
           )}
         </div>
         <ExternalLink className="w-3 h-3 text-gray-400 shrink-0" />

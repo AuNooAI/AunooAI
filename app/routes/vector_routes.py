@@ -1764,6 +1764,12 @@ class _IncidentTrackingRequest(BaseModel):
     )
     profile_id: Optional[int] = Field(None, description="Organizational profile ID for contextualized analysis")
     test_articles: Optional[List[Dict]] = Field(None, description="Optional test articles to analyze instead of database query")
+    # Custom configuration fields (optional - if not provided, use defaults)
+    system_prompt: Optional[str] = Field(None, description="Custom system prompt template")
+    user_prompt: Optional[str] = Field(None, description="Custom user prompt template")
+    base_ontology: Optional[str] = Field(None, description="Custom ontology definition")
+    analysis_instructions: Optional[str] = Field(None, description="Custom analysis instructions")
+    quality_guidelines: Optional[str] = Field(None, description="Custom quality guidelines")
 
     @field_validator('topic', mode='before')
     @classmethod
@@ -2042,12 +2048,9 @@ ANALYSIS INSTRUCTIONS:
             except Exception as e:
                 logger.error(f"Error loading organizational profile {req.profile_id}: {str(e)}")
 
-        # Try to get custom configuration from request or use defaults
-        # TODO: In future, load saved configuration from database
-        # For now, use the enhanced default configuration
-        
+        # Use custom configuration from request if provided, otherwise use defaults
         # Default analysis instructions (AI Guidance)
-        analysis_instructions = """Focus on extracting actionable intelligence from news articles. Prioritize:
+        default_analysis_instructions = """Focus on extracting actionable intelligence from news articles. Prioritize:
 
 1. Material business impacts and strategic changes (layoffs, restructuring, major funding changes)
 2. Regulatory actions and compliance issues (government policies, regulatory warnings)
@@ -2059,7 +2062,7 @@ ANALYSIS INSTRUCTIONS:
 
 Classification Guidelines:
 - INCIDENT: Events requiring immediate attention or response (layoffs, breaches, regulatory actions, major failures)
-- EVENT: Significant announcements and developments (product launches, funding rounds, partnerships, strategic initiatives)  
+- EVENT: Significant announcements and developments (product launches, funding rounds, partnerships, strategic initiatives)
 - ENTITY: Organizations, people, or products being tracked (companies mentioned, key executives, new technologies)
 - EXPERTISE: Expert analysis, predictions, or authoritative insights from recognized industry leaders
 - INFORMED_INSIDER: Insider perspectives, leaked information, or privileged insights
@@ -2069,7 +2072,7 @@ Classification Guidelines:
 Be inclusive rather than restrictive - if an article discusses something newsworthy, classify it appropriately."""
 
         # Default quality guidelines (AI Guidance)
-        quality_guidelines = """Credibility Assessment:
+        default_quality_guidelines = """Credibility Assessment:
 - High credibility: Major news outlets, verified sources, multiple independent confirmations
 - Mixed credibility: Single source reporting, unverified claims, industry blogs
 - Low credibility: Social media rumors, fringe sources, extraordinary claims without evidence
@@ -2079,45 +2082,63 @@ Extraordinary Claims Protocol:
 - Require independent verification for significant technical achievements
 - Down-rank significance for self-reported successes without third-party validation"""
 
-        # Create incident tracking prompt with AI Guidance integration
-        system_prompt = f"""
-        You are a threat intelligence analyst tracking incidents, entities, and events in {req.topic}.
+        # Use custom config if provided, otherwise defaults
+        analysis_instructions = req.analysis_instructions if req.analysis_instructions else default_analysis_instructions
+        quality_guidelines = req.quality_guidelines if req.quality_guidelines else default_quality_guidelines
 
-        IMPORTANT: Assess credibility and plausibility. Treat extraordinary, self-reported breakthroughs with skepticism.
-        Use factual_reporting, MBFC credibility, and bias indicators. Down-rank or flag items from low/mixed credibility or fringe bias sources.
+        # Check if custom system prompt provided
+        if req.system_prompt:
+            # Use custom system prompt with placeholder replacement
+            system_prompt = req.system_prompt.replace('{topic}', req.topic or 'the selected topics')
+            system_prompt = system_prompt.replace('{profile_context}', profile_context)
+            system_prompt = system_prompt.replace('{analysis_instructions}', analysis_instructions)
+            system_prompt = system_prompt.replace('{quality_guidelines}', quality_guidelines)
+            system_prompt = system_prompt.replace('{ontology_text}', ontology_text)
+            logger.info(f"Using custom system prompt for incident tracking on {req.topic}")
+        else:
+            # Default system prompt
+            system_prompt = f"""You are a threat intelligence analyst tracking incidents, entities, and events in {req.topic}.
 
-        {profile_context}
+IMPORTANT: Assess credibility and plausibility. Treat extraordinary, self-reported breakthroughs with skepticism.
+Use factual_reporting, MBFC credibility, and bias indicators. Down-rank or flag items from low/mixed credibility or fringe bias sources.
 
-        {analysis_instructions}
+{profile_context}
 
-        {quality_guidelines}
+{analysis_instructions}
 
-        {ontology_text}
+{quality_guidelines}
 
-        Required fields for each item:
-        - name
-        - type: incident | entity | event | expertise | informed_insider | trend_signal | strategic_shift
-        - subtype: from the allowed list for the chosen type
-        - description
-        - article_uris
-        - timeline
-        - significance: low | medium | high (reduce if credibility concerns exist)
-        - investigation_leads
-        - related_entities
-        - plausibility: likely | questionable | implausible
-        - source_quality: high | mixed | low
-        - misinfo_flags: [] e.g., "extraordinary_claim", "no_independent_verification", "low_factuality_source", "fringe_bias"
-        - credibility_summary: 1-2 sentence rationale
-        - organizational_relevance: 1-2 sentences explaining why this is specifically relevant to the organization's priorities, concerns, or strategic objectives
+{ontology_text}
 
-        Devil's Advocate Smell Test:
-        - Add a "devils_advocate" field with brief caution if the claim appears hyperbolic or extraordinary relative to typical evidence.
-        - Use label "Hyperbolic Claim" when applicable.
+Required fields for each item:
+- name
+- type: incident | entity | event | expertise | informed_insider | trend_signal | strategic_shift
+- subtype: from the allowed list for the chosen type
+- description
+- article_uris
+- timeline
+- significance: low | medium | high (reduce if credibility concerns exist)
+- investigation_leads
+- related_entities
+- plausibility: likely | questionable | implausible
+- source_quality: high | mixed | low
+- misinfo_flags: [] e.g., "extraordinary_claim", "no_independent_verification", "low_factuality_source", "fringe_bias"
+- credibility_summary: 1-2 sentence rationale
+- organizational_relevance: 1-2 sentences explaining why this is specifically relevant to the organization's priorities, concerns, or strategic objectives
 
-        Output a pure JSON array only.
-        """
-        
-        user_prompt = f"Analyze these {req.topic} articles for threat hunting incidents, entities, and events:\n\n{articles_text}"
+Devil's Advocate Smell Test:
+- Add a "devils_advocate" field with brief caution if the claim appears hyperbolic or extraordinary relative to typical evidence.
+- Use label "Hyperbolic Claim" when applicable.
+
+Output a pure JSON array only."""
+
+        # Check if custom user prompt provided
+        if req.user_prompt:
+            user_prompt = req.user_prompt.replace('{topic}', req.topic or 'the selected topics')
+            user_prompt = user_prompt.replace('{articles_text}', articles_text)
+            logger.info(f"Using custom user prompt for incident tracking on {req.topic}")
+        else:
+            user_prompt = f"Analyze these {req.topic} articles for threat hunting incidents, entities, and events:\n\n{articles_text}"
         
         # Generate analysis
         from app.ai_models import LiteLLMModel
@@ -3235,6 +3256,10 @@ async def run_signal_instructions(
                                             if req.tag_flagged_articles:
                                                 tag_name = f"SIGNAL_{instruction['name'].replace(' ', '_').upper()}"
                                                 db.add_article_tag(article_uri, tag_name, "signal")
+
+                                            # Star the article if enabled in agent config (adds STARRED tag)
+                                            if config.get('star_flagged_articles'):
+                                                db.add_article_tag(article_uri, "STARRED", "signal")
 
                                 logger.info(f"Batch {batch_idx + 1}: Signal '{instruction['name']}' found {len(matches)} matches")
                             else:

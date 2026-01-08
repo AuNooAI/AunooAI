@@ -133,6 +133,16 @@ class ThemeWithArticlesSchema(BaseModel): # New
     theme_summary: str
     articles: List[ThemedArticle]
 
+# Request body for article insights with custom prompts
+class ArticleInsightsRequest(BaseModel):
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+    days_limit: int = 7
+    force_regenerate: bool = False
+    model: str = "gpt-4o-mini"
+    system_prompt: Optional[str] = None  # Custom system prompt
+    user_prompt: Optional[str] = None  # Custom user prompt
+
 # New Schema for Category-specific Insights
 class CategoryInsightSchema(BaseModel):
     category: str
@@ -859,21 +869,26 @@ async def get_semantic_outliers(
         logger.error(f"Error fetching semantic outliers for {topic_name}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to retrieve semantic outliers for topic {topic_name}")
 
-@router.get("/article-insights/{topic_name}", response_model=List[ThemeWithArticlesSchema])
+@router.post("/article-insights/{topic_name}", response_model=List[ThemeWithArticlesSchema])
 async def get_article_insights(
     topic_name: str,
+    request: ArticleInsightsRequest,
     db: Database = Depends(get_database_instance),
-    start_date: Optional[str] = Query(None, description="Start date YYYY-MM-DD for article selection"),
-    end_date: Optional[str] = Query(None, description="End date YYYY-MM-DD for article selection"),
-    days_limit: int = Query(7, ge=1, le=90, description="for article selection. Default 7 days."),
-    force_regenerate: bool = Query(False, description="Force regeneration bypassing cache"),
-    model: str = Query("gpt-4o-mini", description="AI model to use for analysis"),
     session: dict = Depends(verify_session)
 ):
     """
     Identifies common themes across articles and groups them thematically.
     Uses LLM to analyze and extract insights about article content.
+    Supports custom prompts for narrative configuration.
     """
+    # Extract parameters from request body
+    start_date = request.start_date
+    end_date = request.end_date
+    days_limit = request.days_limit
+    force_regenerate = request.force_regenerate
+    model = request.model
+    custom_system_prompt = request.system_prompt
+    custom_user_prompt = request.user_prompt
     try:
         # Check cache first
         cache_key = f"article_insights_{topic_name}_{start_date or 'no_start'}_{end_date or 'no_end'}_{days_limit}"
@@ -1000,22 +1015,38 @@ async def get_article_insights(
             return []
 
         # 5. Create prompt for thematic analysis
-        system_prompt = (
-            f"You are an expert research analyst specializing in '{topic_name}'. "
-            f"Analyze the provided articles and identify 3-5 common themes or patterns that emerge. "
-            f"For each theme you identify:"
-            f"\n1. Give it a concise, descriptive name"
-            f"\n2. Write a summary paragraph explaining the theme (2-3 sentences)"
-            f"\n3. List the URIs of 2-5 articles that best exemplify this theme"
-            f"\nFormat your response as JSON with the structure:"
-            f"\n[{{"
-            f"\n  \"theme_name\": \"Name of Theme\","
-            f"\n  \"theme_summary\": \"Summary explanation of the theme...\","
-            f"\n  \"article_uris\": [\"uri1\", \"uri2\", ...] // URIs exactly as provided"
-            f"\n}}, {{ ... next theme ... }}]"
-        )
-        
-        user_prompt = f"Here are recent articles about '{topic_name}' to analyze for common themes:\n\n{combined_article_text}\n\nIdentify 3-5 themes and format as specified JSON."
+        # Use custom prompts if provided, otherwise use defaults
+        if custom_system_prompt:
+            # Replace placeholders in custom system prompt
+            system_prompt = custom_system_prompt.replace('{topic}', topic_name)
+            logger.info(f"Using custom system prompt for article insights on {topic_name}")
+        else:
+            system_prompt = (
+                f"You are a news analyst reviewing recent coverage of '{topic_name}'. "
+                f"Identify 3-5 common themes or storylines emerging across these articles."
+                f"\n\nWriting style:"
+                f"\n- Use factual, journalistic language - report what the articles say, not promotional claims"
+                f"\n- Avoid marketing speak, hype, or sensationalist phrasing"
+                f"\n- Be specific: cite companies, people, numbers, or events mentioned in the sources"
+                f"\n- Summaries should read like news briefs, not press releases"
+                f"\n\nFor each theme:"
+                f"\n1. Give it a specific, descriptive name (not vague or grandiose)"
+                f"\n2. Write a 2-3 sentence summary grounded in what the articles actually report"
+                f"\n3. List the URIs of 2-5 articles that cover this theme"
+                f"\n\nFormat as JSON:"
+                f"\n[{{"
+                f"\n  \"theme_name\": \"Name of Theme\","
+                f"\n  \"theme_summary\": \"Summary explanation...\","
+                f"\n  \"article_uris\": [\"uri1\", \"uri2\", ...]"
+                f"\n}}, ...]"
+            )
+
+        if custom_user_prompt:
+            # Replace placeholders in custom user prompt
+            user_prompt = custom_user_prompt.replace('{topic}', topic_name).replace('{articles_text}', combined_article_text)
+            logger.info(f"Using custom user prompt for article insights on {topic_name}")
+        else:
+            user_prompt = f"Here are recent articles about '{topic_name}' to analyze for common themes:\n\n{combined_article_text}\n\nIdentify 3-5 themes and format as specified JSON."
 
         messages = [
             {"role": "system", "content": system_prompt},

@@ -12,7 +12,6 @@ import {
   X,
   Building2,
   Tag,
-  SlidersHorizontal,
 } from 'lucide-react';
 import { type NewsFeedConfig, type Topic, type OrganizationalProfile, type AIModel } from '../../hooks/useNewsFeed';
 import { type NarrativeExplorerConfig } from '../../hooks/useNarrativeExplorer';
@@ -36,7 +35,6 @@ interface NewsFeedHeaderProps {
   onConfigChange: (updates: Partial<NewsFeedConfig>) => void;
   onNarrativeConfigChange: (updates: Partial<NarrativeExplorerConfig>) => void;
   onRefresh: () => void;
-  onOpenConfig?: () => void;
 }
 
 const dateRangeOptions: { value: DateRange; label: string }[] = [
@@ -59,7 +57,6 @@ export function NewsFeedHeader({
   onConfigChange,
   onNarrativeConfigChange,
   onRefresh,
-  onOpenConfig,
 }: NewsFeedHeaderProps) {
   const [topicDropdownOpen, setTopicDropdownOpen] = useState(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
@@ -313,19 +310,6 @@ export function NewsFeedHeader({
 
         {/* Right side - Actions */}
         <div className="flex items-center gap-2">
-          {/* Config Button */}
-          {onOpenConfig && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onOpenConfig}
-              className="gap-2"
-              title="Configure Incident Tracking"
-            >
-              <SlidersHorizontal className="w-4 h-4" />
-              Config
-            </Button>
-          )}
           <Button
             variant="default"
             size="sm"

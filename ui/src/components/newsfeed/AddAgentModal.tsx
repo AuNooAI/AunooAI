@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Bot, Loader2, X, Bell, FileText, Workflow, Info, Tag, ChevronDown, ChevronRight, Pencil, Cpu, Search, Mail, MessageCircle, Mic } from 'lucide-react';
+import { Bot, Loader2, X, Bell, FileText, Workflow, Info, Tag, ChevronDown, ChevronRight, Pencil, Cpu, Search, Mail, MessageCircle, Mic, Star } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -89,6 +89,7 @@ export function AddAgentModal({
   // Actions configuration
   const [actionNotify, setActionNotify] = useState(true);
   const [actionTagArticles, setActionTagArticles] = useState(true);
+  const [actionStarArticles, setActionStarArticles] = useState(false);
   const [actionReport, setActionReport] = useState(false);
   const [reportPrompt, setReportPrompt] = useState(DEFAULT_REPORT_PROMPT);
   const [showReportPrompt, setShowReportPrompt] = useState(false);
@@ -165,7 +166,9 @@ export function AddAgentModal({
       const configPodcast = editAgent.config?.generate_podcast as boolean | undefined;
       const configPodcastPrompt = editAgent.config?.podcast_prompt as string | undefined;
       const configPodcastVoice = editAgent.config?.podcast_voice_id as string | undefined;
+      const configStarArticles = editAgent.config?.star_flagged_articles as boolean | undefined;
       setModel(configModel || '');
+      setActionStarArticles(configStarArticles || false);
       setActionPodcast(configPodcast || false);
       setPodcastPrompt(configPodcastPrompt || DEFAULT_PODCAST_PROMPT);
       setShowPodcastPrompt(configPodcast || false);
@@ -200,6 +203,7 @@ export function AddAgentModal({
     setIsActive(true);
     setActionNotify(true);
     setActionTagArticles(true);
+    setActionStarArticles(false);
     setActionReport(false);
     setReportPrompt(DEFAULT_REPORT_PROMPT);
     setShowReportPrompt(false);
@@ -248,6 +252,7 @@ export function AddAgentModal({
       // Build config object with all action settings
       const config: Record<string, unknown> = {};
       if (model) config.model = model;
+      if (actionStarArticles) config.star_flagged_articles = true;
       if (actionDeepResearch) config.deep_research = true;
       if (actionSendEmail) {
         config.send_email = true;
@@ -619,6 +624,24 @@ export function AddAgentModal({
                   </div>
                   <p className="text-sm text-gray-500 mt-0.5">
                     Add a "SIGNAL_{'{'}agent_name{'}'}" tag to matched articles for filtering
+                  </p>
+                </div>
+              </label>
+
+              {/* Star Articles Action */}
+              <label className="flex items-start gap-3 p-3 rounded-lg border border-gray-200 cursor-pointer hover:bg-gray-50">
+                <Checkbox
+                  checked={actionStarArticles}
+                  onCheckedChange={(checked) => setActionStarArticles(checked as boolean)}
+                  disabled={saving || loading}
+                />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <Star className="w-4 h-4 text-yellow-500" />
+                    <span className="font-medium text-gray-900">Star Matching Articles</span>
+                  </div>
+                  <p className="text-sm text-gray-500 mt-0.5">
+                    Add matched articles to your starred collection
                   </p>
                 </div>
               </label>

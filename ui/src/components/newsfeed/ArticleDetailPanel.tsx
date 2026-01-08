@@ -4,8 +4,8 @@
  * Supports related articles tab for clustered articles
  */
 
-import { useState } from 'react';
-import { X, ExternalLink, Star, StarOff, MessageSquare, Clock, TrendingUp, Building2, Layers, ChevronRight } from 'lucide-react';
+import { useState, useRef, useEffect } from 'react';
+import { X, ExternalLink, Star, StarOff, MessageSquare, Clock, TrendingUp, Building2, Layers, ChevronRight, MoreVertical, ThumbsUp, ThumbsDown, Share, Bot } from 'lucide-react';
 import { type NewsArticle, type ClusterRelatedArticle } from '../../services/newsFeedApi';
 import { ArticleBiasIndicator } from './ArticleBiasIndicator';
 import { Button } from '../ui/button';
@@ -31,7 +31,27 @@ export function ArticleDetailPanel({
   onRelatedArticleClick
 }: ArticleDetailPanelProps) {
   const [activeTab, setActiveTab] = useState<'details' | 'related'>('details');
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const hasRelated = relatedArticles.length > 0;
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenu(false);
+      }
+    };
+    if (showMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [showMenu]);
+
+  const handleMenuAction = (action: string) => {
+    setShowMenu(false);
+    console.log(`Menu action: ${action} for article: ${article?.title}`);
+  };
 
   if (!article) return null;
 
@@ -127,13 +147,64 @@ Please provide:
         {/* Header */}
         <div className="sticky top-0 bg-white border-b border-gray-200 z-10">
           <div className="px-6 py-4 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-gray-900 truncate pr-4">Article Details</h2>
+            {/* Left side: Star button */}
             <button
-              onClick={onClose}
+              onClick={handleStarClick}
               className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              title={isStarred ? 'Remove from starred' : 'Add to starred'}
             >
-              <X className="w-5 h-5 text-gray-500" />
+              {isStarred ? (
+                <Star className="w-5 h-5 text-yellow-500 fill-yellow-500" />
+              ) : (
+                <Star className="w-5 h-5 text-gray-400 hover:text-yellow-500" />
+              )}
             </button>
+
+            <h2 className="text-lg font-semibold text-gray-900 truncate px-4 flex-1 text-center">Article Details</h2>
+
+            {/* Right side: Menu and Close */}
+            <div className="flex items-center gap-1">
+              {/* Kebab menu */}
+              <div ref={menuRef} className="relative">
+                <button
+                  onClick={() => setShowMenu(!showMenu)}
+                  className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                >
+                  <MoreVertical className="w-5 h-5 text-gray-500" />
+                </button>
+                {showMenu && (
+                  <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1 min-w-[160px]">
+                    <button
+                      onClick={() => handleMenuAction('more')}
+                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                    >
+                      <ThumbsUp className="w-4 h-4" />
+                      More like this
+                    </button>
+                    <button
+                      onClick={() => handleMenuAction('less')}
+                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                    >
+                      <ThumbsDown className="w-4 h-4" />
+                      Less like this
+                    </button>
+                    <button
+                      onClick={() => handleMenuAction('share')}
+                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                    >
+                      <Share className="w-4 h-4" />
+                      Share
+                    </button>
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={onClose}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
           </div>
 
           {/* Tabs - only show when there are related articles */}
@@ -247,60 +318,54 @@ Please provide:
                 {(Array.isArray(article.tags)
                   ? article.tags
                   : String(article.tags).split(',').map(t => t.trim()).filter(Boolean)
-                ).map((tag, i) => (
-                  <span
-                    key={i}
-                    className="px-2 py-1 bg-gray-100 text-gray-600 text-sm rounded"
-                  >
-                    {tag}
-                  </span>
-                ))}
+                ).map((tag, i) => {
+                  const isSignalTag = tag.startsWith('SIGNAL_');
+                  const displayName = isSignalTag
+                    ? tag.replace('SIGNAL_', '').replace(/_/g, ' ').split(' ')
+                        .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+                        .join(' ')
+                    : tag;
+
+                  return (
+                    <span
+                      key={i}
+                      className={`px-2 py-1 text-sm rounded inline-flex items-center gap-1 ${
+                        isSignalTag
+                          ? 'bg-pink-100 text-pink-700'
+                          : 'bg-gray-100 text-gray-600'
+                      }`}
+                      title={isSignalTag ? `Matched by Research Agent: ${displayName}` : undefined}
+                    >
+                      {isSignalTag && <Bot className="w-3 h-3" />}
+                      {displayName}
+                    </span>
+                  );
+                })}
               </div>
             </div>
           )}
 
           {/* Action buttons */}
-          <div className="mt-8 flex flex-col gap-3">
+          <div className="mt-8 flex items-center gap-4">
             {(article.url || article.uri) && (
               <a
                 href={article.url || article.uri}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-sm text-pink-600 hover:text-pink-700 font-medium transition-colors"
+                className="inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors"
               >
                 <ExternalLink className="w-3.5 h-3.5" />
                 Read Original Article
               </a>
             )}
 
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                className="flex-1 gap-2"
-                onClick={handleStarClick}
-              >
-                {isStarred ? (
-                  <>
-                    <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-                    Starred
-                  </>
-                ) : (
-                  <>
-                    <StarOff className="w-4 h-4" />
-                    Star
-                  </>
-                )}
-              </Button>
-
-              <Button
-                variant="outline"
-                className="flex-1 gap-2"
-                onClick={handleAskAuspex}
-              >
-                <MessageSquare className="w-4 h-4" />
-                Ask Auspex
-              </Button>
-            </div>
+            <button
+              onClick={handleAskAuspex}
+              className="inline-flex items-center gap-1.5 text-sm text-pink-600 hover:text-pink-700 font-medium transition-colors"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              Ask Auspex
+            </button>
           </div>
         </div>
         )}

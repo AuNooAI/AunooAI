@@ -4,12 +4,12 @@
  * indicators, and action items
  */
 
-import { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Sparkles,
   ExternalLink,
-  Clock,
+  Calendar,
   TrendingUp,
   TrendingDown,
   AlertTriangle,
@@ -17,8 +17,6 @@ import {
   Zap,
   ChevronDown,
   ChevronUp,
-  ChevronLeft,
-  ChevronRight,
   Building2,
   Star,
   StarOff,
@@ -54,31 +52,37 @@ interface BriefingSectionProps {
   onOpenConfig?: () => void;
 }
 
-// Get color for risk/opportunity indicator
+// Get color for risk/opportunity indicator - with dark mode support
 function getRiskOpportunityStyle(value?: string): { bg: string; text: string; icon: React.ReactNode } {
-  if (!value) return { bg: 'bg-gray-100', text: 'text-gray-600', icon: null };
+  if (!value) return { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-600 dark:text-gray-300', icon: null };
   const lower = value.toLowerCase();
-  if (lower === 'opportunity') return { bg: 'bg-green-100', text: 'text-green-700', icon: <TrendingUp className="w-3 h-3" /> };
-  if (lower === 'risk') return { bg: 'bg-red-100', text: 'text-red-700', icon: <TrendingDown className="w-3 h-3" /> };
-  return { bg: 'bg-amber-100', text: 'text-amber-700', icon: <AlertTriangle className="w-3 h-3" /> };
+  if (lower === 'opportunity') return { bg: 'bg-green-100 dark:bg-green-900/50', text: 'text-green-700 dark:text-green-300', icon: <TrendingUp className="w-3 h-3" /> };
+  if (lower === 'risk') return { bg: 'bg-red-100 dark:bg-red-900/50', text: 'text-red-700 dark:text-red-300', icon: <TrendingDown className="w-3 h-3" /> };
+  return { bg: 'bg-amber-100 dark:bg-amber-900/50', text: 'text-amber-700 dark:text-amber-300', icon: <AlertTriangle className="w-3 h-3" /> };
 }
 
-// Get color for signal strength
+// Get color for signal strength - with dark mode support
 function getSignalStrengthStyle(value?: string): { bg: string; text: string } {
-  if (!value) return { bg: 'bg-gray-100', text: 'text-gray-600' };
+  if (!value) return { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-600 dark:text-gray-300' };
   const lower = value.toLowerCase();
-  if (lower === 'strong') return { bg: 'bg-pink-100', text: 'text-pink-700' };
-  if (lower === 'moderate') return { bg: 'bg-blue-100', text: 'text-blue-700' };
-  return { bg: 'bg-gray-100', text: 'text-gray-600' };
+  if (lower === 'strong') return { bg: 'bg-pink-100 dark:bg-pink-900/50', text: 'text-pink-700 dark:text-pink-300' };
+  if (lower === 'moderate') return { bg: 'bg-blue-100 dark:bg-blue-900/50', text: 'text-blue-700 dark:text-blue-300' };
+  return { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-600 dark:text-gray-300' };
 }
 
-// Get time horizon style
+// Get time horizon style - with dark mode support
 function getTimeHorizonStyle(value?: string): { bg: string; text: string } {
-  if (!value) return { bg: 'bg-gray-100', text: 'text-gray-600' };
+  if (!value) return { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-600 dark:text-gray-300' };
   const lower = value.toLowerCase();
-  if (lower === 'immediate') return { bg: 'bg-red-50', text: 'text-red-600' };
-  if (lower === 'medium') return { bg: 'bg-amber-50', text: 'text-amber-600' };
-  return { bg: 'bg-green-50', text: 'text-green-600' };
+  if (lower === 'immediate') return { bg: 'bg-orange-100 dark:bg-orange-900/50', text: 'text-orange-700 dark:text-orange-300' };
+  if (lower === 'medium' || lower === 'short-term' || lower === 'short') return { bg: 'bg-yellow-100 dark:bg-yellow-900/50', text: 'text-yellow-700 dark:text-yellow-300' };
+  return { bg: 'bg-teal-100 dark:bg-teal-900/50', text: 'text-teal-700 dark:text-teal-300' };
+}
+
+// Strip source and date suffix from title (e.g., "Title (source.com, 2025-12-11)" -> "Title")
+function cleanTitle(title: string): string {
+  // Match pattern: " (something.com, YYYY-MM-DD)" or " (something, YYYY-MM-DD)" at end
+  return title.replace(/\s*\([^)]+,\s*\d{4}-\d{2}-\d{2}\)\s*$/, '').trim();
 }
 
 // Get card gradient based on risk/opportunity
@@ -90,19 +94,19 @@ function getCardGradient(riskOpp?: string): string {
   return 'bg-gradient-to-br from-white to-amber-50/50 dark:from-gray-800 dark:to-amber-900/30'; // mixed
 }
 
-// Get category badge style
+// Get category badge style - with dark mode support
 function getCategoryStyle(category?: string): { bg: string; text: string } {
-  if (!category) return { bg: 'bg-gray-100', text: 'text-gray-600' };
+  if (!category) return { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-600 dark:text-gray-300' };
   const lower = category.toLowerCase();
   const styles: Record<string, { bg: string; text: string }> = {
-    'policy': { bg: 'bg-purple-100', text: 'text-purple-700' },
-    'market': { bg: 'bg-emerald-100', text: 'text-emerald-700' },
-    'tech': { bg: 'bg-blue-100', text: 'text-blue-700' },
-    'workforce': { bg: 'bg-orange-100', text: 'text-orange-700' },
-    'security': { bg: 'bg-red-100', text: 'text-red-700' },
-    'society': { bg: 'bg-teal-100', text: 'text-teal-700' },
+    'policy': { bg: 'bg-purple-100 dark:bg-purple-900/50', text: 'text-purple-700 dark:text-purple-300' },
+    'market': { bg: 'bg-emerald-100 dark:bg-emerald-900/50', text: 'text-emerald-700 dark:text-emerald-300' },
+    'tech': { bg: 'bg-blue-100 dark:bg-blue-900/50', text: 'text-blue-700 dark:text-blue-300' },
+    'workforce': { bg: 'bg-orange-100 dark:bg-orange-900/50', text: 'text-orange-700 dark:text-orange-300' },
+    'security': { bg: 'bg-slate-100 dark:bg-slate-800', text: 'text-slate-700 dark:text-slate-300' },
+    'society': { bg: 'bg-teal-100 dark:bg-teal-900/50', text: 'text-teal-700 dark:text-teal-300' },
   };
-  return styles[lower] || { bg: 'bg-gray-100', text: 'text-gray-600' };
+  return styles[lower] || { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-600 dark:text-gray-300' };
 }
 
 // Tooltip explanations for badges
@@ -177,28 +181,6 @@ export function BriefingSection({
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [showPersonaDropdown, setShowPersonaDropdown] = useState(false);
 
-  // Arrow scroll navigation
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [showLeftArrow, setShowLeftArrow] = useState(false);
-  const [showRightArrow, setShowRightArrow] = useState(false);
-
-  const checkScrollArrows = () => {
-    if (scrollRef.current) {
-      const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
-      setShowLeftArrow(scrollLeft > 0);
-      setShowRightArrow(scrollLeft < scrollWidth - clientWidth - 1);
-    }
-  };
-
-  const scroll = (direction: 'left' | 'right') => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollBy({
-        left: direction === 'left' ? -240 : 240,
-        behavior: 'smooth'
-      });
-    }
-  };
-
   // Build personas list from config (includes custom personas)
   const personas = useMemo(() => {
     if (!sixArticlesConfig?.personas) {
@@ -219,13 +201,6 @@ export function BriefingSection({
     const story = s as any;
     return story.executive_takeaway || story.strategic_relevance || story.time_horizon;
   });
-
-  // Check scroll arrows when stories change or on mount
-  useEffect(() => {
-    checkScrollArrows();
-    window.addEventListener('resize', checkScrollArrows);
-    return () => window.removeEventListener('resize', checkScrollArrows);
-  }, [topStories.length]);
 
   const currentPersona = personas.find(p => p.value === persona) || personas[0];
 
@@ -331,87 +306,63 @@ export function BriefingSection({
 
       {/* Loading State */}
       {loadingSixArticles && !sixArticles ? (
-        <div className="flex overflow-x-auto gap-3 pb-2 snap-x">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="flex-shrink-0 w-[220px] h-[100px] rounded-lg" />
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-[120px]" />
           ))}
         </div>
       ) : topStories.length > 0 ? (
-        /* Compact Briefing Cards - horizontal scroll with arrows */
-        <div className="relative">
-          {/* Left Arrow */}
-          {showLeftArrow && (
-            <button
-              onClick={() => scroll('left')}
-              className="absolute left-1 top-1/2 -translate-y-1/2 z-10 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full p-2 shadow-lg border border-gray-200 dark:border-gray-600"
-            >
-              <ChevronLeft className="w-5 h-5 text-gray-600 dark:text-gray-300" />
-            </button>
-          )}
-
-          <div
-            ref={scrollRef}
-            onScroll={checkScrollArrows}
-            className="flex overflow-x-auto gap-3 pb-2 snap-x scrollbar-hide"
-          >
-            {topStories.slice(0, 6).map((story, index) => {
-              const storyAny = story as any;
-              const storyUri = storyAny.url || storyAny.uri || storyAny.primary_article?.uri || `story-${index}`;
-              return (
-                <CompactBriefingCard
-                  key={storyUri}
-                  story={story}
-                  onClick={() => setExpandedIndex(expandedIndex === index ? null : index)}
-                />
-              );
-            })}
-          </div>
-
-          {/* Right Arrow */}
-          {showRightArrow && (
-            <button
-              onClick={() => scroll('right')}
-              className="absolute right-1 top-1/2 -translate-y-1/2 z-10 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full p-2 shadow-lg border border-gray-200 dark:border-gray-600"
-            >
-              <ChevronRight className="w-5 h-5 text-gray-600 dark:text-gray-300" />
-            </button>
-          )}
+        /* Compact Briefing Cards - 2-column grid with inline expansion */
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-0">
+          {topStories.slice(0, 8).map((story, index) => {
+            const storyAny = story as any;
+            const storyUri = storyAny.url || storyAny.uri || storyAny.primary_article?.uri || `story-${index}`;
+            const isExpanded = expandedIndex === index;
+            return (
+              <React.Fragment key={storyUri}>
+                <div
+                  className={`p-4 border-b border-gray-300 dark:border-gray-600 md:odd:border-r ${isExpanded ? 'bg-gray-50 dark:bg-gray-800/50' : ''}`}
+                >
+                  <CompactBriefingCard
+                    story={story}
+                    onClick={() => setExpandedIndex(isExpanded ? null : index)}
+                    isExpanded={isExpanded}
+                  />
+                </div>
+                {/* Expanded detail appears right after the clicked card, spanning full width */}
+                {isExpanded && (
+                  <div className="col-span-1 md:col-span-2 border-b border-gray-300 dark:border-gray-600">
+                    <BriefingCard
+                      story={story}
+                      index={index}
+                      isExpanded={true}
+                      onToggle={() => setExpandedIndex(null)}
+                      isStarred={starredArticles.includes(storyUri)}
+                      onStar={onStar}
+                      onUnstar={onUnstar}
+                    />
+                  </div>
+                )}
+              </React.Fragment>
+            );
+          })}
         </div>
       ) : (
         /* Fallback to simple article list if no six articles data */
-        <div className="flex overflow-x-auto gap-3 pb-2 snap-x">
-          {articles.slice(0, 6).map((article) => (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {articles.slice(0, 8).map((article) => (
             <div
               key={article.uri}
-              className="flex-shrink-0 w-[220px] p-3 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:shadow-md transition-shadow cursor-pointer snap-start"
+              className="p-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
               onClick={() => onArticleClick?.(article)}
             >
-              <h4 className="font-medium text-gray-900 dark:text-gray-100 text-sm line-clamp-2">{article.title}</h4>
+              <h4 className="font-medium text-gray-900 dark:text-gray-100 text-sm">{article.title}</h4>
               <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">{article.source?.name}</p>
             </div>
           ))}
         </div>
       )}
 
-      {/* Expanded Card Detail (when a compact card is clicked) */}
-      {expandedIndex !== null && topStories[expandedIndex] && (
-        <div className="mt-4">
-          <BriefingCard
-            story={topStories[expandedIndex]}
-            index={expandedIndex}
-            isExpanded={true}
-            onToggle={() => setExpandedIndex(null)}
-            isStarred={starredArticles.includes(
-              (topStories[expandedIndex] as any).url ||
-              (topStories[expandedIndex] as any).uri ||
-              (topStories[expandedIndex] as any).primary_article?.uri ||
-              `story-${expandedIndex}`
-            )}
-            onStar={onStar}
-            onUnstar={onUnstar}
-          />
-        </div>
-      )}
 
       {/* Key Themes */}
       {sixArticles?.key_themes && sixArticles.key_themes.length > 0 && (
@@ -437,103 +388,166 @@ export function BriefingSection({
 
 /**
  * Compact briefing card for horizontal scroll display
- * Shows: headline, risk_opportunity, time_horizon, signal_strength
+ * Shows: date, category, headline, rating badges, source
  */
 interface CompactBriefingCardProps {
   story: TopStory;
   onClick?: () => void;
+  isExpanded?: boolean;
 }
 
-function CompactBriefingCard({ story, onClick }: CompactBriefingCardProps) {
-  const [showTooltip, setShowTooltip] = useState(false);
-  const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0 });
-  const cardRef = useRef<HTMLDivElement>(null);
+function CompactBriefingCard({ story, onClick, isExpanded }: CompactBriefingCardProps) {
+  const [hoveredBadge, setHoveredBadge] = useState<string | null>(null);
+  const [badgeTooltipPos, setBadgeTooltipPos] = useState({ top: 0, left: 0 });
   const storyData = story as any;
 
   const riskStyle = getRiskOpportunityStyle(storyData.risk_opportunity);
   const signalStyle = getSignalStrengthStyle(storyData.signal_strength);
   const timeStyle = getTimeHorizonStyle(storyData.time_horizon);
-  const cardGradient = getCardGradient(storyData.risk_opportunity);
+  const categoryStyle = getCategoryStyle(storyData.category);
 
-  const displayTitle = storyData.title || storyData.headline || storyData.primary_article?.title || 'Untitled';
-  const tooltipContent = storyData.executive_takeaway || storyData.summary || storyData.primary_article?.summary;
+  const rawTitle = storyData.title || storyData.headline || storyData.primary_article?.title || 'Untitled';
+  const displayTitle = cleanTitle(rawTitle);
+  const displayDate = storyData.date || storyData.primary_article?.publication_date || '';
+  const displaySource = storyData.source || storyData.primary_article?.source?.name || '';
+  const articleUrl = storyData.url || storyData.primary_article?.url || '';
 
-  const handleMouseEnter = () => {
-    if (cardRef.current) {
-      const rect = cardRef.current.getBoundingClientRect();
-      // Position tooltip above the card, centered horizontally
-      // Clamp to viewport bounds
-      const tooltipWidth = 288; // w-72 = 18rem = 288px
-      let left = rect.left + (rect.width / 2) - (tooltipWidth / 2);
-      // Keep tooltip within viewport
-      left = Math.max(8, Math.min(left, window.innerWidth - tooltipWidth - 8));
-      const top = rect.top - 8; // 8px gap above card
-      setTooltipPos({ top, left });
+  // Format date for display
+  const formatDisplayDate = (dateStr?: string) => {
+    if (!dateStr) return '';
+    try {
+      const date = new Date(dateStr);
+      return date.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      }).replace(/\//g, '.');
+    } catch {
+      return dateStr;
     }
-    setShowTooltip(true);
+  };
+
+  // Handle badge hover for tooltip
+  const handleBadgeHover = (badgeType: string, e: React.MouseEvent) => {
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    setBadgeTooltipPos({
+      top: rect.bottom + 4,
+      left: rect.left + rect.width / 2
+    });
+    setHoveredBadge(badgeType);
+  };
+
+  // Get tooltip text for badge
+  const getBadgeTooltipText = (badgeType: string): string => {
+    switch (badgeType) {
+      case 'risk':
+        return storyData.risk_opportunity ? getRiskOpportunityTooltip(storyData.risk_opportunity) : '';
+      case 'time':
+        return storyData.time_horizon ? getTimeHorizonTooltip(storyData.time_horizon) : '';
+      case 'signal':
+        return storyData.signal_strength ? getSignalStrengthTooltip(storyData.signal_strength) : '';
+      default:
+        return '';
+    }
   };
 
   return (
-    <div
-      ref={cardRef}
-      className="relative"
-      onMouseEnter={handleMouseEnter}
-      onMouseLeave={() => setShowTooltip(false)}
-    >
+    <div className="relative">
       <div
         onClick={onClick}
-        className={`flex-shrink-0 w-[220px] ${cardGradient} border border-gray-200 dark:border-gray-700 rounded-lg p-3 cursor-pointer hover:shadow-md hover:border-gray-300 dark:hover:border-gray-600 transition-all snap-start`}
+        className={`cursor-pointer transition-all ${isExpanded ? 'bg-gray-50 dark:bg-gray-800/50' : 'hover:bg-gray-50 dark:hover:bg-gray-800/30'}`}
       >
+        {/* Top row: Date + See More */}
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400">
+            <Calendar className="w-3.5 h-3.5" />
+            <span>{formatDisplayDate(displayDate)}</span>
+          </div>
+          <span className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-0.5 font-medium">
+            {isExpanded ? (
+              <>
+                <ChevronUp className="w-3.5 h-3.5" />
+                See Less
+              </>
+            ) : (
+              <>
+                <ChevronDown className="w-3.5 h-3.5" />
+                See More
+              </>
+            )}
+          </span>
+        </div>
+
+        {/* Category badge */}
+        {storyData.category && (
+          <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full mb-2 ${categoryStyle.bg} ${categoryStyle.text}`}>
+            {storyData.category.toUpperCase()}
+          </span>
+        )}
+
         {/* Title */}
-        <h4 className="font-medium text-gray-900 dark:text-gray-100 text-sm line-clamp-2 mb-3 min-h-[40px]">
+        <h4 className="font-bold text-gray-900 dark:text-gray-100 text-base mb-2">
           {displayTitle}
         </h4>
 
-        {/* Badges row */}
-        <div className="flex flex-wrap gap-1">
+        {/* Rating badges row - with hover tooltips */}
+        <div className="flex flex-wrap gap-1.5 mb-2">
           {storyData.risk_opportunity && (
-            <span className={`text-[10px] px-1.5 py-0.5 rounded flex items-center gap-0.5 ${riskStyle.bg} ${riskStyle.text}`}>
+            <span
+              className={`text-xs font-medium px-2 py-0.5 rounded flex items-center gap-0.5 cursor-help ${riskStyle.bg} ${riskStyle.text}`}
+              onMouseEnter={(e) => handleBadgeHover('risk', e)}
+              onMouseLeave={() => setHoveredBadge(null)}
+            >
               {riskStyle.icon}
               {storyData.risk_opportunity}
             </span>
           )}
           {storyData.time_horizon && (
-            <span className={`text-[10px] px-1.5 py-0.5 rounded ${timeStyle.bg} ${timeStyle.text}`}>
+            <span
+              className={`text-xs font-medium px-2 py-0.5 rounded cursor-help ${timeStyle.bg} ${timeStyle.text}`}
+              onMouseEnter={(e) => handleBadgeHover('time', e)}
+              onMouseLeave={() => setHoveredBadge(null)}
+            >
               {storyData.time_horizon}
             </span>
           )}
           {storyData.signal_strength && (
-            <span className={`text-[10px] px-1.5 py-0.5 rounded ${signalStyle.bg} ${signalStyle.text}`}>
+            <span
+              className={`text-xs font-medium px-2 py-0.5 rounded cursor-help ${signalStyle.bg} ${signalStyle.text}`}
+              onMouseEnter={(e) => handleBadgeHover('signal', e)}
+              onMouseLeave={() => setHoveredBadge(null)}
+            >
               {storyData.signal_strength}
             </span>
           )}
         </div>
+
+        {/* Source link */}
+        {displaySource && (
+          <a
+            href={articleUrl || '#'}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+          >
+            <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+            <span>{displaySource}</span>
+          </a>
+        )}
       </div>
 
-      {/* Hover tooltip - rendered via portal to escape overflow containers */}
-      {showTooltip && tooltipContent && createPortal(
+      {/* Badge tooltip - rendered via portal */}
+      {hoveredBadge && createPortal(
         <div
-          className="fixed z-[9999] w-72 p-3 bg-white rounded-lg shadow-lg border border-gray-200 pointer-events-none"
+          className="fixed z-[9999] w-48 p-2 bg-gray-900 text-white text-xs rounded shadow-lg pointer-events-none"
           style={{
-            top: tooltipPos.top,
-            left: tooltipPos.left,
-            transform: 'translateY(-100%)'
+            top: badgeTooltipPos.top,
+            left: badgeTooltipPos.left,
+            transform: 'translateX(-50%)'
           }}
         >
-          <p className="text-xs text-gray-600 leading-relaxed line-clamp-4">
-            {tooltipContent}
-          </p>
-          <div className="mt-2 flex items-center gap-2 text-xs">
-            {storyData.category && (
-              <span className="font-medium text-gray-700">{storyData.category}</span>
-            )}
-            {storyData.source && (
-              <>
-                <span className="text-gray-400">•</span>
-                <span className="text-gray-500">{storyData.source}</span>
-              </>
-            )}
-          </div>
+          {getBadgeTooltipText(hoveredBadge)}
         </div>,
         document.body
       )}
@@ -558,12 +572,6 @@ function BriefingCard({ story, index, isExpanded, onToggle, isStarred, onStar, o
   // Handle both nested (primary_article) and flat data structures
   const storyData = story as any; // Allow flexible access
 
-  // Debug: log what we receive
-  console.log(`[BriefingCard ${index}] storyData:`, storyData);
-  console.log(`[BriefingCard ${index}] title:`, storyData.title);
-  console.log(`[BriefingCard ${index}] executive_takeaway:`, storyData.executive_takeaway);
-  console.log(`[BriefingCard ${index}] category:`, storyData.category);
-
   const riskStyle = getRiskOpportunityStyle(storyData.risk_opportunity);
   const signalStyle = getSignalStrengthStyle(storyData.signal_strength);
   const timeStyle = getTimeHorizonStyle(storyData.time_horizon);
@@ -574,7 +582,8 @@ function BriefingCard({ story, index, isExpanded, onToggle, isStarred, onStar, o
   const articleUri = storyData.url || storyData.primary_article?.uri || '';
 
   // Get display values - handle both structures
-  const displayTitle = storyData.title || storyData.headline || storyData.primary_article?.title || 'Untitled';
+  const rawTitle = storyData.title || storyData.headline || storyData.primary_article?.title || 'Untitled';
+  const displayTitle = cleanTitle(rawTitle);
   const displaySource = storyData.source || storyData.primary_article?.source?.name || '';
   const displayDate = storyData.date || storyData.primary_article?.publication_date || '';
   const displaySummary = storyData.summary || storyData.primary_article?.summary || '';
@@ -582,10 +591,6 @@ function BriefingCard({ story, index, isExpanded, onToggle, isStarred, onStar, o
   const executiveActions = Array.isArray(storyData.executive_action)
     ? storyData.executive_action
     : (storyData.executive_action ? [storyData.executive_action] : []);
-
-  console.log(`[BriefingCard ${index}] displayTitle:`, displayTitle);
-  console.log(`[BriefingCard ${index}] displaySource:`, displaySource);
-  console.log(`[BriefingCard ${index}] displaySummary:`, displaySummary?.substring(0, 50));
 
   const handleStarClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -638,156 +643,156 @@ Please provide:
     openAuspexWithQuery(prompt);
   };
 
+  // Format date for display
+  const formatDisplayDate = (dateStr?: string) => {
+    if (!dateStr) return '';
+    try {
+      const date = new Date(dateStr);
+      return date.toLocaleDateString('en-GB', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric'
+      }).replace(/\//g, '.');
+    } catch {
+      return dateStr;
+    }
+  };
+
   return (
-    <article className="bg-white border border-gray-200 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
+    <article className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden hover:shadow-md transition-shadow">
       {/* Header - Always visible */}
       <div
         className="p-5 cursor-pointer"
         onClick={onToggle}
       >
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex-1">
-            {/* Category and indicators row */}
-            <div className="flex flex-wrap items-center gap-2 mb-2">
-              {storyData.category && (
-                <span className={`text-xs font-medium px-2 py-0.5 rounded ${categoryStyle.bg} ${categoryStyle.text} uppercase`}>
-                  {storyData.category}
-                </span>
-              )}
-              {displayScores.overall && (
-                <span className="text-xs font-bold text-pink-600 bg-pink-50 px-2 py-0.5 rounded">
-                  Score: {displayScores.overall}/5
-                </span>
-              )}
-            </div>
-
-            {/* Title */}
-            <h3 className="text-lg font-semibold text-gray-900 leading-tight">
-              {displayTitle}
-            </h3>
-
-            {/* Source and date */}
-            <div className="flex items-center gap-2 mt-2 text-sm text-gray-600">
-              <Building2 className="w-3.5 h-3.5" />
-              <span>{displaySource}</span>
-              {displayDate && (
-                <>
-                  <span className="text-gray-400">•</span>
-                  <span>{displayDate}</span>
-                </>
-              )}
-            </div>
-
-            {/* Executive Takeaway - Always visible */}
-            {storyData.executive_takeaway && (
-              <div className="mt-3 p-3 bg-pink-50 rounded-lg border-l-4 border-pink-400">
-                <p className="text-sm font-medium text-gray-800">
-                  {storyData.executive_takeaway}
-                </p>
-              </div>
+        {/* Top row: Date + See More/Less */}
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <Calendar className="w-3.5 h-3.5" />
+            <span>{formatDisplayDate(displayDate)}</span>
+          </div>
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggle(); }}
+            className="flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400 hover:text-blue-700"
+          >
+            {isExpanded ? (
+              <>
+                <ChevronUp className="w-3.5 h-3.5" />
+                See Less
+              </>
+            ) : (
+              <>
+                <ChevronDown className="w-3.5 h-3.5" />
+                See More
+              </>
             )}
-          </div>
-
-          {/* Right side - indicators and expand */}
-          <div className="flex flex-col items-end gap-2">
-            <div className="flex items-center gap-1">
-              <button
-                onClick={handleStarClick}
-                className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"
-              >
-                {isStarred ? (
-                  <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
-                ) : (
-                  <StarOff className="w-4 h-4 text-gray-400" />
-                )}
-              </button>
-              {isExpanded && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); onToggle(); }}
-                  className="p-1.5 hover:bg-gray-100 rounded-full transition-colors"
-                  title="Close"
-                >
-                  <X className="w-4 h-4 text-gray-500" />
-                </button>
-              )}
-            </div>
-
-            {/* Executive Indicators with tooltips */}
-            <div className="flex flex-col gap-1 items-end">
-              {storyData.time_horizon && (
-                <BadgeWithTooltip
-                  tooltip={getTimeHorizonTooltip(storyData.time_horizon)}
-                  className={`text-xs px-2 py-0.5 rounded ${timeStyle.bg} ${timeStyle.text}`}
-                >
-                  <Clock className="w-3 h-3 inline mr-1" />
-                  {storyData.time_horizon}
-                </BadgeWithTooltip>
-              )}
-              {storyData.risk_opportunity && (
-                <BadgeWithTooltip
-                  tooltip={getRiskOpportunityTooltip(storyData.risk_opportunity)}
-                  className={`text-xs px-2 py-0.5 rounded flex items-center gap-1 ${riskStyle.bg} ${riskStyle.text}`}
-                >
-                  {riskStyle.icon}
-                  {storyData.risk_opportunity}
-                </BadgeWithTooltip>
-              )}
-              {storyData.signal_strength && (
-                <BadgeWithTooltip
-                  tooltip={getSignalStrengthTooltip(storyData.signal_strength)}
-                  className={`text-xs px-2 py-0.5 rounded ${signalStyle.bg} ${signalStyle.text}`}
-                >
-                  <Zap className="w-3 h-3 inline mr-1" />
-                  {storyData.signal_strength}
-                </BadgeWithTooltip>
-              )}
-            </div>
-
-            <button className="p-1 text-gray-400 hover:text-gray-600">
-              {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
-            </button>
-          </div>
+          </button>
         </div>
+
+        {/* Category badge */}
+        {storyData.category && (
+          <span className={`inline-block text-xs font-medium px-2.5 py-1 rounded-full mb-3 ${categoryStyle.bg} ${categoryStyle.text} dark:bg-opacity-20`}>
+            {storyData.category.toUpperCase()}
+          </span>
+        )}
+
+        {/* Title */}
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 leading-tight mb-2">
+          {displayTitle}
+        </h3>
+
+        {/* Rating badges row */}
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          {storyData.time_horizon && (
+            <span className={`text-xs font-medium px-2 py-0.5 rounded ${timeStyle.bg} ${timeStyle.text}`}>
+              {storyData.time_horizon}
+            </span>
+          )}
+          {storyData.risk_opportunity && (
+            <span className={`text-xs font-medium px-2 py-0.5 rounded flex items-center gap-1 ${riskStyle.bg} ${riskStyle.text}`}>
+              {riskStyle.icon}
+              {storyData.risk_opportunity}
+            </span>
+          )}
+          {storyData.signal_strength && (
+            <span className={`text-xs font-medium px-2 py-0.5 rounded ${signalStyle.bg} ${signalStyle.text}`}>
+              {storyData.signal_strength}
+            </span>
+          )}
+          {displayScores.overall && (
+            <span className="text-xs font-bold text-pink-600 dark:text-pink-400 bg-pink-50 dark:bg-pink-900/30 px-2 py-0.5 rounded">
+              Score: {displayScores.overall}/5
+            </span>
+          )}
+        </div>
+
+        {/* Source link */}
+        {displaySource && (
+          <a
+            href={articleUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1 text-sm text-blue-600 dark:text-blue-400 hover:underline mb-3"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            {displaySource}
+          </a>
+        )}
+
+        {/* Executive Takeaway - "Why this matters" quote block */}
+        {storyData.executive_takeaway && (
+          <div className="mt-3 p-3 bg-pink-50 dark:bg-pink-900/20 rounded-lg border-l-4 border-pink-500">
+            <h4 className="text-xs font-semibold text-pink-700 dark:text-pink-400 uppercase tracking-wide mb-1">
+              Why This Matters
+            </h4>
+            <p className="text-sm text-gray-700 dark:text-gray-300">
+              {storyData.executive_takeaway}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Expanded Content */}
       {isExpanded && (
-        <div className="px-5 pb-5 border-t border-gray-100 pt-4">
+        <div className="px-5 pb-5 border-t border-gray-100 dark:border-gray-700 pt-4">
           {/* Summary */}
           {displaySummary && (
-            <div className="mb-4">
-              <h4 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-2">
+            <div className="pb-4 border-b border-gray-300 dark:border-gray-600">
+              <h4 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-2">
                 Summary
               </h4>
-              <p className="text-gray-700 leading-relaxed">
+              <p className="text-gray-700 dark:text-gray-300 leading-relaxed">
                 {displaySummary}
               </p>
             </div>
           )}
 
-          {/* Strategic Relevance */}
+          {/* Strategic Relevance - blue styling */}
           {storyData.strategic_relevance && (
-            <div className="mb-4 p-4 bg-blue-50 rounded-lg">
-              <h4 className="text-sm font-semibold text-blue-700 uppercase tracking-wide mb-2 flex items-center gap-1">
-                <Target className="w-4 h-4" />
-                Strategic Relevance
-              </h4>
-              <p className="text-gray-700 leading-relaxed">
-                {storyData.strategic_relevance}
-              </p>
+            <div className="py-4 border-b border-gray-300 dark:border-gray-600">
+              <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border-l-4 border-blue-500">
+                <h4 className="text-sm font-semibold text-blue-700 dark:text-blue-400 mb-2 flex items-center gap-1">
+                  <Target className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                  Strategic Relevance
+                </h4>
+                <p className="text-gray-700 dark:text-gray-300 leading-relaxed">
+                  {storyData.strategic_relevance}
+                </p>
+              </div>
             </div>
           )}
 
           {/* Executive Actions */}
           {executiveActions.length > 0 && (
-            <div className="mb-4">
-              <h4 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-2">
+            <div className="py-4 border-b border-gray-300 dark:border-gray-600">
+              <h4 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-2">
                 Executive Actions
               </h4>
               <ul className="space-y-2">
                 {executiveActions.map((action: string, i: number) => (
-                  <li key={i} className="flex items-start gap-2 text-gray-700">
-                    <span className="text-pink-500 mt-1">→</span>
+                  <li key={i} className="flex items-start gap-2 text-gray-700 dark:text-gray-300">
+                    <span className="text-pink-500 mt-0.5">→</span>
                     <span>{action}</span>
                   </li>
                 ))}
@@ -797,8 +802,8 @@ Please provide:
 
           {/* Scores breakdown (if available) */}
           {displayScores && Object.keys(displayScores).length > 1 && (
-            <div className="mb-4">
-              <h4 className="text-sm font-semibold text-gray-600 uppercase tracking-wide mb-2">
+            <div className="py-4 border-b border-gray-300 dark:border-gray-600">
+              <h4 className="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-2">
                 Score Breakdown
               </h4>
               <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
@@ -822,13 +827,13 @@ Please provide:
           )}
 
           {/* Action Links */}
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 pt-4">
             {articleUrl && (
               <a
                 href={articleUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-sm text-pink-600 hover:text-pink-700 font-medium transition-colors"
+                className="inline-flex items-center gap-1.5 text-sm text-blue-600 dark:text-blue-400 hover:underline font-medium transition-colors"
               >
                 <ExternalLink className="w-3.5 h-3.5" />
                 Read Original Article
@@ -836,7 +841,7 @@ Please provide:
             )}
             <button
               onClick={handleAskAuspex}
-              className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-pink-600 transition-colors"
+              className="inline-flex items-center gap-1.5 text-sm text-pink-600 dark:text-pink-400 hover:text-pink-700 dark:hover:text-pink-300 font-medium transition-colors"
             >
               <MessageSquare className="w-3.5 h-3.5" />
               Ask Auspex
@@ -853,9 +858,9 @@ Please provide:
  */
 function ScorePill({ label, value }: { label: string; value: number }) {
   return (
-    <div className="text-center p-2 bg-gray-50 rounded">
-      <div className="text-lg font-bold text-gray-900">{value}</div>
-      <div className="text-xs text-gray-600">{label}</div>
+    <div className="text-center p-2 bg-gray-50 dark:bg-gray-900 rounded">
+      <div className="text-lg font-bold text-gray-900 dark:text-gray-100">{value}</div>
+      <div className="text-xs text-gray-600 dark:text-gray-400">{label}</div>
     </div>
   );
 }

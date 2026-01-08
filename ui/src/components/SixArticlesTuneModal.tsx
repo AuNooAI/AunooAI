@@ -1,9 +1,6 @@
 /**
  * Six Articles Tune Modal - Configuration editor for Your Briefing
- *
- * Allows editing of:
- * 1. Persona definitions (CEO/CMO/CTO/CISO + custom)
- * 2. System Prompt - The main prompt template for article selection/analysis
+ * Styled to match IncidentConfigModal and NarrativesConfigModal
  */
 
 import { useState, useEffect } from 'react';
@@ -11,12 +8,26 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle
 } from './ui/dialog';
+import { Button } from './ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
+import { Label } from './ui/label';
+import { Textarea } from './ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
-import { Loader2, Save, RotateCcw, FileText, Settings2, Users, Plus, Trash2 } from 'lucide-react';
-import { Alert, AlertDescription } from './ui/alert';
+import {
+  Save,
+  RotateCcw,
+  FileText,
+  Users,
+  Plus,
+  Trash2,
+  Info,
+  Settings2,
+  Newspaper,
+} from 'lucide-react';
 
 interface PersonaDefinition {
   name?: string;
@@ -88,7 +99,6 @@ export function SixArticlesTuneModal({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Config state
   const [originalConfig, setOriginalConfig] = useState<SixArticlesConfig | null>(null);
@@ -96,7 +106,6 @@ export function SixArticlesTuneModal({
   const [editedPersonas, setEditedPersonas] = useState<Record<string, PersonaDefinition>>({});
 
   // UI state
-  const [activeTab, setActiveTab] = useState<'personas' | 'prompt'>('personas');
   const [editingPersona, setEditingPersona] = useState<string | null>(null);
 
   // Fetch config when modal opens
@@ -106,7 +115,6 @@ export function SixArticlesTuneModal({
     const fetchConfig = async () => {
       setLoading(true);
       setError(null);
-      setSuccessMessage(null);
 
       try {
         const res = await fetch('/api/news-feed/six-articles/config', {
@@ -132,23 +140,10 @@ export function SixArticlesTuneModal({
     fetchConfig();
   }, [open]);
 
-  // Check if config has changed
-  const hasChanges = () => {
-    if (!originalConfig) return false;
-
-    const originalPrompt = originalConfig.systemPrompt || DEFAULT_PROMPT_TEMPLATE;
-    if (editedPrompt !== originalPrompt) return true;
-
-    const origPersonas = JSON.stringify(originalConfig.personas);
-    const editedPersonasStr = JSON.stringify(editedPersonas);
-    return origPersonas !== editedPersonasStr;
-  };
-
   // Save changes
   const saveConfig = async () => {
     setSaving(true);
     setError(null);
-    setSuccessMessage(null);
 
     try {
       const configToSave: SixArticlesConfig = {
@@ -169,9 +164,8 @@ export function SixArticlesTuneModal({
         throw new Error(data.detail || 'Failed to save configuration');
       }
 
-      // Update original config to match saved
       setOriginalConfig(configToSave);
-      setSuccessMessage('Configuration saved successfully');
+      onOpenChange(false);
 
       if (onConfigSaved) {
         onConfigSaved();
@@ -184,18 +178,13 @@ export function SixArticlesTuneModal({
     }
   };
 
-  // Reset to original values
+  // Reset to defaults
   const resetConfig = () => {
-    if (originalConfig) {
-      setEditedPrompt(originalConfig.systemPrompt || DEFAULT_PROMPT_TEMPLATE);
-      setEditedPersonas(originalConfig.personas || {});
+    if (!confirm('Reset all configuration to defaults? This cannot be undone.')) {
+      return;
     }
-    setSuccessMessage(null);
-  };
-
-  // Reset prompt to default
-  const resetPromptToDefault = () => {
     setEditedPrompt(DEFAULT_PROMPT_TEMPLATE);
+    // Reset personas to defaults would need to fetch from backend
   };
 
   // Add custom persona
@@ -245,289 +234,286 @@ export function SixArticlesTuneModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-[95vw] w-[95vw] h-[95vh] max-h-[95vh] overflow-hidden flex flex-col overflow-x-hidden">
+      <DialogContent className="w-auto min-w-[600px] max-w-[95vw] h-[80vh] flex flex-col">
         <DialogHeader>
-          <DialogTitle className="text-2xl font-bold">Tune: Your Briefing</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <Newspaper className="w-5 h-5 text-pink-500" />
+            Configure Your Briefing
+          </DialogTitle>
           <DialogDescription>
-            Customize the personas and prompt template for the Six Articles briefing generation
+            Customize personas and prompt template for the Six Articles briefing
           </DialogDescription>
         </DialogHeader>
 
-        {/* Tab Switcher */}
-        <div className="flex gap-2 border-b pb-2">
-          <button
-            onClick={() => setActiveTab('personas')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${
-              activeTab === 'personas'
-                ? 'bg-pink-500 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            Personas
-          </button>
-          <button
-            onClick={() => setActiveTab('prompt')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${
-              activeTab === 'prompt'
-                ? 'bg-pink-500 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-            }`}
-          >
-            <FileText className="w-4 h-4" />
-            System Prompt
-          </button>
-        </div>
+        {error && (
+          <div className="px-4 py-2 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-200 text-sm">
+            {error}
+          </div>
+        )}
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden space-y-6 mt-4 pr-2">
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <Tabs defaultValue="info" className="h-full">
+            <TabsList className="w-full shrink-0 flex sticky top-0 bg-white dark:bg-gray-900 z-10">
+              <TabsTrigger value="info" className="flex-1 gap-1 text-xs px-2">
+                <Info className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline">Info</span>
+              </TabsTrigger>
+              <TabsTrigger value="personas" className="flex-1 gap-1 text-xs px-2">
+                <Users className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline">Personas</span>
+              </TabsTrigger>
+              <TabsTrigger value="prompt" className="flex-1 gap-1 text-xs px-2">
+                <FileText className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden sm:inline">Prompt</span>
+              </TabsTrigger>
+            </TabsList>
 
-          {successMessage && (
-            <Alert className="bg-green-50 border-green-200">
-              <AlertDescription className="text-green-700">{successMessage}</AlertDescription>
-            </Alert>
-          )}
-
-          {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-8 h-8 animate-spin text-pink-500" />
-              <span className="ml-2 text-gray-600">Loading configuration...</span>
-            </div>
-          ) : (
-            <>
-              {/* Personas Tab */}
-              {activeTab === 'personas' && (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <label className="text-sm font-semibold text-gray-700">Executive Personas</label>
-                      <p className="text-xs text-gray-500">Define perspectives for article selection and analysis</p>
-                    </div>
-                    <button
-                      onClick={addCustomPersona}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-pink-100 text-pink-700 hover:bg-pink-200 rounded-md text-sm font-medium"
-                    >
-                      <Plus className="w-4 h-4" />
-                      Add Custom Persona
-                    </button>
+            <div className="mt-4 pr-2">
+              {/* Loading State */}
+              {loading && (
+                <div className="flex items-center justify-center py-12">
+                  <div className="text-center">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-pink-500 mx-auto mb-4"></div>
+                    <p className="text-gray-500 dark:text-gray-400">Loading configuration...</p>
                   </div>
+                </div>
+              )}
 
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                    {Object.entries(editedPersonas).map(([personaId, personaDef]) => {
-                      const isBuiltIn = ['CEO', 'CMO', 'CTO', 'CISO'].includes(personaId);
-                      const isExpanded = editingPersona === personaId;
+              {/* Info Tab */}
+              <TabsContent value="info" className="space-y-4 mt-0">
+                <div className="bg-pink-50 dark:bg-pink-950 border border-pink-200 dark:border-pink-800 rounded-lg p-4">
+                  <h4 className="font-semibold text-pink-900 dark:text-pink-100 flex items-center gap-2 mb-2">
+                    <Info className="w-4 h-4" />
+                    About Your Briefing Configuration
+                  </h4>
+                  <p className="text-sm text-pink-800 dark:text-pink-200">
+                    Configure how the AI selects and presents your daily briefing articles.
+                    Customize personas to match different executive perspectives and priorities.
+                  </p>
+                </div>
 
-                      return (
-                        <div
-                          key={personaId}
-                          className={`border rounded-lg p-4 ${isExpanded ? 'ring-2 ring-pink-500' : ''} ${
-                            isBuiltIn ? 'bg-gray-50' : 'bg-white'
-                          }`}
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <div className="flex items-center gap-2">
-                              <span className={`px-2 py-0.5 rounded text-xs font-medium ${
-                                isBuiltIn ? 'bg-gray-200 text-gray-700' : 'bg-pink-100 text-pink-700'
-                              }`}>
-                                {isBuiltIn ? personaId : 'Custom'}
-                              </span>
-                              {isExpanded && !isBuiltIn ? (
-                                <input
-                                  type="text"
-                                  value={personaDef.name || personaId}
-                                  onChange={(e) => updatePersonaField(personaId, 'name', e.target.value)}
-                                  className="font-semibold text-gray-800 border-b border-pink-500 bg-transparent focus:outline-none"
-                                />
-                              ) : (
-                                <h4 className="font-semibold text-gray-800">{getPersonaName(personaId, personaDef)}</h4>
-                              )}
-                            </div>
-                            <div className="flex gap-1">
+                <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Users className="w-5 h-5 text-pink-500" />
+                    <h4 className="font-semibold text-gray-900 dark:text-gray-100">Personas</h4>
+                  </div>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
+                    Define executive perspectives (CEO, CMO, CTO, CISO) with specific priorities and focus areas.
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    <span className="font-medium">Use this when:</span> You want articles selected for specific leadership roles.
+                  </p>
+                </div>
+
+                <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <FileText className="w-5 h-5 text-pink-500" />
+                    <h4 className="font-semibold text-gray-900 dark:text-gray-100">Prompt Template</h4>
+                  </div>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
+                    The core instructions that guide how articles are selected and analyzed.
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    <span className="font-medium">Use this when:</span> You want to change selection criteria or output format.
+                  </p>
+                </div>
+
+                <div className="bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg p-4">
+                  <h4 className="font-semibold text-amber-900 dark:text-amber-100 mb-2">Available Placeholders</h4>
+                  <ul className="text-sm text-amber-800 dark:text-amber-200 space-y-1 list-disc list-inside">
+                    <li><code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">{'{persona}'}</code> - Selected persona name</li>
+                    <li><code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">{'{article_count}'}</code> - Number of articles to select</li>
+                    <li><code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">{'{persona_focus}'}</code> - Persona's focus areas</li>
+                    <li><code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">{'{articles_summary}'}</code> - Available articles</li>
+                  </ul>
+                </div>
+              </TabsContent>
+
+              {/* Personas Tab */}
+              <TabsContent value="personas" className="space-y-4 mt-0">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <Label className="font-semibold">Executive Personas</Label>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                      Define perspectives for article selection and analysis
+                    </p>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={addCustomPersona} className="text-xs">
+                    <Plus className="w-3.5 h-3.5 mr-1.5" />
+                    Add Custom
+                  </Button>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {Object.entries(editedPersonas).map(([personaId, personaDef]) => {
+                    const isBuiltIn = ['CEO', 'CMO', 'CTO', 'CISO'].includes(personaId);
+                    const isExpanded = editingPersona === personaId;
+
+                    return (
+                      <div
+                        key={personaId}
+                        className={`border rounded-lg p-4 ${isExpanded ? 'ring-2 ring-pink-500' : ''} ${
+                          isBuiltIn
+                            ? 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700'
+                            : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                              isBuiltIn
+                                ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                : 'bg-pink-100 dark:bg-pink-900 text-pink-700 dark:text-pink-300'
+                            }`}>
+                              {isBuiltIn ? personaId : 'Custom'}
+                            </span>
+                            <h4 className="font-semibold text-gray-800 dark:text-gray-200">
+                              {getPersonaName(personaId, personaDef)}
+                            </h4>
+                          </div>
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => setEditingPersona(isExpanded ? null : personaId)}
+                              className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
+                            >
+                              <Settings2 className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                            </button>
+                            {!isBuiltIn && (
                               <button
-                                onClick={() => setEditingPersona(isExpanded ? null : personaId)}
-                                className="p-1 hover:bg-gray-200 rounded"
+                                onClick={() => deletePersona(personaId)}
+                                className="p-1 hover:bg-red-100 dark:hover:bg-red-900 rounded"
                               >
-                                <Settings2 className="w-4 h-4 text-gray-500" />
+                                <Trash2 className="w-4 h-4 text-red-500" />
                               </button>
-                              {!isBuiltIn && (
-                                <button
-                                  onClick={() => deletePersona(personaId)}
-                                  className="p-1 hover:bg-red-100 rounded"
-                                >
-                                  <Trash2 className="w-4 h-4 text-red-500" />
-                                </button>
-                              )}
+                            )}
+                          </div>
+                        </div>
+
+                        {isExpanded ? (
+                          <div className="space-y-3 mt-3">
+                            <div>
+                              <Label className="text-xs">Risk Appetite</Label>
+                              <Select
+                                value={personaDef.riskAppetite}
+                                onValueChange={(value) => updatePersonaField(personaId, 'riskAppetite', value)}
+                              >
+                                <SelectTrigger className="w-full h-8 mt-1">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {RISK_APPETITES.map(ra => (
+                                    <SelectItem key={ra} value={ra}>
+                                      {ra.charAt(0).toUpperCase() + ra.slice(1)}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            <div>
+                              <Label className="text-xs">Priorities</Label>
+                              <Textarea
+                                value={personaDef.priorities}
+                                onChange={(e) => updatePersonaField(personaId, 'priorities', e.target.value)}
+                                className="mt-1 text-xs h-20"
+                                placeholder="Strategic growth, Revenue impact, ..."
+                              />
+                            </div>
+
+                            <div>
+                              <Label className="text-xs">Focus Areas</Label>
+                              <Textarea
+                                value={personaDef.focus}
+                                onChange={(e) => updatePersonaField(personaId, 'focus', e.target.value)}
+                                className="mt-1 text-xs h-20"
+                                placeholder="Industry trends, Competitive landscape, ..."
+                              />
                             </div>
                           </div>
-
-                          {isExpanded ? (
-                            <div className="space-y-3 mt-3">
-                              {/* Risk Appetite */}
-                              <div>
-                                <label className="text-xs font-medium text-gray-600 block mb-1">Risk Appetite</label>
-                                <Select
-                                  value={personaDef.riskAppetite}
-                                  onValueChange={(value) => updatePersonaField(personaId, 'riskAppetite', value)}
-                                >
-                                  <SelectTrigger className="w-full h-8">
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {RISK_APPETITES.map(ra => (
-                                      <SelectItem key={ra} value={ra}>
-                                        {ra.charAt(0).toUpperCase() + ra.slice(1)}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
-                              </div>
-
-                              {/* Priorities */}
-                              <div>
-                                <label className="text-xs font-medium text-gray-600 block mb-1">
-                                  Priorities
-                                </label>
-                                <textarea
-                                  value={personaDef.priorities}
-                                  onChange={(e) => updatePersonaField(personaId, 'priorities', e.target.value)}
-                                  className="w-full h-20 px-2 py-1 border rounded text-sm"
-                                  placeholder="Strategic growth, Revenue impact, ..."
-                                />
-                              </div>
-
-                              {/* Focus Areas */}
-                              <div>
-                                <label className="text-xs font-medium text-gray-600 block mb-1">
-                                  Focus Areas
-                                </label>
-                                <textarea
-                                  value={personaDef.focus}
-                                  onChange={(e) => updatePersonaField(personaId, 'focus', e.target.value)}
-                                  className="w-full h-20 px-2 py-1 border rounded text-sm"
-                                  placeholder="Industry trends, Competitive landscape, ..."
-                                />
-                              </div>
-                            </div>
-                          ) : (
-                            <div className="text-sm text-gray-600 space-y-1">
-                              <p><span className="font-medium">Risk:</span> {personaDef.riskAppetite}</p>
-                              <p className="truncate"><span className="font-medium">Focus:</span> {personaDef.focus}</p>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                        ) : (
+                          <div className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+                            <p><span className="font-medium">Risk:</span> {personaDef.riskAppetite}</p>
+                            <p className="truncate"><span className="font-medium">Focus:</span> {personaDef.focus}</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
-              )}
+              </TabsContent>
 
               {/* Prompt Tab */}
-              {activeTab === 'prompt' && (
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between">
+              <TabsContent value="prompt" className="space-y-4 mt-0 overflow-x-hidden">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  <div className="lg:col-span-2 space-y-4">
                     <div>
-                      <label className="text-sm font-semibold text-gray-700">System Prompt Template</label>
-                      <p className="text-xs text-gray-500 mt-1">
-                        The prompt template used to generate the Six Articles briefing. Use placeholders like {'{persona}'}, {'{article_count}'}, {'{audience_profile}'}, etc.
+                      <Label className="font-semibold">System Prompt Template</Label>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                        The prompt template used to generate the Six Articles briefing.
                       </p>
-                    </div>
-                    <button
-                      onClick={resetPromptToDefault}
-                      className="flex items-center gap-2 px-3 py-1.5 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-md text-sm font-medium"
-                    >
-                      <RotateCcw className="w-4 h-4" />
-                      Reset to Default
-                    </button>
-                  </div>
-
-                  {/* Available Placeholders */}
-                  <div className="bg-pink-50 border border-pink-200 rounded-lg p-3">
-                    <p className="text-xs font-medium text-pink-800 mb-2">Available Placeholders:</p>
-                    <div className="flex flex-wrap gap-2">
-                      {[
-                        '{persona}',
-                        '{article_count}',
-                        '{persona_description}',
-                        '{persona_focus}',
-                        '{starred_instruction}',
-                        '{audience_profile}',
-                        '{articles_summary}',
-                        '{bias_context}',
-                        '{source_context}'
-                      ].map(placeholder => (
-                        <code
-                          key={placeholder}
-                          className="px-2 py-0.5 bg-white text-pink-700 text-xs rounded border border-pink-200 cursor-pointer hover:bg-pink-100"
-                          onClick={() => {
-                            navigator.clipboard.writeText(placeholder);
-                          }}
-                          title="Click to copy"
-                        >
-                          {placeholder}
-                        </code>
-                      ))}
+                      <Textarea
+                        value={editedPrompt}
+                        onChange={(e) => setEditedPrompt(e.target.value)}
+                        rows={20}
+                        className="font-mono text-xs w-full resize-y"
+                        disabled={loading}
+                      />
                     </div>
                   </div>
 
-                  {/* Prompt Editor */}
-                  <textarea
-                    value={editedPrompt}
-                    onChange={(e) => setEditedPrompt(e.target.value)}
-                    className="w-full h-[500px] p-4 border rounded-lg font-mono text-xs leading-relaxed resize-y"
-                    placeholder="Enter system prompt template..."
-                  />
-                </div>
-              )}
+                  <div className="space-y-4">
+                    <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                      <h4 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">Available Placeholders</h4>
+                      <div className="space-y-2 text-sm">
+                        {[
+                          { name: '{persona}', desc: 'Selected persona name (CEO, CMO, etc.)' },
+                          { name: '{article_count}', desc: 'Number of articles to select' },
+                          { name: '{persona_description}', desc: 'Full persona description' },
+                          { name: '{persona_focus}', desc: 'Persona focus areas' },
+                          { name: '{audience_profile}', desc: 'Audience profile details' },
+                          { name: '{articles_summary}', desc: 'Available articles to select from' },
+                          { name: '{bias_context}', desc: 'Source bias information' },
+                          { name: '{source_context}', desc: 'Source credibility context' },
+                        ].map(({ name, desc }) => (
+                          <div key={name}>
+                            <code className="text-pink-600 dark:text-pink-400 bg-pink-50 dark:bg-pink-950 px-1 py-0.5 rounded text-xs">{name}</code>
+                            <p className="text-gray-500 dark:text-gray-400 text-xs mt-0.5">{desc}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
 
-              {/* Save/Reset Buttons */}
-              <div className="flex items-center justify-between pt-4 border-t">
-                <div className="text-sm text-gray-500">
-                  {hasChanges() ? (
-                    <span className="text-orange-600 flex items-center gap-1">
-                      <Settings2 className="w-4 h-4" />
-                      Unsaved changes
-                    </span>
-                  ) : (
-                    <span className="text-green-600">All settings saved</span>
-                  )}
+                    <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
+                      <h4 className="font-semibold text-gray-900 dark:text-gray-100 mb-2">Tips</h4>
+                      <ul className="text-xs text-gray-600 dark:text-gray-300 space-y-1.5 list-disc list-inside">
+                        <li>Adjust article_count to change briefing size</li>
+                        <li>Modify selection rules to change criteria</li>
+                        <li>Customize output fields as needed</li>
+                        <li>Use Reset to restore defaults</li>
+                      </ul>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={resetConfig}
-                    disabled={!hasChanges()}
-                    className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <RotateCcw className="w-4 h-4 inline mr-2" />
-                    Reset
-                  </button>
-                  <button
-                    onClick={saveConfig}
-                    disabled={!hasChanges() || saving}
-                    className="px-4 py-2 bg-pink-500 text-white hover:bg-pink-600 rounded-md text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {saving ? (
-                      <Loader2 className="w-4 h-4 inline mr-2 animate-spin" />
-                    ) : (
-                      <Save className="w-4 h-4 inline mr-2" />
-                    )}
-                    Save
-                  </button>
-                  <button
-                    onClick={() => onOpenChange(false)}
-                    className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-md text-sm font-medium"
-                  >
-                    Close
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
+              </TabsContent>
+            </div>
+          </Tabs>
         </div>
+
+        <DialogFooter className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 border-t pt-4 shrink-0 mt-4">
+          <Button variant="outline" onClick={() => onOpenChange(false)} className="order-3 sm:order-1">
+            Cancel
+          </Button>
+          <div className="flex flex-col sm:flex-row gap-2 order-1 sm:order-2">
+            <Button variant="outline" size="sm" onClick={resetConfig} disabled={loading || saving} className="text-xs">
+              <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+              Reset
+            </Button>
+            <Button size="sm" onClick={saveConfig} disabled={loading || saving} className="text-xs">
+              <Save className="w-3.5 h-3.5 mr-1.5" />
+              {saving ? 'Saving...' : 'Save'}
+            </Button>
+          </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
