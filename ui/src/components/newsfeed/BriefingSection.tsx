@@ -29,6 +29,7 @@ import {
 import { type NewsArticle, type SixArticlesReport, type TopStory, type Persona, type SixArticlesConfig } from '../../services/newsFeedApi';
 import { Skeleton } from '../ui/skeleton';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
+import { AgentSignalBadge, extractSignalTags } from './AgentSignalBadge';
 
 // Default personas (fallback if config not loaded)
 const DEFAULT_PERSONAS: { value: string; label: string; description: string }[] = [
@@ -485,10 +486,18 @@ function CompactBriefingCard({ story, onClick, isExpanded }: CompactBriefingCard
           </span>
         )}
 
-        {/* Title */}
-        <h4 className="font-bold text-gray-900 dark:text-gray-100 text-base mb-2">
-          {displayTitle}
-        </h4>
+        {/* Title with Agent Signal Badge */}
+        <div className="flex items-start gap-2 mb-2">
+          <h4 className="font-bold text-gray-900 dark:text-gray-100 text-base flex-1">
+            {displayTitle}
+          </h4>
+          {extractSignalTags(storyData.tags || storyData.primary_article?.tags).length > 0 && (
+            <AgentSignalBadge
+              agentNames={extractSignalTags(storyData.tags || storyData.primary_article?.tags)}
+              compact
+            />
+          )}
+        </div>
 
         {/* Rating badges row - with hover tooltips */}
         <div className="flex flex-wrap gap-1.5 mb-2">
@@ -696,10 +705,18 @@ Please provide:
           </span>
         )}
 
-        {/* Title */}
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 leading-tight mb-2">
-          {displayTitle}
-        </h3>
+        {/* Title with Agent Signal Badge */}
+        <div className="flex items-start gap-2 mb-2">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 leading-tight flex-1">
+            {displayTitle}
+          </h3>
+          {extractSignalTags(storyData.tags || storyData.primary_article?.tags).length > 0 && (
+            <AgentSignalBadge
+              agentNames={extractSignalTags(storyData.tags || storyData.primary_article?.tags)}
+              compact
+            />
+          )}
+        </div>
 
         {/* Rating badges row */}
         <div className="flex flex-wrap items-center gap-2 mb-3">
