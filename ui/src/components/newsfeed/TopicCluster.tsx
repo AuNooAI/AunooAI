@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import { ChevronRight, Layers } from 'lucide-react';
 import { type NewsArticle, type ArticleCluster, type ClusterRelatedArticle, clusterArticleToNewsArticle } from '../../services/newsFeedApi';
+import { AgentSignalBadge, extractSignalTags } from './AgentSignalBadge';
 
 interface TopicClusterProps {
   category: string;
@@ -226,6 +227,14 @@ function StoryRow({ cluster, onArticleClick }: StoryRowProps) {
               <span className="text-gray-600 dark:text-gray-400">
                 {formatTimeAgo(cluster.primary.publication_date)}
               </span>
+            </>
+          )}
+
+          {/* Agent signal badge */}
+          {extractSignalTags(cluster.primary.tags).length > 0 && (
+            <>
+              <span className="text-gray-400 dark:text-gray-500">·</span>
+              <AgentSignalBadge agentNames={extractSignalTags(cluster.primary.tags)} compact />
             </>
           )}
 

@@ -10,6 +10,8 @@ import {
   getTopics,
   getOrganizationalProfiles,
   getAvailableModels,
+  getNarrativesConfig,
+  getIncidentConfigFromStorage,
   type Incident,
   type ArticleTheme,
   type IncidentTrackingResponse,
@@ -242,7 +244,15 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
 
   // Generate Highlights (Incident Tracking)
   const generateHighlights = useCallback(async (forceRegenerate: boolean = false) => {
+    console.log('[useNarrativeExplorer] generateHighlights called', {
+      forceRegenerate,
+      selectedTopics: config.selectedTopics,
+      dateRange: config.dateRange,
+      model: config.model
+    });
+
     if (config.selectedTopics.length === 0) {
+      console.log('[useNarrativeExplorer] No topics selected, skipping highlights');
       setHighlightsError('Please select at least one topic');
       return;
     }
@@ -253,6 +263,11 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
 
     try {
       const { startDate, endDate } = getDateRange(config.dateRange);
+      console.log('[useNarrativeExplorer] Calling getIncidentTracking', { startDate, endDate, topics: config.selectedTopics });
+
+      // Load custom incident config from localStorage
+      const incidentConfig = getIncidentConfigFromStorage();
+
       const response = await getIncidentTracking({
         topics: config.selectedTopics,
         startDate,
@@ -261,9 +276,16 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
         model: config.model,
         forceRegenerate,
         profileId: config.profileId,
+        // Pass custom configuration if saved
+        systemPrompt: incidentConfig?.system_prompt,
+        userPrompt: incidentConfig?.user_prompt,
+        baseOntology: incidentConfig?.base_ontology,
+        analysisInstructions: incidentConfig?.analysis_instructions,
+        qualityGuidelines: incidentConfig?.quality_guidelines,
       });
 
       const newIncidents = response.incidents || [];
+      console.log('[useNarrativeExplorer] Got incidents response', { count: newIncidents.length, response });
       setIncidents(newIncidents);
       setIncidentResponse(response);
 
@@ -283,9 +305,10 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
       }
       setCachedAt(cachedAtTime);
     } catch (err) {
-      console.error('Error generating highlights:', err);
+      console.error('[useNarrativeExplorer] Error generating highlights:', err);
       setHighlightsError(err instanceof Error ? err.message : 'Failed to generate highlights');
     } finally {
+      console.log('[useNarrativeExplorer] generateHighlights finished');
       setLoadingHighlights(false);
     }
   }, [config]);
@@ -303,6 +326,9 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
     try {
       const { startDate, endDate } = getDateRange(config.dateRange);
 
+      // Load custom narratives config from localStorage
+      const narrativesConfig = getNarrativesConfig();
+
       // Fetch themes for each selected topic and combine
       const allThemes: ArticleTheme[] = [];
 
@@ -315,6 +341,9 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
             daysLimit: getDaysFromRange(config.dateRange),
             model: config.model,
             forceRegenerate,
+            // Pass custom prompts if configured
+            systemPrompt: narrativesConfig?.system_prompt,
+            userPrompt: narrativesConfig?.user_prompt,
           });
           allThemes.push(...topicThemes);
         } catch (err) {

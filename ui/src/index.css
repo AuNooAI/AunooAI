@@ -194,6 +194,11 @@ html.dark .text-blue-700,
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
 }
 
+/* Apply Open Sans for headings (per Figma spec) */
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Open Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
 :root {
   --font-size: 16px;
   --background: #ffffff;

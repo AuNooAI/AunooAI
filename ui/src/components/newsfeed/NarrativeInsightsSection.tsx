@@ -13,12 +13,15 @@ import {
   RefreshCw,
   Tag,
   Lightbulb,
-  Loader2
+  Loader2,
+  Calendar,
+  FileText,
+  MessageSquare,
+  Settings2,
 } from 'lucide-react';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import { type ArticleTheme, type ThemeArticle } from '../../services/narrativeExplorerApi';
 import { type NewsArticle } from '../../services/newsFeedApi';
-import { Card, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
 import { Skeleton } from '../ui/skeleton';
 
@@ -27,6 +30,7 @@ interface NarrativeInsightsSectionProps {
   loading?: boolean;
   onArticleClick?: (article: NewsArticle) => void;
   currentTopic?: string;
+  onOpenConfig?: () => void;
 }
 
 // Convert ThemeArticle to NewsArticle for detail panel
@@ -46,7 +50,7 @@ function themeArticleToNewsArticle(article: ThemeArticle): NewsArticle {
   };
 }
 
-export function NarrativeInsightsSection({ themes, loading, onArticleClick, currentTopic }: NarrativeInsightsSectionProps) {
+export function NarrativeInsightsSection({ themes, loading, onArticleClick, currentTopic, onOpenConfig }: NarrativeInsightsSectionProps) {
   const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
   const [showAll, setShowAll] = useState(false);
 
@@ -71,6 +75,16 @@ export function NarrativeInsightsSection({ themes, loading, onArticleClick, curr
         <div className="flex items-center gap-2 mb-2">
           <Brain className="w-5 h-5 text-indigo-500" />
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Narratives</h2>
+          <div className="flex-1" />
+          {onOpenConfig && (
+            <button
+              onClick={onOpenConfig}
+              className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              title="Configure Narratives"
+            >
+              <Settings2 className="w-4 h-4 text-gray-500" />
+            </button>
+          )}
         </div>
         <p className="text-sm text-gray-600 dark:text-gray-400">No recent narratives, click refresh</p>
       </section>
@@ -86,6 +100,16 @@ export function NarrativeInsightsSection({ themes, loading, onArticleClick, curr
         <span className="text-sm text-gray-600 dark:text-gray-400 ml-2">
           {themes.length} theme{themes.length !== 1 ? 's' : ''} identified
         </span>
+        <div className="flex-1" />
+        {onOpenConfig && (
+          <button
+            onClick={onOpenConfig}
+            className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            title="Configure Narratives"
+          >
+            <Settings2 className="w-4 h-4 text-gray-500" />
+          </button>
+        )}
       </div>
 
       {/* Loading State */}
@@ -148,172 +172,23 @@ interface ThemeCardProps {
 }
 
 function ThemeCard({ theme, expanded, onToggleExpand, onArticleClick, currentTopic }: ThemeCardProps) {
-  const sentimentColors: Record<string, string> = {
-    'positive': 'bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300',
-    'negative': 'bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300',
-    'neutral': 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300',
-    'mixed': 'bg-yellow-100 dark:bg-yellow-900/50 text-yellow-700 dark:text-yellow-300',
-  };
+  // Build Auspex research prompt
+  const buildResearchPrompt = () => {
+    const topicArea = currentTopic || 'AI and Machine Learning';
+    const detailedArticles = theme.articles?.slice(0, 15).map((article, idx) => {
+      const date = article.publication_date
+        ? new Date(article.publication_date).toLocaleDateString()
+        : 'Unknown date';
+      const brief = (article.summary || '').slice(0, 140).replace(/\n+/g, ' ');
+      return `${idx + 1}. ${article.title} (${article.news_source || 'Unknown'}, ${date})\n   URI: ${article.uri}\n   Brief: ${brief}${brief.length >= 140 ? '...' : ''}`;
+    }).join('\n') || '(no articles in theme)';
 
-  return (
-    <Card className="overflow-hidden hover:shadow-md transition-shadow dark:bg-gray-800 dark:border-gray-700">
-      <CardContent className="p-0">
-        {/* Theme indicator stripe */}
-        <div className="h-1 bg-gradient-to-r from-indigo-500 to-purple-500" />
+    const additionalUris = theme.articles?.slice(15, 50).map(a => `- ${a.title} — ${a.uri}`).join('\n') || '';
+    const keyEntitiesText = theme.key_entities?.length
+      ? `Key Entities: ${theme.key_entities.slice(0, 10).join(', ')}`
+      : '';
 
-        <div className="p-4">
-          {/* Header */}
-          <div className="flex items-start justify-between gap-2 mb-2">
-            <div className="flex items-center gap-2">
-              {theme.sentiment && (
-                <span className={`text-xs px-2 py-0.5 rounded ${sentimentColors[theme.sentiment.toLowerCase()] || 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}>
-                  {theme.sentiment}
-                </span>
-              )}
-            </div>
-            <span className="text-xs text-gray-600 dark:text-gray-400">
-              {theme.article_count} article{theme.article_count !== 1 ? 's' : ''}
-            </span>
-          </div>
-
-          {/* Theme Name */}
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100 text-sm mb-2">
-            {theme.theme_name}
-          </h3>
-
-          {/* Theme Summary / Description - always show full */}
-          <p className="text-sm text-gray-600 dark:text-gray-300">
-            {theme.theme_summary || theme.description}
-          </p>
-
-          {/* Source Metrics (if available) */}
-          {(theme.confidence || theme.source_count) && (
-            <div className="flex items-center gap-3 mt-2 text-xs text-gray-600 dark:text-gray-400">
-              {theme.confidence && (
-                <span className="flex items-center gap-1">
-                  <span className="font-medium">{Math.round(theme.confidence)}%</span> confidence
-                </span>
-              )}
-              {theme.source_count && (
-                <span>{theme.source_count} source{theme.source_count !== 1 ? 's' : ''}</span>
-              )}
-            </div>
-          )}
-
-          {/* Key Entities */}
-          {theme.key_entities && theme.key_entities.length > 0 && (
-            <div className="mt-3">
-              <div className="flex items-center gap-1 mb-1">
-                <Tag className="w-3 h-3 text-gray-500" />
-                <span className="text-xs text-gray-600 font-medium">Key Entities</span>
-              </div>
-              <div className="flex flex-wrap gap-1">
-                {theme.key_entities.slice(0, expanded ? undefined : 4).map((entity, i) => (
-                  <span
-                    key={i}
-                    className="text-xs bg-purple-50 text-purple-600 px-2 py-0.5 rounded"
-                  >
-                    {entity}
-                  </span>
-                ))}
-                {!expanded && theme.key_entities.length > 4 && (
-                  <span className="text-xs text-gray-600">
-                    +{theme.key_entities.length - 4} more
-                  </span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Expanded: Articles List */}
-          {expanded && theme.articles && theme.articles.length > 0 && (
-            <div className="mt-4 pt-3 border-t border-gray-100">
-              <h4 className="text-xs font-semibold text-gray-600 uppercase tracking-wide mb-2">
-                Articles in Theme
-              </h4>
-              <div className="space-y-2">
-                {theme.articles.slice(0, 5).map((article, i) => (
-                  <ThemeArticleLink
-                    key={i}
-                    article={article}
-                    themeSentiment={theme.sentiment}
-                    themeConfidence={theme.confidence}
-                    onClick={onArticleClick ? () => onArticleClick(themeArticleToNewsArticle(article)) : undefined}
-                  />
-                ))}
-                {theme.articles.length > 5 && (
-                  <p className="text-xs text-gray-600">
-                    +{theme.articles.length - 5} more articles
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Research Suggestions */}
-          {expanded && theme.research_suggestions && theme.research_suggestions.length > 0 && (
-            <div className="mt-4 pt-3 border-t border-gray-100">
-              <div className="flex items-center gap-1 mb-2">
-                <Lightbulb className="w-3 h-3 text-yellow-500" />
-                <span className="text-xs text-gray-600 font-medium">Research Suggestions</span>
-              </div>
-              <ul className="space-y-1">
-                {theme.research_suggestions.map((suggestion, i) => (
-                  <li key={i} className="text-xs text-gray-600 flex items-start gap-1">
-                    <span className="text-gray-500">•</span>
-                    {suggestion}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Expand/Collapse button */}
-          <button
-            onClick={onToggleExpand}
-            className="mt-3 text-xs text-indigo-600 hover:text-indigo-700 font-medium flex items-center gap-1"
-          >
-            {expanded ? (
-              <>
-                <ChevronUp className="w-3 h-3" />
-                Show less
-              </>
-            ) : (
-              <>
-                <ChevronDown className="w-3 h-3" />
-                Show more
-              </>
-            )}
-          </button>
-
-          {/* Action buttons */}
-          {expanded && (
-            <div className="mt-3 pt-3 border-t border-gray-100 flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                className="text-xs gap-1"
-                onClick={() => {
-                  // Build comprehensive research prompt with dataset context
-                  const topicArea = currentTopic || 'AI and Machine Learning';
-
-                  // Build article context from theme articles
-                  const detailedArticles = theme.articles?.slice(0, 15).map((article, idx) => {
-                    const date = article.publication_date
-                      ? new Date(article.publication_date).toLocaleDateString()
-                      : 'Unknown date';
-                    const brief = (article.summary || '').slice(0, 140).replace(/\n+/g, ' ');
-                    return `${idx + 1}. ${article.title} (${article.news_source || 'Unknown'}, ${date})\n   URI: ${article.uri}\n   Brief: ${brief}${brief.length >= 140 ? '...' : ''}`;
-                  }).join('\n') || '(no articles in theme)';
-
-                  const additionalUris = theme.articles?.slice(15, 50).map(a => `- ${a.title} — ${a.uri}`).join('\n') || '';
-
-                  // Build theme metadata
-                  const keyEntitiesText = theme.key_entities?.length
-                    ? `Key Entities: ${theme.key_entities.slice(0, 10).join(', ')}`
-                    : '';
-
-                  const researchPrompt = `Conduct comprehensive analysis of the theme "${theme.theme_name}" identified from recent ${topicArea} articles.
+    return `Conduct comprehensive analysis of the theme "${theme.theme_name}" identified from recent ${topicArea} articles.
 
 THEME METADATA:
 ${theme.sentiment ? `Sentiment: ${theme.sentiment}` : ''}
@@ -342,108 +217,138 @@ Please use your tools to:
 5. Provide strategic recommendations for decision-makers.
 
 Write follow-up questions as natural language that users would ask, not as technical function calls.`;
-
-                  // Open Auspex chat modal with the comprehensive query
-                  openAuspexWithQuery(researchPrompt);
-                }}
-              >
-                <Search className="w-3 h-3" />
-                Research with Auspex
-              </Button>
-            </div>
-          )}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function ThemeArticleLink({
-  article,
-  themeSentiment,
-  themeConfidence,
-  onClick
-}: {
-  article: ThemeArticle;
-  themeSentiment?: string;
-  themeConfidence?: number;
-  onClick?: () => void;
-}) {
-  const [showTooltip, setShowTooltip] = useState(false);
-  const tooltipContent = article.short_summary || article.summary;
-
-  const sentimentColors: Record<string, string> = {
-    'positive': 'bg-green-100 text-green-700',
-    'negative': 'bg-red-100 text-red-700',
-    'neutral': 'bg-gray-100 text-gray-700',
-    'mixed': 'bg-yellow-100 text-yellow-700',
-  };
-
-  const handleClick = (e: React.MouseEvent) => {
-    if (onClick) {
-      e.preventDefault();
-      onClick();
-    }
   };
 
   return (
-    <div
-      className="relative"
-      onMouseEnter={() => setShowTooltip(true)}
-      onMouseLeave={() => setShowTooltip(false)}
-    >
-      <a
-        href={article.uri}
-        target={onClick ? undefined : "_blank"}
-        rel={onClick ? undefined : "noopener noreferrer"}
-        onClick={handleClick}
-        className="block p-2 rounded bg-gray-50 hover:bg-gray-100 transition-colors cursor-pointer"
-      >
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium text-gray-900 line-clamp-1">
-              {article.title}
-            </p>
-            <p className="text-xs text-gray-600 mt-0.5">
-              {article.news_source}
-              {article.publication_date && ` • ${new Date(article.publication_date).toLocaleDateString()}`}
-            </p>
-          </div>
-          <ExternalLink className="w-3 h-3 text-gray-500 shrink-0" />
-        </div>
-      </a>
+    <div className={`transition-all ${expanded ? 'bg-gray-50 dark:bg-gray-800/50' : ''}`}>
+      {/* Header: Articles label + See More/Less toggle */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+          Articles
+        </span>
+        <button
+          onClick={onToggleExpand}
+          className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium flex items-center gap-1"
+        >
+          {expanded ? (
+            <>
+              <ChevronUp className="w-4 h-4" />
+              See Less
+            </>
+          ) : (
+            <>
+              <ChevronDown className="w-4 h-4" />
+              See More
+            </>
+          )}
+        </button>
+      </div>
 
-      {/* Hover tooltip with full summary and theme metadata */}
-      {showTooltip && tooltipContent && (
-        <div className="absolute left-0 bottom-full mb-1 z-50 w-80 p-3 bg-white rounded-lg shadow-lg border border-gray-200 pointer-events-none">
-          <p className="text-xs text-gray-600 leading-relaxed">
-            {tooltipContent}
-          </p>
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-            <span className="font-medium text-gray-700">{article.news_source}</span>
-            {article.publication_date && (
-              <>
-                <span className="text-gray-400">•</span>
-                <span className="text-gray-500">{new Date(article.publication_date).toLocaleDateString()}</span>
-              </>
-            )}
-            {themeSentiment && (
-              <>
-                <span className="text-gray-400">•</span>
-                <span className={`px-1.5 py-0.5 rounded ${sentimentColors[themeSentiment.toLowerCase()] || 'bg-gray-100 text-gray-700'}`}>
-                  {themeSentiment}
-                </span>
-              </>
-            )}
-            {themeConfidence && (
-              <>
-                <span className="text-gray-400">•</span>
-                <span className="text-indigo-600">{Math.round(themeConfidence)}% confidence</span>
-              </>
-            )}
+      {/* Theme Name */}
+      <h3 className="font-bold text-gray-900 dark:text-gray-100 text-base mb-2 mt-3">
+        {theme.theme_name}
+      </h3>
+
+      {/* Theme Summary / Description */}
+      <p className={`text-sm text-gray-700 dark:text-gray-300 ${!expanded ? 'line-clamp-4' : ''}`}>
+        {theme.theme_summary || theme.description}
+      </p>
+
+      {/* Expanded: Articles in Theme */}
+      {expanded && theme.articles && theme.articles.length > 0 && (
+        <div className="mt-4">
+          <h4 className="text-sm font-medium text-gray-800 dark:text-gray-200 pb-3 border-b border-gray-300 dark:border-gray-600">
+            Articles in Theme
+          </h4>
+          <div>
+            {theme.articles.slice(0, 8).map((article, i) => (
+              <div key={i} className="border-b border-gray-300 dark:border-gray-600 last:border-b-0">
+                <ThemeArticleRow
+                  article={article}
+                  onClick={onArticleClick ? () => onArticleClick(themeArticleToNewsArticle(article)) : undefined}
+                />
+              </div>
+            ))}
           </div>
+          {theme.articles.length > 8 && (
+            <p className="text-sm text-gray-600 dark:text-gray-400 pt-3">
+              +{theme.articles.length - 8} more articles
+            </p>
+          )}
+
+          {/* Ask Auspex button for the whole theme */}
+          <button
+            onClick={() => openAuspexWithQuery(buildResearchPrompt())}
+            className="mt-4 inline-flex items-center gap-1.5 text-sm text-pink-600 dark:text-pink-400 hover:text-pink-700 dark:hover:text-pink-300 font-medium"
+          >
+            <MessageSquare className="w-4 h-4" />
+            Ask Auspex about this theme
+          </button>
         </div>
       )}
     </div>
   );
 }
+
+// New article row component matching mockup design
+function ThemeArticleRow({
+  article,
+  onClick
+}: {
+  article: ThemeArticle;
+  onClick?: () => void;
+}) {
+  // Format date as DD.MM.YYYY
+  const formattedDate = article.publication_date
+    ? (() => {
+        const d = new Date(article.publication_date);
+        const day = d.getDate().toString().padStart(2, '0');
+        const month = (d.getMonth() + 1).toString().padStart(2, '0');
+        const year = d.getFullYear();
+        return `${day}.${month}.${year}`;
+      })()
+    : null;
+
+  return (
+    <div className="py-3 first:pt-0">
+      {/* Date row with external link icon on right */}
+      <div className="flex items-center justify-between mb-1">
+        {formattedDate && (
+          <div className="flex items-center gap-1.5">
+            <Calendar className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+            <span className="text-xs text-gray-600 dark:text-gray-300">{formattedDate}</span>
+          </div>
+        )}
+        <a
+          href={article.uri}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <ExternalLink className="w-4 h-4" />
+        </a>
+      </div>
+
+      {/* Title */}
+      <p
+        className="text-sm text-gray-900 dark:text-gray-100 font-medium cursor-pointer hover:text-blue-600 dark:hover:text-blue-400"
+        onClick={onClick}
+      >
+        {article.title}
+      </p>
+
+      {/* Source link */}
+      <a
+        href={article.uri}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-xs text-blue-600 dark:text-blue-400 hover:underline mt-1 inline-block"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {article.news_source || 'Source'}
+      </a>
+    </div>
+  );
+}
+
