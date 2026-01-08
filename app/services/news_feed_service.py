@@ -840,53 +840,40 @@ Please try again and return ONLY articles with URIs from this list."""}
     async def _generate_six_articles_with_political_analysis(self, articles_data: List[Dict], date: datetime, request: NewsFeedRequest) -> List[Dict]:
         """Generate six articles with enhanced political analysis based on related articles"""
 
-        # Filter articles if starred articles are provided
-        if request.starred_articles and len(request.starred_articles) > 0:
-            logger.info(f"Filtering articles to only starred URIs: {len(request.starred_articles)} articles")
-            logger.info(f"Starred URIs from request: {request.starred_articles[:3] if len(request.starred_articles) > 3 else request.starred_articles}")
-            logger.info(f"Sample article URIs from dataset: {[article.get('uri', 'NO_URI')[:100] for article in articles_data[:3]]}")
+        # Track starred articles - only those within the current timeframe (already in articles_data)
+        starred_uris_set = set(request.starred_articles) if request.starred_articles else set()
+        starred_articles_data = []
 
-            # First try to find starred articles in the current dataset
+        if starred_uris_set:
+            logger.info(f"Looking for {len(starred_uris_set)} starred articles within timeframe")
+
+            # Only use starred articles that are in the current dataset (respects date filter)
             starred_articles_data = [
                 article for article in articles_data
-                if article.get('uri') in request.starred_articles
+                if article.get('uri') in starred_uris_set
             ]
 
-            # If we didn't find all starred articles, fetch them directly from DB by URI
-            if len(starred_articles_data) < len(request.starred_articles):
-                logger.info(f"Only found {len(starred_articles_data)}/{len(request.starred_articles)} starred articles in current dataset")
-                logger.info(f"Fetching missing starred articles directly from database by URI")
+            # Cap starred articles at article_count
+            if len(starred_articles_data) > request.article_count:
+                logger.info(f"Capping starred articles from {len(starred_articles_data)} to {request.article_count}")
+                starred_articles_data = starred_articles_data[:request.article_count]
 
-                from starlette.concurrency import run_in_threadpool
+            logger.info(f"Found {len(starred_articles_data)} starred articles within timeframe")
 
-                # Fetch starred articles directly by their URIs (bypassing date filters)
-                missing_starred = await run_in_threadpool(
-                    self.facade.get_articles_by_uris,
-                    request.starred_articles
-                )
+            # Update starred_uris_set to only include articles we actually found
+            starred_uris_set = {article.get('uri') for article in starred_articles_data}
 
-                if missing_starred:
-                    logger.info(f"Found {len(missing_starred)} starred articles from database")
-                    # Convert to list of dicts and merge with existing starred articles
-                    starred_articles_data = list(starred_articles_data) + list(missing_starred)
-                    # Remove duplicates by URI
-                    seen_uris = set()
-                    unique_starred = []
-                    for article in starred_articles_data:
-                        uri = article.get('uri')
-                        if uri and uri not in seen_uris:
-                            seen_uris.add(uri)
-                            unique_starred.append(article)
-                    starred_articles_data = unique_starred
-                    logger.info(f"Total unique starred articles after DB fetch: {len(starred_articles_data)}")
+            # Combine starred articles with non-starred articles
+            # Starred articles go first, then fill with non-starred
+            non_starred_articles = [
+                article for article in articles_data
+                if article.get('uri') not in starred_uris_set
+            ]
 
-            if starred_articles_data:
-                logger.info(f"Using {len(starred_articles_data)} starred articles for analysis")
-                articles_data = starred_articles_data
-            else:
-                logger.warning(f"No starred articles found. Using all {len(articles_data)} articles.")
-                logger.warning(f"First starred URI: {request.starred_articles[0] if request.starred_articles else 'None'}")
-                logger.warning(f"First dataset URI: {articles_data[0].get('uri', 'None') if articles_data else 'None'}")
+            # Combine: starred first, then non-starred to fill up the corpus
+            combined_articles = starred_articles_data + non_starred_articles
+            logger.info(f"Combined corpus: {len(starred_articles_data)} starred + {len(non_starred_articles)} non-starred = {len(combined_articles)} total")
+            articles_data = combined_articles
 
         # Group articles by news source and bias to find related articles with political leanings
         articles_by_source = {}
@@ -907,6 +894,8 @@ Please try again and return ONLY articles with URIs from this list."""}
         org_profile = await self._get_organizational_profile(request.profile_id)
 
         # Enhanced prompt that considers related articles and political leanings
+        # Pass only the starred articles that were found within the timeframe
+        filtered_starred = list(starred_uris_set) if starred_uris_set else None
         prompt = self._build_enhanced_six_articles_analyst_prompt(
             articles_data,
             articles_with_bias,
@@ -915,7 +904,7 @@ Please try again and return ONLY articles with URIs from this list."""}
             org_profile,
             persona=request.persona,
             article_count=request.article_count,
-            starred_articles=request.starred_articles,
+            starred_articles=filtered_starred,
             user_id=request.user_id
         )
         
@@ -1146,8 +1135,9 @@ Return ONLY the JSON response."""
     def _build_six_articles_analyst_prompt(self, articles_data: List[Dict], date: datetime, org_profile: Optional[Dict] = None, persona: str = "CEO", article_count: int = 6, starred_articles: Optional[List[str]] = None, user_id: Optional[int] = None) -> str:
         """Build AI prompt for six articles detailed analysis with organizational context and custom config"""
 
-        # Prepare all articles for comprehensive analysis
-        articles_summary = self._prepare_articles_for_prompt(articles_data, max_articles=50)
+        # Prepare all articles for comprehensive analysis, marking starred ones
+        starred_uris_set = set(starred_articles) if starred_articles else None
+        articles_summary = self._prepare_articles_for_prompt(articles_data, max_articles=50, starred_uris=starred_uris_set)
 
         # Load custom configuration if user_id provided
         custom_config = None
@@ -1227,8 +1217,12 @@ Return ONLY the JSON response."""
         if starred_articles and len(starred_articles) > 0:
             starred_instruction = f"""
 
-⭐ **CRITICAL INSTRUCTION - STARRED ARTICLES**:
-The user has pre-selected {len(starred_articles)} articles by starring them. You MUST analyze and include ALL of these starred articles in your output. These starred articles represent the user's explicit choices and should be prioritized. The article corpus provided contains ONLY the starred articles the user selected. Do not select any articles outside of this pre-selected set."""
+⭐ **STARRED ARTICLES - MANDATORY OUTPUT**:
+The user has starred {len(starred_articles)} article(s) marked with ⭐ in the corpus below.
+CRITICAL: Your JSON output array MUST include ALL starred articles - they are required.
+- First, include all {len(starred_articles)} starred article(s) in your JSON response
+- Then add {article_count - len(starred_articles)} more articles to reach exactly {article_count} total
+- Return exactly {article_count} articles in your JSON array"""
 
         # Use custom prompt template if provided, otherwise use default
         if custom_config and custom_config.get('systemPrompt'):
@@ -1429,8 +1423,9 @@ START YOUR RESPONSE WITH [ AND END WITH ] - NOTHING ELSE."""
     def _build_enhanced_six_articles_analyst_prompt(self, articles_data: List[Dict], articles_with_bias: List[Dict], articles_by_source: Dict, date: datetime, org_profile: Optional[Dict] = None, persona: str = "CEO", article_count: int = 6, starred_articles: Optional[List[str]] = None, user_id: Optional[int] = None) -> str:
         """Build enhanced AI prompt that considers related articles and political leanings with custom config"""
 
-        # Prepare all articles for analysis
-        articles_summary = self._prepare_articles_for_prompt(articles_data, max_articles=50)
+        # Prepare all articles for analysis, marking starred ones
+        starred_uris_set = set(starred_articles) if starred_articles else None
+        articles_summary = self._prepare_articles_for_prompt(articles_data, max_articles=50, starred_uris=starred_uris_set)
 
         # Prepare bias analysis context
         bias_context = ""
@@ -1532,8 +1527,12 @@ START YOUR RESPONSE WITH [ AND END WITH ] - NOTHING ELSE."""
         if starred_articles and len(starred_articles) > 0:
             starred_instruction = f"""
 
-⭐ **CRITICAL INSTRUCTION - STARRED ARTICLES**:
-The user has pre-selected {len(starred_articles)} articles by starring them. You MUST analyze and include ALL of these starred articles in your output. These starred articles represent the user's explicit choices and should be prioritized. The article corpus provided contains ONLY the starred articles the user selected. Do not select any articles outside of this pre-selected set."""
+⭐ **STARRED ARTICLES - MANDATORY OUTPUT**:
+The user has starred {len(starred_articles)} article(s) marked with ⭐ in the corpus below.
+CRITICAL: Your JSON output array MUST include ALL starred articles - they are required.
+- First, include all {len(starred_articles)} starred article(s) in your JSON response
+- Then add {article_count - len(starred_articles)} more articles to reach exactly {article_count} total
+- Return exactly {article_count} articles in your JSON array"""
 
         # Use custom prompt template if provided, otherwise use default
         if custom_config and custom_config.get('systemPrompt'):
@@ -1667,17 +1666,21 @@ executive_takeaway, strategic_relevance, time_horizon, risk_opportunity, signal_
 
 START YOUR RESPONSE WITH [ AND END WITH ] - NOTHING ELSE."""
 
-    def _prepare_articles_for_prompt(self, articles_data: List[Dict], max_articles: int = 50) -> str:
-        """Prepare articles data for AI prompt"""
-        
+    def _prepare_articles_for_prompt(self, articles_data: List[Dict], max_articles: int = 50, starred_uris: Optional[set] = None) -> str:
+        """Prepare articles data for AI prompt, optionally marking starred articles"""
+
         articles_text = []
         for i, article in enumerate(articles_data[:max_articles]):
             bias_info = f"Bias: {article.get('bias', 'Unknown')}" if article.get('bias') else ""
             factuality_info = f"Factuality: {article.get('factual_reporting', 'Unknown')}" if article.get('factual_reporting') else ""
-            
+
+            # Mark starred articles with ⭐
+            article_uri = article.get('uri', '')
+            starred_marker = "⭐ STARRED - " if starred_uris and article_uri in starred_uris else ""
+
             article_text = f"""
-Article {i+1}:
-URI: {article.get('uri', '')}
+{starred_marker}Article {i+1}:
+URI: {article_uri}
 Title: {article.get('title', '')}
 Source: {article.get('news_source', '')} {bias_info} {factuality_info}
 Published: {article.get('publication_date', '')}
@@ -1688,7 +1691,7 @@ Time to Impact: {article.get('time_to_impact', '')}
 Tags: {article.get('tags', '')}
 """
             articles_text.append(article_text.strip())
-        
+
         return "\n\n".join(articles_text)
     
     def _parse_overview_response(self, response_text: str) -> Dict[str, Any]:
