@@ -56,6 +56,19 @@ import { Skeleton } from '../ui/skeleton';
 import { AgentSignalBadge, extractSignalTags } from './AgentSignalBadge';
 import { ExportService } from '../../services/exportService';
 
+// Helper to extract all signal tags from an incident's article metadata
+function getIncidentSignalTags(incident: Incident): string[] {
+  const allTags: string[] = [];
+  if (incident.article_metadata) {
+    for (const meta of incident.article_metadata) {
+      if (meta.tags) {
+        allTags.push(...meta.tags);
+      }
+    }
+  }
+  return extractSignalTags(allTags);
+}
+
 interface HighlightsSectionProps {
   incidents: Incident[];
   loading?: boolean;
@@ -329,6 +342,7 @@ function CompactIncidentCard({ incident, onClick }: CompactIncidentCardProps) {
   const type = incident.type || 'event';
   const significance = incident.significance || 'medium';
   const displaySummary = incident.description || incident.summary || '';
+  const signalTags = getIncidentSignalTags(incident);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -482,6 +496,9 @@ function CompactIncidentCard({ incident, onClick }: CompactIncidentCardProps) {
           >
             {significance}
           </span>
+          {signalTags.length > 0 && (
+            <AgentSignalBadge agentNames={signalTags} compact />
+          )}
         </div>
 
         {/* Plausibility + Source Quality badges - with hover tooltips */}
@@ -552,6 +569,7 @@ function IncidentCard({ incident, expanded, onToggleExpand, onIncidentUpdate, on
   const type = incident.type || 'event';
   const significance = incident.significance || 'medium';
   const status = incident.status || 'active';
+  const signalTags = getIncidentSignalTags(incident);
 
   // Check for low quality indicators
   const isLowQuality =
@@ -742,6 +760,9 @@ Provide comprehensive analysis with citations to the source articles.`;
               <span className={`text-xs px-2 py-0.5 rounded ${getSignificanceBadgeColor(significance)}`}>
                 {significance}
               </span>
+              {signalTags.length > 0 && (
+                <AgentSignalBadge agentNames={signalTags} compact />
+              )}
               <button
                 onClick={onToggleExpand}
                 className="p-1 hover:bg-gray-100 rounded-full transition-colors"
