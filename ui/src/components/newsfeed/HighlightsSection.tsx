@@ -29,6 +29,9 @@ import {
   ThumbsUp,
   ThumbsDown,
   Settings2,
+  Download,
+  FileText,
+  Table,
 } from 'lucide-react';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import {
@@ -51,6 +54,7 @@ import { Card, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
 import { Skeleton } from '../ui/skeleton';
 import { AgentSignalBadge, extractSignalTags } from './AgentSignalBadge';
+import { ExportService } from '../../services/exportService';
 
 interface HighlightsSectionProps {
   incidents: Incident[];
@@ -58,11 +62,13 @@ interface HighlightsSectionProps {
   onIncidentUpdate?: () => void;
   onArticleClick?: (article: { uri: string; title?: string }) => void;
   onOpenConfig?: () => void;
+  model?: string;
 }
 
-export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArticleClick, onOpenConfig }: HighlightsSectionProps) {
+export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArticleClick, onOpenConfig, model }: HighlightsSectionProps) {
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
+  const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
 
   // Arrow scroll navigation
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -146,6 +152,53 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
           {incidents.length} incident{incidents.length !== 1 ? 's' : ''} tracked
         </span>
         <div className="flex-1" />
+
+        {/* Download Button */}
+        {incidents.length > 0 && (
+          <div className="relative">
+            <button
+              onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
+              className="p-1.5 rounded-md hover:bg-gray-100 transition-colors"
+              title="Download incidents"
+            >
+              <Download className="w-4 h-4 text-gray-500" />
+            </button>
+
+            {showDownloadDropdown && (
+              <>
+                {/* Backdrop */}
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setShowDownloadDropdown(false)}
+                />
+                {/* Dropdown */}
+                <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1">
+                  <button
+                    onClick={() => {
+                      ExportService.exportIncidentsMarkdown(incidents, undefined, model);
+                      setShowDownloadDropdown(false);
+                    }}
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 transition-colors flex items-center gap-2"
+                  >
+                    <FileText className="w-4 h-4 text-gray-500" />
+                    <span>Export as Markdown</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      ExportService.exportIncidentsCSV(incidents);
+                      setShowDownloadDropdown(false);
+                    }}
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 transition-colors flex items-center gap-2"
+                  >
+                    <Table className="w-4 h-4 text-gray-500" />
+                    <span>Export as CSV</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {onOpenConfig && (
           <button
             onClick={onOpenConfig}

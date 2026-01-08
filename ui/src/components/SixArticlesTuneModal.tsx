@@ -40,12 +40,15 @@ interface SixArticlesConfig {
   systemPrompt: string | null;
   personas: Record<string, PersonaDefinition>;
   formatSpec: string | null;
+  articleCount?: number;
 }
 
 interface SixArticlesTuneModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onConfigSaved?: () => void;
+  articleCount?: number;
+  onArticleCountChange?: (count: number) => void;
 }
 
 // Risk appetite options
@@ -94,7 +97,9 @@ Return ONLY a valid JSON array with the articles. No markdown, no explanations.`
 export function SixArticlesTuneModal({
   open,
   onOpenChange,
-  onConfigSaved
+  onConfigSaved,
+  articleCount: propArticleCount,
+  onArticleCountChange
 }: SixArticlesTuneModalProps) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -104,6 +109,7 @@ export function SixArticlesTuneModal({
   const [originalConfig, setOriginalConfig] = useState<SixArticlesConfig | null>(null);
   const [editedPrompt, setEditedPrompt] = useState<string>('');
   const [editedPersonas, setEditedPersonas] = useState<Record<string, PersonaDefinition>>({});
+  const [editedArticleCount, setEditedArticleCount] = useState<number>(propArticleCount ?? 6);
 
   // UI state
   const [editingPersona, setEditingPersona] = useState<string | null>(null);
@@ -126,6 +132,7 @@ export function SixArticlesTuneModal({
           setOriginalConfig(config);
           setEditedPrompt(config.systemPrompt || DEFAULT_PROMPT_TEMPLATE);
           setEditedPersonas(config.personas || {});
+          setEditedArticleCount(config.articleCount ?? propArticleCount ?? 6);
         } else {
           throw new Error('Failed to load configuration');
         }
@@ -149,7 +156,8 @@ export function SixArticlesTuneModal({
       const configToSave: SixArticlesConfig = {
         systemPrompt: editedPrompt === DEFAULT_PROMPT_TEMPLATE ? null : editedPrompt,
         personas: editedPersonas,
-        formatSpec: originalConfig?.formatSpec || null
+        formatSpec: originalConfig?.formatSpec || null,
+        articleCount: editedArticleCount
       };
 
       const res = await fetch('/api/news-feed/six-articles/config', {
@@ -165,6 +173,12 @@ export function SixArticlesTuneModal({
       }
 
       setOriginalConfig(configToSave);
+
+      // Notify parent of article count change
+      if (onArticleCountChange) {
+        onArticleCountChange(editedArticleCount);
+      }
+
       onOpenChange(false);
 
       if (onConfigSaved) {
@@ -290,6 +304,30 @@ export function SixArticlesTuneModal({
                     Configure how the AI selects and presents your daily briefing articles.
                     Customize personas to match different executive perspectives and priorities.
                   </p>
+                </div>
+
+                {/* Article Count Setting */}
+                <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Newspaper className="w-5 h-5 text-pink-500" />
+                    <h4 className="font-semibold text-gray-900 dark:text-gray-100">Number of Articles</h4>
+                  </div>
+                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
+                    Choose how many articles to include in your daily briefing (3-12).
+                  </p>
+                  <div className="flex items-center gap-4">
+                    <input
+                      type="range"
+                      min="3"
+                      max="12"
+                      value={editedArticleCount}
+                      onChange={(e) => setEditedArticleCount(Number(e.target.value))}
+                      className="flex-1 h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-pink-500"
+                    />
+                    <span className="w-8 text-center font-bold text-lg text-pink-600 dark:text-pink-400">
+                      {editedArticleCount}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg p-4">
