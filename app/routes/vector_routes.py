@@ -3556,6 +3556,30 @@ Write the complete podcast script:
                             'audio_url': audio_url  # Include audio URL if generated
                         })
                         logger.info(f"Generated podcast summary for {instruction['name']} ({len(podcast_content)} chars)")
+
+                        # Update saved report to include podcast link if report exists and audio was generated
+                        if report_data and audio_url and instruction.get('generate_report'):
+                            try:
+                                domain = os.getenv("DOMAIN", "localhost:10015")
+                                protocol = "https" if "localhost" not in domain else "http"
+                                base_url = f"{protocol}://{domain}"
+                                full_podcast_url = f"{base_url}{audio_url}" if audio_url.startswith('/') else audio_url
+
+                                # Append podcast section to report content
+                                updated_content = report_data.get('content', '')
+                                updated_content += f"\n\n---\n\n## 🎙️ Audio Briefing\n\nListen to an AI-generated podcast summary of this report:\n\n**[▶️ Play Audio Briefing]({full_podcast_url})**"
+
+                                # Update the saved report in the database
+                                db.facade.update_saved_signal_report_content(
+                                    report_id=report_data['id'],
+                                    report_content=updated_content
+                                )
+
+                                # Also update report_data so email gets the updated content
+                                report_data['content'] = updated_content
+                                logger.info(f"Updated report {report_data['id']} with podcast link")
+                            except Exception as update_error:
+                                logger.error(f"Error updating report with podcast link: {update_error}")
                     else:
                         logger.warning(f"Podcast generation returned empty response for {instruction['name']}")
 
@@ -3585,9 +3609,12 @@ Write the complete podcast script:
                                     break
 
                             # Include report content if this instruction has generate_report enabled
+                            # Note: podcast link is already embedded in report_data['content'] from earlier
                             email_report_content = None
+                            email_report_id = None
                             if report_data and instruction.get('generate_report'):
                                 email_report_content = report_data.get('content')
+                                email_report_id = report_data.get('id')
 
                             success = email_service.send_signal_alert_email(
                                 to_address=recipient,
@@ -3595,7 +3622,8 @@ Write the complete podcast script:
                                 matches=instruction_alerts,
                                 topic=req.topic,
                                 report_content=email_report_content,
-                                podcast_url=podcast_audio_url
+                                podcast_url=None,  # No longer sent separately - now embedded in report
+                                report_id=email_report_id
                             )
                             if success:
                                 email_sent = True

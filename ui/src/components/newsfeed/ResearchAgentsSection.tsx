@@ -196,55 +196,7 @@ export function ResearchAgentsSection({
         </div>
       )}
 
-      {/* Podcast Summaries */}
-      {podcastSummaries.length > 0 && (
-        <div className="mb-4 space-y-2">
-          <div className="flex items-center gap-2 mb-2">
-            <Mic className="w-4 h-4 text-purple-500" />
-            <h3 className="text-sm font-medium text-gray-700">Generated Podcasts</h3>
-          </div>
-          {podcastSummaries.map((podcast, index) => (
-            <div
-              key={`${podcast.instruction_id}-${index}`}
-              className="bg-purple-50 border border-purple-200 rounded-lg p-3"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="font-medium text-purple-900">{podcast.instruction_name}</span>
-                    <span className="text-xs text-purple-600 bg-purple-100 px-2 py-0.5 rounded">
-                      {podcast.matches_count} match{podcast.matches_count !== 1 ? 'es' : ''}
-                    </span>
-                  </div>
-                  {podcast.audio_url ? (
-                    <audio
-                      controls
-                      src={podcast.audio_url}
-                      className="w-full mt-2"
-                      style={{ height: '36px' }}
-                    >
-                      Your browser does not support the audio element.
-                    </audio>
-                  ) : (
-                    <p className="text-sm text-purple-700 mt-1 line-clamp-2">
-                      {podcast.content.substring(0, 200)}...
-                    </p>
-                  )}
-                </div>
-                {onDismissPodcast && (
-                  <button
-                    onClick={() => onDismissPodcast(index)}
-                    className="p-1 hover:bg-purple-100 rounded text-purple-400 hover:text-purple-600"
-                    title="Dismiss"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* Podcast Summaries - Hidden since podcast links are now embedded in reports */}
 
       {/* Loading State */}
       {loadingAgents && agents.length === 0 ? (

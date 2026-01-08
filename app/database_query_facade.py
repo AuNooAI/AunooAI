@@ -9850,6 +9850,37 @@ class DatabaseQueryFacade:
             self.logger.error(f"Error deleting saved signal report {report_id}: {e}")
             return False
 
+    def update_saved_signal_report_content(
+        self,
+        report_id: int,
+        report_content: str
+    ) -> bool:
+        """Update the content of a saved signal report.
+
+        Args:
+            report_id: ID of the report to update
+            report_content: New report content (markdown)
+
+        Returns:
+            True if update was successful
+        """
+        try:
+            from app.database_models import t_saved_signal_reports
+            from sqlalchemy import update
+
+            statement = update(t_saved_signal_reports).where(
+                t_saved_signal_reports.c.id == report_id
+            ).values(report_content=report_content)
+
+            result = self._execute_with_rollback(statement)
+            updated = result.rowcount > 0
+            if updated:
+                self.logger.info(f"Updated saved signal report {report_id} content")
+            return updated
+        except Exception as e:
+            self.logger.error(f"Error updating saved signal report {report_id}: {e}")
+            return False
+
     def get_signal_report_count(
         self,
         topic: str = None,
