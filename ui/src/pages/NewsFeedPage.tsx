@@ -110,6 +110,7 @@ export function NewsFeedPage() {
   const {
     agents: researchAgents,
     alerts: researchAlerts,
+    podcastSummaries,
     unacknowledgedCount: researchAlertsCount,
     loading: loadingResearchAgents,
     loadingAgents,
@@ -125,6 +126,13 @@ export function NewsFeedPage() {
     acknowledgeAll,
     clearError: clearResearchAgentsError,
   } = useResearchAgents(config.topic);
+
+  // State for managing displayed podcast summaries (allows dismissing)
+  const [dismissedPodcasts, setDismissedPodcasts] = useState<Set<number>>(new Set());
+  const visiblePodcasts = podcastSummaries.filter((_, i) => !dismissedPodcasts.has(i));
+  const handleDismissPodcast = (index: number) => {
+    setDismissedPodcasts(prev => new Set(prev).add(index));
+  };
 
   // UI State
   const [currentTab, setCurrentTab] = useState<'feed' | 'agents' | 'reports'>('feed');
@@ -718,6 +726,7 @@ export function NewsFeedPage() {
               <ResearchAgentsSection
                 agents={researchAgents}
                 alerts={researchAlerts}
+                podcastSummaries={visiblePodcasts}
                 unacknowledgedCount={researchAlertsCount}
                 loading={loadingResearchAgents}
                 loadingAgents={loadingAgents}
@@ -731,6 +740,7 @@ export function NewsFeedPage() {
                 onRunAllAgents={(options) => runAllAgents({ topic: config.topic, daysBack: options?.daysBack, tagArticles: options?.tagArticles })}
                 onAcknowledgeAlert={acknowledgeOne}
                 onAcknowledgeAll={acknowledgeAll}
+                onDismissPodcast={handleDismissPodcast}
                 topics={topics.map(t => t.name)}
               />
             )}

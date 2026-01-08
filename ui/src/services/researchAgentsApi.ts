@@ -82,6 +82,16 @@ export interface RunAgentsRequest {
   report_name?: string | null;
 }
 
+export interface PodcastSummary {
+  instruction_id: number;
+  instruction_name: string;
+  content: string;
+  matches_count: number;
+  topic: string | null;
+  voice_id: string | null;
+  audio_url: string | null;
+}
+
 export interface RunAgentsResponse {
   success: boolean;
   message: string;
@@ -96,6 +106,7 @@ export interface RunAgentsResponse {
     content: string;
     articles_used: number;
   } | null;
+  podcast_summaries?: PodcastSummary[];
 }
 
 // API Configuration
