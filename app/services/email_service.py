@@ -30,8 +30,44 @@ from email.mime.multipart import MIMEMultipart
 from typing import List, Optional
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
+from urllib.parse import quote
+import re
 
 logger = logging.getLogger(__name__)
+
+
+def markdown_to_html(text: str) -> str:
+    """Convert basic markdown to HTML for email rendering."""
+    if not text:
+        return ""
+
+    # Escape HTML special chars first
+    text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+    # Headers
+    text = re.sub(r'^### (.+)$', r'<h4 style="color: #333; margin: 15px 0 8px 0;">\1</h4>', text, flags=re.MULTILINE)
+    text = re.sub(r'^## (.+)$', r'<h3 style="color: #333; margin: 18px 0 10px 0;">\1</h3>', text, flags=re.MULTILINE)
+    text = re.sub(r'^# (.+)$', r'<h2 style="color: #333; margin: 20px 0 12px 0;">\1</h2>', text, flags=re.MULTILINE)
+
+    # Bold and italic
+    text = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', text)
+    text = re.sub(r'\*(.+?)\*', r'<em>\1</em>', text)
+
+    # Bullet points
+    text = re.sub(r'^[\-\*] (.+)$', r'<li style="margin: 4px 0;">\1</li>', text, flags=re.MULTILINE)
+    text = re.sub(r'(<li[^>]*>.*</li>\n?)+', r'<ul style="margin: 10px 0; padding-left: 20px;">\g<0></ul>', text)
+
+    # Numbered lists
+    text = re.sub(r'^\d+\. (.+)$', r'<li style="margin: 4px 0;">\1</li>', text, flags=re.MULTILINE)
+
+    # Line breaks for paragraphs
+    text = re.sub(r'\n\n+', '</p><p style="margin: 10px 0;">', text)
+    text = f'<p style="margin: 10px 0;">{text}</p>'
+
+    # Clean up empty paragraphs
+    text = re.sub(r'<p[^>]*>\s*</p>', '', text)
+
+    return text
 
 
 class EmailProvider(ABC):
@@ -216,18 +252,92 @@ class EmailService:
         to_address: str,
         instruction_name: str,
         matches: List[dict],
-        topic: Optional[str] = None
+        topic: Optional[str] = None,
+        report_content: Optional[str] = None,
+        podcast_url: Optional[str] = None
     ) -> bool:
-        """Send a signal alert email notification."""
+        """Send a signal alert email notification with optional report and podcast."""
         subject = f"[AuNoo AI] Signal Alert: {instruction_name}"
 
         topic_info = f" for topic '{topic}'" if topic else ""
+
+        # Build Auspex deep link
+        domain = os.getenv("DOMAIN", "localhost:10015")
+        protocol = "https" if "localhost" not in domain else "http"
+        base_url = f"{protocol}://{domain}"
+
+        # Create a contextual Auspex query with article URLs
+        auspex_query = f"Analyze the following signal alert findings from research agent '{instruction_name}':\n\n"
+        for i, match in enumerate(matches[:5], 1):
+            summary = match.get('summary', '')[:200]
+            url = match.get('article_uri', '')
+            if summary:
+                auspex_query += f"{i}. {summary}\n"
+                if url:
+                    auspex_query += f"   Source: {url}\n"
+        auspex_query += "\nProvide insights on these findings and suggest follow-up investigations."
+
+        # URL encode the query
+        encoded_query = quote(auspex_query)
+        auspex_url = f"{base_url}/explore?auspex_query={encoded_query}"
+
         html_parts = [
             f"<h2>Signal Alert: {instruction_name}</h2>",
             f"<p>Your research agent <strong>{instruction_name}</strong> found {len(matches)} matching article(s){topic_info}.</p>",
-            "<hr>",
-            "<h3>Matched Articles:</h3>",
         ]
+
+        # Add Auspex button with table-based layout for better email client support
+        # Using solid background color as fallback since gradients don't work in all email clients
+        html_parts.append(f"""
+        <table width="100%" cellspacing="0" cellpadding="0" style="margin: 20px 0;">
+            <tr>
+                <td align="center">
+                    <table cellspacing="0" cellpadding="0">
+                        <tr>
+                            <td align="center" bgcolor="#667eea" style="background-color: #667eea; border-radius: 8px;">
+                                <a href="{auspex_url}" target="_blank" style="display: inline-block; padding: 15px 30px; color: #ffffff; text-decoration: none; font-weight: bold; font-size: 16px;">
+                                    🔍 Investigate with Auspex AI
+                                </a>
+                            </td>
+                        </tr>
+                    </table>
+                    <p style="color: #666666; margin: 8px 0 0 0; font-size: 12px;">
+                        Click to open AuNoo and analyze these findings with AI
+                    </p>
+                </td>
+            </tr>
+        </table>
+        """)
+
+        # Add Report Section if available
+        if report_content:
+            # Convert markdown to HTML for proper email rendering
+            report_html = markdown_to_html(report_content[:4000])
+            truncated = '...<p><em>(Report truncated for email)</em></p>' if len(report_content) > 4000 else ''
+            html_parts.append(f"""
+            <div style="margin: 20px 0; padding: 20px; background: #f8f9fa; border-left: 4px solid #667eea; border-radius: 4px;">
+                <h3 style="margin-top: 0; color: #667eea;">📊 Generated Report</h3>
+                <div style="font-family: inherit; line-height: 1.6;">
+                    {report_html}{truncated}
+                </div>
+            </div>
+            """)
+
+        # Add Podcast Section if available
+        if podcast_url:
+            full_podcast_url = f"{base_url}{podcast_url}" if podcast_url.startswith('/') else podcast_url
+            html_parts.append(f"""
+            <div style="margin: 20px 0; padding: 15px; background: #f0e6ff; border-radius: 8px; text-align: center;">
+                <h3 style="margin-top: 0; color: #764ba2;">🎙️ Audio Briefing Available</h3>
+                <p style="margin: 10px 0;">Listen to an AI-generated podcast summary of these findings:</p>
+                <a href="{full_podcast_url}" target="_blank" style="display: inline-block; background: #764ba2; color: white; padding: 10px 20px; border-radius: 5px; text-decoration: none; font-weight: bold;">
+                    ▶️ Play Podcast
+                </a>
+            </div>
+            """)
+
+        html_parts.append("<hr>")
+        html_parts.append("<h3>Matched Articles:</h3>")
 
         for i, match in enumerate(matches[:10], 1):
             article_uri = match.get('article_uri', 'N/A')
@@ -269,11 +379,26 @@ class EmailService:
 
         body_html = "\n".join(html_parts)
 
+        # Plain text version
         body_text = f"""Signal Alert: {instruction_name}
 
 Found {len(matches)} matching article(s){topic_info}.
 
+Investigate with Auspex AI: {auspex_url}
+
 """
+        if report_content:
+            body_text += f"""
+--- GENERATED REPORT ---
+{report_content[:2000]}{'...' if len(report_content) > 2000 else ''}
+------------------------
+
+"""
+        if podcast_url:
+            full_podcast_url = f"{base_url}{podcast_url}" if podcast_url.startswith('/') else podcast_url
+            body_text += f"Listen to Audio Briefing: {full_podcast_url}\n\n"
+
+        body_text += "--- MATCHED ARTICLES ---\n"
         for i, match in enumerate(matches[:10], 1):
             body_text += f"Match {i}: {match.get('summary', 'No summary')}\n"
             body_text += f"Threat: {match.get('threat_level', 'medium')} | Confidence: {match.get('confidence', 0):.0%}\n\n"

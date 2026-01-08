@@ -40,6 +40,7 @@ import { getSignalReportsCount } from '../services/researchAgentsApi';
 import { NotificationBell } from '../components/gather/NotificationBell';
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import { Button } from '../components/ui/button';
+import { openAuspexWithQuery } from '../utils/auspexEvents';
 import '../components/gather/gather.css';
 
 // Section visibility settings
@@ -169,6 +170,24 @@ export function NewsFeedPage() {
       console.warn('Failed to save visible sections to localStorage:', e);
     }
   }, [visibleSections]);
+
+  // Check for auspex_query URL parameter to open Auspex with a pre-filled query
+  // This enables deep linking from emails and external sources
+  // Works on both /explore and /newsfeed routes
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const auspexQuery = urlParams.get('auspex_query');
+    if (auspexQuery) {
+      // Delay to ensure Auspex component is mounted
+      setTimeout(() => {
+        openAuspexWithQuery(auspexQuery);  // Already decoded by URLSearchParams
+      }, 800);
+      // Clean up URL without reloading
+      const newUrl = new URL(window.location.href);
+      newUrl.searchParams.delete('auspex_query');
+      window.history.replaceState({}, '', newUrl.toString());
+    }
+  }, []);
 
   // Toggle section visibility
   const toggleSection = useCallback((section: keyof VisibleSections) => {

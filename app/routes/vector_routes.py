@@ -3577,11 +3577,25 @@ Write the complete podcast script:
                             recipient = user_info.get('email')
 
                         if recipient:
+                            # Check if this instruction has a podcast with audio
+                            podcast_audio_url = None
+                            for ps in podcast_summaries:
+                                if ps.get('instruction_id') == instruction['id'] and ps.get('audio_url'):
+                                    podcast_audio_url = ps['audio_url']
+                                    break
+
+                            # Include report content if this instruction has generate_report enabled
+                            email_report_content = None
+                            if report_data and instruction.get('generate_report'):
+                                email_report_content = report_data.get('content')
+
                             success = email_service.send_signal_alert_email(
                                 to_address=recipient,
                                 instruction_name=instruction['name'],
                                 matches=instruction_alerts,
-                                topic=req.topic
+                                topic=req.topic,
+                                report_content=email_report_content,
+                                podcast_url=podcast_audio_url
                             )
                             if success:
                                 email_sent = True
