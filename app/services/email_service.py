@@ -41,8 +41,24 @@ def markdown_to_html(text: str) -> str:
     if not text:
         return ""
 
-    # Escape HTML special chars first
+    # Extract markdown links before escaping HTML (to preserve URLs)
+    # Store them temporarily with placeholders
+    links = []
+    def store_link(match):
+        link_text = match.group(1)
+        url = match.group(2)
+        placeholder = f"__LINK_PLACEHOLDER_{len(links)}__"
+        links.append((placeholder, link_text, url))
+        return placeholder
+
+    text = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', store_link, text)
+
+    # Escape HTML special chars
     text = text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+
+    # Restore links as HTML anchors
+    for placeholder, link_text, url in links:
+        text = text.replace(placeholder, f'<a href="{url}" target="_blank" style="color: #667eea; text-decoration: underline;">{link_text}</a>')
 
     # Headers
     text = re.sub(r'^### (.+)$', r'<h4 style="color: #333; margin: 15px 0 8px 0;">\1</h4>', text, flags=re.MULTILINE)
@@ -254,7 +270,8 @@ class EmailService:
         matches: List[dict],
         topic: Optional[str] = None,
         report_content: Optional[str] = None,
-        podcast_url: Optional[str] = None
+        podcast_url: Optional[str] = None,
+        report_id: Optional[int] = None
     ) -> bool:
         """Send a signal alert email notification with optional report and podcast."""
         subject = f"[AuNoo AI] Signal Alert: {instruction_name}"
@@ -311,14 +328,37 @@ class EmailService:
 
         # Add Report Section if available
         if report_content:
-            # Convert markdown to HTML for proper email rendering
-            report_html = markdown_to_html(report_content[:4000])
-            truncated = '...<p><em>(Report truncated for email)</em></p>' if len(report_content) > 4000 else ''
+            # Extract podcast section if embedded (so it doesn't get truncated)
+            podcast_section = ""
+            main_content = report_content
+            podcast_marker = "## 🎙️ Audio Briefing"
+            if podcast_marker in report_content:
+                # Split at the divider before the podcast section
+                parts = report_content.split("---\n\n## 🎙️ Audio Briefing")
+                if len(parts) == 2:
+                    main_content = parts[0].rstrip()
+                    podcast_section = "## 🎙️ Audio Briefing" + parts[1]
+
+            # Truncate main content if needed, but preserve podcast section
+            truncated = ""
+            if len(main_content) > 4000:
+                main_content = main_content[:4000]
+                if report_id:
+                    report_url = f"{base_url}/explore?tab=reports&report_id={report_id}"
+                    truncated = f'...<p><em>(Report truncated for email. <a href="{report_url}" style="color: #667eea;">View full report</a>)</em></p>'
+                else:
+                    truncated = '...<p><em>(Report truncated for email)</em></p>'
+
+            # Convert to HTML
+            report_html = markdown_to_html(main_content)
+            podcast_html = markdown_to_html(podcast_section) if podcast_section else ""
+
             html_parts.append(f"""
             <div style="margin: 20px 0; padding: 20px; background: #f8f9fa; border-left: 4px solid #667eea; border-radius: 4px;">
                 <h3 style="margin-top: 0; color: #667eea;">📊 Generated Report</h3>
                 <div style="font-family: inherit; line-height: 1.6;">
                     {report_html}{truncated}
+                    {podcast_html}
                 </div>
             </div>
             """)
