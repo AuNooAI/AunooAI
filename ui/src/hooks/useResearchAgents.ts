@@ -17,11 +17,13 @@ import {
   type SignalAlert,
   type CreateAgentRequest,
   type UpdateAgentRequest,
+  type PodcastSummary,
 } from '../services/researchAgentsApi';
 
 export interface UseResearchAgentsState {
   agents: ResearchAgent[];
   alerts: SignalAlert[];
+  podcastSummaries: PodcastSummary[];
   unacknowledgedCount: number;
   loading: boolean;
   loadingAgents: boolean;
@@ -46,6 +48,7 @@ export interface UseResearchAgentsActions {
 export function useResearchAgents(initialTopic?: string): UseResearchAgentsState & UseResearchAgentsActions {
   const [agents, setAgents] = useState<ResearchAgent[]>([]);
   const [alerts, setAlerts] = useState<SignalAlert[]>([]);
+  const [podcastSummaries, setPodcastSummaries] = useState<PodcastSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingAgents, setLoadingAgents] = useState(false);
   const [loadingAlerts, setLoadingAlerts] = useState(false);
@@ -159,6 +162,10 @@ export function useResearchAgents(initialTopic?: string): UseResearchAgentsState
       });
 
       if (response.success) {
+        // Capture podcast summaries if any
+        if (response.podcast_summaries && response.podcast_summaries.length > 0) {
+          setPodcastSummaries(prev => [...response.podcast_summaries!, ...prev]);
+        }
         // Refresh alerts after running
         await fetchAlerts({ topic: options?.topic });
         return true;
@@ -201,6 +208,10 @@ export function useResearchAgents(initialTopic?: string): UseResearchAgentsState
       });
 
       if (response.success) {
+        // Capture podcast summaries if any
+        if (response.podcast_summaries && response.podcast_summaries.length > 0) {
+          setPodcastSummaries(prev => [...response.podcast_summaries!, ...prev]);
+        }
         // Refresh alerts after running
         await fetchAlerts({ topic: options?.topic });
         return true;
@@ -261,6 +272,7 @@ export function useResearchAgents(initialTopic?: string): UseResearchAgentsState
     // State
     agents,
     alerts,
+    podcastSummaries,
     unacknowledgedCount,
     loading,
     loadingAgents,

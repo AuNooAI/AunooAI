@@ -2999,7 +2999,8 @@ async def run_signal_instructions(
         # NOTE: publication_date is stored as TEXT in format 'YYYY-MM-DD HH:MM:SS' or 'YYYY-MM-DD'
         # We use strftime() to match the database format for TEXT comparison
         query = """
-        SELECT uri, title, summary, news_source, publication_date, category, sentiment
+        SELECT uri, title, summary, news_source, publication_date, category, sentiment,
+               tags, extracted_article_topics, extracted_article_keywords
         FROM articles
         WHERE publication_date >= ? AND publication_date <= ?
         AND category IS NOT NULL AND sentiment IS NOT NULL
@@ -3034,19 +3035,13 @@ async def run_signal_instructions(
         if not ai_model:
             raise HTTPException(status_code=500, detail=f"Failed to initialize model {req.model}")
         
-        # Run each signal instruction
-        alerts_created = []
-        total_matches = 0
-        
-        for instruction in instructions:
-            logger.info(f"Running signal instruction: {instruction['name']} (ID: {instruction['id']})")
-            
-            # Prepare articles for this instruction
-            def get_field(article, field, default=''):
-                val = article.get(field) if hasattr(article, 'get') else article.get(field, default)
-                return val if val else default
+        # Helper function to format articles for LLM
+        def get_field(article, field, default=''):
+            val = article.get(field) if hasattr(article, 'get') else article.get(field, default)
+            return val if val else default
 
-            articles_text = "\n\n".join([
+        def format_articles_for_llm(article_batch):
+            return "\n\n".join([
                 f"Article {i+1}:\n"
                 f"Title: {get_field(article, 'title')}\n"
                 f"Source: {get_field(article, 'news_source')}\n"
@@ -3058,12 +3053,81 @@ async def run_signal_instructions(
                 f"Keywords: {get_field(article, 'extracted_article_keywords', 'None')}\n"
                 f"Summary: {get_field(article, 'summary')}\n"
                 f"URI: {get_field(article, 'uri')}"
-                for i, article in enumerate(articles[:50])  # Limit to 50 articles per instruction
+                for i, article in enumerate(article_batch)
             ])
-            
-            # Create analysis prompt
-            # Check for entities to monitor in config
+
+        # Run each signal instruction
+        alerts_created = []
+        total_matches = 0
+
+        for instruction in instructions:
+            logger.info(f"Running signal instruction: {instruction['name']} (ID: {instruction['id']})")
+
+            # Get search strategy from instruction config
             config = instruction.get('config') or {}
+            search_strategy = config.get('search_strategy', 'recent')
+            max_articles_config = config.get('max_articles', 100)
+
+            # Select articles based on search strategy
+            if search_strategy == 'semantic':
+                # Use vector search to find relevant articles
+                try:
+                    from app.vector_store import search_articles as vector_search_articles
+
+                    # Build search query from instruction + entities
+                    search_query = f"{instruction['name']} {instruction['instruction']}"
+                    entities = config.get('entities_to_monitor', [])
+                    if entities:
+                        search_query += " " + " ".join(entities[:5])
+                    search_query = search_query[:500]  # Limit query length
+
+                    metadata_filter = {"topic": req.topic} if req.topic else None
+
+                    # Get more articles from vector search
+                    vector_results = vector_search_articles(
+                        query=search_query,
+                        top_k=min(max_articles_config, 200),
+                        metadata_filter=metadata_filter
+                    )
+
+                    # Convert vector results to article format
+                    articles_to_analyze = []
+                    for result in vector_results or []:
+                        metadata = result.get('metadata', {})
+                        articles_to_analyze.append({
+                            'uri': metadata.get('uri'),
+                            'title': metadata.get('title', ''),
+                            'summary': metadata.get('summary', ''),
+                            'news_source': metadata.get('news_source', ''),
+                            'publication_date': metadata.get('publication_date', ''),
+                            'category': metadata.get('category', ''),
+                            'sentiment': metadata.get('sentiment', ''),
+                            'tags': metadata.get('tags', ''),
+                            'extracted_article_topics': metadata.get('extracted_article_topics', ''),
+                            'extracted_article_keywords': metadata.get('extracted_article_keywords', ''),
+                        })
+
+                    logger.info(f"Semantic search found {len(articles_to_analyze)} relevant articles for {instruction['name']}")
+                except Exception as vs_error:
+                    logger.error(f"Vector search failed, falling back to recent: {vs_error}")
+                    articles_to_analyze = articles[:min(50, max_articles_config)]
+            else:
+                # Use fetched articles (recent or chunked will process them differently)
+                articles_to_analyze = articles[:max_articles_config]
+
+            # Determine batch processing based on strategy
+            BATCH_SIZE = 50
+            if search_strategy == 'chunked' and len(articles_to_analyze) > BATCH_SIZE:
+                # Process in chunks
+                article_batches = [articles_to_analyze[i:i+BATCH_SIZE] for i in range(0, len(articles_to_analyze), BATCH_SIZE)]
+                logger.info(f"Chunked processing: {len(article_batches)} batches of {BATCH_SIZE} articles for {instruction['name']}")
+            else:
+                # Single batch (recent or semantic with <= BATCH_SIZE)
+                article_batches = [articles_to_analyze[:BATCH_SIZE]]
+
+            instruction_matches = []
+
+            # Build entities section once per instruction (outside batch loop)
             entities = config.get('entities_to_monitor', [])
             entities_section = ""
             if entities:
@@ -3076,6 +3140,7 @@ async def run_signal_instructions(
             IMPORTANT: Prioritize articles that mention any of these specific entities. If an entity appears in an article, flag it with higher confidence and explicitly mention which entity was found in your reasoning.
             """
 
+            # Build system prompt once per instruction
             system_prompt = f"""
             You are a threat intelligence analyst. Analyze the provided articles using this signal instruction:
 
@@ -3103,75 +3168,88 @@ async def run_signal_instructions(
             Return a JSON array of all matching articles: [{{}}, {{}}, ...]
             If no articles match, return an empty array: []
             """
-            
-            user_prompt = f"Analyze these articles for the signal '{instruction['name']}':\n\n{articles_text}"
-            
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ]
-            
-            try:
-                response_str = await run_in_threadpool(ai_model.generate_response, messages)
-                
-                if response_str and not ("⚠️" in response_str or "unavailable" in response_str.lower()):
-                    try:
-                        import re
-                        import json as json_module
-                        
-                        # Look for JSON array
-                        json_match = re.search(r'\[.*\]', response_str, re.DOTALL)
-                        if json_match:
-                            matches = json_module.loads(json_match.group())
-                            
-                            # Process each match
-                            for match in matches:
-                                if isinstance(match, dict) and match.get('signal_detected'):
-                                    article_uri = match.get('article_uri')
-                                    confidence = match.get('confidence', 0.5)
-                                    threat_level = match.get('threat_level', 'medium')
-                                    summary = match.get('summary', 'Signal detected')
-                                    reasoning = match.get('reasoning', '')
 
-                                    # Save alert to database
-                                    alert_saved = db.facade.save_signal_alert(
-                                        article_uri=article_uri,
-                                        instruction_id=instruction['id'],
-                                        instruction_name=instruction['name'],
-                                        confidence=confidence,
-                                        threat_level=threat_level,
-                                        summary=summary,
-                                        reasoning=reasoning
-                                    )
+            # Process each batch of articles
+            for batch_idx, article_batch in enumerate(article_batches):
+                if not article_batch:
+                    continue
 
-                                    if alert_saved:
-                                        alerts_created.append({
-                                            'article_uri': article_uri,
-                                            'instruction_name': instruction['name'],
-                                            'instruction_id': instruction['id'],
-                                            'confidence': confidence,
-                                            'threat_level': threat_level,
-                                            'summary': summary,
-                                            'reasoning': reasoning
-                                        })
-                                        total_matches += 1
+                logger.info(f"Processing batch {batch_idx + 1}/{len(article_batches)} ({len(article_batch)} articles)")
 
-                                        # Tag the article if requested
-                                        if req.tag_flagged_articles:
-                                            tag_name = f"SIGNAL_{instruction['name'].replace(' ', '_').upper()}"
-                                            db.add_article_tag(article_uri, tag_name, "signal")
-                            
-                            logger.info(f"Signal '{instruction['name']}' found {len(matches)} matches")
-                        else:
-                            logger.warning(f"No JSON array found in response for {instruction['name']}")
-                            
-                    except json_module.JSONDecodeError as je:
-                        logger.error(f"Failed to parse signal response for {instruction['name']}: {je}")
-                else:
-                    logger.warning(f"LLM returned error for signal {instruction['name']}: {response_str[:100]}...")
-                    
-            except Exception as signal_error:
-                logger.error(f"Error running signal {instruction['name']}: {signal_error}")
+                articles_text = format_articles_for_llm(article_batch)
+                user_prompt = f"Analyze these articles for the signal '{instruction['name']}':\n\n{articles_text}"
+
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ]
+
+                try:
+                    response_str = await run_in_threadpool(ai_model.generate_response, messages)
+
+                    if response_str and not ("⚠️" in response_str or "unavailable" in response_str.lower()):
+                        try:
+                            import re
+                            import json as json_module
+
+                            # Look for JSON array
+                            json_match = re.search(r'\[.*\]', response_str, re.DOTALL)
+                            if json_match:
+                                matches = json_module.loads(json_match.group())
+
+                                # Process each match
+                                for match in matches:
+                                    if isinstance(match, dict) and match.get('signal_detected'):
+                                        article_uri = match.get('article_uri')
+                                        confidence = match.get('confidence', 0.5)
+                                        threat_level = match.get('threat_level', 'medium')
+                                        summary = match.get('summary', 'Signal detected')
+                                        reasoning = match.get('reasoning', '')
+
+                                        # Save alert to database
+                                        alert_saved = db.facade.save_signal_alert(
+                                            article_uri=article_uri,
+                                            instruction_id=instruction['id'],
+                                            instruction_name=instruction['name'],
+                                            confidence=confidence,
+                                            threat_level=threat_level,
+                                            summary=summary,
+                                            reasoning=reasoning
+                                        )
+
+                                        if alert_saved:
+                                            alert_data = {
+                                                'article_uri': article_uri,
+                                                'instruction_name': instruction['name'],
+                                                'instruction_id': instruction['id'],
+                                                'confidence': confidence,
+                                                'threat_level': threat_level,
+                                                'summary': summary,
+                                                'reasoning': reasoning
+                                            }
+                                            alerts_created.append(alert_data)
+                                            instruction_matches.append(alert_data)
+                                            total_matches += 1
+
+                                            # Tag the article if requested
+                                            if req.tag_flagged_articles:
+                                                tag_name = f"SIGNAL_{instruction['name'].replace(' ', '_').upper()}"
+                                                db.add_article_tag(article_uri, tag_name, "signal")
+
+                                logger.info(f"Batch {batch_idx + 1}: Signal '{instruction['name']}' found {len(matches)} matches")
+                            else:
+                                logger.warning(f"No JSON array found in response for {instruction['name']} batch {batch_idx + 1}")
+
+                        except json_module.JSONDecodeError as je:
+                            logger.error(f"Failed to parse signal response for {instruction['name']} batch {batch_idx + 1}: {je}")
+                    else:
+                        logger.warning(f"LLM returned error for signal {instruction['name']} batch {batch_idx + 1}")
+
+                except Exception as signal_error:
+                    logger.error(f"Error running signal {instruction['name']} batch {batch_idx + 1}: {signal_error}")
+
+            # Log total matches for this instruction
+            logger.info(f"Signal '{instruction['name']}' completed: {len(instruction_matches)} total matches across {len(article_batches)} batch(es)")
         
         # Generate report if requested (from request or from agent settings) and matches found
         report_data = None
@@ -3271,8 +3349,9 @@ Format your response as a structured markdown report with clear sections.
                 logger.error(f"Error generating signal report: {report_error}")
                 # Don't fail the whole operation if report generation fails
 
-        # Process additional actions from instruction config (deep_research, send_email)
+        # Process additional actions from instruction config (deep_research, send_email, podcast)
         deep_research_results = []
+        podcast_summaries = []
         email_sent = False
 
         for instruction in instructions:
@@ -3281,6 +3360,10 @@ Format your response as a structured markdown report with clear sections.
 
             if not instruction_alerts:
                 continue  # No matches for this instruction, skip actions
+
+            # Check alert threshold for notifications
+            alert_threshold = config.get('alert_threshold', 1)
+            meets_threshold = len(instruction_alerts) >= alert_threshold
 
             # Deep Research Action
             if config.get('deep_research') and instruction_alerts:
@@ -3333,8 +3416,154 @@ Format your response as a structured markdown report with clear sections.
                 except Exception as dr_error:
                     logger.error(f"Error in deep research for {instruction['name']}: {dr_error}")
 
-            # Send Email Action
-            if config.get('send_email') and instruction_alerts:
+            # Generate Podcast Summary Action
+            if config.get('generate_podcast') and instruction_alerts:
+                try:
+                    logger.info(f"Generating podcast summary for instruction: {instruction['name']}")
+
+                    # Build podcast-friendly summary of matches
+                    alerts_summary = "\n\n".join([
+                        f"Story {i+1}: {a['summary']}\n"
+                        f"Threat Level: {a['threat_level']}\n"
+                        f"Key Details: {a['reasoning'][:300]}..."
+                        for i, a in enumerate(instruction_alerts[:10])  # Limit to top 10 for podcast
+                    ])
+
+                    # Use custom podcast prompt if configured, otherwise use default
+                    custom_podcast_prompt = config.get('podcast_prompt')
+                    if custom_podcast_prompt:
+                        podcast_prompt = f"""{custom_podcast_prompt}
+
+SIGNAL: {instruction['name']}
+TOPIC: {req.topic or 'General Intelligence'}
+MATCHES FOUND: {len(instruction_alerts)}
+
+KEY FINDINGS:
+{alerts_summary}
+
+Write the complete podcast script:
+"""
+                    else:
+                        podcast_prompt = f"""
+Create a podcast-style audio script summarizing these intelligence findings. Write it as if you're a host delivering a briefing to listeners.
+
+SIGNAL: {instruction['name']}
+TOPIC: {req.topic or 'General Intelligence'}
+MATCHES FOUND: {len(instruction_alerts)}
+
+KEY FINDINGS:
+{alerts_summary}
+
+REQUIREMENTS:
+1. Start with a brief, engaging intro (e.g., "Welcome to today's intelligence briefing...")
+2. Summarize the most important findings in conversational, easy-to-follow language
+3. Highlight threat levels and urgency where relevant
+4. Connect related stories if patterns emerge
+5. End with key takeaways and recommended actions
+6. Keep the tone professional but accessible
+7. Target length: 2-3 minutes when read aloud (approximately 400-500 words)
+
+Write the complete podcast script:
+"""
+
+                    podcast_messages = [
+                        {"role": "system", "content": "You are a professional intelligence briefing host creating engaging podcast content from signal detection data."},
+                        {"role": "user", "content": podcast_prompt}
+                    ]
+
+                    podcast_content = await run_in_threadpool(ai_model.generate_response, podcast_messages)
+
+                    if podcast_content and not ("⚠️" in podcast_content or "unavailable" in podcast_content.lower()):
+                        # Generate audio from script using configured voice
+                        audio_url = None
+                        voice_id = config.get('podcast_voice_id')
+
+                        if voice_id:
+                            try:
+                                import os
+                                import re
+                                import uuid
+                                from datetime import datetime
+                                from elevenlabs import ElevenLabs
+                                from app.utils.audio import AUDIO_DIR, ensure_audio_directory
+
+                                ELEVENLABS_API_KEY = os.getenv('PROVIDER_ELEVENLABS_API_KEY') or os.getenv('ELEVENLABS_API_KEY')
+
+                                if ELEVENLABS_API_KEY:
+                                    logger.info(f"Generating podcast audio for {instruction['name']} with voice {voice_id}")
+
+                                    # Clean the script for TTS
+                                    def clean_text_for_tts(raw: str) -> str:
+                                        text = raw
+                                        text = re.sub(r"\[(?:[^\]]*(music|sound|sfx|fade)[^\]]*)\]", "", text, flags=re.IGNORECASE)
+                                        text = re.sub(r"\((?:[^)]*(music|sound|sfx|fade)[^)]*)\)", "", text, flags=re.IGNORECASE)
+                                        text = re.sub(r"^\s*\[[^\]]+\]\s*", "", text, flags=re.MULTILINE)
+                                        text = re.sub(r"^\*\*[\w\s\-]+:\*\*\s*", "", text, flags=re.MULTILINE)
+                                        text = re.sub(r"^\*\*[\w\s\-]+\*\*:\s*", "", text, flags=re.MULTILINE)
+                                        cleaned_lines = []
+                                        for ln in text.splitlines():
+                                            lowered = ln.lower()
+                                            if any(kw in lowered for kw in ["intro music", "music fades", "sound effect", "sfx", "fade in", "fade out"]):
+                                                continue
+                                            if "podcast script" in lowered or ln.strip().startswith("#"):
+                                                continue
+                                            if ln.strip():
+                                                cleaned_lines.append(ln.strip())
+                                        return " ".join(cleaned_lines)
+
+                                    cleaned_script = clean_text_for_tts(podcast_content)
+
+                                    if cleaned_script:
+                                        client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
+
+                                        # Generate audio
+                                        audio_generator = client.text_to_speech.convert(
+                                            voice_id=voice_id,
+                                            text=cleaned_script,
+                                            model_id="eleven_multilingual_v2",
+                                            output_format="mp3_44100_128"
+                                        )
+
+                                        audio_bytes = b"".join(b if isinstance(b, bytes) else b.encode() for b in audio_generator)
+
+                                        if audio_bytes:
+                                            if not ensure_audio_directory():
+                                                raise RuntimeError("Could not create audio directory")
+
+                                            podcast_id = str(uuid.uuid4())[:8]
+                                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                                            output_filename = f"signal_podcast_{podcast_id}_{timestamp}.mp3"
+                                            output_path = AUDIO_DIR / output_filename
+
+                                            with open(output_path, 'wb') as f:
+                                                f.write(audio_bytes)
+
+                                            audio_url = f"/static/audio/{output_filename}"
+                                            logger.info(f"Generated podcast audio: {audio_url} ({len(audio_bytes)} bytes)")
+                                else:
+                                    logger.warning("ElevenLabs API key not configured - skipping audio generation")
+
+                            except Exception as tts_error:
+                                logger.error(f"Error generating podcast audio: {tts_error}")
+
+                        podcast_summaries.append({
+                            'instruction_id': instruction['id'],
+                            'instruction_name': instruction['name'],
+                            'content': podcast_content,
+                            'matches_count': len(instruction_alerts),
+                            'topic': req.topic,
+                            'voice_id': voice_id,
+                            'audio_url': audio_url  # Include audio URL if generated
+                        })
+                        logger.info(f"Generated podcast summary for {instruction['name']} ({len(podcast_content)} chars)")
+                    else:
+                        logger.warning(f"Podcast generation returned empty response for {instruction['name']}")
+
+                except Exception as podcast_error:
+                    logger.error(f"Error generating podcast for {instruction['name']}: {podcast_error}")
+
+            # Send Email Action (only if threshold is met)
+            if config.get('send_email') and instruction_alerts and meets_threshold:
                 try:
                     from app.services.email_service import get_email_service
 
@@ -3356,7 +3585,7 @@ Format your response as a structured markdown report with clear sections.
                             )
                             if success:
                                 email_sent = True
-                                logger.info(f"Email notification sent to {recipient} for {instruction['name']}")
+                                logger.info(f"Email notification sent to {recipient} for {instruction['name']} ({len(instruction_alerts)} matches >= threshold {alert_threshold})")
                         else:
                             logger.warning(f"No email recipient configured for {instruction['name']}")
                     else:
@@ -3364,9 +3593,11 @@ Format your response as a structured markdown report with clear sections.
 
                 except Exception as email_error:
                     logger.error(f"Error sending email for {instruction['name']}: {email_error}")
+            elif config.get('send_email') and instruction_alerts and not meets_threshold:
+                logger.info(f"Email notification skipped for {instruction['name']}: {len(instruction_alerts)} matches < threshold {alert_threshold}")
 
-            # Bluesky DM Action
-            if config.get('bluesky_dm') and instruction_alerts:
+            # Bluesky DM Action (only if threshold is met)
+            if config.get('bluesky_dm') and instruction_alerts and meets_threshold:
                 try:
                     from app.services.bluesky_notification_service import get_bluesky_notification_service
 
@@ -3381,7 +3612,7 @@ Format your response as a structured markdown report with clear sections.
                                 topic=req.topic
                             )
                             if success:
-                                logger.info(f"Bluesky DM sent to {recipient} for {instruction['name']}")
+                                logger.info(f"Bluesky DM sent to {recipient} for {instruction['name']} ({len(instruction_alerts)} matches >= threshold {alert_threshold})")
                         else:
                             logger.warning(f"No Bluesky recipient configured for {instruction['name']}")
                     else:
@@ -3389,6 +3620,8 @@ Format your response as a structured markdown report with clear sections.
 
                 except Exception as bluesky_error:
                     logger.error(f"Error sending Bluesky DM for {instruction['name']}: {bluesky_error}")
+            elif config.get('bluesky_dm') and instruction_alerts and not meets_threshold:
+                logger.info(f"Bluesky DM skipped for {instruction['name']}: {len(instruction_alerts)} matches < threshold {alert_threshold}")
 
         return {
             "success": True,
@@ -3399,6 +3632,7 @@ Format your response as a structured markdown report with clear sections.
             "articles_analyzed": len(articles),
             "analysis_period": f"{start_date_dt.strftime('%Y-%m-%d')} to {end_date_dt.strftime('%Y-%m-%d')}",
             "report": report_data,
+            "podcast_summaries": podcast_summaries if podcast_summaries else None,
             "deep_research": deep_research_results if deep_research_results else None,
             "email_sent": email_sent
         }

@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Bot, Loader2, X, Bell, FileText, Workflow, Info, Tag, ChevronDown, ChevronRight, Pencil, Cpu, Search, Mail, MessageCircle } from 'lucide-react';
+import { Bot, Loader2, X, Bell, FileText, Workflow, Info, Tag, ChevronDown, ChevronRight, Pencil, Cpu, Search, Mail, MessageCircle, Mic } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -28,6 +28,13 @@ import { Checkbox } from '../ui/checkbox';
 import { type CreateAgentRequest, type ResearchAgent } from '../../services/researchAgentsApi';
 import { getAvailableModels } from '../../services/newsFeedApi';
 
+interface Voice {
+  voice_id: string;
+  name: string;
+  category?: string;
+  description?: string;
+}
+
 interface AddAgentModalProps {
   open: boolean;
   onClose: () => void;
@@ -48,6 +55,17 @@ const DEFAULT_REPORT_PROMPT = `Analyze the following signal matches and create a
 5. Note any gaps or areas requiring further investigation
 
 Format your response as a structured markdown report with clear sections.`;
+
+const DEFAULT_PODCAST_PROMPT = `Create a podcast-style audio script summarizing these intelligence findings. Write it as if you're a host delivering a briefing to listeners.
+
+## Requirements
+1. Start with a brief, engaging intro (e.g., "Welcome to today's intelligence briefing...")
+2. Summarize the most important findings in conversational, easy-to-follow language
+3. Highlight threat levels and urgency where relevant
+4. Connect related stories if patterns emerge
+5. End with key takeaways and recommended actions
+6. Keep the tone professional but accessible
+7. Target length: 2-3 minutes when read aloud (approximately 400-500 words)`;
 
 export function AddAgentModal({
   open,
@@ -82,8 +100,17 @@ export function AddAgentModal({
   const [blueskyRecipient, setBlueskyRecipient] = useState('');
   const [showBlueskyConfig, setShowBlueskyConfig] = useState(false);
   const [actionWorkflow, setActionWorkflow] = useState(false);
+  const [actionPodcast, setActionPodcast] = useState(false);
+  const [podcastPrompt, setPodcastPrompt] = useState(DEFAULT_PODCAST_PROMPT);
+  const [showPodcastPrompt, setShowPodcastPrompt] = useState(false);
+  const [podcastVoices, setPodcastVoices] = useState<Voice[]>([]);
+  const [selectedPodcastVoice, setSelectedPodcastVoice] = useState<string>('');
+  const [loadingVoices, setLoadingVoices] = useState(false);
   const [entitiesToMonitor, setEntitiesToMonitor] = useState('');
   const [entitiesPlaceholder, setEntitiesPlaceholder] = useState('Enter company names, people, or brands to monitor (one per line or comma-separated)');
+  const [searchStrategy, setSearchStrategy] = useState<'recent' | 'chunked' | 'semantic'>('recent');
+  const [maxArticles, setMaxArticles] = useState<number>(100);
+  const [alertThreshold, setAlertThreshold] = useState<number>(1);
 
   const isEditMode = !!editAgent;
 
@@ -97,6 +124,25 @@ export function AddAgentModal({
         .finally(() => setLoadingModels(false));
     }
   }, [open, availableModels.length, loadingModels]);
+
+  // Load available voices when podcast is enabled
+  useEffect(() => {
+    if (open && actionPodcast && podcastVoices.length === 0 && !loadingVoices) {
+      setLoadingVoices(true);
+      fetch('/api/available_voices', { credentials: 'include' })
+        .then(res => res.ok ? res.json() : [])
+        .then((voices: Voice[]) => {
+          setPodcastVoices(voices);
+          // Set default voice if not already set
+          if (!selectedPodcastVoice && voices.length > 0) {
+            const defaultVoice = voices.find(v => v.category === 'premade') || voices[0];
+            setSelectedPodcastVoice(defaultVoice.voice_id);
+          }
+        })
+        .catch(() => setPodcastVoices([]))
+        .finally(() => setLoadingVoices(false));
+    }
+  }, [open, actionPodcast, podcastVoices.length, loadingVoices, selectedPodcastVoice]);
 
   // Populate form when editing
   useEffect(() => {
@@ -113,8 +159,23 @@ export function AddAgentModal({
       const configBlueskyDm = editAgent.config?.bluesky_dm as boolean | undefined;
       const configBlueskyRecipient = editAgent.config?.bluesky_recipient as string | undefined;
       const configEntities = editAgent.config?.entities_to_monitor as string[] | undefined;
+      const configSearchStrategy = editAgent.config?.search_strategy as 'recent' | 'chunked' | 'semantic' | undefined;
+      const configMaxArticles = editAgent.config?.max_articles as number | undefined;
+      const configAlertThreshold = editAgent.config?.alert_threshold as number | undefined;
+      const configPodcast = editAgent.config?.generate_podcast as boolean | undefined;
+      const configPodcastPrompt = editAgent.config?.podcast_prompt as string | undefined;
+      const configPodcastVoice = editAgent.config?.podcast_voice_id as string | undefined;
       setModel(configModel || '');
+      setActionPodcast(configPodcast || false);
+      setPodcastPrompt(configPodcastPrompt || DEFAULT_PODCAST_PROMPT);
+      setShowPodcastPrompt(configPodcast || false);
+      if (configPodcastVoice) {
+        setSelectedPodcastVoice(configPodcastVoice);
+      }
       setEntitiesToMonitor(configEntities?.join('\n') || '');
+      setSearchStrategy(configSearchStrategy || 'recent');
+      setMaxArticles(configMaxArticles || 100);
+      setAlertThreshold(configAlertThreshold || 1);
       setActionDeepResearch(configDeepResearch || false);
       setActionSendEmail(configSendEmail || false);
       setEmailRecipient(configEmailRecipient || '');
@@ -150,8 +211,15 @@ export function AddAgentModal({
     setBlueskyRecipient('');
     setShowBlueskyConfig(false);
     setActionWorkflow(false);
+    setActionPodcast(false);
+    setPodcastPrompt(DEFAULT_PODCAST_PROMPT);
+    setShowPodcastPrompt(false);
+    setSelectedPodcastVoice('');
     setEntitiesToMonitor('');
     setEntitiesPlaceholder('Enter company names, people, or brands to monitor (one per line or comma-separated)');
+    setSearchStrategy('recent');
+    setMaxArticles(100);
+    setAlertThreshold(1);
     setError(null);
   };
 
@@ -197,6 +265,27 @@ export function AddAgentModal({
           .filter(e => e.length > 0);
         if (entities.length > 0) {
           config.entities_to_monitor = entities;
+        }
+      }
+      // Search strategy and limits
+      if (searchStrategy !== 'recent') {
+        config.search_strategy = searchStrategy;
+      }
+      if (maxArticles !== 100) {
+        config.max_articles = maxArticles;
+      }
+      if (alertThreshold !== 1) {
+        config.alert_threshold = alertThreshold;
+      }
+      if (actionPodcast) {
+        config.generate_podcast = true;
+        // Only save custom prompt if it differs from default
+        if (podcastPrompt.trim() && podcastPrompt.trim() !== DEFAULT_PODCAST_PROMPT.trim()) {
+          config.podcast_prompt = podcastPrompt.trim();
+        }
+        // Save selected voice
+        if (selectedPodcastVoice) {
+          config.podcast_voice_id = selectedPodcastVoice;
         }
       }
 
@@ -417,6 +506,77 @@ export function AddAgentModal({
             </p>
           </div>
 
+          {/* Search Strategy & Limits */}
+          <div className="space-y-4 pt-4 border-t">
+            <div className="flex items-center gap-2">
+              <Label className="text-base font-medium">Search Strategy & Limits</Label>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              {/* Search Strategy */}
+              <div className="space-y-2">
+                <Label htmlFor="search-strategy">Search Strategy</Label>
+                <Select
+                  value={searchStrategy}
+                  onValueChange={(val) => setSearchStrategy(val as 'recent' | 'chunked' | 'semantic')}
+                  disabled={saving || loading}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="recent">Recent Articles (Fast)</SelectItem>
+                    <SelectItem value="chunked">Chunked Processing (Thorough)</SelectItem>
+                    <SelectItem value="semantic">Semantic Search (Precise)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-gray-500">
+                  {searchStrategy === 'recent' && 'Analyzes the most recent articles only'}
+                  {searchStrategy === 'chunked' && 'Processes all articles in batches'}
+                  {searchStrategy === 'semantic' && 'Uses vector search to find relevant articles first'}
+                </p>
+              </div>
+
+              {/* Max Articles */}
+              <div className="space-y-2">
+                <Label htmlFor="max-articles">Max Articles</Label>
+                <Input
+                  id="max-articles"
+                  type="number"
+                  min={10}
+                  max={1000}
+                  value={maxArticles}
+                  onChange={(e) => setMaxArticles(Math.min(1000, Math.max(10, parseInt(e.target.value) || 100)))}
+                  disabled={saving || loading}
+                />
+                <p className="text-xs text-gray-500">
+                  Maximum articles to analyze (10-1000)
+                </p>
+              </div>
+            </div>
+
+            {/* Alert Threshold */}
+            <div className="space-y-2">
+              <Label htmlFor="alert-threshold">Alert Threshold</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="alert-threshold"
+                  type="number"
+                  min={1}
+                  max={100}
+                  value={alertThreshold}
+                  onChange={(e) => setAlertThreshold(Math.min(100, Math.max(1, parseInt(e.target.value) || 1)))}
+                  disabled={saving || loading}
+                  className="w-24"
+                />
+                <span className="text-sm text-gray-600">matches to trigger alert actions</span>
+              </div>
+              <p className="text-xs text-gray-500">
+                Email/DM notifications only sent when this many matches are found
+              </p>
+            </div>
+          </div>
+
           {/* Actions Section */}
           <div className="space-y-3 pt-4 border-t">
             <div className="flex items-center gap-2">
@@ -521,6 +681,105 @@ export function AddAgentModal({
                             type="button"
                             onClick={() => setReportPrompt(DEFAULT_REPORT_PROMPT)}
                             className="text-xs text-blue-600 hover:text-blue-700"
+                            disabled={saving || loading}
+                          >
+                            Reset to default
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Generate Podcast Summary */}
+              <div className="rounded-lg border border-gray-200">
+                <label className="flex items-start gap-3 p-3 cursor-pointer hover:bg-gray-50">
+                  <Checkbox
+                    checked={actionPodcast}
+                    onCheckedChange={(checked) => {
+                      setActionPodcast(checked as boolean);
+                      if (checked) {
+                        setShowPodcastPrompt(true);
+                      }
+                    }}
+                    disabled={saving || loading}
+                  />
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <Mic className="w-4 h-4 text-purple-500" />
+                      <span className="font-medium text-gray-900">Generate Podcast Summary</span>
+                    </div>
+                    <p className="text-sm text-gray-500 mt-0.5">
+                      Create an audio-friendly narrative summary of matches for podcast-style delivery
+                    </p>
+                  </div>
+                </label>
+
+                {/* Podcast Voice & Prompt Settings */}
+                {actionPodcast && (
+                  <div className="border-t border-gray-200">
+                    {/* Voice Selector */}
+                    <div className="p-3 space-y-2">
+                      <Label htmlFor="podcast-voice" className="text-sm font-medium">Podcast Voice</Label>
+                      <Select
+                        value={selectedPodcastVoice}
+                        onValueChange={setSelectedPodcastVoice}
+                        disabled={saving || loading || loadingVoices}
+                      >
+                        <SelectTrigger id="podcast-voice">
+                          <SelectValue placeholder={loadingVoices ? "Loading voices..." : "Select a voice"} />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {podcastVoices.map((voice) => (
+                            <SelectItem key={voice.voice_id} value={voice.voice_id}>
+                              <div className="flex items-center gap-2">
+                                <span>{voice.name}</span>
+                                {voice.category && (
+                                  <span className="text-xs text-gray-400">({voice.category})</span>
+                                )}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-gray-400">
+                        Select the voice to use when generating audio from the podcast summary
+                      </p>
+                    </div>
+
+                    {/* Customize Prompt Toggle */}
+                    <button
+                      type="button"
+                      onClick={() => setShowPodcastPrompt(!showPodcastPrompt)}
+                      className="w-full flex items-center gap-2 p-3 text-sm text-gray-600 hover:bg-gray-50 border-t border-gray-100"
+                    >
+                      {showPodcastPrompt ? (
+                        <ChevronDown className="w-4 h-4" />
+                      ) : (
+                        <ChevronRight className="w-4 h-4" />
+                      )}
+                      <span>Customize Podcast Prompt</span>
+                    </button>
+
+                    {showPodcastPrompt && (
+                      <div className="p-3 pt-0 space-y-2">
+                        <Textarea
+                          value={podcastPrompt}
+                          onChange={(e) => setPodcastPrompt(e.target.value)}
+                          placeholder="Enter custom instructions for podcast summary generation..."
+                          rows={6}
+                          disabled={saving || loading}
+                          className="font-mono text-sm"
+                        />
+                        <div className="flex justify-between items-center">
+                          <p className="text-xs text-gray-400">
+                            This prompt tells the AI how to create an audio-friendly summary
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => setPodcastPrompt(DEFAULT_PODCAST_PROMPT)}
+                            className="text-xs text-purple-600 hover:text-purple-700"
                             disabled={saving || loading}
                           >
                             Reset to default
