@@ -12,13 +12,24 @@ interface AgentSignalBadgeProps {
 
 /**
  * Extracts SIGNAL_* tags from an article's tags field
+ * Handles both raw format (SIGNAL_*) and prefixed format (signal:SIGNAL_*)
  */
 export function extractSignalTags(tags: string | string[] | undefined | null): string[] {
   if (!tags) return [];
   const tagArray = Array.isArray(tags)
     ? tags
     : String(tags).split(',').map(t => t.trim());
-  return tagArray.filter(tag => tag.startsWith('SIGNAL_'));
+
+  return tagArray
+    .map(tag => {
+      // Handle prefixed format: "signal:SIGNAL_AGENT_NAME" -> "SIGNAL_AGENT_NAME"
+      if (tag.includes(':')) {
+        const parts = tag.split(':');
+        return parts[parts.length - 1]; // Get the part after the colon
+      }
+      return tag;
+    })
+    .filter(tag => tag.startsWith('SIGNAL_'));
 }
 
 /**
