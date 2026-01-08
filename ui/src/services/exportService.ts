@@ -949,4 +949,453 @@ export class ExportService {
 
     return md;
   }
+
+  /**
+   * Export Your Briefing as Markdown
+   */
+  static exportBriefingMarkdown(briefing: any, persona: string, model?: string): void {
+    let md = `# Executive Briefing - ${persona}\n\n`;
+    md += `*Generated: ${new Date(briefing.generated_at).toLocaleString()}*\n\n`;
+
+    // AI Disclosure
+    md += `## AI Technology Disclosure\n\n`;
+    const modelInfo = model || briefing.model || 'AI';
+    md += `This briefing was generated using **${modelInfo}**. All content has been reviewed for accuracy.\n\n`;
+
+    // Executive Summary
+    if (briefing.executive_summary) {
+      md += `## Executive Summary\n\n${briefing.executive_summary}\n\n`;
+    }
+
+    // Key Themes
+    if (briefing.key_themes?.length) {
+      md += `## Key Themes\n\n`;
+      briefing.key_themes.forEach((theme: string) => {
+        md += `- ${theme}\n`;
+      });
+      md += '\n';
+    }
+
+    // Top Stories
+    md += `## Top Stories\n\n`;
+    const articles = briefing.articles || [];
+    articles.forEach((article: any, i: number) => {
+      const title = article.title || article.headline || 'Untitled';
+      md += `### ${i + 1}. ${title}\n\n`;
+
+      // Metadata
+      const source = article.source || article.primary_article?.source?.name || '';
+      const date = article.date || article.primary_article?.publication_date || '';
+      if (source || date) {
+        md += `**Source:** ${source}`;
+        if (date) md += ` | **Date:** ${date}`;
+        md += '\n\n';
+      }
+
+      // Classification badges
+      const badges: string[] = [];
+      if (article.category) badges.push(`Category: ${article.category}`);
+      if (article.time_horizon) badges.push(`Time Horizon: ${article.time_horizon}`);
+      if (article.risk_opportunity) badges.push(`Classification: ${article.risk_opportunity}`);
+      if (article.signal_strength) badges.push(`Signal: ${article.signal_strength}`);
+      if (badges.length) {
+        md += `*${badges.join(' | ')}*\n\n`;
+      }
+
+      // Executive Takeaway
+      if (article.executive_takeaway) {
+        md += `**Why It Matters:** ${article.executive_takeaway}\n\n`;
+      }
+
+      // Summary
+      const summary = article.summary || article.primary_article?.summary || '';
+      if (summary) {
+        md += `${summary}\n\n`;
+      }
+
+      // Strategic Relevance
+      if (article.strategic_relevance) {
+        md += `**Strategic Relevance:** ${article.strategic_relevance}\n\n`;
+      }
+
+      // Executive Actions
+      if (article.executive_action?.length) {
+        md += `**Recommended Actions:**\n`;
+        article.executive_action.forEach((action: string) => {
+          md += `- ${action}\n`;
+        });
+        md += '\n';
+      }
+
+      // Scores
+      if (article.scores?.overall) {
+        md += `**Score:** ${article.scores.overall}/5\n\n`;
+      }
+
+      // URL
+      const url = article.url || article.uri || article.primary_article?.url || '';
+      if (url) {
+        md += `[Read Full Article](${url})\n\n`;
+      }
+
+      md += `---\n\n`;
+    });
+
+    // Download
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const dateStr = new Date().toISOString().split('T')[0];
+    link.download = `briefing-${persona.toLowerCase()}-${dateStr}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Export Your Briefing as CSV
+   */
+  static exportBriefingCSV(briefing: any): void {
+    const headers = [
+      'Title',
+      'Source',
+      'Date',
+      'Category',
+      'Time Horizon',
+      'Risk/Opportunity',
+      'Signal Strength',
+      'Score',
+      'Executive Takeaway',
+      'Strategic Relevance',
+      'Actions',
+      'URL'
+    ];
+
+    const articles = briefing.articles || [];
+    const rows = articles.map((a: any) => {
+      const escapeCSV = (str: string) => {
+        if (!str) return '';
+        // Escape double quotes and wrap in quotes if contains comma, quote, or newline
+        const escaped = String(str).replace(/"/g, '""');
+        return `"${escaped}"`;
+      };
+
+      return [
+        escapeCSV(a.title || a.headline || ''),
+        escapeCSV(a.source || a.primary_article?.source?.name || ''),
+        escapeCSV(a.date || a.primary_article?.publication_date || ''),
+        escapeCSV(a.category || ''),
+        escapeCSV(a.time_horizon || ''),
+        escapeCSV(a.risk_opportunity || ''),
+        escapeCSV(a.signal_strength || ''),
+        escapeCSV(a.scores?.overall ? `${a.scores.overall}/5` : ''),
+        escapeCSV(a.executive_takeaway || ''),
+        escapeCSV(a.strategic_relevance || ''),
+        escapeCSV(a.executive_action?.join('; ') || ''),
+        escapeCSV(a.url || a.uri || a.primary_article?.url || '')
+      ].join(',');
+    });
+
+    const csv = [headers.join(','), ...rows].join('\n');
+
+    // Download
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const dateStr = new Date().toISOString().split('T')[0];
+    link.download = `briefing-${dateStr}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Export Incidents as Markdown
+   */
+  static exportIncidentsMarkdown(incidents: any[], topic?: string, model?: string): void {
+    let md = `# Incidents Report${topic ? ` - ${topic}` : ''}\n\n`;
+    md += `*Generated: ${new Date().toLocaleString()}*\n\n`;
+
+    // AI Disclosure
+    md += `## AI Technology Disclosure\n\n`;
+    const modelInfo = model || 'AI';
+    md += `This report was generated using **${modelInfo}**. All content has been reviewed for accuracy.\n\n`;
+
+    md += `## Incidents (${incidents.length})\n\n`;
+
+    incidents.forEach((incident, i) => {
+      const name = incident.name || incident.title || 'Unnamed Incident';
+      const description = incident.description || incident.summary || '';
+
+      md += `### ${i + 1}. ${name}\n\n`;
+
+      // Classification badges
+      const badges: string[] = [];
+      if (incident.type) badges.push(`Type: ${incident.type}`);
+      if (incident.significance) badges.push(`Significance: ${incident.significance}`);
+      if (incident.status) badges.push(`Status: ${incident.status}`);
+      if (incident.first_seen) badges.push(`First seen: ${incident.first_seen}`);
+      if (badges.length) {
+        md += `*${badges.join(' | ')}*\n\n`;
+      }
+
+      if (description) {
+        md += `${description}\n\n`;
+      }
+
+      // Organizational relevance
+      if (incident.organizational_relevance) {
+        md += `**Organizational Relevance:** ${incident.organizational_relevance}\n\n`;
+      }
+
+      // Credibility summary
+      if (incident.credibility_summary) {
+        md += `**Credibility:** ${incident.credibility_summary}\n\n`;
+      }
+
+      // Entities
+      if (incident.entities?.length) {
+        md += `**Entities:** ${incident.entities.join(', ')}\n\n`;
+      }
+
+      // Investigation leads
+      if (incident.investigation_leads?.length) {
+        md += `**Investigation Leads:**\n`;
+        incident.investigation_leads.forEach((lead: string) => {
+          md += `- ${lead}\n`;
+        });
+        md += '\n';
+      }
+
+      // Related articles with URLs
+      if (incident.articles?.length) {
+        md += `**Sources (${incident.articles.length}):**\n`;
+        incident.articles.slice(0, 10).forEach((article: any) => {
+          const title = article.title || 'Untitled';
+          const source = article.source || article.news_source || '';
+          const url = article.uri || article.url || '';
+          if (url) {
+            md += `- [${title}](${url})${source ? ` (${source})` : ''}\n`;
+          } else {
+            md += `- ${title}${source ? ` (${source})` : ''}\n`;
+          }
+        });
+        if (incident.articles.length > 10) {
+          md += `- ... and ${incident.articles.length - 10} more\n`;
+        }
+        md += '\n';
+      }
+
+      md += `---\n\n`;
+    });
+
+    // Download
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const dateStr = new Date().toISOString().split('T')[0];
+    link.download = `incidents-${dateStr}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Export Incidents as CSV
+   */
+  static exportIncidentsCSV(incidents: any[]): void {
+    const headers = [
+      'Name',
+      'Type',
+      'Significance',
+      'Status',
+      'Description',
+      'Organizational Relevance',
+      'Credibility Summary',
+      'Entities',
+      'Investigation Leads',
+      'Article Count',
+      'First Seen',
+      'Last Seen',
+      'Primary Article URL',
+      'All Article URLs'
+    ];
+
+    const rows = incidents.map((incident: any) => {
+      const escapeCSV = (str: string) => {
+        if (!str) return '';
+        const escaped = String(str).replace(/"/g, '""');
+        return `"${escaped}"`;
+      };
+
+      // Get article URLs
+      const articleUrls = incident.articles?.map((a: any) => a.uri || a.url).filter(Boolean) || [];
+      const primaryUrl = articleUrls[0] || '';
+
+      return [
+        escapeCSV(incident.name || incident.title || ''),
+        escapeCSV(incident.type || ''),
+        escapeCSV(incident.significance || ''),
+        escapeCSV(incident.status || ''),
+        escapeCSV(incident.description || incident.summary || ''),
+        escapeCSV(incident.organizational_relevance || ''),
+        escapeCSV(incident.credibility_summary || ''),
+        escapeCSV(incident.entities?.join('; ') || ''),
+        escapeCSV(incident.investigation_leads?.join('; ') || ''),
+        escapeCSV(String(incident.articles?.length || 0)),
+        escapeCSV(incident.first_seen || ''),
+        escapeCSV(incident.last_seen || ''),
+        escapeCSV(primaryUrl),
+        escapeCSV(articleUrls.join('; '))
+      ].join(',');
+    });
+
+    const csv = [headers.join(','), ...rows].join('\n');
+
+    // Download
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const dateStr = new Date().toISOString().split('T')[0];
+    link.download = `incidents-${dateStr}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Export Narratives/Themes as Markdown
+   */
+  static exportNarrativesMarkdown(themes: any[], topic?: string, model?: string): void {
+    let md = `# Narrative Themes${topic ? ` - ${topic}` : ''}\n\n`;
+    md += `*Generated: ${new Date().toLocaleString()}*\n\n`;
+
+    // AI Disclosure
+    md += `## AI Technology Disclosure\n\n`;
+    const modelInfo = model || 'AI';
+    md += `This report was generated using **${modelInfo}**. All content has been reviewed for accuracy.\n\n`;
+
+    md += `## Themes (${themes.length})\n\n`;
+
+    themes.forEach((theme, i) => {
+      const name = theme.theme_name || theme.name || 'Unnamed Theme';
+      const description = theme.theme_summary || theme.description || '';
+
+      md += `### ${i + 1}. ${name}\n\n`;
+
+      // Metadata
+      const meta: string[] = [];
+      if (theme.article_count) meta.push(`${theme.article_count} articles`);
+      if (theme.source_count) meta.push(`${theme.source_count} sources`);
+      if (theme.sentiment) meta.push(`Sentiment: ${theme.sentiment}`);
+      if (theme.confidence) meta.push(`Confidence: ${Math.round(theme.confidence * 100)}%`);
+      if (meta.length) {
+        md += `*${meta.join(' | ')}*\n\n`;
+      }
+
+      if (description) {
+        md += `${description}\n\n`;
+      }
+
+      // Key entities
+      if (theme.key_entities?.length) {
+        md += `**Key Entities:** ${theme.key_entities.join(', ')}\n\n`;
+      }
+
+      // Research suggestions
+      if (theme.research_suggestions?.length) {
+        md += `**Research Suggestions:**\n`;
+        theme.research_suggestions.forEach((suggestion: string) => {
+          md += `- ${suggestion}\n`;
+        });
+        md += '\n';
+      }
+
+      // Articles
+      if (theme.articles?.length) {
+        md += `**Articles:**\n`;
+        theme.articles.slice(0, 5).forEach((article: any) => {
+          const title = article.title || 'Untitled';
+          const source = article.news_source || '';
+          const url = article.uri || article.url || '';
+          if (url) {
+            md += `- [${title}](${url})${source ? ` (${source})` : ''}\n`;
+          } else {
+            md += `- ${title}${source ? ` (${source})` : ''}\n`;
+          }
+        });
+        if (theme.articles.length > 5) {
+          md += `- ... and ${theme.articles.length - 5} more\n`;
+        }
+        md += '\n';
+      }
+
+      md += `---\n\n`;
+    });
+
+    // Download
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const dateStr = new Date().toISOString().split('T')[0];
+    link.download = `narratives-${dateStr}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Export Narratives/Themes as CSV
+   */
+  static exportNarrativesCSV(themes: any[]): void {
+    const headers = [
+      'Theme Name',
+      'Summary',
+      'Article Count',
+      'Source Count',
+      'Sentiment',
+      'Confidence',
+      'Key Entities',
+      'Research Suggestions',
+      'Primary Article URL',
+      'All Article URLs'
+    ];
+
+    const rows = themes.map((theme: any) => {
+      const escapeCSV = (str: string) => {
+        if (!str) return '';
+        const escaped = String(str).replace(/"/g, '""');
+        return `"${escaped}"`;
+      };
+
+      // Get article URLs
+      const articleUrls = theme.articles?.map((a: any) => a.uri || a.url).filter(Boolean) || [];
+      const primaryUrl = articleUrls[0] || '';
+
+      return [
+        escapeCSV(theme.theme_name || theme.name || ''),
+        escapeCSV(theme.theme_summary || theme.description || ''),
+        escapeCSV(String(theme.article_count || theme.articles?.length || 0)),
+        escapeCSV(String(theme.source_count || '')),
+        escapeCSV(theme.sentiment || ''),
+        escapeCSV(theme.confidence ? `${Math.round(theme.confidence * 100)}%` : ''),
+        escapeCSV(theme.key_entities?.join('; ') || ''),
+        escapeCSV(theme.research_suggestions?.join('; ') || ''),
+        escapeCSV(primaryUrl),
+        escapeCSV(articleUrls.join('; '))
+      ].join(',');
+    });
+
+    const csv = [headers.join(','), ...rows].join('\n');
+
+    // Download
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const dateStr = new Date().toISOString().split('T')[0];
+    link.download = `narratives-${dateStr}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
 }

@@ -18,12 +18,15 @@ import {
   FileText,
   MessageSquare,
   Settings2,
+  Download,
+  Table,
 } from 'lucide-react';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import { type ArticleTheme, type ThemeArticle } from '../../services/narrativeExplorerApi';
 import { type NewsArticle } from '../../services/newsFeedApi';
 import { Button } from '../ui/button';
 import { Skeleton } from '../ui/skeleton';
+import { ExportService } from '../../services/exportService';
 
 interface NarrativeInsightsSectionProps {
   themes: ArticleTheme[];
@@ -31,6 +34,7 @@ interface NarrativeInsightsSectionProps {
   onArticleClick?: (article: NewsArticle) => void;
   currentTopic?: string;
   onOpenConfig?: () => void;
+  model?: string;
 }
 
 // Convert ThemeArticle to NewsArticle for detail panel
@@ -50,9 +54,10 @@ function themeArticleToNewsArticle(article: ThemeArticle): NewsArticle {
   };
 }
 
-export function NarrativeInsightsSection({ themes, loading, onArticleClick, currentTopic, onOpenConfig }: NarrativeInsightsSectionProps) {
+export function NarrativeInsightsSection({ themes, loading, onArticleClick, currentTopic, onOpenConfig, model }: NarrativeInsightsSectionProps) {
   const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
   const [showAll, setShowAll] = useState(false);
+  const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
 
   const displayedThemes = showAll ? themes : themes.slice(0, 6);
 
@@ -101,6 +106,53 @@ export function NarrativeInsightsSection({ themes, loading, onArticleClick, curr
           {themes.length} theme{themes.length !== 1 ? 's' : ''} identified
         </span>
         <div className="flex-1" />
+
+        {/* Download Button */}
+        {themes.length > 0 && (
+          <div className="relative">
+            <button
+              onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
+              className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              title="Download narratives"
+            >
+              <Download className="w-4 h-4 text-gray-500" />
+            </button>
+
+            {showDownloadDropdown && (
+              <>
+                {/* Backdrop */}
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setShowDownloadDropdown(false)}
+                />
+                {/* Dropdown */}
+                <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 py-1">
+                  <button
+                    onClick={() => {
+                      ExportService.exportNarrativesMarkdown(themes, currentTopic, model);
+                      setShowDownloadDropdown(false);
+                    }}
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2"
+                  >
+                    <FileText className="w-4 h-4 text-gray-500" />
+                    <span>Export as Markdown</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      ExportService.exportNarrativesCSV(themes);
+                      setShowDownloadDropdown(false);
+                    }}
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2"
+                  >
+                    <Table className="w-4 h-4 text-gray-500" />
+                    <span>Export as CSV</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {onOpenConfig && (
           <button
             onClick={onOpenConfig}

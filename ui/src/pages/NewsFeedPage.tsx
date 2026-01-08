@@ -660,6 +660,7 @@ export function NewsFeedPage() {
                         }}
                         sixArticlesConfig={sixArticlesConfig}
                         onOpenConfig={() => setIsBriefingConfigOpen(true)}
+                        model={config.model}
                       />
                     )}
 
@@ -671,6 +672,7 @@ export function NewsFeedPage() {
                         onIncidentUpdate={handleIncidentUpdate}
                         onArticleClick={handleArticleClick}
                         onOpenConfig={() => setIsConfigOpen(true)}
+                        model={config.model}
                       />
                     )}
 
@@ -682,6 +684,7 @@ export function NewsFeedPage() {
                         onArticleClick={handleArticleClick}
                         currentTopic={config.topic}
                         onOpenConfig={() => setIsNarrativesConfigOpen(true)}
+                        model={config.model}
                       />
                     )}
 
@@ -804,6 +807,10 @@ export function NewsFeedPage() {
       <SixArticlesTuneModal
         open={isBriefingConfigOpen}
         onOpenChange={setIsBriefingConfigOpen}
+        articleCount={config.articleCount}
+        onArticleCountChange={(count) => {
+          updateConfig({ articleCount: count });
+        }}
         onConfigSaved={() => {
           // Refresh six articles after config is saved
           fetchSixArticles(true);

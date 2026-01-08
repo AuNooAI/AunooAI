@@ -24,12 +24,16 @@ import {
   User,
   RefreshCw,
   Settings2,
-  X
+  X,
+  Download,
+  FileText,
+  Table
 } from 'lucide-react';
 import { type NewsArticle, type SixArticlesReport, type TopStory, type Persona, type SixArticlesConfig } from '../../services/newsFeedApi';
 import { Skeleton } from '../ui/skeleton';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import { AgentSignalBadge, extractSignalTags } from './AgentSignalBadge';
+import { ExportService } from '../../services/exportService';
 
 // Default personas (fallback if config not loaded)
 const DEFAULT_PERSONAS: { value: string; label: string; description: string }[] = [
@@ -51,6 +55,7 @@ interface BriefingSectionProps {
   onPersonaChange?: (persona: Persona, forceRegenerate?: boolean) => void;
   sixArticlesConfig?: SixArticlesConfig;
   onOpenConfig?: () => void;
+  model?: string;
 }
 
 // Get color for risk/opportunity indicator - with dark mode support
@@ -178,9 +183,11 @@ export function BriefingSection({
   onPersonaChange,
   sixArticlesConfig,
   onOpenConfig,
+  model,
 }: BriefingSectionProps) {
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [showPersonaDropdown, setShowPersonaDropdown] = useState(false);
+  const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
 
   // Build personas list from config (includes custom personas)
   const personas = useMemo(() => {
@@ -229,6 +236,52 @@ export function BriefingSection({
 
         {/* Right side controls */}
         <div className="flex items-center gap-2">
+          {/* Download Button */}
+          {sixArticles && sixArticles.articles?.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Download briefing"
+              >
+                <Download className="w-5 h-5" />
+              </button>
+
+              {showDownloadDropdown && (
+                <>
+                  {/* Backdrop */}
+                  <div
+                    className="fixed inset-0 z-10"
+                    onClick={() => setShowDownloadDropdown(false)}
+                  />
+                  {/* Dropdown */}
+                  <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1">
+                    <button
+                      onClick={() => {
+                        ExportService.exportBriefingMarkdown(sixArticles, persona, model);
+                        setShowDownloadDropdown(false);
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 transition-colors flex items-center gap-2"
+                    >
+                      <FileText className="w-4 h-4 text-gray-500" />
+                      <span>Export as Markdown</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        ExportService.exportBriefingCSV(sixArticles);
+                        setShowDownloadDropdown(false);
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 transition-colors flex items-center gap-2"
+                    >
+                      <Table className="w-4 h-4 text-gray-500" />
+                      <span>Export as CSV</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {/* Tune Button */}
           {onOpenConfig && (
             <button
@@ -247,12 +300,10 @@ export function BriefingSection({
                 onClick={() => setShowPersonaDropdown(!showPersonaDropdown)}
                 disabled={loadingSixArticles}
                 className="flex items-center gap-2 px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
+                title={loadingSixArticles ? 'Generating briefing...' : 'Change persona to regenerate'}
               >
-                {loadingSixArticles ? (
-                  <RefreshCw className="w-4 h-4 text-pink-500 animate-spin" />
-                ) : (
-                  <User className="w-4 h-4 text-gray-500" />
-                )}
+                <RefreshCw className={`w-4 h-4 ${loadingSixArticles ? 'text-pink-500 animate-spin' : 'text-gray-400'}`} />
+                <User className="w-4 h-4 text-gray-500" />
                 <span className="font-medium text-gray-700">{currentPersona.label}</span>
                 <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${showPersonaDropdown ? 'rotate-180' : ''}`} />
               </button>
