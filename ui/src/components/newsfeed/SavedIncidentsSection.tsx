@@ -21,6 +21,9 @@ import {
   Search,
   Scale,
   X,
+  Download,
+  FileText,
+  Table,
 } from 'lucide-react';
 import {
   type Incident,
@@ -40,6 +43,7 @@ import { Card, CardContent } from '../ui/card';
 import { AgentSignalBadge, extractSignalTags } from './AgentSignalBadge';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import { ShareModal, type ShareIncidentData } from '../ShareModal';
+import { ExportService } from '../../services/exportService';
 
 // Helper to extract all signal tags from an incident's article metadata
 function getIncidentSignalTags(incident: Incident): string[] {
@@ -77,6 +81,9 @@ export function SavedIncidentsSection({
   // Share modal state
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareData, setShareData] = useState<ShareIncidentData | null>(null);
+
+  // Download dropdown state
+  const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
 
   // Arrow scroll navigation (only for compact mode)
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -153,6 +160,53 @@ export function SavedIncidentsSection({
           <span className="text-sm text-gray-500 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded-full">
             {savedIncidents.length} saved
           </span>
+          <div className="flex-1" />
+
+          {/* Download Button */}
+          {savedIncidents.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
+                className="p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                title="Download saved incidents"
+              >
+                <Download className="w-5 h-5 text-gray-500" />
+              </button>
+
+              {showDownloadDropdown && (
+                <>
+                  {/* Backdrop */}
+                  <div
+                    className="fixed inset-0 z-10"
+                    onClick={() => setShowDownloadDropdown(false)}
+                  />
+                  {/* Dropdown */}
+                  <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 py-1">
+                    <button
+                      onClick={() => {
+                        ExportService.exportIncidentsMarkdown(savedIncidents);
+                        setShowDownloadDropdown(false);
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2"
+                    >
+                      <FileText className="w-4 h-4 text-gray-500" />
+                      <span>Export as Markdown</span>
+                    </button>
+                    <button
+                      onClick={() => {
+                        ExportService.exportIncidentsCSV(savedIncidents);
+                        setShowDownloadDropdown(false);
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2"
+                    >
+                      <Table className="w-4 h-4 text-gray-500" />
+                      <span>Export as CSV</span>
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Loading State */}
@@ -236,6 +290,53 @@ export function SavedIncidentsSection({
           {savedIncidents.length} saved
         </span>
         <div className="flex-1" />
+
+        {/* Download Button */}
+        {savedIncidents.length > 0 && (
+          <div className="relative">
+            <button
+              onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
+              className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+              title="Download saved incidents"
+            >
+              <Download className="w-4 h-4 text-gray-500" />
+            </button>
+
+            {showDownloadDropdown && (
+              <>
+                {/* Backdrop */}
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setShowDownloadDropdown(false)}
+                />
+                {/* Dropdown */}
+                <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 py-1">
+                  <button
+                    onClick={() => {
+                      ExportService.exportIncidentsMarkdown(savedIncidents);
+                      setShowDownloadDropdown(false);
+                    }}
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2"
+                  >
+                    <FileText className="w-4 h-4 text-gray-500" />
+                    <span>Export as Markdown</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      ExportService.exportIncidentsCSV(savedIncidents);
+                      setShowDownloadDropdown(false);
+                    }}
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2"
+                  >
+                    <Table className="w-4 h-4 text-gray-500" />
+                    <span>Export as CSV</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
           className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
