@@ -4,16 +4,8 @@
  */
 
 import { useState, useEffect } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from './ui/dialog';
+import { createPortal } from 'react-dom';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Loader2, Send, Mail, AlertCircle, CheckCircle2 } from 'lucide-react';
 
@@ -204,39 +196,66 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
     }
   };
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md w-[calc(100%-2rem)] overflow-hidden">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+  if (!open) return null;
+
+  const modalContent = (
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-50 bg-black/50"
+        onClick={() => onOpenChange(false)}
+      />
+
+      {/* Modal */}
+      <div
+        className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-6"
+        style={{
+          top: '50%',
+          left: '50%',
+          transform: 'translate(-50%, -50%)',
+          width: '380px',
+          maxWidth: 'calc(100vw - 32px)',
+        }}
+      >
+        {/* Close button */}
+        <button
+          onClick={() => onOpenChange(false)}
+          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+
+        {/* Header */}
+        <div className="mb-4 pr-8">
+          <h2 className="text-lg font-semibold flex items-center gap-2 text-gray-900 dark:text-gray-100">
             <Mail className="w-5 h-5 text-pink-500" />
             Share via Email
-          </DialogTitle>
-          <DialogDescription className="text-sm text-gray-500 dark:text-gray-400 truncate">
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-gray-400 truncate mt-1">
             {getTitle()}
-          </DialogDescription>
-        </DialogHeader>
+          </p>
+        </div>
 
-        <div className="py-4">
+        {/* Content */}
+        <div className="py-2">
           {isConfigured === null ? (
-            // Loading state
             <div className="flex items-center justify-center py-8">
               <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
             </div>
           ) : !isConfigured ? (
-            // Not configured state
             <div className="flex flex-col items-center justify-center py-6 text-center">
               <AlertCircle className="w-12 h-12 text-amber-500 mb-3" />
               <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1">
                 Email Not Configured
               </h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400 max-w-xs">
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 Email sharing requires the RESEND_API_KEY environment variable to be set.
                 Contact your administrator to enable this feature.
               </p>
             </div>
           ) : success ? (
-            // Success state
             <div className="flex flex-col items-center justify-center py-6 text-center">
               <CheckCircle2 className="w-12 h-12 text-green-500 mb-3" />
               <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1">
@@ -247,13 +266,12 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
               </p>
             </div>
           ) : (
-            // Input state
             <div className="space-y-4">
               <div>
-                <Label htmlFor="share-email" className="text-sm font-medium">
+                <Label htmlFor="share-email" className="text-sm font-medium block text-gray-700 dark:text-gray-300">
                   Recipient Email
                 </Label>
-                <Input
+                <input
                   id="share-email"
                   type="email"
                   value={email}
@@ -262,7 +280,8 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
                     setError(null);
                   }}
                   placeholder="colleague@company.com"
-                  className="mt-1.5 w-full max-w-full"
+                  style={{ width: '100%', boxSizing: 'border-box' }}
+                  className="mt-1.5 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-pink-500 disabled:opacity-50"
                   disabled={isSending}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !isSending) {
@@ -277,7 +296,6 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
                   </p>
                 )}
               </div>
-
               <p className="text-xs text-gray-500 dark:text-gray-400">
                 Your email address will be saved for future shares.
               </p>
@@ -285,7 +303,8 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
           )}
         </div>
 
-        <DialogFooter>
+        {/* Footer */}
+        <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
           {isConfigured && !success && (
             <>
               <Button
@@ -319,10 +338,12 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
               Close
             </Button>
           )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
+    </>
   );
+
+  return createPortal(modalContent, document.body);
 }
 
 export default ShareModal;
