@@ -20,6 +20,7 @@ interface TopicClusterProps {
   icon?: string;
   topic?: string;
   maxItems?: number;  // Max stories to show
+  databaseCount?: number;  // True total count from database
 }
 
 // Format relative time (e.g., "2 hours ago")
@@ -50,7 +51,8 @@ export function TopicCluster({
   onSeeMore,
   icon,
   topic,
-  maxItems = 4
+  maxItems = 4,
+  databaseCount
 }: TopicClusterProps) {
   // Use clusters if available, otherwise convert articles to single-item clusters
   const hasClusters = clusters && clusters.length > 0;
@@ -86,17 +88,20 @@ export function TopicCluster({
         article_count: 1
       }));
 
-  const totalArticles = hasClusters
+  const loadedArticles = hasClusters
     ? clusters.reduce((sum, c) => sum + c.article_count, 0)
     : articles.length;
 
-  if (totalArticles === 0) {
+  // Use database count if available, otherwise use loaded count
+  const totalArticles = databaseCount ?? loadedArticles;
+
+  if (loadedArticles === 0) {
     return null;
   }
 
   const visibleItems = displayItems.slice(0, maxItems);
   const hasMore = displayItems.length > maxItems || totalArticles > maxItems;
-  const remainingStories = displayItems.length - maxItems;
+  const remainingStories = totalArticles - maxItems;
 
   return (
     <section className="mb-6">

@@ -5203,8 +5203,10 @@ class DatabaseQueryFacade:
                 ]
 
         # Add required filters - only show enriched articles with metadata
+        # Filter out NULL and empty string categories
         where_conditions.extend([
             articles.c.category.isnot(None),
+            articles.c.category != '',
             articles.c.sentiment.isnot(None)
         ])
 
@@ -5385,8 +5387,10 @@ class DatabaseQueryFacade:
                 ]
 
         # Add required filters (same as article query)
+        # Filter out NULL and empty string categories
         where_conditions.extend([
             articles.c.category.isnot(None),
+            articles.c.category != '',
             articles.c.sentiment.isnot(None)
         ])
 

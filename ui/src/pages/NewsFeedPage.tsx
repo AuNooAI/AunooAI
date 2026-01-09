@@ -67,6 +67,7 @@ export function NewsFeedPage() {
   const {
     articles,
     groupedArticles,
+    categoryCounts,
     sixArticles,
     sixArticlesConfig,
     categories,
@@ -714,6 +715,7 @@ export function NewsFeedPage() {
                             onArticleClick={handleArticleClick}
                             onSeeMore={(cat, topic) => setSelectedCategory({ name: cat, topic })}
                             maxItems={4}
+                            databaseCount={categoryCounts[category]}
                           />
                         );
                       })}
@@ -727,6 +729,7 @@ export function NewsFeedPage() {
                           {sortedCategories.slice(9).map((category) => {
                             const catArticles = groupedArticles[category] || [];
                             const catTopic = catArticles[0]?.topic;
+                            const displayCount = categoryCounts[category] ?? catArticles.length;
                             return (
                               <button
                                 key={category}
@@ -734,7 +737,7 @@ export function NewsFeedPage() {
                                 className="px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-gray-700 dark:text-gray-300 transition-colors"
                               >
                                 {category}
-                                <span className="ml-1 text-gray-500 dark:text-gray-400">({catArticles.length})</span>
+                                <span className="ml-1 text-gray-500 dark:text-gray-400">({displayCount})</span>
                               </button>
                             );
                           })}
@@ -845,6 +848,7 @@ export function NewsFeedPage() {
           onUnstar={unstarArticle}
           onArticleClick={handleArticleClick}
           onClose={() => setSelectedCategory(null)}
+          dateRange={config.dateRange}
         />
       )}
 
