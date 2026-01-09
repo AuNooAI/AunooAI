@@ -28,6 +28,7 @@ export interface NewsArticle {
   category?: string;
   topic?: string;
   time_to_impact?: string;
+  future_signal?: string;
   tags: string[];
 }
 
@@ -138,6 +139,7 @@ interface BackendArticle {
   topic?: string;
   sentiment?: string;
   time_to_impact?: string;
+  future_signal?: string;
   tags?: string | string[];
   url?: string;
   bias?: string;
@@ -190,6 +192,7 @@ function transformArticle(backendArticle: BackendArticle): NewsArticle {
     category: backendArticle.category,
     topic: backendArticle.topic,
     time_to_impact: backendArticle.time_to_impact,
+    future_signal: backendArticle.future_signal,
     tags,
   };
 }
@@ -596,5 +599,110 @@ export async function getArticleByUri(uri: string): Promise<NewsArticle | null> 
   } catch (error) {
     console.error(`Error fetching article ${uri}:`, error);
     return null;
+  }
+}
+
+/**
+ * Get true category counts from database
+ * Returns total article counts per category for the given filters
+ */
+export async function getCategoryCounts(
+  dateRange: string = '7d',
+  topic?: string
+): Promise<Record<string, number>> {
+  try {
+    const params = new URLSearchParams({ date_range: dateRange });
+    if (topic) {
+      params.append('topic', topic);
+    }
+
+    const response = await fetch(`/api/news-feed/category-counts?${params}`, {
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      console.warn(`Failed to fetch category counts: ${response.status}`);
+      return {};
+    }
+
+    const data = await response.json();
+    return data.category_counts || {};
+  } catch (error) {
+    console.error('Error fetching category counts:', error);
+    return {};
+  }
+}
+
+/**
+ * Get all articles for a specific category with pagination
+ */
+export interface CategoryArticlesResponse {
+  articles: NewsArticle[];
+  total_count: number;
+  page: number;
+  per_page: number;
+  total_pages: number;
+  category: string;
+}
+
+export async function getCategoryArticles(
+  category: string,
+  dateRange: string = '7d',
+  topic?: string,
+  page: number = 1,
+  perPage: number = 50
+): Promise<CategoryArticlesResponse> {
+  try {
+    const params = new URLSearchParams({
+      date_range: dateRange,
+      page: page.toString(),
+      per_page: perPage.toString(),
+    });
+    if (topic) {
+      params.append('topic', topic);
+    }
+
+    const response = await fetch(
+      `/api/news-feed/category/${encodeURIComponent(category)}/articles?${params}`,
+      { credentials: 'include' }
+    );
+
+    if (!response.ok) {
+      console.warn(`Failed to fetch category articles: ${response.status}`);
+      return {
+        articles: [],
+        total_count: 0,
+        page: 1,
+        per_page: perPage,
+        total_pages: 0,
+        category,
+      };
+    }
+
+    const data = await response.json();
+
+    // Transform articles to frontend format
+    const transformedArticles = (data.articles || []).map((article: BackendArticle) =>
+      transformArticle(article)
+    );
+
+    return {
+      articles: transformedArticles,
+      total_count: data.total_count || 0,
+      page: data.page || 1,
+      per_page: data.per_page || perPage,
+      total_pages: data.total_pages || 0,
+      category: data.category || category,
+    };
+  } catch (error) {
+    console.error('Error fetching category articles:', error);
+    return {
+      articles: [],
+      total_count: 0,
+      page: 1,
+      per_page: perPage,
+      total_pages: 0,
+      category,
+    };
   }
 }

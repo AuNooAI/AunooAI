@@ -156,8 +156,9 @@ async def get_news_articles_only(
         )
 
         # Calculate SQL pagination parameters
-        offset = (page - 1) * per_page
-        limit = per_page
+        # For grouping by category, fetch all articles up to max_articles (not just per_page)
+        offset = 0
+        limit = max_articles
 
         logger.info(f"[NEWS FEED API] Calling _get_articles_for_date_range with offset={offset}, limit={limit}")
 
@@ -1232,4 +1233,256 @@ async def generate_category_icon(
 
     except Exception as e:
         logger.error(f"Error generating category icon: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.get("/category-counts")
+async def get_category_counts(
+    date_range: Optional[str] = Query("7d", description="Date range: 24h, 7d, 30d, 3m, 1y, all"),
+    topic: Optional[str] = Query(None, description="Optional topic filter"),
+    db: Database = Depends(get_database_instance)
+):
+    """Get total article counts per category from database.
+
+    Returns a dictionary mapping category names to their total article counts,
+    applying the same filters as the main news feed.
+    """
+    from starlette.concurrency import run_in_threadpool
+
+    try:
+        # Calculate date range
+        now = datetime.now()
+
+        if date_range == '24h':
+            start_date = (now - timedelta(days=1)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '72h':
+            start_date = (now - timedelta(days=3)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '7d':
+            start_date = (now - timedelta(days=7)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '30d':
+            start_date = (now - timedelta(days=30)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '3m':
+            start_date = (now - timedelta(days=90)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '1y':
+            start_date = (now - timedelta(days=365)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == 'all':
+            start_date = None
+            end_date = None
+        else:
+            start_date = (now - timedelta(days=7)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+
+        # Build the query with same filters as news feed
+        if start_date and end_date:
+            date_filter = f"AND publication_date >= '{start_date}' AND publication_date <= '{end_date}'"
+        else:
+            date_filter = ""
+
+        topic_filter = ""
+        if topic:
+            # Handle topic filter - escape single quotes
+            safe_topic = topic.replace("'", "''")
+            topic_filter = f"""
+            AND (
+                topic = '{safe_topic}'
+                OR title LIKE '%{safe_topic}%'
+                OR summary LIKE '%{safe_topic}%'
+            )
+            """
+
+        query = f"""
+            SELECT category, COUNT(*) as count
+            FROM articles
+            WHERE category IS NOT NULL
+            AND category != ''
+            AND sentiment IS NOT NULL
+            AND publication_date IS NOT NULL
+            {date_filter}
+            {topic_filter}
+            AND title NOT LIKE '%Call@%'
+            AND title NOT LIKE '%+91%'
+            AND title NOT LIKE '%best%agency%'
+            AND title NOT LIKE '%#1%'
+            AND summary NOT LIKE '%Call@%'
+            AND summary NOT LIKE '%phone%number%'
+            AND news_source NOT LIKE '%medium.com/@%'
+            GROUP BY category
+            ORDER BY count DESC
+        """
+
+        results = await run_in_threadpool(db.fetch_all, query)
+
+        # Convert to dictionary
+        category_counts = {}
+        for row in results:
+            category_counts[row['category']] = row['count']
+
+        logger.info(f"Category counts: {len(category_counts)} categories, date_range={date_range}, topic={topic}")
+
+        return {"category_counts": category_counts}
+
+    except Exception as e:
+        logger.error(f"Error getting category counts: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.get("/category/{category}/articles")
+async def get_category_articles(
+    category: str,
+    date_range: Optional[str] = Query("7d", description="Date range: 24h, 7d, 30d, 3m, 1y, all"),
+    topic: Optional[str] = Query(None, description="Optional topic filter"),
+    page: int = Query(1, ge=1, description="Page number"),
+    per_page: int = Query(50, ge=10, le=200, description="Articles per page"),
+    db: Database = Depends(get_database_instance)
+):
+    """Get paginated articles for a specific category.
+
+    Returns articles for the specified category with full article data.
+    """
+    from starlette.concurrency import run_in_threadpool
+
+    try:
+        # Calculate date range
+        now = datetime.now()
+
+        if date_range == '24h':
+            start_date = (now - timedelta(days=1)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '72h':
+            start_date = (now - timedelta(days=3)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '7d':
+            start_date = (now - timedelta(days=7)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '30d':
+            start_date = (now - timedelta(days=30)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '3m':
+            start_date = (now - timedelta(days=90)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '1y':
+            start_date = (now - timedelta(days=365)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == 'all':
+            start_date = None
+            end_date = None
+        else:
+            start_date = (now - timedelta(days=7)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+
+        # Build filters
+        if start_date and end_date:
+            date_filter = f"AND publication_date >= '{start_date}' AND publication_date <= '{end_date}'"
+        else:
+            date_filter = ""
+
+        topic_filter = ""
+        if topic:
+            safe_topic = topic.replace("'", "''")
+            topic_filter = f"""
+            AND (
+                topic = '{safe_topic}'
+                OR title LIKE '%{safe_topic}%'
+                OR summary LIKE '%{safe_topic}%'
+            )
+            """
+
+        # Escape category for query
+        safe_category = category.replace("'", "''")
+
+        # Get total count first
+        count_query = f"""
+            SELECT COUNT(*) as total
+            FROM articles
+            WHERE category = '{safe_category}'
+            AND sentiment IS NOT NULL
+            AND publication_date IS NOT NULL
+            {date_filter}
+            {topic_filter}
+            AND title NOT LIKE '%Call@%'
+            AND title NOT LIKE '%+91%'
+            AND title NOT LIKE '%best%agency%'
+            AND title NOT LIKE '%#1%'
+            AND summary NOT LIKE '%Call@%'
+            AND summary NOT LIKE '%phone%number%'
+            AND news_source NOT LIKE '%medium.com/@%'
+        """
+
+        count_result = await run_in_threadpool(db.fetch_one, count_query)
+        total_count = count_result['total'] if count_result else 0
+
+        # Calculate pagination
+        offset = (page - 1) * per_page
+        total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 0
+
+        # Get articles
+        query = f"""
+            SELECT
+                uri, title, summary, news_source, publication_date,
+                category, topic, sentiment, sentiment_explanation,
+                time_to_impact, time_to_impact_explanation, tags,
+                bias, factual_reporting, mbfc_credibility_rating,
+                bias_country, future_signal, future_signal_explanation
+            FROM articles
+            WHERE category = '{safe_category}'
+            AND sentiment IS NOT NULL
+            AND publication_date IS NOT NULL
+            {date_filter}
+            {topic_filter}
+            AND title NOT LIKE '%Call@%'
+            AND title NOT LIKE '%+91%'
+            AND title NOT LIKE '%best%agency%'
+            AND title NOT LIKE '%#1%'
+            AND summary NOT LIKE '%Call@%'
+            AND summary NOT LIKE '%phone%number%'
+            AND news_source NOT LIKE '%medium.com/@%'
+            ORDER BY publication_date DESC
+            LIMIT {per_page} OFFSET {offset}
+        """
+
+        results = await run_in_threadpool(db.fetch_all, query)
+
+        # Transform to article format (flat structure for frontend compatibility)
+        articles = []
+        for row in results:
+            articles.append({
+                'uri': row['uri'],
+                'title': row['title'],
+                'summary': row['summary'],
+                'news_source': row['news_source'],
+                'bias': row['bias'],
+                'factual_reporting': row['factual_reporting'],
+                'mbfc_credibility_rating': row['mbfc_credibility_rating'],
+                'bias_country': row['bias_country'],
+                'publication_date': row['publication_date'],
+                'category': row['category'],
+                'topic': row['topic'],
+                'sentiment': row['sentiment'],
+                'sentiment_explanation': row['sentiment_explanation'],
+                'time_to_impact': row['time_to_impact'],
+                'time_to_impact_explanation': row['time_to_impact_explanation'],
+                'tags': row['tags'] if row['tags'] else '',
+                'future_signal': row['future_signal'],
+                'future_signal_explanation': row['future_signal_explanation']
+            })
+
+        logger.info(f"Category articles: {len(articles)} of {total_count} for '{category}', page {page}")
+
+        return {
+            "articles": articles,
+            "total_count": total_count,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": total_pages,
+            "category": category
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting category articles: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

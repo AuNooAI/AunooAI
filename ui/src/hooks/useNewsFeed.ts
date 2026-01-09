@@ -13,6 +13,7 @@ import {
   getOrganizationalProfiles,
   getAvailableModels,
   groupArticlesByCategory,
+  getCategoryCounts,
   type NewsArticle,
   type SixArticlesReport,
   type AvailableDate,
@@ -56,6 +57,7 @@ export interface UseNewsFeedReturn {
   // Data
   articles: NewsArticle[];
   groupedArticles: Record<string, NewsArticle[]>;
+  categoryCounts: Record<string, number>;  // True database counts per category
   sixArticles: SixArticlesReport | null;
   availableDates: AvailableDate[];
   categories: string[];
@@ -90,7 +92,7 @@ export interface UseNewsFeedReturn {
 const DEFAULT_CONFIG: NewsFeedConfig = {
   dateRange: '7d',
   page: 1,
-  perPage: 50,
+  perPage: 100,  // Increased for better category distribution
   model: 'gpt-4o',
   persona: 'CEO',
   articleCount: 6,
@@ -162,6 +164,7 @@ export function useNewsFeed(): UseNewsFeedReturn {
   // State
   const [articles, setArticles] = useState<NewsArticle[]>([]);
   const [groupedArticles, setGroupedArticles] = useState<Record<string, NewsArticle[]>>({});
+  const [categoryCounts, setCategoryCounts] = useState<Record<string, number>>({});
   // Initialize sixArticles from cache if available
   const [sixArticles, setSixArticles] = useState<SixArticlesReport | null>(() => {
     const initialConfig = loadStoredConfig();
@@ -258,19 +261,24 @@ export function useNewsFeed(): UseNewsFeedReturn {
     setError(null);
 
     try {
-      const response = await getNewsFeedArticles({
-        dateRange: config.dateRange,
-        customDateStart: config.customDateStart,
-        topic: config.topic,
-        maxArticles: config.perPage * 10, // Fetch more for grouping
-        page: config.page,
-        perPage: config.perPage,
-        profileId: config.profileId,
-      });
+      // Fetch articles and category counts in parallel
+      const [response, counts] = await Promise.all([
+        getNewsFeedArticles({
+          dateRange: config.dateRange,
+          customDateStart: config.customDateStart,
+          topic: config.topic,
+          maxArticles: config.perPage * 10, // Fetch more for grouping
+          page: config.page,
+          perPage: config.perPage,
+          profileId: config.profileId,
+        }),
+        getCategoryCounts(config.dateRange, config.topic),
+      ]);
 
       setArticles(response.articles);
       setTotalArticles(response.total);
       setTotalPages(response.total_pages);
+      setCategoryCounts(counts);
 
       // Group articles by category
       const grouped = groupArticlesByCategory(response.articles);
@@ -369,6 +377,7 @@ export function useNewsFeed(): UseNewsFeedReturn {
   return {
     articles,
     groupedArticles,
+    categoryCounts,
     sixArticles,
     availableDates,
     categories,

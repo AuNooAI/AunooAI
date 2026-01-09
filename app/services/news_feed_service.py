@@ -754,13 +754,20 @@ Please try again and return ONLY articles with URIs from this list."""}
     async def _generate_six_articles_report_cached(self, articles_data: List[Dict], date: datetime, request: NewsFeedRequest) -> List[Dict]:
         """Generate six articles report with caching and enhanced political analysis"""
 
-        # Create cache key including persona, article count, and user_id to ensure cache invalidation when these change
+        # Create cache key including persona, article count, user_id, and starred articles to ensure cache invalidation
+        # v6: Added starred_articles hash to cache key - fixes bug where unstarring didn't invalidate cache
         # v5: Added user_id to cache key to prevent cross-user cache pollution with custom configs
         # v4: Fixed cache key to include persona and article_count (previous v3 had cache invalidation bug)
         persona = getattr(request, 'persona', 'CEO') or 'CEO'
         article_count = getattr(request, 'article_count', 6) or 6
         user_id = getattr(request, 'user_id', None) or 'default'
-        cache_key = f"six_articles_v5_{date.strftime('%Y-%m-%d')}_{request.topic or 'all'}_{persona}_{article_count}_{user_id}"
+        # Include starred articles in cache key so changes invalidate the cache
+        starred_hash = ''
+        if request.starred_articles and len(request.starred_articles) > 0:
+            import hashlib
+            starred_str = ','.join(sorted(request.starred_articles))
+            starred_hash = hashlib.md5(starred_str.encode()).hexdigest()[:8]
+        cache_key = f"six_articles_v6_{date.strftime('%Y-%m-%d')}_{request.topic or 'all'}_{persona}_{article_count}_{user_id}_{starred_hash}"
         
         # Check database cache first (more persistent)
         try:
