@@ -49,6 +49,7 @@ def register_routers(app: FastAPI):
     from app.routes.sampling_routes import router as sampling_router
     from app.routes.gather_routes import router as gather_router
     from app.routes.pam_routes import router as pam_router
+    from app.routes.email_routes import router as email_router
 
     # Register database routes
     app.include_router(database.router)
@@ -163,5 +164,8 @@ def register_routers(app: FastAPI):
 
     # Power, Attention & Money (PAM) dashboard routes
     app.include_router(pam_router)
+
+    # Email sharing routes
+    app.include_router(email_router, prefix="/api")
 
     logger.info("All routers registered successfully")

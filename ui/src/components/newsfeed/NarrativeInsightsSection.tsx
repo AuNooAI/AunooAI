@@ -20,6 +20,7 @@ import {
   Settings2,
   Download,
   Table,
+  Share2,
 } from 'lucide-react';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import { type ArticleTheme, type ThemeArticle } from '../../services/narrativeExplorerApi';
@@ -27,6 +28,7 @@ import { type NewsArticle } from '../../services/newsFeedApi';
 import { Button } from '../ui/button';
 import { Skeleton } from '../ui/skeleton';
 import { ExportService } from '../../services/exportService';
+import { ShareModal, type ShareNarrativeData } from '../ShareModal';
 
 interface NarrativeInsightsSectionProps {
   themes: ArticleTheme[];
@@ -58,8 +60,28 @@ export function NarrativeInsightsSection({ themes, loading, onArticleClick, curr
   const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
   const [showAll, setShowAll] = useState(false);
   const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
+  // Share modal state
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareData, setShareData] = useState<ShareNarrativeData | null>(null);
 
   const displayedThemes = showAll ? themes : themes.slice(0, 6);
+
+  // Share handler for narratives
+  const handleShareNarrative = (theme: ArticleTheme) => {
+    setShareData({
+      type: 'narrative',
+      narrative_name: theme.theme_name || (theme as any).name || 'Untitled Narrative',
+      description: theme.theme_summary || theme.description,
+      key_points: theme.research_suggestions || (theme as any).key_points,
+      topic: currentTopic,
+      sentiment: theme.sentiment,
+      confidence: theme.confidence,
+      article_count: theme.article_count,
+      source_count: theme.source_count,
+      key_entities: theme.key_entities,
+    });
+    setShowShareModal(true);
+  };
 
   const toggleExpand = (index: number) => {
     setExpandedCards(prev => {
@@ -153,6 +175,17 @@ export function NarrativeInsightsSection({ themes, loading, onArticleClick, curr
           </div>
         )}
 
+        {/* Share Button - shares first narrative as representative */}
+        {themes.length > 0 && (
+          <button
+            onClick={() => handleShareNarrative(themes[0])}
+            className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            title="Share top narrative via email"
+          >
+            <Share2 className="w-4 h-4 text-gray-500" />
+          </button>
+        )}
+
         {onOpenConfig && (
           <button
             onClick={onOpenConfig}
@@ -210,6 +243,15 @@ export function NarrativeInsightsSection({ themes, loading, onArticleClick, curr
             </div>
           )}
         </>
+      )}
+
+      {/* Share Modal */}
+      {shareData && (
+        <ShareModal
+          open={showShareModal}
+          onOpenChange={setShowShareModal}
+          data={shareData}
+        />
       )}
     </section>
   );

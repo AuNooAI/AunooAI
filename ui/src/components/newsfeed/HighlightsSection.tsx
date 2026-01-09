@@ -49,12 +49,16 @@ import {
   prettifyMisinfoFlag,
   updateIncidentStatus,
   deleteIncident as apiDeleteIncident,
+  saveIncident as apiSaveIncident,
+  unsaveIncident as apiUnsaveIncident,
+  recordIncidentPreference,
 } from '../../services/narrativeExplorerApi';
 import { Card, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
 import { Skeleton } from '../ui/skeleton';
 import { AgentSignalBadge, extractSignalTags } from './AgentSignalBadge';
 import { ExportService } from '../../services/exportService';
+import { ShareModal, type ShareIncidentData } from '../ShareModal';
 
 // Helper to extract all signal tags from an incident's article metadata
 function getIncidentSignalTags(incident: Incident): string[] {
@@ -76,12 +80,38 @@ interface HighlightsSectionProps {
   onArticleClick?: (article: { uri: string; title?: string }) => void;
   onOpenConfig?: () => void;
   model?: string;
+  currentTopic?: string;
+  savedIncidentNames?: string[];
+  onSaveIncident?: (incidentName: string) => void;
+  onUnsaveIncident?: (incidentName: string) => void;
 }
 
-export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArticleClick, onOpenConfig, model }: HighlightsSectionProps) {
+export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArticleClick, onOpenConfig, model, currentTopic, savedIncidentNames = [], onSaveIncident, onUnsaveIncident }: HighlightsSectionProps) {
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set());
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
   const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
+
+  // Share modal state
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareData, setShareData] = useState<ShareIncidentData | null>(null);
+
+  // Share handler - opens modal with incident data
+  const handleShare = (incident: Incident) => {
+    const name = incident.name || incident.title || 'Unnamed Incident';
+    setShareData({
+      type: 'incident',
+      incident_name: name,
+      incident_type: incident.type,
+      significance: incident.significance,
+      description: incident.description || incident.summary,
+      topic: incident.topic,
+      entities: incident.entities,
+      strategic_relevance: incident.organizational_relevance,
+      plausibility: incident.plausibility,
+      source_quality: incident.source_quality,
+    });
+    setShowShareModal(true);
+  };
 
   // Arrow scroll navigation
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -212,6 +242,21 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
           </div>
         )}
 
+        {/* Share Button - shares first incident as representative */}
+        {incidents.length > 0 && (
+          <button
+            onClick={() => {
+              // Share the first/top incident as representative
+              const topIncident = incidents[0];
+              handleShare(topIncident);
+            }}
+            className="p-1.5 rounded-md hover:bg-gray-100 transition-colors"
+            title="Share top incident via email"
+          >
+            <Share2 className="w-4 h-4 text-gray-500" />
+          </button>
+        )}
+
         {onOpenConfig && (
           <button
             onClick={onOpenConfig}
@@ -251,11 +296,17 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
             >
               {incidents.map((incident, index) => {
                 const incidentKey = incident.id || incident.name || `incident-${index}`;
+                const incidentName = incident.name || incident.title || 'Unnamed Incident';
                 return (
                   <CompactIncidentCard
                     key={incidentKey}
                     incident={incident}
                     onClick={() => handleCompactCardClick(incidentKey)}
+                    isSaved={savedIncidentNames.includes(incidentName)}
+                    currentTopic={currentTopic}
+                    onSave={onSaveIncident}
+                    onUnsave={onUnsaveIncident}
+                    onShare={handleShare}
                   />
                 );
               })}
@@ -286,6 +337,15 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
           )}
         </>
       )}
+
+      {/* Share Modal */}
+      {shareData && (
+        <ShareModal
+          open={showShareModal}
+          onOpenChange={setShowShareModal}
+          data={shareData}
+        />
+      )}
     </section>
   );
 }
@@ -297,6 +357,11 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
 interface CompactIncidentCardProps {
   incident: Incident;
   onClick?: () => void;
+  isSaved?: boolean;
+  currentTopic?: string;
+  onSave?: (incidentName: string) => void;
+  onUnsave?: (incidentName: string) => void;
+  onShare?: (incident: Incident) => void;
 }
 
 // Badge tooltip explanations for incidents
@@ -333,10 +398,11 @@ function getSourceQualityTooltip(quality: string): string {
   return `Source quality: ${quality}`;
 }
 
-function CompactIncidentCard({ incident, onClick }: CompactIncidentCardProps) {
+function CompactIncidentCard({ incident, onClick, isSaved, currentTopic, onSave, onUnsave, onShare }: CompactIncidentCardProps) {
   const [hoveredBadge, setHoveredBadge] = useState<string | null>(null);
   const [badgeTooltipPos, setBadgeTooltipPos] = useState({ top: 0, left: 0 });
   const [showMenu, setShowMenu] = useState(false);
+  const [actionInProgress, setActionInProgress] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const name = incident.name || incident.title || 'Unnamed Incident';
   const type = incident.type || 'event';
@@ -358,11 +424,35 @@ function CompactIncidentCard({ incident, onClick }: CompactIncidentCardProps) {
   }, [showMenu]);
 
   // Menu action handlers
-  const handleMenuAction = (action: string, e: React.MouseEvent) => {
+  const handleMenuAction = async (action: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setShowMenu(false);
-    // TODO: Implement actual actions
-    console.log(`Menu action: ${action} for incident: ${name}`);
+
+    if (action === 'save') {
+      if (isSaved) {
+        onUnsave?.(name);
+      } else {
+        onSave?.(name);
+      }
+    } else if (action === 'share') {
+      // Open share modal
+      onShare?.(incident);
+    } else if (action === 'more' || action === 'less') {
+      try {
+        setActionInProgress(true);
+        await recordIncidentPreference(name, action, {
+          type: incident.type,
+          topic: currentTopic,
+          entities: incident.entities?.slice(0, 3),
+        });
+        // Show a brief visual confirmation (could add a toast here)
+        console.log(`Preference "${action}" recorded for: ${name}`);
+      } catch (err) {
+        console.error(`Failed to record preference: ${err}`);
+      } finally {
+        setActionInProgress(false);
+      }
+    }
   };
 
   // Format date for display
@@ -438,8 +528,8 @@ function CompactIncidentCard({ incident, onClick }: CompactIncidentCardProps) {
                     onClick={(e) => handleMenuAction('save', e)}
                     className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                   >
-                    <Bookmark className="w-4 h-4 text-gray-700 dark:text-gray-300" />
-                    Save
+                    <Bookmark className={`w-4 h-4 ${isSaved ? 'text-amber-500 fill-amber-500' : 'text-gray-700 dark:text-gray-300'}`} />
+                    {isSaved ? 'Unsave' : 'Save'}
                   </button>
                   <button
                     onClick={(e) => handleMenuAction('share', e)}
@@ -450,14 +540,16 @@ function CompactIncidentCard({ incident, onClick }: CompactIncidentCardProps) {
                   </button>
                   <button
                     onClick={(e) => handleMenuAction('more', e)}
-                    className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                    disabled={actionInProgress}
+                    className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 disabled:opacity-50"
                   >
                     <ThumbsUp className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                     More like this
                   </button>
                   <button
                     onClick={(e) => handleMenuAction('less', e)}
-                    className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                    disabled={actionInProgress}
+                    className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 disabled:opacity-50"
                   >
                     <ThumbsDown className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                     Less like this
@@ -468,10 +560,18 @@ function CompactIncidentCard({ incident, onClick }: CompactIncidentCardProps) {
           </div>
         </div>
 
-        {/* Title - fully legible */}
-        <h4 className="font-semibold text-gray-900 dark:text-gray-100 text-sm mb-2">
-          {name}
-        </h4>
+        {/* Title with Saved badge */}
+        <div className="flex items-start gap-2 mb-2">
+          <h4 className="font-semibold text-gray-900 dark:text-gray-100 text-sm flex-1">
+            {name}
+          </h4>
+          {isSaved && (
+            <span className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded">
+              <Bookmark className="w-3 h-3 fill-current" />
+              Saved
+            </span>
+          )}
+        </div>
 
         {/* Summary - displayed on card */}
         {displaySummary && (
