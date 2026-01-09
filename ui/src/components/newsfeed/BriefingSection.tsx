@@ -27,13 +27,18 @@ import {
   X,
   Download,
   FileText,
-  Table
+  Table,
+  Share2,
+  Volume2,
+  Loader2,
 } from 'lucide-react';
 import { type NewsArticle, type SixArticlesReport, type TopStory, type Persona, type SixArticlesConfig } from '../../services/newsFeedApi';
 import { Skeleton } from '../ui/skeleton';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import { AgentSignalBadge, extractSignalTags } from './AgentSignalBadge';
 import { ExportService } from '../../services/exportService';
+import { PodcastScriptModal } from '../PodcastScriptModal';
+import { ShareModal, type ShareBriefingData } from '../ShareModal';
 
 // Default personas (fallback if config not loaded)
 const DEFAULT_PERSONAS: { value: string; label: string; description: string }[] = [
@@ -188,6 +193,17 @@ export function BriefingSection({
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   const [showPersonaDropdown, setShowPersonaDropdown] = useState(false);
   const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
+  const [podcastAudioUrl, setPodcastAudioUrl] = useState<string | null>(null);
+  const [podcastError, setPodcastError] = useState<string | null>(null);
+  const [showAudioPlayer, setShowAudioPlayer] = useState(false);
+  // Podcast script modal state
+  const [showPodcastModal, setShowPodcastModal] = useState(false);
+  const [podcastScript, setPodcastScript] = useState('');
+  const [isGeneratingScript, setIsGeneratingScript] = useState(false);
+  const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
+  // Share modal state
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareData, setShareData] = useState<ShareBriefingData | null>(null);
 
   // Build personas list from config (includes custom personas)
   const personas = useMemo(() => {
@@ -218,6 +234,193 @@ export function BriefingSection({
       onPersonaChange(newPersona as Persona, true); // Force regenerate
     }
     setShowPersonaDropdown(false);
+  };
+
+  // Handle share via email modal
+  const handleShareBriefing = () => {
+    if (!sixArticles) return;
+    setShareData({
+      type: 'briefing',
+      persona: persona,
+      executive_summary: sixArticles.executive_summary,
+      articles: sixArticles.articles?.map(a => {
+        const storyData = a as any; // Allow flexible access to various field formats
+        return {
+          title: storyData.title || storyData.headline,
+          headline: storyData.headline,
+          executive_takeaway: storyData.executive_takeaway,
+          category: storyData.category,
+          source: storyData.source || storyData.primary_article?.source?.name || '',
+          date: storyData.date || storyData.publication_date || storyData.primary_article?.publication_date || '',
+          url: storyData.url || storyData.uri || storyData.primary_article?.url || '',
+        };
+      }),
+      key_themes: sixArticles.key_themes,
+    });
+    setShowShareModal(true);
+  };
+
+  // Build the prompt content from articles (what the user will see/edit)
+  const buildPromptContent = () => {
+    if (!sixArticles || !sixArticles.articles?.length) return '';
+
+    const articles = sixArticles.articles;
+    let prompt = `# Executive Briefing for ${persona}\n\n`;
+    prompt += `Generate a podcast script covering the following ${articles.length} stories:\n\n`;
+
+    articles.forEach((article, i) => {
+      const title = article.title || article.headline || 'Untitled';
+      const takeaway = article.executive_takeaway || article.summary || '';
+      const category = article.category || 'General';
+      const signal = article.signal_strength || 'N/A';
+      const risk = article.risk_opportunity || 'N/A';
+      const horizon = article.time_horizon || 'N/A';
+
+      prompt += `## Story ${i + 1}: ${title}\n`;
+      prompt += `- **Category:** ${category}\n`;
+      prompt += `- **Signal Strength:** ${signal}\n`;
+      prompt += `- **Risk/Opportunity:** ${risk}\n`;
+      prompt += `- **Time Horizon:** ${horizon}\n`;
+      if (takeaway) {
+        prompt += `- **Key Takeaway:** ${takeaway}\n`;
+      }
+      prompt += '\n';
+    });
+
+    prompt += `---\nTotal: ${articles.length} stories for the ${persona} perspective.\n`;
+    return prompt;
+  };
+
+  // Open podcast modal with the prompt (not generated script)
+  const handleOpenPodcastModal = () => {
+    if (!sixArticles || !sixArticles.articles?.length) return;
+
+    const promptContent = buildPromptContent();
+    setPodcastScript(promptContent);
+    setShowPodcastModal(true);
+    setPodcastError(null);
+  };
+
+  // Generate script from prompt
+  const handleRegenerateScript = async () => {
+    if (!sixArticles || !sixArticles.articles?.length) return;
+
+    setIsGeneratingScript(true);
+    setPodcastError(null);
+
+    try {
+      // Build articles data for script generation - ALL articles
+      const articlesData = sixArticles.articles.map(article => ({
+        title: article.title || article.headline || 'Untitled',
+        summary: article.executive_takeaway || article.summary || '',
+        category: article.category || 'General',
+        future_signal: article.signal_strength || 'N/A',
+        sentiment: article.risk_opportunity || 'N/A',
+        time_to_impact: article.time_horizon || 'N/A',
+      }));
+
+      const res = await fetch('/api/generate_podcast_script', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          podcast_name: 'Your Briefing',
+          episode_title: `Executive Briefing - ${persona}`,
+          model: model || 'gpt-4o',
+          mode: 'bulletin',
+          duration: 'medium',
+          articles: articlesData,
+        })
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.detail || 'Failed to generate script');
+      }
+
+      const data = await res.json();
+      setPodcastScript(data.script || '');
+    } catch (err) {
+      setPodcastError(err instanceof Error ? err.message : 'Failed to generate script');
+      console.error('Error generating podcast script:', err);
+    } finally {
+      setIsGeneratingScript(false);
+    }
+  };
+
+  // Generate audio from script
+  const handleGenerateAudio = async (editedScript: string, voiceId: string, duration: string, episodeTitle: string) => {
+    setIsGeneratingAudio(true);
+    setPodcastError(null);
+    setPodcastAudioUrl(null);
+
+    try {
+      const res = await fetch('/api/generate_tts_podcast', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          podcast_name: 'Your Briefing',
+          episode_title: episodeTitle || `Executive Briefing - ${persona} - ${new Date().toLocaleDateString()}`,
+          script: editedScript,
+          mode: 'bulletin',
+          duration: duration,
+          host_voice_id: voiceId,
+        })
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.detail || 'Failed to generate podcast');
+      }
+
+      const data = await res.json();
+
+      // Poll for completion if we get a podcast_id
+      if (data.podcast_id) {
+        const pollInterval = setInterval(async () => {
+          try {
+            const statusRes = await fetch(`/api/podcast/status/${data.podcast_id}`, {
+              credentials: 'include'
+            });
+            if (statusRes.ok) {
+              const statusData = await statusRes.json();
+              if (statusData.status === 'completed') {
+                clearInterval(pollInterval);
+                setPodcastAudioUrl(statusData.audio_url);
+                setIsGeneratingAudio(false);
+                setShowPodcastModal(false);
+                setShowAudioPlayer(true);
+              } else if (statusData.status === 'failed') {
+                clearInterval(pollInterval);
+                setPodcastError(statusData.error || 'Podcast generation failed');
+                setIsGeneratingAudio(false);
+              }
+            }
+          } catch (pollErr) {
+            console.error('Error polling podcast status:', pollErr);
+          }
+        }, 2000);
+
+        // Timeout after 5 minutes
+        setTimeout(() => {
+          clearInterval(pollInterval);
+          if (isGeneratingAudio) {
+            setPodcastError('Podcast generation timed out');
+            setIsGeneratingAudio(false);
+          }
+        }, 300000);
+      } else if (data.audio_url) {
+        setPodcastAudioUrl(data.audio_url);
+        setIsGeneratingAudio(false);
+        setShowPodcastModal(false);
+        setShowAudioPlayer(true);
+      }
+    } catch (err) {
+      setPodcastError(err instanceof Error ? err.message : 'Failed to generate podcast');
+      setIsGeneratingAudio(false);
+      console.error('Error generating podcast:', err);
+    }
   };
 
   return (
@@ -280,6 +483,39 @@ export function BriefingSection({
                 </>
               )}
             </div>
+          )}
+
+          {/* Share Button */}
+          {sixArticles && sixArticles.articles?.length > 0 && (
+            <button
+              onClick={handleShareBriefing}
+              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              title="Share briefing via email"
+            >
+              <Share2 className="w-5 h-5" />
+            </button>
+          )}
+
+          {/* Podcast Button */}
+          {sixArticles && sixArticles.articles?.length > 0 && (
+            <button
+              onClick={() => {
+                if (podcastAudioUrl) {
+                  setShowAudioPlayer(true);
+                } else {
+                  handleOpenPodcastModal();
+                }
+              }}
+              disabled={isGeneratingScript || isGeneratingAudio}
+              className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+              title={isGeneratingScript || isGeneratingAudio ? 'Generating...' : podcastAudioUrl ? 'Play podcast' : 'Generate podcast'}
+            >
+              {isGeneratingScript || isGeneratingAudio ? (
+                <Loader2 className="w-5 h-5 animate-spin text-pink-500" />
+              ) : (
+                <Volume2 className={`w-5 h-5 ${podcastAudioUrl ? 'text-pink-500' : ''}`} />
+              )}
+            </button>
           )}
 
           {/* Tune Button */}
@@ -433,6 +669,81 @@ export function BriefingSection({
             ))}
           </div>
         </div>
+      )}
+
+      {/* Audio Player Modal */}
+      {showAudioPlayer && podcastAudioUrl && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                <Volume2 className="w-5 h-5 text-pink-500" />
+                Your Briefing Podcast
+              </h3>
+              <button
+                onClick={() => setShowAudioPlayer(false)}
+                className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <audio
+              controls
+              autoPlay
+              className="w-full"
+              src={podcastAudioUrl}
+            >
+              Your browser does not support the audio element.
+            </audio>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-3">
+              Generated for {persona} on {new Date().toLocaleDateString()}
+            </p>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Podcast Error Toast */}
+      {podcastError && createPortal(
+        <div className="fixed bottom-4 right-4 z-50 bg-red-100 dark:bg-red-900 border border-red-200 dark:border-red-700 text-red-800 dark:text-red-200 px-4 py-3 rounded-lg shadow-lg max-w-sm">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+            <div>
+              <p className="font-medium">Podcast Generation Failed</p>
+              <p className="text-sm mt-1">{podcastError}</p>
+            </div>
+            <button
+              onClick={() => setPodcastError(null)}
+              className="ml-auto p-1 hover:bg-red-200 dark:hover:bg-red-800 rounded"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Podcast Script Modal */}
+      <PodcastScriptModal
+        open={showPodcastModal}
+        onOpenChange={setShowPodcastModal}
+        script={podcastScript}
+        isGeneratingScript={isGeneratingScript}
+        onRegenerateScript={handleRegenerateScript}
+        onGenerateAudio={handleGenerateAudio}
+        isGeneratingAudio={isGeneratingAudio}
+        mode="bulletin"
+        duration="short"
+        episodeTitle={`Executive Briefing - ${persona}`}
+      />
+
+      {/* Share Modal */}
+      {shareData && (
+        <ShareModal
+          open={showShareModal}
+          onOpenChange={setShowShareModal}
+          data={shareData}
+        />
       )}
     </section>
   );
