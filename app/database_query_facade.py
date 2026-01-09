@@ -6499,6 +6499,117 @@ class DatabaseQueryFacade:
             return False
 
     # ==========================================
+    # Incident Status Methods
+    # ==========================================
+
+    def update_incident_status(self, incident_name: str, topic: str, status: str) -> bool:
+        """Update or create incident status."""
+        conn = None
+        try:
+            conn = self.connection
+            if self.db.db_type == 'postgresql':
+                query = text("""
+                    INSERT INTO incident_status (incident_name, topic, status, updated_at)
+                    VALUES (:incident_name, :topic, :status, NOW())
+                    ON CONFLICT (incident_name, topic) DO UPDATE SET
+                        status = EXCLUDED.status,
+                        updated_at = NOW()
+                """)
+            else:
+                query = text("""
+                    INSERT OR REPLACE INTO incident_status (incident_name, topic, status, updated_at)
+                    VALUES (:incident_name, :topic, :status, datetime('now'))
+                """)
+
+            conn.execute(query, {
+                "incident_name": incident_name,
+                "topic": topic,
+                "status": status
+            })
+            conn.commit()
+            self.logger.info(f"Updated incident status: {incident_name} -> {status}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error updating incident status: {e}")
+            if conn:
+                conn.rollback()
+            return False
+
+    def get_incident_statuses(self, topic: str) -> Dict[str, str]:
+        """Get all incident statuses for a topic. Returns dict of {incident_name: status}."""
+        try:
+            conn = self.connection
+            query = text("""
+                SELECT incident_name, status FROM incident_status
+                WHERE topic = :topic AND status != 'deleted'
+            """)
+            result = conn.execute(query, {"topic": topic})
+            return {row[0]: row[1] for row in result.fetchall()}
+        except Exception as e:
+            self.logger.error(f"Error getting incident statuses: {e}")
+            return {}
+
+    # ==========================================
+    # User Preference Methods
+    # ==========================================
+
+    def get_user_preference(self, username: str, preference_key: str) -> Optional[Dict]:
+        """Get a user preference value by key."""
+        try:
+            conn = self.connection
+            query = text("""
+                SELECT config_value FROM user_preferences
+                WHERE username = :username AND preference_key = :preference_key
+            """)
+            result = conn.execute(query, {
+                "username": username,
+                "preference_key": preference_key
+            })
+            row = result.fetchone()
+            if row:
+                import json
+                return json.loads(row[0]) if isinstance(row[0], str) else row[0]
+            return None
+        except Exception as e:
+            self.logger.error(f"Error getting user preference: {e}")
+            return None
+
+    def set_user_preference(self, username: str, preference_key: str, value: Dict) -> bool:
+        """Set a user preference value."""
+        conn = None
+        try:
+            import json
+            conn = self.connection
+            json_value = json.dumps(value)
+
+            if self.db.db_type == 'postgresql':
+                query = text("""
+                    INSERT INTO user_preferences (username, preference_key, config_value, created_at, updated_at)
+                    VALUES (:username, :preference_key, :config_value, NOW(), NOW())
+                    ON CONFLICT (username, preference_key) DO UPDATE SET
+                        config_value = EXCLUDED.config_value,
+                        updated_at = NOW()
+                """)
+            else:
+                query = text("""
+                    INSERT OR REPLACE INTO user_preferences (username, preference_key, config_value, updated_at)
+                    VALUES (:username, :preference_key, :config_value, datetime('now'))
+                """)
+
+            conn.execute(query, {
+                "username": username,
+                "preference_key": preference_key,
+                "config_value": json_value
+            })
+            conn.commit()
+            return True
+        except Exception as e:
+            self.logger.error(f"Error setting user preference: {e}")
+            if conn:
+                conn.rollback()
+            return False
+
+    # ==========================================
     # Analysis Run Logging Methods
     # ==========================================
 

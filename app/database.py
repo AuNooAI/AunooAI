@@ -1668,12 +1668,16 @@ Remember to cite your sources and provide actionable insights where possible."""
             try:
                 # Create table if it doesn't exist
                 self.create_incident_status_table()
-                
+
+                # PostgreSQL upsert syntax
                 cursor.execute("""
-                    INSERT OR REPLACE INTO incident_status (incident_name, topic, status, updated_at)
-                    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                    INSERT INTO incident_status (incident_name, topic, status, updated_at)
+                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (incident_name, topic) DO UPDATE SET
+                        status = EXCLUDED.status,
+                        updated_at = CURRENT_TIMESTAMP
                 """, (incident_name, topic, status))
-                
+
                 conn.commit()
                 logger.info(f"Updated incident status: {incident_name} -> {status}")
                 return True
@@ -1689,17 +1693,56 @@ Remember to cite your sources and provide actionable insights where possible."""
             try:
                 # Create table if it doesn't exist
                 self.create_incident_status_table()
-                
+
                 cursor.execute("""
-                    SELECT incident_name, status FROM incident_status 
-                    WHERE topic = ? AND status != 'deleted'
+                    SELECT incident_name, status FROM incident_status
+                    WHERE topic = %s AND status != 'deleted'
                 """, (topic,))
-                
+
                 results = cursor.fetchall()
                 return {row[0]: row[1] for row in results}
             except Exception as e:
                 logger.error(f"Error getting incident status: {e}")
                 return {}
+
+    def get_user_preference(self, username: str, preference_key: str) -> Optional[dict]:
+        """Get a user preference value by key."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute("""
+                    SELECT config_value FROM user_preferences
+                    WHERE username = %s AND preference_key = %s
+                """, (username, preference_key))
+                result = cursor.fetchone()
+                if result:
+                    import json
+                    return json.loads(result[0]) if isinstance(result[0], str) else result[0]
+                return None
+            except Exception as e:
+                logger.error(f"Error getting user preference: {e}")
+                return None
+
+    def set_user_preference(self, username: str, preference_key: str, value: dict) -> bool:
+        """Set a user preference value."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                import json
+                json_value = json.dumps(value)
+                cursor.execute("""
+                    INSERT INTO user_preferences (username, preference_key, config_value, created_at, updated_at)
+                    VALUES (%s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    ON CONFLICT (username, preference_key) DO UPDATE SET
+                        config_value = EXCLUDED.config_value,
+                        updated_at = CURRENT_TIMESTAMP
+                """, (username, preference_key, json_value))
+                conn.commit()
+                return True
+            except Exception as e:
+                logger.error(f"Error setting user preference: {e}")
+                conn.rollback()
+                return False
 
     def search_articles(
         self,
