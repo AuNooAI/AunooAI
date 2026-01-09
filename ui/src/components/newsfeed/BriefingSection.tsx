@@ -301,7 +301,52 @@ export function BriefingSection({
     setPodcastError(null);
   };
 
-  // Generate script from prompt
+  // Check if content is raw instructions (not a generated script)
+  const isRawInstructions = (content: string): boolean => {
+    // Raw instructions have markdown formatting like "# Executive Briefing", "## Story 1:", "**Category:**"
+    return content.includes('# Executive Briefing') ||
+           content.includes('## Story ') ||
+           content.includes('**Category:**') ||
+           content.includes('**Signal Strength:**');
+  };
+
+  // Generate script from articles data (extracted for reuse)
+  const generateScriptFromArticles = async (): Promise<string | null> => {
+    if (!sixArticles || !sixArticles.articles?.length) return null;
+
+    const articlesData = sixArticles.articles.map(article => ({
+      title: article.title || article.headline || 'Untitled',
+      summary: article.executive_takeaway || article.summary || '',
+      category: article.category || 'General',
+      future_signal: article.signal_strength || 'N/A',
+      sentiment: article.risk_opportunity || 'N/A',
+      time_to_impact: article.time_horizon || 'N/A',
+    }));
+
+    const res = await fetch('/api/generate_podcast_script', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        podcast_name: 'Your Briefing',
+        episode_title: `Executive Briefing - ${persona}`,
+        model: model || 'gpt-4o',
+        mode: 'bulletin',
+        duration: 'medium',
+        articles: articlesData,
+      })
+    });
+
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.detail || 'Failed to generate script');
+    }
+
+    const data = await res.json();
+    return data.script || null;
+  };
+
+  // Generate script from prompt (uses extracted generateScriptFromArticles)
   const handleRegenerateScript = async () => {
     if (!sixArticles || !sixArticles.articles?.length) return;
 
@@ -309,37 +354,10 @@ export function BriefingSection({
     setPodcastError(null);
 
     try {
-      // Build articles data for script generation - ALL articles
-      const articlesData = sixArticles.articles.map(article => ({
-        title: article.title || article.headline || 'Untitled',
-        summary: article.executive_takeaway || article.summary || '',
-        category: article.category || 'General',
-        future_signal: article.signal_strength || 'N/A',
-        sentiment: article.risk_opportunity || 'N/A',
-        time_to_impact: article.time_horizon || 'N/A',
-      }));
-
-      const res = await fetch('/api/generate_podcast_script', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          podcast_name: 'Your Briefing',
-          episode_title: `Executive Briefing - ${persona}`,
-          model: model || 'gpt-4o',
-          mode: 'bulletin',
-          duration: 'medium',
-          articles: articlesData,
-        })
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.detail || 'Failed to generate script');
+      const generatedScript = await generateScriptFromArticles();
+      if (generatedScript) {
+        setPodcastScript(generatedScript);
       }
-
-      const data = await res.json();
-      setPodcastScript(data.script || '');
     } catch (err) {
       setPodcastError(err instanceof Error ? err.message : 'Failed to generate script');
       console.error('Error generating podcast script:', err);
@@ -355,6 +373,22 @@ export function BriefingSection({
     setPodcastAudioUrl(null);
 
     try {
+      let scriptToUse = editedScript;
+
+      // If content is still raw instructions, auto-generate script first
+      if (isRawInstructions(editedScript)) {
+        setIsGeneratingScript(true);
+        const generatedScript = await generateScriptFromArticles();
+        setIsGeneratingScript(false);
+
+        if (!generatedScript) {
+          throw new Error('Failed to generate podcast script');
+        }
+
+        scriptToUse = generatedScript;
+        setPodcastScript(generatedScript); // Update the modal with the generated script
+      }
+
       const res = await fetch('/api/generate_tts_podcast', {
         method: 'POST',
         credentials: 'include',
@@ -362,7 +396,7 @@ export function BriefingSection({
         body: JSON.stringify({
           podcast_name: 'Your Briefing',
           episode_title: episodeTitle || `Executive Briefing - ${persona} - ${new Date().toLocaleDateString()}`,
-          script: editedScript,
+          script: scriptToUse,
           mode: 'bulletin',
           duration: duration,
           host_voice_id: voiceId,
