@@ -16,6 +16,7 @@ import {
   Rss,
   FileText,
   Check,
+  Bookmark,
 } from 'lucide-react';
 import { useNewsFeed } from '../hooks/useNewsFeed';
 import { useNarrativeExplorer } from '../hooks/useNarrativeExplorer';
@@ -24,6 +25,8 @@ import { SharedNavigation } from '../components/SharedNavigation';
 import { NewsFeedHeader } from '../components/newsfeed/NewsFeedHeader';
 import { BriefingSection } from '../components/newsfeed/BriefingSection';
 import { HighlightsSection } from '../components/newsfeed/HighlightsSection';
+import { SavedIncidentsSection } from '../components/newsfeed/SavedIncidentsSection';
+import { SavedPodcastsSection } from '../components/newsfeed/SavedPodcastsSection';
 import { NarrativeInsightsSection } from '../components/newsfeed/NarrativeInsightsSection';
 import { ResearchAgentsSection } from '../components/newsfeed/ResearchAgentsSection';
 import { SignalReportsTab } from '../components/newsfeed/SignalReportsTab';
@@ -38,6 +41,7 @@ import { SixArticlesTuneModal } from '../components/SixArticlesTuneModal';
 import { type NewsArticle, type ArticleCluster, type ClusterRelatedArticle, getArticleByUri, getClusteredArticles, clusterArticleToNewsArticle } from '../services/newsFeedApi';
 import { applyFilters, createEmptyFilters, type IncidentFilters } from '../components/newsfeed/FilterPanel';
 import { getSignalReportsCount } from '../services/researchAgentsApi';
+import { getSavedIncidents, saveIncident as apiSaveIncident, unsaveIncident as apiUnsaveIncident } from '../services/narrativeExplorerApi';
 import { NotificationBell } from '../components/gather/NotificationBell';
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import { Button } from '../components/ui/button';
@@ -138,7 +142,7 @@ export function NewsFeedPage() {
   };
 
   // UI State
-  const [currentTab, setCurrentTab] = useState<'feed' | 'agents' | 'reports'>('feed');
+  const [currentTab, setCurrentTab] = useState<'feed' | 'agents' | 'reports' | 'saved'>('feed');
   const [reportsCount, setReportsCount] = useState(0);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isNarrativesConfigOpen, setIsNarrativesConfigOpen] = useState(false);
@@ -151,6 +155,40 @@ export function NewsFeedPage() {
   const [selectedArticleRelated, setSelectedArticleRelated] = useState<ClusterRelatedArticle[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<{ name: string; topic?: string } | null>(null);
   const [loadingArticleDetail, setLoadingArticleDetail] = useState(false);
+
+  // Saved incidents state
+  const [savedIncidentNames, setSavedIncidentNames] = useState<string[]>([]);
+
+  // Load saved incidents when topic changes
+  useEffect(() => {
+    if (config.topic) {
+      getSavedIncidents(config.topic)
+        .then(names => setSavedIncidentNames(names))
+        .catch(err => console.error('Failed to load saved incidents:', err));
+    }
+  }, [config.topic]);
+
+  // Save incident handler
+  const handleSaveIncident = useCallback(async (incidentName: string) => {
+    if (!config.topic) return;
+    try {
+      await apiSaveIncident(incidentName, config.topic);
+      setSavedIncidentNames(prev => [...prev, incidentName]);
+    } catch (err) {
+      console.error('Failed to save incident:', err);
+    }
+  }, [config.topic]);
+
+  // Unsave incident handler
+  const handleUnsaveIncident = useCallback(async (incidentName: string) => {
+    if (!config.topic) return;
+    try {
+      await apiUnsaveIncident(incidentName, config.topic);
+      setSavedIncidentNames(prev => prev.filter(name => name !== incidentName));
+    } catch (err) {
+      console.error('Failed to unsave incident:', err);
+    }
+  }, [config.topic]);
 
   // Section visibility state with localStorage persistence
   const [visibleSections, setVisibleSections] = useState<VisibleSections>(() => {
@@ -581,6 +619,16 @@ export function NewsFeedPage() {
               <span className="explore-tab-badge">{reportsCount}</span>
             )}
           </button>
+          <button
+            className={`explore-tab-btn ${currentTab === 'saved' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('saved')}
+          >
+            <Bookmark className="w-4 h-4" />
+            Saved
+            {savedIncidentNames.length > 0 && (
+              <span className="explore-tab-badge">{savedIncidentNames.length}</span>
+            )}
+          </button>
         </div>
 
         {/* Error Alerts */}
@@ -674,6 +722,10 @@ export function NewsFeedPage() {
                         onArticleClick={handleArticleClick}
                         onOpenConfig={() => setIsConfigOpen(true)}
                         model={config.model}
+                        currentTopic={config.topic}
+                        savedIncidentNames={savedIncidentNames}
+                        onSaveIncident={handleSaveIncident}
+                        onUnsaveIncident={handleUnsaveIncident}
                       />
                     )}
 
@@ -789,6 +841,29 @@ export function NewsFeedPage() {
             {/* Signal Reports Tab Content */}
             {currentTab === 'reports' && (
               <SignalReportsTab topic={config.topic || undefined} />
+            )}
+
+            {/* Saved Tab Content - Incidents and Podcasts */}
+            {currentTab === 'saved' && (
+              <div className="space-y-6">
+                {/* Saved Incidents Section */}
+                <SavedIncidentsSection
+                  incidents={filteredIncidents}
+                  savedIncidentNames={savedIncidentNames}
+                  loading={loadingHighlights}
+                  onUnsaveIncident={handleUnsaveIncident}
+                  onArticleClick={handleArticleClick}
+                  isFullTab={true}
+                />
+
+                {/* Divider */}
+                <hr className="border-gray-200 dark:border-gray-700 mx-6" />
+
+                {/* Saved Podcasts Section */}
+                <div className="px-6">
+                  <SavedPodcastsSection />
+                </div>
+              </div>
             )}
           </div>
         </main>

@@ -2445,28 +2445,144 @@ Output a pure JSON array only."""
 @router.post("/incident-status/{incident_name}")
 async def update_incident_status(
     incident_name: str,
-    status: str = Query(..., description="New status: seen, deleted, or active"),
+    status: str = Query(..., description="New status: seen, deleted, active, or saved"),
     topic: str = Query(..., description="Topic the incident belongs to"),
     session=Depends(verify_session),
 ):
-    """Update incident status (seen/deleted/active)."""
+    """Update incident status (seen/deleted/active/saved)."""
     try:
         from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        if status not in ['seen', 'deleted', 'active', 'saved']:
+            raise HTTPException(status_code=400, detail="Invalid status. Must be 'seen', 'deleted', 'active', or 'saved'")
+
         db = get_database_instance()
-        
-        if status not in ['seen', 'deleted', 'active']:
-            raise HTTPException(status_code=400, detail="Invalid status. Must be 'seen', 'deleted', or 'active'")
-        
-        success = db.update_incident_status(incident_name, topic, status)
-        
+        facade = DatabaseQueryFacade(db, logger)
+        success = facade.update_incident_status(incident_name, topic, status)
+
         if success:
             return {"success": True, "message": f"Incident status updated to {status}"}
         else:
             raise HTTPException(status_code=500, detail="Failed to update incident status")
-            
+
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.error("Error updating incident status: %s", exc)
         raise HTTPException(status_code=500, detail="Incident status update error")
+
+
+@router.get("/incidents/saved")
+async def get_saved_incidents(
+    topic: str = Query(..., description="Topic to get saved incidents for"),
+    session=Depends(verify_session),
+):
+    """Get list of saved incident names for a topic."""
+    try:
+        from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+        statuses = facade.get_incident_statuses(topic)
+        saved_incidents = [name for name, status in statuses.items() if status == 'saved']
+
+        return {"saved_incidents": saved_incidents}
+
+    except Exception as exc:
+        logger.error("Error getting saved incidents: %s", exc)
+        raise HTTPException(status_code=500, detail="Error retrieving saved incidents")
+
+
+class _IncidentPreferenceRequest(BaseModel):
+    """Request model for recording incident preferences."""
+    incident_name: str
+    preference: str  # 'more' or 'less'
+    incident_data: dict = {}  # type, topic, entities for learning
+
+
+@router.post("/incident-preference")
+async def record_incident_preference(
+    request: _IncidentPreferenceRequest,
+    session=Depends(verify_session),
+):
+    """Record more/less like this preference for an incident."""
+    try:
+        from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        if request.preference not in ['more', 'less']:
+            raise HTTPException(status_code=400, detail="Invalid preference. Must be 'more' or 'less'")
+
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+
+        # Get current preferences
+        username = session.get('username', 'default')
+        current_prefs = facade.get_user_preference(username, 'incident_preferences') or {
+            'more_like': [],
+            'less_like': []
+        }
+
+        # Build preference entry from incident data
+        pref_entry = {
+            'incident_name': request.incident_name,
+            'timestamp': datetime.now().isoformat()
+        }
+        if request.incident_data.get('type'):
+            pref_entry['type'] = request.incident_data['type']
+        if request.incident_data.get('topic'):
+            pref_entry['topic'] = request.incident_data['topic']
+        if request.incident_data.get('entities'):
+            pref_entry['entities'] = request.incident_data['entities'][:3]
+
+        # Add to appropriate list
+        target_list = 'more_like' if request.preference == 'more' else 'less_like'
+        current_prefs[target_list].append(pref_entry)
+
+        # Keep only last 50 preferences per category
+        current_prefs['more_like'] = current_prefs['more_like'][-50:]
+        current_prefs['less_like'] = current_prefs['less_like'][-50:]
+
+        # Save updated preferences
+        success = facade.set_user_preference(username, 'incident_preferences', current_prefs)
+
+        if success:
+            return {"success": True, "message": f"Preference '{request.preference}' recorded"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to save preference")
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error recording incident preference: %s", exc)
+        raise HTTPException(status_code=500, detail="Error recording preference")
+
+
+@router.get("/incident-preferences")
+async def get_incident_preferences(
+    session=Depends(verify_session),
+):
+    """Get user's incident preferences for AI ranking."""
+    try:
+        from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+        username = session.get('username', 'default')
+        prefs = facade.get_user_preference(username, 'incident_preferences') or {
+            'more_like': [],
+            'less_like': []
+        }
+
+        return prefs
+
+    except Exception as exc:
+        logger.error("Error getting incident preferences: %s", exc)
+        raise HTTPException(status_code=500, detail="Error retrieving preferences")
+
 
 # ------------------------------------------------------------------
 # Signal instructions endpoints for threat hunting

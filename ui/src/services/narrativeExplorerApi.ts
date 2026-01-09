@@ -6,7 +6,7 @@
 // Types for Incident Tracking (Highlights)
 export type IncidentType = 'incident' | 'entity' | 'expertise' | 'informed_insider' | 'trend_signal' | 'strategic_shift' | 'event';
 export type IncidentSignificance = 'high' | 'medium' | 'low';
-export type IncidentStatus = 'active' | 'seen';
+export type IncidentStatus = 'active' | 'seen' | 'saved';
 export type Plausibility = 'likely' | 'questionable' | 'implausible';
 export type SourceQuality = 'high' | 'mixed' | 'low';
 
@@ -480,6 +480,114 @@ export async function deleteIncident(incidentName: string): Promise<{ success: b
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
     throw new Error(error.detail || `Failed to delete incident: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Save an incident
+ */
+export async function saveIncident(
+  incidentName: string,
+  topic: string
+): Promise<{ success: boolean; message: string }> {
+  const params = new URLSearchParams({ status: 'saved', topic });
+  const response = await fetch(`/api/incident-status/${encodeURIComponent(incidentName)}?${params}`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(error.detail || `Failed to save incident: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Unsave an incident (set back to active)
+ */
+export async function unsaveIncident(
+  incidentName: string,
+  topic: string
+): Promise<{ success: boolean; message: string }> {
+  const params = new URLSearchParams({ status: 'active', topic });
+  const response = await fetch(`/api/incident-status/${encodeURIComponent(incidentName)}?${params}`, {
+    method: 'POST',
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(error.detail || `Failed to unsave incident: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Get list of saved incident names for a topic
+ */
+export async function getSavedIncidents(
+  topic: string
+): Promise<string[]> {
+  const params = new URLSearchParams({ topic });
+  const response = await fetch(`/api/incidents/saved?${params}`, {
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(error.detail || `Failed to get saved incidents: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.saved_incidents || [];
+}
+
+/**
+ * Record more/less like this preference for an incident
+ */
+export async function recordIncidentPreference(
+  incidentName: string,
+  preference: 'more' | 'less',
+  incidentData: { type?: string; topic?: string; entities?: string[] } = {}
+): Promise<{ success: boolean; message: string }> {
+  const response = await fetch('/api/incident-preference', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      incident_name: incidentName,
+      preference,
+      incident_data: incidentData,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(error.detail || `Failed to record preference: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Get user's incident preferences
+ */
+export async function getIncidentPreferences(): Promise<{
+  more_like: Array<{ type?: string; topic?: string; entities?: string[] }>;
+  less_like: Array<{ type?: string; topic?: string; entities?: string[] }>;
+}> {
+  const response = await fetch('/api/incident-preferences', {
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(error.detail || `Failed to get preferences: ${response.status}`);
   }
 
   return response.json();

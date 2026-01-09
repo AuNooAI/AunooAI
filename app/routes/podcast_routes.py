@@ -253,7 +253,7 @@ class TTSPodcastRequest(BaseModel):
 
     # Speaker / voices
     host_name: Optional[str] = "Aunoo"
-    host_voice_id: str
+    host_voice_id: str = DEFAULT_VOICE_ID
     guest_voice_id: Optional[str] = None
     guest_title: Optional[str] = None
     guest_name: Optional[str] = None
@@ -964,16 +964,17 @@ async def list_podcasts(session=Depends(verify_session)):
         podcasts = []
         for row in (DatabaseQueryFacade(get_database_instance(), logger)).get_all_podcasts():
             # Handle null values and ensure proper JSON encoding
+            # Row is a mapping (dict-like) so access by column name
             podcast = {
-                "podcast_id": row[0],
-                "title": row[1],
-                "status": row[2],
-                "audio_url": row[3],
-                "created_at": row[4],
-                "completed_at": row[5],
-                "error": row[6],
-                "transcript": row[7] if row[7] else "",
-                "metadata": json.loads(row[8]) if row[8] else {}
+                "podcast_id": row["id"],
+                "title": row["title"],
+                "status": row["status"],
+                "audio_url": row["audio_url"],
+                "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+                "completed_at": row["completed_at"].isoformat() if row["completed_at"] else None,
+                "error": row["error"],
+                "transcript": row["transcript"] if row["transcript"] else "",
+                "metadata": json.loads(row["metadata"]) if row["metadata"] else {}
             }
             podcasts.append(podcast)
 
