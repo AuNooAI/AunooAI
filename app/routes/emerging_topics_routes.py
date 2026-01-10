@@ -1284,3 +1284,292 @@ async def get_dashboard_widget_data(
             for t in topics
         ]
     }
+
+
+# ============================================================================
+# Schedule & Notification Endpoints
+# ============================================================================
+
+class ScheduleSettingsRequest(BaseModel):
+    """Request model for schedule settings."""
+    schedule_enabled: Optional[bool] = None
+    check_interval: Optional[int] = Field(None, ge=1, le=168)  # 1-168 hours (1 week)
+    interval_unit: Optional[str] = Field(None, pattern="^(hours|days)$")
+    min_articles: Optional[int] = Field(None, ge=10, le=1000)
+    sample_size: Optional[int] = Field(None, ge=50, le=500)
+    days_back: Optional[int] = Field(None, ge=1, le=30)
+    model: Optional[str] = None
+    topic_filter: Optional[str] = None
+
+
+class NotificationSettingsRequest(BaseModel):
+    """Request model for notification settings."""
+    notifications_enabled: Optional[bool] = None
+    notification_channels: Optional[Dict[str, bool]] = None
+    min_confidence: Optional[float] = Field(None, ge=0.0, le=1.0)
+    cooldown_minutes: Optional[int] = Field(None, ge=30, le=1440)  # 30 min - 24 hours
+    email_recipients: Optional[List[str]] = None
+    bluesky_handle: Optional[str] = None
+    detection_type_filters: Optional[List[str]] = None
+
+
+@router.get("/schedule/status")
+async def get_schedule_status(
+    session=Depends(verify_session)
+):
+    """Get current schedule and monitor status."""
+    from app.database import get_database_instance
+    from sqlalchemy import text
+
+    db = get_database_instance()
+    conn = db.get_raw_connection()
+
+    try:
+        # Get settings
+        settings_result = conn.execute(text("""
+            SELECT
+                schedule_enabled, check_interval, interval_unit, min_articles,
+                sample_size, days_back, model, topic_filter
+            FROM emerging_topics_settings
+            WHERE id = 1
+        """))
+        settings = settings_result.mappings().first()
+
+        # Get status
+        status_result = conn.execute(text("""
+            SELECT
+                last_check_time, next_check_time, topics_detected,
+                articles_analyzed, last_error, is_running
+            FROM emerging_topics_monitor_status
+            WHERE id = 1
+        """))
+        status = status_result.mappings().first()
+
+        return {
+            "settings": dict(settings) if settings else {},
+            "status": dict(status) if status else {},
+        }
+    finally:
+        conn.close()
+
+
+@router.post("/schedule/settings")
+async def update_schedule_settings(
+    request: ScheduleSettingsRequest,
+    session=Depends(verify_session)
+):
+    """Update schedule settings."""
+    from app.database import get_database_instance
+    from sqlalchemy import text
+
+    db = get_database_instance()
+    conn = db.get_raw_connection()
+
+    try:
+        updates = []
+        params = {}
+
+        if request.schedule_enabled is not None:
+            updates.append("schedule_enabled = :schedule_enabled")
+            params["schedule_enabled"] = request.schedule_enabled
+        if request.check_interval is not None:
+            updates.append("check_interval = :check_interval")
+            params["check_interval"] = request.check_interval
+        if request.interval_unit is not None:
+            updates.append("interval_unit = :interval_unit")
+            params["interval_unit"] = request.interval_unit
+        if request.min_articles is not None:
+            updates.append("min_articles = :min_articles")
+            params["min_articles"] = request.min_articles
+        if request.sample_size is not None:
+            updates.append("sample_size = :sample_size")
+            params["sample_size"] = request.sample_size
+        if request.days_back is not None:
+            updates.append("days_back = :days_back")
+            params["days_back"] = request.days_back
+        if request.model is not None:
+            updates.append("model = :model")
+            params["model"] = request.model
+        if request.topic_filter is not None:
+            updates.append("topic_filter = :topic_filter")
+            params["topic_filter"] = request.topic_filter if request.topic_filter else None
+
+        if updates:
+            updates.append("updated_at = NOW()")
+            conn.execute(text(f"""
+                UPDATE emerging_topics_settings
+                SET {', '.join(updates)}
+                WHERE id = 1
+            """), params)
+            conn.commit()
+
+        return {"success": True, "message": "Schedule settings updated"}
+    except Exception as e:
+        logger.error(f"Failed to update schedule settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.post("/schedule/run-now")
+async def run_detection_now(
+    topic: Optional[str] = Query(None, description="Topic filter"),
+    session=Depends(verify_session)
+):
+    """Trigger immediate detection run."""
+    from app.database import get_database_instance
+    from app.tasks.emerging_topics_monitor import run_detection_now
+
+    try:
+        db = get_database_instance()
+        result = await run_detection_now(db, topic_filter=topic)
+
+        return {
+            "success": result.get("success", False),
+            "topics_detected": result.get("topics_detected", 0),
+            "articles_analyzed": result.get("articles_analyzed", 0),
+            "error": result.get("error"),
+        }
+    except Exception as e:
+        logger.error(f"Failed to run detection: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/notifications/settings")
+async def get_notification_settings(
+    session=Depends(verify_session)
+):
+    """Get notification settings."""
+    from app.database import get_database_instance
+    from sqlalchemy import text
+
+    db = get_database_instance()
+    conn = db.get_raw_connection()
+
+    try:
+        result = conn.execute(text("""
+            SELECT
+                notifications_enabled, notification_channels, min_confidence,
+                cooldown_minutes, email_recipients, bluesky_handle,
+                detection_type_filters, last_notification_time
+            FROM emerging_topics_settings
+            WHERE id = 1
+        """))
+        row = result.mappings().first()
+
+        if row:
+            return {
+                "notifications_enabled": row["notifications_enabled"],
+                "notification_channels": row["notification_channels"] or {},
+                "min_confidence": row["min_confidence"],
+                "cooldown_minutes": row["cooldown_minutes"],
+                "email_recipients": row["email_recipients"] or [],
+                "bluesky_handle": row["bluesky_handle"],
+                "detection_type_filters": row["detection_type_filters"] or [],
+                "last_notification_time": row["last_notification_time"].isoformat() if row["last_notification_time"] else None,
+            }
+        return {}
+    finally:
+        conn.close()
+
+
+@router.post("/notifications/settings")
+async def update_notification_settings(
+    request: NotificationSettingsRequest,
+    session=Depends(verify_session)
+):
+    """Update notification settings."""
+    from app.database import get_database_instance
+    from sqlalchemy import text
+    import json
+
+    db = get_database_instance()
+    conn = db.get_raw_connection()
+
+    try:
+        updates = []
+        params = {}
+
+        if request.notifications_enabled is not None:
+            updates.append("notifications_enabled = :notifications_enabled")
+            params["notifications_enabled"] = request.notifications_enabled
+        if request.notification_channels is not None:
+            updates.append("notification_channels = :channels::jsonb")
+            params["channels"] = json.dumps(request.notification_channels)
+        if request.min_confidence is not None:
+            updates.append("min_confidence = :min_confidence")
+            params["min_confidence"] = request.min_confidence
+        if request.cooldown_minutes is not None:
+            updates.append("cooldown_minutes = :cooldown_minutes")
+            params["cooldown_minutes"] = request.cooldown_minutes
+        if request.email_recipients is not None:
+            updates.append("email_recipients = :recipients::jsonb")
+            params["recipients"] = json.dumps(request.email_recipients)
+        if request.bluesky_handle is not None:
+            updates.append("bluesky_handle = :bluesky_handle")
+            params["bluesky_handle"] = request.bluesky_handle if request.bluesky_handle else None
+        if request.detection_type_filters is not None:
+            updates.append("detection_type_filters = :filters::jsonb")
+            params["filters"] = json.dumps(request.detection_type_filters)
+
+        if updates:
+            updates.append("updated_at = NOW()")
+            conn.execute(text(f"""
+                UPDATE emerging_topics_settings
+                SET {', '.join(updates)}
+                WHERE id = 1
+            """), params)
+            conn.commit()
+
+        return {"success": True, "message": "Notification settings updated"}
+    except Exception as e:
+        logger.error(f"Failed to update notification settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.post("/notifications/test")
+async def send_test_notification(
+    session=Depends(verify_session)
+):
+    """Send a test notification through enabled channels."""
+    from app.database import get_database_instance
+    from app.services.emerging_topics_notification_service import EmergingTopicsNotificationService
+    from sqlalchemy import text
+
+    db = get_database_instance()
+    conn = db.get_raw_connection()
+
+    try:
+        # Get current settings
+        result = conn.execute(text("""
+            SELECT notification_channels, email_recipients, bluesky_handle
+            FROM emerging_topics_settings
+            WHERE id = 1
+        """))
+        row = result.mappings().first()
+        conn.close()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Settings not found")
+
+        channels = row["notification_channels"] or {}
+        email_recipients = row["email_recipients"] or []
+        bluesky_handle = row["bluesky_handle"]
+
+        # Send test notification
+        notification_service = EmergingTopicsNotificationService(db)
+        results = await notification_service.send_test_notification(
+            channels=channels,
+            email_recipients=email_recipients,
+            bluesky_handle=bluesky_handle
+        )
+
+        return {
+            "success": True,
+            "results": results
+        }
+    except Exception as e:
+        logger.error(f"Failed to send test notification: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
