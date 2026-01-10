@@ -1,5 +1,5 @@
 /**
- * Emerging Topics Config Modal - Configure Detection Settings
+ * Emerging Topics Config Modal - Configure Detection, Schedule & Notification Settings
  */
 
 import { useState, useEffect } from 'react';
@@ -9,6 +9,14 @@ import {
   Sliders,
   Save,
   RotateCcw,
+  Clock,
+  Bell,
+  Play,
+  Mail,
+  MessageCircle,
+  Loader2,
+  CheckCircle2,
+  AlertCircle,
 } from 'lucide-react';
 import {
   Dialog,
@@ -22,6 +30,10 @@ import { Button } from '../ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { Label } from '../ui/label';
 import { Slider } from '../ui/slider';
+import { Input } from '../ui/input';
+import { Switch } from '../ui/switch';
+import { Badge } from '../ui/badge';
+import { Checkbox } from '../ui/checkbox';
 import {
   Select,
   SelectContent,
@@ -43,6 +55,32 @@ interface AIModel {
   id: string;
   name: string;
   provider: string;
+}
+
+interface ScheduleSettings {
+  schedule_enabled: boolean;
+  check_interval: number;
+  interval_unit: string;
+  min_articles: number;
+}
+
+interface ScheduleStatus {
+  last_check_time: string | null;
+  next_check_time: string | null;
+  topics_detected: number;
+  articles_analyzed: number;
+  is_running: boolean;
+  last_error: string | null;
+}
+
+interface NotificationSettings {
+  notifications_enabled: boolean;
+  notification_channels: { email?: boolean; in_app?: boolean; bluesky?: boolean };
+  min_confidence: number;
+  cooldown_minutes: number;
+  email_recipients: string[];
+  bluesky_handle: string | null;
+  detection_type_filters: string[];
 }
 
 interface EmergingTopicsConfigModalProps {
@@ -89,14 +127,84 @@ export function EmergingTopicsConfigModal({
 }: EmergingTopicsConfigModalProps) {
   const [config, setConfig] = useState<EmergingTopicsConfig>(initialConfig);
   const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState('detection');
+
+  // Schedule state
+  const [scheduleSettings, setScheduleSettings] = useState<ScheduleSettings>({
+    schedule_enabled: false,
+    check_interval: 24,
+    interval_unit: 'hours',
+    min_articles: 50,
+  });
+  const [scheduleStatus, setScheduleStatus] = useState<ScheduleStatus | null>(null);
+  const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [runningNow, setRunningNow] = useState(false);
+
+  // Notification state
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
+    notifications_enabled: false,
+    notification_channels: { email: false, in_app: true, bluesky: false },
+    min_confidence: 0.7,
+    cooldown_minutes: 360,
+    email_recipients: [],
+    bluesky_handle: null,
+    detection_type_filters: ['accelerating', 'new_cluster'],
+  });
+  const [notificationLoading, setNotificationLoading] = useState(false);
+  const [testingNotification, setTestingNotification] = useState(false);
+  const [emailInput, setEmailInput] = useState('');
 
   useEffect(() => {
     if (open) {
       setConfig(initialConfig);
+      loadScheduleData();
+      loadNotificationData();
     }
   }, [open, initialConfig]);
 
-  // Compute valid model options - use API models or fallback defaults
+  const loadScheduleData = async () => {
+    try {
+      const response = await fetch('/api/emerging-topics/schedule/status');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.settings) {
+          setScheduleSettings({
+            schedule_enabled: data.settings.schedule_enabled || false,
+            check_interval: data.settings.check_interval || 24,
+            interval_unit: data.settings.interval_unit || 'hours',
+            min_articles: data.settings.min_articles || 50,
+          });
+        }
+        if (data.status) {
+          setScheduleStatus(data.status);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load schedule data', e);
+    }
+  };
+
+  const loadNotificationData = async () => {
+    try {
+      const response = await fetch('/api/emerging-topics/notifications/settings');
+      if (response.ok) {
+        const data = await response.json();
+        setNotificationSettings({
+          notifications_enabled: data.notifications_enabled || false,
+          notification_channels: data.notification_channels || { email: false, in_app: true, bluesky: false },
+          min_confidence: data.min_confidence || 0.7,
+          cooldown_minutes: data.cooldown_minutes || 360,
+          email_recipients: data.email_recipients || [],
+          bluesky_handle: data.bluesky_handle || null,
+          detection_type_filters: data.detection_type_filters || ['accelerating', 'new_cluster'],
+        });
+      }
+    } catch (e) {
+      console.error('Failed to load notification data', e);
+    }
+  };
+
+  // Compute valid model options
   const modelOptions = availableModels.length > 0
     ? availableModels
     : [
@@ -105,15 +213,19 @@ export function EmergingTopicsConfigModal({
         { id: 'claude-sonnet-4-20250514', name: 'claude-sonnet-4', provider: 'anthropic' },
       ];
 
-  // Ensure selected model exists in options, fallback to first option
   const selectedModel = modelOptions.find(m => m.id === config.model)?.id
     || modelOptions[0]?.id
     || 'gpt-4o';
 
-  const handleSave = () => {
-    saveEmergingTopicsConfigToStorage(config);
-    onSave(config);
-    onClose();
+  const handleSave = async () => {
+    setLoading(true);
+    try {
+      saveEmergingTopicsConfigToStorage(config);
+      onSave(config);
+      onClose();
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleReset = () => {
@@ -127,278 +239,641 @@ export function EmergingTopicsConfigModal({
     setConfig((prev) => ({ ...prev, [field]: value }));
   };
 
+  // Schedule handlers
+  const handleSaveSchedule = async () => {
+    setScheduleLoading(true);
+    try {
+      const response = await fetch('/api/emerging-topics/schedule/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(scheduleSettings),
+      });
+      if (response.ok) {
+        await loadScheduleData();
+      }
+    } catch (e) {
+      console.error('Failed to save schedule', e);
+    } finally {
+      setScheduleLoading(false);
+    }
+  };
+
+  const handleRunNow = async () => {
+    setRunningNow(true);
+    try {
+      const response = await fetch('/api/emerging-topics/schedule/run-now', {
+        method: 'POST',
+      });
+      if (response.ok) {
+        const result = await response.json();
+        await loadScheduleData();
+        alert(`Detection complete: ${result.topics_detected} topics found`);
+      }
+    } catch (e) {
+      console.error('Failed to run detection', e);
+    } finally {
+      setRunningNow(false);
+    }
+  };
+
+  // Notification handlers
+  const handleSaveNotifications = async () => {
+    setNotificationLoading(true);
+    try {
+      const response = await fetch('/api/emerging-topics/notifications/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(notificationSettings),
+      });
+      if (response.ok) {
+        await loadNotificationData();
+      }
+    } catch (e) {
+      console.error('Failed to save notifications', e);
+    } finally {
+      setNotificationLoading(false);
+    }
+  };
+
+  const handleTestNotification = async () => {
+    setTestingNotification(true);
+    try {
+      const response = await fetch('/api/emerging-topics/notifications/test', {
+        method: 'POST',
+      });
+      if (response.ok) {
+        const result = await response.json();
+        const channels = Object.entries(result.results || {})
+          .filter(([_, v]: [string, any]) => v.sent)
+          .map(([k]) => k);
+        if (channels.length > 0) {
+          alert(`Test sent via: ${channels.join(', ')}`);
+        } else {
+          alert('No channels configured or all failed');
+        }
+      }
+    } catch (e) {
+      console.error('Failed to test notification', e);
+    } finally {
+      setTestingNotification(false);
+    }
+  };
+
+  const addEmailRecipient = () => {
+    if (emailInput && emailInput.includes('@')) {
+      setNotificationSettings(prev => ({
+        ...prev,
+        email_recipients: [...prev.email_recipients, emailInput],
+      }));
+      setEmailInput('');
+    }
+  };
+
+  const removeEmailRecipient = (email: string) => {
+    setNotificationSettings(prev => ({
+      ...prev,
+      email_recipients: prev.email_recipients.filter(e => e !== email),
+    }));
+  };
+
+  const toggleDetectionType = (type: string) => {
+    setNotificationSettings(prev => ({
+      ...prev,
+      detection_type_filters: prev.detection_type_filters.includes(type)
+        ? prev.detection_type_filters.filter(t => t !== type)
+        : [...prev.detection_type_filters, type],
+    }));
+  };
+
+  const formatDateTime = (isoString: string | null) => {
+    if (!isoString) return 'Never';
+    try {
+      return new Date(isoString).toLocaleString();
+    } catch {
+      return isoString;
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="w-auto min-w-[500px] max-w-[600px] max-h-[90vh] overflow-hidden flex flex-col">
+      <DialogContent className="w-auto min-w-[550px] max-w-[650px] max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Settings2 className="w-5 h-5" />
-            Emerging Topics Detection Settings
+            Emerging Topics Settings
           </DialogTitle>
           <DialogDescription>
-            Configure how emerging topics are detected and analyzed
+            Configure detection, scheduling, and notifications
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto overflow-x-hidden pr-2">
-        <Tabs defaultValue="detection" className="mt-4">
-          <TabsList className="w-full grid grid-cols-2">
-            <TabsTrigger value="detection" className="gap-1 text-xs">
-              <Sliders className="w-3.5 h-3.5" />
-              Detection
-            </TabsTrigger>
-            <TabsTrigger value="info" className="gap-1 text-xs">
-              <Info className="w-3.5 h-3.5" />
-              Info
-            </TabsTrigger>
-          </TabsList>
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-4">
+            <TabsList className="w-full grid grid-cols-4">
+              <TabsTrigger value="detection" className="gap-1 text-xs">
+                <Sliders className="w-3.5 h-3.5" />
+                Detection
+              </TabsTrigger>
+              <TabsTrigger value="schedule" className="gap-1 text-xs">
+                <Clock className="w-3.5 h-3.5" />
+                Schedule
+              </TabsTrigger>
+              <TabsTrigger value="notifications" className="gap-1 text-xs">
+                <Bell className="w-3.5 h-3.5" />
+                Alerts
+              </TabsTrigger>
+              <TabsTrigger value="info" className="gap-1 text-xs">
+                <Info className="w-3.5 h-3.5" />
+                Info
+              </TabsTrigger>
+            </TabsList>
 
-          {/* Info Tab */}
-          <TabsContent value="info" className="space-y-4 mt-4">
-            <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-              <h4 className="font-semibold text-blue-900 dark:text-blue-100 flex items-center gap-2 mb-2">
-                <Info className="w-4 h-4" />
-                About Emerging Topics Detection
-              </h4>
-              <p className="text-sm text-blue-800 dark:text-blue-200">
-                This system identifies emerging developments from your news articles.
-                It samples recent high-novelty articles, proposes specific themes,
-                then validates them with semantic search.
-              </p>
-            </div>
-
-            <div className="space-y-3">
-              <SettingInfo
-                title="Sample Size"
-                description="Number of recent articles to sample for theme proposal. Larger samples find more themes but take longer."
-                recommended="250 articles"
-              />
-              <SettingInfo
-                title="Days Back"
-                description="How many days of articles to analyze. Shorter windows focus on very recent developments."
-                recommended="7 days"
-              />
-              <SettingInfo
-                title="Distance Threshold"
-                description="Cosine distance threshold for assigning articles to themes. Higher values are more lenient and include more articles."
-                recommended="0.85"
-              />
-              <SettingInfo
-                title="Min Articles Per Theme"
-                description="Minimum number of articles required for a theme to be considered valid. Lower values catch more niche topics."
-                recommended="3 articles"
-              />
-              <SettingInfo
-                title="Max Articles Per Theme"
-                description="Maximum articles to assign to each theme. Limits theme size for focused analysis."
-                recommended="30 articles"
-              />
-            </div>
-
-            {/* Score Calculation */}
-            <div className="bg-purple-50 dark:bg-purple-950 border border-purple-200 dark:border-purple-800 rounded-lg p-4 mt-4">
-              <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-3">
-                How Scores Are Calculated
-              </h4>
-              <p className="text-sm text-purple-800 dark:text-purple-200 mb-3">
-                The composite score (0-100) combines four weighted components:
-              </p>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between text-purple-700 dark:text-purple-300">
-                  <span><strong>Volume (25%)</strong></span>
-                  <span className="text-xs">10 articles = 50, 20+ = 100</span>
-                </div>
-                <div className="flex justify-between text-purple-700 dark:text-purple-300">
-                  <span><strong>Velocity (30%)</strong></span>
-                  <span className="text-xs">Recent growth rate</span>
-                </div>
-                <div className="flex justify-between text-purple-700 dark:text-purple-300">
-                  <span><strong>Diversity (20%)</strong></span>
-                  <span className="text-xs">7+ sources = 100</span>
-                </div>
-                <div className="flex justify-between text-purple-700 dark:text-purple-300">
-                  <span><strong>Novelty (25%)</strong></span>
-                  <span className="text-xs">Semantic uniqueness</span>
-                </div>
-              </div>
-              <p className="text-xs text-purple-600 dark:text-purple-400 mt-3">
-                Velocity compares articles in first vs second half of time window:
-                accelerating (75-100), stable (50-75), decelerating (0-50).
-              </p>
-            </div>
-          </TabsContent>
-
-          {/* Detection Tab */}
-          <TabsContent value="detection" className="space-y-6 mt-4">
-            {/* AI Model */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
+            {/* Detection Tab */}
+            <TabsContent value="detection" className="space-y-6 mt-4">
+              {/* AI Model */}
+              <div className="space-y-3">
                 <Label className="font-medium">AI Model</Label>
+                <Select
+                  value={selectedModel}
+                  onValueChange={(v) => updateField('model', v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select model" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {modelOptions.map((model) => (
+                      <SelectItem key={model.id} value={model.id}>
+                        {model.name} ({model.provider})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-              <Select
-                value={selectedModel}
-                onValueChange={(v) => updateField('model', v)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select model" />
-                </SelectTrigger>
-                <SelectContent>
-                  {modelOptions.map((model) => (
-                    <SelectItem key={model.id} value={model.id}>
-                      {model.name} ({model.provider})
-                    </SelectItem>
+
+              {/* Sample Size */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="font-medium">Sample Size</Label>
+                  <span className="text-sm font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
+                    {config.sampleSize} articles
+                  </span>
+                </div>
+                <Slider
+                  value={[config.sampleSize]}
+                  onValueChange={([value]) => updateField('sampleSize', value)}
+                  min={50}
+                  max={500}
+                  step={50}
+                />
+              </div>
+
+              {/* Days Back */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="font-medium">Days Back</Label>
+                  <span className="text-sm font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
+                    {config.daysBack} days
+                  </span>
+                </div>
+                <Slider
+                  value={[config.daysBack]}
+                  onValueChange={([value]) => updateField('daysBack', value)}
+                  min={1}
+                  max={30}
+                  step={1}
+                />
+              </div>
+
+              {/* Distance Threshold */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="font-medium">Distance Threshold</Label>
+                  <span className="text-sm font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
+                    {config.distanceThreshold.toFixed(2)}
+                  </span>
+                </div>
+                <Slider
+                  value={[config.distanceThreshold * 100]}
+                  onValueChange={([value]) => updateField('distanceThreshold', value / 100)}
+                  min={30}
+                  max={100}
+                  step={5}
+                />
+              </div>
+
+              {/* Min/Max Articles */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm">Min Articles</Label>
+                    <span className="text-xs font-mono">{config.minArticlesPerTheme}</span>
+                  </div>
+                  <Slider
+                    value={[config.minArticlesPerTheme]}
+                    onValueChange={([value]) => updateField('minArticlesPerTheme', value)}
+                    min={2}
+                    max={20}
+                    step={1}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm">Max Articles</Label>
+                    <span className="text-xs font-mono">{config.maxArticlesPerTheme}</span>
+                  </div>
+                  <Slider
+                    value={[config.maxArticlesPerTheme]}
+                    onValueChange={([value]) => updateField('maxArticlesPerTheme', value)}
+                    min={10}
+                    max={100}
+                    step={5}
+                  />
+                </div>
+              </div>
+            </TabsContent>
+
+            {/* Schedule Tab */}
+            <TabsContent value="schedule" className="space-y-6 mt-4">
+              {/* Enable Toggle */}
+              <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <div>
+                  <Label className="font-medium">Automatic Detection</Label>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Run detection on a schedule
+                  </p>
+                </div>
+                <Switch
+                  checked={scheduleSettings.schedule_enabled}
+                  onCheckedChange={(checked) =>
+                    setScheduleSettings(prev => ({ ...prev, schedule_enabled: checked }))
+                  }
+                />
+              </div>
+
+              {/* Interval */}
+              <div className="space-y-3">
+                <Label className="font-medium">Run Every</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    min={1}
+                    max={168}
+                    value={scheduleSettings.check_interval}
+                    onChange={(e) =>
+                      setScheduleSettings(prev => ({
+                        ...prev,
+                        check_interval: parseInt(e.target.value) || 1,
+                      }))
+                    }
+                    className="w-20"
+                  />
+                  <Select
+                    value={scheduleSettings.interval_unit}
+                    onValueChange={(v) =>
+                      setScheduleSettings(prev => ({ ...prev, interval_unit: v }))
+                    }
+                  >
+                    <SelectTrigger className="w-28">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="hours">hours</SelectItem>
+                      <SelectItem value="days">days</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Status */}
+              {scheduleStatus && (
+                <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-4 space-y-2">
+                  <h4 className="font-medium text-blue-900 dark:text-blue-100 flex items-center gap-2">
+                    {scheduleStatus.is_running ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Running...
+                      </>
+                    ) : (
+                      <>
+                        <Clock className="w-4 h-4" />
+                        Status
+                      </>
+                    )}
+                  </h4>
+                  <div className="text-sm text-blue-800 dark:text-blue-200 space-y-1">
+                    <p>Last run: {formatDateTime(scheduleStatus.last_check_time)}</p>
+                    <p>Next run: {formatDateTime(scheduleStatus.next_check_time)}</p>
+                    {scheduleStatus.topics_detected > 0 && (
+                      <p>Last result: {scheduleStatus.topics_detected} topics detected</p>
+                    )}
+                  </div>
+                  {scheduleStatus.last_error && (
+                    <div className="text-xs text-red-600 dark:text-red-400 mt-2">
+                      Error: {scheduleStatus.last_error}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Actions */}
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleSaveSchedule}
+                  disabled={scheduleLoading}
+                  size="sm"
+                >
+                  {scheduleLoading ? (
+                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                  ) : (
+                    <Save className="w-4 h-4 mr-1" />
+                  )}
+                  Save Schedule
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleRunNow}
+                  disabled={runningNow}
+                  size="sm"
+                >
+                  {runningNow ? (
+                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                  ) : (
+                    <Play className="w-4 h-4 mr-1" />
+                  )}
+                  Run Now
+                </Button>
+              </div>
+            </TabsContent>
+
+            {/* Notifications Tab */}
+            <TabsContent value="notifications" className="space-y-6 mt-4">
+              {/* Enable Toggle */}
+              <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <div>
+                  <Label className="font-medium">Enable Notifications</Label>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Get alerted about new emerging topics
+                  </p>
+                </div>
+                <Switch
+                  checked={notificationSettings.notifications_enabled}
+                  onCheckedChange={(checked) =>
+                    setNotificationSettings(prev => ({ ...prev, notifications_enabled: checked }))
+                  }
+                />
+              </div>
+
+              {/* Channels */}
+              <div className="space-y-3">
+                <Label className="font-medium">Notification Channels</Label>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      id="channel-inapp"
+                      checked={notificationSettings.notification_channels.in_app}
+                      onCheckedChange={(checked) =>
+                        setNotificationSettings(prev => ({
+                          ...prev,
+                          notification_channels: { ...prev.notification_channels, in_app: !!checked },
+                        }))
+                      }
+                    />
+                    <Label htmlFor="channel-inapp" className="flex items-center gap-2 cursor-pointer">
+                      <Bell className="w-4 h-4" />
+                      In-App Notifications
+                    </Label>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      id="channel-email"
+                      checked={notificationSettings.notification_channels.email}
+                      onCheckedChange={(checked) =>
+                        setNotificationSettings(prev => ({
+                          ...prev,
+                          notification_channels: { ...prev.notification_channels, email: !!checked },
+                        }))
+                      }
+                    />
+                    <Label htmlFor="channel-email" className="flex items-center gap-2 cursor-pointer">
+                      <Mail className="w-4 h-4" />
+                      Email
+                    </Label>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      id="channel-bluesky"
+                      checked={notificationSettings.notification_channels.bluesky}
+                      onCheckedChange={(checked) =>
+                        setNotificationSettings(prev => ({
+                          ...prev,
+                          notification_channels: { ...prev.notification_channels, bluesky: !!checked },
+                        }))
+                      }
+                    />
+                    <Label htmlFor="channel-bluesky" className="flex items-center gap-2 cursor-pointer">
+                      <MessageCircle className="w-4 h-4" />
+                      Bluesky DM
+                    </Label>
+                  </div>
+                </div>
+              </div>
+
+              {/* Email Recipients */}
+              {notificationSettings.notification_channels.email && (
+                <div className="space-y-2">
+                  <Label className="font-medium">Email Recipients</Label>
+                  <div className="flex gap-2">
+                    <Input
+                      type="email"
+                      placeholder="email@example.com"
+                      value={emailInput}
+                      onChange={(e) => setEmailInput(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && addEmailRecipient()}
+                    />
+                    <Button variant="outline" size="sm" onClick={addEmailRecipient}>
+                      Add
+                    </Button>
+                  </div>
+                  {notificationSettings.email_recipients.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {notificationSettings.email_recipients.map((email) => (
+                        <Badge
+                          key={email}
+                          variant="secondary"
+                          className="cursor-pointer"
+                          onClick={() => removeEmailRecipient(email)}
+                        >
+                          {email} ×
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Bluesky Handle */}
+              {notificationSettings.notification_channels.bluesky && (
+                <div className="space-y-2">
+                  <Label className="font-medium">Bluesky Handle</Label>
+                  <Input
+                    placeholder="@handle.bsky.social"
+                    value={notificationSettings.bluesky_handle || ''}
+                    onChange={(e) =>
+                      setNotificationSettings(prev => ({
+                        ...prev,
+                        bluesky_handle: e.target.value || null,
+                      }))
+                    }
+                  />
+                </div>
+              )}
+
+              {/* Confidence Threshold */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="font-medium">Min Confidence</Label>
+                  <span className="text-sm font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
+                    {(notificationSettings.min_confidence * 100).toFixed(0)}%
+                  </span>
+                </div>
+                <Slider
+                  value={[notificationSettings.min_confidence * 100]}
+                  onValueChange={([value]) =>
+                    setNotificationSettings(prev => ({ ...prev, min_confidence: value / 100 }))
+                  }
+                  min={50}
+                  max={100}
+                  step={5}
+                />
+                <p className="text-xs text-gray-500">Only notify for topics above this confidence</p>
+              </div>
+
+              {/* Cooldown */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label className="font-medium">Cooldown Period</Label>
+                  <span className="text-sm font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
+                    {notificationSettings.cooldown_minutes / 60}h
+                  </span>
+                </div>
+                <Slider
+                  value={[notificationSettings.cooldown_minutes]}
+                  onValueChange={([value]) =>
+                    setNotificationSettings(prev => ({ ...prev, cooldown_minutes: value }))
+                  }
+                  min={60}
+                  max={1440}
+                  step={60}
+                />
+                <p className="text-xs text-gray-500">Minimum time between notification batches</p>
+              </div>
+
+              {/* Detection Type Filters */}
+              <div className="space-y-2">
+                <Label className="font-medium">Notify For</Label>
+                <div className="flex flex-wrap gap-2">
+                  {['accelerating', 'new_cluster', 'llm_proposed', 'proto_cluster'].map((type) => (
+                    <Badge
+                      key={type}
+                      variant={notificationSettings.detection_type_filters.includes(type) ? 'default' : 'outline'}
+                      className="cursor-pointer"
+                      onClick={() => toggleDetectionType(type)}
+                    >
+                      {type.replace('_', ' ')}
+                    </Badge>
                   ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-gray-500">
-                Model used for theme proposal and deep analysis
-              </p>
-            </div>
-
-            {/* Sample Size */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="font-medium">Sample Size</Label>
-                <span className="text-sm font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
-                  {config.sampleSize} articles
-                </span>
+                </div>
               </div>
-              <Slider
-                value={[config.sampleSize]}
-                onValueChange={([value]) => updateField('sampleSize', value)}
-                min={50}
-                max={500}
-                step={50}
-                className="w-full"
-              />
-              <p className="text-xs text-gray-500">
-                More articles = better coverage but slower detection
-              </p>
-            </div>
 
-            {/* Days Back */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="font-medium">Days Back</Label>
-                <span className="text-sm font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
-                  {config.daysBack} days
-                </span>
+              {/* Actions */}
+              <div className="flex gap-2">
+                <Button
+                  onClick={handleSaveNotifications}
+                  disabled={notificationLoading}
+                  size="sm"
+                >
+                  {notificationLoading ? (
+                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                  ) : (
+                    <Save className="w-4 h-4 mr-1" />
+                  )}
+                  Save Notifications
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleTestNotification}
+                  disabled={testingNotification}
+                  size="sm"
+                >
+                  {testingNotification ? (
+                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                  ) : (
+                    <Bell className="w-4 h-4 mr-1" />
+                  )}
+                  Test
+                </Button>
               </div>
-              <Slider
-                value={[config.daysBack]}
-                onValueChange={([value]) => updateField('daysBack', value)}
-                min={1}
-                max={30}
-                step={1}
-                className="w-full"
-              />
-              <p className="text-xs text-gray-500">
-                Shorter = recent developments only, Longer = more context
-              </p>
-            </div>
+            </TabsContent>
 
-            {/* Distance Threshold */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="font-medium">Distance Threshold</Label>
-                <span className="text-sm font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
-                  {config.distanceThreshold.toFixed(2)}
-                </span>
+            {/* Info Tab */}
+            <TabsContent value="info" className="space-y-4 mt-4">
+              <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
+                <h4 className="font-semibold text-blue-900 dark:text-blue-100 flex items-center gap-2 mb-2">
+                  <Info className="w-4 h-4" />
+                  About Emerging Topics Detection
+                </h4>
+                <p className="text-sm text-blue-800 dark:text-blue-200">
+                  This system identifies emerging developments from your news articles.
+                  It samples recent high-novelty articles, proposes specific themes,
+                  then validates them with semantic search.
+                </p>
               </div>
-              <Slider
-                value={[config.distanceThreshold * 100]}
-                onValueChange={([value]) => updateField('distanceThreshold', value / 100)}
-                min={30}
-                max={100}
-                step={5}
-                className="w-full"
-              />
-              <p className="text-xs text-gray-500">
-                Higher = more lenient matching, Lower = stricter relevance
-              </p>
-            </div>
 
-            {/* Min Articles Per Theme */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="font-medium">Min Articles Per Theme</Label>
-                <span className="text-sm font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
-                  {config.minArticlesPerTheme}
-                </span>
+              <div className="bg-purple-50 dark:bg-purple-950 border border-purple-200 dark:border-purple-800 rounded-lg p-4">
+                <h4 className="font-semibold text-purple-900 dark:text-purple-100 mb-3">
+                  How Scores Are Calculated
+                </h4>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between text-purple-700 dark:text-purple-300">
+                    <span><strong>Volume (25%)</strong></span>
+                    <span className="text-xs">Article count impact</span>
+                  </div>
+                  <div className="flex justify-between text-purple-700 dark:text-purple-300">
+                    <span><strong>Velocity (30%)</strong></span>
+                    <span className="text-xs">Growth momentum</span>
+                  </div>
+                  <div className="flex justify-between text-purple-700 dark:text-purple-300">
+                    <span><strong>Diversity (20%)</strong></span>
+                    <span className="text-xs">Source variety</span>
+                  </div>
+                  <div className="flex justify-between text-purple-700 dark:text-purple-300">
+                    <span><strong>Novelty (25%)</strong></span>
+                    <span className="text-xs">Semantic uniqueness</span>
+                  </div>
+                </div>
               </div>
-              <Slider
-                value={[config.minArticlesPerTheme]}
-                onValueChange={([value]) => updateField('minArticlesPerTheme', value)}
-                min={2}
-                max={20}
-                step={1}
-                className="w-full"
-              />
-              <p className="text-xs text-gray-500">
-                Lower = catch niche topics, Higher = only well-covered topics
-              </p>
-            </div>
-
-            {/* Max Articles Per Theme */}
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <Label className="font-medium">Max Articles Per Theme</Label>
-                <span className="text-sm font-mono bg-gray-100 dark:bg-gray-800 px-2 py-0.5 rounded">
-                  {config.maxArticlesPerTheme}
-                </span>
-              </div>
-              <Slider
-                value={[config.maxArticlesPerTheme]}
-                onValueChange={([value]) => updateField('maxArticlesPerTheme', value)}
-                min={10}
-                max={100}
-                step={5}
-                className="w-full"
-              />
-              <p className="text-xs text-gray-500">
-                Limits how many articles are analyzed per theme
-              </p>
-            </div>
-          </TabsContent>
-        </Tabs>
+            </TabsContent>
+          </Tabs>
         </div>
 
         <DialogFooter className="flex items-center justify-between gap-2 border-t pt-4 mt-4 flex-shrink-0">
           <Button variant="outline" onClick={onClose}>
-            Cancel
+            Close
           </Button>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={handleReset} disabled={loading}>
-              <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
-              Reset
-            </Button>
-            <Button size="sm" onClick={handleSave} disabled={loading}>
-              <Save className="w-3.5 h-3.5 mr-1.5" />
-              Save
-            </Button>
-          </div>
+          {activeTab === 'detection' && (
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={handleReset} disabled={loading}>
+                <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+                Reset
+              </Button>
+              <Button size="sm" onClick={handleSave} disabled={loading}>
+                <Save className="w-3.5 h-3.5 mr-1.5" />
+                Save
+              </Button>
+            </div>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function SettingInfo({
-  title,
-  description,
-  recommended,
-}: {
-  title: string;
-  description: string;
-  recommended: string;
-}) {
-  return (
-    <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
-      <h5 className="font-medium text-gray-900 dark:text-gray-100 text-sm">{title}</h5>
-      <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">{description}</p>
-      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-        <span className="font-medium">Recommended:</span> {recommended}
-      </p>
-    </div>
   );
 }

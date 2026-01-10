@@ -79,6 +79,21 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(delayed_keyword_monitor_start())
         logger.info("Scheduled keyword monitor to start in 5 seconds")
 
+        # Start the emerging topics monitor background task with a delay
+        async def delayed_emerging_topics_monitor_start():
+            """Start emerging topics monitor after keyword monitor"""
+            await asyncio.sleep(10)  # Wait 10 seconds after startup
+            try:
+                from app.tasks.emerging_topics_monitor import run_emerging_topics_monitor
+                logger.info("Starting emerging topics monitor background task...")
+                asyncio.create_task(run_emerging_topics_monitor())
+                logger.info("Emerging topics monitor background task started successfully")
+            except Exception as e:
+                logger.error(f"Failed to start emerging topics monitor: {str(e)}")
+
+        asyncio.create_task(delayed_emerging_topics_monitor_start())
+        logger.info("Scheduled emerging topics monitor to start in 10 seconds")
+
     except Exception as e:
         logging.error(f"Error during startup: {str(e)}", exc_info=True)
         raise
