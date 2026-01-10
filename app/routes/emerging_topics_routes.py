@@ -709,6 +709,71 @@ async def get_topic_history(
             conn.close()
 
 
+@router.get("/batch-history")
+async def get_batch_history(
+    topic_ids: str = Query(..., description="Comma-separated topic IDs"),
+    session=Depends(verify_session)
+):
+    """
+    Get history for multiple topics in a single request.
+    Returns a dictionary keyed by topic_id with history arrays.
+    """
+    from sqlalchemy import text
+    from app.database import get_database_instance
+
+    # Parse topic IDs
+    try:
+        ids = [int(x.strip()) for x in topic_ids.split(",") if x.strip()]
+        if not ids:
+            return {"histories": {}}
+        if len(ids) > 50:
+            raise HTTPException(status_code=400, detail="Maximum 50 topics allowed")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid topic_ids format")
+
+    db = get_database_instance()
+    conn = None
+
+    try:
+        conn = db._temp_get_connection()
+
+        stmt = text("""
+            SELECT
+                th.topic_id, th.detection_run_id, dr.run_date,
+                th.composite_score, th.volume_score, th.velocity_score,
+                th.diversity_score, th.novelty_score
+            FROM topic_history th
+            JOIN detection_runs dr ON th.detection_run_id = dr.id
+            WHERE th.topic_id = ANY(:topic_ids)
+            ORDER BY th.topic_id, dr.run_date ASC
+        """)
+
+        result = conn.execute(stmt, {"topic_ids": ids})
+
+        # Group by topic_id
+        histories: Dict[int, list] = {tid: [] for tid in ids}
+        for row in result.mappings():
+            tid = row["topic_id"]
+            if tid in histories:
+                histories[tid].append({
+                    "run_date": row["run_date"].isoformat() if row["run_date"] else None,
+                    "composite_score": row["composite_score"],
+                    "volume_score": row["volume_score"],
+                    "velocity_score": row["velocity_score"],
+                    "diversity_score": row["diversity_score"],
+                    "novelty_score": row["novelty_score"],
+                })
+
+        return {"histories": histories}
+
+    except Exception as exc:
+        logger.error(f"Error getting batch history: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        if conn:
+            conn.close()
+
+
 @router.get("/topics/{topic_id}/trajectory")
 async def get_topic_trajectory(
     topic_id: int,
