@@ -60,6 +60,13 @@ import {
 // ShareModal removed - needs proper data type support for emerging topics
 import { getAvailableModels } from '../../services/newsFeedApi';
 import { ExportService } from '../../services/exportService';
+// Visual components
+import { TopicScoreRadar } from '../emerging-topics/TopicScoreRadar';
+import { TopicWordCloud } from '../emerging-topics/TopicWordCloud';
+import { TopicComparisonDashboard } from '../emerging-topics/TopicComparisonDashboard';
+import { TopicSparkline } from '../emerging-topics/TopicSparkline';
+import { MomentumGauge } from '../emerging-topics/MomentumGauge';
+import { TrajectoryTimeline } from '../emerging-topics/TrajectoryTimeline';
 
 // Types for v2
 interface TrendScore {
@@ -247,6 +254,9 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
   // Export menu state
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+
+  // Topic history for sparklines
+  const [topicHistories, setTopicHistories] = useState<Record<number, Array<{ run_date: string; composite_score: number }>>>({});
 
 
   // Track which topics are saved (tracked)
@@ -465,6 +475,28 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [exportMenuOpen]);
 
+  // Fetch topic histories for sparklines
+  useEffect(() => {
+    const fetchHistories = async () => {
+      if (emergingTopics.length === 0) return;
+
+      const topicIds = emergingTopics.map((t) => t.id).join(',');
+      try {
+        const response = await fetch(`/api/emerging-topics/batch-history?topic_ids=${topicIds}`, {
+          credentials: 'include',
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setTopicHistories(data.histories || {});
+        }
+      } catch (err) {
+        console.error('Error fetching topic histories:', err);
+      }
+    };
+
+    fetchHistories();
+  }, [emergingTopics]);
+
   // Delete topic handler
   const handleDeleteTopic = async (topicId: number) => {
     try {
@@ -632,28 +664,35 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
     );
   };
 
-  // Render trend score
+  // Render trend score with radar chart
   const renderTrendScore = (trend: TrendScore) => {
     return (
       <div className="space-y-2">
         <h5 className="text-xs font-medium text-gray-500 uppercase flex items-center gap-1">
           <Gauge className="w-3 h-3" /> Trend Score
         </h5>
-        <div className="grid grid-cols-5 gap-2 text-center">
-          {[
-            { label: 'Volume', value: trend.volume },
-            { label: 'Velocity', value: trend.velocity },
-            { label: 'Diversity', value: trend.diversity },
-            { label: 'Novelty', value: trend.novelty },
-            { label: 'Overall', value: trend.composite },
-          ].map((item, i) => (
-            <div key={i} className="bg-gray-50 dark:bg-gray-800 rounded p-1.5">
-              <div className={`text-lg font-bold ${getScoreColor(item.value)}`}>
-                {Math.round(item.value)}
+        <div className="flex flex-col md:flex-row gap-4 items-center">
+          {/* Radar Chart */}
+          <div className="flex-shrink-0">
+            <TopicScoreRadar trendScore={trend} size={160} />
+          </div>
+          {/* Numeric Grid */}
+          <div className="flex-1 grid grid-cols-5 gap-2 text-center">
+            {[
+              { label: 'Volume', value: trend.volume },
+              { label: 'Velocity', value: trend.velocity },
+              { label: 'Diversity', value: trend.diversity },
+              { label: 'Novelty', value: trend.novelty },
+              { label: 'Overall', value: trend.composite },
+            ].map((item, i) => (
+              <div key={i} className="bg-gray-50 dark:bg-gray-800 rounded p-1.5">
+                <div className={`text-lg font-bold ${getScoreColor(item.value)}`}>
+                  {Math.round(item.value)}
+                </div>
+                <div className="text-xs text-gray-500">{item.label}</div>
               </div>
-              <div className="text-xs text-gray-500">{item.label}</div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
     );
@@ -884,6 +923,11 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
         </div>
       )}
 
+      {/* Topic Comparison Dashboard */}
+      {emergingTopics.length >= 3 && (
+        <TopicComparisonDashboard topics={emergingTopics} />
+      )}
+
       {/* Detected Themes - 2 column grid */}
       <div className="space-y-4">
         <h3 className="font-medium text-gray-900 dark:text-gray-100">Detected Themes</h3>
@@ -953,21 +997,17 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
                           <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
                             {topicItem.topic_description}
                           </p>
-                          {/* Trend Tracking Info */}
-                          {topicItem.first_detection_date && (
-                            <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mt-2 bg-gray-50 dark:bg-gray-800/50 rounded px-2 py-1">
-                              <span className="flex items-center gap-1">
-                                <Clock className="w-3 h-3" />
-                                First: {topicItem.first_detection_date}
-                              </span>
-                              {topicItem.last_detection_date && topicItem.first_detection_date !== topicItem.last_detection_date && (
-                                <span>Last: {topicItem.last_detection_date}</span>
-                              )}
-                              {(topicItem.detection_count || 1) >= 1 && (
-                                <span className="font-medium">
-                                  {topicItem.detection_count || 1} scan{(topicItem.detection_count || 1) !== 1 ? 's' : ''}
-                                </span>
-                              )}
+                          {/* Trajectory Timeline - visual detection history */}
+                          {topicItem.first_detection_date && (topicItem.detection_count || 1) > 1 && (
+                            <div className="mt-2">
+                              <TrajectoryTimeline
+                                firstDetection={topicItem.first_detection_date}
+                                lastDetection={topicItem.last_detection_date || topicItem.detection_date}
+                                detectionCount={topicItem.detection_count || 1}
+                                consecutiveDetections={topicItem.consecutive_detections || 1}
+                                missedRuns={topicItem.missed_runs || 0}
+                                trajectory={topicItem.trajectory || 'stable'}
+                              />
                             </div>
                           )}
                           {/* Key Entities (from theme proposal) */}
@@ -1041,14 +1081,25 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
                               {topicItem.article_count}
                             </div>
                             <div className="text-xs text-gray-500">articles</div>
-                            <div className={`text-xs flex items-center gap-1 ${velocityStyle.className}`}>
-                              {velocityStyle.icon}
-                              {velocityStyle.label}
-                            </div>
+                            {/* Momentum Gauge - velocity indicator */}
+                            <MomentumGauge
+                              velocity={topicItem.velocity}
+                              velocityScore={topicItem.trend_score?.velocity}
+                              size="sm"
+                            />
                             {topicItem.trend_score && (
                               <div className={`text-sm font-bold ${getScoreColor(topicItem.trend_score.composite)}`}>
                                 {Math.round(topicItem.trend_score.composite)} score
                               </div>
+                            )}
+                            {/* Sparkline for topic history */}
+                            {topicHistories[topicItem.id]?.length > 1 && (
+                              <TopicSparkline
+                                history={topicHistories[topicItem.id]}
+                                width={60}
+                                height={20}
+                                showTrend={false}
+                              />
                             )}
                             {isExpanded ? (
                               <ChevronUp className="w-4 h-4 text-gray-400 mt-1" />
@@ -1078,6 +1129,19 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
 
                           {/* Trend Score */}
                           {topicItem.trend_score && renderTrendScore(topicItem.trend_score)}
+
+                          {/* Word Cloud */}
+                          {(topicItem.representative_keywords?.length > 0 || topicItem.key_entities?.length > 0) && (
+                            <div className="space-y-2">
+                              <h5 className="text-xs font-medium text-gray-500 uppercase">Key Terms</h5>
+                              <TopicWordCloud
+                                keywords={topicItem.representative_keywords || []}
+                                entities={topicItem.key_entities || []}
+                                themes={topicItem.key_themes || []}
+                                maxWords={15}
+                              />
+                            </div>
+                          )}
 
                           {/* Actors */}
                           {topicItem.actors && renderActors(topicItem.actors)}
