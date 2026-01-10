@@ -1684,8 +1684,13 @@ async def _generate_six_articles_internal(
     persona: str = "CEO",
     model: str = "gpt-4o-mini",
     topic: Optional[str] = None
-):
-    """Internal function to generate six articles briefing for scheduler."""
+) -> Optional[List[Dict]]:
+    """
+    Internal function to generate six articles briefing for scheduler.
+
+    Returns:
+        List of generated article dicts, or None if generation failed
+    """
     from app.services.news_feed_service import get_news_feed_service
     from app.schemas.news_feed import NewsFeedRequest
 
@@ -1709,14 +1714,15 @@ async def _generate_six_articles_internal(
 
     if not articles_data:
         logger.warning("No articles found for briefing generation")
-        return
+        return None
 
     # Generate (forces fresh generation, bypassing cache)
     target_date = datetime.now()
-    await news_feed_service._generate_six_articles_with_political_analysis(
+    six_articles = await news_feed_service._generate_six_articles_with_political_analysis(
         articles_data, target_date, request
     )
-    logger.info("Six articles briefing generated successfully")
+    logger.info(f"Six articles briefing generated successfully ({len(six_articles) if six_articles else 0} articles)")
+    return six_articles
 
 
 async def _regenerate_highlights_internal(topic: Optional[str] = None):
@@ -1733,3 +1739,171 @@ async def _regenerate_narratives_internal(topic: Optional[str] = None):
     # For now, just log - actual implementation depends on existing narratives code
     logger.info(f"Narratives regeneration requested for topic: {topic}")
     # Placeholder - implement based on existing narratives regeneration
+
+
+# ============================================================================
+# Dashboard Snapshot Functions - For persisting auto-generated dashboard state
+# ============================================================================
+
+def save_dashboard_snapshot(
+    topic: Optional[str],
+    persona: str,
+    model: str,
+    briefing_articles: Optional[List[Dict]] = None,
+    highlights_data: Optional[Dict] = None,
+    narratives_data: Optional[Dict] = None,
+    articles_analyzed: Optional[int] = None,
+    generation_duration: Optional[float] = None,
+    error_message: Optional[str] = None
+) -> Optional[int]:
+    """
+    Save a dashboard snapshot to the database.
+    Replaces any existing snapshot for the same topic.
+
+    Returns the snapshot ID if successful, None otherwise.
+    """
+    from sqlalchemy import text, delete, insert
+    from app.database import get_database_instance
+    import json
+
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+
+    try:
+        # Delete existing snapshot for this topic
+        conn.execute(text("""
+            DELETE FROM newsfeed_dashboard_snapshots
+            WHERE topic IS NOT DISTINCT FROM :topic
+        """), {"topic": topic})
+
+        # Insert new snapshot
+        result = conn.execute(text("""
+            INSERT INTO newsfeed_dashboard_snapshots (
+                topic, persona, model,
+                briefing_articles, briefing_generated,
+                highlights_data, highlights_generated,
+                narratives_data, narratives_generated,
+                articles_analyzed, generation_duration_seconds, error_message,
+                generated_at
+            ) VALUES (
+                :topic, :persona, :model,
+                :briefing_articles, :briefing_generated,
+                :highlights_data, :highlights_generated,
+                :narratives_data, :narratives_generated,
+                :articles_analyzed, :generation_duration, :error_message,
+                NOW()
+            )
+            RETURNING id
+        """), {
+            "topic": topic,
+            "persona": persona,
+            "model": model,
+            "briefing_articles": json.dumps(briefing_articles) if briefing_articles else None,
+            "briefing_generated": briefing_articles is not None and len(briefing_articles) > 0,
+            "highlights_data": json.dumps(highlights_data) if highlights_data else None,
+            "highlights_generated": highlights_data is not None,
+            "narratives_data": json.dumps(narratives_data) if narratives_data else None,
+            "narratives_generated": narratives_data is not None,
+            "articles_analyzed": articles_analyzed,
+            "generation_duration": generation_duration,
+            "error_message": error_message,
+        })
+
+        row = result.fetchone()
+        conn.commit()
+
+        snapshot_id = row[0] if row else None
+        logger.info(f"Saved dashboard snapshot (ID: {snapshot_id}) for topic: {topic}")
+        return snapshot_id
+
+    except Exception as e:
+        logger.error(f"Error saving dashboard snapshot: {e}", exc_info=True)
+        conn.rollback()
+        return None
+    finally:
+        conn.close()
+
+
+def get_latest_dashboard_snapshot(topic: Optional[str] = None) -> Optional[Dict]:
+    """
+    Get the latest dashboard snapshot for a topic.
+
+    Args:
+        topic: Topic filter, or None for all-topics snapshot
+
+    Returns:
+        Snapshot dict with briefing_articles, highlights_data, narratives_data, etc.
+    """
+    from sqlalchemy import text
+    from app.database import get_database_instance
+
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+
+    try:
+        result = conn.execute(text("""
+            SELECT
+                id, topic, generated_at, persona, model,
+                briefing_articles, briefing_generated,
+                highlights_data, highlights_generated,
+                narratives_data, narratives_generated,
+                articles_analyzed, generation_duration_seconds, error_message
+            FROM newsfeed_dashboard_snapshots
+            WHERE topic IS NOT DISTINCT FROM :topic
+            ORDER BY generated_at DESC
+            LIMIT 1
+        """), {"topic": topic})
+
+        row = result.mappings().first()
+        if not row:
+            return None
+
+        return dict(row)
+
+    except Exception as e:
+        logger.error(f"Error getting dashboard snapshot: {e}", exc_info=True)
+        return None
+    finally:
+        conn.close()
+
+
+@router.get("/dashboard/snapshot/latest")
+async def get_latest_snapshot(
+    topic: Optional[str] = Query(None, description="Topic filter"),
+    session=Depends(verify_session)
+):
+    """
+    Get the latest auto-generated dashboard snapshot.
+
+    Returns the most recent snapshot with briefing articles, highlights, and narratives
+    that were auto-generated by the scheduler.
+    """
+    snapshot = get_latest_dashboard_snapshot(topic)
+
+    if not snapshot:
+        return {
+            "success": True,
+            "has_snapshot": False,
+            "snapshot": None,
+            "message": "No auto-generated dashboard found. Enable scheduling to auto-generate dashboards."
+        }
+
+    return {
+        "success": True,
+        "has_snapshot": True,
+        "snapshot": {
+            "id": snapshot["id"],
+            "topic": snapshot["topic"],
+            "generated_at": snapshot["generated_at"].isoformat() if snapshot["generated_at"] else None,
+            "persona": snapshot["persona"],
+            "model": snapshot["model"],
+            "briefing_articles": snapshot["briefing_articles"],
+            "briefing_generated": snapshot["briefing_generated"],
+            "highlights_data": snapshot["highlights_data"],
+            "highlights_generated": snapshot["highlights_generated"],
+            "narratives_data": snapshot["narratives_data"],
+            "narratives_generated": snapshot["narratives_generated"],
+            "articles_analyzed": snapshot["articles_analyzed"],
+            "generation_duration_seconds": snapshot["generation_duration_seconds"],
+        }
+    }

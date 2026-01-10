@@ -394,6 +394,51 @@ export async function saveSixArticlesConfig(config: SixArticlesConfig): Promise<
 }
 
 /**
+ * Dashboard snapshot response from auto-generation
+ */
+export interface DashboardSnapshot {
+  id: number;
+  topic: string | null;
+  generated_at: string;
+  persona: string;
+  model: string;
+  briefing_articles: SixArticlesReport['articles'] | null;
+  briefing_generated: boolean;
+  highlights_data: unknown | null;
+  highlights_generated: boolean;
+  narratives_data: unknown | null;
+  narratives_generated: boolean;
+  articles_analyzed: number | null;
+  generation_duration_seconds: number | null;
+}
+
+export interface DashboardSnapshotResponse {
+  success: boolean;
+  has_snapshot: boolean;
+  snapshot: DashboardSnapshot | null;
+  message?: string;
+}
+
+/**
+ * Get the latest auto-generated dashboard snapshot
+ * Returns the most recent snapshot created by the scheduler
+ */
+export async function getLatestDashboardSnapshot(topic?: string): Promise<DashboardSnapshotResponse> {
+  const queryParams = new URLSearchParams();
+  if (topic) queryParams.append('topic', topic);
+
+  const response = await fetch(`/api/news-feed/dashboard/snapshot/latest?${queryParams}`, {
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch dashboard snapshot: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
  * Get category icons mapping
  */
 export async function getCategoryIcons(categories?: string[]): Promise<Record<string, string>> {

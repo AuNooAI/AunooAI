@@ -198,7 +198,10 @@ class NewsfeedDashboardMonitor:
             logger.error(f"Error updating status: {e}")
 
     async def run_generation(self, settings: Dict) -> Dict[str, Any]:
-        """Run dashboard generation based on settings."""
+        """Run dashboard generation based on settings and save snapshot."""
+        import time
+        start_time = time.time()
+
         result = {
             "success": False,
             "briefing_generated": False,
@@ -207,18 +210,24 @@ class NewsfeedDashboardMonitor:
             "error": None
         }
 
+        # Data to save in snapshot
+        briefing_articles = None
+        highlights_data = None
+        narratives_data = None
+
         try:
             # Generate briefing (six articles)
             if settings.get('generate_briefing', True):
                 try:
                     from app.routes.news_feed_routes import _generate_six_articles_internal
-                    await _generate_six_articles_internal(
+                    briefing_articles = await _generate_six_articles_internal(
                         persona=settings.get('persona', 'CEO'),
                         model=settings.get('model', 'gpt-4o-mini'),
                         topic=settings.get('topic_filter')
                     )
-                    result["briefing_generated"] = True
-                    logger.info("Briefing (six articles) generated successfully")
+                    result["briefing_generated"] = briefing_articles is not None and len(briefing_articles) > 0
+                    if result["briefing_generated"]:
+                        logger.info(f"Briefing generated: {len(briefing_articles)} articles")
                 except Exception as e:
                     logger.error(f"Failed to generate briefing: {e}")
                     result["error"] = f"Briefing: {str(e)}"
@@ -260,6 +269,31 @@ class NewsfeedDashboardMonitor:
                 result["highlights_generated"] or
                 result["narratives_generated"]
             )
+
+            # Save dashboard snapshot if anything was generated
+            if result["success"]:
+                try:
+                    from app.routes.news_feed_routes import save_dashboard_snapshot
+                    generation_duration = time.time() - start_time
+
+                    snapshot_id = save_dashboard_snapshot(
+                        topic=settings.get('topic_filter'),
+                        persona=settings.get('persona', 'CEO'),
+                        model=settings.get('model', 'gpt-4o-mini'),
+                        briefing_articles=briefing_articles,
+                        highlights_data=highlights_data,
+                        narratives_data=narratives_data,
+                        generation_duration=generation_duration,
+                        error_message=result.get("error")
+                    )
+
+                    if snapshot_id:
+                        logger.info(f"Dashboard snapshot saved (ID: {snapshot_id})")
+                    else:
+                        logger.warning("Failed to save dashboard snapshot")
+
+                except Exception as e:
+                    logger.error(f"Error saving dashboard snapshot: {e}")
 
         except Exception as e:
             result["error"] = str(e)

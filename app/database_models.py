@@ -195,6 +195,27 @@ t_saved_executive_briefings = Table(
     Index('idx_saved_exec_briefings_created', 'created_at')
 )
 
+# Newsfeed dashboard snapshots - stores auto-generated dashboard state
+t_newsfeed_dashboard_snapshots = Table(
+    'newsfeed_dashboard_snapshots', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('topic', String(255), nullable=True),  # NULL = all topics
+    Column('generated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('persona', String(100), nullable=False, server_default=text("'CEO'")),
+    Column('model', String(100), nullable=False, server_default=text("'gpt-4o-mini'")),
+    Column('briefing_articles', JSONB, nullable=True),
+    Column('briefing_generated', Boolean, server_default=text('false'), nullable=False),
+    Column('highlights_data', JSONB, nullable=True),
+    Column('highlights_generated', Boolean, server_default=text('false'), nullable=False),
+    Column('narratives_data', JSONB, nullable=True),
+    Column('narratives_generated', Boolean, server_default=text('false'), nullable=False),
+    Column('articles_analyzed', Integer, nullable=True),
+    Column('generation_duration_seconds', Float, nullable=True),
+    Column('error_message', Text, nullable=True),
+    Index('idx_nf_snapshots_topic', 'topic'),
+    Index('idx_nf_snapshots_generated', 'generated_at'),
+)
+
 t_saved_signal_reports = Table(
     'saved_signal_reports', metadata,
     Column('id', Integer, primary_key=True),
