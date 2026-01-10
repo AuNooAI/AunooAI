@@ -14,6 +14,7 @@ import {
   getAvailableModels,
   groupArticlesByCategory,
   getCategoryCounts,
+  getLatestDashboardSnapshot,
   type NewsArticle,
   type SixArticlesReport,
   type AvailableDate,
@@ -205,6 +206,69 @@ export function useNewsFeed(): UseNewsFeedReturn {
       console.error('Error saving starred articles:', err);
     }
   }, [starredArticles]);
+
+  // Check for auto-generated dashboard snapshot on mount
+  useEffect(() => {
+    const loadSnapshot = async () => {
+      try {
+        const snapshotResponse = await getLatestDashboardSnapshot(config.topic);
+        if (snapshotResponse.has_snapshot && snapshotResponse.snapshot?.briefing_articles) {
+          const snapshot = snapshotResponse.snapshot;
+          const snapshotDate = new Date(snapshot.generated_at);
+
+          // Check if snapshot is newer than local cache
+          const cachedStr = localStorage.getItem(STORAGE_KEYS.SIX_ARTICLES);
+          let useSnapshot = true;
+
+          if (cachedStr) {
+            try {
+              const cached = JSON.parse(cachedStr);
+              const cachedDate = new Date(cached.cachedAt);
+              // Only use snapshot if it's newer than cache
+              useSnapshot = snapshotDate > cachedDate;
+            } catch {
+              // If cache parsing fails, use snapshot
+            }
+          }
+
+          if (useSnapshot && snapshot.briefing_articles.length > 0) {
+            console.log('[useNewsFeed] Loading auto-generated dashboard snapshot from', snapshot.generated_at);
+            setSixArticles({
+              date: snapshot.generated_at.split('T')[0],
+              title: 'Executive Briefing',
+              articles: snapshot.briefing_articles,
+              generated_at: snapshot.generated_at,
+              executive_summary: '',
+              key_themes: [],
+              bias_distribution: {},
+              factuality_overview: {},
+            });
+
+            // Update cache with snapshot data
+            const cacheEntry = {
+              data: {
+                date: snapshot.generated_at.split('T')[0],
+                title: 'Executive Briefing',
+                articles: snapshot.briefing_articles,
+                generated_at: snapshot.generated_at,
+                executive_summary: '',
+                key_themes: [],
+                bias_distribution: {},
+                factuality_overview: {},
+              },
+              key: `${snapshot.persona}_${snapshot.topic || 'all'}_24h_none`,
+              cachedAt: snapshot.generated_at,
+            };
+            localStorage.setItem(STORAGE_KEYS.SIX_ARTICLES, JSON.stringify(cacheEntry));
+          }
+        }
+      } catch (err) {
+        console.log('[useNewsFeed] No auto-generated snapshot available:', err);
+      }
+    };
+
+    loadSnapshot();
+  }, []); // Run once on mount
 
   // Load initial data
   useEffect(() => {
