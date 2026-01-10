@@ -50,6 +50,7 @@ def register_routers(app: FastAPI):
     from app.routes.gather_routes import router as gather_router
     from app.routes.pam_routes import router as pam_router
     from app.routes.email_routes import router as email_router
+    from app.routes.emerging_topics_routes import router as emerging_topics_router
 
     # Register database routes
     app.include_router(database.router)
@@ -167,5 +168,8 @@ def register_routers(app: FastAPI):
 
     # Email sharing routes
     app.include_router(email_router, prefix="/api")
+
+    # Emerging Topics detection routes
+    app.include_router(emerging_topics_router)
 
     logger.info("All routers registered successfully")

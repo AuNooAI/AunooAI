@@ -2585,6 +2585,97 @@ async def get_incident_preferences(
 
 
 # ------------------------------------------------------------------
+# Article preference endpoints (more/less like this)
+# ------------------------------------------------------------------
+
+class _ArticlePreferenceRequest(BaseModel):
+    """Request model for recording article preferences."""
+    uri: str
+    preference: str  # 'more', 'less', or 'clear'
+
+
+@router.post("/article-preference")
+async def record_article_preference(
+    request: _ArticlePreferenceRequest,
+    session=Depends(verify_session),
+):
+    """Record more/less like this preference for an article."""
+    try:
+        from app.database import get_database_instance
+
+        if request.preference not in ['more', 'less', 'clear']:
+            raise HTTPException(status_code=400, detail="Invalid preference. Must be 'more', 'less', or 'clear'")
+
+        db = get_database_instance()
+
+        if request.preference == 'clear':
+            # Clear the preference
+            db.execute(
+                "UPDATE articles SET user_preference = NULL, preference_date = NULL WHERE uri = %s",
+                (request.uri,)
+            )
+        else:
+            # Set the preference
+            db.execute(
+                "UPDATE articles SET user_preference = %s, preference_date = %s WHERE uri = %s",
+                (request.preference, datetime.now(), request.uri)
+            )
+
+        return {"success": True, "message": f"Article preference '{request.preference}' recorded"}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error recording article preference: %s", exc)
+        raise HTTPException(status_code=500, detail="Error recording article preference")
+
+
+@router.get("/article-preferences")
+async def get_article_preferences(
+    limit: int = Query(100, description="Max number of articles to return"),
+    preference: Optional[str] = Query(None, description="Filter by preference type: 'more' or 'less'"),
+    session=Depends(verify_session),
+):
+    """Get articles with user preferences set."""
+    try:
+        from app.database import get_database_instance
+
+        db = get_database_instance()
+
+        if preference:
+            if preference not in ['more', 'less']:
+                raise HTTPException(status_code=400, detail="Invalid preference filter. Must be 'more' or 'less'")
+            results = db.execute(
+                "SELECT uri, title, news_source, topic, user_preference, preference_date FROM articles WHERE user_preference = %s ORDER BY preference_date DESC LIMIT %s",
+                (preference, limit)
+            ).fetchall()
+        else:
+            results = db.execute(
+                "SELECT uri, title, news_source, topic, user_preference, preference_date FROM articles WHERE user_preference IS NOT NULL ORDER BY preference_date DESC LIMIT %s",
+                (limit,)
+            ).fetchall()
+
+        articles = []
+        for row in results:
+            articles.append({
+                "uri": row[0],
+                "title": row[1],
+                "news_source": row[2],
+                "topic": row[3],
+                "preference": row[4],
+                "preference_date": row[5].isoformat() if row[5] else None
+            })
+
+        return {"articles": articles, "count": len(articles)}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error getting article preferences: %s", exc)
+        raise HTTPException(status_code=500, detail="Error retrieving article preferences")
+
+
+# ------------------------------------------------------------------
 # Signal instructions endpoints for threat hunting
 # ------------------------------------------------------------------
 

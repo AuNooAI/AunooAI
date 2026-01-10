@@ -36,6 +36,25 @@ class ShareIncidentRequest(BaseModel):
     source_quality: Optional[str] = None
 
 
+class IncidentData(BaseModel):
+    """Single incident data for bulk share."""
+    incident_name: str
+    incident_type: Optional[str] = "event"
+    significance: Optional[str] = "medium"
+    description: Optional[str] = None
+    entities: Optional[List[str]] = None
+    strategic_relevance: Optional[str] = None
+    plausibility: Optional[str] = None
+    source_quality: Optional[str] = None
+
+
+class ShareIncidentsRequest(BaseModel):
+    """Request to share multiple incidents via email."""
+    to_email: str
+    topic: Optional[str] = None
+    incidents: List[IncidentData]
+
+
 class ShareNarrativeRequest(BaseModel):
     """Request to share a narrative via email."""
     to_email: str
@@ -186,6 +205,112 @@ Shared from AuNoo AI
 
     except Exception as e:
         logger.error(f"Error sharing incident: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/share/incidents", response_model=ShareResponse)
+async def share_incidents(
+    request: ShareIncidentsRequest,
+    session=Depends(verify_session)
+):
+    """Share multiple incidents via email."""
+    email_service = get_email_service()
+
+    if not email_service.is_available():
+        raise HTTPException(
+            status_code=503,
+            detail="Email service not configured. Set RESEND_API_KEY environment variable."
+        )
+
+    if not request.incidents:
+        raise HTTPException(status_code=400, detail="No incidents provided")
+
+    count = len(request.incidents)
+    topic_str = f" - {request.topic}" if request.topic else ""
+    subject = f"[AuNoo AI] {count} Incident{'s' if count > 1 else ''}{topic_str}"
+
+    html_parts = [
+        f'<div style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif; max-width: 600px; margin: 0 auto;">',
+        f'<div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 20px; border-radius: 8px 8px 0 0;">',
+        f'<h1 style="color: white; margin: 0; font-size: 24px;">Incident Report</h1>',
+        f'<p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0;">{count} incident{"s" if count > 1 else ""}{topic_str}</p>',
+        f'</div>',
+        f'<div style="background: #f8f9fa; padding: 20px; border: 1px solid #e9ecef; border-top: none;">',
+    ]
+
+    for i, incident in enumerate(request.incidents, 1):
+        # Significance badge color
+        sig_color = {"high": "#dc3545", "medium": "#ffc107", "low": "#28a745"}.get(
+            (incident.significance or "medium").lower(), "#6c757d"
+        )
+        sig_text_color = "#000" if (incident.significance or "").lower() == "medium" else "#fff"
+        type_color = {"incident": "#dc3545", "event": "#0d6efd", "expertise": "#6f42c1", "trend": "#198754"}.get(
+            (incident.incident_type or "event").lower(), "#6c757d"
+        )
+
+        html_parts.append(f'<div style="background: white; padding: 15px; border-radius: 4px; margin: {"0" if i == 1 else "12px"} 0 12px 0; border: 1px solid #e9ecef;">')
+        html_parts.append(f'<h3 style="color: #333; margin: 0 0 8px 0; font-size: 16px;">{i}. {incident.incident_name}</h3>')
+
+        # Badges
+        html_parts.append('<div style="margin: 8px 0;">')
+        if incident.incident_type:
+            html_parts.append(f'<span style="background: {type_color}; color: white; padding: 3px 8px; border-radius: 4px; font-size: 11px; margin-right: 4px;">{incident.incident_type}</span>')
+        if incident.significance:
+            html_parts.append(f'<span style="background: {sig_color}; color: {sig_text_color}; padding: 3px 8px; border-radius: 4px; font-size: 11px; margin-right: 4px;">{incident.significance}</span>')
+        if incident.plausibility:
+            html_parts.append(f'<span style="background: #17a2b8; color: white; padding: 3px 8px; border-radius: 4px; font-size: 11px;">{incident.plausibility}</span>')
+        html_parts.append('</div>')
+
+        if incident.description:
+            html_parts.append(f'<p style="margin: 10px 0 0 0; color: #555; font-size: 14px; line-height: 1.5;">{incident.description}</p>')
+
+        if incident.strategic_relevance:
+            html_parts.append(f'<p style="margin: 10px 0 0 0; color: #1976d2; font-size: 13px;"><strong>Strategic Relevance:</strong> {incident.strategic_relevance}</p>')
+
+        if incident.entities:
+            entities_html = " ".join([f'<span style="background: #e8eaf6; color: #3f51b5; padding: 2px 6px; border-radius: 3px; font-size: 11px; margin-right: 3px;">{e}</span>' for e in incident.entities[:5]])
+            html_parts.append(f'<p style="margin: 10px 0 0 0;">{entities_html}</p>')
+
+        html_parts.append('</div>')
+
+    html_parts.extend([
+        '</div>',
+        '<div style="background: #f1f3f4; padding: 15px; text-align: center; border-radius: 0 0 8px 8px; border: 1px solid #e9ecef; border-top: none;">',
+        '<p style="color: #666; font-size: 12px; margin: 0;">Shared from <strong>AuNoo AI</strong></p>',
+        '</div>',
+        '</div>'
+    ])
+
+    body_html = '\n'.join(html_parts)
+
+    # Plain text version
+    text_parts = [f"Incident Report - {count} incident{'s' if count > 1 else ''}{topic_str}", ""]
+    for i, incident in enumerate(request.incidents, 1):
+        text_parts.append(f"{i}. {incident.incident_name}")
+        text_parts.append(f"   Type: {incident.incident_type or 'N/A'} | Significance: {incident.significance or 'N/A'}")
+        if incident.description:
+            text_parts.append(f"   {incident.description[:200]}...")
+        text_parts.append("")
+
+    text_parts.extend(["---", "Shared from AuNoo AI"])
+    body_text = "\n".join(text_parts)
+
+    try:
+        success = email_service.send_email(
+            to_addresses=[request.to_email],
+            subject=subject,
+            body_html=body_html,
+            body_text=body_text
+        )
+
+        if success:
+            logger.info(f"{count} incidents shared via email to {request.to_email}")
+            return ShareResponse(success=True, message=f"{count} incidents shared successfully")
+        else:
+            raise HTTPException(status_code=500, detail="Failed to send email")
+
+    except Exception as e:
+        logger.error(f"Error sharing incidents: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

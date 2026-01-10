@@ -17,6 +17,7 @@ import {
   FileText,
   Check,
   Bookmark,
+  Sparkles,
 } from 'lucide-react';
 import { useNewsFeed } from '../hooks/useNewsFeed';
 import { useNarrativeExplorer } from '../hooks/useNarrativeExplorer';
@@ -27,9 +28,12 @@ import { BriefingSection } from '../components/newsfeed/BriefingSection';
 import { HighlightsSection } from '../components/newsfeed/HighlightsSection';
 import { SavedIncidentsSection } from '../components/newsfeed/SavedIncidentsSection';
 import { SavedPodcastsSection } from '../components/newsfeed/SavedPodcastsSection';
+import { SavedEmergingTopicsSection } from '../components/newsfeed/SavedEmergingTopicsSection';
+import { SavedNarrativesSection, saveNarrative, unsaveNarrative, getSavedNarrativeNames } from '../components/newsfeed/SavedNarrativesSection';
 import { NarrativeInsightsSection } from '../components/newsfeed/NarrativeInsightsSection';
 import { ResearchAgentsSection } from '../components/newsfeed/ResearchAgentsSection';
 import { SignalReportsTab } from '../components/newsfeed/SignalReportsTab';
+import { EmergingTopicsTab } from '../components/newsfeed/EmergingTopicsTab';
 import { TopicCluster, getCategoryIcon } from '../components/newsfeed/TopicCluster';
 import { OnboardingWizard } from '../components/onboarding/OnboardingWizard';
 import { AuspexChat } from '../components/auspex';
@@ -142,7 +146,8 @@ export function NewsFeedPage() {
   };
 
   // UI State
-  const [currentTab, setCurrentTab] = useState<'feed' | 'agents' | 'reports' | 'saved'>('feed');
+  const [currentTab, setCurrentTab] = useState<'feed' | 'emerging' | 'agents' | 'saved'>('feed');
+  const [emergingTopicsCount, setEmergingTopicsCount] = useState(0);
   const [reportsCount, setReportsCount] = useState(0);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isNarrativesConfigOpen, setIsNarrativesConfigOpen] = useState(false);
@@ -189,6 +194,34 @@ export function NewsFeedPage() {
       console.error('Failed to unsave incident:', err);
     }
   }, [config.topic]);
+
+  // Saved narratives state
+  const [savedNarrativeNames, setSavedNarrativeNames] = useState<string[]>(() => getSavedNarrativeNames());
+
+  // Save narrative handler
+  const handleSaveNarrative = useCallback((narrativeName: string) => {
+    // Find the narrative from themes to get full data
+    const theme = themes.find(t => (t.theme_name || (t as any).name) === narrativeName);
+    if (theme) {
+      saveNarrative({
+        name: narrativeName,
+        description: theme.theme_summary || theme.description,
+        sentiment: theme.sentiment,
+        confidence: theme.confidence,
+        article_count: theme.article_count,
+        source_count: theme.source_count,
+        key_entities: theme.key_entities,
+        topic: config.topic,
+      });
+      setSavedNarrativeNames(prev => [...prev, narrativeName]);
+    }
+  }, [themes, config.topic]);
+
+  // Unsave narrative handler
+  const handleUnsaveNarrative = useCallback((narrativeName: string) => {
+    unsaveNarrative(narrativeName);
+    setSavedNarrativeNames(prev => prev.filter(name => name !== narrativeName));
+  }, []);
 
   // Section visibility state with localStorage persistence
   const [visibleSections, setVisibleSections] = useState<VisibleSections>(() => {
@@ -345,6 +378,26 @@ export function NewsFeedPage() {
       }
     };
     fetchReportsCount();
+  }, [config.topic]);
+
+  // Fetch emerging topics count
+  useEffect(() => {
+    const fetchEmergingTopicsCount = async () => {
+      try {
+        const params = new URLSearchParams({ limit: '1' });
+        if (config.topic) {
+          params.append('topic', config.topic);
+        }
+        const response = await fetch(`/api/emerging-topics/dashboard-widget?${params}`);
+        if (response.ok) {
+          const data = await response.json();
+          setEmergingTopicsCount(data.summary?.total_emerging_topics || 0);
+        }
+      } catch (err) {
+        console.error('Failed to fetch emerging topics count:', err);
+      }
+    };
+    fetchEmergingTopicsCount();
   }, [config.topic]);
 
   // Fetch clusters when categories change
@@ -551,7 +604,7 @@ export function NewsFeedPage() {
             <span className="gather-top-bar-title">Explore</span>
             <span className="gather-top-bar-separator">/</span>
             <span className="gather-top-bar-subtitle">
-              {currentTab === 'agents' ? 'Research Agents' : currentTab === 'reports' ? 'Reports' : 'News Feed'}
+              {currentTab === 'agents' ? 'Observer Agents' : currentTab === 'emerging' ? 'Emerging Topics' : currentTab === 'saved' ? 'Saved' : 'News Feed'}
             </span>
           </div>
           <div className="gather-top-bar-right">
@@ -600,23 +653,23 @@ export function NewsFeedPage() {
             News Feed
           </button>
           <button
+            className={`explore-tab-btn ${currentTab === 'emerging' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('emerging')}
+          >
+            <Sparkles className="w-4 h-4" />
+            Emerging Topics
+            {emergingTopicsCount > 0 && (
+              <span className="explore-tab-badge">{emergingTopicsCount}</span>
+            )}
+          </button>
+          <button
             className={`explore-tab-btn ${currentTab === 'agents' ? 'active' : ''}`}
             onClick={() => setCurrentTab('agents')}
           >
             <Bot className="w-4 h-4" />
-            Research Agents
+            Observer Agents
             {researchAlertsCount > 0 && (
               <span className="explore-tab-badge">{researchAlertsCount}</span>
-            )}
-          </button>
-          <button
-            className={`explore-tab-btn ${currentTab === 'reports' ? 'active' : ''}`}
-            onClick={() => setCurrentTab('reports')}
-          >
-            <FileText className="w-4 h-4" />
-            Reports
-            {reportsCount > 0 && (
-              <span className="explore-tab-badge">{reportsCount}</span>
             )}
           </button>
           <button
@@ -738,6 +791,9 @@ export function NewsFeedPage() {
                         currentTopic={config.topic}
                         onOpenConfig={() => setIsNarrativesConfigOpen(true)}
                         model={config.model}
+                        savedNarrativeNames={savedNarrativeNames}
+                        onSaveNarrative={handleSaveNarrative}
+                        onUnsaveNarrative={handleUnsaveNarrative}
                       />
                     )}
 
@@ -838,12 +894,15 @@ export function NewsFeedPage() {
               />
             )}
 
-            {/* Signal Reports Tab Content */}
-            {currentTab === 'reports' && (
-              <SignalReportsTab topic={config.topic || undefined} />
+            {/* Emerging Topics Tab Content */}
+            {currentTab === 'emerging' && (
+              <EmergingTopicsTab
+                topic={config.topic || undefined}
+                onArticleClick={handleArticleClick}
+              />
             )}
 
-            {/* Saved Tab Content - Incidents and Podcasts */}
+            {/* Saved Tab Content - Incidents, Emerging Topics, and Podcasts */}
             {currentTab === 'saved' && (
               <div className="space-y-6">
                 {/* Saved Incidents Section */}
@@ -859,9 +918,42 @@ export function NewsFeedPage() {
                 {/* Divider */}
                 <hr className="border-gray-200 dark:border-gray-700 mx-6" />
 
+                {/* Saved Narratives Section */}
+                <div className="px-6">
+                  <SavedNarrativesSection />
+                </div>
+
+                {/* Divider */}
+                <hr className="border-gray-200 dark:border-gray-700 mx-6" />
+
+                {/* Tracked Emerging Topics Section */}
+                <div className="px-6">
+                  <SavedEmergingTopicsSection
+                    onTopicClick={(topicId) => {
+                      // Navigate to Emerging Topics tab
+                      setCurrentTab('emerging');
+                    }}
+                  />
+                </div>
+
+                {/* Divider */}
+                <hr className="border-gray-200 dark:border-gray-700 mx-6" />
+
                 {/* Saved Podcasts Section */}
                 <div className="px-6">
                   <SavedPodcastsSection />
+                </div>
+
+                {/* Divider */}
+                <hr className="border-gray-200 dark:border-gray-700 mx-6" />
+
+                {/* Saved Reports Section */}
+                <div className="px-6">
+                  <div className="flex items-center gap-2 mb-4">
+                    <FileText className="w-5 h-5 text-blue-500" />
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Saved Reports</h3>
+                  </div>
+                  <SignalReportsTab topic={config.topic || undefined} />
                 </div>
               </div>
             )}

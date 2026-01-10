@@ -3,7 +3,7 @@
  * Shows AI-identified narrative patterns, themes, and article clustering
  */
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   Brain,
   ChevronDown,
@@ -21,6 +21,8 @@ import {
   Download,
   Table,
   Share2,
+  MoreVertical,
+  Bookmark,
 } from 'lucide-react';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import { type ArticleTheme, type ThemeArticle } from '../../services/narrativeExplorerApi';
@@ -37,6 +39,9 @@ interface NarrativeInsightsSectionProps {
   currentTopic?: string;
   onOpenConfig?: () => void;
   model?: string;
+  savedNarrativeNames?: string[];
+  onSaveNarrative?: (narrativeName: string) => void;
+  onUnsaveNarrative?: (narrativeName: string) => void;
 }
 
 // Convert ThemeArticle to NewsArticle for detail panel
@@ -56,7 +61,7 @@ function themeArticleToNewsArticle(article: ThemeArticle): NewsArticle {
   };
 }
 
-export function NarrativeInsightsSection({ themes, loading, onArticleClick, currentTopic, onOpenConfig, model }: NarrativeInsightsSectionProps) {
+export function NarrativeInsightsSection({ themes, loading, onArticleClick, currentTopic, onOpenConfig, model, savedNarrativeNames = [], onSaveNarrative, onUnsaveNarrative }: NarrativeInsightsSectionProps) {
   const [expandedCards, setExpandedCards] = useState<Set<number>>(new Set());
   const [showAll, setShowAll] = useState(false);
   const [showDownloadDropdown, setShowDownloadDropdown] = useState(false);
@@ -208,16 +213,24 @@ export function NarrativeInsightsSection({ themes, loading, onArticleClick, curr
         <>
           {/* Themes Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {displayedThemes.map((theme, i) => (
-              <ThemeCard
-                key={i}
-                theme={theme}
-                expanded={expandedCards.has(i)}
-                onToggleExpand={() => toggleExpand(i)}
-                onArticleClick={onArticleClick}
-                currentTopic={currentTopic}
-              />
-            ))}
+            {displayedThemes.map((theme, i) => {
+              const themeName = theme.theme_name || (theme as any).name || 'Untitled Narrative';
+              const isSaved = savedNarrativeNames.includes(themeName);
+              return (
+                <ThemeCard
+                  key={i}
+                  theme={theme}
+                  expanded={expandedCards.has(i)}
+                  onToggleExpand={() => toggleExpand(i)}
+                  onArticleClick={onArticleClick}
+                  currentTopic={currentTopic}
+                  isSaved={isSaved}
+                  onSave={onSaveNarrative}
+                  onUnsave={onUnsaveNarrative}
+                  onShare={() => handleShareNarrative(theme)}
+                />
+              );
+            })}
           </div>
 
           {/* Show More/Less Button */}
@@ -263,9 +276,47 @@ interface ThemeCardProps {
   onToggleExpand: () => void;
   onArticleClick?: (article: NewsArticle) => void;
   currentTopic?: string;
+  isSaved?: boolean;
+  onSave?: (narrativeName: string) => void;
+  onUnsave?: (narrativeName: string) => void;
+  onShare?: () => void;
 }
 
-function ThemeCard({ theme, expanded, onToggleExpand, onArticleClick, currentTopic }: ThemeCardProps) {
+function ThemeCard({ theme, expanded, onToggleExpand, onArticleClick, currentTopic, isSaved = false, onSave, onUnsave, onShare }: ThemeCardProps) {
+  const [showMenu, setShowMenu] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenu(false);
+      }
+    };
+    if (showMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showMenu]);
+
+  const themeName = theme.theme_name || (theme as any).name || 'Untitled Narrative';
+
+  const handleMenuAction = (action: string) => {
+    setShowMenu(false);
+    if (action === 'save') {
+      if (isSaved) {
+        onUnsave?.(themeName);
+      } else {
+        onSave?.(themeName);
+      }
+    } else if (action === 'share') {
+      onShare?.();
+    } else if (action === 'export-md') {
+      ExportService.exportNarrativesMarkdown([theme], currentTopic);
+    } else if (action === 'export-csv') {
+      ExportService.exportNarrativesCSV([theme]);
+    }
+  };
   // Build Auspex research prompt
   const buildResearchPrompt = () => {
     const topicArea = currentTopic || 'AI and Machine Learning';
@@ -315,32 +366,84 @@ Write follow-up questions as natural language that users would ask, not as techn
 
   return (
     <div className={`transition-all ${expanded ? 'bg-gray-50 dark:bg-gray-800/50' : ''}`}>
-      {/* Header: Articles label + See More/Less toggle */}
+      {/* Header: Articles label + Saved badge + Menu + See More/Less toggle */}
       <div className="flex items-center justify-between">
-        <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
-          Articles
-        </span>
-        <button
-          onClick={onToggleExpand}
-          className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium flex items-center gap-1"
-        >
-          {expanded ? (
-            <>
-              <ChevronUp className="w-4 h-4" />
-              See Less
-            </>
-          ) : (
-            <>
-              <ChevronDown className="w-4 h-4" />
-              See More
-            </>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+            Articles
+          </span>
+          {isSaved && (
+            <span className="flex items-center gap-1 text-[10px] bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded">
+              <Bookmark className="w-3 h-3 fill-current" />
+              Saved
+            </span>
           )}
-        </button>
+        </div>
+        <div className="flex items-center gap-1">
+          {/* Kebab menu */}
+          <div ref={menuRef} className="relative">
+            <button
+              onClick={() => setShowMenu(!showMenu)}
+              className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+            >
+              <MoreVertical className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+            </button>
+            {showMenu && (
+              <div className="absolute right-0 top-full mt-1 w-40 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
+                <button
+                  onClick={() => handleMenuAction('save')}
+                  className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                >
+                  <Bookmark className={`w-4 h-4 ${isSaved ? 'text-amber-500 fill-amber-500' : 'text-gray-700 dark:text-gray-300'}`} />
+                  {isSaved ? 'Unsave' : 'Save'}
+                </button>
+                <button
+                  onClick={() => handleMenuAction('share')}
+                  className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                >
+                  <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                  Share
+                </button>
+                <div className="h-px bg-gray-200 dark:bg-gray-700 my-1" />
+                <button
+                  onClick={() => handleMenuAction('export-md')}
+                  className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                >
+                  <FileText className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                  Export Markdown
+                </button>
+                <button
+                  onClick={() => handleMenuAction('export-csv')}
+                  className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                >
+                  <Table className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                  Export CSV
+                </button>
+              </div>
+            )}
+          </div>
+          <button
+            onClick={onToggleExpand}
+            className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium flex items-center gap-1"
+          >
+            {expanded ? (
+              <>
+                <ChevronUp className="w-4 h-4" />
+                See Less
+              </>
+            ) : (
+              <>
+                <ChevronDown className="w-4 h-4" />
+                See More
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Theme Name */}
       <h3 className="font-bold text-gray-900 dark:text-gray-100 text-base mb-2 mt-3">
-        {theme.theme_name}
+        {themeName}
       </h3>
 
       {/* Theme Summary / Description */}

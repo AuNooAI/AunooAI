@@ -44,7 +44,22 @@ export interface ShareBriefingData {
   key_themes?: string[];
 }
 
-export type ShareData = ShareIncidentData | ShareNarrativeData | ShareBriefingData;
+export interface ShareIncidentsData {
+  type: 'incidents';
+  topic?: string;
+  incidents: Array<{
+    incident_name: string;
+    incident_type?: string;
+    significance?: string;
+    description?: string;
+    entities?: string[];
+    strategic_relevance?: string;
+    plausibility?: string;
+    source_quality?: string;
+  }>;
+}
+
+export type ShareData = ShareIncidentData | ShareNarrativeData | ShareBriefingData | ShareIncidentsData;
 
 interface ShareModalProps {
   open: boolean;
@@ -134,6 +149,13 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
           plausibility: data.plausibility,
           source_quality: data.source_quality,
         };
+      } else if (data.type === 'incidents') {
+        endpoint = '/api/share/incidents';
+        body = {
+          to_email: email,
+          topic: data.topic,
+          incidents: data.incidents,
+        };
       } else if (data.type === 'narrative') {
         endpoint = '/api/share/narrative';
         body = {
@@ -187,6 +209,8 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
     switch (data.type) {
       case 'incident':
         return `Share Incident: ${data.incident_name}`;
+      case 'incidents':
+        return `Share ${data.incidents.length} Incident${data.incidents.length > 1 ? 's' : ''}${data.topic ? ` - ${data.topic}` : ''}`;
       case 'narrative':
         return `Share Narrative: ${data.narrative_name}`;
       case 'briefing':

@@ -5,8 +5,8 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { X, ExternalLink, Star, StarOff, MessageSquare, Clock, TrendingUp, Building2, Layers, ChevronRight, MoreVertical, ThumbsUp, ThumbsDown, Share, Bot } from 'lucide-react';
-import { type NewsArticle, type ClusterRelatedArticle } from '../../services/newsFeedApi';
+import { X, ExternalLink, Star, StarOff, MessageSquare, Clock, TrendingUp, Building2, Layers, ChevronRight, MoreVertical, ThumbsUp, ThumbsDown, Share, Bot, Loader2 } from 'lucide-react';
+import { type NewsArticle, type ClusterRelatedArticle, recordArticlePreference } from '../../services/newsFeedApi';
 import { ArticleBiasIndicator } from './ArticleBiasIndicator';
 import { Button } from '../ui/button';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
@@ -32,6 +32,7 @@ export function ArticleDetailPanel({
 }: ArticleDetailPanelProps) {
   const [activeTab, setActiveTab] = useState<'details' | 'related'>('details');
   const [showMenu, setShowMenu] = useState(false);
+  const [preferenceLoading, setPreferenceLoading] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const hasRelated = relatedArticles.length > 0;
 
@@ -48,9 +49,28 @@ export function ArticleDetailPanel({
     }
   }, [showMenu]);
 
-  const handleMenuAction = (action: string) => {
+  const handleMenuAction = async (action: string) => {
     setShowMenu(false);
-    console.log(`Menu action: ${action} for article: ${article?.title}`);
+
+    if (!article) return;
+
+    if (action === 'more' || action === 'less') {
+      try {
+        setPreferenceLoading(true);
+        await recordArticlePreference(article.uri, action);
+        console.log(`Preference "${action}" recorded for: ${article.title}`);
+      } catch (err) {
+        console.error(`Failed to record preference: ${err}`);
+      } finally {
+        setPreferenceLoading(false);
+      }
+    } else if (action === 'share') {
+      // Copy article URL to clipboard
+      const url = article.url || article.uri;
+      if (url) {
+        navigator.clipboard.writeText(url).catch(console.error);
+      }
+    }
   };
 
   if (!article) return null;
@@ -176,16 +196,18 @@ Please provide:
                   <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1 min-w-[160px]">
                     <button
                       onClick={() => handleMenuAction('more')}
-                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                      disabled={preferenceLoading}
+                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
                     >
-                      <ThumbsUp className="w-4 h-4" />
+                      {preferenceLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsUp className="w-4 h-4" />}
                       More like this
                     </button>
                     <button
                       onClick={() => handleMenuAction('less')}
-                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                      disabled={preferenceLoading}
+                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
                     >
-                      <ThumbsDown className="w-4 h-4" />
+                      {preferenceLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsDown className="w-4 h-4" />}
                       Less like this
                     </button>
                     <button
@@ -193,7 +215,7 @@ Please provide:
                       className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
                     >
                       <Share className="w-4 h-4" />
-                      Share
+                      Copy link
                     </button>
                   </div>
                 )}

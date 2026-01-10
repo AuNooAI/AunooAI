@@ -343,12 +343,15 @@ t_articles = Table(
     Column('quality_score', REAL),
     Column('quality_issues', Text),
     Column('auto_ingested', Boolean, default=text('FALSE')),
+    Column('user_preference', Text),  # 'more', 'less', or null
+    Column('preference_date', DateTime),  # when preference was set
     Index('idx_articles_auto_ingested', 'auto_ingested'),
     Index('idx_articles_bias', 'bias'),
     Index('idx_articles_factual_reporting', 'factual_reporting'),
     Index('idx_articles_ingest_status', 'ingest_status'),
     Index('idx_articles_quality_score', 'quality_score'),
-    Index('idx_articles_uri', 'uri', unique=True)
+    Index('idx_articles_uri', 'uri', unique=True),
+    Index('idx_articles_user_preference', 'user_preference'),
 )
 
 t_articles_scenario_1 = Table(
@@ -1022,4 +1025,144 @@ t_auspex_search_routing = Table(
     Column('created_at', DateTime, server_default=text('CURRENT_TIMESTAMP')),
     Index('ix_auspex_search_routing_created_at', 'created_at'),
     Index('ix_auspex_search_routing_recommended_source', 'recommended_source')
+)
+
+
+# Emerging Topics Detection Tables
+t_emerging_topics = Table(
+    'emerging_topics', metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('topic_label', String(255), nullable=False),
+    Column('topic_description', Text),
+    Column('detection_date', DateTime, nullable=False),
+    Column('detection_type', String(50), nullable=False),  # 'new_cluster', 'splitting', 'accelerating', 'proto_cluster'
+
+    # Cluster identification
+    Column('cluster_id', String(100)),
+    Column('parent_cluster_id', Integer, ForeignKey('emerging_topics.id', ondelete='SET NULL')),
+
+    # Cluster metrics (centroid_embedding is vector(1536), accessed via raw SQL)
+    Column('article_count', Integer, default=0),
+    Column('avg_novelty_score', Float),
+    Column('cluster_density', Float),
+    Column('cluster_radius', Float),
+
+    # Velocity/growth metrics
+    Column('growth_rate', Float),
+    Column('velocity', String(20)),  # 'accelerating', 'stable', 'decelerating'
+    Column('velocity_change_pct', Float),
+
+    # LLM-generated analysis
+    Column('key_themes', JSONB),
+    Column('representative_keywords', JSONB),
+    Column('related_existing_topics', JSONB),
+    Column('emergence_rationale', Text),
+
+    # Status and confidence
+    Column('status', String(20), default='active'),  # 'active', 'merged', 'declined', 'confirmed'
+    Column('confidence_score', Float),
+
+    # Article references
+    Column('article_uris', ARRAY(Text)),
+    Column('sample_article_uris', ARRAY(Text)),
+
+    # Optional topic filter
+    Column('topic_filter', String(255)),
+
+    # Processing metadata
+    Column('model_used', String(100)),
+    Column('config', JSONB),
+
+    # Timestamps
+    Column('created_at', DateTime, server_default=text('CURRENT_TIMESTAMP')),
+    Column('updated_at', DateTime, server_default=text('CURRENT_TIMESTAMP')),
+
+    Index('ix_emerging_topics_date', 'detection_date'),
+    Index('ix_emerging_topics_type', 'detection_type'),
+    Index('ix_emerging_topics_status', 'status'),
+    Index('ix_emerging_topics_confidence', 'confidence_score'),
+    Index('ix_emerging_topics_topic_filter', 'topic_filter')
+)
+
+t_article_novelty_scores = Table(
+    'article_novelty_scores', metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('article_uri', Text, ForeignKey('articles.uri', ondelete='CASCADE'), nullable=False),
+    Column('calculation_date', DateTime, nullable=False),
+
+    # Component scores (0-100)
+    Column('knn_distance_score', Float, nullable=False),
+    Column('density_score', Float, nullable=False),
+    Column('centroid_distance_score', Float, nullable=False),
+    Column('composite_novelty_score', Float, nullable=False),
+
+    # KNN calculation details
+    Column('k_neighbors', Integer, default=10),
+    Column('avg_knn_distance', Float),
+    Column('min_knn_distance', Float),
+    Column('max_knn_distance', Float),
+
+    # Density calculation details
+    Column('local_density', Float),
+    Column('density_radius', Float),
+
+    # Cluster assignment
+    Column('nearest_cluster_id', String(100)),
+    Column('distance_to_nearest_cluster', Float),
+    Column('is_outlier', Boolean, default=False),
+
+    # Link to emerging topic if assigned
+    Column('emerging_topic_id', Integer, ForeignKey('emerging_topics.id', ondelete='SET NULL')),
+
+    # Timestamps
+    Column('created_at', DateTime, server_default=text('CURRENT_TIMESTAMP')),
+
+    Index('ix_novelty_scores_article', 'article_uri'),
+    Index('ix_novelty_scores_date', 'calculation_date'),
+    Index('ix_novelty_scores_composite', 'composite_novelty_score'),
+    Index('ix_novelty_scores_outlier', 'is_outlier', 'calculation_date'),
+    UniqueConstraint('article_uri', 'calculation_date', name='uq_novelty_scores_article_date')
+)
+
+t_cluster_snapshots = Table(
+    'cluster_snapshots', metadata,
+    Column('id', Integer, primary_key=True, autoincrement=True),
+    Column('snapshot_date', DateTime, nullable=False),
+    Column('cluster_id', String(100), nullable=False),
+
+    # Cluster state (centroid_embedding is vector(1536), accessed via raw SQL)
+    Column('article_count', Integer),
+    Column('avg_internal_distance', Float),
+    Column('cluster_radius', Float),
+
+    # Evolution metrics
+    Column('centroid_drift', Float),
+    Column('size_change', Integer),
+    Column('composition_similarity', Float),
+
+    # Cluster status flags
+    Column('is_new', Boolean, default=False),
+    Column('is_splitting', Boolean, default=False),
+    Column('is_merging', Boolean, default=False),
+
+    # Parent/child tracking
+    Column('parent_cluster_ids', JSONB),
+    Column('child_cluster_ids', JSONB),
+
+    # Article membership
+    Column('article_uris', ARRAY(Text)),
+
+    # Optional topic filter
+    Column('topic_filter', String(255)),
+
+    # LLM-generated label
+    Column('cluster_label', String(255)),
+
+    # Timestamps
+    Column('created_at', DateTime, server_default=text('CURRENT_TIMESTAMP')),
+
+    Index('ix_cluster_snapshots_date', 'snapshot_date'),
+    Index('ix_cluster_snapshots_cluster', 'cluster_id'),
+    Index('ix_cluster_snapshots_topic', 'topic_filter'),
+    UniqueConstraint('snapshot_date', 'cluster_id', 'topic_filter', name='uq_cluster_snapshots_date_cluster')
 )
