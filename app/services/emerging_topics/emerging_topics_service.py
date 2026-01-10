@@ -421,12 +421,21 @@ class EmergingTopicsService:
                 days_back=days
             )
 
+            # Check if this is actually an ongoing topic with historical coverage
+            is_ongoing = await self._check_historical_coverage(
+                theme=theme,
+                days_back=days,
+                history_window_days=60,  # Look back 60 days for historical articles
+                min_historical_articles=3
+            )
+
             # Create EmergingTopic
             topic = self._create_topic_from_theme(
                 theme=theme,
                 analysis=analysis,
                 trend=trend,
-                detection_date=detection_date
+                detection_date=detection_date,
+                is_ongoing=is_ongoing
             )
 
             emerging_topics.append(topic)
@@ -475,19 +484,109 @@ class EmergingTopicsService:
             "duration_seconds": round(duration, 2),
         }
 
+    async def _check_historical_coverage(
+        self,
+        theme: ProposedTheme,
+        days_back: int,
+        history_window_days: int = 60,
+        min_historical_articles: int = 3
+    ) -> bool:
+        """
+        Check if this theme has historical coverage from before the analysis window.
+
+        If articles exist about this topic from before the analysis window,
+        the topic is not truly "emerging" but rather an ongoing topic.
+
+        Args:
+            theme: The proposed theme to check
+            days_back: The analysis window (e.g., 3 days)
+            history_window_days: How far back to look for historical articles
+            min_historical_articles: Minimum articles to consider it historical
+
+        Returns:
+            True if historical coverage exists (topic is ongoing, not new)
+        """
+        try:
+            from app.vector_store import VectorStore
+
+            # Search for articles older than the analysis window
+            # Using the theme's search query or label as the search term
+            search_text = theme.search_query or theme.theme_label
+
+            vector_store = VectorStore()
+
+            # Search for matching articles with date filter for historical period
+            # Articles from (history_window_days ago) to (days_back ago)
+            conn = self._get_connection()
+            try:
+                # Get article URIs from the historical window
+                stmt = text("""
+                    SELECT uri FROM articles
+                    WHERE publication_date >= CURRENT_DATE - :history_days
+                    AND publication_date < CURRENT_DATE - :analysis_days
+                """)
+                result = conn.execute(stmt, {
+                    "history_days": history_window_days,
+                    "analysis_days": days_back
+                })
+                historical_uris = {row[0] for row in result.fetchall()}
+            finally:
+                conn.close()
+
+            if not historical_uris:
+                # No articles in historical window at all
+                return False
+
+            # Do a semantic search with the theme
+            search_results = vector_store.search(
+                query_text=search_text,
+                k=50,  # Get more results to find historical matches
+                filter_dict=None  # No filter, we'll filter by URIs manually
+            )
+
+            # Count how many results are from the historical window
+            historical_matches = 0
+            for result in search_results:
+                # Results are (uri, distance, metadata) tuples or dicts
+                if isinstance(result, dict):
+                    uri = result.get('uri') or result.get('id')
+                elif isinstance(result, (list, tuple)):
+                    uri = result[0]
+                else:
+                    continue
+
+                if uri in historical_uris:
+                    historical_matches += 1
+
+            if historical_matches >= min_historical_articles:
+                logger.info(
+                    f"Theme '{theme.theme_label}' has {historical_matches} historical articles "
+                    f"(before {days_back} days ago) - marking as ongoing topic"
+                )
+                return True
+
+            return False
+
+        except Exception as e:
+            logger.warning(f"Error checking historical coverage for '{theme.theme_label}': {e}")
+            # On error, assume it's new to avoid false negatives
+            return False
+
     def _create_topic_from_theme(
         self,
         theme: ProposedTheme,
         analysis: DeepAnalysis,
         trend: TrendScore,
-        detection_date: date
+        detection_date: date,
+        is_ongoing: bool = False
     ) -> EmergingTopic:
         """Create EmergingTopic from theme, analysis, and trend data."""
+        topic_detection_type = "ongoing_topic" if is_ongoing else "llm_proposed"
         return EmergingTopic(
             topic_label=theme.theme_label,
             topic_description=theme.theme_description,
             detection_date=detection_date,
-            detection_type="llm_proposed",
+            detection_type=topic_detection_type,
             cluster_id=f"theme_{detection_date.isoformat()}_{theme.theme_label[:20].replace(' ', '_')}",
             article_count=len(theme.article_uris),
             article_uris=theme.article_uris,

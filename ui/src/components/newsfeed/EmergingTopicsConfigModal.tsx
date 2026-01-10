@@ -1,5 +1,5 @@
 /**
- * Emerging Topics Config Modal - Configure Detection, Schedule & Notification Settings
+ * Emerging Topics Config Modal - Configure Detection & Notification Settings
  */
 
 import { useState, useEffect } from 'react';
@@ -9,14 +9,10 @@ import {
   Sliders,
   Save,
   RotateCcw,
-  Clock,
   Bell,
-  Play,
   Mail,
   MessageCircle,
   Loader2,
-  CheckCircle2,
-  AlertCircle,
 } from 'lucide-react';
 import {
   Dialog,
@@ -55,22 +51,6 @@ interface AIModel {
   id: string;
   name: string;
   provider: string;
-}
-
-interface ScheduleSettings {
-  schedule_enabled: boolean;
-  check_interval: number;
-  interval_unit: string;
-  min_articles: number;
-}
-
-interface ScheduleStatus {
-  last_check_time: string | null;
-  next_check_time: string | null;
-  topics_detected: number;
-  articles_analyzed: number;
-  is_running: boolean;
-  last_error: string | null;
 }
 
 interface NotificationSettings {
@@ -129,17 +109,6 @@ export function EmergingTopicsConfigModal({
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('detection');
 
-  // Schedule state
-  const [scheduleSettings, setScheduleSettings] = useState<ScheduleSettings>({
-    schedule_enabled: false,
-    check_interval: 24,
-    interval_unit: 'hours',
-    min_articles: 50,
-  });
-  const [scheduleStatus, setScheduleStatus] = useState<ScheduleStatus | null>(null);
-  const [scheduleLoading, setScheduleLoading] = useState(false);
-  const [runningNow, setRunningNow] = useState(false);
-
   // Notification state
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
     notifications_enabled: false,
@@ -157,32 +126,9 @@ export function EmergingTopicsConfigModal({
   useEffect(() => {
     if (open) {
       setConfig(initialConfig);
-      loadScheduleData();
       loadNotificationData();
     }
   }, [open, initialConfig]);
-
-  const loadScheduleData = async () => {
-    try {
-      const response = await fetch('/api/emerging-topics/schedule/status');
-      if (response.ok) {
-        const data = await response.json();
-        if (data.settings) {
-          setScheduleSettings({
-            schedule_enabled: data.settings.schedule_enabled || false,
-            check_interval: data.settings.check_interval || 24,
-            interval_unit: data.settings.interval_unit || 'hours',
-            min_articles: data.settings.min_articles || 50,
-          });
-        }
-        if (data.status) {
-          setScheduleStatus(data.status);
-        }
-      }
-    } catch (e) {
-      console.error('Failed to load schedule data', e);
-    }
-  };
 
   const loadNotificationData = async () => {
     try {
@@ -237,43 +183,6 @@ export function EmergingTopicsConfigModal({
     value: EmergingTopicsConfig[K]
   ) => {
     setConfig((prev) => ({ ...prev, [field]: value }));
-  };
-
-  // Schedule handlers
-  const handleSaveSchedule = async () => {
-    setScheduleLoading(true);
-    try {
-      const response = await fetch('/api/emerging-topics/schedule/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(scheduleSettings),
-      });
-      if (response.ok) {
-        await loadScheduleData();
-      }
-    } catch (e) {
-      console.error('Failed to save schedule', e);
-    } finally {
-      setScheduleLoading(false);
-    }
-  };
-
-  const handleRunNow = async () => {
-    setRunningNow(true);
-    try {
-      const response = await fetch('/api/emerging-topics/schedule/run-now', {
-        method: 'POST',
-      });
-      if (response.ok) {
-        const result = await response.json();
-        await loadScheduleData();
-        alert(`Detection complete: ${result.topics_detected} topics found`);
-      }
-    } catch (e) {
-      console.error('Failed to run detection', e);
-    } finally {
-      setRunningNow(false);
-    }
   };
 
   // Notification handlers
@@ -345,15 +254,6 @@ export function EmergingTopicsConfigModal({
     }));
   };
 
-  const formatDateTime = (isoString: string | null) => {
-    if (!isoString) return 'Never';
-    try {
-      return new Date(isoString).toLocaleString();
-    } catch {
-      return isoString;
-    }
-  };
-
   return (
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="w-auto min-w-[550px] max-w-[650px] max-h-[90vh] overflow-hidden flex flex-col">
@@ -363,20 +263,16 @@ export function EmergingTopicsConfigModal({
             Emerging Topics Settings
           </DialogTitle>
           <DialogDescription>
-            Configure detection, scheduling, and notifications
+            Configure detection and notification settings
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto overflow-x-hidden pr-2">
           <Tabs value={activeTab} onValueChange={setActiveTab} className="mt-4">
-            <TabsList className="w-full grid grid-cols-4">
+            <TabsList className="w-full grid grid-cols-3">
               <TabsTrigger value="detection" className="gap-1 text-xs">
                 <Sliders className="w-3.5 h-3.5" />
                 Detection
-              </TabsTrigger>
-              <TabsTrigger value="schedule" className="gap-1 text-xs">
-                <Clock className="w-3.5 h-3.5" />
-                Schedule
               </TabsTrigger>
               <TabsTrigger value="notifications" className="gap-1 text-xs">
                 <Bell className="w-3.5 h-3.5" />
@@ -489,119 +385,6 @@ export function EmergingTopicsConfigModal({
                     step={5}
                   />
                 </div>
-              </div>
-            </TabsContent>
-
-            {/* Schedule Tab */}
-            <TabsContent value="schedule" className="space-y-6 mt-4">
-              {/* Enable Toggle */}
-              <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                <div>
-                  <Label className="font-medium">Automatic Detection</Label>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Run detection on a schedule
-                  </p>
-                </div>
-                <Switch
-                  checked={scheduleSettings.schedule_enabled}
-                  onCheckedChange={(checked) =>
-                    setScheduleSettings(prev => ({ ...prev, schedule_enabled: checked }))
-                  }
-                />
-              </div>
-
-              {/* Interval */}
-              <div className="space-y-3">
-                <Label className="font-medium">Run Every</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    min={1}
-                    max={168}
-                    value={scheduleSettings.check_interval}
-                    onChange={(e) =>
-                      setScheduleSettings(prev => ({
-                        ...prev,
-                        check_interval: parseInt(e.target.value) || 1,
-                      }))
-                    }
-                    className="w-20"
-                  />
-                  <Select
-                    value={scheduleSettings.interval_unit}
-                    onValueChange={(v) =>
-                      setScheduleSettings(prev => ({ ...prev, interval_unit: v }))
-                    }
-                  >
-                    <SelectTrigger className="w-28">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="hours">hours</SelectItem>
-                      <SelectItem value="days">days</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              {/* Status */}
-              {scheduleStatus && (
-                <div className="bg-blue-50 dark:bg-blue-950 border border-blue-200 dark:border-blue-800 rounded-lg p-4 space-y-2">
-                  <h4 className="font-medium text-blue-900 dark:text-blue-100 flex items-center gap-2">
-                    {scheduleStatus.is_running ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Running...
-                      </>
-                    ) : (
-                      <>
-                        <Clock className="w-4 h-4" />
-                        Status
-                      </>
-                    )}
-                  </h4>
-                  <div className="text-sm text-blue-800 dark:text-blue-200 space-y-1">
-                    <p>Last run: {formatDateTime(scheduleStatus.last_check_time)}</p>
-                    <p>Next run: {formatDateTime(scheduleStatus.next_check_time)}</p>
-                    {scheduleStatus.topics_detected > 0 && (
-                      <p>Last result: {scheduleStatus.topics_detected} topics detected</p>
-                    )}
-                  </div>
-                  {scheduleStatus.last_error && (
-                    <div className="text-xs text-red-600 dark:text-red-400 mt-2">
-                      Error: {scheduleStatus.last_error}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Actions */}
-              <div className="flex gap-2">
-                <Button
-                  onClick={handleSaveSchedule}
-                  disabled={scheduleLoading}
-                  size="sm"
-                >
-                  {scheduleLoading ? (
-                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                  ) : (
-                    <Save className="w-4 h-4 mr-1" />
-                  )}
-                  Save Schedule
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={handleRunNow}
-                  disabled={runningNow}
-                  size="sm"
-                >
-                  {runningNow ? (
-                    <Loader2 className="w-4 h-4 mr-1 animate-spin" />
-                  ) : (
-                    <Play className="w-4 h-4 mr-1" />
-                  )}
-                  Run Now
-                </Button>
               </div>
             </TabsContent>
 

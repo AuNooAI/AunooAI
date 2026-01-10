@@ -38,7 +38,9 @@ import {
   FileText,
   FileSpreadsheet,
   FileDown,
+  MessageSquare,
 } from 'lucide-react';
+import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import { Card, CardContent } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
@@ -57,6 +59,7 @@ import {
   EmergingTopicsConfig,
   loadEmergingTopicsConfig,
 } from './EmergingTopicsConfigModal';
+import { EmergingTopicsScheduleModal } from './EmergingTopicsScheduleModal';
 // ShareModal removed - needs proper data type support for emerging topics
 import { getAvailableModels } from '../../services/newsFeedApi';
 import { ExportService } from '../../services/exportService';
@@ -240,12 +243,16 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
   // Config state
   const [config, setConfig] = useState<EmergingTopicsConfig>(loadEmergingTopicsConfig);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [isScheduleOpen, setIsScheduleOpen] = useState(false);
 
   // Model selection state
   const [availableModels, setAvailableModels] = useState<Array<{id: string; name: string; provider: string}>>([]);
 
   // Delete confirmation state
   const [topicToDelete, setTopicToDelete] = useState<EmergingTopic | null>(null);
+
+  // Clear all confirmation state
+  const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   // Menu state
   const [menuOpenId, setMenuOpenId] = useState<number | null>(null);
@@ -548,6 +555,35 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
     setMenuOpenId(null);
   };
 
+  // Ask Auspex handler - builds comprehensive context for LLM analysis
+  const handleAskAuspex = (topic: EmergingTopic) => {
+    const actorsList: string[] = [];
+    if (topic.actors?.companies?.length) actorsList.push(`Companies: ${topic.actors.companies.join(', ')}`);
+    if (topic.actors?.people?.length) actorsList.push(`People: ${topic.actors.people.join(', ')}`);
+    if (topic.actors?.organizations?.length) actorsList.push(`Organizations: ${topic.actors.organizations.join(', ')}`);
+
+    const prompt = `Analyze this emerging topic: "${topic.topic_label}"
+
+DESCRIPTION:
+${topic.topic_description}
+
+${topic.why_emerging ? `WHY EMERGING:\n${topic.why_emerging}\n` : ''}METRICS:
+- Articles: ${topic.article_count}
+- Velocity: ${topic.velocity}
+- Detection Type: ${topic.detection_type}
+${topic.trend_score ? `- Trend Score: ${Math.round(topic.trend_score.composite)}/100` : ''}
+
+${actorsList.length ? `KEY ACTORS:\n${actorsList.join('\n')}\n` : ''}${topic.events?.trigger_event ? `TRIGGER EVENT:\n${topic.events.trigger_event}\n` : ''}${topic.synthesis?.key_takeaway ? `KEY TAKEAWAY:\n${topic.synthesis.key_takeaway}\n` : ''}${topic.implications?.industry_impact ? `INDUSTRY IMPACT:\n${topic.implications.industry_impact}\n` : ''}
+Please provide:
+1. Deep analysis of this emerging trend
+2. Potential implications for our organization
+3. Key developments to monitor
+4. Recommended actions or responses
+5. Related trends or connections to explore`;
+
+    openAuspexWithQuery(prompt);
+  };
+
   // Render actors section
   const renderActors = (actors: Actors) => {
     const hasActors = actors?.companies?.length || actors?.people?.length || actors?.organizations?.length;
@@ -715,6 +751,15 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
           <Button
             variant="ghost"
             size="sm"
+            onClick={() => setIsScheduleOpen(true)}
+            title="Schedule automatic detection"
+            disabled={detecting}
+          >
+            <Clock className="w-4 h-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setIsConfigOpen(true)}
             title="Configure detection settings"
             disabled={detecting}
@@ -775,24 +820,7 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
             <Button
               variant="outline"
               size="sm"
-              onClick={async () => {
-                if (!confirm(`Delete all ${emergingTopics.length} detected topics from database?`)) return;
-                try {
-                  const params = topic ? `?topic=${encodeURIComponent(topic)}` : '';
-                  const res = await fetch(`/api/emerging-topics/topics${params}`, {
-                    method: 'DELETE',
-                    credentials: 'include',
-                  });
-                  if (res.ok) {
-                    setEmergingTopics([]);
-                    setHighNoveltyArticles([]);
-                    setExpandedTopicId(null);
-                    setTopicDetails({});
-                  }
-                } catch (err) {
-                  console.error('Error clearing topics:', err);
-                }
-              }}
+              onClick={() => setShowClearConfirm(true)}
               disabled={detecting}
               title="Clear all detected topics from database"
             >
@@ -1022,6 +1050,19 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
                           )}
                         </div>
                         <div className="flex items-start gap-2 ml-4">
+                          {/* Ask Auspex Button */}
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleAskAuspex(topicItem);
+                            }}
+                            className="inline-flex items-center gap-1 text-sm text-pink-600 dark:text-pink-400 hover:text-pink-700 dark:hover:text-pink-300 font-medium transition-colors"
+                            title="Ask Auspex about this topic"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            Ask Auspex
+                          </button>
+
                           {/* Delete X Button */}
                           <button
                             onClick={(e) => {
@@ -1321,6 +1362,12 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
         availableModels={availableModels}
       />
 
+      {/* Schedule Modal */}
+      <EmergingTopicsScheduleModal
+        open={isScheduleOpen}
+        onClose={() => setIsScheduleOpen(false)}
+      />
+
       {/* Delete Confirmation Dialog */}
       <Dialog open={!!topicToDelete} onOpenChange={() => setTopicToDelete(null)}>
         <DialogContent>
@@ -1339,6 +1386,54 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
               onClick={() => topicToDelete && handleDeleteTopic(topicToDelete.id)}
             >
               Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Clear All Confirmation Dialog */}
+      <Dialog open={showClearConfirm} onOpenChange={setShowClearConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-500" />
+              Clear All Detected Topics?
+            </DialogTitle>
+            <DialogDescription className="space-y-2">
+              <p>
+                This will permanently delete <strong>{emergingTopics.length} detected topics</strong> from the database.
+              </p>
+              <p className="text-amber-600 dark:text-amber-400 font-medium">
+                Warning: This will reset all detection counters and tracking history. Topics will need to be re-detected.
+              </p>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowClearConfirm(false)}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={async () => {
+                try {
+                  const params = topic ? `?topic=${encodeURIComponent(topic)}` : '';
+                  const res = await fetch(`/api/emerging-topics/topics${params}`, {
+                    method: 'DELETE',
+                    credentials: 'include',
+                  });
+                  if (res.ok) {
+                    setEmergingTopics([]);
+                    setHighNoveltyArticles([]);
+                    setExpandedTopicId(null);
+                    setTopicDetails({});
+                  }
+                } catch (err) {
+                  console.error('Error clearing topics:', err);
+                }
+                setShowClearConfirm(false);
+              }}
+            >
+              Clear All Topics
             </Button>
           </DialogFooter>
         </DialogContent>

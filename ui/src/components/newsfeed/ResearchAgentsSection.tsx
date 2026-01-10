@@ -3,7 +3,7 @@
  * Displays research agents (signal instructions) and their alerts
  */
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Bot,
   Plus,
@@ -27,6 +27,7 @@ import {
 import { Button } from '../ui/button';
 import { AddAgentModal } from './AddAgentModal';
 import { RunAgentModal, type RunAgentOptions } from './RunAgentModal';
+import { ScheduleTimelineBar, type SystemSchedule } from './ScheduleTimelineBar';
 import { type ResearchAgent, type SignalAlert, type CreateAgentRequest, type UpdateAgentRequest, type PodcastSummary } from '../../services/researchAgentsApi';
 
 interface ResearchAgentsSectionProps {
@@ -76,6 +77,94 @@ export function ResearchAgentsSection({
   const [runModalAgent, setRunModalAgent] = useState<ResearchAgent | null>(null);
   const [expandedAgents, setExpandedAgents] = useState<Set<number>>(new Set());
   const [runningAll, setRunningAll] = useState(false);
+  const [systemSchedules, setSystemSchedules] = useState<SystemSchedule[]>([]);
+
+  // Fetch system schedules (Emerging Topics, Newsfeed, Autoprocessing)
+  const fetchSystemSchedules = useCallback(async () => {
+    const schedules: SystemSchedule[] = [];
+
+    // Fetch Emerging Topics schedule
+    try {
+      const etRes = await fetch('/api/emerging-topics/schedule/status', { credentials: 'include' });
+      if (etRes.ok) {
+        const data = await etRes.json();
+        console.log('[SystemSchedules] Emerging Topics API response:', data);
+        if (data.settings?.schedule_enabled) {
+          const nextRun = data.status?.next_check_time || null;
+          console.log('[SystemSchedules] ET schedule_enabled=true, next_check_time=', nextRun);
+          schedules.push({
+            name: 'Emerging Topics',
+            type: 'emerging_topics',
+            enabled: true,
+            // API returns next_check_time, not next_run_time
+            next_run_at: nextRun,
+            last_run_status: data.status?.last_error ? 'error' : (data.status?.topics_detected !== null ? 'success' : null),
+          });
+        } else {
+          console.log('[SystemSchedules] ET schedule_enabled is false or missing');
+        }
+      } else {
+        console.log('[SystemSchedules] ET API returned status:', etRes.status);
+      }
+    } catch (e) {
+      console.error('Failed to fetch emerging topics schedule:', e);
+    }
+
+    // Fetch Newsfeed Dashboard schedule
+    try {
+      const nfRes = await fetch('/api/news-feed/dashboard/schedule/status', { credentials: 'include' });
+      if (nfRes.ok) {
+        const data = await nfRes.json();
+        console.log('[SystemSchedules] Newsfeed API response:', data);
+        if (data.settings?.schedule_enabled) {
+          const nextRun = data.status?.next_run_time || null;
+          console.log('[SystemSchedules] NF schedule_enabled=true, next_run_time=', nextRun);
+          schedules.push({
+            name: 'Newsfeed Dashboard',
+            type: 'newsfeed',
+            enabled: true,
+            next_run_at: nextRun,
+            last_run_status: data.status?.last_run_status || null,
+          });
+        } else {
+          console.log('[SystemSchedules] NF schedule_enabled is false or missing');
+        }
+      } else {
+        console.log('[SystemSchedules] NF API returned status:', nfRes.status);
+      }
+    } catch (e) {
+      console.error('Failed to fetch newsfeed schedule:', e);
+    }
+
+    // Fetch Autoprocessing (Keyword Monitor) schedule
+    try {
+      const apRes = await fetch('/api/keyword-monitor/settings', { credentials: 'include' });
+      if (apRes.ok) {
+        const data = await apRes.json();
+        if (data.is_enabled) {
+          schedules.push({
+            name: 'Autoprocessing',
+            type: 'autoprocessing',
+            enabled: true,
+            next_run_at: data.next_run_time || null,
+            last_run_status: null, // Keyword monitor doesn't track this
+          });
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch autoprocessing schedule:', e);
+    }
+
+    console.log('[SystemSchedules] Final schedules array:', schedules);
+    setSystemSchedules(schedules);
+  }, []);
+
+  // Fetch system schedules on mount and periodically
+  useEffect(() => {
+    fetchSystemSchedules();
+    const interval = setInterval(fetchSystemSchedules, 60000); // Refresh every minute
+    return () => clearInterval(interval);
+  }, [fetchSystemSchedules]);
 
   const toggleAgentExpanded = (agentId: number) => {
     setExpandedAgents(prev => {
@@ -155,7 +244,7 @@ export function ResearchAgentsSection({
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Bot className="w-5 h-5 text-pink-500" />
-          <h2 className="text-xl font-semibold text-gray-900">Research Agents</h2>
+          <h2 className="text-xl font-semibold text-gray-900">Observer Agents</h2>
           {unacknowledgedCount > 0 && (
             <span className="ml-2 px-2 py-0.5 text-xs font-semibold bg-red-500 text-white rounded-full">
               {unacknowledgedCount} alert{unacknowledgedCount !== 1 ? 's' : ''}
@@ -267,6 +356,11 @@ export function ResearchAgentsSection({
                         {agentAlerts.length > 0 && (
                           <span className="px-2 py-0.5 text-xs font-semibold bg-red-500 text-white rounded-full">
                             {agentAlerts.length} match{agentAlerts.length !== 1 ? 'es' : ''}
+                          </span>
+                        )}
+                        {agent.last_run_at && (
+                          <span className="text-xs text-gray-400" title={`Last run: ${new Date(agent.last_run_at).toLocaleString()}`}>
+                            {new Date(agent.last_run_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}, {new Date(agent.last_run_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         )}
                       </div>
@@ -413,6 +507,14 @@ export function ResearchAgentsSection({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Schedule Timeline - shown when any agents or system tasks have scheduling enabled */}
+      {(agents.some(a => a.schedule_enabled) || systemSchedules.length > 0) && (
+        <div className="mt-6 pt-4 border-t border-gray-200">
+          <h3 className="text-sm font-medium text-gray-700 mb-3">Scheduled Runs (24h)</h3>
+          <ScheduleTimelineBar agents={agents} systemSchedules={systemSchedules} />
         </div>
       )}
 

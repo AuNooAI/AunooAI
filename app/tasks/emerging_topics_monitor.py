@@ -40,7 +40,7 @@ class EmergingTopicsMonitor:
     def _load_settings(self) -> None:
         """Load settings from database."""
         try:
-            conn = self.db.get_raw_connection()
+            conn = self.db._temp_get_connection()
             result = conn.execute(text("""
                 SELECT
                     schedule_enabled, check_interval, interval_unit, min_articles,
@@ -117,7 +117,7 @@ class EmergingTopicsMonitor:
     ) -> None:
         """Update monitor status in database."""
         try:
-            conn = self.db.get_raw_connection()
+            conn = self.db._temp_get_connection()
 
             updates = []
             params = {"id": 1}
@@ -178,6 +178,15 @@ class EmergingTopicsMonitor:
                 EmergingTopicsService,
                 EmergingTopicsConfig
             )
+            from app.ai_models import get_ai_model
+
+            # Try to get embedding model getter
+            embedding_getter = None
+            try:
+                from app.ai_models import get_embedding_model
+                embedding_getter = get_embedding_model
+            except ImportError:
+                pass
 
             # Create config
             config = EmergingTopicsConfig(
@@ -186,8 +195,12 @@ class EmergingTopicsMonitor:
                 model=self.model
             )
 
-            # Initialize service
-            service = EmergingTopicsService(config)
+            # Initialize service with AI model getter
+            service = EmergingTopicsService(
+                config=config,
+                ai_model_getter=get_ai_model,
+                embedding_model_getter=embedding_getter
+            )
 
             # Run detection
             logger.info(f"Running emerging topics detection (filter: {self.topic_filter})")
@@ -267,7 +280,7 @@ class EmergingTopicsMonitor:
                 )
 
                 # Update last notification time
-                conn = self.db.get_raw_connection()
+                conn = self.db._temp_get_connection()
                 conn.execute(text("""
                     UPDATE emerging_topics_settings
                     SET last_notification_time = NOW(), updated_at = NOW()

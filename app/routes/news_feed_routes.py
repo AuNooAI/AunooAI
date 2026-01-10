@@ -1486,3 +1486,250 @@ async def get_category_articles(
     except Exception as e:
         logger.error(f"Error getting category articles: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+# ============================================================================
+# Dashboard Schedule Routes
+# ============================================================================
+
+from pydantic import BaseModel, Field
+
+class DashboardScheduleSettings(BaseModel):
+    """Settings for scheduled dashboard generation."""
+    schedule_enabled: Optional[bool] = None
+    schedule_type: Optional[str] = None  # 'interval' or 'daily'
+    check_interval: Optional[int] = Field(None, ge=1, le=168)
+    interval_unit: Optional[str] = None
+    schedule_time: Optional[str] = None  # HH:MM format for daily schedules
+    generate_briefing: Optional[bool] = None
+    generate_highlights: Optional[bool] = None
+    generate_narratives: Optional[bool] = None
+    persona: Optional[str] = None
+
+
+@router.get("/dashboard/schedule/status")
+async def get_dashboard_schedule_status(
+    session=Depends(verify_session)
+):
+    """Get current dashboard schedule and monitor status."""
+    from sqlalchemy import text
+
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+
+    try:
+        # Get settings
+        settings_result = conn.execute(text("""
+            SELECT
+                schedule_enabled, schedule_type, check_interval, interval_unit, schedule_time,
+                generate_briefing, generate_highlights, generate_narratives,
+                persona, model, topic_filter
+            FROM newsfeed_dashboard_settings
+            WHERE id = 1
+        """))
+        settings = settings_result.mappings().first()
+
+        # Get status
+        status_result = conn.execute(text("""
+            SELECT
+                last_run_time, next_run_time, last_run_status,
+                last_error, is_running, run_count
+            FROM newsfeed_dashboard_monitor_status
+            WHERE id = 1
+        """))
+        status = status_result.mappings().first()
+
+        conn.close()
+
+        return {
+            "settings": dict(settings) if settings else None,
+            "status": dict(status) if status else None
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting schedule status: {e}")
+        conn.close()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/dashboard/schedule/settings")
+async def update_dashboard_schedule_settings(
+    request: DashboardScheduleSettings,
+    session=Depends(verify_session)
+):
+    """Update dashboard schedule settings."""
+    from sqlalchemy import text
+    from datetime import datetime, timedelta
+
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+
+    try:
+        updates = []
+        params = {}
+
+        if request.schedule_enabled is not None:
+            updates.append("schedule_enabled = :schedule_enabled")
+            params["schedule_enabled"] = request.schedule_enabled
+        if request.schedule_type is not None:
+            updates.append("schedule_type = :schedule_type")
+            params["schedule_type"] = request.schedule_type
+        if request.check_interval is not None:
+            updates.append("check_interval = :check_interval")
+            params["check_interval"] = request.check_interval
+        if request.interval_unit is not None:
+            updates.append("interval_unit = :interval_unit")
+            params["interval_unit"] = request.interval_unit
+        if request.schedule_time is not None:
+            updates.append("schedule_time = :schedule_time")
+            # Convert HH:MM string to time
+            from datetime import time as dt_time
+            try:
+                hour, minute = map(int, request.schedule_time.split(':'))
+                params["schedule_time"] = dt_time(hour, minute)
+            except:
+                params["schedule_time"] = dt_time(9, 0)  # Default to 9:00
+        if request.generate_briefing is not None:
+            updates.append("generate_briefing = :generate_briefing")
+            params["generate_briefing"] = request.generate_briefing
+        if request.generate_highlights is not None:
+            updates.append("generate_highlights = :generate_highlights")
+            params["generate_highlights"] = request.generate_highlights
+        if request.generate_narratives is not None:
+            updates.append("generate_narratives = :generate_narratives")
+            params["generate_narratives"] = request.generate_narratives
+        if request.persona is not None:
+            updates.append("persona = :persona")
+            params["persona"] = request.persona
+
+        updates.append("updated_at = NOW()")
+
+        if updates:
+            conn.execute(text(f"""
+                UPDATE newsfeed_dashboard_settings
+                SET {', '.join(updates)}
+                WHERE id = 1
+            """), params)
+
+        # Update next_run_time in status if schedule is being enabled
+        if request.schedule_enabled:
+            schedule_type = request.schedule_type or 'interval'
+
+            if schedule_type == 'daily' and request.schedule_time:
+                # For daily schedule, calculate next occurrence of the time
+                from datetime import time as dt_time
+                try:
+                    hour, minute = map(int, request.schedule_time.split(':'))
+                    schedule_time = dt_time(hour, minute)
+                except:
+                    schedule_time = dt_time(9, 0)
+
+                now = datetime.now()
+                next_run = now.replace(hour=schedule_time.hour, minute=schedule_time.minute, second=0, microsecond=0)
+                if next_run <= now:
+                    next_run += timedelta(days=1)
+            else:
+                # For interval schedule
+                interval = request.check_interval or 24
+                unit = request.interval_unit or 'hours'
+
+                if unit == 'hours':
+                    next_run = datetime.now() + timedelta(hours=interval)
+                else:
+                    next_run = datetime.now() + timedelta(days=interval)
+
+            conn.execute(text("""
+                UPDATE newsfeed_dashboard_monitor_status
+                SET next_run_time = :next_run, updated_at = NOW()
+                WHERE id = 1
+            """), {"next_run": next_run})
+
+        conn.commit()
+        conn.close()
+
+        return {"success": True, "message": "Settings updated"}
+
+    except Exception as e:
+        logger.error(f"Error updating schedule settings: {e}")
+        conn.close()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/dashboard/schedule/run-now")
+async def run_dashboard_generation_now(
+    topic: Optional[str] = Query(None, description="Topic filter"),
+    session=Depends(verify_session)
+):
+    """Trigger immediate dashboard generation."""
+    from app.tasks.newsfeed_dashboard_monitor import run_dashboard_generation_now
+
+    try:
+        db = get_database_instance()
+        result = await run_dashboard_generation_now(db, topic_filter=topic)
+
+        return {
+            "success": result.get("success", False),
+            "briefing_generated": result.get("briefing_generated", False),
+            "highlights_generated": result.get("highlights_generated", False),
+            "narratives_generated": result.get("narratives_generated", False),
+            "error": result.get("error"),
+        }
+    except Exception as e:
+        logger.error(f"Failed to run dashboard generation: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Internal functions for scheduled generation
+async def _generate_six_articles_internal(
+    persona: str = "CEO",
+    model: str = "gpt-4o-mini",
+    topic: Optional[str] = None
+):
+    """Internal function to generate six articles briefing for scheduler."""
+    from app.services.news_feed_service import get_news_feed_service
+    from app.schemas.news_feed import NewsFeedRequest
+
+    db = get_database_instance()
+    news_feed_service = get_news_feed_service(db)
+
+    # Build request
+    request = NewsFeedRequest(
+        topic=topic,
+        max_articles=50,
+        model=model,
+        persona=persona
+    )
+
+    # Get articles using the correct async method
+    articles_data = await news_feed_service._get_articles_for_date_range(
+        date_range="24h",
+        max_articles=50,
+        topic=topic
+    )
+
+    if not articles_data:
+        logger.warning("No articles found for briefing generation")
+        return
+
+    # Generate (forces fresh generation, bypassing cache)
+    target_date = datetime.now()
+    await news_feed_service._generate_six_articles_with_political_analysis(
+        articles_data, target_date, request
+    )
+    logger.info("Six articles briefing generated successfully")
+
+
+async def _regenerate_highlights_internal(topic: Optional[str] = None):
+    """Internal function to regenerate highlights for scheduler."""
+    # This would call the highlights generation logic
+    # For now, just log - actual implementation depends on existing highlights code
+    logger.info(f"Highlights regeneration requested for topic: {topic}")
+    # Placeholder - implement based on existing highlights regeneration
+
+
+async def _regenerate_narratives_internal(topic: Optional[str] = None):
+    """Internal function to regenerate narratives for scheduler."""
+    # This would call the narratives generation logic
+    # For now, just log - actual implementation depends on existing narratives code
+    logger.info(f"Narratives regeneration requested for topic: {topic}")
+    # Placeholder - implement based on existing narratives regeneration
