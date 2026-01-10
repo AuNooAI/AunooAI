@@ -1,0 +1,1221 @@
+"""
+Emerging Topics API Routes
+
+Provides endpoints for:
+- Running emerging topic detection
+- Retrieving detected emerging topics
+- Getting high-novelty articles
+- Managing proto-clusters
+"""
+
+from fastapi import APIRouter, HTTPException, Depends, Query
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any
+import json
+import logging
+
+from app.services.emerging_topics import (
+    get_emerging_topics_service,
+    EmergingTopicsConfig,
+)
+from app.security.session import verify_session
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/api/emerging-topics", tags=["Emerging Topics"])
+
+
+# ============================================================================
+# Request/Response Models
+# ============================================================================
+
+class DetectionRequest(BaseModel):
+    """Request model for running emerging topic detection."""
+    topic: Optional[str] = Field(
+        None,
+        description="Topic filter to limit detection scope"
+    )
+    days_back: int = Field(
+        7,
+        ge=1,
+        le=30,
+        description="Number of days to include in analysis"
+    )
+    min_confidence: float = Field(
+        0.5,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence threshold for emerging topics"
+    )
+    include_proto_clusters: bool = Field(
+        True,
+        description="Include proto-clusters (early-stage emerging topics)"
+    )
+    stream: bool = Field(
+        True,
+        description="Whether to stream progress updates"
+    )
+    # V2 Config Parameters
+    sample_size: int = Field(
+        250,
+        ge=50,
+        le=500,
+        description="Number of articles to sample for theme proposal"
+    )
+    distance_threshold: float = Field(
+        0.85,
+        ge=0.3,
+        le=1.0,
+        description="Cosine distance threshold for article assignment"
+    )
+    min_articles_per_theme: int = Field(
+        3,
+        ge=2,
+        le=20,
+        description="Minimum articles required for a valid theme"
+    )
+    max_articles_per_theme: int = Field(
+        30,
+        ge=10,
+        le=100,
+        description="Maximum articles to assign per theme"
+    )
+    model: str = Field(
+        "gpt-4o",
+        description="AI model to use for theme proposal and analysis"
+    )
+
+
+class EmergingTopicResponse(BaseModel):
+    """Response model for an emerging topic."""
+    id: int
+    topic_label: str
+    topic_description: str
+    detection_date: str
+    detection_type: str
+    article_count: int
+    growth_rate: float
+    velocity: str
+    confidence_score: float
+    key_themes: List[str]
+    representative_keywords: List[str]
+    status: str
+
+
+class NoveltyScoreResponse(BaseModel):
+    """Response model for article novelty score."""
+    article_uri: str
+    article_title: str
+    composite_novelty_score: float
+    knn_distance_score: float
+    density_score: float
+    centroid_distance_score: float
+    is_outlier: bool
+    calculation_date: str
+
+
+# ============================================================================
+# Streaming Helper
+# ============================================================================
+
+async def stream_detection(
+    topic: Optional[str],
+    days_back: int,
+    sample_size: int = 250,
+    distance_threshold: float = 0.85,
+    min_articles_per_theme: int = 3,
+    max_articles_per_theme: int = 30,
+    model: str = "gpt-4o"
+):
+    """Stream detection progress as SSE events."""
+    from app.services.emerging_topics import EmergingTopicsService, EmergingTopicsConfig
+    from app.ai_models import get_ai_model
+
+    # Create config with custom parameters
+    config = EmergingTopicsConfig(
+        max_sample_articles=sample_size,
+        theme_distance_threshold=distance_threshold,
+        min_articles_for_theme=min_articles_per_theme,
+        max_articles_per_theme=max_articles_per_theme,
+        days_back=days_back,
+        model=model
+    )
+
+    # Create service with custom config
+    service = EmergingTopicsService(
+        config=config,
+        ai_model_getter=get_ai_model
+    )
+
+    async for update in service.run_detection_streaming(
+        topic_filter=topic,
+        days_back=days_back
+    ):
+        yield f"data: {json.dumps(update)}\n\n"
+
+
+# ============================================================================
+# Detection Endpoints
+# ============================================================================
+
+@router.post("/detect")
+async def run_detection(
+    request: DetectionRequest,
+    session=Depends(verify_session)
+):
+    """
+    Run emerging topic detection.
+
+    If stream=True, returns a Server-Sent Events stream with progress updates.
+    Otherwise, returns the complete detection result.
+    """
+    if request.stream:
+        return StreamingResponse(
+            stream_detection(
+                topic=request.topic,
+                days_back=request.days_back,
+                sample_size=request.sample_size,
+                distance_threshold=request.distance_threshold,
+                min_articles_per_theme=request.min_articles_per_theme,
+                max_articles_per_theme=request.max_articles_per_theme,
+                model=request.model
+            ),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }
+        )
+    else:
+        from app.services.emerging_topics import EmergingTopicsService, EmergingTopicsConfig
+        from app.ai_models import get_ai_model
+
+        config = EmergingTopicsConfig(
+            max_sample_articles=request.sample_size,
+            theme_distance_threshold=request.distance_threshold,
+            min_articles_for_theme=request.min_articles_per_theme,
+            max_articles_per_theme=request.max_articles_per_theme,
+            days_back=request.days_back,
+            model=request.model
+        )
+        service = EmergingTopicsService(config=config, ai_model_getter=get_ai_model)
+        result = await service.run_detection(
+            topic_filter=request.topic,
+            days_back=request.days_back
+        )
+        return result
+
+
+@router.post("/detect/sync")
+async def run_detection_sync(
+    request: DetectionRequest,
+    session=Depends(verify_session)
+):
+    """
+    Run emerging topic detection synchronously (no streaming).
+    Returns the complete detection result.
+    """
+    from app.services.emerging_topics import EmergingTopicsService, EmergingTopicsConfig
+    from app.ai_models import get_ai_model
+
+    config = EmergingTopicsConfig(
+        max_sample_articles=request.sample_size,
+        theme_distance_threshold=request.distance_threshold,
+        min_articles_for_theme=request.min_articles_per_theme,
+        max_articles_per_theme=request.max_articles_per_theme,
+        days_back=request.days_back,
+        model=request.model
+    )
+    service = EmergingTopicsService(config=config, ai_model_getter=get_ai_model)
+    result = await service.run_detection(
+        topic_filter=request.topic,
+        days_back=request.days_back
+    )
+    return result
+
+
+# ============================================================================
+# Config Endpoint
+# ============================================================================
+
+class DetectionConfig(BaseModel):
+    """Configuration for emerging topic detection."""
+    sample_size: int = 250
+    days_back: int = 7
+    distance_threshold: float = 0.85
+    min_articles_per_theme: int = 3
+    max_articles_per_theme: int = 30
+
+
+@router.get("/config")
+async def get_detection_config(
+    session=Depends(verify_session)
+):
+    """Get default detection configuration."""
+    return {
+        "sample_size": {"default": 250, "min": 50, "max": 500, "description": "Number of articles to sample for theme proposal"},
+        "days_back": {"default": 7, "min": 1, "max": 30, "description": "Number of days to look back"},
+        "distance_threshold": {"default": 0.85, "min": 0.3, "max": 1.0, "description": "Cosine distance threshold for article assignment (higher = more lenient)"},
+        "min_articles_per_theme": {"default": 3, "min": 2, "max": 20, "description": "Minimum articles required for a valid theme"},
+        "max_articles_per_theme": {"default": 30, "min": 10, "max": 100, "description": "Maximum articles to assign per theme"},
+    }
+
+
+# ============================================================================
+# Batch Detection Endpoint
+# ============================================================================
+
+class BatchDetectionRequest(BaseModel):
+    """Request model for batch detection across selected or all topics."""
+    topics: Optional[List[str]] = Field(
+        None,
+        description="Specific topics to scan. If empty/null, scans all configured topics."
+    )
+    days_back: int = Field(7, ge=1, le=30)
+    sample_size: int = Field(250, ge=50, le=500)
+    distance_threshold: float = Field(0.85, ge=0.3, le=1.0)
+    min_articles_per_theme: int = Field(3, ge=2, le=20)
+    max_articles_per_theme: int = Field(30, ge=10, le=100)
+    model: str = Field("gpt-4o", description="AI model to use for theme proposal and analysis")
+
+
+async def stream_batch_detection(request: BatchDetectionRequest):
+    """Stream batch detection across selected or all topics."""
+    from app.services.emerging_topics import EmergingTopicsService, EmergingTopicsConfig
+    from app.ai_models import get_ai_model
+    from app.config.config import load_config
+
+    config = load_config()
+
+    # Use provided topics or fall back to all configured topics
+    if request.topics and len(request.topics) > 0:
+        topics = request.topics
+    else:
+        topics = [t["name"] for t in config.get("topics", [])]
+
+    total_topics = len(topics)
+    all_themes = []
+
+    yield f"data: {json.dumps({'step': 0, 'progress': 0, 'message': f'Starting batch detection across {total_topics} topics...'})}\n\n"
+
+    for i, topic_name in enumerate(topics):
+        base_progress = (i / total_topics) * 100
+
+        yield f"data: {json.dumps({'step': i + 1, 'progress': base_progress, 'message': f'Scanning topic {i + 1}/{total_topics}: {topic_name}', 'current_topic': topic_name})}\n\n"
+
+        # Create config for this run
+        et_config = EmergingTopicsConfig(
+            max_sample_articles=request.sample_size,
+            theme_distance_threshold=request.distance_threshold,
+            min_articles_for_theme=request.min_articles_per_theme,
+            max_articles_per_theme=request.max_articles_per_theme,
+            days_back=request.days_back,
+            model=request.model
+        )
+
+        service = EmergingTopicsService(config=et_config, ai_model_getter=get_ai_model)
+
+        topic_themes = []
+        try:
+            async for update in service.run_detection_streaming(
+                topic_filter=topic_name,
+                days_back=request.days_back
+            ):
+                # Forward progress updates with adjusted progress
+                sub_progress = update.get('progress', 0)
+                adjusted_progress = base_progress + (sub_progress / total_topics)
+
+                msg = update.get('message', '')
+                progress_data = {'step': i + 1, 'progress': adjusted_progress, 'message': f'[{topic_name}] {msg}', 'current_topic': topic_name}
+                yield f"data: {json.dumps(progress_data)}\n\n"
+
+                if 'emerging_topics' in update:
+                    topic_themes = update['emerging_topics']
+                    all_themes.extend(topic_themes)
+
+        except Exception as exc:
+            logger.error(f"Error detecting topics for {topic_name}: {exc}")
+            error_data = {'step': i + 1, 'progress': base_progress, 'message': f'Error scanning {topic_name}: {str(exc)}', 'error': True}
+            yield f"data: {json.dumps(error_data)}\n\n"
+
+        complete_data = {'step': i + 1, 'progress': base_progress + (100 / total_topics), 'message': f'Completed {topic_name}: {len(topic_themes)} themes found', 'topic_complete': topic_name, 'themes_found': len(topic_themes)}
+        yield f"data: {json.dumps(complete_data)}\n\n"
+
+    # Final summary
+    final_data = {'step': total_topics + 1, 'progress': 100, 'message': f'Batch detection complete: {len(all_themes)} total themes across {total_topics} topics', 'total_themes': len(all_themes), 'topics_scanned': total_topics, 'emerging_topics': all_themes}
+    yield f"data: {json.dumps(final_data)}\n\n"
+
+
+@router.post("/detect/batch")
+async def run_batch_detection(
+    request: BatchDetectionRequest,
+    session=Depends(verify_session)
+):
+    """
+    Run emerging topic detection across ALL configured topics.
+    Returns a Server-Sent Events stream with progress updates.
+    """
+    return StreamingResponse(
+        stream_batch_detection(request),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+@router.get("/available-topics")
+async def get_available_topics(
+    session=Depends(verify_session)
+):
+    """Get list of configured topics for batch detection."""
+    from app.config.config import load_config
+
+    config = load_config()
+    topics = [{"name": t["name"], "description": t.get("description", "")} for t in config.get("topics", [])]
+
+    return {
+        "count": len(topics),
+        "topics": topics
+    }
+
+
+# ============================================================================
+# Emerging Topics Endpoints
+# ============================================================================
+
+@router.get("/topics")
+async def get_emerging_topics(
+    topic: Optional[str] = Query(None, description="Topic filter"),
+    days_back: int = Query(7, ge=1, le=30, description="Days to look back"),
+    detection_type: Optional[str] = Query(None, description="Filter by type: new_cluster, accelerating, splitting, proto_cluster"),
+    min_confidence: float = Query(0.0, ge=0.0, le=1.0, description="Minimum confidence"),
+    limit: int = Query(20, ge=1, le=100, description="Maximum results"),
+    session=Depends(verify_session)
+):
+    """
+    Get detected emerging topics.
+    """
+    service = get_emerging_topics_service()
+    topics = service.get_emerging_topics(
+        topic_filter=topic,
+        days_back=days_back,
+        detection_type=detection_type,
+        min_confidence=min_confidence,
+        limit=limit
+    )
+    return {
+        "count": len(topics),
+        "topics": [t.to_dict() for t in topics]
+    }
+
+
+@router.get("/topics/{topic_id}")
+async def get_emerging_topic_detail(
+    topic_id: int,
+    session=Depends(verify_session)
+):
+    """
+    Get detailed info for a specific emerging topic.
+    """
+    from sqlalchemy import text
+    from app.database import get_database_instance
+
+    db = get_database_instance()
+    conn = None
+
+    try:
+        conn = db._temp_get_connection()
+
+        stmt = text("""
+            SELECT
+                et.id, et.topic_label, et.topic_description, et.detection_date,
+                et.detection_type, et.cluster_id, et.article_count, et.growth_rate,
+                et.velocity, et.confidence_score, et.key_themes, et.representative_keywords,
+                et.emergence_rationale, et.article_uris, et.sample_article_uris, et.status
+            FROM emerging_topics et
+            WHERE et.id = :topic_id
+        """)
+
+        result = conn.execute(stmt, {"topic_id": topic_id}).fetchone()
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Emerging topic not found")
+
+        row = dict(result._mapping)
+
+        # Fetch article details with novelty scores
+        article_uris = row.get("article_uris") or []
+        articles = []
+
+        if article_uris:
+            placeholders = ", ".join([f":uri_{i}" for i in range(min(len(article_uris), 20))])
+            params = {f"uri_{i}": uri for i, uri in enumerate(article_uris[:20])}
+
+            # Join with novelty scores
+            article_stmt = text(f"""
+                SELECT a.uri, a.title, a.summary, a.news_source, a.publication_date,
+                       COALESCE(ns.composite_novelty_score, 0) as novelty_score,
+                       ns.knn_distance_score,
+                       ns.is_outlier
+                FROM articles a
+                LEFT JOIN article_novelty_scores ns ON a.uri = ns.article_uri
+                WHERE a.uri IN ({placeholders})
+                ORDER BY ns.composite_novelty_score DESC NULLS LAST
+            """)
+
+            article_result = conn.execute(article_stmt, params)
+            for a_row in article_result.mappings():
+                articles.append({
+                    **dict(a_row),
+                    "novelty_score": round(a_row["novelty_score"], 1) if a_row["novelty_score"] else 0,
+                })
+
+        # Get the model used from the synthesis or deep analysis data
+        synthesis = row.get("synthesis") or {}
+        if isinstance(synthesis, str):
+            import json
+            try:
+                synthesis = json.loads(synthesis)
+            except:
+                synthesis = {}
+
+        model_used = synthesis.get("model_used", "gpt-4o")  # Default model
+
+        return {
+            **row,
+            "detection_date": str(row["detection_date"]) if row["detection_date"] else None,
+            "articles": articles,
+            "model_used": model_used
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Error fetching topic detail {topic_id}: {exc}")
+        raise HTTPException(status_code=500, detail=f"Error fetching topic: {str(exc)}")
+    finally:
+        if conn:
+            conn.close()
+
+
+@router.delete("/topics/{topic_id}")
+async def delete_emerging_topic(
+    topic_id: int,
+    session=Depends(verify_session)
+):
+    """
+    Delete an emerging topic.
+    """
+    from sqlalchemy import text
+    from app.database import get_database_instance
+
+    db = get_database_instance()
+    conn = None
+
+    try:
+        conn = db._temp_get_connection()
+        stmt = text("DELETE FROM emerging_topics WHERE id = :topic_id")
+        result = conn.execute(stmt, {"topic_id": topic_id})
+        conn.commit()
+
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Topic not found")
+
+        logger.info(f"Deleted emerging topic {topic_id}")
+        return {"success": True, "message": f"Deleted topic {topic_id}"}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Error deleting topic {topic_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        if conn:
+            conn.close()
+
+
+@router.delete("/topics")
+async def clear_emerging_topics(
+    topic: Optional[str] = Query(None, description="Topic filter to clear (optional, clears all if not specified)"),
+    session=Depends(verify_session)
+):
+    """
+    Clear all emerging topics, optionally filtered by topic.
+    """
+    from sqlalchemy import text
+    from app.database import get_database_instance
+
+    db = get_database_instance()
+    conn = None
+
+    try:
+        conn = db._temp_get_connection()
+
+        if topic:
+            stmt = text("DELETE FROM emerging_topics WHERE topic_filter = :topic")
+            result = conn.execute(stmt, {"topic": topic})
+        else:
+            stmt = text("DELETE FROM emerging_topics")
+            result = conn.execute(stmt)
+
+        conn.commit()
+
+        logger.info(f"Cleared {result.rowcount} emerging topics" + (f" for topic '{topic}'" if topic else ""))
+        return {
+            "success": True,
+            "deleted_count": result.rowcount,
+            "message": f"Cleared {result.rowcount} topics"
+        }
+
+    except Exception as exc:
+        logger.error(f"Error clearing topics: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        if conn:
+            conn.close()
+
+
+# ============================================================================
+# Detection Runs & History Endpoints
+# ============================================================================
+
+@router.get("/runs")
+async def get_detection_runs(
+    topic: Optional[str] = Query(None, description="Topic filter"),
+    days_back: int = Query(30, ge=1, le=365, description="Days to look back"),
+    limit: int = Query(50, ge=1, le=200, description="Maximum results"),
+    session=Depends(verify_session)
+):
+    """
+    Get history of detection runs.
+    """
+    from sqlalchemy import text
+    from app.database import get_database_instance
+
+    db = get_database_instance()
+    conn = None
+
+    try:
+        conn = db._temp_get_connection()
+
+        filter_clause = "WHERE run_date >= NOW() - INTERVAL ':days_back days'"
+        params = {"days_back": days_back, "limit": limit}
+
+        if topic:
+            filter_clause += " AND topic_filter = :topic"
+            params["topic"] = topic
+
+        stmt = text(f"""
+            SELECT
+                id, run_date, topic_filter, config, topics_detected,
+                articles_sampled, model_used, duration_seconds, status, created_at
+            FROM detection_runs
+            {filter_clause}
+            ORDER BY run_date DESC
+            LIMIT :limit
+        """.replace(":days_back days", f"{days_back} days"))
+
+        result = conn.execute(stmt, params)
+
+        runs = []
+        for row in result.mappings():
+            runs.append({
+                "id": row["id"],
+                "run_date": row["run_date"].isoformat() if row["run_date"] else None,
+                "topic_filter": row["topic_filter"],
+                "config": row["config"],
+                "topics_detected": row["topics_detected"],
+                "articles_sampled": row["articles_sampled"],
+                "model_used": row["model_used"],
+                "duration_seconds": row["duration_seconds"],
+                "status": row["status"],
+            })
+
+        return {"count": len(runs), "runs": runs}
+
+    except Exception as exc:
+        logger.error(f"Error getting detection runs: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        if conn:
+            conn.close()
+
+
+@router.get("/topics/{topic_id}/history")
+async def get_topic_history(
+    topic_id: int,
+    session=Depends(verify_session)
+):
+    """
+    Get historical snapshots for a topic across detection runs.
+    """
+    from sqlalchemy import text
+    from app.database import get_database_instance
+
+    db = get_database_instance()
+    conn = None
+
+    try:
+        conn = db._temp_get_connection()
+
+        stmt = text("""
+            SELECT
+                th.id, th.detection_run_id, dr.run_date,
+                th.article_count, th.growth_rate, th.velocity, th.confidence_score,
+                th.volume_score, th.velocity_score, th.diversity_score,
+                th.novelty_score, th.composite_score, th.source_count,
+                th.captured_at
+            FROM topic_history th
+            JOIN detection_runs dr ON th.detection_run_id = dr.id
+            WHERE th.topic_id = :topic_id
+            ORDER BY dr.run_date ASC
+        """)
+
+        result = conn.execute(stmt, {"topic_id": topic_id})
+
+        history = []
+        for row in result.mappings():
+            history.append({
+                "id": row["id"],
+                "run_id": row["detection_run_id"],
+                "run_date": row["run_date"].isoformat() if row["run_date"] else None,
+                "article_count": row["article_count"],
+                "growth_rate": row["growth_rate"],
+                "velocity": row["velocity"],
+                "confidence_score": row["confidence_score"],
+                "volume_score": row["volume_score"],
+                "velocity_score": row["velocity_score"],
+                "diversity_score": row["diversity_score"],
+                "novelty_score": row["novelty_score"],
+                "composite_score": row["composite_score"],
+                "source_count": row["source_count"],
+            })
+
+        return {
+            "topic_id": topic_id,
+            "count": len(history),
+            "history": history
+        }
+
+    except Exception as exc:
+        logger.error(f"Error getting topic history: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        if conn:
+            conn.close()
+
+
+@router.get("/topics/{topic_id}/trajectory")
+async def get_topic_trajectory(
+    topic_id: int,
+    session=Depends(verify_session)
+):
+    """
+    Get computed trajectory analysis for a topic.
+    """
+    from sqlalchemy import text
+    from app.database import get_database_instance
+
+    db = get_database_instance()
+    conn = None
+
+    try:
+        conn = db._temp_get_connection()
+
+        # Get topic info
+        topic_stmt = text("""
+            SELECT first_detection_date, last_detection_date, detection_count, consecutive_detections
+            FROM emerging_topics WHERE id = :topic_id
+        """)
+        topic_row = conn.execute(topic_stmt, {"topic_id": topic_id}).fetchone()
+
+        if not topic_row:
+            raise HTTPException(status_code=404, detail="Topic not found")
+
+        # Get history for trend calculation
+        history_stmt = text("""
+            SELECT th.composite_score, th.article_count
+            FROM topic_history th
+            JOIN detection_runs dr ON th.detection_run_id = dr.id
+            WHERE th.topic_id = :topic_id
+            ORDER BY dr.run_date ASC
+        """)
+        history = conn.execute(history_stmt, {"topic_id": topic_id}).fetchall()
+
+        # Calculate trajectory
+        trajectory = "stable"
+        avg_score_change = 0.0
+
+        if len(history) >= 2:
+            scores = [h[0] for h in history if h[0] is not None]
+            if len(scores) >= 2:
+                changes = [scores[i] - scores[i-1] for i in range(1, len(scores))]
+                avg_score_change = sum(changes) / len(changes)
+
+                if avg_score_change > 5:
+                    trajectory = "rising"
+                elif avg_score_change < -5:
+                    trajectory = "declining"
+                elif max(changes) - min(changes) > 20:
+                    trajectory = "volatile"
+
+        return {
+            "topic_id": topic_id,
+            "first_detection_date": topic_row[0].isoformat() if topic_row[0] else None,
+            "last_detection_date": topic_row[1].isoformat() if topic_row[1] else None,
+            "detection_count": topic_row[2] or 1,
+            "consecutive_detections": topic_row[3] or 1,
+            "trajectory": trajectory,
+            "avg_score_change": round(avg_score_change, 2),
+            "history_points": len(history),
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Error getting topic trajectory: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        if conn:
+            conn.close()
+
+
+# ============================================================================
+# Novelty Endpoints
+# ============================================================================
+
+@router.get("/novelty-scores")
+async def get_novelty_scores(
+    topic: Optional[str] = Query(None, description="Topic filter"),
+    date: Optional[str] = Query(None, description="Calculation date (YYYY-MM-DD)"),
+    min_score: float = Query(0.0, ge=0.0, le=100.0, description="Minimum novelty score"),
+    limit: int = Query(100, ge=1, le=500, description="Maximum results"),
+    session=Depends(verify_session)
+):
+    """
+    Get article novelty scores.
+    """
+    from sqlalchemy import text
+    from app.database import get_database_instance
+
+    db = get_database_instance()
+    conn = None
+
+    try:
+        conn = db._temp_get_connection()
+
+        filter_clause = "WHERE ns.composite_novelty_score >= :min_score"
+        params = {"min_score": min_score, "limit": limit}
+
+        if date:
+            filter_clause += " AND ns.calculation_date = :date"
+            params["date"] = date
+        else:
+            filter_clause += " AND ns.calculation_date >= CURRENT_DATE - 7"
+
+        if topic:
+            filter_clause += " AND a.topic = :topic"
+            params["topic"] = topic
+
+        stmt = text(f"""
+            SELECT
+                ns.article_uri,
+                a.title as article_title,
+                ns.composite_novelty_score,
+                ns.knn_distance_score,
+                ns.density_score,
+                ns.centroid_distance_score,
+                ns.is_outlier,
+                ns.calculation_date
+            FROM article_novelty_scores ns
+            JOIN articles a ON a.uri = ns.article_uri
+            {filter_clause}
+            ORDER BY ns.composite_novelty_score DESC
+            LIMIT :limit
+        """)
+
+        result = conn.execute(stmt, params)
+
+        scores = []
+        for row in result.mappings():
+            scores.append({
+                **dict(row),
+                "calculation_date": str(row["calculation_date"]) if row["calculation_date"] else None
+            })
+
+        return {"count": len(scores), "scores": scores}
+
+    finally:
+        if conn:
+            conn.close()
+
+
+@router.get("/high-novelty")
+async def get_high_novelty_articles(
+    threshold: float = Query(70.0, ge=0.0, le=100.0, description="Novelty threshold"),
+    days_back: int = Query(3, ge=1, le=14, description="Days to look back"),
+    topic: Optional[str] = Query(None, description="Topic filter"),
+    limit: int = Query(50, ge=1, le=200, description="Maximum results"),
+    session=Depends(verify_session)
+):
+    """
+    Get articles with high novelty scores.
+    """
+    service = get_emerging_topics_service()
+    articles = service.get_high_novelty_articles(
+        threshold=threshold,
+        days_back=days_back,
+        topic_filter=topic,
+        limit=limit
+    )
+    return {"count": len(articles), "articles": articles}
+
+
+# ============================================================================
+# Proto-Cluster Endpoints
+# ============================================================================
+
+@router.get("/proto-clusters")
+async def get_proto_clusters(
+    days_back: int = Query(7, ge=1, le=14, description="Days to look back"),
+    topic: Optional[str] = Query(None, description="Topic filter"),
+    session=Depends(verify_session)
+):
+    """
+    Get proto-clusters (outliers that are coalescing into potential clusters).
+    """
+    service = get_emerging_topics_service()
+    topics = service.get_emerging_topics(
+        topic_filter=topic,
+        days_back=days_back,
+        detection_type="proto_cluster",
+        limit=50
+    )
+    return {
+        "count": len(topics),
+        "proto_clusters": [t.to_dict() for t in topics]
+    }
+
+
+# ============================================================================
+# Cluster Evolution Endpoints
+# ============================================================================
+
+@router.get("/cluster-evolution/{cluster_id}")
+async def get_cluster_evolution(
+    cluster_id: str,
+    days_back: int = Query(14, ge=1, le=30, description="Days to look back"),
+    session=Depends(verify_session)
+):
+    """
+    Get temporal evolution of a cluster.
+    """
+    from app.services.emerging_topics import TemporalTracker
+
+    tracker = TemporalTracker()
+    metrics = tracker.calculate_velocity_metrics(cluster_id, days_back)
+
+    return {
+        "cluster_id": cluster_id,
+        "metrics": metrics
+    }
+
+
+@router.get("/cluster-snapshots")
+async def get_cluster_snapshots(
+    date: str = Query(..., description="Snapshot date (YYYY-MM-DD)"),
+    topic: Optional[str] = Query(None, description="Topic filter"),
+    session=Depends(verify_session)
+):
+    """
+    Get cluster snapshots for a specific date.
+    """
+    from datetime import datetime
+    from app.services.emerging_topics import TemporalTracker
+
+    try:
+        snapshot_date = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+
+    tracker = TemporalTracker()
+    snapshots = tracker.get_snapshots(snapshot_date, topic)
+
+    return {
+        "date": date,
+        "topic_filter": topic,
+        "snapshot_count": len(snapshots),
+        "snapshots": snapshots
+    }
+
+
+# ============================================================================
+# Tracking Endpoints
+# ============================================================================
+
+@router.get("/tracked")
+async def get_tracked_topics(
+    session=Depends(verify_session)
+):
+    """
+    Get all emerging topics tracked by the current user.
+    """
+    from sqlalchemy import text
+    from app.database import get_database_instance
+
+    db = get_database_instance()
+    conn = None
+
+    try:
+        conn = db._temp_get_connection()
+
+        # Ensure tracking table exists
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS tracked_emerging_topics (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                topic_id INTEGER NOT NULL REFERENCES emerging_topics(id) ON DELETE CASCADE,
+                tracked_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(user_id, topic_id)
+            )
+        """))
+        conn.commit()
+
+        # Get user identifier from session
+        user_id = session.get("user", {}).get("email", "anonymous")
+
+        # Fetch tracked topics with their details
+        stmt = text("""
+            SELECT
+                et.id, et.topic_label, et.topic_description, et.detection_date,
+                et.detection_type, et.article_count, et.velocity, et.key_themes,
+                et.representative_keywords, et.confidence_score,
+                tet.tracked_at
+            FROM tracked_emerging_topics tet
+            JOIN emerging_topics et ON et.id = tet.topic_id
+            WHERE tet.user_id = :user_id
+            ORDER BY tet.tracked_at DESC
+        """)
+
+        result = conn.execute(stmt, {"user_id": user_id})
+        topics = []
+        for row in result.mappings():
+            topic_dict = dict(row)
+            topic_dict["detection_date"] = str(topic_dict["detection_date"]) if topic_dict["detection_date"] else None
+            topic_dict["tracked_at"] = str(topic_dict["tracked_at"]) if topic_dict["tracked_at"] else None
+            topic_dict["key_entities"] = topic_dict.pop("representative_keywords", [])
+            topic_dict["trend_score"] = {"composite": topic_dict.pop("confidence_score", 0) * 100}
+            topics.append(topic_dict)
+
+        return {"topics": topics, "count": len(topics)}
+
+    except Exception as exc:
+        logger.error(f"Error fetching tracked topics: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        if conn:
+            conn.close()
+
+
+@router.post("/topics/{topic_id}/track")
+async def track_topic(
+    topic_id: int,
+    session=Depends(verify_session)
+):
+    """
+    Track (save) an emerging topic for the current user.
+    """
+    from sqlalchemy import text
+    from app.database import get_database_instance
+
+    db = get_database_instance()
+    conn = None
+
+    try:
+        conn = db._temp_get_connection()
+
+        # Ensure tracking table exists
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS tracked_emerging_topics (
+                id SERIAL PRIMARY KEY,
+                user_id VARCHAR(255) NOT NULL,
+                topic_id INTEGER NOT NULL REFERENCES emerging_topics(id) ON DELETE CASCADE,
+                tracked_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(user_id, topic_id)
+            )
+        """))
+        conn.commit()
+
+        # Get user identifier from session
+        user_id = session.get("user", {}).get("email", "anonymous")
+
+        # Check if topic exists
+        check_stmt = text("SELECT id FROM emerging_topics WHERE id = :topic_id")
+        topic = conn.execute(check_stmt, {"topic_id": topic_id}).fetchone()
+        if not topic:
+            raise HTTPException(status_code=404, detail="Topic not found")
+
+        # Insert tracking record (ignore if already exists)
+        stmt = text("""
+            INSERT INTO tracked_emerging_topics (user_id, topic_id, tracked_at)
+            VALUES (:user_id, :topic_id, NOW())
+            ON CONFLICT (user_id, topic_id) DO NOTHING
+        """)
+        conn.execute(stmt, {"user_id": user_id, "topic_id": topic_id})
+        conn.commit()
+
+        logger.info(f"User {user_id} tracked topic {topic_id}")
+        return {"success": True, "message": f"Topic {topic_id} tracked"}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Error tracking topic {topic_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        if conn:
+            conn.close()
+
+
+@router.delete("/topics/{topic_id}/track")
+async def untrack_topic(
+    topic_id: int,
+    session=Depends(verify_session)
+):
+    """
+    Untrack (remove from saved) an emerging topic for the current user.
+    """
+    from sqlalchemy import text
+    from app.database import get_database_instance
+
+    db = get_database_instance()
+    conn = None
+
+    try:
+        conn = db._temp_get_connection()
+
+        # Get user identifier from session
+        user_id = session.get("user", {}).get("email", "anonymous")
+
+        # Delete tracking record
+        stmt = text("""
+            DELETE FROM tracked_emerging_topics
+            WHERE user_id = :user_id AND topic_id = :topic_id
+        """)
+        result = conn.execute(stmt, {"user_id": user_id, "topic_id": topic_id})
+        conn.commit()
+
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Topic not tracked")
+
+        logger.info(f"User {user_id} untracked topic {topic_id}")
+        return {"success": True, "message": f"Topic {topic_id} untracked"}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Error untracking topic {topic_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        if conn:
+            conn.close()
+
+
+@router.get("/topics/{topic_id}/track-status")
+async def get_track_status(
+    topic_id: int,
+    session=Depends(verify_session)
+):
+    """
+    Check if the current user has tracked a specific topic.
+    """
+    from sqlalchemy import text
+    from app.database import get_database_instance
+
+    db = get_database_instance()
+    conn = None
+
+    try:
+        conn = db._temp_get_connection()
+
+        # Get user identifier from session
+        user_id = session.get("user", {}).get("email", "anonymous")
+
+        # Check if tracked
+        stmt = text("""
+            SELECT 1 FROM tracked_emerging_topics
+            WHERE user_id = :user_id AND topic_id = :topic_id
+        """)
+        result = conn.execute(stmt, {"user_id": user_id, "topic_id": topic_id}).fetchone()
+
+        return {"tracked": result is not None, "topic_id": topic_id}
+
+    except Exception as exc:
+        logger.error(f"Error checking track status for topic {topic_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        if conn:
+            conn.close()
+
+
+# ============================================================================
+# Dashboard Widget Endpoint
+# ============================================================================
+
+@router.get("/dashboard-widget")
+async def get_dashboard_widget_data(
+    topic: Optional[str] = Query(None, description="Topic filter"),
+    limit: int = Query(5, ge=1, le=10, description="Number of topics to show"),
+    session=Depends(verify_session)
+):
+    """
+    Get data for the emerging topics dashboard widget.
+    Returns a compact summary suitable for displaying in a widget.
+    """
+    service = get_emerging_topics_service()
+
+    # Get recent emerging topics
+    topics = service.get_emerging_topics(
+        topic_filter=topic,
+        days_back=7,
+        min_confidence=0.5,
+        limit=limit
+    )
+
+    # Get summary stats
+    all_recent = service.get_emerging_topics(
+        topic_filter=topic,
+        days_back=7,
+        limit=100
+    )
+
+    by_type = {}
+    for t in all_recent:
+        by_type[t.detection_type] = by_type.get(t.detection_type, 0) + 1
+
+    return {
+        "summary": {
+            "total_emerging_topics": len(all_recent),
+            "by_type": by_type,
+            "accelerating_count": by_type.get("accelerating", 0),
+            "new_cluster_count": by_type.get("new_cluster", 0),
+            "proto_cluster_count": by_type.get("proto_cluster", 0),
+        },
+        "top_topics": [
+            {
+                "id": t.id,
+                "label": t.topic_label,
+                "description": t.topic_description[:100] + "..." if len(t.topic_description) > 100 else t.topic_description,
+                "type": t.detection_type,
+                "article_count": t.article_count,
+                "velocity": t.velocity,
+                "confidence": round(t.confidence_score, 2),
+                "themes": t.key_themes[:3],
+            }
+            for t in topics
+        ]
+    }

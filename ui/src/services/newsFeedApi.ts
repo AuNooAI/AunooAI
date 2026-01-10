@@ -482,7 +482,9 @@ export async function getAvailableModels(): Promise<Array<{
     throw new Error(`Failed to fetch models: ${response.status}`);
   }
 
-  return response.json();
+  // API returns {name, provider} - add id field for Select component
+  const models = await response.json() as Array<{name: string; provider: string}>;
+  return models.map(m => ({ id: m.name, name: m.name, provider: m.provider }));
 }
 
 /**
@@ -705,4 +707,26 @@ export async function getCategoryArticles(
       category,
     };
   }
+}
+
+/**
+ * Record article preference (more/less like this)
+ */
+export async function recordArticlePreference(
+  uri: string,
+  preference: 'more' | 'less' | 'clear'
+): Promise<{ success: boolean; message: string }> {
+  const response = await fetch('/api/article-preference', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ uri, preference }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(error.detail || `Failed to record preference: ${response.status}`);
+  }
+
+  return response.json();
 }

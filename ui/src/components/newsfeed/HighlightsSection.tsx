@@ -58,7 +58,7 @@ import { Button } from '../ui/button';
 import { Skeleton } from '../ui/skeleton';
 import { AgentSignalBadge, extractSignalTags } from './AgentSignalBadge';
 import { ExportService } from '../../services/exportService';
-import { ShareModal, type ShareIncidentData } from '../ShareModal';
+import { ShareModal, type ShareIncidentData, type ShareIncidentsData, type ShareData } from '../ShareModal';
 
 // Helper to extract all signal tags from an incident's article metadata
 function getIncidentSignalTags(incident: Incident): string[] {
@@ -93,9 +93,9 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
 
   // Share modal state
   const [showShareModal, setShowShareModal] = useState(false);
-  const [shareData, setShareData] = useState<ShareIncidentData | null>(null);
+  const [shareData, setShareData] = useState<ShareData | null>(null);
 
-  // Share handler - opens modal with incident data
+  // Share handler - opens modal with single incident data
   const handleShare = (incident: Incident) => {
     const name = incident.name || incident.title || 'Unnamed Incident';
     setShareData({
@@ -109,6 +109,26 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
       strategic_relevance: incident.organizational_relevance,
       plausibility: incident.plausibility,
       source_quality: incident.source_quality,
+    });
+    setShowShareModal(true);
+  };
+
+  // Share all incidents handler
+  const handleShareAll = () => {
+    if (incidents.length === 0) return;
+    setShareData({
+      type: 'incidents',
+      topic: currentTopic,
+      incidents: incidents.map(incident => ({
+        incident_name: incident.name || incident.title || 'Unnamed Incident',
+        incident_type: incident.type,
+        significance: incident.significance,
+        description: incident.description || incident.summary,
+        entities: incident.entities,
+        strategic_relevance: incident.organizational_relevance,
+        plausibility: incident.plausibility,
+        source_quality: incident.source_quality,
+      })),
     });
     setShowShareModal(true);
   };
@@ -242,16 +262,12 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
           </div>
         )}
 
-        {/* Share Button - shares first incident as representative */}
+        {/* Share Button - shares all incidents */}
         {incidents.length > 0 && (
           <button
-            onClick={() => {
-              // Share the first/top incident as representative
-              const topIncident = incidents[0];
-              handleShare(topIncident);
-            }}
+            onClick={handleShareAll}
             className="p-1.5 rounded-md hover:bg-gray-100 transition-colors"
-            title="Share top incident via email"
+            title={`Share all ${incidents.length} incidents via email`}
           >
             <Share2 className="w-4 h-4 text-gray-500" />
           </button>
@@ -452,6 +468,10 @@ function CompactIncidentCard({ incident, onClick, isSaved, currentTopic, onSave,
       } finally {
         setActionInProgress(false);
       }
+    } else if (action === 'export-md') {
+      ExportService.exportIncidentsMarkdown([incident], undefined, undefined);
+    } else if (action === 'export-csv') {
+      ExportService.exportIncidentsCSV([incident]);
     }
   };
 
@@ -553,6 +573,21 @@ function CompactIncidentCard({ incident, onClick, isSaved, currentTopic, onSave,
                   >
                     <ThumbsDown className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                     Less like this
+                  </button>
+                  <div className="h-px bg-gray-200 dark:bg-gray-700 my-1" />
+                  <button
+                    onClick={(e) => handleMenuAction('export-md', e)}
+                    className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                  >
+                    <FileText className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                    Export Markdown
+                  </button>
+                  <button
+                    onClick={(e) => handleMenuAction('export-csv', e)}
+                    className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                  >
+                    <Table className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                    Export CSV
                   </button>
                 </div>
               )}

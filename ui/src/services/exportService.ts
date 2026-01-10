@@ -1543,4 +1543,484 @@ export class ExportService {
     link.click();
     URL.revokeObjectURL(url);
   }
+
+  /**
+   * Export Emerging Topics as Markdown
+   */
+  static exportEmergingTopicsMarkdown(topics: any[], topicFilter?: string): void {
+    let md = `# Emerging Topics Report${topicFilter ? ` - ${topicFilter}` : ''}\n\n`;
+    md += `*Generated: ${new Date().toLocaleString()}*\n\n`;
+
+    // AI Disclosure
+    md += `## AI Technology Disclosure\n\n`;
+    md += `This report was generated using AI technologies for emerging topic detection and analysis. All content has been reviewed for accuracy.\n\n`;
+    md += `---\n\n`;
+
+    // Summary stats
+    md += `## Summary\n\n`;
+    md += `- **Total Themes Detected:** ${topics.length}\n`;
+    md += `- **Accelerating Topics:** ${topics.filter(t => t.velocity === 'accelerating').length}\n`;
+    md += `- **Total Articles Analyzed:** ${topics.reduce((sum, t) => sum + (t.article_count || 0), 0)}\n`;
+    const avgScore = topics.length > 0
+      ? Math.round(topics.reduce((sum, t) => sum + (t.trend_score?.composite || t.confidence_score * 100 || 0), 0) / topics.length)
+      : 0;
+    md += `- **Average Composite Score:** ${avgScore}\n\n`;
+
+    md += `---\n\n`;
+
+    md += `## Detected Themes (${topics.length})\n\n`;
+
+    topics.forEach((topic, i) => {
+      md += `### ${i + 1}. ${topic.topic_label}\n\n`;
+
+      // Metadata badges
+      const meta: string[] = [];
+      if (topic.detection_type) meta.push(`Type: ${topic.detection_type}`);
+      if (topic.velocity) meta.push(`Velocity: ${topic.velocity}`);
+      if (topic.article_count) meta.push(`${topic.article_count} articles`);
+      if (topic.source_count) meta.push(`${topic.source_count} sources`);
+      if (topic.synthesis?.urgency) meta.push(`Urgency: ${topic.synthesis.urgency}`);
+      if (meta.length) {
+        md += `*${meta.join(' | ')}*\n\n`;
+      }
+
+      // Description
+      if (topic.topic_description) {
+        md += `${topic.topic_description}\n\n`;
+      }
+
+      // Trend tracking info
+      if (topic.first_detection_date) {
+        md += `**Detection History:**\n`;
+        md += `- First Seen: ${topic.first_detection_date}\n`;
+        if (topic.last_detection_date && topic.last_detection_date !== topic.first_detection_date) {
+          md += `- Last Seen: ${topic.last_detection_date}\n`;
+        }
+        if (topic.detection_count > 1) {
+          md += `- Times Detected: ${topic.detection_count}\n`;
+        }
+        if (topic.trajectory) {
+          md += `- Trajectory: ${topic.trajectory}\n`;
+        }
+        md += '\n';
+      }
+
+      // Why Emerging
+      if (topic.why_emerging) {
+        md += `**Why Emerging:** ${topic.why_emerging}\n\n`;
+      }
+
+      // Key Takeaway
+      if (topic.synthesis?.key_takeaway) {
+        md += `**Key Takeaway:** ${topic.synthesis.key_takeaway}\n\n`;
+      }
+
+      // Trend Score
+      if (topic.trend_score) {
+        md += `#### Trend Score\n\n`;
+        md += `| Volume | Velocity | Diversity | Novelty | Composite |\n`;
+        md += `|--------|----------|-----------|---------|----------|\n`;
+        md += `| ${Math.round(topic.trend_score.volume)} | ${Math.round(topic.trend_score.velocity)} | ${Math.round(topic.trend_score.diversity)} | ${Math.round(topic.trend_score.novelty)} | **${Math.round(topic.trend_score.composite)}** |\n\n`;
+      }
+
+      // Key Entities
+      if (topic.key_entities?.length) {
+        md += `**Key Entities:** ${topic.key_entities.join(', ')}\n\n`;
+      }
+
+      // Actors
+      const hasActors = topic.actors?.companies?.length || topic.actors?.people?.length || topic.actors?.organizations?.length;
+      if (hasActors) {
+        md += `#### Key Actors\n\n`;
+        if (topic.actors.companies?.length) {
+          md += `- **Companies:** ${topic.actors.companies.join(', ')}\n`;
+        }
+        if (topic.actors.people?.length) {
+          md += `- **People:** ${topic.actors.people.join(', ')}\n`;
+        }
+        if (topic.actors.organizations?.length) {
+          md += `- **Organizations:** ${topic.actors.organizations.join(', ')}\n`;
+        }
+        md += '\n';
+      }
+
+      // Events
+      if (topic.events?.trigger_event || topic.events?.timeline?.length) {
+        md += `#### Events\n\n`;
+        if (topic.events.trigger_event) {
+          md += `**Trigger Event:** ${topic.events.trigger_event}\n\n`;
+        }
+        if (topic.events.timeline?.length) {
+          md += `**Timeline:**\n`;
+          topic.events.timeline.forEach((t: string) => md += `- ${t}\n`);
+          md += '\n';
+        }
+        if (topic.events.current_status) {
+          md += `**Current Status:** ${topic.events.current_status}\n\n`;
+        }
+      }
+
+      // Signals
+      const hasSignals = topic.signals?.growth_indicators?.length || topic.signals?.risk_factors?.length || topic.signals?.watch_for?.length;
+      if (hasSignals) {
+        md += `#### Signals\n\n`;
+        if (topic.signals.growth_indicators?.length) {
+          md += `**Growth Indicators:**\n`;
+          topic.signals.growth_indicators.forEach((g: string) => md += `- ${g}\n`);
+          md += '\n';
+        }
+        if (topic.signals.risk_factors?.length) {
+          md += `**Risk Factors:**\n`;
+          topic.signals.risk_factors.forEach((r: string) => md += `- ${r}\n`);
+          md += '\n';
+        }
+        if (topic.signals.watch_for?.length) {
+          md += `**Watch For:**\n`;
+          topic.signals.watch_for.forEach((w: string) => md += `- ${w}\n`);
+          md += '\n';
+        }
+      }
+
+      // Implications
+      if (topic.implications?.industry_impact || topic.implications?.regulatory || topic.implications?.market) {
+        md += `#### Implications\n\n`;
+        if (topic.implications.industry_impact) {
+          md += `- **Industry:** ${topic.implications.industry_impact}\n`;
+        }
+        if (topic.implications.regulatory) {
+          md += `- **Regulatory:** ${topic.implications.regulatory}\n`;
+        }
+        if (topic.implications.market) {
+          md += `- **Market:** ${topic.implications.market}\n`;
+        }
+        md += '\n';
+      }
+
+      // Stakeholders
+      if (topic.synthesis?.stakeholders_affected?.length) {
+        md += `**Stakeholders Affected:** ${topic.synthesis.stakeholders_affected.join(', ')}\n\n`;
+      }
+
+      // Keywords
+      if (topic.representative_keywords?.length) {
+        md += `**Keywords:** ${topic.representative_keywords.join(', ')}\n\n`;
+      }
+
+      md += `---\n\n`;
+    });
+
+    // Download
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const dateStr = new Date().toISOString().split('T')[0];
+    const filterStr = topicFilter ? `-${topicFilter.toLowerCase().replace(/\s+/g, '-')}` : '';
+    link.download = `emerging-topics${filterStr}-${dateStr}.md`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Export Emerging Topics as CSV
+   */
+  static exportEmergingTopicsCSV(topics: any[]): void {
+    const headers = [
+      'Topic Label',
+      'Description',
+      'Detection Type',
+      'Velocity',
+      'Urgency',
+      'Article Count',
+      'Source Count',
+      'Volume Score',
+      'Velocity Score',
+      'Diversity Score',
+      'Novelty Score',
+      'Composite Score',
+      'Confidence Score',
+      'First Detected',
+      'Last Detected',
+      'Detection Count',
+      'Trajectory',
+      'Why Emerging',
+      'Key Takeaway',
+      'Key Entities',
+      'Companies',
+      'People',
+      'Organizations',
+      'Trigger Event',
+      'Current Status',
+      'Growth Indicators',
+      'Risk Factors',
+      'Watch For',
+      'Industry Impact',
+      'Regulatory Impact',
+      'Market Impact',
+      'Stakeholders Affected',
+      'Keywords'
+    ];
+
+    const rows = topics.map((topic: any) => {
+      const escapeCSV = (str: string) => {
+        if (!str) return '';
+        const escaped = String(str).replace(/"/g, '""');
+        return `"${escaped}"`;
+      };
+
+      return [
+        escapeCSV(topic.topic_label || ''),
+        escapeCSV(topic.topic_description || ''),
+        escapeCSV(topic.detection_type || ''),
+        escapeCSV(topic.velocity || ''),
+        escapeCSV(topic.synthesis?.urgency || ''),
+        escapeCSV(String(topic.article_count || 0)),
+        escapeCSV(String(topic.source_count || '')),
+        escapeCSV(String(topic.trend_score?.volume || '')),
+        escapeCSV(String(topic.trend_score?.velocity || '')),
+        escapeCSV(String(topic.trend_score?.diversity || '')),
+        escapeCSV(String(topic.trend_score?.novelty || '')),
+        escapeCSV(String(topic.trend_score?.composite || '')),
+        escapeCSV(topic.confidence_score ? `${Math.round(topic.confidence_score * 100)}%` : ''),
+        escapeCSV(topic.first_detection_date || ''),
+        escapeCSV(topic.last_detection_date || ''),
+        escapeCSV(String(topic.detection_count || 1)),
+        escapeCSV(topic.trajectory || ''),
+        escapeCSV(topic.why_emerging || ''),
+        escapeCSV(topic.synthesis?.key_takeaway || ''),
+        escapeCSV(topic.key_entities?.join('; ') || ''),
+        escapeCSV(topic.actors?.companies?.join('; ') || ''),
+        escapeCSV(topic.actors?.people?.join('; ') || ''),
+        escapeCSV(topic.actors?.organizations?.join('; ') || ''),
+        escapeCSV(topic.events?.trigger_event || ''),
+        escapeCSV(topic.events?.current_status || ''),
+        escapeCSV(topic.signals?.growth_indicators?.join('; ') || ''),
+        escapeCSV(topic.signals?.risk_factors?.join('; ') || ''),
+        escapeCSV(topic.signals?.watch_for?.join('; ') || ''),
+        escapeCSV(topic.implications?.industry_impact || ''),
+        escapeCSV(topic.implications?.regulatory || ''),
+        escapeCSV(topic.implications?.market || ''),
+        escapeCSV(topic.synthesis?.stakeholders_affected?.join('; ') || ''),
+        escapeCSV(topic.representative_keywords?.join('; ') || '')
+      ].join(',');
+    });
+
+    const csv = [headers.join(','), ...rows].join('\n');
+
+    // Download
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const dateStr = new Date().toISOString().split('T')[0];
+    link.download = `emerging-topics-${dateStr}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /**
+   * Export Emerging Topics as text-based PDF
+   */
+  static exportEmergingTopicsPDF(topics: any[], topicFilter?: string): void {
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+
+    const pageWidth = 210;
+    const pageHeight = 297;
+    const margin = 15;
+    const contentWidth = pageWidth - (margin * 2);
+    let y = margin;
+
+    const addPage = () => {
+      pdf.addPage();
+      y = margin;
+    };
+
+    const checkPageBreak = (neededHeight: number) => {
+      if (y + neededHeight > pageHeight - margin) {
+        addPage();
+      }
+    };
+
+    const addText = (text: string, fontSize: number, isBold: boolean = false, color: number[] = [0, 0, 0]) => {
+      pdf.setFontSize(fontSize);
+      pdf.setFont('helvetica', isBold ? 'bold' : 'normal');
+      pdf.setTextColor(color[0], color[1], color[2]);
+      const lines = pdf.splitTextToSize(text, contentWidth);
+      const lineHeight = fontSize * 0.4;
+      checkPageBreak(lines.length * lineHeight + 2);
+      pdf.text(lines, margin, y);
+      y += lines.length * lineHeight + 2;
+    };
+
+    const addSection = (title: string, items: string[], iconColor: number[]) => {
+      checkPageBreak(20);
+      addText(title, 11, true, iconColor);
+      items.forEach(item => {
+        addText(`• ${item}`, 10, false);
+      });
+      y += 3;
+    };
+
+    // Title
+    addText(`Emerging Topics Report`, 18, true, [128, 0, 128]);
+    if (topicFilter) {
+      addText(`Filter: ${topicFilter}`, 12, false, [100, 100, 100]);
+    }
+    addText(`Generated: ${new Date().toLocaleString()}`, 10, false, [150, 150, 150]);
+    y += 5;
+
+    // Summary stats
+    const accelerating = topics.filter(t => t.velocity === 'accelerating').length;
+    const totalArticles = topics.reduce((sum, t) => sum + (t.article_count || 0), 0);
+    const avgScore = topics.length > 0
+      ? Math.round(topics.reduce((sum, t) => sum + (t.trend_score?.composite || t.confidence_score * 100 || 0), 0) / topics.length)
+      : 0;
+    addText(`Summary: ${topics.length} themes detected, ${accelerating} accelerating, ${totalArticles} articles, avg score ${avgScore}`, 10, false, [100, 100, 100]);
+    y += 5;
+
+    // AI Disclosure
+    checkPageBreak(25);
+    addText('AI Technology Disclosure', 12, true);
+    addText('This report was generated using AI technologies for emerging topic detection and analysis. All content has been reviewed for accuracy.', 9, false, [100, 100, 100]);
+    y += 8;
+
+    // Velocity colors
+    const velocityColors: Record<string, number[]> = {
+      accelerating: [0, 150, 50],
+      stable: [100, 100, 100],
+      decelerating: [200, 100, 0]
+    };
+
+    // Render each topic
+    topics.forEach((topic, idx) => {
+      checkPageBreak(50);
+
+      // Topic header
+      addText(`${idx + 1}. ${topic.topic_label}`, 13, true);
+
+      // Metadata line
+      const metaParts: string[] = [];
+      if (topic.detection_type) metaParts.push(topic.detection_type);
+      if (topic.velocity) metaParts.push(topic.velocity);
+      if (topic.article_count) metaParts.push(`${topic.article_count} articles`);
+      if (topic.synthesis?.urgency) metaParts.push(`${topic.synthesis.urgency} urgency`);
+      if (metaParts.length) {
+        addText(metaParts.join(' | '), 9, false, velocityColors[topic.velocity] || [100, 100, 100]);
+      }
+      y += 2;
+
+      // Description
+      if (topic.topic_description) {
+        addText(topic.topic_description, 10, false);
+        y += 2;
+      }
+
+      // Detection history
+      if (topic.first_detection_date && topic.detection_count > 1) {
+        addText(`Detected ${topic.detection_count}x since ${topic.first_detection_date}${topic.trajectory ? ` (${topic.trajectory})` : ''}`, 9, false, [100, 100, 100]);
+        y += 2;
+      }
+
+      // Why Emerging
+      if (topic.why_emerging) {
+        checkPageBreak(15);
+        addText('Why Emerging', 10, true, [200, 150, 0]);
+        addText(topic.why_emerging, 10, false);
+        y += 2;
+      }
+
+      // Key Takeaway
+      if (topic.synthesis?.key_takeaway) {
+        checkPageBreak(15);
+        addText('Key Takeaway', 10, true, [128, 0, 128]);
+        addText(topic.synthesis.key_takeaway, 10, false);
+        y += 2;
+      }
+
+      // Trend Score
+      if (topic.trend_score) {
+        checkPageBreak(12);
+        addText(`Trend Score: Volume ${Math.round(topic.trend_score.volume)} | Velocity ${Math.round(topic.trend_score.velocity)} | Diversity ${Math.round(topic.trend_score.diversity)} | Novelty ${Math.round(topic.trend_score.novelty)} | Composite ${Math.round(topic.trend_score.composite)}`, 9, false, [0, 100, 150]);
+        y += 2;
+      }
+
+      // Key Entities
+      if (topic.key_entities?.length > 0) {
+        addText(`Key Entities: ${topic.key_entities.join(', ')}`, 9, false, [80, 80, 80]);
+        y += 2;
+      }
+
+      // Actors
+      const hasActors = topic.actors?.companies?.length || topic.actors?.people?.length || topic.actors?.organizations?.length;
+      if (hasActors) {
+        checkPageBreak(15);
+        addText('Key Actors', 10, true, [0, 100, 200]);
+        if (topic.actors.companies?.length) {
+          addText(`Companies: ${topic.actors.companies.join(', ')}`, 9, false);
+        }
+        if (topic.actors.people?.length) {
+          addText(`People: ${topic.actors.people.join(', ')}`, 9, false);
+        }
+        if (topic.actors.organizations?.length) {
+          addText(`Organizations: ${topic.actors.organizations.join(', ')}`, 9, false);
+        }
+        y += 2;
+      }
+
+      // Events
+      if (topic.events?.trigger_event) {
+        checkPageBreak(15);
+        addText('Trigger Event', 10, true, [200, 50, 50]);
+        addText(topic.events.trigger_event, 10, false);
+        y += 2;
+      }
+
+      // Signals
+      if (topic.signals?.growth_indicators?.length > 0) {
+        addSection('Growth Indicators', topic.signals.growth_indicators.slice(0, 3), [0, 150, 50]);
+      }
+      if (topic.signals?.risk_factors?.length > 0) {
+        addSection('Risk Factors', topic.signals.risk_factors.slice(0, 3), [200, 100, 0]);
+      }
+      if (topic.signals?.watch_for?.length > 0) {
+        addSection('Watch For', topic.signals.watch_for.slice(0, 3), [0, 100, 200]);
+      }
+
+      // Implications
+      if (topic.implications?.industry_impact || topic.implications?.regulatory || topic.implications?.market) {
+        checkPageBreak(20);
+        addText('Implications', 10, true, [128, 0, 128]);
+        if (topic.implications.industry_impact) {
+          addText(`Industry: ${topic.implications.industry_impact}`, 9, false);
+        }
+        if (topic.implications.regulatory) {
+          addText(`Regulatory: ${topic.implications.regulatory}`, 9, false);
+        }
+        if (topic.implications.market) {
+          addText(`Market: ${topic.implications.market}`, 9, false);
+        }
+        y += 2;
+      }
+
+      y += 8; // Space between topics
+    });
+
+    // Footer on all pages
+    const totalPages = pdf.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      pdf.setPage(i);
+      pdf.setFontSize(8);
+      pdf.setTextColor(150, 150, 150);
+      pdf.text(`Page ${i} of ${totalPages}`, pageWidth / 2, pageHeight - 10, { align: 'center' });
+      pdf.text('Generated by Aunoo AI - Emerging Topics Report', pageWidth / 2, pageHeight - 5, { align: 'center' });
+    }
+
+    const dateStr = new Date().toISOString().split('T')[0];
+    const filterStr = topicFilter ? `-${topicFilter.toLowerCase().replace(/\s+/g, '-')}` : '';
+    pdf.save(`emerging-topics${filterStr}-${dateStr}.pdf`);
+  }
 }

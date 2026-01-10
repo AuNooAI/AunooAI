@@ -214,7 +214,10 @@ export async function getIncidentTracking(params: IncidentTrackingParams): Promi
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(error.detail || `Failed to fetch incident tracking: ${response.status}`);
+    const errorMessage = typeof error.detail === 'string'
+      ? error.detail
+      : (error.detail?.message || JSON.stringify(error.detail) || `Failed to fetch incident tracking: ${response.status}`);
+    throw new Error(errorMessage);
   }
 
   return response.json();
@@ -247,7 +250,10 @@ export async function getArticleInsights(params: ArticleInsightsParams): Promise
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(error.detail || `Failed to fetch article insights: ${response.status}`);
+    const errorMessage = typeof error.detail === 'string'
+      ? error.detail
+      : (error.detail?.message || JSON.stringify(error.detail) || `Failed to fetch article insights: ${response.status}`);
+    throw new Error(errorMessage);
   }
 
   return response.json();
