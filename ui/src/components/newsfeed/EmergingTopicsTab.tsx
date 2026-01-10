@@ -88,7 +88,7 @@ interface Actors {
 
 interface Events {
   trigger_event?: string;
-  timeline?: string[];
+  timeline?: (string | { date?: string; event?: string })[];
   current_status?: string;
 }
 
@@ -622,6 +622,18 @@ Please provide:
   const renderEvents = (events: Events) => {
     if (!events?.trigger_event && !events?.timeline?.length) return null;
 
+    // Helper to format timeline item - handles both string and {date, event} object formats
+    const formatTimelineItem = (item: string | { date?: string; event?: string }): string => {
+      if (typeof item === 'string') return item;
+      if (typeof item === 'object' && item !== null) {
+        const { date, event } = item;
+        if (date && event) return `${date}: ${event}`;
+        if (event) return event;
+        if (date) return date;
+      }
+      return String(item);
+    };
+
     return (
       <div className="space-y-2">
         <h5 className="text-xs font-medium text-gray-500 uppercase flex items-center gap-1">
@@ -635,7 +647,7 @@ Please provide:
         {events.timeline && events.timeline.length > 0 && (
           <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1 list-disc list-inside">
             {events.timeline.slice(0, 3).map((t, i) => (
-              <li key={i}>{t}</li>
+              <li key={i}>{formatTimelineItem(t)}</li>
             ))}
           </ul>
         )}
