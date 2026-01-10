@@ -21,10 +21,8 @@ interface ScheduleTimelineBarProps {
 }
 
 export function ScheduleTimelineBar({ agents, systemSchedules = [] }: ScheduleTimelineBarProps) {
-  console.log('[ScheduleTimelineBar] Received systemSchedules:', systemSchedules);
   const scheduledAgents = agents.filter(a => a.schedule_enabled && a.next_run_at);
   const activeSystemSchedules = systemSchedules.filter(s => s.enabled && s.next_run_at);
-  console.log('[ScheduleTimelineBar] Active system schedules (enabled && next_run_at):', activeSystemSchedules);
 
   // Calculate current time position (0-24 hours)
   const now = new Date();
@@ -65,20 +63,14 @@ export function ScheduleTimelineBar({ agents, systemSchedules = [] }: ScheduleTi
   const systemPositions = useMemo(() => {
     const nowTime = now.getTime();
 
-    const positions = activeSystemSchedules.map(schedule => {
-      if (!schedule.next_run_at) {
-        console.log('[ScheduleTimelineBar] Skipping schedule (no next_run_at):', schedule.type);
-        return null;
-      }
+    return activeSystemSchedules.map(schedule => {
+      if (!schedule.next_run_at) return null;
 
       const nextRun = new Date(schedule.next_run_at);
       const hoursUntilRun = (nextRun.getTime() - nowTime) / (1000 * 60 * 60);
-      console.log(`[ScheduleTimelineBar] ${schedule.type}: next_run_at=${schedule.next_run_at}, hoursUntilRun=${hoursUntilRun.toFixed(2)}`);
 
-      if (hoursUntilRun < 0 || hoursUntilRun > 24) {
-        console.log(`[ScheduleTimelineBar] ${schedule.type}: Outside 24h window, skipping`);
-        return null;
-      }
+      // Only show runs within the next 24 hours
+      if (hoursUntilRun < 0 || hoursUntilRun > 24) return null;
 
       const position = currentHour + hoursUntilRun;
       const displayPosition = position > 24 ? position - 24 : position;
@@ -90,8 +82,6 @@ export function ScheduleTimelineBar({ agents, systemSchedules = [] }: ScheduleTi
         hoursUntilRun,
       };
     }).filter(Boolean);
-    console.log('[ScheduleTimelineBar] Final systemPositions:', positions);
-    return positions;
   }, [activeSystemSchedules, now, currentHour]);
 
   // SVG dimensions

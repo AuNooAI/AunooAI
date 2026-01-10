@@ -88,23 +88,16 @@ export function ResearchAgentsSection({
       const etRes = await fetch('/api/emerging-topics/schedule/status', { credentials: 'include' });
       if (etRes.ok) {
         const data = await etRes.json();
-        console.log('[SystemSchedules] Emerging Topics API response:', data);
         if (data.settings?.schedule_enabled) {
-          const nextRun = data.status?.next_check_time || null;
-          console.log('[SystemSchedules] ET schedule_enabled=true, next_check_time=', nextRun);
           schedules.push({
             name: 'Emerging Topics',
             type: 'emerging_topics',
             enabled: true,
             // API returns next_check_time, not next_run_time
-            next_run_at: nextRun,
+            next_run_at: data.status?.next_check_time || null,
             last_run_status: data.status?.last_error ? 'error' : (data.status?.topics_detected !== null ? 'success' : null),
           });
-        } else {
-          console.log('[SystemSchedules] ET schedule_enabled is false or missing');
         }
-      } else {
-        console.log('[SystemSchedules] ET API returned status:', etRes.status);
       }
     } catch (e) {
       console.error('Failed to fetch emerging topics schedule:', e);
@@ -115,22 +108,15 @@ export function ResearchAgentsSection({
       const nfRes = await fetch('/api/news-feed/dashboard/schedule/status', { credentials: 'include' });
       if (nfRes.ok) {
         const data = await nfRes.json();
-        console.log('[SystemSchedules] Newsfeed API response:', data);
         if (data.settings?.schedule_enabled) {
-          const nextRun = data.status?.next_run_time || null;
-          console.log('[SystemSchedules] NF schedule_enabled=true, next_run_time=', nextRun);
           schedules.push({
             name: 'Newsfeed Dashboard',
             type: 'newsfeed',
             enabled: true,
-            next_run_at: nextRun,
+            next_run_at: data.status?.next_run_time || null,
             last_run_status: data.status?.last_run_status || null,
           });
-        } else {
-          console.log('[SystemSchedules] NF schedule_enabled is false or missing');
         }
-      } else {
-        console.log('[SystemSchedules] NF API returned status:', nfRes.status);
       }
     } catch (e) {
       console.error('Failed to fetch newsfeed schedule:', e);
@@ -155,7 +141,6 @@ export function ResearchAgentsSection({
       console.error('Failed to fetch autoprocessing schedule:', e);
     }
 
-    console.log('[SystemSchedules] Final schedules array:', schedules);
     setSystemSchedules(schedules);
   }, []);
 
