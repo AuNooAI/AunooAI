@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { Bot, Loader2, X, Bell, FileText, Workflow, Info, Tag, ChevronDown, ChevronRight, Pencil, Cpu, Search, Mail, MessageCircle, Mic, Star } from 'lucide-react';
+import { Bot, Loader2, X, Bell, FileText, Workflow, Info, Tag, ChevronDown, ChevronRight, Pencil, Cpu, Search, Mail, MessageCircle, Mic, Star, Clock } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -113,6 +113,13 @@ export function AddAgentModal({
   const [maxArticles, setMaxArticles] = useState<number>(100);
   const [alertThreshold, setAlertThreshold] = useState<number>(1);
 
+  // Scheduling state
+  const [scheduleEnabled, setScheduleEnabled] = useState(false);
+  const [scheduleType, setScheduleType] = useState<'interval' | 'daily'>('interval');
+  const [scheduleInterval, setScheduleInterval] = useState<number>(24);
+  const [scheduleUnit, setScheduleUnit] = useState<'minutes' | 'hours' | 'days'>('hours');
+  const [scheduleTime, setScheduleTime] = useState<string>('09:00');
+
   const isEditMode = !!editAgent;
 
   // Load available models when modal opens
@@ -190,6 +197,12 @@ export function AddAgentModal({
       setActionReport(editAgent.generate_report || false);
       setReportPrompt(editAgent.report_prompt || DEFAULT_REPORT_PROMPT);
       setShowReportPrompt(editAgent.generate_report || false);
+      // Scheduling fields
+      setScheduleEnabled(editAgent.schedule_enabled || false);
+      setScheduleType((editAgent.schedule_type as 'interval' | 'daily') || 'interval');
+      setScheduleInterval(editAgent.schedule_interval || 24);
+      setScheduleUnit((editAgent.schedule_unit as 'minutes' | 'hours' | 'days') || 'hours');
+      setScheduleTime(editAgent.schedule_time || '09:00');
       setError(null);
     }
   }, [editAgent, open]);
@@ -224,6 +237,12 @@ export function AddAgentModal({
     setSearchStrategy('recent');
     setMaxArticles(100);
     setAlertThreshold(1);
+    // Scheduling fields
+    setScheduleEnabled(false);
+    setScheduleType('interval');
+    setScheduleInterval(24);
+    setScheduleUnit('hours');
+    setScheduleTime('09:00');
     setError(null);
   };
 
@@ -303,6 +322,12 @@ export function AddAgentModal({
         generate_report: actionReport,
         report_prompt: actionReport ? reportPrompt.trim() : null,
         config: Object.keys(config).length > 0 ? config : null,
+        // Scheduling fields
+        schedule_enabled: scheduleEnabled,
+        schedule_type: scheduleEnabled ? scheduleType : null,
+        schedule_interval: scheduleEnabled && scheduleType === 'interval' ? scheduleInterval : null,
+        schedule_unit: scheduleEnabled && scheduleType === 'interval' ? scheduleUnit : null,
+        schedule_time: scheduleEnabled && scheduleType === 'daily' ? scheduleTime : null,
       });
 
       if (success) {
@@ -369,7 +394,7 @@ export function AddAgentModal({
             ) : (
               <Bot className="w-5 h-5 text-pink-500" />
             )}
-            {isEditMode ? 'Edit Research Agent' : 'Create Research Agent'}
+            {isEditMode ? 'Edit Observer Agent' : 'Create Observer Agent'}
           </DialogTitle>
           <DialogDescription>
             {isEditMode
@@ -993,6 +1018,134 @@ export function AddAgentModal({
               onCheckedChange={setIsActive}
               disabled={saving || loading}
             />
+          </div>
+
+          {/* Scheduling Section */}
+          <div className="space-y-4 pt-4 border-t">
+            <div className="flex items-start justify-between">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-pink-500" />
+                  <Label htmlFor="schedule-enabled" className="font-medium">Scheduled Execution</Label>
+                </div>
+                <p className="text-sm text-gray-500">
+                  {scheduleEnabled
+                    ? 'Agent will run automatically on schedule'
+                    : 'Enable to run this agent on a schedule'
+                  }
+                </p>
+              </div>
+              <Switch
+                id="schedule-enabled"
+                checked={scheduleEnabled}
+                onCheckedChange={setScheduleEnabled}
+                disabled={saving || loading}
+              />
+            </div>
+
+            {/* Schedule Configuration - only show when enabled */}
+            {scheduleEnabled && (
+              <div className="space-y-4 pl-6 border-l-2 border-pink-200">
+                {/* Schedule Type */}
+                <div className="space-y-2">
+                  <Label>Schedule Type</Label>
+                  <Select
+                    value={scheduleType}
+                    onValueChange={(val) => setScheduleType(val as 'interval' | 'daily')}
+                    disabled={saving || loading}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="interval">Run at Interval</SelectItem>
+                      <SelectItem value="daily">Run Daily at Specific Time</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Interval Configuration */}
+                {scheduleType === 'interval' && (
+                  <div className="space-y-2">
+                    <Label>Run Every</Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={scheduleUnit === 'minutes' ? 1440 : scheduleUnit === 'hours' ? 168 : 30}
+                        value={scheduleInterval}
+                        onChange={(e) => setScheduleInterval(Math.max(1, parseInt(e.target.value) || 1))}
+                        disabled={saving || loading}
+                        className="w-24"
+                      />
+                      <Select
+                        value={scheduleUnit}
+                        onValueChange={(val) => setScheduleUnit(val as 'minutes' | 'hours' | 'days')}
+                        disabled={saving || loading}
+                      >
+                        <SelectTrigger className="w-32">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="minutes">Minutes</SelectItem>
+                          <SelectItem value="hours">Hours</SelectItem>
+                          <SelectItem value="days">Days</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      Agent will run every {scheduleInterval} {scheduleUnit}
+                    </p>
+                  </div>
+                )}
+
+                {/* Daily Time Configuration */}
+                {scheduleType === 'daily' && (
+                  <div className="space-y-2">
+                    <Label>Run at Time</Label>
+                    <Input
+                      type="time"
+                      value={scheduleTime}
+                      onChange={(e) => setScheduleTime(e.target.value)}
+                      disabled={saving || loading}
+                      className="w-40"
+                    />
+                    <p className="text-xs text-gray-500">
+                      Agent will run daily at {scheduleTime} (server time)
+                    </p>
+                  </div>
+                )}
+
+                {/* Next Run Preview */}
+                {isEditMode && editAgent?.next_run_at && (
+                  <div className="p-3 bg-gray-50 rounded-lg">
+                    <p className="text-xs font-medium text-gray-500">Next Scheduled Run</p>
+                    <p className="text-sm text-gray-700">
+                      {new Date(editAgent.next_run_at).toLocaleString()}
+                    </p>
+                    {editAgent.last_run_at && (
+                      <>
+                        <p className="text-xs font-medium text-gray-500 mt-2">Last Run</p>
+                        <p className="text-sm text-gray-700">
+                          {new Date(editAgent.last_run_at).toLocaleString()}
+                          {editAgent.last_run_status && (
+                            <span className={`ml-2 px-1.5 py-0.5 text-xs rounded ${
+                              editAgent.last_run_status === 'success'
+                                ? 'bg-green-100 text-green-700'
+                                : editAgent.last_run_status === 'error'
+                                ? 'bg-red-100 text-red-700'
+                                : 'bg-yellow-100 text-yellow-700'
+                            }`}>
+                              {editAgent.last_run_status}
+                            </span>
+                          )}
+                        </p>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

@@ -285,6 +285,87 @@
         "conflict",
         "diplomacy"
       ]
+    },
+    {
+      "name": "Compensatory R&D Investment Abroad",
+      "description": "Tracking international R&D investment shifts and compensatory research funding movements abroad",
+      "categories": ["Investment Shifts", "International R&D", "Other"],
+      "future_signals": ["Investment increasing", "Investment declining", "Stable"],
+      "sentiment": ["Positive", "Neutral", "Negative"],
+      "time_to_impact": ["Immediate", "Short-term", "Mid-term", "Long-term"],
+      "driver_types": ["Accelerator", "Delayer", "Blocker", "Catalyst"]
+    },
+    {
+      "name": "University Grants & Science Infrastructure Impact",
+      "description": "Monitoring university research grants and science infrastructure impacts",
+      "categories": ["Grant Funding", "Infrastructure", "Research Impact", "Other"],
+      "future_signals": ["Funding increasing", "Funding cuts", "Infrastructure changes"],
+      "sentiment": ["Positive", "Neutral", "Negative"],
+      "time_to_impact": ["Immediate", "Short-term", "Mid-term", "Long-term"],
+      "driver_types": ["Accelerator", "Delayer", "Blocker", "Catalyst"]
+    },
+    {
+      "name": "Publishing & Integrity Organizations Watch List",
+      "description": "Tracking publishing integrity issues and organizational watch list developments",
+      "categories": ["Integrity Issues", "Retractions", "Publishing Standards", "Other"],
+      "future_signals": ["Standards improving", "Issues increasing", "Stable"],
+      "sentiment": ["Positive", "Neutral", "Negative", "Critical"],
+      "time_to_impact": ["Immediate", "Short-term", "Mid-term", "Long-term"],
+      "driver_types": ["Accelerator", "Delayer", "Blocker", "Catalyst"]
+    },
+    {
+      "name": "Attacks on Expertise & Peer Review",
+      "description": "Monitoring challenges to scientific expertise and peer review systems",
+      "categories": ["Peer Review", "Expert Authority", "Misinformation", "Other"],
+      "future_signals": ["Trust declining", "Trust improving", "Stable"],
+      "sentiment": ["Positive", "Neutral", "Negative", "Critical"],
+      "time_to_impact": ["Immediate", "Short-term", "Mid-term", "Long-term"],
+      "driver_types": ["Accelerator", "Delayer", "Blocker", "Catalyst"]
+    },
+    {
+      "name": "Patent Cliffs",
+      "description": "Tracking patent expiration impacts on pharmaceutical and technology sectors",
+      "categories": ["Pharmaceutical", "Technology", "Generic Entry", "Other"],
+      "future_signals": ["Major cliff approaching", "Post-cliff impact", "Stable"],
+      "sentiment": ["Positive", "Neutral", "Negative"],
+      "time_to_impact": ["Immediate", "Short-term", "Mid-term", "Long-term"],
+      "driver_types": ["Accelerator", "Delayer", "Blocker", "Catalyst"]
+    },
+    {
+      "name": "U.S. Federal R&D Pullback",
+      "description": "Monitoring US federal research and development funding changes and pullbacks",
+      "categories": ["Budget Cuts", "Program Changes", "Agency Impacts", "Other"],
+      "future_signals": ["Funding restored", "Further cuts", "Stable"],
+      "sentiment": ["Positive", "Neutral", "Negative", "Critical"],
+      "time_to_impact": ["Immediate", "Short-term", "Mid-term", "Long-term"],
+      "driver_types": ["Accelerator", "Delayer", "Blocker", "Catalyst"]
+    },
+    {
+      "name": "Scientific Publishers - General Monitoring",
+      "description": "General monitoring of scientific publishing industry developments",
+      "categories": ["Industry Trends", "Business Models", "Technology", "Other"],
+      "future_signals": ["Industry growing", "Disruption coming", "Stable"],
+      "sentiment": ["Positive", "Neutral", "Negative"],
+      "time_to_impact": ["Immediate", "Short-term", "Mid-term", "Long-term"],
+      "driver_types": ["Accelerator", "Delayer", "Blocker", "Catalyst"]
+    },
+    {
+      "name": "Open Science Transition Uncertainty",
+      "description": "Tracking uncertainties and developments in the transition to open science",
+      "categories": ["Open Access", "Data Sharing", "Policy Changes", "Other"],
+      "future_signals": ["Transition accelerating", "Resistance growing", "Stable"],
+      "sentiment": ["Positive", "Neutral", "Negative"],
+      "time_to_impact": ["Immediate", "Short-term", "Mid-term", "Long-term"],
+      "driver_types": ["Accelerator", "Delayer", "Blocker", "Catalyst"]
+    },
+    {
+      "name": "US Civil War",
+      "description": "Historical research and analysis related to the US Civil War",
+      "categories": ["Historical Research", "Commemoration", "Other"],
+      "future_signals": ["Research ongoing", "New discoveries"],
+      "sentiment": ["Neutral", "Positive"],
+      "time_to_impact": ["Long-term"],
+      "driver_types": ["Catalyst"]
     }
   ],
   "ai_models": [

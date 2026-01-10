@@ -15,6 +15,16 @@ export interface ResearchAgent {
   report_prompt: string | null;
   config: Record<string, unknown> | null;
   created_at?: string;
+  // Scheduling fields
+  schedule_enabled: boolean;
+  schedule_type: 'interval' | 'daily' | null;
+  schedule_interval: number | null;
+  schedule_unit: 'minutes' | 'hours' | 'days' | null;
+  schedule_time: string | null;
+  next_run_at: string | null;
+  last_run_at: string | null;
+  last_run_status: 'success' | 'error' | 'running' | null;
+  run_count: number;
 }
 
 export interface SignalAlert {
@@ -57,6 +67,12 @@ export interface CreateAgentRequest {
   generate_report?: boolean;
   report_prompt?: string | null;
   config?: Record<string, unknown> | null;
+  // Scheduling fields
+  schedule_enabled?: boolean;
+  schedule_type?: 'interval' | 'daily' | null;
+  schedule_interval?: number | null;
+  schedule_unit?: 'minutes' | 'hours' | 'days' | null;
+  schedule_time?: string | null;
 }
 
 export interface UpdateAgentRequest {
@@ -68,6 +84,12 @@ export interface UpdateAgentRequest {
   generate_report?: boolean;
   report_prompt?: string | null;
   config?: Record<string, unknown> | null;
+  // Scheduling fields
+  schedule_enabled?: boolean;
+  schedule_type?: 'interval' | 'daily' | null;
+  schedule_interval?: number | null;
+  schedule_unit?: 'minutes' | 'hours' | 'days' | null;
+  schedule_time?: string | null;
 }
 
 export interface RunAgentsRequest {
@@ -183,6 +205,12 @@ export async function createResearchAgent(
       generate_report: agent.generate_report || false,
       report_prompt: agent.report_prompt || null,
       config: agent.config || null,
+      // Scheduling fields
+      schedule_enabled: agent.schedule_enabled || false,
+      schedule_type: agent.schedule_type || 'interval',
+      schedule_interval: agent.schedule_interval || null,
+      schedule_unit: agent.schedule_unit || 'hours',
+      schedule_time: agent.schedule_time || null,
     }),
   });
 }

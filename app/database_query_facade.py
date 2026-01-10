@@ -5709,6 +5709,11 @@ class DatabaseQueryFacade:
             result = self._execute_with_rollback(text(query), params)
             instructions = []
             for row in result.mappings():
+                # Convert schedule_time to string if it exists
+                schedule_time_str = None
+                if row.get('schedule_time'):
+                    schedule_time_str = row['schedule_time'].strftime('%H:%M') if hasattr(row['schedule_time'], 'strftime') else str(row['schedule_time'])
+
                 instructions.append({
                     'id': row['id'],
                     'name': row['name'],
@@ -5720,7 +5725,18 @@ class DatabaseQueryFacade:
                     'report_prompt': row.get('report_prompt'),
                     'config': row.get('config'),
                     'created_at': row['created_at'],
-                    'updated_at': row['updated_at']
+                    'updated_at': row['updated_at'],
+                    # Schedule fields
+                    'schedule_enabled': bool(row.get('schedule_enabled', False)),
+                    'schedule_type': row.get('schedule_type'),
+                    'schedule_interval': row.get('schedule_interval'),
+                    'schedule_unit': row.get('schedule_unit'),
+                    'schedule_time': schedule_time_str,
+                    'last_run_at': row.get('last_run_at').isoformat() if row.get('last_run_at') else None,
+                    'next_run_at': row.get('next_run_at').isoformat() if row.get('next_run_at') else None,
+                    'last_run_status': row.get('last_run_status'),
+                    'last_run_error': row.get('last_run_error'),
+                    'run_count': row.get('run_count', 0)
                 })
             return instructions
         except Exception as e:
@@ -5730,7 +5746,9 @@ class DatabaseQueryFacade:
     def save_signal_instruction(self, name: str, description: str, instruction: str,
                                topic: str = None, is_active: bool = True,
                                generate_report: bool = False, report_prompt: str = None,
-                               config: dict = None) -> bool:
+                               config: dict = None, schedule_enabled: bool = False,
+                               schedule_type: str = None, schedule_interval: int = None,
+                               schedule_unit: str = None, schedule_time: str = None) -> bool:
         """Save a custom signal instruction for threat hunting.
 
         Args:
@@ -5742,15 +5760,45 @@ class DatabaseQueryFacade:
             generate_report: Whether to generate reports when matches are found
             report_prompt: Custom prompt for report generation
             config: Additional configuration (e.g., model selection)
+            schedule_enabled: Whether scheduling is enabled
+            schedule_type: 'interval' or 'daily'
+            schedule_interval: Interval value
+            schedule_unit: 'minutes', 'hours', or 'days'
+            schedule_time: Time for daily schedules (HH:MM)
 
         Returns:
             True if successfully saved, False otherwise
         """
         try:
+            # Convert schedule_time string to time object if provided
+            schedule_time_obj = None
+            if schedule_time:
+                try:
+                    from datetime import time as dt_time
+                    parts = schedule_time.split(':')
+                    schedule_time_obj = dt_time(int(parts[0]), int(parts[1]))
+                except (ValueError, IndexError):
+                    pass
+
+            # Calculate next_run_at if scheduling is enabled
+            next_run_at = None
+            if schedule_enabled:
+                from app.tasks.observer_agent_monitor import calculate_next_run
+                next_run_at = calculate_next_run(
+                    schedule_type=schedule_type or 'interval',
+                    schedule_interval=schedule_interval,
+                    schedule_unit=schedule_unit,
+                    schedule_time=schedule_time_obj
+                )
+
             # PostgreSQL uses INSERT ... ON CONFLICT instead of INSERT OR REPLACE
             query = """
-            INSERT INTO signal_instructions (name, description, instruction, topic, is_active, generate_report, report_prompt, config, updated_at)
-            VALUES (:name, :description, :instruction, :topic, :is_active, :generate_report, :report_prompt, :config, CURRENT_TIMESTAMP)
+            INSERT INTO signal_instructions (name, description, instruction, topic, is_active,
+                generate_report, report_prompt, config, schedule_enabled, schedule_type,
+                schedule_interval, schedule_unit, schedule_time, next_run_at, updated_at)
+            VALUES (:name, :description, :instruction, :topic, :is_active,
+                :generate_report, :report_prompt, :config, :schedule_enabled, :schedule_type,
+                :schedule_interval, :schedule_unit, :schedule_time, :next_run_at, CURRENT_TIMESTAMP)
             ON CONFLICT (name) DO UPDATE SET
                 description = :description,
                 instruction = :instruction,
@@ -5759,6 +5807,12 @@ class DatabaseQueryFacade:
                 generate_report = :generate_report,
                 report_prompt = :report_prompt,
                 config = :config,
+                schedule_enabled = :schedule_enabled,
+                schedule_type = :schedule_type,
+                schedule_interval = :schedule_interval,
+                schedule_unit = :schedule_unit,
+                schedule_time = :schedule_time,
+                next_run_at = :next_run_at,
                 updated_at = CURRENT_TIMESTAMP
             """
             self._execute_with_rollback(text(query), {
@@ -5769,7 +5823,13 @@ class DatabaseQueryFacade:
                 'is_active': is_active,
                 'generate_report': generate_report,
                 'report_prompt': report_prompt,
-                'config': json.dumps(config) if config else None
+                'config': json.dumps(config) if config else None,
+                'schedule_enabled': schedule_enabled,
+                'schedule_type': schedule_type,
+                'schedule_interval': schedule_interval,
+                'schedule_unit': schedule_unit,
+                'schedule_time': schedule_time_obj,
+                'next_run_at': next_run_at
             })
             self.connection.commit()
             self.logger.info(f"Saved signal instruction: {name}")
@@ -5782,7 +5842,9 @@ class DatabaseQueryFacade:
                                   description: str = None, instruction: str = None,
                                   topic: str = None, is_active: bool = None,
                                   generate_report: bool = None, report_prompt: str = None,
-                                  config: dict = None) -> bool:
+                                  config: dict = None, schedule_enabled: bool = None,
+                                  schedule_type: str = None, schedule_interval: int = None,
+                                  schedule_unit: str = None, schedule_time: str = None) -> bool:
         """Update a signal instruction by ID.
 
         Args:
@@ -5795,6 +5857,11 @@ class DatabaseQueryFacade:
             generate_report: Whether to generate reports (optional)
             report_prompt: Custom report prompt (optional)
             config: Additional configuration (optional)
+            schedule_enabled: Whether scheduling is enabled (optional)
+            schedule_type: 'interval' or 'daily' (optional)
+            schedule_interval: Interval value (optional)
+            schedule_unit: 'minutes', 'hours', or 'days' (optional)
+            schedule_time: Time for daily schedules HH:MM (optional)
 
         Returns:
             True if successfully updated, False otherwise
@@ -5828,6 +5895,63 @@ class DatabaseQueryFacade:
             if config is not None:
                 updates.append("config = :config")
                 params['config'] = json.dumps(config) if config else None
+
+            # Schedule fields
+            if schedule_enabled is not None:
+                updates.append("schedule_enabled = :schedule_enabled")
+                params['schedule_enabled'] = schedule_enabled
+            if schedule_type is not None:
+                updates.append("schedule_type = :schedule_type")
+                params['schedule_type'] = schedule_type
+            if schedule_interval is not None:
+                updates.append("schedule_interval = :schedule_interval")
+                params['schedule_interval'] = schedule_interval
+            if schedule_unit is not None:
+                updates.append("schedule_unit = :schedule_unit")
+                params['schedule_unit'] = schedule_unit
+            if schedule_time is not None:
+                # Convert schedule_time string to time object
+                schedule_time_obj = None
+                if schedule_time:
+                    try:
+                        from datetime import time as dt_time
+                        parts = schedule_time.split(':')
+                        schedule_time_obj = dt_time(int(parts[0]), int(parts[1]))
+                    except (ValueError, IndexError):
+                        pass
+                updates.append("schedule_time = :schedule_time")
+                params['schedule_time'] = schedule_time_obj
+
+            # Recalculate next_run_at if scheduling changed
+            if schedule_enabled is not None or schedule_type is not None or \
+               schedule_interval is not None or schedule_unit is not None or schedule_time is not None:
+                # Get current values to calculate next_run
+                from app.tasks.observer_agent_monitor import calculate_next_run
+                from datetime import time as dt_time
+
+                # Use provided values or get current from DB
+                current = self._execute_with_rollback(text(
+                    "SELECT schedule_enabled, schedule_type, schedule_interval, schedule_unit, schedule_time FROM signal_instructions WHERE id = :id"
+                ), {'id': instruction_id}).mappings().first()
+
+                if current:
+                    sch_enabled = schedule_enabled if schedule_enabled is not None else current['schedule_enabled']
+                    sch_type = schedule_type if schedule_type is not None else current['schedule_type']
+                    sch_interval = schedule_interval if schedule_interval is not None else current['schedule_interval']
+                    sch_unit = schedule_unit if schedule_unit is not None else current['schedule_unit']
+                    sch_time = params.get('schedule_time') if schedule_time is not None else current['schedule_time']
+
+                    if sch_enabled:
+                        next_run_at = calculate_next_run(
+                            schedule_type=sch_type or 'interval',
+                            schedule_interval=sch_interval,
+                            schedule_unit=sch_unit,
+                            schedule_time=sch_time
+                        )
+                        updates.append("next_run_at = :next_run_at")
+                        params['next_run_at'] = next_run_at
+                    else:
+                        updates.append("next_run_at = NULL")
 
             if not updates:
                 return True  # Nothing to update

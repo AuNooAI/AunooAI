@@ -12,6 +12,7 @@ import {
   X,
   Building2,
   Tag,
+  Clock,
 } from 'lucide-react';
 import { type NewsFeedConfig, type Topic, type OrganizationalProfile, type AIModel } from '../../hooks/useNewsFeed';
 import { type NarrativeExplorerConfig } from '../../hooks/useNarrativeExplorer';
@@ -35,6 +36,7 @@ interface NewsFeedHeaderProps {
   onConfigChange: (updates: Partial<NewsFeedConfig>) => void;
   onNarrativeConfigChange: (updates: Partial<NarrativeExplorerConfig>) => void;
   onRefresh: () => void;
+  onScheduleClick?: () => void;
 }
 
 const dateRangeOptions: { value: DateRange; label: string }[] = [
@@ -57,6 +59,7 @@ export function NewsFeedHeader({
   onConfigChange,
   onNarrativeConfigChange,
   onRefresh,
+  onScheduleClick,
 }: NewsFeedHeaderProps) {
   const [topicDropdownOpen, setTopicDropdownOpen] = useState(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
@@ -310,6 +313,16 @@ export function NewsFeedHeader({
 
         {/* Right side - Actions */}
         <div className="flex items-center gap-2">
+          {onScheduleClick && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onScheduleClick}
+              title="Schedule automatic generation"
+            >
+              <Clock className="w-4 h-4" />
+            </Button>
+          )}
           <Button
             variant="default"
             size="sm"

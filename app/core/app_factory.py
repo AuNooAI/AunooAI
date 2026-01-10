@@ -94,6 +94,36 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(delayed_emerging_topics_monitor_start())
         logger.info("Scheduled emerging topics monitor to start in 10 seconds")
 
+        # Start the observer agent monitor background task with a delay
+        async def delayed_observer_agent_monitor_start():
+            """Start observer agent monitor after other monitors"""
+            await asyncio.sleep(15)  # Wait 15 seconds after startup
+            try:
+                from app.tasks.observer_agent_monitor import run_observer_agent_monitor
+                logger.info("Starting observer agent monitor background task...")
+                asyncio.create_task(run_observer_agent_monitor())
+                logger.info("Observer agent monitor background task started successfully")
+            except Exception as e:
+                logger.error(f"Failed to start observer agent monitor: {str(e)}")
+
+        asyncio.create_task(delayed_observer_agent_monitor_start())
+        logger.info("Scheduled observer agent monitor to start in 15 seconds")
+
+        # Start the newsfeed dashboard monitor background task with a delay
+        async def delayed_newsfeed_dashboard_monitor_start():
+            """Start newsfeed dashboard monitor after other monitors"""
+            await asyncio.sleep(20)  # Wait 20 seconds after startup
+            try:
+                from app.tasks.newsfeed_dashboard_monitor import run_newsfeed_dashboard_monitor
+                logger.info("Starting newsfeed dashboard monitor background task...")
+                asyncio.create_task(run_newsfeed_dashboard_monitor())
+                logger.info("Newsfeed dashboard monitor background task started successfully")
+            except Exception as e:
+                logger.error(f"Failed to start newsfeed dashboard monitor: {str(e)}")
+
+        asyncio.create_task(delayed_newsfeed_dashboard_monitor_start())
+        logger.info("Scheduled newsfeed dashboard monitor to start in 20 seconds")
+
     except Exception as e:
         logging.error(f"Error during startup: {str(e)}", exc_info=True)
         raise

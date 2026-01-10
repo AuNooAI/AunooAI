@@ -1322,7 +1322,7 @@ async def get_schedule_status(
     from sqlalchemy import text
 
     db = get_database_instance()
-    conn = db.get_raw_connection()
+    conn = db._temp_get_connection()
 
     try:
         # Get settings
@@ -1363,7 +1363,7 @@ async def update_schedule_settings(
     from sqlalchemy import text
 
     db = get_database_instance()
-    conn = db.get_raw_connection()
+    conn = db._temp_get_connection()
 
     try:
         updates = []
@@ -1444,7 +1444,7 @@ async def get_notification_settings(
     from sqlalchemy import text
 
     db = get_database_instance()
-    conn = db.get_raw_connection()
+    conn = db._temp_get_connection()
 
     try:
         result = conn.execute(text("""
@@ -1484,7 +1484,7 @@ async def update_notification_settings(
     import json
 
     db = get_database_instance()
-    conn = db.get_raw_connection()
+    conn = db._temp_get_connection()
 
     try:
         updates = []
@@ -1539,7 +1539,7 @@ async def send_test_notification(
     from sqlalchemy import text
 
     db = get_database_instance()
-    conn = db.get_raw_connection()
+    conn = db._temp_get_connection()
 
     try:
         # Get current settings

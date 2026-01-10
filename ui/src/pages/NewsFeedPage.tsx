@@ -42,6 +42,7 @@ import { CategoryViewModal } from '../components/newsfeed/CategoryViewModal';
 import { IncidentConfigModal } from '../components/newsfeed/IncidentConfigModal';
 import { NarrativesConfigModal } from '../components/newsfeed/NarrativesConfigModal';
 import { SixArticlesTuneModal } from '../components/SixArticlesTuneModal';
+import { NewsfeedScheduleModal } from '../components/newsfeed/NewsfeedScheduleModal';
 import { type NewsArticle, type ArticleCluster, type ClusterRelatedArticle, getArticleByUri, getClusteredArticles, clusterArticleToNewsArticle } from '../services/newsFeedApi';
 import { applyFilters, createEmptyFilters, type IncidentFilters } from '../components/newsfeed/FilterPanel';
 import { getSignalReportsCount } from '../services/researchAgentsApi';
@@ -150,6 +151,7 @@ export function NewsFeedPage() {
   const [emergingTopicsCount, setEmergingTopicsCount] = useState(0);
   const [reportsCount, setReportsCount] = useState(0);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [isNarrativesConfigOpen, setIsNarrativesConfigOpen] = useState(false);
   const [isBriefingConfigOpen, setIsBriefingConfigOpen] = useState(false);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
@@ -641,6 +643,7 @@ export function NewsFeedPage() {
           onConfigChange={updateConfig}
           onNarrativeConfigChange={updateNarrativeConfig}
           onRefresh={handleRefresh}
+          onScheduleClick={() => setIsScheduleModalOpen(true)}
         />
 
         {/* Tab Navigation */}
@@ -965,6 +968,12 @@ export function NewsFeedPage() {
       <IncidentConfigModal
         open={isConfigOpen}
         onClose={() => setIsConfigOpen(false)}
+      />
+
+      {/* Newsfeed Schedule Modal */}
+      <NewsfeedScheduleModal
+        open={isScheduleModalOpen}
+        onClose={() => setIsScheduleModalOpen(false)}
       />
 
       {/* Narratives Config Modal */}

@@ -2689,6 +2689,12 @@ class _SignalInstructionRequest(BaseModel):
     generate_report: bool = Field(False, description="Whether to generate reports when matches are found")
     report_prompt: Optional[str] = Field(None, description="Custom prompt for report generation")
     config: Optional[dict] = Field(None, description="Additional config (e.g., model selection)")
+    # Scheduling fields
+    schedule_enabled: bool = Field(False, description="Whether scheduling is enabled")
+    schedule_type: Optional[str] = Field('interval', description="Schedule type: 'interval' or 'daily'")
+    schedule_interval: Optional[int] = Field(None, description="Interval value")
+    schedule_unit: Optional[str] = Field('hours', description="Interval unit: 'minutes', 'hours', 'days'")
+    schedule_time: Optional[str] = Field(None, description="Time for daily schedules (HH:MM)")
 
     @field_validator('topic')
     @classmethod
@@ -2710,6 +2716,12 @@ class _UpdateSignalInstructionRequest(BaseModel):
     generate_report: Optional[bool] = Field(None, description="Whether to generate reports")
     report_prompt: Optional[str] = Field(None, description="Custom prompt for report generation")
     config: Optional[dict] = Field(None, description="Additional config (e.g., model selection)")
+    # Scheduling fields
+    schedule_enabled: Optional[bool] = Field(None, description="Whether scheduling is enabled")
+    schedule_type: Optional[str] = Field(None, description="Schedule type: 'interval' or 'daily'")
+    schedule_interval: Optional[int] = Field(None, description="Interval value")
+    schedule_unit: Optional[str] = Field(None, description="Interval unit: 'minutes', 'hours', 'days'")
+    schedule_time: Optional[str] = Field(None, description="Time for daily schedules (HH:MM)")
 
     @field_validator('topic')
     @classmethod
@@ -2739,7 +2751,12 @@ async def save_signal_instruction(
             is_active=req.is_active,
             generate_report=req.generate_report,
             report_prompt=req.report_prompt,
-            config=req.config
+            config=req.config,
+            schedule_enabled=req.schedule_enabled,
+            schedule_type=req.schedule_type,
+            schedule_interval=req.schedule_interval,
+            schedule_unit=req.schedule_unit,
+            schedule_time=req.schedule_time
         )
 
         if success:
@@ -2773,7 +2790,12 @@ async def update_signal_instruction(
             is_active=req.is_active,
             generate_report=req.generate_report,
             report_prompt=req.report_prompt,
-            config=req.config
+            config=req.config,
+            schedule_enabled=req.schedule_enabled,
+            schedule_type=req.schedule_type,
+            schedule_interval=req.schedule_interval,
+            schedule_unit=req.schedule_unit,
+            schedule_time=req.schedule_time
         )
 
         if success:
