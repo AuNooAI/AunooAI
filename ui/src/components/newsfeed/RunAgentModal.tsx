@@ -4,7 +4,7 @@
  */
 
 import { useState } from 'react';
-import { Play, Loader2, Calendar, Tag } from 'lucide-react';
+import { Play, Loader2, Calendar, Tag, FileText } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -19,6 +19,7 @@ import { Checkbox } from '../ui/checkbox';
 export interface RunAgentOptions {
   daysBack: number;
   tagArticles: boolean;
+  generateUnifiedReport?: boolean;
 }
 
 interface RunAgentModalProps {
@@ -48,12 +49,17 @@ export function RunAgentModal({
 }: RunAgentModalProps) {
   const [selectedDays, setSelectedDays] = useState(7);
   const [tagArticles, setTagArticles] = useState(true);
+  const [generateUnifiedReport, setGenerateUnifiedReport] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
 
   const handleRun = async () => {
     setIsRunning(true);
     try {
-      await onRun({ daysBack: selectedDays, tagArticles });
+      await onRun({
+        daysBack: selectedDays,
+        tagArticles,
+        generateUnifiedReport: isRunningAll ? generateUnifiedReport : undefined,
+      });
     } finally {
       setIsRunning(false);
     }
@@ -117,7 +123,7 @@ export function RunAgentModal({
         </div>
 
         {/* Options */}
-        <div className="py-3 border-t">
+        <div className="py-3 border-t space-y-2">
           <label className="flex items-start gap-3 p-3 rounded-lg border border-gray-200 cursor-pointer hover:bg-gray-50">
             <Checkbox
               checked={tagArticles}
@@ -134,6 +140,26 @@ export function RunAgentModal({
               </p>
             </div>
           </label>
+
+          {/* Unified Report option - only for Run All */}
+          {isRunningAll && (
+            <label className="flex items-start gap-3 p-3 rounded-lg border border-gray-200 cursor-pointer hover:bg-gray-50">
+              <Checkbox
+                checked={generateUnifiedReport}
+                onCheckedChange={(checked) => setGenerateUnifiedReport(checked as boolean)}
+                disabled={loading || isRunning}
+              />
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-blue-500" />
+                  <span className="font-medium text-gray-900">Generate unified report</span>
+                </div>
+                <p className="text-sm text-gray-500 mt-0.5">
+                  Create a combined intelligence report across all agents
+                </p>
+              </div>
+            </label>
+          )}
         </div>
 
         <div className="flex justify-end gap-2 pt-4 border-t">

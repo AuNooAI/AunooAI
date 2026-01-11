@@ -1,6 +1,6 @@
 /**
- * TopicComparisonDashboard - Aggregate visualization for comparing topics
- * Contains: Scatter plot (Score vs Articles) and Score distribution histogram
+ * Emerging Topics Overview Dashboard
+ * Contains: Timeline Chart, Category Radar, Scatter plot, and Score distribution
  */
 
 import { useMemo, useState } from 'react';
@@ -16,9 +16,10 @@ import {
   Bar,
   Cell,
   CartesianGrid,
-  Legend,
 } from 'recharts';
-import { ChevronDown, ChevronUp, BarChart3, TrendingUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, BarChart3, TrendingUp, Calendar, PieChart } from 'lucide-react';
+import { TopicsTimelineChart } from './TopicsTimelineChart';
+import { CategoryRadarChart } from './CategoryRadarChart';
 
 interface TrendScore {
   volume: number;
@@ -26,20 +27,28 @@ interface TrendScore {
   diversity: number;
   novelty: number;
   composite: number;
+  urgency?: 'low' | 'medium' | 'high';
 }
 
 interface EmergingTopic {
   id: number;
   topic_label: string;
+  topic_description?: string;
+  detection_date: string;
+  first_detection_date?: string;
+  last_detection_date?: string;
   article_count: number;
-  velocity?: string;
+  velocity: 'accelerating' | 'stable' | 'decelerating';
+  trajectory?: string;
   trend_score?: TrendScore;
   confidence_score?: number;
+  key_themes?: string[];
 }
 
 interface TopicComparisonDashboardProps {
   topics: EmergingTopic[];
   className?: string;
+  onTopicClick?: (topic: EmergingTopic) => void;
 }
 
 // Velocity colors
@@ -61,6 +70,7 @@ const bucketColors = [
 export function TopicComparisonDashboard({
   topics,
   className = '',
+  onTopicClick,
 }: TopicComparisonDashboardProps) {
   const [isExpanded, setIsExpanded] = useState(true);
 
@@ -110,7 +120,7 @@ export function TopicComparisonDashboard({
   }, [topics]);
 
   // Don't render if not enough topics
-  if (topics.length < 3) {
+  if (topics.length < 2) {
     return null;
   }
 
@@ -124,7 +134,7 @@ export function TopicComparisonDashboard({
         <div className="flex items-center gap-2">
           <BarChart3 className="w-5 h-5 text-pink-500" />
           <span className="font-medium text-gray-900 dark:text-gray-100">
-            Topic Comparison Dashboard
+            Emerging Topics Overview
           </span>
           <span className="text-sm text-gray-500 dark:text-gray-400">
             ({topics.length} topics)
@@ -140,14 +150,43 @@ export function TopicComparisonDashboard({
       {/* Content */}
       {isExpanded && (
         <div className="px-4 pb-4 border-t border-gray-100 dark:border-gray-800">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
+          {/* Row 1: Timeline Chart and Category Radar */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
+            <div className="lg:col-span-2">
+              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                <Calendar className="w-4 h-4" />
+                Topics Timeline (7 Days)
+              </h4>
+              <TopicsTimelineChart
+                topics={topics}
+                daysToShow={7}
+                onTopicClick={onTopicClick}
+                className="border-0 p-0 bg-transparent"
+              />
+            </div>
+            <div>
+              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+                <PieChart className="w-4 h-4" />
+                Category Distribution
+              </h4>
+              <CategoryRadarChart
+                topics={topics}
+                size={220}
+                showLegend={false}
+                className="border-0 p-0 bg-transparent"
+              />
+            </div>
+          </div>
+
+          {/* Row 2: Scatter Plot and Histogram */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6 pt-4 border-t border-gray-100 dark:border-gray-800">
             {/* Scatter Plot: Score vs Article Count */}
             <div>
               <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
                 <TrendingUp className="w-4 h-4" />
                 Score vs Article Count
               </h4>
-              <div className="h-64 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-2">
+              <div className="h-56 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-2">
                 <ResponsiveContainer width="100%" height="100%">
                   <ScatterChart margin={{ top: 10, right: 10, bottom: 30, left: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
@@ -209,7 +248,7 @@ export function TopicComparisonDashboard({
                 <BarChart3 className="w-4 h-4" />
                 Score Distribution
               </h4>
-              <div className="h-64 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-2">
+              <div className="h-56 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-2">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={histogramData} margin={{ top: 10, right: 10, bottom: 30, left: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
