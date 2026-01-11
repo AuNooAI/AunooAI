@@ -68,10 +68,11 @@ export function CategoryViewModal({
   onClose,
   dateRange = '7d',
 }: CategoryViewModalProps) {
-  const [articles, setArticles] = useState<NewsArticle[]>(initialArticles);
+  const safeInitialArticles = initialArticles || [];
+  const [articles, setArticles] = useState<NewsArticle[]>(safeInitialArticles);
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
-  const [totalCount, setTotalCount] = useState(initialArticles.length);
+  const [totalCount, setTotalCount] = useState(safeInitialArticles.length);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
 
@@ -289,7 +290,7 @@ Please provide:
                           )}
                           {/* Agent Signal Badge */}
                           {signalTags.length > 0 && (
-                            <AgentSignalBadge tags={signalTags} />
+                            <AgentSignalBadge agentNames={signalTags} />
                           )}
                         </div>
 

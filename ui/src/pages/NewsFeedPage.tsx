@@ -549,7 +549,7 @@ export function NewsFeedPage() {
         allArticles.push(clusterArticleToNewsArticle(cluster.primary));
 
         // Add related articles
-        for (const related of cluster.related) {
+        for (const related of cluster.related || []) {
           allArticles.push({
             uri: related.uri,
             title: related.title,
