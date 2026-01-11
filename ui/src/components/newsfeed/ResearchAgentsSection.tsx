@@ -91,11 +91,12 @@ export function ResearchAgentsSection({
         const data = await etRes.json();
         if (data.settings?.schedule_enabled) {
           schedules.push({
-            name: 'Emerging Topics',
+            name: 'Emerging Themes',
             type: 'emerging_topics',
             enabled: true,
             // API returns next_check_time, not next_run_time
             next_run_at: data.status?.next_check_time || null,
+            last_run_at: data.status?.last_check_time || null,
             last_run_status: data.status?.last_error ? 'error' : (data.status?.topics_detected !== null ? 'success' : null),
           });
         }
@@ -115,6 +116,7 @@ export function ResearchAgentsSection({
             type: 'newsfeed',
             enabled: true,
             next_run_at: data.status?.next_run_time || null,
+            last_run_at: data.status?.last_run_time || null,
             last_run_status: data.status?.last_run_status || null,
           });
         }
@@ -130,11 +132,12 @@ export function ResearchAgentsSection({
         const data = await apRes.json();
         if (data.is_enabled) {
           schedules.push({
-            name: 'Autoprocessing',
+            name: 'Article Collection',
             type: 'autoprocessing',
             enabled: true,
             next_run_at: data.next_run_time || null,
-            last_run_status: null, // Keyword monitor doesn't track this
+            last_run_at: data.last_run_time || null,
+            last_run_status: null, // Keyword monitor doesn't track status
           });
         }
       }

@@ -12,6 +12,7 @@ export interface SystemSchedule {
   type: 'emerging_topics' | 'newsfeed' | 'autoprocessing';
   enabled: boolean;
   next_run_at: string | null;
+  last_run_at?: string | null;
   last_run_status?: string | null;
 }
 
