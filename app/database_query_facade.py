@@ -6590,10 +6590,10 @@ class DatabaseQueryFacade:
             config_json = json.dumps(config, ensure_ascii=False)
 
             # Upsert into user_preferences
-            if self.db_type == 'postgresql':
+            if self.db.db_type == 'postgresql':
                 query = text("""
                     INSERT INTO user_preferences (username, preference_key, config_value, updated_at)
-                    VALUES (:username, 'six_articles_config', :config_json, NOW())
+                    VALUES (:username, 'six_articles_config', CAST(:config_json AS json), NOW())
                     ON CONFLICT (username, preference_key)
                     DO UPDATE SET
                         config_value = EXCLUDED.config_value,

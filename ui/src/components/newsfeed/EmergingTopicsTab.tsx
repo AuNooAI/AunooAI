@@ -632,37 +632,75 @@ Please provide:
     if (!events?.trigger_event && !events?.timeline?.length) return null;
 
     // Helper to format timeline item - handles both string and {date, event} object formats
-    const formatTimelineItem = (item: string | { date?: string; event?: string }): string => {
-      if (typeof item === 'string') return item;
+    const formatTimelineItem = (item: string | { date?: string; event?: string }): { date?: string; text: string } => {
+      if (typeof item === 'string') {
+        // Try to extract date from string like "Jan 5: Something happened"
+        const dateMatch = item.match(/^([A-Za-z]{3,}\s+\d{1,2}|\d{1,2}\/\d{1,2}|\d{4}-\d{2}-\d{2}):\s*(.+)$/);
+        if (dateMatch) {
+          return { date: dateMatch[1], text: dateMatch[2] };
+        }
+        return { text: item };
+      }
       if (typeof item === 'object' && item !== null) {
         const { date, event } = item;
-        if (date && event) return `${date}: ${event}`;
-        if (event) return event;
-        if (date) return date;
+        return { date, text: event || date || '' };
       }
-      return String(item);
+      return { text: String(item) };
     };
+
+    const timelineItems = events.timeline?.slice(0, 4).map(formatTimelineItem) || [];
 
     return (
       <div className="space-y-2">
         <h5 className="text-xs font-medium text-gray-500 uppercase flex items-center gap-1">
-          <Clock className="w-3 h-3" /> Events
+          <Clock className="w-3 h-3" /> Events Timeline
         </h5>
+
+        {/* Trigger event */}
         {events.trigger_event && (
-          <div className="text-sm bg-blue-50 dark:bg-blue-900/20 p-2 rounded">
-            <span className="font-medium">Trigger:</span> {events.trigger_event}
+          <div className="text-sm bg-blue-50 dark:bg-blue-900/20 p-2 rounded border-l-4 border-blue-500">
+            <span className="font-medium text-blue-700 dark:text-blue-300">Trigger:</span>{' '}
+            <span className="text-gray-700 dark:text-gray-300">{events.trigger_event}</span>
           </div>
         )}
-        {events.timeline && events.timeline.length > 0 && (
-          <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1 list-disc list-inside">
-            {events.timeline.slice(0, 3).map((t, i) => (
-              <li key={i}>{formatTimelineItem(t)}</li>
-            ))}
-          </ul>
+
+        {/* Timeline with vertical bar */}
+        {timelineItems.length > 0 && (
+          <div className="relative pl-4">
+            {/* Vertical timeline bar */}
+            <div className="absolute left-1 top-1 bottom-1 w-0.5 bg-gradient-to-b from-blue-400 via-indigo-400 to-purple-400 rounded-full" />
+
+            <div className="space-y-3">
+              {timelineItems.map((item, i) => (
+                <div key={i} className="relative flex items-start gap-3">
+                  {/* Timeline dot */}
+                  <div
+                    className="absolute -left-3 top-1.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-gray-900"
+                    style={{
+                      backgroundColor: i === 0 ? '#3b82f6' : i === timelineItems.length - 1 ? '#8b5cf6' : '#6366f1'
+                    }}
+                  />
+
+                  {/* Event content */}
+                  <div className="flex-1 text-sm">
+                    {item.date && (
+                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 mr-2">
+                        {item.date}
+                      </span>
+                    )}
+                    <span className="text-gray-600 dark:text-gray-400">{item.text}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         )}
+
+        {/* Current status */}
         {events.current_status && (
-          <div className="text-sm">
-            <span className="font-medium">Status:</span> {events.current_status}
+          <div className="text-sm bg-green-50 dark:bg-green-900/20 p-2 rounded border-l-4 border-green-500">
+            <span className="font-medium text-green-700 dark:text-green-300">Current:</span>{' '}
+            <span className="text-gray-700 dark:text-gray-300">{events.current_status}</span>
           </div>
         )}
       </div>
@@ -1052,7 +1090,7 @@ Please provide:
                               </Badge>
                             )}
                           </div>
-                          <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
+                          <p className="text-sm text-gray-600 dark:text-gray-400">
                             {topicItem.topic_description}
                           </p>
                           {/* Trajectory Timeline - visual detection history */}
@@ -1231,7 +1269,7 @@ Please provide:
                                 {topicItem.implications.industry_impact && (
                                   <div className="bg-gray-50 dark:bg-gray-800 p-2 rounded">
                                     <div className="font-medium mb-1">Industry</div>
-                                    <p className="text-gray-600 dark:text-gray-400 line-clamp-3">
+                                    <p className="text-gray-600 dark:text-gray-400">
                                       {topicItem.implications.industry_impact}
                                     </p>
                                   </div>
@@ -1239,7 +1277,7 @@ Please provide:
                                 {topicItem.implications.regulatory && (
                                   <div className="bg-gray-50 dark:bg-gray-800 p-2 rounded">
                                     <div className="font-medium mb-1">Regulatory</div>
-                                    <p className="text-gray-600 dark:text-gray-400 line-clamp-3">
+                                    <p className="text-gray-600 dark:text-gray-400">
                                       {topicItem.implications.regulatory}
                                     </p>
                                   </div>
@@ -1247,7 +1285,7 @@ Please provide:
                                 {topicItem.implications.market && (
                                   <div className="bg-gray-50 dark:bg-gray-800 p-2 rounded">
                                     <div className="font-medium mb-1">Market</div>
-                                    <p className="text-gray-600 dark:text-gray-400 line-clamp-3">
+                                    <p className="text-gray-600 dark:text-gray-400">
                                       {topicItem.implications.market}
                                     </p>
                                   </div>
