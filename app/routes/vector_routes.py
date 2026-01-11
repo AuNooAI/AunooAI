@@ -4101,10 +4101,79 @@ Return a JSON array of match objects. Only include articles that match the crite
 
         logger.info(f"Instruction {instruction['name']} completed: {alerts_created} alerts created from {len(articles)} articles")
 
+        # Send notifications if configured and alerts were created
+        email_sent = False
+        bluesky_sent = False
+
+        if alerts_created > 0:
+            # Check alert threshold
+            alert_threshold = config.get('alert_threshold', 1)
+            meets_threshold = alerts_created >= alert_threshold
+
+            # Get the created alerts for this instruction
+            instruction_alerts = []
+            try:
+                recent_alerts = db.facade.get_signal_alerts(
+                    instruction_id=instruction_id,
+                    limit=alerts_created
+                )
+                instruction_alerts = recent_alerts[:alerts_created] if recent_alerts else []
+            except Exception as alert_fetch_error:
+                logger.warning(f"Failed to fetch alerts for notification: {alert_fetch_error}")
+
+            # Send Email if configured
+            if config.get('send_email') and instruction_alerts and meets_threshold:
+                try:
+                    from app.services.email_service import get_email_service
+
+                    email_service = get_email_service()
+                    if email_service.is_available():
+                        recipient = config.get('email_recipient')
+                        if recipient:
+                            success = email_service.send_signal_alert_email(
+                                to_address=recipient,
+                                instruction_name=instruction['name'],
+                                matches=instruction_alerts,
+                                topic=topic,
+                                report_content=None,
+                                podcast_url=None,
+                                report_id=None
+                            )
+                            if success:
+                                email_sent = True
+                                logger.info(f"Email sent to {recipient} for {instruction['name']} ({alerts_created} alerts)")
+                        else:
+                            logger.warning(f"No email recipient configured for {instruction['name']}")
+                except Exception as email_error:
+                    logger.error(f"Error sending email for {instruction['name']}: {email_error}")
+
+            # Send Bluesky DM if configured
+            if config.get('bluesky_dm') and instruction_alerts and meets_threshold:
+                try:
+                    from app.services.bluesky_notification_service import get_bluesky_notification_service
+
+                    bluesky_service = get_bluesky_notification_service()
+                    if bluesky_service.is_available():
+                        recipient = config.get('bluesky_recipient')
+                        if recipient:
+                            success = bluesky_service.send_signal_alert_dm(
+                                recipient_handle=recipient,
+                                instruction_name=instruction['name'],
+                                matches=instruction_alerts,
+                                topic=topic
+                            )
+                            if success:
+                                bluesky_sent = True
+                                logger.info(f"Bluesky DM sent to {recipient} for {instruction['name']}")
+                except Exception as bluesky_error:
+                    logger.error(f"Error sending Bluesky DM for {instruction['name']}: {bluesky_error}")
+
         return {
             "success": True,
             "alerts_created": alerts_created,
-            "articles_analyzed": len(articles)
+            "articles_analyzed": len(articles),
+            "email_sent": email_sent,
+            "bluesky_sent": bluesky_sent
         }
 
     except Exception as e:
