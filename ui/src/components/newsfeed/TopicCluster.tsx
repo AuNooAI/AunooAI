@@ -164,11 +164,12 @@ function StoryRow({ cluster, onArticleClick }: StoryRowProps) {
   const [showRelated, setShowRelated] = useState(false);
   const [showTooltip, setShowTooltip] = useState(false);
   const primaryArticle = clusterArticleToNewsArticle(cluster.primary);
-  const hasRelated = cluster.related.length > 0;
-  const totalSources = 1 + cluster.related.length;
+  const relatedArticles = cluster.related || [];
+  const hasRelated = relatedArticles.length > 0;
+  const totalSources = 1 + relatedArticles.length;
 
   // Get all unique source names for display
-  const allSources = [cluster.primary.news_source, ...cluster.related.map(r => r.news_source)];
+  const allSources = [cluster.primary.news_source, ...relatedArticles.map(r => r.news_source)];
   const uniqueSources = [...new Set(allSources)];
 
   // Handle click with related articles
@@ -281,7 +282,7 @@ function StoryRow({ cluster, onArticleClick }: StoryRowProps) {
             </button>
 
             {/* Related articles */}
-            {cluster.related.slice(0, 4).map((related) => {
+            {relatedArticles.slice(0, 4).map((related) => {
               const relatedArticle: NewsArticle = {
                 uri: related.uri,
                 title: related.title,
@@ -312,9 +313,9 @@ function StoryRow({ cluster, onArticleClick }: StoryRowProps) {
               );
             })}
 
-            {cluster.related.length > 4 && (
+            {relatedArticles.length > 4 && (
               <p className="text-xs text-gray-600 dark:text-gray-400 text-center py-1">
-                +{cluster.related.length - 4} more sources covering this story
+                +{relatedArticles.length - 4} more sources covering this story
               </p>
             )}
           </div>

@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException, Query, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from app.security.session import verify_session
-from typing import Optional
+from typing import Optional, List, Dict
 import logging
 from datetime import datetime, timedelta
 import json
