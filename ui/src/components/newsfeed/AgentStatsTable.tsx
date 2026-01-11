@@ -66,7 +66,7 @@ export function AgentStatsTable({
         type: schedule.type,
         status: schedule.last_run_status === 'error' ? 'error' :
                 schedule.enabled ? 'scheduled' : 'paused',
-        lastRun: null, // System schedules don't track last run in this data
+        lastRun: schedule.last_run_at || null,
         nextRun: schedule.next_run_at,
         runCount: undefined,
         alertCount: undefined,
