@@ -4039,6 +4039,10 @@ async def _run_signal_instruction_internal(
         # Process in batches
         batch_size = config.get('batch_size', 20)
         alerts_created = 0
+        created_alert_details = []  # Track alerts created in THIS run for notifications
+
+        # Build article lookup by URI for later
+        article_lookup = {get_field(a, 'uri'): a for a in articles}
 
         for batch_start in range(0, len(articles), batch_size):
             batch_articles = articles[batch_start:batch_start + batch_size]
@@ -4082,17 +4086,31 @@ Return a JSON array of match objects. Only include articles that match the crite
                         matches = json.loads(json_match.group())
                         for match in matches:
                             if match.get('match') and match.get('uri'):
+                                article_uri = match['uri']
                                 # Create alert in database
                                 try:
                                     db.facade.create_signal_alert(
                                         instruction_id=instruction_id,
                                         instruction_name=instruction['name'],
-                                        article_uri=match['uri'],
+                                        article_uri=article_uri,
                                         match_reason=match.get('reason', ''),
                                         severity=match.get('severity', 'medium'),
                                         topic=topic
                                     )
                                     alerts_created += 1
+
+                                    # Track alert details for THIS instruction's notifications
+                                    article = article_lookup.get(article_uri, {})
+                                    created_alert_details.append({
+                                        'article_uri': article_uri,
+                                        'instruction_id': instruction_id,
+                                        'instruction_name': instruction['name'],
+                                        'summary': match.get('reason', ''),
+                                        'threat_level': match.get('severity', 'medium'),
+                                        'article_title': get_field(article, 'title', 'Unknown'),
+                                        'article_source': get_field(article, 'news_source', 'Unknown'),
+                                        'article_publication_date': get_field(article, 'publication_date', ''),
+                                    })
                                 except Exception as alert_error:
                                     logger.warning(f"Failed to create alert: {alert_error}")
 
@@ -4110,16 +4128,8 @@ Return a JSON array of match objects. Only include articles that match the crite
             alert_threshold = config.get('alert_threshold', 1)
             meets_threshold = alerts_created >= alert_threshold
 
-            # Get the created alerts for this instruction
-            instruction_alerts = []
-            try:
-                recent_alerts = db.facade.get_signal_alerts(
-                    instruction_id=instruction_id,
-                    limit=alerts_created
-                )
-                instruction_alerts = recent_alerts[:alerts_created] if recent_alerts else []
-            except Exception as alert_fetch_error:
-                logger.warning(f"Failed to fetch alerts for notification: {alert_fetch_error}")
+            # Use the alerts we tracked during processing (not from DB query)
+            instruction_alerts = created_alert_details
 
             # Send Email if configured
             if config.get('send_email') and instruction_alerts and meets_threshold:
