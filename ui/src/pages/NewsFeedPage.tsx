@@ -889,7 +889,7 @@ export function NewsFeedPage() {
                 onUpdateAgent={updateAgent}
                 onDeleteAgent={removeAgent}
                 onRunAgent={(agentId, options) => runAgent(agentId, { topic: config.topic, daysBack: options?.daysBack, tagArticles: options?.tagArticles })}
-                onRunAllAgents={(options) => runAllAgents({ topic: config.topic, daysBack: options?.daysBack, tagArticles: options?.tagArticles })}
+                onRunAllAgents={(options) => runAllAgents({ topic: config.topic, daysBack: options?.daysBack, tagArticles: options?.tagArticles, generateUnifiedReport: options?.generateUnifiedReport })}
                 onAcknowledgeAlert={acknowledgeOne}
                 onAcknowledgeAll={acknowledgeAll}
                 onDismissPodcast={handleDismissPodcast}

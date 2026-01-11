@@ -39,7 +39,7 @@ export interface UseResearchAgentsActions {
   updateAgent: (agentId: number, updates: UpdateAgentRequest) => Promise<boolean>;
   removeAgent: (agentId: number) => Promise<boolean>;
   runAgent: (agentId: number, options?: { topic?: string; daysBack?: number }) => Promise<boolean>;
-  runAllAgents: (options?: { topic?: string; daysBack?: number }) => Promise<boolean>;
+  runAllAgents: (options?: { topic?: string; daysBack?: number; tagArticles?: boolean; generateUnifiedReport?: boolean }) => Promise<boolean>;
   acknowledgeOne: (alertId: number) => Promise<boolean>;
   acknowledgeAll: (params?: { instructionId?: number; topic?: string }) => Promise<number>;
   clearError: () => void;
@@ -189,7 +189,7 @@ export function useResearchAgents(initialTopic?: string): UseResearchAgentsState
 
   // Run all active agents
   const runAllAgents = useCallback(async (
-    options?: { topic?: string; daysBack?: number; tagArticles?: boolean }
+    options?: { topic?: string; daysBack?: number; tagArticles?: boolean; generateUnifiedReport?: boolean }
   ): Promise<boolean> => {
     const activeAgentIds = agents.filter(a => a.is_active).map(a => a.id);
     if (activeAgentIds.length === 0) {
@@ -205,6 +205,7 @@ export function useResearchAgents(initialTopic?: string): UseResearchAgentsState
         topic: options?.topic,
         days_back: options?.daysBack || 7,
         tag_flagged_articles: options?.tagArticles !== false,
+        generate_report: options?.generateUnifiedReport || false,
       });
 
       if (response.success) {
@@ -214,6 +215,11 @@ export function useResearchAgents(initialTopic?: string): UseResearchAgentsState
         }
         // Refresh alerts after running
         await fetchAlerts({ topic: options?.topic });
+        // Notify about generated unified report
+        if (response.report) {
+          // Use browser alert for now - can be replaced with proper toast later
+          window.alert(`Unified report generated!\n\nReport: ${response.report.name}\nArticles analyzed: ${response.report.articles_used}\n\nView in Saved Reports.`);
+        }
         return true;
       } else {
         setError(response.message || 'Failed to run research agents');

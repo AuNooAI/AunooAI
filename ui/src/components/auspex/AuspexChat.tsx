@@ -124,9 +124,13 @@ export function AuspexChat({ buttonClassName }: AuspexChatProps) {
   // Listen for global Auspex open events
   useEffect(() => {
     const handleAuspexOpen = (event: CustomEvent<AuspexOpenEventDetail>) => {
-      const { query } = event.detail;
+      const { query, topic } = event.detail;
       if (query) {
         setInitialQuery(query);
+      }
+      // Set topic filter if provided
+      if (topic && topics.includes(topic)) {
+        setSelectedTopic(topic);
       }
       setIsOpen(true);
     };
@@ -135,7 +139,7 @@ export function AuspexChat({ buttonClassName }: AuspexChatProps) {
     return () => {
       window.removeEventListener(AUSPEX_OPEN_EVENT, handleAuspexOpen as EventListener);
     };
-  }, []);
+  }, [topics, setSelectedTopic]);
 
   // Show error alert when error state changes
   useEffect(() => {

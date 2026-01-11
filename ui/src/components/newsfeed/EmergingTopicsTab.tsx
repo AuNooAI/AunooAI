@@ -556,32 +556,41 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
   };
 
   // Ask Auspex handler - builds comprehensive context for LLM analysis
-  const handleAskAuspex = (topic: EmergingTopic) => {
+  const handleAskAuspex = (emergingTopic: EmergingTopic) => {
     const actorsList: string[] = [];
-    if (topic.actors?.companies?.length) actorsList.push(`Companies: ${topic.actors.companies.join(', ')}`);
-    if (topic.actors?.people?.length) actorsList.push(`People: ${topic.actors.people.join(', ')}`);
-    if (topic.actors?.organizations?.length) actorsList.push(`Organizations: ${topic.actors.organizations.join(', ')}`);
+    if (emergingTopic.actors?.companies?.length) actorsList.push(`Companies: ${emergingTopic.actors.companies.join(', ')}`);
+    if (emergingTopic.actors?.people?.length) actorsList.push(`People: ${emergingTopic.actors.people.join(', ')}`);
+    if (emergingTopic.actors?.organizations?.length) actorsList.push(`Organizations: ${emergingTopic.actors.organizations.join(', ')}`);
 
-    const prompt = `Analyze this emerging topic: "${topic.topic_label}"
+    // Include search keywords for Auspex to find related articles
+    const keywordsSection = emergingTopic.representative_keywords?.length
+      ? `\nSEARCH KEYWORDS (use these to find related articles):\n${emergingTopic.representative_keywords.slice(0, 10).join(', ')}\n`
+      : '';
+
+    const themesSection = emergingTopic.key_themes?.length
+      ? `\nKEY THEMES:\n${emergingTopic.key_themes.join(', ')}\n`
+      : '';
+
+    const prompt = `Analyze this emerging topic: "${emergingTopic.topic_label}"
 
 DESCRIPTION:
-${topic.topic_description}
+${emergingTopic.topic_description}
 
-${topic.why_emerging ? `WHY EMERGING:\n${topic.why_emerging}\n` : ''}METRICS:
-- Articles: ${topic.article_count}
-- Velocity: ${topic.velocity}
-- Detection Type: ${topic.detection_type}
-${topic.trend_score ? `- Trend Score: ${Math.round(topic.trend_score.composite)}/100` : ''}
-
-${actorsList.length ? `KEY ACTORS:\n${actorsList.join('\n')}\n` : ''}${topic.events?.trigger_event ? `TRIGGER EVENT:\n${topic.events.trigger_event}\n` : ''}${topic.synthesis?.key_takeaway ? `KEY TAKEAWAY:\n${topic.synthesis.key_takeaway}\n` : ''}${topic.implications?.industry_impact ? `INDUSTRY IMPACT:\n${topic.implications.industry_impact}\n` : ''}
+${emergingTopic.why_emerging ? `WHY EMERGING:\n${emergingTopic.why_emerging}\n` : ''}METRICS:
+- Articles: ${emergingTopic.article_count}
+- Velocity: ${emergingTopic.velocity}
+- Detection Type: ${emergingTopic.detection_type}
+${emergingTopic.trend_score ? `- Trend Score: ${Math.round(emergingTopic.trend_score.composite)}/100` : ''}
+${keywordsSection}${themesSection}${actorsList.length ? `KEY ACTORS:\n${actorsList.join('\n')}\n` : ''}${emergingTopic.events?.trigger_event ? `TRIGGER EVENT:\n${emergingTopic.events.trigger_event}\n` : ''}${emergingTopic.synthesis?.key_takeaway ? `KEY TAKEAWAY:\n${emergingTopic.synthesis.key_takeaway}\n` : ''}${emergingTopic.implications?.industry_impact ? `INDUSTRY IMPACT:\n${emergingTopic.implications.industry_impact}\n` : ''}
 Please provide:
-1. Deep analysis of this emerging trend
+1. Deep analysis of this emerging trend (search for and analyze related articles using the keywords above)
 2. Potential implications for our organization
 3. Key developments to monitor
 4. Recommended actions or responses
 5. Related trends or connections to explore`;
 
-    openAuspexWithQuery(prompt);
+    // Pass the topic filter to Auspex so it knows which collection to search
+    openAuspexWithQuery(prompt, false, topic || 'All');
   };
 
   // Render actors section
@@ -963,9 +972,18 @@ Please provide:
         </div>
       )}
 
-      {/* Topic Comparison Dashboard */}
-      {emergingTopics.length >= 3 && (
-        <TopicComparisonDashboard topics={emergingTopics} />
+      {/* Emerging Topics Overview Dashboard */}
+      {emergingTopics.length >= 2 && (
+        <TopicComparisonDashboard
+          topics={emergingTopics}
+          onTopicClick={(clickedTopic) => {
+            const element = document.getElementById(`topic-${clickedTopic.id}`);
+            if (element) {
+              element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              setExpandedTopicId(clickedTopic.id);
+            }
+          }}
+        />
       )}
 
       {/* Detected Themes - 2 column grid */}
@@ -995,7 +1013,7 @@ Please provide:
                 const details = topicDetails[topicItem.id];
 
                 return (
-                  <Card key={topicItem.id} className="overflow-hidden">
+                  <Card key={topicItem.id} id={`topic-${topicItem.id}`} className="overflow-hidden">
                     <CardContent className="p-4">
                       {/* Topic Header */}
                       <div

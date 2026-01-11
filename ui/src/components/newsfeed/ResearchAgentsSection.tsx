@@ -28,6 +28,7 @@ import { Button } from '../ui/button';
 import { AddAgentModal } from './AddAgentModal';
 import { RunAgentModal, type RunAgentOptions } from './RunAgentModal';
 import { ScheduleTimelineBar, type SystemSchedule } from './ScheduleTimelineBar';
+import { AgentStatsTable } from './AgentStatsTable';
 import { type ResearchAgent, type SignalAlert, type CreateAgentRequest, type UpdateAgentRequest, type PodcastSummary } from '../../services/researchAgentsApi';
 
 interface ResearchAgentsSectionProps {
@@ -44,7 +45,7 @@ interface ResearchAgentsSectionProps {
   onUpdateAgent: (agentId: number, updates: UpdateAgentRequest) => Promise<boolean>;
   onDeleteAgent: (agentId: number) => Promise<boolean>;
   onRunAgent: (agentId: number, options?: { daysBack?: number; tagArticles?: boolean }) => Promise<boolean>;
-  onRunAllAgents: (options?: { daysBack?: number; tagArticles?: boolean }) => Promise<boolean>;
+  onRunAllAgents: (options?: { daysBack?: number; tagArticles?: boolean; generateUnifiedReport?: boolean }) => Promise<boolean>;
   onAcknowledgeAlert: (alertId: number) => Promise<boolean>;
   onAcknowledgeAll: () => Promise<number>;
   onDismissPodcast?: (index: number) => void;
@@ -181,7 +182,11 @@ export function ResearchAgentsSection({
       // Run all agents
       setRunningAll(true);
       try {
-        await onRunAllAgents({ daysBack: options.daysBack, tagArticles: options.tagArticles });
+        await onRunAllAgents({
+          daysBack: options.daysBack,
+          tagArticles: options.tagArticles,
+          generateUnifiedReport: options.generateUnifiedReport,
+        });
       } finally {
         setRunningAll(false);
       }
@@ -500,6 +505,19 @@ export function ResearchAgentsSection({
         <div className="mt-6 pt-4 border-t border-gray-200">
           <h3 className="text-sm font-medium text-gray-700 mb-3">Scheduled Runs (24h)</h3>
           <ScheduleTimelineBar agents={agents} systemSchedules={systemSchedules} />
+        </div>
+      )}
+
+      {/* Agent Schedules Table */}
+      {(agents.length > 0 || systemSchedules.length > 0) && (
+        <div className="mt-6 pt-4 border-t border-gray-200">
+          <h3 className="text-sm font-medium text-gray-700 mb-3">Agent Schedules</h3>
+          <AgentStatsTable
+            agents={agents}
+            alerts={alerts}
+            runningAgents={runningAgents}
+            systemSchedules={systemSchedules}
+          />
         </div>
       )}
 

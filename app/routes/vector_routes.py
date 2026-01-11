@@ -3608,6 +3608,14 @@ Format your response as a structured markdown report with clear sections.
         podcast_summaries = []
         email_sent = False
 
+        # If unified report was requested for multi-agent run, we'll send ONE email after the loop
+        # instead of individual emails for each agent
+        # Note: Don't require report_data here - skip individual emails if user requested unified report
+        unified_report_requested = req.generate_report and len(instructions) > 1
+        unified_email_recipients = set()  # Collect unique recipients for unified email
+
+        logger.info(f"Run signals: generate_report={req.generate_report}, instructions={len(instructions)}, unified_report_requested={unified_report_requested}")
+
         for instruction in instructions:
             config = instruction.get('config') or {}
             instruction_alerts = [a for a in alerts_created if a.get('instruction_id') == instruction['id']]
@@ -3842,53 +3850,97 @@ Write the complete podcast script:
 
             # Send Email Action (only if threshold is met)
             if config.get('send_email') and instruction_alerts and meets_threshold:
-                try:
-                    from app.services.email_service import get_email_service
+                # Get recipient from config or use default
+                recipient = config.get('email_recipient')
+                if not recipient:
+                    # Try to get user's email from session if available
+                    user_info = session.get('user', {}) if isinstance(session, dict) else {}
+                    recipient = user_info.get('email')
 
-                    email_service = get_email_service()
-                    if email_service.is_available():
-                        # Get recipient from config or use default
-                        recipient = config.get('email_recipient')
-                        if not recipient:
-                            # Try to get user's email from session if available
-                            user_info = session.get('user', {}) if isinstance(session, dict) else {}
-                            recipient = user_info.get('email')
-
-                        if recipient:
-                            # Check if this instruction has a podcast with audio
-                            podcast_audio_url = None
-                            for ps in podcast_summaries:
-                                if ps.get('instruction_id') == instruction['id'] and ps.get('audio_url'):
-                                    podcast_audio_url = ps['audio_url']
-                                    break
-
-                            # Include report content if this instruction has generate_report enabled
-                            # Note: podcast link is already embedded in report_data['content'] from earlier
-                            email_report_content = None
-                            email_report_id = None
-                            if report_data and instruction.get('generate_report'):
-                                email_report_content = report_data.get('content')
-                                email_report_id = report_data.get('id')
-
-                            success = email_service.send_signal_alert_email(
-                                to_address=recipient,
-                                instruction_name=instruction['name'],
-                                matches=instruction_alerts,
-                                topic=req.topic,
-                                report_content=email_report_content,
-                                podcast_url=None,  # No longer sent separately - now embedded in report
-                                report_id=email_report_id
-                            )
-                            if success:
-                                email_sent = True
-                                logger.info(f"Email notification sent to {recipient} for {instruction['name']} ({len(instruction_alerts)} matches >= threshold {alert_threshold})")
-                        else:
-                            logger.warning(f"No email recipient configured for {instruction['name']}")
+                if recipient:
+                    # If unified report requested, collect recipients and skip individual emails
+                    if unified_report_requested:
+                        unified_email_recipients.add(recipient)
+                        logger.info(f"Unified report requested - skipping individual email for {instruction['name']}, will send combined email")
                     else:
-                        logger.warning("Email service not configured - skipping email notification")
+                        # Send individual email for this instruction
+                        try:
+                            from app.services.email_service import get_email_service
 
-                except Exception as email_error:
-                    logger.error(f"Error sending email for {instruction['name']}: {email_error}")
+                            email_service = get_email_service()
+                            if email_service.is_available():
+                                # Check if this instruction has a podcast with audio
+                                podcast_audio_url = None
+                                for ps in podcast_summaries:
+                                    if ps.get('instruction_id') == instruction['id'] and ps.get('audio_url'):
+                                        podcast_audio_url = ps['audio_url']
+                                        break
+
+                                # Include report content if this instruction has generate_report enabled
+                                # IMPORTANT: For multi-agent runs, generate per-instruction reports
+                                # to avoid sending combined report in all emails
+                                email_report_content = None
+                                email_report_id = None
+                                if instruction.get('generate_report') and instruction_alerts:
+                                    # If running multiple instructions, generate per-instruction report
+                                    if len(instructions) > 1:
+                                        try:
+                                            # Generate a quick report for this instruction only
+                                            instruction_report_prompt = instruction.get('report_prompt') or """
+Analyze the following signal matches and create a brief intelligence summary.
+Summarize key findings, significance, and any recommended actions.
+Format as a concise markdown report.
+"""
+                                            alerts_summary = "\n\n".join([
+                                                f"**Article:** {a['article_uri']}\n"
+                                                f"**Threat Level:** {a['threat_level']}\n"
+                                                f"**Summary:** {a['summary']}\n"
+                                                f"**Reasoning:** {a['reasoning']}"
+                                                for a in instruction_alerts[:10]  # Limit to 10 for email
+                                            ])
+                                            per_inst_prompt = f"""
+{instruction_report_prompt}
+
+## Signal: {instruction['name']}
+{instruction.get('instruction', '')}
+
+## Matched Articles ({len(instruction_alerts)} matches)
+{alerts_summary}
+"""
+                                            per_inst_messages = [
+                                                {"role": "system", "content": "You are an intelligence analyst creating brief signal reports."},
+                                                {"role": "user", "content": per_inst_prompt}
+                                            ]
+                                            per_inst_report = await run_in_threadpool(ai_model.generate_response, per_inst_messages)
+                                            if per_inst_report and not ("⚠️" in per_inst_report or "unavailable" in per_inst_report.lower()):
+                                                email_report_content = per_inst_report
+                                                logger.info(f"Generated per-instruction report for email: {instruction['name']}")
+                                        except Exception as per_inst_error:
+                                            logger.error(f"Error generating per-instruction report for {instruction['name']}: {per_inst_error}")
+                                    elif report_data:
+                                        # Single instruction run - use the shared report
+                                        email_report_content = report_data.get('content')
+                                        email_report_id = report_data.get('id')
+
+                                success = email_service.send_signal_alert_email(
+                                    to_address=recipient,
+                                    instruction_name=instruction['name'],
+                                    matches=instruction_alerts,
+                                    topic=req.topic,
+                                    report_content=email_report_content,
+                                    podcast_url=None,  # No longer sent separately - now embedded in report
+                                    report_id=email_report_id
+                                )
+                                if success:
+                                    email_sent = True
+                                    logger.info(f"Email notification sent to {recipient} for {instruction['name']} ({len(instruction_alerts)} matches >= threshold {alert_threshold})")
+                            else:
+                                logger.warning("Email service not configured - skipping email notification")
+
+                        except Exception as email_error:
+                            logger.error(f"Error sending email for {instruction['name']}: {email_error}")
+                else:
+                    logger.warning(f"No email recipient configured for {instruction['name']}")
             elif config.get('send_email') and instruction_alerts and not meets_threshold:
                 logger.info(f"Email notification skipped for {instruction['name']}: {len(instruction_alerts)} matches < threshold {alert_threshold}")
 
@@ -3918,6 +3970,40 @@ Write the complete podcast script:
                     logger.error(f"Error sending Bluesky DM for {instruction['name']}: {bluesky_error}")
             elif config.get('bluesky_dm') and instruction_alerts and not meets_threshold:
                 logger.info(f"Bluesky DM skipped for {instruction['name']}: {len(instruction_alerts)} matches < threshold {alert_threshold}")
+
+        # Send unified email if requested (after processing all instructions)
+        if unified_report_requested and unified_email_recipients and alerts_created:
+            try:
+                from app.services.email_service import get_email_service
+
+                email_service = get_email_service()
+                if email_service.is_available():
+                    # Build list of instruction names that had matches
+                    instruction_names_with_matches = list(set(a['instruction_name'] for a in alerts_created))
+                    unified_instruction_name = f"Unified Report: {', '.join(instruction_names_with_matches[:3])}"
+                    if len(instruction_names_with_matches) > 3:
+                        unified_instruction_name += f" (+{len(instruction_names_with_matches) - 3} more)"
+
+                    # Get report content if available
+                    report_content = report_data.get('content') if report_data else None
+                    report_id = report_data.get('id') if report_data else None
+
+                    for recipient in unified_email_recipients:
+                        success = email_service.send_signal_alert_email(
+                            to_address=recipient,
+                            instruction_name=unified_instruction_name,
+                            matches=alerts_created,  # All alerts from all agents
+                            topic=req.topic,
+                            report_content=report_content,
+                            podcast_url=None,
+                            report_id=report_id
+                        )
+                        if success:
+                            email_sent = True
+                            logger.info(f"Unified report email sent to {recipient} with {len(alerts_created)} total matches from {len(instruction_names_with_matches)} agents")
+
+            except Exception as unified_email_error:
+                logger.error(f"Error sending unified report email: {unified_email_error}")
 
         return {
             "success": True,

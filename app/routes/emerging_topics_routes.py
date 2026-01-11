@@ -1320,6 +1320,7 @@ async def get_schedule_status(
     """Get current schedule and monitor status."""
     from app.database import get_database_instance
     from sqlalchemy import text
+    from datetime import datetime, timedelta
 
     db = get_database_instance()
     conn = db._temp_get_connection()
@@ -1345,9 +1346,34 @@ async def get_schedule_status(
         """))
         status = status_result.mappings().first()
 
+        settings_dict = dict(settings) if settings else {}
+        status_dict = dict(status) if status else {}
+
+        # Calculate next_check_time if schedule is enabled but next_check_time is missing
+        if settings_dict.get('schedule_enabled') and not status_dict.get('next_check_time'):
+            check_interval = settings_dict.get('check_interval', 24)
+            interval_unit = settings_dict.get('interval_unit', 'hours')
+
+            if interval_unit == 'hours':
+                interval_seconds = check_interval * 3600
+            elif interval_unit == 'days':
+                interval_seconds = check_interval * 86400
+            else:  # minutes
+                interval_seconds = check_interval * 60
+
+            # Calculate from last_check_time if available, otherwise from now
+            base_time = status_dict.get('last_check_time')
+            if isinstance(base_time, str):
+                base_time = datetime.fromisoformat(base_time.replace('Z', '+00:00'))
+            if not base_time:
+                base_time = datetime.now()
+
+            next_check = base_time + timedelta(seconds=interval_seconds)
+            status_dict['next_check_time'] = next_check.isoformat()
+
         return {
-            "settings": dict(settings) if settings else {},
-            "status": dict(status) if status else {},
+            "settings": settings_dict,
+            "status": status_dict,
         }
     finally:
         conn.close()
