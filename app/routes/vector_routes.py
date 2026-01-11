@@ -3937,6 +3937,181 @@ Write the complete podcast script:
         logger.error("Error in run signal instructions: %s", exc)
         raise HTTPException(status_code=500, detail="Signal runner error")
 
+
+async def _run_signal_instruction_internal(
+    instruction_id: int,
+    days_back: int = 7,
+    tag_articles: bool = True,
+    model: str = "gpt-4o-mini"
+) -> Dict[str, Any]:
+    """
+    Internal function to run a single signal instruction.
+    Used by the observer agent scheduler.
+
+    Args:
+        instruction_id: The ID of the signal instruction to run
+        days_back: Number of days to look back for articles
+        tag_articles: Whether to tag matching articles
+        model: LLM model to use
+
+    Returns:
+        Dict with success status and alerts_created count
+    """
+    logger = logging.getLogger(__name__)
+
+    try:
+        from app.database import get_database_instance
+        from datetime import datetime, timedelta
+
+        db = get_database_instance()
+
+        # Get the specific instruction
+        all_instructions = db.facade.get_signal_instructions(topic=None, active_only=False)
+        instruction = next((inst for inst in all_instructions if inst['id'] == instruction_id), None)
+
+        if not instruction:
+            return {"success": False, "alerts_created": 0, "error": f"Instruction {instruction_id} not found"}
+
+        if not instruction.get('is_active'):
+            return {"success": False, "alerts_created": 0, "error": f"Instruction {instruction_id} is not active"}
+
+        # Get articles for the specified time range
+        end_date_dt = datetime.now()
+        start_date_dt = end_date_dt - timedelta(days=days_back)
+
+        # Get instruction topic
+        topic = instruction.get('topic')
+
+        # Query articles
+        query = """
+        SELECT uri, title, summary, news_source, publication_date, category, sentiment,
+               tags, extracted_article_topics, extracted_article_keywords
+        FROM articles
+        WHERE publication_date >= ? AND publication_date <= ?
+        AND category IS NOT NULL AND sentiment IS NOT NULL
+        """
+
+        params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
+
+        if topic:
+            query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
+            topic_pattern = f"%{topic}%"
+            params.extend([topic, topic_pattern, topic_pattern])
+
+        config = instruction.get('config') or {}
+        max_articles = config.get('max_articles', 100)
+
+        query += " ORDER BY publication_date DESC LIMIT ?"
+        params.append(max_articles)
+
+        articles = db.fetch_all(query, params)
+
+        if not articles:
+            logger.info(f"No articles found for instruction {instruction['name']} in last {days_back} days")
+            return {"success": True, "alerts_created": 0, "message": "No articles found"}
+
+        # Initialize LLM
+        from app.ai_models import LiteLLMModel
+        from fastapi.concurrency import run_in_threadpool
+
+        ai_model = LiteLLMModel.get_instance(model)
+        if not ai_model:
+            return {"success": False, "alerts_created": 0, "error": f"Failed to initialize model {model}"}
+
+        # Helper function to format articles
+        def get_field(article, field, default=''):
+            val = article.get(field) if hasattr(article, 'get') else article.get(field, default)
+            return val if val else default
+
+        def format_articles_for_llm(article_batch):
+            return "\n\n".join([
+                f"Article {i+1}:\n"
+                f"Title: {get_field(article, 'title')}\n"
+                f"Source: {get_field(article, 'news_source')}\n"
+                f"Date: {get_field(article, 'publication_date')}\n"
+                f"Category: {get_field(article, 'category', 'Unknown')}\n"
+                f"Sentiment: {get_field(article, 'sentiment', 'Unknown')}\n"
+                f"Summary: {get_field(article, 'summary')}\n"
+                f"URI: {get_field(article, 'uri')}"
+                for i, article in enumerate(article_batch)
+            ])
+
+        # Process in batches
+        batch_size = config.get('batch_size', 20)
+        alerts_created = 0
+
+        for batch_start in range(0, len(articles), batch_size):
+            batch_articles = articles[batch_start:batch_start + batch_size]
+            articles_text = format_articles_for_llm(batch_articles)
+
+            system_prompt = f"""You are a threat intelligence analyst. Analyze the provided articles using this signal instruction:
+
+SIGNAL NAME: {instruction['name']}
+SIGNAL DESCRIPTION: {instruction.get('description', 'No description')}
+DETECTION CRITERIA: {instruction['instruction']}
+
+For each article that matches the signal criteria, output a JSON object with:
+- "match": true/false
+- "uri": the article URI
+- "reason": brief explanation of why it matches (or null if no match)
+- "severity": "low", "medium", "high", or "critical"
+
+Return a JSON array of match objects. Only include articles that match the criteria."""
+
+            user_prompt = f"Analyze these articles for the signal '{instruction['name']}':\n\n{articles_text}"
+
+            try:
+                response = await run_in_threadpool(
+                    ai_model.chat,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    temperature=0.1,
+                    max_tokens=4000
+                )
+
+                if response and response.get("choices"):
+                    content = response["choices"][0].get("message", {}).get("content", "")
+                    # Parse JSON response
+                    import json
+                    import re
+
+                    json_match = re.search(r'\[[\s\S]*\]', content)
+                    if json_match:
+                        matches = json.loads(json_match.group())
+                        for match in matches:
+                            if match.get('match') and match.get('uri'):
+                                # Create alert in database
+                                try:
+                                    db.facade.create_signal_alert(
+                                        instruction_id=instruction_id,
+                                        instruction_name=instruction['name'],
+                                        article_uri=match['uri'],
+                                        match_reason=match.get('reason', ''),
+                                        severity=match.get('severity', 'medium'),
+                                        topic=topic
+                                    )
+                                    alerts_created += 1
+                                except Exception as alert_error:
+                                    logger.warning(f"Failed to create alert: {alert_error}")
+
+            except Exception as batch_error:
+                logger.error(f"Error processing batch for {instruction['name']}: {batch_error}")
+
+        logger.info(f"Instruction {instruction['name']} completed: {alerts_created} alerts created from {len(articles)} articles")
+
+        return {
+            "success": True,
+            "alerts_created": alerts_created,
+            "articles_analyzed": len(articles)
+        }
+
+    except Exception as e:
+        logger.error(f"Error in _run_signal_instruction_internal: {e}", exc_info=True)
+        return {"success": False, "alerts_created": 0, "error": str(e)}
+
+
 @router.get("/signal-alerts")
 async def get_signal_alerts(
     topic: Optional[str] = Query(None, description="Filter by topic"),
