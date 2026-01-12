@@ -20,6 +20,12 @@ import {
 import { Card, CardContent } from '../ui/card';
 import { ShareModal, type ShareNarrativeData } from '../ShareModal';
 import { ExportService } from '../../services/exportService';
+import {
+  getSavedNarratives as fetchSavedNarratives,
+  deleteSavedNarrative,
+  saveNarrativeToDb,
+  type SavedNarrative as ApiSavedNarrative,
+} from '../../services/newsFeedApi';
 
 interface SavedNarrative {
   name: string;
@@ -49,18 +55,28 @@ export function SavedNarrativesSection({
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareData, setShareData] = useState<ShareNarrativeData | null>(null);
 
-  // Load saved narratives from localStorage (or could be API)
+  // Load saved narratives from database API
   useEffect(() => {
     loadSavedNarratives();
   }, []);
 
-  const loadSavedNarratives = () => {
+  const loadSavedNarratives = async () => {
     setLoading(true);
     try {
-      const saved = localStorage.getItem('savedNarratives');
-      if (saved) {
-        setSavedNarratives(JSON.parse(saved));
-      }
+      const narratives = await fetchSavedNarratives();
+      // Transform API response to local format
+      const transformed: SavedNarrative[] = narratives.map((n: ApiSavedNarrative) => ({
+        name: n.name || n.theme_name || '',
+        description: n.description || n.theme_summary,
+        sentiment: n.sentiment,
+        confidence: n.confidence,
+        article_count: n.article_count,
+        source_count: n.source_count,
+        key_entities: n.key_entities,
+        topic: n.topic,
+        saved_at: n._saved_at,
+      }));
+      setSavedNarratives(transformed);
     } catch (e) {
       console.error('Failed to load saved narratives:', e);
     } finally {
@@ -68,10 +84,13 @@ export function SavedNarrativesSection({
     }
   };
 
-  const handleUnsave = (name: string) => {
-    const updated = savedNarratives.filter(n => n.name !== name);
-    setSavedNarratives(updated);
-    localStorage.setItem('savedNarratives', JSON.stringify(updated));
+  const handleUnsave = async (name: string) => {
+    const narrative = savedNarratives.find(n => n.name === name);
+    const success = await deleteSavedNarrative(name, narrative?.topic);
+    if (success) {
+      const updated = savedNarratives.filter(n => n.name !== name);
+      setSavedNarratives(updated);
+    }
     setMenuOpenId(null);
   };
 
@@ -317,7 +336,8 @@ export function SavedNarrativesSection({
 }
 
 // Helper function to save a narrative (called from NarrativeInsightsSection)
-export function saveNarrative(narrative: {
+// Now uses database API instead of localStorage
+export async function saveNarrative(narrative: {
   name: string;
   description?: string;
   sentiment?: string;
@@ -326,23 +346,9 @@ export function saveNarrative(narrative: {
   source_count?: number;
   key_entities?: string[];
   topic?: string;
-}) {
+}): Promise<boolean> {
   try {
-    const saved = localStorage.getItem('savedNarratives');
-    const narratives: SavedNarrative[] = saved ? JSON.parse(saved) : [];
-
-    // Check if already saved
-    if (narratives.some(n => n.name === narrative.name)) {
-      return false;
-    }
-
-    narratives.push({
-      ...narrative,
-      saved_at: new Date().toISOString(),
-    });
-
-    localStorage.setItem('savedNarratives', JSON.stringify(narratives));
-    return true;
+    return await saveNarrativeToDb(narrative);
   } catch (e) {
     console.error('Failed to save narrative:', e);
     return false;
@@ -350,15 +356,9 @@ export function saveNarrative(narrative: {
 }
 
 // Helper function to unsave a narrative
-export function unsaveNarrative(name: string) {
+export async function unsaveNarrative(name: string, topic?: string): Promise<boolean> {
   try {
-    const saved = localStorage.getItem('savedNarratives');
-    if (!saved) return false;
-
-    const narratives: SavedNarrative[] = JSON.parse(saved);
-    const updated = narratives.filter(n => n.name !== name);
-    localStorage.setItem('savedNarratives', JSON.stringify(updated));
-    return true;
+    return await deleteSavedNarrative(name, topic);
   } catch (e) {
     console.error('Failed to unsave narrative:', e);
     return false;
@@ -366,12 +366,10 @@ export function unsaveNarrative(name: string) {
 }
 
 // Helper function to get saved narrative names
-export function getSavedNarrativeNames(): string[] {
+export async function getSavedNarrativeNames(): Promise<string[]> {
   try {
-    const saved = localStorage.getItem('savedNarratives');
-    if (!saved) return [];
-    const narratives: SavedNarrative[] = JSON.parse(saved);
-    return narratives.map(n => n.name);
+    const narratives = await fetchSavedNarratives();
+    return narratives.map(n => n.name || n.theme_name || '');
   } catch (e) {
     console.error('Failed to get saved narrative names:', e);
     return [];

@@ -124,6 +124,21 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(delayed_newsfeed_dashboard_monitor_start())
         logger.info("Scheduled newsfeed dashboard monitor to start in 20 seconds")
 
+        # Start the RSS feed monitor background task with a delay
+        async def delayed_rss_feed_monitor_start():
+            """Start RSS feed monitor after other monitors"""
+            await asyncio.sleep(25)  # Wait 25 seconds after startup
+            try:
+                from app.tasks.rss_feed_monitor import run_rss_feed_monitor
+                logger.info("Starting RSS feed monitor background task...")
+                asyncio.create_task(run_rss_feed_monitor())
+                logger.info("RSS feed monitor background task started successfully")
+            except Exception as e:
+                logger.error(f"Failed to start RSS feed monitor: {str(e)}")
+
+        asyncio.create_task(delayed_rss_feed_monitor_start())
+        logger.info("Scheduled RSS feed monitor to start in 25 seconds")
+
     except Exception as e:
         logging.error(f"Error during startup: {str(e)}", exc_info=True)
         raise

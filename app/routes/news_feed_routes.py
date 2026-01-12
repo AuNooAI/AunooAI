@@ -1726,19 +1726,127 @@ async def _generate_six_articles_internal(
 
 
 async def _regenerate_highlights_internal(topic: Optional[str] = None):
-    """Internal function to regenerate highlights for scheduler."""
-    # This would call the highlights generation logic
-    # For now, just log - actual implementation depends on existing highlights code
+    """Internal function to regenerate highlights for scheduler.
+    Calls the incident tracking API to generate and cache incidents.
+    """
+    from app.routes.vector_routes import analyze_incidents, _IncidentTrackingRequest
+    from app.database import get_database_instance
+    from sqlalchemy import text
+
     logger.info(f"Highlights regeneration requested for topic: {topic}")
-    # Placeholder - implement based on existing highlights regeneration
+
+    try:
+        # Get all topics if none specified
+        if not topic:
+            db = get_database_instance()
+            conn = db._temp_get_connection()
+            result = conn.execute(text("SELECT DISTINCT name FROM topics WHERE name IS NOT NULL LIMIT 25"))
+            topics_list = [row[0] for row in result.fetchall()]
+            conn.close()
+        else:
+            topics_list = [topic]
+
+        if not topics_list:
+            logger.warning("No topics found for highlights generation")
+            return None
+
+        # Calculate date range (last 7 days by default)
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=7)
+
+        # Create request for incident tracking
+        request = _IncidentTrackingRequest(
+            topics=topics_list,
+            days_limit=7,
+            start_date=start_date.strftime('%Y-%m-%d'),
+            end_date=end_date.strftime('%Y-%m-%d'),
+            max_articles=100,
+            model='gpt-4o-mini',
+            force_regenerate=True  # Force regenerate to ensure fresh data is cached
+        )
+
+        # Call the incident tracking endpoint (will save to cache)
+        result = await analyze_incidents(request, session=None)
+
+        logger.info(f"Highlights generated: {len(result.get('incidents', []))} incidents")
+        return result
+
+    except Exception as e:
+        logger.error(f"Failed to regenerate highlights: {e}", exc_info=True)
+        raise
 
 
 async def _regenerate_narratives_internal(topic: Optional[str] = None):
-    """Internal function to regenerate narratives for scheduler."""
-    # This would call the narratives generation logic
-    # For now, just log - actual implementation depends on existing narratives code
+    """Internal function to regenerate narratives for scheduler.
+    Calls the article insights API to generate and cache narratives.
+    """
+    from app.routes.dashboard_routes import get_article_insights, ArticleInsightsRequest
+    from app.database import get_database_instance
+    from sqlalchemy import text
+
     logger.info(f"Narratives regeneration requested for topic: {topic}")
-    # Placeholder - implement based on existing narratives regeneration
+
+    try:
+        db = get_database_instance()
+
+        # Get all topics if none specified
+        if not topic:
+            conn = db._temp_get_connection()
+            result = conn.execute(text("SELECT DISTINCT name FROM topics WHERE name IS NOT NULL LIMIT 25"))
+            topics_list = [row[0] for row in result.fetchall()]
+            conn.close()
+        else:
+            topics_list = [topic]
+
+        if not topics_list:
+            logger.warning("No topics found for narratives generation")
+            return None
+
+        # Calculate date range (last 7 days by default)
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=7)
+
+        all_themes = []
+
+        # Generate narratives for each topic
+        for topic_name in topics_list:
+            try:
+                # Create request for article insights
+                request = ArticleInsightsRequest(
+                    start_date=start_date.strftime('%Y-%m-%d'),
+                    end_date=end_date.strftime('%Y-%m-%d'),
+                    days_limit=7,
+                    force_regenerate=True,  # Force regenerate to ensure fresh data is cached
+                    model='gpt-4o-mini'
+                )
+
+                # Create a mock session dict for the endpoint
+                mock_session = {'user_id': 'scheduler', 'role': 'admin'}
+
+                # Call the article insights endpoint (will save to cache)
+                themes = await get_article_insights(
+                    topic_name=topic_name,
+                    request=request,
+                    db=db,
+                    session=mock_session
+                )
+
+                if themes:
+                    all_themes.extend(themes)
+                    logger.info(f"Generated {len(themes)} themes for topic: {topic_name}")
+
+            except HTTPException as http_err:
+                # Expected errors like "not enough articles"
+                logger.info(f"Skipping narratives for topic {topic_name}: {http_err.detail}")
+            except Exception as e:
+                logger.warning(f"Failed to generate narratives for topic {topic_name}: {e}")
+
+        logger.info(f"Narratives generated: {len(all_themes)} total themes")
+        return all_themes
+
+    except Exception as e:
+        logger.error(f"Failed to regenerate narratives: {e}", exc_info=True)
+        raise
 
 
 # ============================================================================
@@ -1907,3 +2015,274 @@ async def get_latest_snapshot(
             "generation_duration_seconds": snapshot["generation_duration_seconds"],
         }
     }
+
+
+# ============================================================================
+# Saved Incidents and Narratives - Persistent Storage
+# ============================================================================
+
+@router.get("/saved/incidents")
+async def get_saved_incidents(
+    topic: Optional[str] = Query(None, description="Topic filter"),
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Get all saved incidents for the current user."""
+    from sqlalchemy import text
+
+    try:
+        user_id = session.get("user_id")
+        conn = db._temp_get_connection()
+
+        if topic:
+            result = conn.execute(text("""
+                SELECT id, incident_name, topic, incident_data, saved_at
+                FROM saved_incidents
+                WHERE (user_id = :user_id OR user_id IS NULL)
+                AND topic = :topic
+                ORDER BY saved_at DESC
+            """), {"user_id": user_id, "topic": topic})
+        else:
+            result = conn.execute(text("""
+                SELECT id, incident_name, topic, incident_data, saved_at
+                FROM saved_incidents
+                WHERE (user_id = :user_id OR user_id IS NULL)
+                ORDER BY saved_at DESC
+            """), {"user_id": user_id})
+
+        rows = result.mappings().all()
+        conn.close()
+
+        incidents = []
+        for row in rows:
+            incident_data = row["incident_data"] if row["incident_data"] else {}
+            incident_data["_saved_id"] = row["id"]
+            incident_data["_saved_at"] = row["saved_at"].isoformat() if row["saved_at"] else None
+            incidents.append(incident_data)
+
+        return {
+            "success": True,
+            "incidents": incidents,
+            "count": len(incidents)
+        }
+    except Exception as e:
+        logger.error(f"Error getting saved incidents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/saved/incidents")
+async def save_incident(
+    incident_data: dict,
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Save an incident with full data."""
+    from sqlalchemy import text
+    import json
+
+    try:
+        user_id = session.get("user_id")
+        incident_name = incident_data.get("name") or incident_data.get("title")
+        topic = incident_data.get("topic", "")
+
+        if not incident_name:
+            raise HTTPException(status_code=400, detail="Incident name is required")
+
+        conn = db._temp_get_connection()
+
+        # Upsert - insert or update on conflict
+        conn.execute(text("""
+            INSERT INTO saved_incidents (incident_name, topic, user_id, incident_data, updated_at)
+            VALUES (:name, :topic, :user_id, :data, NOW())
+            ON CONFLICT (incident_name, topic, user_id)
+            DO UPDATE SET incident_data = :data, updated_at = NOW()
+        """), {
+            "name": incident_name,
+            "topic": topic,
+            "user_id": user_id,
+            "data": json.dumps(incident_data)
+        })
+
+        conn.commit()
+        conn.close()
+
+        logger.info(f"Saved incident: {incident_name} for topic: {topic}")
+        return {"success": True, "message": f"Incident '{incident_name}' saved"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving incident: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/saved/incidents/{incident_name}")
+async def delete_saved_incident(
+    incident_name: str,
+    topic: str = Query(..., description="Topic of the incident"),
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Delete a saved incident."""
+    from sqlalchemy import text
+
+    try:
+        user_id = session.get("user_id")
+        conn = db._temp_get_connection()
+
+        result = conn.execute(text("""
+            DELETE FROM saved_incidents
+            WHERE incident_name = :name AND topic = :topic
+            AND (user_id = :user_id OR user_id IS NULL)
+        """), {"name": incident_name, "topic": topic, "user_id": user_id})
+
+        conn.commit()
+        deleted = result.rowcount > 0
+        conn.close()
+
+        if deleted:
+            logger.info(f"Deleted saved incident: {incident_name}")
+            return {"success": True, "message": f"Incident '{incident_name}' removed"}
+        else:
+            raise HTTPException(status_code=404, detail="Incident not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting incident: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/saved/narratives")
+async def get_saved_narratives(
+    topic: Optional[str] = Query(None, description="Topic filter"),
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Get all saved narratives for the current user."""
+    from sqlalchemy import text
+
+    try:
+        user_id = session.get("user_id")
+        conn = db._temp_get_connection()
+
+        if topic:
+            result = conn.execute(text("""
+                SELECT id, narrative_name, topic, narrative_data, saved_at
+                FROM saved_narratives
+                WHERE (user_id = :user_id OR user_id IS NULL)
+                AND topic = :topic
+                ORDER BY saved_at DESC
+            """), {"user_id": user_id, "topic": topic})
+        else:
+            result = conn.execute(text("""
+                SELECT id, narrative_name, topic, narrative_data, saved_at
+                FROM saved_narratives
+                WHERE (user_id = :user_id OR user_id IS NULL)
+                ORDER BY saved_at DESC
+            """), {"user_id": user_id})
+
+        rows = result.mappings().all()
+        conn.close()
+
+        narratives = []
+        for row in rows:
+            narrative_data = row["narrative_data"] if row["narrative_data"] else {}
+            narrative_data["_saved_id"] = row["id"]
+            narrative_data["_saved_at"] = row["saved_at"].isoformat() if row["saved_at"] else None
+            narratives.append(narrative_data)
+
+        return {
+            "success": True,
+            "narratives": narratives,
+            "count": len(narratives)
+        }
+    except Exception as e:
+        logger.error(f"Error getting saved narratives: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/saved/narratives")
+async def save_narrative(
+    narrative_data: dict,
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Save a narrative with full data."""
+    from sqlalchemy import text
+    import json
+
+    try:
+        user_id = session.get("user_id")
+        narrative_name = narrative_data.get("name") or narrative_data.get("theme_name")
+        topic = narrative_data.get("topic", "")
+
+        if not narrative_name:
+            raise HTTPException(status_code=400, detail="Narrative name is required")
+
+        conn = db._temp_get_connection()
+
+        # Upsert - insert or update on conflict
+        conn.execute(text("""
+            INSERT INTO saved_narratives (narrative_name, topic, user_id, narrative_data, updated_at)
+            VALUES (:name, :topic, :user_id, :data, NOW())
+            ON CONFLICT (narrative_name, topic, user_id)
+            DO UPDATE SET narrative_data = :data, updated_at = NOW()
+        """), {
+            "name": narrative_name,
+            "topic": topic,
+            "user_id": user_id,
+            "data": json.dumps(narrative_data)
+        })
+
+        conn.commit()
+        conn.close()
+
+        logger.info(f"Saved narrative: {narrative_name} for topic: {topic}")
+        return {"success": True, "message": f"Narrative '{narrative_name}' saved"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving narrative: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/saved/narratives/{narrative_name}")
+async def delete_saved_narrative(
+    narrative_name: str,
+    topic: Optional[str] = Query(None, description="Topic of the narrative"),
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Delete a saved narrative."""
+    from sqlalchemy import text
+
+    try:
+        user_id = session.get("user_id")
+        conn = db._temp_get_connection()
+
+        if topic:
+            result = conn.execute(text("""
+                DELETE FROM saved_narratives
+                WHERE narrative_name = :name AND topic = :topic
+                AND (user_id = :user_id OR user_id IS NULL)
+            """), {"name": narrative_name, "topic": topic, "user_id": user_id})
+        else:
+            result = conn.execute(text("""
+                DELETE FROM saved_narratives
+                WHERE narrative_name = :name
+                AND (user_id = :user_id OR user_id IS NULL)
+            """), {"name": narrative_name, "user_id": user_id})
+
+        conn.commit()
+        deleted = result.rowcount > 0
+        conn.close()
+
+        if deleted:
+            logger.info(f"Deleted saved narrative: {narrative_name}")
+            return {"success": True, "message": f"Narrative '{narrative_name}' removed"}
+        else:
+            raise HTTPException(status_code=404, detail="Narrative not found")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting narrative: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

@@ -43,7 +43,7 @@ import { IncidentConfigModal } from '../components/newsfeed/IncidentConfigModal'
 import { NarrativesConfigModal } from '../components/newsfeed/NarrativesConfigModal';
 import { SixArticlesTuneModal } from '../components/SixArticlesTuneModal';
 import { NewsfeedScheduleModal } from '../components/newsfeed/NewsfeedScheduleModal';
-import { type NewsArticle, type ArticleCluster, type ClusterRelatedArticle, getArticleByUri, getClusteredArticles, clusterArticleToNewsArticle } from '../services/newsFeedApi';
+import { type NewsArticle, type ArticleCluster, type ClusterRelatedArticle, getArticleByUri, getClusteredArticles, clusterArticleToNewsArticle, saveIncident as saveIncidentToDb } from '../services/newsFeedApi';
 import { applyFilters, createEmptyFilters, type IncidentFilters } from '../components/newsfeed/FilterPanel';
 import { getSignalReportsCount } from '../services/researchAgentsApi';
 import { getSavedIncidents, saveIncident as apiSaveIncident, unsaveIncident as apiUnsaveIncident } from '../services/narrativeExplorerApi';
@@ -175,16 +175,45 @@ export function NewsFeedPage() {
     }
   }, [config.topic]);
 
-  // Save incident handler
+  // Save incident handler - saves both status and full incident data
   const handleSaveIncident = useCallback(async (incidentName: string) => {
     if (!config.topic) return;
     try {
+      // Find the full incident data from the incidents array
+      const incident = incidents.find(i => (i.name || i.title) === incidentName);
+
+      // Save the incident status (legacy API)
       await apiSaveIncident(incidentName, config.topic);
+
+      // Also save the full incident data for persistence
+      if (incident) {
+        await saveIncidentToDb({
+          name: incidentName,
+          title: incident.title,
+          type: incident.type,
+          significance: incident.significance,
+          description: incident.description,
+          summary: incident.summary,
+          topic: config.topic,
+          entities: incident.entities,
+          timeline: incident.timeline,
+          organizational_relevance: incident.organizational_relevance,
+          plausibility: incident.plausibility,
+          source_quality: incident.source_quality,
+          article_uris: incident.article_uris,
+          articles: incident.articles,
+          article_metadata: incident.article_metadata,
+          investigation_leads: incident.investigation_leads,
+          credibility_summary: incident.credibility_summary,
+          misinfo_flags: incident.misinfo_flags,
+        });
+      }
+
       setSavedIncidentNames(prev => [...prev, incidentName]);
     } catch (err) {
       console.error('Failed to save incident:', err);
     }
-  }, [config.topic]);
+  }, [config.topic, incidents]);
 
   // Unsave incident handler
   const handleUnsaveIncident = useCallback(async (incidentName: string) => {
@@ -198,14 +227,19 @@ export function NewsFeedPage() {
   }, [config.topic]);
 
   // Saved narratives state
-  const [savedNarrativeNames, setSavedNarrativeNames] = useState<string[]>(() => getSavedNarrativeNames());
+  const [savedNarrativeNames, setSavedNarrativeNames] = useState<string[]>([]);
+
+  // Load saved narratives on mount
+  useEffect(() => {
+    getSavedNarrativeNames().then(names => setSavedNarrativeNames(names));
+  }, []);
 
   // Save narrative handler
-  const handleSaveNarrative = useCallback((narrativeName: string) => {
+  const handleSaveNarrative = useCallback(async (narrativeName: string) => {
     // Find the narrative from themes to get full data
     const theme = themes.find(t => (t.theme_name || (t as any).name) === narrativeName);
     if (theme) {
-      saveNarrative({
+      const success = await saveNarrative({
         name: narrativeName,
         description: theme.theme_summary || theme.description,
         sentiment: theme.sentiment,
@@ -215,15 +249,20 @@ export function NewsFeedPage() {
         key_entities: theme.key_entities,
         topic: config.topic,
       });
-      setSavedNarrativeNames(prev => [...prev, narrativeName]);
+      if (success) {
+        setSavedNarrativeNames(prev => [...prev, narrativeName]);
+      }
     }
   }, [themes, config.topic]);
 
   // Unsave narrative handler
-  const handleUnsaveNarrative = useCallback((narrativeName: string) => {
-    unsaveNarrative(narrativeName);
-    setSavedNarrativeNames(prev => prev.filter(name => name !== narrativeName));
-  }, []);
+  const handleUnsaveNarrative = useCallback(async (narrativeName: string) => {
+    const theme = themes.find(t => (t.theme_name || (t as any).name) === narrativeName);
+    const success = await unsaveNarrative(narrativeName, theme?.topic || config.topic);
+    if (success) {
+      setSavedNarrativeNames(prev => prev.filter(name => name !== narrativeName));
+    }
+  }, [themes, config.topic]);
 
   // Section visibility state with localStorage persistence
   const [visibleSections, setVisibleSections] = useState<VisibleSections>(() => {
