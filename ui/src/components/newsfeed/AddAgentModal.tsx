@@ -119,6 +119,7 @@ export function AddAgentModal({
   const [scheduleInterval, setScheduleInterval] = useState<number>(24);
   const [scheduleUnit, setScheduleUnit] = useState<'minutes' | 'hours' | 'days'>('hours');
   const [scheduleTime, setScheduleTime] = useState<string>('09:00');
+  const [scheduleDaysBack, setScheduleDaysBack] = useState<number>(7);
 
   const isEditMode = !!editAgent;
 
@@ -203,6 +204,8 @@ export function AddAgentModal({
       setScheduleInterval(editAgent.schedule_interval || 24);
       setScheduleUnit((editAgent.schedule_unit as 'minutes' | 'hours' | 'days') || 'hours');
       setScheduleTime(editAgent.schedule_time || '09:00');
+      const configDaysBack = editAgent.config?.days_back as number | undefined;
+      setScheduleDaysBack(configDaysBack || 7);
       setError(null);
     }
   }, [editAgent, open]);
@@ -243,6 +246,7 @@ export function AddAgentModal({
     setScheduleInterval(24);
     setScheduleUnit('hours');
     setScheduleTime('09:00');
+    setScheduleDaysBack(7);
     setError(null);
   };
 
@@ -271,6 +275,8 @@ export function AddAgentModal({
       // Build config object with all action settings
       const config: Record<string, unknown> = {};
       if (model) config.model = model;
+      // Always save days_back for scheduled runs
+      config.days_back = scheduleDaysBack;
       if (actionStarArticles) config.star_flagged_articles = true;
       if (actionDeepResearch) config.deep_research = true;
       if (actionSendEmail) {
@@ -1115,6 +1121,30 @@ export function AddAgentModal({
                     </p>
                   </div>
                 )}
+
+                {/* Days Back - Article Timeframe */}
+                <div className="space-y-2">
+                  <Label>Article Timeframe</Label>
+                  <Select
+                    value={scheduleDaysBack.toString()}
+                    onValueChange={(val) => setScheduleDaysBack(parseInt(val))}
+                    disabled={saving || loading}
+                  >
+                    <SelectTrigger className="w-48">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="1">Last 24 hours</SelectItem>
+                      <SelectItem value="3">Last 3 days</SelectItem>
+                      <SelectItem value="7">Last 7 days</SelectItem>
+                      <SelectItem value="14">Last 2 weeks</SelectItem>
+                      <SelectItem value="30">Last 30 days</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-gray-500">
+                    Analyze articles from the last {scheduleDaysBack} day{scheduleDaysBack !== 1 ? 's' : ''} on each run
+                  </p>
+                </div>
 
                 {/* Next Run Preview */}
                 {isEditMode && editAgent?.next_run_at && (
