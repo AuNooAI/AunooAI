@@ -14,13 +14,16 @@ import { ManageKeywordsModal } from './components/gather/ManageKeywordsModal';
 import { TestProcessModal } from './components/gather/TestProcessModal';
 import { ProcessingStatusBadge } from './components/gather/ProcessingStatusBadge';
 import { NotificationBell } from './components/gather/NotificationBell';
+import { RSSFeedsTab } from './components/gather/RSSFeedsTab';
 import { Alert, AlertDescription } from './components/ui/alert';
-import { Loader2, AlertCircle, Plus } from 'lucide-react';
+import { Loader2, AlertCircle, Plus, Search, Rss } from 'lucide-react';
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
 import { AuspexChat } from './components/auspex';
 import type { KeywordGroupSummary } from './services/gatherApi';
 import { getRecentArticlesForGroup, deleteUnscoredArticles } from './services/gatherApi';
 import './components/gather/gather.css';
+
+type GatherTab = 'keywords' | 'rss';
 
 function GatherApp() {
   const {
@@ -46,6 +49,9 @@ function GatherApp() {
     checkKeywords,
     clearError,
   } = useGather();
+
+  // Tab state
+  const [activeTab, setActiveTab] = useState<GatherTab>('keywords');
 
   // Panel state
   const [selectedGroup, setSelectedGroup] = useState<KeywordGroupSummary | null>(null);
@@ -188,6 +194,24 @@ function GatherApp() {
           onTestProcess={handleOpenTestProcess}
         />
 
+        {/* Tab Navigation */}
+        <div className="gather-tab-navigation">
+          <button
+            className={`gather-tab-btn ${activeTab === 'keywords' ? 'active' : ''}`}
+            onClick={() => setActiveTab('keywords')}
+          >
+            <Search className="w-4 h-4" />
+            Keyword Groups
+          </button>
+          <button
+            className={`gather-tab-btn ${activeTab === 'rss' ? 'active' : ''}`}
+            onClick={() => setActiveTab('rss')}
+          >
+            <Rss className="w-4 h-4" />
+            RSS Feeds
+          </button>
+        </div>
+
         {/* Error Alert */}
         {error && (
           <Alert variant="destructive" className="gather-error-alert">
@@ -201,35 +225,41 @@ function GatherApp() {
           </Alert>
         )}
 
-        {/* Keyword Group Cards Grid */}
-        <div className="gather-cards-grid">
-          {groupSummaries.length === 0 ? (
-            <div className="gather-empty-state">
-              <div className="gather-empty-icon">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                  <path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                </svg>
+        {/* Tab Content */}
+        {activeTab === 'keywords' ? (
+          /* Keyword Group Cards Grid */
+          <div className="gather-cards-grid">
+            {groupSummaries.length === 0 ? (
+              <div className="gather-empty-state">
+                <div className="gather-empty-icon">
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                  </svg>
+                </div>
+                <h3>No keyword groups yet</h3>
+                <p>Create keyword groups to start collecting articles automatically.</p>
+                <button
+                  onClick={() => setIsManageKeywordsOpen(true)}
+                  className="gather-empty-cta"
+                >
+                  Create First Group
+                </button>
               </div>
-              <h3>No keyword groups yet</h3>
-              <p>Create keyword groups to start collecting articles automatically.</p>
-              <button
-                onClick={() => setIsManageKeywordsOpen(true)}
-                className="gather-empty-cta"
-              >
-                Create First Group
-              </button>
-            </div>
-          ) : (
-            groupSummaries.map(group => (
-              <KeywordGroupCard
-                key={group.id}
-                group={group}
-                onClick={() => handleCardClick(group)}
-                onDeleteUnscored={handleDeleteUnscored}
-              />
-            ))
-          )}
+            ) : (
+              groupSummaries.map(group => (
+                <KeywordGroupCard
+                  key={group.id}
+                  group={group}
+                  onClick={() => handleCardClick(group)}
+                  onDeleteUnscored={handleDeleteUnscored}
+                />
+              ))
+            )}
           </div>
+        ) : (
+          /* RSS Feeds Tab */
+          <RSSFeedsTab topics={topics} />
+        )}
           </main>
         </div>
       </div>

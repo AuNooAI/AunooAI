@@ -1751,7 +1751,7 @@ async def article_insights(
 class _IncidentTrackingRequest(BaseModel):
     """Request for incident tracking analysis."""
     topic: Optional[str] = Field(None, description="Single topic (DEPRECATED - use topics)")
-    topics: Optional[List[str]] = Field(default=None, description="List of topics to analyze for incidents (max 10)")
+    topics: Optional[List[str]] = Field(default=None, description="List of topics to analyze for incidents (max 25)")
     days_limit: int = Field(14, ge=1, le=90, description="Days back to analyze")
     start_date: Optional[str] = Field(None, description="Start date YYYY-MM-DD")
     end_date: Optional[str] = Field(None, description="End date YYYY-MM-DD")
@@ -1792,8 +1792,8 @@ class _IncidentTrackingRequest(BaseModel):
         # Sanitize each topic
         sanitized = [re.sub(r'\s+', ' ', topic.strip()) for topic in v if topic and isinstance(topic, str) and topic.strip()]
         # Enforce max limit
-        if len(sanitized) > 10:
-            raise ValueError("Maximum 10 topics allowed")
+        if len(sanitized) > 25:
+            raise ValueError("Maximum 25 topics allowed")
         return sanitized if sanitized else None
 
     def get_topics_list(self) -> List[str]:

@@ -775,3 +775,193 @@ export async function recordArticlePreference(
 
   return response.json();
 }
+
+// ============================================================================
+// Saved Incidents and Narratives API
+// ============================================================================
+
+export interface SavedIncident {
+  name: string;
+  title?: string;
+  type?: string;
+  significance?: string;
+  description?: string;
+  summary?: string;
+  topic?: string;
+  entities?: string[];
+  timeline?: string | string[];
+  organizational_relevance?: string;
+  plausibility?: string;
+  source_quality?: string;
+  article_uris?: string[];
+  articles?: any[];
+  article_metadata?: any[];
+  investigation_leads?: string[];
+  credibility_summary?: string;
+  misinfo_flags?: string[];
+  _saved_id?: number;
+  _saved_at?: string;
+}
+
+export interface SavedNarrative {
+  name: string;
+  theme_name?: string;
+  description?: string;
+  theme_summary?: string;
+  sentiment?: string;
+  confidence?: number;
+  article_count?: number;
+  source_count?: number;
+  key_entities?: string[];
+  topic?: string;
+  _saved_id?: number;
+  _saved_at?: string;
+}
+
+/**
+ * Get all saved incidents from the database
+ */
+export async function getSavedIncidents(topic?: string): Promise<SavedIncident[]> {
+  try {
+    const params = topic ? `?topic=${encodeURIComponent(topic)}` : '';
+    const response = await fetch(`/api/news-feed/saved/incidents${params}`, {
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      console.warn(`Failed to fetch saved incidents: ${response.status}`);
+      return [];
+    }
+
+    const data = await response.json();
+    return data.incidents || [];
+  } catch (error) {
+    console.error('Error fetching saved incidents:', error);
+    return [];
+  }
+}
+
+/**
+ * Save an incident to the database
+ */
+export async function saveIncident(incident: SavedIncident): Promise<boolean> {
+  try {
+    const response = await fetch('/api/news-feed/saved/incidents', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(incident),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+      console.error('Failed to save incident:', error);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error saving incident:', error);
+    return false;
+  }
+}
+
+/**
+ * Delete a saved incident from the database
+ */
+export async function deleteSavedIncident(incidentName: string, topic: string): Promise<boolean> {
+  try {
+    const params = new URLSearchParams({ topic });
+    const response = await fetch(
+      `/api/news-feed/saved/incidents/${encodeURIComponent(incidentName)}?${params}`,
+      {
+        method: 'DELETE',
+        credentials: 'include',
+      }
+    );
+
+    if (!response.ok) {
+      console.warn(`Failed to delete incident: ${response.status}`);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error deleting incident:', error);
+    return false;
+  }
+}
+
+/**
+ * Get all saved narratives from the database
+ */
+export async function getSavedNarratives(topic?: string): Promise<SavedNarrative[]> {
+  try {
+    const params = topic ? `?topic=${encodeURIComponent(topic)}` : '';
+    const response = await fetch(`/api/news-feed/saved/narratives${params}`, {
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      console.warn(`Failed to fetch saved narratives: ${response.status}`);
+      return [];
+    }
+
+    const data = await response.json();
+    return data.narratives || [];
+  } catch (error) {
+    console.error('Error fetching saved narratives:', error);
+    return [];
+  }
+}
+
+/**
+ * Save a narrative to the database
+ */
+export async function saveNarrativeToDb(narrative: SavedNarrative): Promise<boolean> {
+  try {
+    const response = await fetch('/api/news-feed/saved/narratives', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(narrative),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+      console.error('Failed to save narrative:', error);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error saving narrative:', error);
+    return false;
+  }
+}
+
+/**
+ * Delete a saved narrative from the database
+ */
+export async function deleteSavedNarrative(narrativeName: string, topic?: string): Promise<boolean> {
+  try {
+    const params = topic ? `?topic=${encodeURIComponent(topic)}` : '';
+    const response = await fetch(
+      `/api/news-feed/saved/narratives/${encodeURIComponent(narrativeName)}${params}`,
+      {
+        method: 'DELETE',
+        credentials: 'include',
+      }
+    );
+
+    if (!response.ok) {
+      console.warn(`Failed to delete narrative: ${response.status}`);
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error('Error deleting narrative:', error);
+    return false;
+  }
+}

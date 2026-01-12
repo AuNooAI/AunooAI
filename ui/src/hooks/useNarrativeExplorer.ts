@@ -154,8 +154,113 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
 
   // Track the last cache key we loaded to avoid duplicate loads
   const lastLoadedCacheKeyRef = useRef<string | null>(null);
+  const hasAutoLoadedRef = useRef<boolean>(false);
 
-  // Load cached data when config changes (especially when topics become available)
+  // Auto-load incidents from backend cache when topics become available
+  // This ensures scheduled runs and previous generations are shown on page load
+  useEffect(() => {
+    const autoLoadFromBackend = async () => {
+      // Skip if we've already auto-loaded, or no topics available, or still loading initial data
+      if (hasAutoLoadedRef.current || topics.length === 0 || loadingInitial) {
+        return;
+      }
+
+      // Get effective topics (selected or all)
+      const effectiveTopics = config.selectedTopics.length > 0
+        ? config.selectedTopics
+        : topics.slice(0, 25).map(t => t.name);
+
+      if (effectiveTopics.length === 0) {
+        return;
+      }
+
+      console.log('[useNarrativeExplorer] Auto-loading from backend cache...', { effectiveTopics });
+      hasAutoLoadedRef.current = true;
+
+      // Show loading indicators during auto-load
+      setLoadingHighlights(true);
+      setLoadingNarratives(true);
+
+      // Load cached incident config
+      const incidentConfig = getIncidentConfigFromStorage();
+
+      // Calculate date range
+      const { startDate, endDate } = getDateRange(config.dateRange);
+
+      try {
+        // Fetch incidents from backend (will return cached data if available)
+        const response = await getIncidentTracking({
+          topics: effectiveTopics,
+          startDate,
+          endDate,
+          daysLimit: getDaysFromRange(config.dateRange),
+          model: config.model,
+          forceRegenerate: false, // Use cached data if available
+          profileId: config.profileId,
+          systemPrompt: incidentConfig?.system_prompt,
+          userPrompt: incidentConfig?.user_prompt,
+          baseOntology: incidentConfig?.base_ontology,
+          analysisInstructions: incidentConfig?.analysis_instructions,
+          qualityGuidelines: incidentConfig?.quality_guidelines,
+        });
+
+        if (response.incidents && response.incidents.length > 0) {
+          console.log('[useNarrativeExplorer] Loaded incidents from backend cache', {
+            count: response.incidents.length,
+            timestamp: response.analysis_timestamp
+          });
+          setIncidents(response.incidents);
+          setIncidentResponse(response);
+          setIsFromCache(true);
+          setCachedAt(response.analysis_timestamp || new Date().toISOString());
+        }
+      } catch (err) {
+        console.log('[useNarrativeExplorer] No cached incidents available:', err);
+        // Not an error - just no cached data
+      } finally {
+        setLoadingHighlights(false);
+      }
+
+      try {
+        // Also try to load narratives for each topic
+        const narrativesConfig = getNarrativesConfig();
+        const allThemes: ArticleTheme[] = [];
+
+        for (const topic of effectiveTopics) {
+          try {
+            const topicThemes = await getArticleInsights({
+              topic,
+              startDate,
+              endDate,
+              daysLimit: getDaysFromRange(config.dateRange),
+              model: config.model,
+              forceRegenerate: false, // Use cached data if available
+              systemPrompt: narrativesConfig?.system_prompt,
+              userPrompt: narrativesConfig?.user_prompt,
+            });
+            allThemes.push(...topicThemes);
+          } catch {
+            // Skip topics without cached data
+          }
+        }
+
+        if (allThemes.length > 0) {
+          console.log('[useNarrativeExplorer] Loaded narratives from backend cache', {
+            count: allThemes.length
+          });
+          setThemes(allThemes);
+        }
+      } catch (err) {
+        console.log('[useNarrativeExplorer] No cached narratives available:', err);
+      } finally {
+        setLoadingNarratives(false);
+      }
+    };
+
+    autoLoadFromBackend();
+  }, [topics, loadingInitial, config.selectedTopics, config.dateRange, config.model, config.profileId]);
+
+  // Load cached data from localStorage when config changes (as fallback)
   useEffect(() => {
     const loadCachedData = () => {
       // Skip if no topics selected
@@ -179,7 +284,7 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
         if (incidentsCacheStr) {
           const incidentsCache: CacheEntry<Incident[]> = JSON.parse(incidentsCacheStr);
           if (incidentsCache.key === cacheKey) {
-            console.log('[useNarrativeExplorer] Loading cached incidents', {
+            console.log('[useNarrativeExplorer] Loading cached incidents from localStorage', {
               count: incidentsCache.data.length,
               cachedAt: incidentsCache.cachedAt
             });
@@ -197,7 +302,7 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
         if (themesCacheStr) {
           const themesCache: CacheEntry<ArticleTheme[]> = JSON.parse(themesCacheStr);
           if (themesCache.key === cacheKey) {
-            console.log('[useNarrativeExplorer] Loading cached themes', {
+            console.log('[useNarrativeExplorer] Loading cached themes from localStorage', {
               count: themesCache.data.length,
               cachedAt: themesCache.cachedAt
             });
@@ -273,16 +378,22 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
 
   // Generate Highlights (Incident Tracking)
   const generateHighlights = useCallback(async (forceRegenerate: boolean = false) => {
+    // When no topics selected, use all available topics (up to 25)
+    const effectiveTopics = config.selectedTopics.length > 0
+      ? config.selectedTopics
+      : topics.slice(0, 25).map(t => t.name);
+
     console.log('[useNarrativeExplorer] generateHighlights called', {
       forceRegenerate,
       selectedTopics: config.selectedTopics,
+      effectiveTopics,
       dateRange: config.dateRange,
       model: config.model
     });
 
-    if (config.selectedTopics.length === 0) {
-      console.log('[useNarrativeExplorer] No topics selected, skipping highlights');
-      setHighlightsError('Please select at least one topic');
+    if (effectiveTopics.length === 0) {
+      console.log('[useNarrativeExplorer] No topics available, skipping highlights');
+      setHighlightsError('No topics available. Please wait for topics to load.');
       return;
     }
 
@@ -293,13 +404,13 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
 
     try {
       const { startDate, endDate } = getDateRange(config.dateRange);
-      console.log('[useNarrativeExplorer] Calling getIncidentTracking', { startDate, endDate, topics: config.selectedTopics });
+      console.log('[useNarrativeExplorer] Calling getIncidentTracking', { startDate, endDate, topics: effectiveTopics });
 
       // Load custom incident config from localStorage
       const incidentConfig = getIncidentConfigFromStorage();
 
       const response = await getIncidentTracking({
-        topics: config.selectedTopics,
+        topics: effectiveTopics,
         startDate,
         endDate,
         daysLimit: getDaysFromRange(config.dateRange),
@@ -341,12 +452,17 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
       console.log('[useNarrativeExplorer] generateHighlights finished');
       setLoadingHighlights(false);
     }
-  }, [config]);
+  }, [config, topics]);
 
   // Generate Narratives (Article Insights)
   const generateNarratives = useCallback(async (forceRegenerate: boolean = false) => {
-    if (config.selectedTopics.length === 0) {
-      setNarrativesError('Please select at least one topic');
+    // When no topics selected, use all available topics (up to 25)
+    const effectiveTopics = config.selectedTopics.length > 0
+      ? config.selectedTopics
+      : topics.slice(0, 25).map(t => t.name);
+
+    if (effectiveTopics.length === 0) {
+      setNarrativesError('No topics available. Please wait for topics to load.');
       return;
     }
 
@@ -363,7 +479,7 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
       // Fetch themes for each selected topic and combine
       const allThemes: ArticleTheme[] = [];
 
-      for (const topic of config.selectedTopics) {
+      for (const topic of effectiveTopics) {
         try {
           const topicThemes = await getArticleInsights({
             topic,
@@ -404,7 +520,7 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
     } finally {
       setLoadingNarratives(false);
     }
-  }, [config]);
+  }, [config, topics]);
 
   // Generate both
   const generateAll = useCallback(async (forceRegenerate: boolean = false) => {

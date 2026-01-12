@@ -1187,3 +1187,51 @@ t_cluster_snapshots = Table(
     Index('ix_cluster_snapshots_topic', 'topic_filter'),
     UniqueConstraint('snapshot_date', 'cluster_id', 'topic_filter', name='uq_cluster_snapshots_date_cluster')
 )
+
+
+# RSS Feed Tables
+t_rss_feeds = Table(
+    'rss_feeds', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('name', String(255), nullable=False),
+    Column('url', Text, nullable=False),
+    Column('topic', String(255), nullable=False),
+    Column('description', Text),
+
+    # Schedule settings
+    Column('is_active', Boolean, server_default=text('true'), nullable=False),
+    Column('check_interval', Integer, server_default=text('60'), nullable=False),
+    Column('interval_unit', String(20), server_default=text("'minutes'")),
+
+    # Relevance filtering (0 = skip filtering, 1-100 = threshold percentage)
+    Column('relevance_threshold', Integer, server_default=text('0'), nullable=False),
+
+    # Tracking
+    Column('last_checked_at', DateTime(timezone=True)),
+    Column('last_article_date', DateTime(timezone=True)),
+    Column('articles_fetched', Integer, server_default=text('0'), nullable=False),
+    Column('articles_enriched', Integer, server_default=text('0'), nullable=False),
+    Column('last_error', Text),
+
+    # Timestamps
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+
+    Index('ix_rss_feeds_topic', 'topic'),
+    Index('ix_rss_feeds_is_active', 'is_active'),
+    Index('ix_rss_feeds_last_checked', 'last_checked_at')
+)
+
+t_rss_feed_monitor_status = Table(
+    'rss_feed_monitor_status', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('is_running', Boolean, server_default=text('false'), nullable=False),
+    Column('last_check_time', DateTime(timezone=True)),
+    Column('next_check_time', DateTime(timezone=True)),
+    Column('feeds_checked', Integer, server_default=text('0')),
+    Column('articles_fetched', Integer, server_default=text('0')),
+    Column('last_error', Text),
+    Column('last_run_duration_seconds', Float),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()')),
+    Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'))
+)

@@ -6,6 +6,7 @@ from .thenewsapi_collector import TheNewsAPICollector
 from .bluesky_collector import BlueskyCollector
 from .newsdata_collector import NewsdataCollector
 from .semantic_scholar_collector import SemanticScholarCollector
+from .rss_collector import RSSCollector
 from app.database import Database
 
 class CollectorFactory:
@@ -17,7 +18,8 @@ class CollectorFactory:
         'thenewsapi': TheNewsAPICollector,
         'bluesky': BlueskyCollector,
         'newsdata': NewsdataCollector,
-        'semantic_scholar': SemanticScholarCollector
+        'semantic_scholar': SemanticScholarCollector,
+        'rss': RSSCollector
     }
 
     @classmethod

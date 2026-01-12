@@ -326,8 +326,9 @@ export async function getAvailableModels(): Promise<AvailableModel[]> {
 
 // Topics (for dropdowns)
 export async function getTopics(): Promise<string[]> {
-  const response = await fetchJson<{ topics: Array<{ name: string }> }>('/api/topics');
-  return (response?.topics || []).map(t => t.name);
+  // API returns array directly: [{ name: "...", ... }, ...]
+  const response = await fetchJson<Array<{ name: string }>>('/api/topics');
+  return (response || []).map(t => t.name);
 }
 
 // ============================================================================
@@ -490,4 +491,133 @@ export async function markAllNotificationsRead(): Promise<{ success: boolean }> 
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json();
+}
+
+// ============================================================================
+// RSS Feeds
+// ============================================================================
+
+const RSS_API_BASE = '/api/rss-feeds';
+
+export interface RSSFeed {
+  id: number;
+  name: string;
+  url: string;
+  topic: string;
+  description?: string;
+  is_active: boolean;
+  check_interval: number;
+  interval_unit: string;
+  relevance_threshold: number;  // 0 = skip filtering, 1-100 = threshold %
+  last_checked_at?: string;
+  last_article_date?: string;
+  articles_fetched: number;
+  articles_enriched: number;
+  last_error?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RSSFeedCreate {
+  name: string;
+  url: string;
+  topic: string;
+  description?: string;
+  is_active?: boolean;
+  check_interval?: number;
+  interval_unit?: string;
+  relevance_threshold?: number;
+}
+
+export interface RSSFeedUpdate {
+  name?: string;
+  url?: string;
+  topic?: string;
+  description?: string;
+  is_active?: boolean;
+  check_interval?: number;
+  interval_unit?: string;
+  relevance_threshold?: number;
+}
+
+export interface RSSFeedTestResult {
+  valid: boolean;
+  title?: string;
+  description?: string;
+  entry_count?: number;
+  feed_type?: string;
+  error?: string;
+}
+
+export interface RSSMonitorStatus {
+  is_running: boolean;
+  last_check_time?: string;
+  next_check_time?: string;
+  feeds_checked: number;
+  articles_fetched: number;
+  last_error?: string;
+  active_feeds: number;
+  total_feeds: number;
+}
+
+// List all RSS feeds
+export async function getRSSFeeds(topic?: string, isActive?: boolean): Promise<RSSFeed[]> {
+  const params = new URLSearchParams();
+  if (topic) params.set('topic', topic);
+  if (isActive !== undefined) params.set('is_active', String(isActive));
+
+  const url = params.toString() ? `${RSS_API_BASE}?${params}` : RSS_API_BASE;
+  const response = await fetchJson<{ success: boolean; feeds: RSSFeed[] }>(url);
+  return response?.feeds || [];
+}
+
+// Get a single RSS feed
+export async function getRSSFeed(feedId: number): Promise<RSSFeed> {
+  const response = await fetchJson<{ success: boolean; feed: RSSFeed }>(`${RSS_API_BASE}/${feedId}`);
+  return response.feed;
+}
+
+// Create a new RSS feed
+export async function createRSSFeed(feed: RSSFeedCreate): Promise<{ success: boolean; feed_id: number; feed_info: RSSFeedTestResult }> {
+  return fetchJson(`${RSS_API_BASE}`, {
+    method: 'POST',
+    body: JSON.stringify(feed),
+  });
+}
+
+// Update an RSS feed
+export async function updateRSSFeed(feedId: number, updates: RSSFeedUpdate): Promise<{ success: boolean }> {
+  return fetchJson(`${RSS_API_BASE}/${feedId}`, {
+    method: 'PUT',
+    body: JSON.stringify(updates),
+  });
+}
+
+// Delete an RSS feed
+export async function deleteRSSFeed(feedId: number): Promise<{ success: boolean }> {
+  return fetchJson(`${RSS_API_BASE}/${feedId}`, {
+    method: 'DELETE',
+  });
+}
+
+// Test a feed URL
+export async function testRSSFeedUrl(url: string): Promise<RSSFeedTestResult> {
+  const response = await fetchJson<{ success: boolean; test_result: RSSFeedTestResult }>(`${RSS_API_BASE}/test-url`, {
+    method: 'POST',
+    body: JSON.stringify({ url }),
+  });
+  return response.test_result;
+}
+
+// Trigger fetch for a specific feed
+export async function fetchRSSFeed(feedId: number): Promise<{ success: boolean; message: string }> {
+  return fetchJson(`${RSS_API_BASE}/${feedId}/fetch`, {
+    method: 'POST',
+  });
+}
+
+// Get RSS monitor status
+export async function getRSSMonitorStatus(): Promise<RSSMonitorStatus> {
+  const response = await fetchJson<{ success: boolean; status: RSSMonitorStatus }>(`${RSS_API_BASE}/status/monitor`);
+  return response.status;
 }
