@@ -483,7 +483,17 @@ async def get_emerging_topic_detail(
             except:
                 synthesis = {}
 
-        model_used = synthesis.get("model_used", "gpt-4o")  # Default model
+        # Get model_used from synthesis
+        model_used = synthesis.get("model_used")
+        if not model_used:
+            # For legacy themes without model_used, use first available model from config
+            from app.config.config import load_config
+            config = load_config()
+            ai_models = config.get("ai_models", [])
+            if ai_models:
+                model_used = ai_models[0].get("name", "unknown")
+            else:
+                model_used = None  # Don't show if we can't determine
 
         return {
             **row,
@@ -1599,3 +1609,322 @@ async def send_test_notification(
     except Exception as e:
         logger.error(f"Failed to send test notification: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Future Horizons Integration
+# ============================================================================
+
+class FutureHorizonsRequest(BaseModel):
+    """Request model for running Future Horizons on an emerging topic."""
+    model: str = Field("gpt-4o", description="AI model to use")
+    future_horizon: int = Field(15, ge=5, le=30, description="Years into the future to project")
+
+
+@router.post("/topics/{topic_id}/future-horizons")
+async def analyze_topic_in_horizons(
+    topic_id: int,
+    request: FutureHorizonsRequest,
+    session=Depends(verify_session)
+):
+    """
+    Run Future Horizons (Futures Cone) analysis on an emerging topic.
+    Uses the topic as the central driver/signal and projects forward.
+    """
+    from sqlalchemy import text
+    from app.database import get_database_instance
+    from app.ai_models import get_ai_model
+    from datetime import datetime
+    from collections import Counter
+
+    db = get_database_instance()
+    conn = None
+
+    try:
+        conn = db._temp_get_connection()
+
+        # 1. Fetch the emerging topic
+        topic_stmt = text("""
+            SELECT
+                id, topic_label, topic_description, emergence_rationale,
+                article_uris, key_themes, representative_keywords
+            FROM emerging_topics
+            WHERE id = :topic_id
+        """)
+        topic_row = conn.execute(topic_stmt, {"topic_id": topic_id}).fetchone()
+
+        if not topic_row:
+            raise HTTPException(status_code=404, detail="Emerging topic not found")
+
+        topic_data = dict(topic_row._mapping)
+        article_uris = topic_data.get("article_uris") or []
+
+        if not article_uris:
+            raise HTTPException(status_code=400, detail="Topic has no associated articles")
+
+        # 2. Fetch full article data for those URIs
+        articles = []
+        if article_uris:
+            placeholders = ", ".join([f":uri_{i}" for i in range(min(len(article_uris), 50))])
+            params = {f"uri_{i}": uri for i, uri in enumerate(article_uris[:50])}
+
+            article_stmt = text(f"""
+                SELECT uri, title, summary, publication_date, sentiment, category,
+                       future_signal, driver_type, time_to_impact, quality_score
+                FROM articles
+                WHERE uri IN ({placeholders})
+            """)
+            article_result = conn.execute(article_stmt, params)
+
+            for row in article_result.mappings():
+                articles.append(dict(row))
+
+        conn.close()
+        conn = None
+
+        if not articles:
+            raise HTTPException(status_code=400, detail="Could not fetch articles for topic")
+
+        logger.info(f"Running Future Horizons on topic '{topic_data['topic_label']}' with {len(articles)} articles")
+
+        # 3. Load the emerging topic driver prompt
+        import os
+        prompt_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "data", "prompts", "future_horizons", "emerging_topic_driver.json"
+        )
+
+        prompt_template = None
+        if os.path.exists(prompt_path):
+            with open(prompt_path, 'r') as f:
+                prompt_template = json.load(f)
+
+        # 4. Prepare article references for the prompt
+        article_refs = []
+        for i, article in enumerate(articles[:30], 1):
+            article_refs.append(f"[{i}] {article.get('title', 'Untitled')} ({article.get('publication_date', 'Unknown date')[:10] if article.get('publication_date') else 'Unknown date'})")
+
+        # Analyze patterns
+        sentiments = [a.get('sentiment') for a in articles if a.get('sentiment')]
+        categories = [a.get('category') for a in articles if a.get('category')]
+        drivers = [a.get('driver_type') for a in articles if a.get('driver_type')]
+        signals = [a.get('future_signal') for a in articles if a.get('future_signal')]
+        time_impacts = [a.get('time_to_impact') for a in articles if a.get('time_to_impact')]
+
+        sentiment_counts = Counter(sentiments)
+        category_counts = Counter(categories)
+        driver_counts = Counter(drivers)
+
+        articles_summary = f"""**Data Overview:**
+- Total articles: {len(articles)}
+
+**Sentiment Distribution:**
+{chr(10).join([f"- {s}: {c}" for s, c in sentiment_counts.most_common(5)])}
+
+**Category Distribution:**
+{chr(10).join([f"- {cat}: {c}" for cat, c in category_counts.most_common(5)])}
+
+**Driver Types:**
+{chr(10).join([f"- {d}: {c}" for d, c in driver_counts.most_common(5)])}
+"""
+
+        # 5. Build the prompt
+        if prompt_template:
+            user_prompt = prompt_template.get("user_prompt", "")
+            system_prompt = prompt_template.get("system_prompt", "")
+
+            # Replace variables
+            user_prompt = user_prompt.replace("{topic_label}", topic_data.get("topic_label", ""))
+            user_prompt = user_prompt.replace("{topic_description}", topic_data.get("topic_description", ""))
+            user_prompt = user_prompt.replace("{emergence_rationale}", topic_data.get("emergence_rationale", "Based on recent article analysis"))
+            user_prompt = user_prompt.replace("{article_count}", str(len(articles)))
+            user_prompt = user_prompt.replace("{article_references}", "\n".join(article_refs))
+            user_prompt = user_prompt.replace("{articles}", articles_summary)
+            user_prompt = user_prompt.replace("{org_context}", "")
+            user_prompt = user_prompt.replace("{action_vocabulary}", "")
+        else:
+            # Fallback prompt
+            system_prompt = "You are a strategic foresight expert using the Futures Cone framework."
+            user_prompt = f"""EMERGING DRIVER: {topic_data.get('topic_label', '')}
+
+Description: {topic_data.get('topic_description', '')}
+
+Why This Is Emerging: {topic_data.get('emergence_rationale', 'Based on recent article analysis')}
+
+Evidence Base ({len(articles)} articles):
+{chr(10).join(article_refs)}
+
+{articles_summary}
+
+Project forward using the Futures Cone framework. Generate 10-14 scenarios:
+- 3-4 Probable (most likely if trend continues)
+- 3-4 Plausible (realistic given evidence)
+- 2-3 Possible (could happen with major shifts)
+- 2-3 Preferable (desirable outcomes)
+
+Return JSON with this structure:
+{{
+  "scenarios": [
+    {{
+      "type": "probable|plausible|possible|preferable",
+      "title": "Scenario title",
+      "description": "How the emerging topic leads to this future (1-2 sentences)",
+      "timeframe": "2025-2040",
+      "sentiment": "Positive|Negative|Mixed|Neutral",
+      "driver_connection": "How the topic drives this scenario"
+    }}
+  ]
+}}"""
+
+        # 6. Call AI model
+        ai_model = get_ai_model(request.model)
+        if not ai_model:
+            raise HTTPException(status_code=400, detail=f"Model '{request.model}' not available")
+
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": user_prompt})
+
+        response = ai_model.generate_response(messages)
+
+        # 7. Parse response
+        try:
+            # Extract JSON from response
+            json_str = response
+            if '```json' in response:
+                json_start = response.find('```json') + 7
+                json_end = response.find('```', json_start)
+                if json_end > json_start:
+                    json_str = response[json_start:json_end]
+            elif '{' in response:
+                json_start = response.find('{')
+                json_end = response.rfind('}') + 1
+                json_str = response[json_start:json_end]
+
+            futures_data = json.loads(json_str)
+
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse Future Horizons response: {e}")
+            logger.error(f"Response: {response[:500]}")
+            raise HTTPException(status_code=500, detail="Failed to parse AI response")
+
+        # 8. Add metadata and calculate positions
+        current_year = datetime.now().year
+
+        if 'scenarios' in futures_data:
+            # Group scenarios by type for positioning
+            scenarios_by_type = {}
+            for scenario in futures_data['scenarios']:
+                scenario_type = scenario.get('type', 'plausible')
+                if scenario_type not in scenarios_by_type:
+                    scenarios_by_type[scenario_type] = []
+                scenarios_by_type[scenario_type].append(scenario)
+
+            # Add positions
+            for scenario_type, scenarios in scenarios_by_type.items():
+                for i, scenario in enumerate(scenarios):
+                    timeframe = scenario.get('timeframe', '')
+                    # Determine time period
+                    time_period = 'mid'
+                    if timeframe:
+                        if any(y in timeframe for y in ['2025', '2026', '2027']):
+                            time_period = 'short'
+                        elif any(y in timeframe for y in ['2033', '2034', '2035', '2036', '2037', '2038', '2039', '2040']):
+                            time_period = 'long'
+
+                    # Calculate position (simplified grid)
+                    type_row = {'probable': 0.2, 'plausible': 0.4, 'possible': 0.6, 'preferable': 0.15, 'wildcard': 0.8}
+                    time_col = {'short': 0.2, 'mid': 0.5, 'long': 0.8}
+
+                    base_y = type_row.get(scenario_type, 0.4) * 100
+                    base_x = time_col.get(time_period, 0.5) * 100
+
+                    # Offset for multiple scenarios of same type
+                    offset = (i - len(scenarios) / 2) * 8
+
+                    scenario['position'] = {
+                        'x': max(5, min(95, base_x + offset)),
+                        'y': max(5, min(95, base_y))
+                    }
+
+        # Add timeline
+        futures_data['timeline'] = [
+            {'year': current_year, 'label': 'Present'},
+            {'year': current_year + 3, 'label': 'Short-term'},
+            {'year': current_year + 8, 'label': 'Mid-term'},
+            {'year': current_year + 15, 'label': 'Long-term'}
+        ]
+
+        futures_data['metadata'] = {
+            'topic_id': topic_id,
+            'topic_label': topic_data.get('topic_label'),
+            'topic_description': topic_data.get('topic_description'),
+            'emergence_rationale': topic_data.get('emergence_rationale'),
+            'articles_analyzed': len(articles),
+            'model_used': request.model,
+            'generated_at': datetime.now().isoformat(),
+            'analysis_type': 'emerging_topic_driver'
+        }
+
+        logger.info(f"Generated Future Horizons with {len(futures_data.get('scenarios', []))} scenarios")
+
+        return futures_data
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Error running Future Horizons on topic {topic_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        if conn:
+            conn.close()
+
+
+@router.post("/topics/{topic_id}/save-horizons")
+async def save_topic_horizons(
+    topic_id: int,
+    horizons_data: dict,
+    session=Depends(verify_session)
+):
+    """
+    Save Future Horizons analysis to an emerging topic.
+    """
+    from app.database import get_database_instance
+    from sqlalchemy import text
+
+    db = get_database_instance()
+    conn = None
+
+    try:
+        conn = db._temp_get_connection()
+
+        # Update the topic with horizons data
+        update_stmt = text("""
+            UPDATE emerging_topics
+            SET future_horizons = CAST(:horizons AS jsonb),
+                updated_at = NOW()
+            WHERE id = :topic_id
+        """)
+
+        result = conn.execute(update_stmt, {
+            "topic_id": topic_id,
+            "horizons": json.dumps(horizons_data)
+        })
+        conn.commit()
+
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Topic not found")
+
+        logger.info(f"Saved Future Horizons to topic {topic_id}")
+
+        return {"success": True, "message": "Future Horizons saved to theme"}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Error saving Future Horizons to topic {topic_id}: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+    finally:
+        if conn:
+            conn.close()

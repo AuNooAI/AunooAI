@@ -80,6 +80,7 @@ class EmergingTopic:
     actors: Dict[str, List[str]] = field(default_factory=dict)
     events: Dict[str, Any] = field(default_factory=dict)
     implications: Dict[str, str] = field(default_factory=dict)
+    organization_implications: Dict[str, str] = field(default_factory=dict)
     signals: Dict[str, List[str]] = field(default_factory=dict)
     synthesis: Dict[str, Any] = field(default_factory=dict)
 
@@ -110,6 +111,9 @@ class EmergingTopic:
     missed_runs: int = 0
     trajectory: Optional[str] = None  # 'rising', 'stable', 'declining', 'volatile'
 
+    # Future horizons (saved scenarios)
+    future_horizons: Optional[Dict[str, Any]] = None
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
@@ -125,8 +129,10 @@ class EmergingTopic:
             "actors": self.actors,
             "events": self.events,
             "implications": self.implications,
+            "organization_implications": self.organization_implications,
             "signals": self.signals,
             "synthesis": self.synthesis,
+            "future_horizons": self.future_horizons,
             # Trend scores
             "trend_score": {
                 "volume": round(self.volume_score, 1),
@@ -148,6 +154,7 @@ class EmergingTopic:
             "last_detection_date": str(self.last_detection_date) if self.last_detection_date else None,
             "detection_count": self.detection_count,
             "consecutive_detections": self.consecutive_detections,
+            "missed_runs": self.missed_runs,
             "trajectory": self.trajectory,
         }
 
@@ -204,6 +211,45 @@ class EmergingTopicsService:
         """Get database connection."""
         db = get_database_instance()
         return db._temp_get_connection()
+
+    def _get_default_org_profile(self) -> Optional[Dict[str, Any]]:
+        """Fetch the default organizational profile for context-aware analysis."""
+        conn = None
+        try:
+            conn = self._get_connection()
+            stmt = text("""
+                SELECT id, name, description, industry, organization_type,
+                       key_concerns, strategic_priorities, risk_tolerance,
+                       innovation_appetite, decision_making_style,
+                       stakeholder_focus, competitive_landscape,
+                       regulatory_environment, custom_context, region
+                FROM organizational_profiles
+                WHERE is_default = true
+                LIMIT 1
+            """)
+            result = conn.execute(stmt)
+            row = result.fetchone()
+
+            if row:
+                row_dict = dict(row._mapping)
+                # Parse JSON fields
+                for json_field in ['key_concerns', 'strategic_priorities', 'stakeholder_focus',
+                                   'competitive_landscape', 'regulatory_environment']:
+                    if row_dict.get(json_field):
+                        try:
+                            if isinstance(row_dict[json_field], str):
+                                row_dict[json_field] = json_module.loads(row_dict[json_field])
+                        except (json_module.JSONDecodeError, TypeError):
+                            row_dict[json_field] = []
+                return row_dict
+            return None
+
+        except Exception as e:
+            logger.warning(f"Error fetching default org profile: {e}")
+            return None
+        finally:
+            if conn:
+                conn.close()
 
     async def _fetch_articles_for_validation(
         self,
@@ -396,6 +442,11 @@ class EmergingTopicsService:
             "message": "Running deep analysis on validated themes...",
         }
 
+        # Fetch organizational profile for context-aware analysis
+        org_profile = self._get_default_org_profile()
+        if org_profile:
+            logger.info(f"Using org profile '{org_profile.get('name')}' for deep analysis")
+
         emerging_topics = []
         total_themes = len(validated_themes)
 
@@ -407,12 +458,13 @@ class EmergingTopicsService:
                 "message": f"Analyzing: {theme.theme_label}",
             }
 
-            # Deep analysis
+            # Deep analysis with organizational context
             analysis = await self.deep_analyzer.analyze(
                 theme_label=theme.theme_label,
                 theme_description=theme.theme_description,
                 article_uris=theme.article_uris,
-                max_articles=self.config.max_articles_for_analysis
+                max_articles=self.config.max_articles_for_analysis,
+                org_profile=org_profile
             )
 
             # Trend scoring
@@ -598,8 +650,9 @@ class EmergingTopicsService:
             actors=analysis.actors.to_dict() if analysis.actors else {},
             events=analysis.events.to_dict() if analysis.events else {},
             implications=analysis.implications.to_dict() if analysis.implications else {},
+            organization_implications=analysis.organization_implications.to_dict() if analysis.organization_implications else {},
             signals=analysis.signals.to_dict() if analysis.signals else {},
-            synthesis=analysis.synthesis.to_dict() if analysis.synthesis else {},
+            synthesis={**(analysis.synthesis.to_dict() if analysis.synthesis else {}), "model_used": analysis.model_used},
             # From trend scoring
             volume_score=trend.volume_score,
             velocity_score=trend.velocity_score,
@@ -695,6 +748,7 @@ class EmergingTopicsService:
             actors_json = json_module.dumps(topic.actors) if topic.actors else "{}"
             events_json = json_module.dumps(topic.events) if topic.events else "{}"
             implications_json = json_module.dumps(topic.implications) if topic.implications else "{}"
+            org_implications_json = json_module.dumps(topic.organization_implications) if topic.organization_implications else "{}"
             signals_json = json_module.dumps(topic.signals) if topic.signals else "{}"
             synthesis_json = json_module.dumps(topic.synthesis) if topic.synthesis else "{}"
 
@@ -719,6 +773,7 @@ class EmergingTopicsService:
                         actors = CAST(:actors AS jsonb),
                         events = CAST(:events AS jsonb),
                         implications = CAST(:implications AS jsonb),
+                        organization_implications = CAST(:org_implications AS jsonb),
                         signals = CAST(:signals AS jsonb),
                         synthesis = CAST(:synthesis AS jsonb),
                         volume_score = :volume_score,
@@ -748,6 +803,7 @@ class EmergingTopicsService:
                     "actors": actors_json,
                     "events": events_json,
                     "implications": implications_json,
+                    "org_implications": org_implications_json,
                     "signals": signals_json,
                     "synthesis": synthesis_json,
                     "volume_score": topic.volume_score,
@@ -767,7 +823,7 @@ class EmergingTopicsService:
                     confidence_score, key_themes, representative_keywords,
                     emergence_rationale, article_uris, sample_article_uris,
                     topic_filter, status,
-                    actors, events, implications, signals, synthesis,
+                    actors, events, implications, organization_implications, signals, synthesis,
                     volume_score, velocity_score, diversity_score, novelty_score, composite_score,
                     first_detection_date, last_detection_date, detection_count, consecutive_detections
                 ) VALUES (
@@ -777,7 +833,8 @@ class EmergingTopicsService:
                     :rationale, :uris, :sample_uris,
                     :filter, :status,
                     CAST(:actors AS jsonb), CAST(:events AS jsonb),
-                    CAST(:implications AS jsonb), CAST(:signals AS jsonb), CAST(:synthesis AS jsonb),
+                    CAST(:implications AS jsonb), CAST(:org_implications AS jsonb),
+                    CAST(:signals AS jsonb), CAST(:synthesis AS jsonb),
                     :volume_score, :velocity_score, :diversity_score, :novelty_score, :composite_score,
                     :date, :date, 1, 1
                 )
@@ -804,6 +861,7 @@ class EmergingTopicsService:
                 "actors": actors_json,
                 "events": events_json,
                 "implications": implications_json,
+                "org_implications": org_implications_json,
                 "signals": signals_json,
                 "synthesis": synthesis_json,
                 "volume_score": topic.volume_score,
@@ -1003,9 +1061,10 @@ class EmergingTopicsService:
                     detection_type, cluster_id, article_count, growth_rate,
                     velocity, confidence_score, key_themes, representative_keywords,
                     emergence_rationale, article_uris, status,
-                    actors, events, implications, signals, synthesis,
+                    actors, events, implications, organization_implications, signals, synthesis,
                     volume_score, velocity_score, diversity_score, novelty_score, composite_score,
-                    first_detection_date, last_detection_date, detection_count, consecutive_detections
+                    first_detection_date, last_detection_date, detection_count, consecutive_detections,
+                    missed_runs, future_horizons
                 FROM emerging_topics
                 {filter_clause}
                 ORDER BY detection_date DESC, confidence_score DESC
@@ -1036,6 +1095,7 @@ class EmergingTopicsService:
                     actors=row.get("actors") or {},
                     events=row.get("events") or {},
                     implications=row.get("implications") or {},
+                    organization_implications=row.get("organization_implications") or {},
                     signals=row.get("signals") or {},
                     synthesis=row.get("synthesis") or {},
                     volume_score=row.get("volume_score") or 0.0,
@@ -1048,6 +1108,9 @@ class EmergingTopicsService:
                     last_detection_date=row.get("last_detection_date"),
                     detection_count=row.get("detection_count") or 1,
                     consecutive_detections=row.get("consecutive_detections") or 1,
+                    missed_runs=row.get("missed_runs") or 0,
+                    # Future horizons
+                    future_horizons=row.get("future_horizons"),
                 )
                 topics.append(topic)
 

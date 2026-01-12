@@ -10,12 +10,14 @@ import {
   Loader2,
   TrendingUp,
   TrendingDown,
+  Minus,
   Zap,
   Circle,
   AlertCircle,
   Play,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
   ExternalLink,
   Sparkles,
   Clock,
@@ -39,9 +41,14 @@ import {
   FileSpreadsheet,
   FileDown,
   MessageSquare,
+  LayoutGrid,
+  List,
+  Archive,
+  RotateCcw,
+  Compass,
 } from 'lucide-react';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
-import { Card, CardContent } from '../ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Progress } from '../ui/progress';
@@ -55,12 +62,20 @@ import {
   DialogTitle,
 } from '../ui/dialog';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../ui/table';
+import {
   EmergingTopicsConfigModal,
   EmergingTopicsConfig,
   loadEmergingTopicsConfig,
 } from './EmergingTopicsConfigModal';
 import { EmergingTopicsScheduleModal } from './EmergingTopicsScheduleModal';
-// ShareModal removed - needs proper data type support for emerging topics
+import { ShareModal, type ShareEmergingTopicData, type ShareData } from '../ShareModal';
 import { getAvailableModels } from '../../services/newsFeedApi';
 import { ExportService } from '../../services/exportService';
 // Visual components
@@ -78,6 +93,7 @@ interface TrendScore {
   diversity: number;
   novelty: number;
   composite: number;
+  urgency?: 'low' | 'medium' | 'high';
 }
 
 interface Actors {
@@ -110,6 +126,13 @@ interface Synthesis {
   urgency?: 'low' | 'medium' | 'high';
 }
 
+interface OrganizationImplications {
+  strategic_relevance?: string;
+  stakeholder_impact?: string;
+  risk_assessment?: string;
+  recommended_response?: string;
+}
+
 interface EmergingTopic {
   id: number;
   topic_label: string;
@@ -133,6 +156,8 @@ interface EmergingTopic {
   signals?: Signals;
   synthesis?: Synthesis;
   source_count?: number;
+  organization_implications?: OrganizationImplications;
+  future_horizons?: any;
   // V3 Trend tracking fields
   first_detection_date?: string;
   last_detection_date?: string;
@@ -217,9 +242,9 @@ function getVelocityStyle(velocity: string) {
 
 // Urgency badge styling
 const urgencyStyles: Record<string, { label: string; className: string }> = {
-  low: { label: 'Low Urgency', className: 'bg-gray-100 text-gray-700' },
-  medium: { label: 'Medium Urgency', className: 'bg-yellow-100 text-yellow-700' },
-  high: { label: 'High Urgency', className: 'bg-red-100 text-red-700' },
+  low: { label: 'Low Urgency', className: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200' },
+  medium: { label: 'Medium Urgency', className: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-200' },
+  high: { label: 'High Urgency', className: 'bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200' },
 };
 
 // Score color helper
@@ -254,13 +279,55 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
   // Clear all confirmation state
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
+  // Retired themes state
+  const [retiredTopics, setRetiredTopics] = useState<EmergingTopic[]>([]);
+  const [showRetired, setShowRetired] = useState(false);
+  const [loadingRetired, setLoadingRetired] = useState(false);
+
   // Menu state
   const [menuOpenId, setMenuOpenId] = useState<number | null>(null);
+
+  // Filter state for Trending Themes (multiselect)
+  const [urgencyFilters, setUrgencyFilters] = useState<Set<string>>(new Set());
+  const [velocityFilters, setVelocityFilters] = useState<Set<string>>(new Set());
+
+  // View mode: 'cards' or 'table'
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+
+  // Future Horizons loading state
+  const [horizonsLoading, setHorizonsLoading] = useState<number | null>(null);
+  const [showHorizonsModal, setShowHorizonsModal] = useState(false);
+  const [horizonsResult, setHorizonsResult] = useState<any>(null);
+  const [horizonsTopicLabel, setHorizonsTopicLabel] = useState<string>('');
+  const [horizonsTopicId, setHorizonsTopicId] = useState<number | null>(null);
+  const [savingHorizons, setSavingHorizons] = useState(false);
+
+  const toggleUrgencyFilter = (value: string) => {
+    setUrgencyFilters(prev => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  };
+
+  const toggleVelocityFilter = (value: string) => {
+    setVelocityFilters(prev => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  };
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Export menu state
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
+
+  // Share modal state
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareData, setShareData] = useState<ShareData | null>(null);
 
   // Topic history for sparklines
   const [topicHistories, setTopicHistories] = useState<Record<number, Array<{ run_date: string; composite_score: number }>>>({});
@@ -520,10 +587,146 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
     }
   };
 
-  // Share topic handler
-  const handleShareTopic = (topic: EmergingTopic) => {
-    // TODO: Implement share functionality for emerging topics
-    console.log('Share topic:', topic.topic_label);
+  // Fetch retired themes
+  const fetchRetiredTopics = async () => {
+    setLoadingRetired(true);
+    try {
+      const params = new URLSearchParams();
+      if (topic) params.append('topic', topic);
+      params.append('limit', '50');
+
+      const response = await fetch(`/api/emerging-topics/retired?${params}`, {
+        credentials: 'include',
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setRetiredTopics(data.topics || []);
+      }
+    } catch (err) {
+      console.error('Error fetching retired topics:', err);
+    } finally {
+      setLoadingRetired(false);
+    }
+  };
+
+  // Retire theme handler
+  const handleRetireTopic = async (topicId: number) => {
+    try {
+      const res = await fetch(`/api/emerging-topics/topics/${topicId}/retire`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: 'manual' }),
+      });
+      if (res.ok) {
+        // Move from active to retired
+        const topic = emergingTopics.find(t => t.id === topicId);
+        if (topic) {
+          setEmergingTopics(prev => prev.filter(t => t.id !== topicId));
+          setRetiredTopics(prev => [{ ...topic, status: 'retired' } as any, ...prev]);
+        }
+      }
+    } catch (err) {
+      console.error('Error retiring topic:', err);
+    }
+  };
+
+  // Restore theme handler
+  const handleRestoreTopic = async (topicId: number) => {
+    try {
+      const res = await fetch(`/api/emerging-topics/topics/${topicId}/restore`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (res.ok) {
+        // Move from retired to active
+        const topic = retiredTopics.find(t => t.id === topicId);
+        if (topic) {
+          setRetiredTopics(prev => prev.filter(t => t.id !== topicId));
+          setEmergingTopics(prev => [{ ...topic, status: 'active' } as any, ...prev]);
+        }
+      }
+    } catch (err) {
+      console.error('Error restoring topic:', err);
+    }
+  };
+
+  // Fetch retired topics when section is expanded
+  useEffect(() => {
+    if (showRetired && retiredTopics.length === 0) {
+      fetchRetiredTopics();
+    }
+  }, [showRetired]);
+
+  // Share topic handler - opens share modal with full topic data including articles
+  const handleShareTopic = async (topic: EmergingTopic) => {
+    // Get article details - check cache first, then fetch if needed
+    let articles: any[] = topicDetails[topic.id]?.articles || [];
+
+    if (articles.length === 0) {
+      try {
+        const response = await fetch(`/api/emerging-topics/topics/${topic.id}`);
+        if (response.ok) {
+          const data = await response.json();
+          articles = data.articles || [];
+          // Cache for future use
+          setTopicDetails(prev => ({ ...prev, [topic.id]: data }));
+        }
+      } catch (err) {
+        console.error('Failed to fetch topic articles for share:', err);
+      }
+    }
+
+    setShareData({
+      type: 'emerging_topic',
+      topic_id: topic.id,
+      topic_label: topic.topic_label,
+      topic_description: topic.topic_description,
+      score: topic.trend_score?.composite || Math.round(topic.confidence_score * 100),
+      urgency: topic.synthesis?.urgency || topic.trend_score?.urgency || 'medium',
+      velocity: topic.velocity,
+      article_count: topic.article_count,
+      key_themes: topic.key_themes,
+      key_entities: topic.key_entities,
+      why_emerging: topic.why_emerging,
+      // Enhanced fields
+      key_takeaway: topic.synthesis?.key_takeaway,
+      trend_score: topic.trend_score ? {
+        volume: topic.trend_score.volume,
+        velocity: topic.trend_score.velocity,
+        diversity: topic.trend_score.diversity,
+        novelty: topic.trend_score.novelty,
+        composite: topic.trend_score.composite,
+      } : undefined,
+      actors: topic.actors ? {
+        companies: topic.actors.companies,
+        people: topic.actors.people,
+        organizations: topic.actors.organizations,
+      } : undefined,
+      events: topic.events ? {
+        trigger_event: topic.events.trigger_event,
+        timeline: topic.events.timeline,
+        current_status: topic.events.current_status,
+      } : undefined,
+      implications: topic.implications ? {
+        industry_impact: topic.implications.industry_impact,
+        regulatory: topic.implications.regulatory,
+        market: topic.implications.market,
+      } : undefined,
+      organization_implications: topic.organization_implications ? {
+        strategic_relevance: topic.organization_implications.strategic_relevance,
+        stakeholder_impact: topic.organization_implications.stakeholder_impact,
+        risk_assessment: topic.organization_implications.risk_assessment,
+        recommended_response: topic.organization_implications.recommended_response,
+      } : undefined,
+      articles: articles.slice(0, 10).map((a: any) => ({
+        title: a.title,
+        news_source: a.news_source,
+        publication_date: a.publication_date,
+        uri: a.uri,
+      })),
+    });
+    setShowShareModal(true);
     setMenuOpenId(null);
   };
 
@@ -556,7 +759,24 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
   };
 
   // Ask Auspex handler - builds comprehensive context for LLM analysis
-  const handleAskAuspex = (emergingTopic: EmergingTopic) => {
+  const handleAskAuspex = async (emergingTopic: EmergingTopic) => {
+    // Get article details - check cache first, then fetch if needed
+    let articles: any[] = topicDetails[emergingTopic.id]?.articles || [];
+
+    if (articles.length === 0) {
+      try {
+        const response = await fetch(`/api/emerging-topics/topics/${emergingTopic.id}`);
+        if (response.ok) {
+          const data = await response.json();
+          articles = data.articles || [];
+          // Cache for future use
+          setTopicDetails(prev => ({ ...prev, [emergingTopic.id]: data }));
+        }
+      } catch (err) {
+        console.error('Failed to fetch topic articles:', err);
+      }
+    }
+
     const actorsList: string[] = [];
     if (emergingTopic.actors?.companies?.length) actorsList.push(`Companies: ${emergingTopic.actors.companies.join(', ')}`);
     if (emergingTopic.actors?.people?.length) actorsList.push(`People: ${emergingTopic.actors.people.join(', ')}`);
@@ -571,6 +791,22 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
       ? `\nKEY THEMES:\n${emergingTopic.key_themes.join(', ')}\n`
       : '';
 
+    // Build article details section
+    let articlesSection = '';
+    if (articles.length > 0) {
+      articlesSection = `\nSOURCE ARTICLES (${articles.length} articles analyzed):\n`;
+      articles.slice(0, 10).forEach((article: any, i: number) => {
+        articlesSection += `\n${i + 1}. "${article.title}"`;
+        articlesSection += `\n   Source: ${article.news_source || 'Unknown'}`;
+        articlesSection += `\n   Date: ${article.publication_date || 'Unknown'}`;
+        articlesSection += `\n   URI: ${article.uri}`;
+        if (article.summary) {
+          articlesSection += `\n   Summary: ${article.summary.substring(0, 300)}...`;
+        }
+      });
+      articlesSection += '\n';
+    }
+
     const prompt = `Analyze this emerging topic: "${emergingTopic.topic_label}"
 
 DESCRIPTION:
@@ -581,9 +817,9 @@ ${emergingTopic.why_emerging ? `WHY EMERGING:\n${emergingTopic.why_emerging}\n` 
 - Velocity: ${emergingTopic.velocity}
 - Detection Type: ${emergingTopic.detection_type}
 ${emergingTopic.trend_score ? `- Trend Score: ${Math.round(emergingTopic.trend_score.composite)}/100` : ''}
-${keywordsSection}${themesSection}${actorsList.length ? `KEY ACTORS:\n${actorsList.join('\n')}\n` : ''}${emergingTopic.events?.trigger_event ? `TRIGGER EVENT:\n${emergingTopic.events.trigger_event}\n` : ''}${emergingTopic.synthesis?.key_takeaway ? `KEY TAKEAWAY:\n${emergingTopic.synthesis.key_takeaway}\n` : ''}${emergingTopic.implications?.industry_impact ? `INDUSTRY IMPACT:\n${emergingTopic.implications.industry_impact}\n` : ''}
+${keywordsSection}${themesSection}${actorsList.length ? `KEY ACTORS:\n${actorsList.join('\n')}\n` : ''}${emergingTopic.events?.trigger_event ? `TRIGGER EVENT:\n${emergingTopic.events.trigger_event}\n` : ''}${emergingTopic.synthesis?.key_takeaway ? `KEY TAKEAWAY:\n${emergingTopic.synthesis.key_takeaway}\n` : ''}${emergingTopic.implications?.industry_impact ? `INDUSTRY IMPACT:\n${emergingTopic.implications.industry_impact}\n` : ''}${articlesSection}
 Please provide:
-1. Deep analysis of this emerging trend (search for and analyze related articles using the keywords above)
+1. Deep analysis of this emerging trend (use the source articles above for context)
 2. Potential implications for our organization
 3. Key developments to monitor
 4. Recommended actions or responses
@@ -591,6 +827,76 @@ Please provide:
 
     // Pass the topic filter to Auspex so it knows which collection to search
     openAuspexWithQuery(prompt, false, topic || 'All');
+  };
+
+  // Send to Future Horizons handler
+  const handleSendToHorizons = async (topicItem: EmergingTopic) => {
+    if (!topicItem.id) return;
+
+    setHorizonsLoading(topicItem.id);
+    setHorizonsTopicLabel(topicItem.topic_label);
+    setHorizonsTopicId(topicItem.id);
+    try {
+      const response = await fetch(`/api/emerging-topics/topics/${topicItem.id}/future-horizons`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: config.model,
+          future_horizon: 15,
+        }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setHorizonsResult(result);
+        setShowHorizonsModal(true);
+      } else {
+        const error = await response.json();
+        console.error('Failed to run Future Horizons analysis:', error);
+        alert(`Failed to run Future Horizons: ${error.detail || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Failed to run Future Horizons analysis:', error);
+      alert('Failed to run Future Horizons analysis. Please try again.');
+    } finally {
+      setHorizonsLoading(null);
+    }
+  };
+
+  // Save Future Horizons to theme
+  const handleSaveHorizons = async () => {
+    if (!horizonsTopicId || !horizonsResult) return;
+
+    setSavingHorizons(true);
+    try {
+      const response = await fetch(`/api/emerging-topics/topics/${horizonsTopicId}/save-horizons`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(horizonsResult),
+      });
+
+      if (response.ok) {
+        // Update local state to reflect saved horizons
+        setEmergingTopics(prev => prev.map(t =>
+          t.id === horizonsTopicId
+            ? { ...t, future_horizons: horizonsResult }
+            : t
+        ));
+        setShowHorizonsModal(false);
+      } else {
+        const error = await response.json();
+        alert(`Failed to save: ${error.detail || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Failed to save Future Horizons:', error);
+      alert('Failed to save Future Horizons. Please try again.');
+    } finally {
+      setSavingHorizons(false);
+    }
   };
 
   // Render actors section
@@ -627,89 +933,103 @@ Please provide:
     );
   };
 
-  // Render events section
+  // Render events section with visual timeline
   const renderEvents = (events: Events) => {
-    if (!events?.trigger_event && !events?.timeline?.length) return null;
+    if (!events?.trigger_event && !events?.timeline?.length && !events?.current_status) return null;
 
-    // Helper to format timeline item - handles both string and {date, event} object formats
-    const formatTimelineItem = (item: string | { date?: string; event?: string }): { date?: string; text: string } => {
-      if (typeof item === 'string') {
-        // Try to extract date from string like "Jan 5: Something happened"
-        const dateMatch = item.match(/^([A-Za-z]{3,}\s+\d{1,2}|\d{1,2}\/\d{1,2}|\d{4}-\d{2}-\d{2}):\s*(.+)$/);
-        if (dateMatch) {
-          return { date: dateMatch[1], text: dateMatch[2] };
-        }
-        return { text: item };
-      }
+    // Parse timeline items to extract date and event
+    const parseTimelineItem = (item: string | { date?: string; event?: string }): { date: string; event: string } => {
       if (typeof item === 'object' && item !== null) {
-        const { date, event } = item;
-        return { date, text: event || date || '' };
+        return { date: item.date || '', event: item.event || '' };
       }
-      return { text: String(item) };
+      // Try to parse "Date - Event" or "Date: Event" format from string
+      const str = String(item);
+      const dateMatch = str.match(/^([A-Za-z]+\s+\d{1,2},?\s*\d{0,4}|\d{4}-\d{2}-\d{2}|[A-Za-z]+\s+\d{4}|Prior to [^-:]+)\s*[-:]\s*/i);
+      if (dateMatch) {
+        return { date: dateMatch[1].trim(), event: str.substring(dateMatch[0].length).trim() };
+      }
+      return { date: '', event: str };
     };
 
-    const timelineItems = events.timeline?.slice(0, 4).map(formatTimelineItem) || [];
+    const timelineItems = (events.timeline || []).map(parseTimelineItem);
 
     return (
-      <div className="space-y-2">
+      <div className="space-y-3">
         <h5 className="text-xs font-medium text-gray-500 uppercase flex items-center gap-1">
           <Clock className="w-3 h-3" /> Events Timeline
         </h5>
 
-        {/* Trigger event */}
-        {events.trigger_event && (
-          <div className="text-sm bg-blue-50 dark:bg-blue-900/20 p-2 rounded border-l-4 border-blue-500">
-            <span className="font-medium text-blue-700 dark:text-blue-300">Trigger:</span>{' '}
-            <span className="text-gray-700 dark:text-gray-300">{events.trigger_event}</span>
-          </div>
-        )}
-
-        {/* Timeline with vertical bar */}
-        {timelineItems.length > 0 && (
-          <div className="relative pl-4">
-            {/* Vertical timeline bar */}
-            <div className="absolute left-1 top-1 bottom-1 w-0.5 bg-gradient-to-b from-blue-400 via-indigo-400 to-purple-400 rounded-full" />
-
-            <div className="space-y-3">
-              {timelineItems.map((item, i) => (
-                <div key={i} className="relative flex items-start gap-3">
-                  {/* Timeline dot */}
-                  <div
-                    className="absolute -left-3 top-1.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-gray-900"
-                    style={{
-                      backgroundColor: i === 0 ? '#3b82f6' : i === timelineItems.length - 1 ? '#8b5cf6' : '#6366f1'
-                    }}
-                  />
-
-                  {/* Event content */}
-                  <div className="flex-1 text-sm">
-                    {item.date && (
-                      <span className="text-xs font-medium text-gray-500 dark:text-gray-400 mr-2">
-                        {item.date}
-                      </span>
-                    )}
-                    <span className="text-gray-600 dark:text-gray-400">{item.text}</span>
-                  </div>
-                </div>
-              ))}
+        {/* Visual Timeline */}
+        <div className="relative">
+          {/* Trigger Event */}
+          {events.trigger_event && typeof events.trigger_event === 'string' && (
+            <div className="flex items-start gap-3 mb-3">
+              <div className="flex flex-col items-center">
+                <div className="w-4 h-4 rounded-full bg-red-500 border-2 border-red-300 flex-shrink-0 mt-1" />
+                <div className="w-0.5 bg-gray-300 dark:bg-gray-600 flex-grow min-h-[20px]" />
+              </div>
+              <div className="flex-1 pb-2">
+                <div className="text-xs font-semibold text-red-600 dark:text-red-400 uppercase tracking-wide">Trigger</div>
+                <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">{events.trigger_event}</p>
+              </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Current status */}
-        {events.current_status && (
-          <div className="text-sm bg-green-50 dark:bg-green-900/20 p-2 rounded border-l-4 border-green-500">
-            <span className="font-medium text-green-700 dark:text-green-300">Current:</span>{' '}
-            <span className="text-gray-700 dark:text-gray-300">{events.current_status}</span>
-          </div>
-        )}
+          {/* Timeline Items */}
+          {timelineItems.map((item, i) => (
+            <div key={i} className="flex items-start gap-3 mb-3">
+              <div className="flex flex-col items-center">
+                <div className="w-3 h-3 rounded-full bg-blue-500 border-2 border-blue-300 flex-shrink-0 mt-1.5" />
+                {(i < timelineItems.length - 1 || events.current_status) && (
+                  <div className="w-0.5 bg-gray-300 dark:bg-gray-600 flex-grow min-h-[20px]" />
+                )}
+              </div>
+              <div className="flex-1 pb-2">
+                {item.date && (
+                  <div className="text-xs font-medium text-blue-600 dark:text-blue-400">{item.date}</div>
+                )}
+                <p className="text-sm text-gray-700 dark:text-gray-300">{item.event}</p>
+              </div>
+            </div>
+          ))}
+
+          {/* Current Status */}
+          {events.current_status && typeof events.current_status === 'string' && (
+            <div className="flex items-start gap-3">
+              <div className="flex flex-col items-center">
+                <div className="w-4 h-4 rounded-full bg-green-500 border-2 border-green-300 flex-shrink-0 mt-1" />
+              </div>
+              <div className="flex-1">
+                <div className="text-xs font-semibold text-green-600 dark:text-green-400 uppercase tracking-wide">Current Status</div>
+                <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">{events.current_status}</p>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     );
   };
 
   // Render signals section
   const renderSignals = (signals: Signals) => {
-    const hasSignals = signals?.growth_indicators?.length || signals?.risk_factors?.length || signals?.watch_for?.length;
+    // Helper to safely render signal items - handles both strings and objects
+    const safeRender = (item: any): string => {
+      if (typeof item === 'string') return item;
+      if (typeof item === 'object' && item !== null) return JSON.stringify(item);
+      return String(item);
+    };
+
+    // Helper to get array of strings from signals field
+    const getStringArray = (arr: any): string[] => {
+      if (!Array.isArray(arr)) return [];
+      return arr.map(safeRender).filter(Boolean);
+    };
+
+    const growthIndicators = getStringArray(signals?.growth_indicators);
+    const riskFactors = getStringArray(signals?.risk_factors);
+    const watchFor = getStringArray(signals?.watch_for);
+
+    const hasSignals = growthIndicators.length || riskFactors.length || watchFor.length;
     if (!hasSignals) return null;
 
     return (
@@ -718,37 +1038,37 @@ Please provide:
           <Eye className="w-3 h-3" /> Signals
         </h5>
         <div className="grid grid-cols-3 gap-2 text-xs">
-          {signals.growth_indicators && signals.growth_indicators.length > 0 && (
+          {growthIndicators.length > 0 && (
             <div>
               <div className="font-medium text-green-600 mb-1 flex items-center gap-1">
                 <TrendingUp className="w-3 h-3" /> Growth
               </div>
               <ul className="text-gray-600 dark:text-gray-400 space-y-0.5">
-                {signals.growth_indicators.slice(0, 2).map((g, i) => (
+                {growthIndicators.slice(0, 2).map((g, i) => (
                   <li key={i}>• {g}</li>
                 ))}
               </ul>
             </div>
           )}
-          {signals.risk_factors && signals.risk_factors.length > 0 && (
+          {riskFactors.length > 0 && (
             <div>
               <div className="font-medium text-orange-600 mb-1 flex items-center gap-1">
                 <AlertTriangle className="w-3 h-3" /> Risks
               </div>
               <ul className="text-gray-600 dark:text-gray-400 space-y-0.5">
-                {signals.risk_factors.slice(0, 2).map((r, i) => (
+                {riskFactors.slice(0, 2).map((r, i) => (
                   <li key={i}>• {r}</li>
                 ))}
               </ul>
             </div>
           )}
-          {signals.watch_for && signals.watch_for.length > 0 && (
+          {watchFor.length > 0 && (
             <div>
               <div className="font-medium text-blue-600 mb-1 flex items-center gap-1">
                 <Target className="w-3 h-3" /> Watch
               </div>
               <ul className="text-gray-600 dark:text-gray-400 space-y-0.5">
-                {signals.watch_for.slice(0, 2).map((w, i) => (
+                {watchFor.slice(0, 2).map((w, i) => (
                   <li key={i}>• {w}</li>
                 ))}
               </ul>
@@ -800,7 +1120,7 @@ Please provide:
         <div>
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-amber-500" />
-            Emerging Topics
+            Emerging Themes
           </h2>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
             Emerging developments from your article corpus
@@ -833,7 +1153,7 @@ Please provide:
                 size="sm"
                 onClick={() => setExportMenuOpen(!exportMenuOpen)}
                 disabled={detecting}
-                title="Export all detected themes"
+                title="Export all trending themes"
               >
                 <Download className="w-4 h-4 mr-1" />
                 Export
@@ -946,63 +1266,62 @@ Please provide:
 
       {/* Stats Summary */}
       {!loading && emergingTopics.length > 0 && (
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-5 gap-3">
+          {/* Total Themes */}
           <Card>
-            <CardContent className="py-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-purple-100 dark:bg-purple-900 rounded-lg">
-                  <Sparkles className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+            <CardContent className="py-3">
+              <div className="text-center">
+                <div className="text-xl font-bold">{emergingTopics.length}</div>
+                <div className="text-xs text-gray-500">Total Themes</div>
+              </div>
+            </CardContent>
+          </Card>
+          {/* Total Signals */}
+          <Card>
+            <CardContent className="py-3">
+              <div className="text-center">
+                <div className="text-xl font-bold">
+                  {emergingTopics.reduce((sum, t) => sum + t.article_count, 0)}
                 </div>
-                <div>
-                  <div className="text-2xl font-bold">{emergingTopics.length}</div>
-                  <div className="text-xs text-gray-500">Total Themes</div>
+                <div className="text-xs text-gray-500">Total Signals</div>
+              </div>
+            </CardContent>
+          </Card>
+          {/* Accelerating */}
+          <Card>
+            <CardContent className="py-3">
+              <div className="text-center">
+                <div className="text-xl font-bold text-green-600">
+                  {emergingTopics.filter(t => t.velocity === 'accelerating').length}
+                </div>
+                <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
+                  <TrendingUp className="w-3 h-3" /> Accelerating
                 </div>
               </div>
             </CardContent>
           </Card>
+          {/* Stable */}
           <Card>
-            <CardContent className="py-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-green-100 dark:bg-green-900 rounded-lg">
-                  <TrendingUp className="w-5 h-5 text-green-600 dark:text-green-400" />
+            <CardContent className="py-3">
+              <div className="text-center">
+                <div className="text-xl font-bold text-blue-600">
+                  {emergingTopics.filter(t => t.velocity === 'stable').length}
                 </div>
-                <div>
-                  <div className="text-2xl font-bold">
-                    {emergingTopics.filter(t => t.velocity === 'accelerating').length}
-                  </div>
-                  <div className="text-xs text-gray-500">Accelerating</div>
+                <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
+                  <Minus className="w-3 h-3" /> Stable
                 </div>
               </div>
             </CardContent>
           </Card>
+          {/* Slowing */}
           <Card>
-            <CardContent className="py-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-blue-100 dark:bg-blue-900 rounded-lg">
-                  <BarChart3 className="w-5 h-5 text-blue-600 dark:text-blue-400" />
+            <CardContent className="py-3">
+              <div className="text-center">
+                <div className="text-xl font-bold text-amber-600">
+                  {emergingTopics.filter(t => t.velocity === 'decelerating').length}
                 </div>
-                <div>
-                  <div className="text-2xl font-bold">
-                    {emergingTopics.reduce((sum, t) => sum + t.article_count, 0)}
-                  </div>
-                  <div className="text-xs text-gray-500">Total Articles</div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="py-4">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-amber-100 dark:bg-amber-900 rounded-lg">
-                  <Gauge className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-                </div>
-                <div>
-                  <div className="text-2xl font-bold">
-                    {Math.round(
-                      emergingTopics.reduce((sum, t) => sum + (t.trend_score?.composite || t.confidence_score * 100), 0) / emergingTopics.length
-                    )}
-                  </div>
-                  <div className="text-xs text-gray-500">Avg Score</div>
+                <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
+                  <TrendingDown className="w-3 h-3" /> Slowing
                 </div>
               </div>
             </CardContent>
@@ -1010,7 +1329,7 @@ Please provide:
         </div>
       )}
 
-      {/* Emerging Topics Overview Dashboard */}
+      {/* Emerging Themes Overview Dashboard */}
       {emergingTopics.length >= 2 && (
         <TopicComparisonDashboard
           topics={emergingTopics}
@@ -1024,9 +1343,116 @@ Please provide:
         />
       )}
 
-      {/* Detected Themes - 2 column grid */}
+      {/* Trending Themes - 2 column grid */}
       <div className="space-y-4">
-        <h3 className="font-medium text-gray-900 dark:text-gray-100">Detected Themes</h3>
+        <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-3">
+            <h3 className="font-medium text-gray-900 dark:text-gray-100">Trending Themes</h3>
+            {/* View toggle */}
+            <div className="flex items-center border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+              <button
+                onClick={() => setViewMode('cards')}
+                className={`p-1.5 transition-colors ${
+                  viewMode === 'cards'
+                    ? 'bg-pink-100 text-pink-600 dark:bg-pink-900/50 dark:text-pink-400'
+                    : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+                title="Card view"
+              >
+                <LayoutGrid className="w-4 h-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('table')}
+                className={`p-1.5 transition-colors ${
+                  viewMode === 'table'
+                    ? 'bg-pink-100 text-pink-600 dark:bg-pink-900/50 dark:text-pink-400'
+                    : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800'
+                }`}
+                title="Table view"
+              >
+                <List className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Filter badges */}
+          {!loading && emergingTopics.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-gray-500">Filter:</span>
+              {/* Urgency filters (multiselect) */}
+              <button
+                onClick={() => toggleUrgencyFilter('high')}
+                className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
+                  urgencyFilters.has('high')
+                    ? 'bg-red-100 border-red-300 text-red-700 dark:bg-red-900/50 dark:border-red-700 dark:text-red-300'
+                    : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800'
+                }`}
+              >
+                High Urgency
+              </button>
+              <button
+                onClick={() => toggleUrgencyFilter('medium')}
+                className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
+                  urgencyFilters.has('medium')
+                    ? 'bg-amber-100 border-amber-300 text-amber-700 dark:bg-amber-900/50 dark:border-amber-700 dark:text-amber-300'
+                    : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800'
+                }`}
+              >
+                Medium
+              </button>
+              <button
+                onClick={() => toggleUrgencyFilter('low')}
+                className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
+                  urgencyFilters.has('low')
+                    ? 'bg-green-100 border-green-300 text-green-700 dark:bg-green-900/50 dark:border-green-700 dark:text-green-300'
+                    : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800'
+                }`}
+              >
+                Low
+              </button>
+              <span className="text-gray-300 dark:text-gray-600">|</span>
+              {/* Velocity filters (multiselect) */}
+              <button
+                onClick={() => toggleVelocityFilter('accelerating')}
+                className={`px-2 py-0.5 text-xs rounded-full border transition-colors flex items-center gap-1 ${
+                  velocityFilters.has('accelerating')
+                    ? 'bg-green-100 border-green-300 text-green-700 dark:bg-green-900/50 dark:border-green-700 dark:text-green-300'
+                    : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800'
+                }`}
+              >
+                <TrendingUp className="w-3 h-3" /> Accelerating
+              </button>
+              <button
+                onClick={() => toggleVelocityFilter('stable')}
+                className={`px-2 py-0.5 text-xs rounded-full border transition-colors flex items-center gap-1 ${
+                  velocityFilters.has('stable')
+                    ? 'bg-blue-100 border-blue-300 text-blue-700 dark:bg-blue-900/50 dark:border-blue-700 dark:text-blue-300'
+                    : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800'
+                }`}
+              >
+                <Minus className="w-3 h-3" /> Stable
+              </button>
+              <button
+                onClick={() => toggleVelocityFilter('decelerating')}
+                className={`px-2 py-0.5 text-xs rounded-full border transition-colors flex items-center gap-1 ${
+                  velocityFilters.has('decelerating')
+                    ? 'bg-amber-100 border-amber-300 text-amber-700 dark:bg-amber-900/50 dark:border-amber-700 dark:text-amber-300'
+                    : 'border-gray-200 text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:text-gray-400 dark:hover:bg-gray-800'
+                }`}
+              >
+                <TrendingDown className="w-3 h-3" /> Slowing
+              </button>
+              {(urgencyFilters.size > 0 || velocityFilters.size > 0) && (
+                <button
+                  onClick={() => { setUrgencyFilters(new Set()); setVelocityFilters(new Set()); }}
+                  className="px-2 py-0.5 text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
+        </div>
 
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -1036,15 +1462,183 @@ Please provide:
           <Card>
             <CardContent className="py-12 text-center">
               <Sparkles className="w-12 h-12 mx-auto text-gray-300 dark:text-gray-600 mb-4" />
-              <h4 className="font-medium text-gray-900 dark:text-gray-100">No emerging themes detected</h4>
+              <h4 className="font-medium text-gray-900 dark:text-gray-100">No trending themes detected</h4>
               <p className="text-sm text-gray-500 mt-1">
                 Run detection to identify new and growing developments
               </p>
             </CardContent>
           </Card>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {emergingTopics.map((topicItem) => {
+        ) : (() => {
+          // Apply filters (multiselect - show topics matching ANY selected filter in each category)
+          const filteredTopics = emergingTopics.filter(t => {
+            const topicUrgency = t.synthesis?.urgency || t.trend_score?.urgency || '';
+            if (urgencyFilters.size > 0 && !urgencyFilters.has(topicUrgency)) return false;
+            if (velocityFilters.size > 0 && !velocityFilters.has(t.velocity)) return false;
+            return true;
+          });
+
+          if (filteredTopics.length === 0) {
+            return (
+              <Card>
+                <CardContent className="py-8 text-center">
+                  <p className="text-sm text-gray-500">No themes match the selected filters</p>
+                  <button
+                    onClick={() => { setUrgencyFilters(new Set()); setVelocityFilters(new Set()); }}
+                    className="mt-2 text-sm text-blue-600 hover:text-blue-700"
+                  >
+                    Clear filters
+                  </button>
+                </CardContent>
+              </Card>
+            );
+          }
+
+          // Table view
+          if (viewMode === 'table') {
+            return (
+              <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-x-auto">
+                <table className="w-full text-sm border-collapse">
+                  <thead className="bg-gray-50 dark:bg-gray-800">
+                    <tr className="border-b border-gray-200 dark:border-gray-700">
+                      <th className="px-3 py-2 text-left font-medium text-gray-700 dark:text-gray-300" style={{minWidth: '200px'}}>Theme</th>
+                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-300" style={{minWidth: '50px'}}>Score</th>
+                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-300" style={{minWidth: '40px'}}>Vol</th>
+                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-300" style={{minWidth: '40px'}}>Div</th>
+                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-300" style={{minWidth: '40px'}}>Nov</th>
+                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-300" style={{minWidth: '50px'}}>Signals</th>
+                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-300" style={{minWidth: '80px'}}>Urgency</th>
+                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-300" style={{minWidth: '80px'}}>Velocity</th>
+                      <th className="px-2 py-2 text-center font-medium text-gray-700 dark:text-gray-300" style={{minWidth: '70px'}}>Type</th>
+                      <th className="px-2 py-2 text-right font-medium text-gray-700 dark:text-gray-300" style={{minWidth: '80px'}}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredTopics.map((topicItem) => {
+                      const typeStyle = getTypeBadgeStyle(topicItem.detection_type);
+                      const urgency = topicItem.synthesis?.urgency || topicItem.trend_score?.urgency || 'medium';
+                      const score = topicItem.trend_score?.composite || Math.round((topicItem.confidence_score || 0) * 100);
+
+                      return (
+                        <tr
+                          key={topicItem.id}
+                          id={`topic-${topicItem.id}`}
+                          className="cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800"
+                          onClick={() => {
+                            setViewMode('cards');
+                            setExpandedTopicId(topicItem.id);
+                            setTimeout(() => {
+                              document.getElementById(`topic-${topicItem.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                            }, 100);
+                          }}
+                        >
+                          <td className="px-3 py-2">
+                            <div>
+                              <div className="font-medium text-gray-900 dark:text-gray-100 line-clamp-1">
+                                {topicItem.topic_label}
+                              </div>
+                              <div className="text-xs text-gray-500 line-clamp-1 mt-0.5">
+                                {topicItem.topic_description}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-2 py-2 text-center">
+                            <span className={`font-bold ${getScoreColor(score)}`}>
+                              {Math.round(score)}
+                            </span>
+                          </td>
+                          <td className="px-2 py-2 text-center">
+                            <span className="text-sm text-gray-600 dark:text-gray-400">
+                              {topicItem.trend_score?.volume != null ? Math.round(topicItem.trend_score.volume) : '-'}
+                            </span>
+                          </td>
+                          <td className="px-2 py-2 text-center">
+                            <span className="text-sm text-gray-600 dark:text-gray-400">
+                              {topicItem.trend_score?.diversity != null ? Math.round(topicItem.trend_score.diversity) : '-'}
+                            </span>
+                          </td>
+                          <td className="px-2 py-2 text-center">
+                            <span className="text-sm text-gray-600 dark:text-gray-400">
+                              {topicItem.trend_score?.novelty != null ? Math.round(topicItem.trend_score.novelty) : '-'}
+                            </span>
+                          </td>
+                          <td className="px-2 py-2 text-center">
+                            <span className="font-medium">{topicItem.article_count}</span>
+                          </td>
+                          <td className="px-2 py-2 text-center">
+                            <Badge className={`text-xs ${urgencyStyles[urgency]?.className || 'bg-gray-100 text-gray-700'}`}>
+                              {urgencyStyles[urgency]?.label || urgency}
+                            </Badge>
+                          </td>
+                          <td className="px-2 py-2 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              {topicItem.velocity === 'accelerating' && <TrendingUp className="w-3.5 h-3.5 text-green-500" />}
+                              {topicItem.velocity === 'stable' && <Minus className="w-3.5 h-3.5 text-gray-400" />}
+                              {topicItem.velocity === 'decelerating' && <TrendingDown className="w-3.5 h-3.5 text-amber-500" />}
+                              <span className="text-xs capitalize">{topicItem.velocity}</span>
+                            </div>
+                          </td>
+                          <td className="px-2 py-2 text-center">
+                            <Badge className={`text-xs ${typeStyle.className}`}>
+                              {typeStyle.label}
+                            </Badge>
+                          </td>
+                          <td className="px-2 py-2 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleAskAuspex(topicItem);
+                                }}
+                                className="p-1 text-pink-600 hover:text-pink-700 hover:bg-pink-50 dark:hover:bg-pink-900/20 rounded"
+                                title="Ask Auspex"
+                              >
+                                <MessageSquare className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleShareTopic(topicItem);
+                                }}
+                                className="p-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
+                                title="Share"
+                              >
+                                <Share2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRetireTopic(topicItem.id);
+                                }}
+                                className="p-1 text-gray-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded"
+                                title="Retire (archive)"
+                              >
+                                <Archive className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setTopicToDelete(topicItem);
+                                }}
+                                className="p-1 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded"
+                                title="Delete permanently"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
+          }
+
+          // Card view
+          return (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {filteredTopics.map((topicItem) => {
                 const typeStyle = getTypeBadgeStyle(topicItem.detection_type);
                 const velocityStyle = getVelocityStyle(topicItem.velocity);
                 const isExpanded = expandedTopicId === topicItem.id;
@@ -1118,17 +1712,16 @@ Please provide:
                           )}
                         </div>
                         <div className="flex items-start gap-2 ml-4">
-                          {/* Ask Auspex Button */}
+                          {/* Retire Button */}
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              handleAskAuspex(topicItem);
+                              handleRetireTopic(topicItem.id);
                             }}
-                            className="inline-flex items-center gap-1 text-sm text-pink-600 dark:text-pink-400 hover:text-pink-700 dark:hover:text-pink-300 font-medium transition-colors"
-                            title="Ask Auspex about this topic"
+                            className="p-1 hover:bg-amber-100 dark:hover:bg-amber-900/30 rounded opacity-60 hover:opacity-100"
+                            title="Retire (archive this theme)"
                           >
-                            <MessageSquare className="w-3.5 h-3.5" />
-                            Ask Auspex
+                            <Archive className="w-4 h-4 text-gray-400 hover:text-amber-500" />
                           </button>
 
                           {/* Delete X Button */}
@@ -1230,7 +1823,7 @@ Please provide:
                           )}
 
                           {/* Key Takeaway from synthesis */}
-                          {topicItem.synthesis?.key_takeaway && (
+                          {topicItem.synthesis?.key_takeaway && typeof topicItem.synthesis.key_takeaway === 'string' && (
                             <div className="bg-purple-50 dark:bg-purple-900/20 p-3 rounded text-sm">
                               <span className="font-medium">Key Takeaway:</span> {topicItem.synthesis.key_takeaway}
                             </div>
@@ -1265,26 +1858,26 @@ Please provide:
                           {topicItem.implications && (
                             <div className="space-y-2">
                               <h5 className="text-xs font-medium text-gray-500 uppercase">Implications</h5>
-                              <div className="grid grid-cols-3 gap-2 text-xs">
-                                {topicItem.implications.industry_impact && (
-                                  <div className="bg-gray-50 dark:bg-gray-800 p-2 rounded">
-                                    <div className="font-medium mb-1">Industry</div>
+                              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm">
+                                {topicItem.implications.industry_impact && typeof topicItem.implications.industry_impact === 'string' && (
+                                  <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded">
+                                    <div className="font-medium mb-1 text-gray-700 dark:text-gray-300">Industry</div>
                                     <p className="text-gray-600 dark:text-gray-400">
                                       {topicItem.implications.industry_impact}
                                     </p>
                                   </div>
                                 )}
-                                {topicItem.implications.regulatory && (
-                                  <div className="bg-gray-50 dark:bg-gray-800 p-2 rounded">
-                                    <div className="font-medium mb-1">Regulatory</div>
+                                {topicItem.implications.regulatory && typeof topicItem.implications.regulatory === 'string' && (
+                                  <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded">
+                                    <div className="font-medium mb-1 text-gray-700 dark:text-gray-300">Regulatory</div>
                                     <p className="text-gray-600 dark:text-gray-400">
                                       {topicItem.implications.regulatory}
                                     </p>
                                   </div>
                                 )}
-                                {topicItem.implications.market && (
-                                  <div className="bg-gray-50 dark:bg-gray-800 p-2 rounded">
-                                    <div className="font-medium mb-1">Market</div>
+                                {topicItem.implications.market && typeof topicItem.implications.market === 'string' && (
+                                  <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded">
+                                    <div className="font-medium mb-1 text-gray-700 dark:text-gray-300">Market</div>
                                     <p className="text-gray-600 dark:text-gray-400">
                                       {topicItem.implications.market}
                                     </p>
@@ -1293,6 +1886,117 @@ Please provide:
                               </div>
                             </div>
                           )}
+
+                          {/* Organization-Specific Implications */}
+                          {topicItem.organization_implications && (
+                            <div className="space-y-2">
+                              <h5 className="text-xs font-medium text-indigo-600 dark:text-indigo-400 uppercase flex items-center gap-1">
+                                <Building2 className="w-3 h-3" /> Organization Implications
+                              </h5>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                                {topicItem.organization_implications.strategic_relevance && typeof topicItem.organization_implications.strategic_relevance === 'string' && (
+                                  <div className="bg-indigo-50 dark:bg-indigo-900/30 p-3 rounded border-l-2 border-indigo-500">
+                                    <div className="font-medium mb-1 text-indigo-700 dark:text-indigo-300">Strategic Relevance</div>
+                                    <p className="text-gray-600 dark:text-gray-400">
+                                      {topicItem.organization_implications.strategic_relevance}
+                                    </p>
+                                  </div>
+                                )}
+                                {topicItem.organization_implications.stakeholder_impact && typeof topicItem.organization_implications.stakeholder_impact === 'string' && (
+                                  <div className="bg-indigo-50 dark:bg-indigo-900/30 p-3 rounded border-l-2 border-indigo-500">
+                                    <div className="font-medium mb-1 text-indigo-700 dark:text-indigo-300">Stakeholder Impact</div>
+                                    <p className="text-gray-600 dark:text-gray-400">
+                                      {topicItem.organization_implications.stakeholder_impact}
+                                    </p>
+                                  </div>
+                                )}
+                                {topicItem.organization_implications.risk_assessment && typeof topicItem.organization_implications.risk_assessment === 'string' && (
+                                  <div className="bg-indigo-50 dark:bg-indigo-900/30 p-3 rounded border-l-2 border-indigo-500">
+                                    <div className="font-medium mb-1 text-indigo-700 dark:text-indigo-300">Risk Assessment</div>
+                                    <p className="text-gray-600 dark:text-gray-400">
+                                      {topicItem.organization_implications.risk_assessment}
+                                    </p>
+                                  </div>
+                                )}
+                                {topicItem.organization_implications.recommended_response && typeof topicItem.organization_implications.recommended_response === 'string' && (
+                                  <div className="bg-indigo-50 dark:bg-indigo-900/30 p-3 rounded border-l-2 border-indigo-500">
+                                    <div className="font-medium mb-1 text-indigo-700 dark:text-indigo-300">Recommended Response</div>
+                                    <p className="text-gray-600 dark:text-gray-400">
+                                      {topicItem.organization_implications.recommended_response}
+                                    </p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Saved Future Horizons Scenarios */}
+                          {topicItem.future_horizons?.scenarios && topicItem.future_horizons.scenarios.length > 0 && (
+                            <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700">
+                              <div className="flex items-center gap-2 mb-2">
+                                <Compass className="w-4 h-4 text-indigo-500" />
+                                <h5 className="text-xs font-medium text-gray-500 uppercase">Future Horizons</h5>
+                              </div>
+                              <div className="space-y-2">
+                                {topicItem.future_horizons.scenarios.map((scenario: any, idx: number) => {
+                                  const typeColors: Record<string, string> = {
+                                    probable: 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300',
+                                    plausible: 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300',
+                                    possible: 'bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300',
+                                    wildcard: 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300',
+                                  };
+                                  const typeLabels: Record<string, string> = {
+                                    probable: 'Probable',
+                                    plausible: 'Plausible',
+                                    possible: 'Possible',
+                                    wildcard: 'Wildcard',
+                                  };
+                                  return (
+                                    <div key={idx} className="flex items-start gap-2 p-2 bg-gray-50 dark:bg-gray-800 rounded">
+                                      <span className={`px-2 py-0.5 rounded text-xs font-medium flex-shrink-0 ${typeColors[scenario.type] || 'bg-gray-100 text-gray-700'}`}>
+                                        {typeLabels[scenario.type] || scenario.type}
+                                      </span>
+                                      <div className="min-w-0 flex-1">
+                                        <div className="font-medium text-sm text-gray-900 dark:text-gray-100">{scenario.title}</div>
+                                        <div className="text-sm text-gray-500 mt-0.5">{scenario.description}</div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Action Buttons */}
+                          <div className="flex items-center gap-3 pt-2 border-t border-gray-100 dark:border-gray-700">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleAskAuspex(topicItem);
+                              }}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-pink-600 dark:text-pink-400 hover:text-pink-700 dark:hover:text-pink-300 hover:bg-pink-50 dark:hover:bg-pink-900/20 font-medium transition-colors rounded-md"
+                              title="Ask Auspex about this topic"
+                            >
+                              <MessageSquare className="w-4 h-4" />
+                              Ask Auspex
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSendToHorizons(topicItem);
+                              }}
+                              disabled={horizonsLoading === topicItem.id}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 font-medium transition-colors rounded-md disabled:opacity-50"
+                              title="Project this topic into Future Horizons scenarios"
+                            >
+                              {horizonsLoading === topicItem.id ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <Compass className="w-4 h-4" />
+                              )}
+                              Future Horizons
+                            </button>
+                          </div>
 
                           {/* Sample Articles from details */}
                           {details?.articles && details.articles.length > 0 && (
@@ -1354,6 +2058,91 @@ Please provide:
                   </Card>
                 );
               })}
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* Retired Themes Section */}
+      <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
+        <button
+          onClick={() => {
+            if (!showRetired && retiredTopics.length === 0) {
+              fetchRetiredTopics();
+            }
+            setShowRetired(!showRetired);
+          }}
+          className="flex items-center gap-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 transition-colors"
+        >
+          {showRetired ? (
+            <ChevronDown className="w-4 h-4" />
+          ) : (
+            <ChevronRight className="w-4 h-4" />
+          )}
+          <Archive className="w-4 h-4" />
+          <span className="font-medium">Retired Themes</span>
+          {retiredTopics.length > 0 && (
+            <span className="text-xs bg-gray-200 dark:bg-gray-700 px-2 py-0.5 rounded-full">
+              {retiredTopics.length}
+            </span>
+          )}
+        </button>
+
+        {showRetired && (
+          <div className="mt-4 space-y-3">
+            {loadingRetired ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+              </div>
+            ) : retiredTopics.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">
+                <Archive className="w-10 h-10 mx-auto text-gray-300 dark:text-gray-600 mb-3" />
+                <p className="text-sm">No retired themes</p>
+                <p className="text-xs text-gray-400 mt-1">
+                  Themes you retire will appear here
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {retiredTopics.map((topic) => (
+                  <Card key={topic.id} className="opacity-70 hover:opacity-100 transition-opacity">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1 min-w-0">
+                          <CardTitle className="text-base line-clamp-2">
+                            {topic.topic_label}
+                          </CardTitle>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {topic.article_count} articles
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => handleRestoreTopic(topic.id)}
+                          className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 dark:hover:bg-green-900/20 rounded transition-colors"
+                          title="Restore theme"
+                        >
+                          <RotateCcw className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="pt-0">
+                      <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2">
+                        {typeof topic.synthesis?.key_takeaway === 'string'
+                          ? topic.synthesis.key_takeaway
+                          : topic.topic_description || 'No summary available'}
+                      </p>
+                      {topic.trend_score && (
+                        <div className="mt-2 flex items-center gap-2 text-xs text-gray-500">
+                          <span className={getScoreColor(topic.trend_score.composite)}>
+                            Score: {Math.round(topic.trend_score.composite)}
+                          </span>
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1440,7 +2229,7 @@ Please provide:
       <Dialog open={!!topicToDelete} onOpenChange={() => setTopicToDelete(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Emerging Topic?</DialogTitle>
+            <DialogTitle>Delete Emerging Theme?</DialogTitle>
             <DialogDescription>
               "{topicToDelete?.topic_label}" will be permanently deleted.
             </DialogDescription>
@@ -1465,14 +2254,14 @@ Please provide:
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-amber-500" />
-              Clear All Detected Topics?
+              Clear All Detected Themes?
             </DialogTitle>
             <DialogDescription className="space-y-2">
               <p>
-                This will permanently delete <strong>{emergingTopics.length} detected topics</strong> from the database.
+                This will permanently delete <strong>{emergingTopics.length} detected themes</strong> from the database.
               </p>
               <p className="text-amber-600 dark:text-amber-400 font-medium">
-                Warning: This will reset all detection counters and tracking history. Topics will need to be re-detected.
+                Warning: This will reset all detection counters and tracking history. Themes will need to be re-detected.
               </p>
             </DialogDescription>
           </DialogHeader>
@@ -1501,7 +2290,131 @@ Please provide:
                 setShowClearConfirm(false);
               }}
             >
-              Clear All Topics
+              Clear All Themes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Share Modal */}
+      {shareData && (
+        <ShareModal
+          open={showShareModal}
+          onOpenChange={setShowShareModal}
+          data={shareData}
+        />
+      )}
+
+      {/* Future Horizons Results Modal */}
+      <Dialog open={showHorizonsModal} onOpenChange={setShowHorizonsModal}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto overflow-x-hidden">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Compass className="w-5 h-5 text-indigo-600" />
+              Future Horizons: {horizonsTopicLabel}
+            </DialogTitle>
+            <DialogDescription>
+              Futures cone analysis projecting potential scenarios over the next 15 years
+            </DialogDescription>
+          </DialogHeader>
+
+          {horizonsResult && (
+            <div className="space-y-4 mt-4">
+              {/* Scenarios as Cards instead of Table for better formatting */}
+              {horizonsResult.scenarios && horizonsResult.scenarios.length > 0 && (
+                <div className="space-y-3">
+                  {horizonsResult.scenarios.map((scenario: any, i: number) => {
+                    const typeColors: Record<string, string> = {
+                      probable: 'border-l-green-500 bg-green-50/50 dark:bg-green-900/20',
+                      plausible: 'border-l-blue-500 bg-blue-50/50 dark:bg-blue-900/20',
+                      possible: 'border-l-amber-500 bg-amber-50/50 dark:bg-amber-900/20',
+                      wildcard: 'border-l-purple-500 bg-purple-50/50 dark:bg-purple-900/20',
+                      preferable: 'border-l-cyan-500 bg-cyan-50/50 dark:bg-cyan-900/20'
+                    };
+                    const badgeColors: Record<string, string> = {
+                      probable: 'text-green-700 bg-green-100 dark:text-green-300 dark:bg-green-900/50',
+                      plausible: 'text-blue-700 bg-blue-100 dark:text-blue-300 dark:bg-blue-900/50',
+                      possible: 'text-amber-700 bg-amber-100 dark:text-amber-300 dark:bg-amber-900/50',
+                      wildcard: 'text-purple-700 bg-purple-100 dark:text-purple-300 dark:bg-purple-900/50',
+                      preferable: 'text-cyan-700 bg-cyan-100 dark:text-cyan-300 dark:bg-cyan-900/50'
+                    };
+                    const typeLabels: Record<string, string> = {
+                      probable: 'Probable',
+                      plausible: 'Plausible',
+                      possible: 'Possible',
+                      wildcard: 'Wild Card',
+                      preferable: 'Preferable'
+                    };
+                    return (
+                      <div key={i} className={`border-l-4 rounded-r-lg p-3 ${typeColors[scenario.type] || 'border-l-gray-400 bg-gray-50/50'}`}>
+                        <div className="flex items-start justify-between gap-2 mb-1">
+                          <span className={`px-2 py-0.5 rounded text-xs font-medium ${badgeColors[scenario.type] || 'text-gray-700 bg-gray-100'}`}>
+                            {typeLabels[scenario.type] || scenario.type}
+                          </span>
+                          {scenario.timeframe && (
+                            <span className="text-xs text-gray-500">{scenario.timeframe}</span>
+                          )}
+                        </div>
+                        <div className="font-medium text-sm text-gray-900 dark:text-gray-100">{scenario.title}</div>
+                        <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">{scenario.description}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Key Signals */}
+              {horizonsResult.key_signals && horizonsResult.key_signals.length > 0 && (
+                <div className="bg-gray-50 dark:bg-gray-800 p-3 rounded-lg">
+                  <h4 className="font-medium text-sm text-gray-900 dark:text-gray-100 mb-2">Key Signals to Watch</h4>
+                  <ul className="list-disc list-inside space-y-1 text-xs text-gray-600 dark:text-gray-400">
+                    {horizonsResult.key_signals.map((signal: string, i: number) => (
+                      <li key={i}>{signal}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Model Used */}
+              {horizonsResult.metadata?.model_used && (
+                <div className="text-xs text-gray-400 text-right">
+                  Generated using {horizonsResult.metadata.model_used}
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="mt-4 flex flex-wrap gap-2 justify-end">
+            <Button variant="outline" onClick={() => setShowHorizonsModal(false)}>
+              Close
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                const topic = emergingTopics.find(t => t.id === horizonsTopicId);
+                if (topic) {
+                  setShowHorizonsModal(false);
+                  handleSendToHorizons(topic);
+                }
+              }}
+              disabled={horizonsLoading !== null}
+            >
+              <RotateCcw className="w-4 h-4 mr-1" />
+              Regenerate
+            </Button>
+            <Button
+              onClick={handleSaveHorizons}
+              disabled={savingHorizons}
+              className="bg-indigo-600 hover:bg-indigo-700"
+            >
+              {savingHorizons ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                'Save to Theme'
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

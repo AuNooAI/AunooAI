@@ -1,27 +1,28 @@
 /**
- * TopicsTimelineChart - Horizontal timeline showing emerging topics across recent days
+ * TopicsTimelineChart - Horizontal timeline showing individual signals across recent days
  * Features:
- * - Arrow icons showing trajectory (up/down/right)
- * - Category icons (business, geopolitics, regulation, society, technology, other)
- * - Tail length indicating topic duration
+ * - Individual dots for each signal (article) within a topic
+ * - Category-based swimlanes (business, geopolitics, regulation, society, technology, other)
+ * - Dots colored by urgency level, sized by score
  */
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
-  TrendingUp,
-  TrendingDown,
-  ArrowRight,
   Building2,
   Globe,
   Scale,
   Users,
   Cpu,
   HelpCircle,
+  AlertTriangle,
+  TrendingUp,
+  TrendingDown,
+  Minus,
 } from 'lucide-react';
-import { format, subDays, differenceInDays, parseISO, isValid } from 'date-fns';
+import { format, subDays, differenceInDays, parseISO, isValid, addDays } from 'date-fns';
 
 // Category definitions
-export type TopicCategory = 'business' | 'geopolitics' | 'regulation' | 'society' | 'technology' | 'other';
+export type TopicCategory = 'business' | 'geopolitics' | 'regulation' | 'society' | 'technology' | 'crisis' | 'other';
 
 const CATEGORY_CONFIG: Record<TopicCategory, { icon: React.ComponentType<{ className?: string }>; color: string; label: string }> = {
   business: { icon: Building2, color: '#3b82f6', label: 'Business' },
@@ -29,6 +30,7 @@ const CATEGORY_CONFIG: Record<TopicCategory, { icon: React.ComponentType<{ class
   regulation: { icon: Scale, color: '#8b5cf6', label: 'Regulation' },
   society: { icon: Users, color: '#22c55e', label: 'Society' },
   technology: { icon: Cpu, color: '#06b6d4', label: 'Technology' },
+  crisis: { icon: AlertTriangle, color: '#f97316', label: 'Crisis' },
   other: { icon: HelpCircle, color: '#6b7280', label: 'Other' },
 };
 
@@ -39,6 +41,7 @@ const CATEGORY_KEYWORDS: Record<TopicCategory, string[]> = {
   regulation: ['law', 'regulation', 'policy', 'legislation', 'compliance', 'legal', 'court', 'privacy', 'antitrust', 'government', 'bill', 'act', 'ruling', 'enforcement'],
   society: ['social', 'culture', 'health', 'education', 'community', 'public', 'climate', 'environment', 'protest', 'rights', 'welfare', 'demographic'],
   technology: ['ai', 'artificial intelligence', 'tech', 'software', 'digital', 'cyber', 'data', 'cloud', 'quantum', 'automation', 'algorithm', 'semiconductor', 'chip'],
+  crisis: ['crisis', 'emergency', 'disaster', 'catastrophe', 'outbreak', 'pandemic', 'collapse', 'failure', 'crash', 'breach', 'attack', 'threat', 'warning', 'alert', 'urgent', 'critical', 'severe', 'escalation', 'volatility', 'turmoil', 'disruption', 'shortage', 'outage'],
   other: [],
 };
 
@@ -50,8 +53,12 @@ interface EmergingTopicData {
   last_detection_date?: string;
   velocity: 'accelerating' | 'stable' | 'decelerating';
   trajectory?: string;
+  article_count: number;
   trend_score?: {
     composite: number;
+    urgency?: 'low' | 'medium' | 'high';
+  };
+  synthesis?: {
     urgency?: 'low' | 'medium' | 'high';
   };
   key_themes?: string[];
@@ -62,6 +69,7 @@ interface TopicsTimelineChartProps {
   daysToShow?: number;
   className?: string;
   onTopicClick?: (topic: EmergingTopicData) => void;
+  hideTitle?: boolean;
 }
 
 // Classify a topic into a category based on label and themes
@@ -82,16 +90,28 @@ function classifyTopic(topic: EmergingTopicData): TopicCategory {
   return 'other';
 }
 
-// Get trajectory arrow icon and color
-function getTrajectoryIcon(velocity: string, trajectory?: string) {
-  const effectiveTrajectory = trajectory || velocity;
-  if (effectiveTrajectory === 'accelerating' || effectiveTrajectory === 'rising') {
-    return { Icon: TrendingUp, color: '#22c55e' };
+// Get urgency color
+function getUrgencyColor(urgency: string | undefined): string {
+  switch (urgency) {
+    case 'high': return '#ef4444'; // Red
+    case 'medium': return '#f59e0b'; // Amber
+    case 'low': return '#22c55e'; // Green
+    default: return '#3b82f6'; // Blue
   }
-  if (effectiveTrajectory === 'decelerating' || effectiveTrajectory === 'declining') {
-    return { Icon: TrendingDown, color: '#ef4444' };
-  }
-  return { Icon: ArrowRight, color: '#6b7280' };
+}
+
+// Generate signal dots for a topic based on article_count and date range
+interface SignalDot {
+  id: string;
+  topicId: number;
+  topic_label: string;
+  positionPercent: number;
+  category: TopicCategory;
+  urgency: string;
+  velocity: 'accelerating' | 'stable' | 'decelerating';
+  score: number;
+  signalIndex: number;
+  totalSignals: number;
 }
 
 export function TopicsTimelineChart({
@@ -99,7 +119,11 @@ export function TopicsTimelineChart({
   daysToShow = 7,
   className = '',
   onTopicClick,
+  hideTitle = false,
 }: TopicsTimelineChartProps) {
+  const [hoveredSignal, setHoveredSignal] = useState<SignalDot | null>(null);
+  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+
   // Generate date range
   const dateRange = useMemo(() => {
     const dates: Date[] = [];
@@ -110,75 +134,120 @@ export function TopicsTimelineChart({
     return dates;
   }, [daysToShow]);
 
-  // Process topics with categories and positions
-  const processedTopics = useMemo(() => {
+  // Generate individual signal dots from topics
+  const signalDots = useMemo(() => {
     const today = new Date();
     const startDate = subDays(today, daysToShow - 1);
+    const dots: SignalDot[] = [];
 
-    return topics
-      .map(topic => {
-        const category = classifyTopic(topic);
-        const detectionDate = topic.detection_date ? parseISO(topic.detection_date) : new Date();
-        const firstDetection = topic.first_detection_date ? parseISO(topic.first_detection_date) : detectionDate;
-        const lastDetection = topic.last_detection_date ? parseISO(topic.last_detection_date) : detectionDate;
+    topics.forEach(topic => {
+      const category = classifyTopic(topic);
+      const detectionDate = topic.detection_date ? parseISO(topic.detection_date) : new Date();
+      const firstDetection = topic.first_detection_date ? parseISO(topic.first_detection_date) : detectionDate;
+      const lastDetection = topic.last_detection_date ? parseISO(topic.last_detection_date) : detectionDate;
 
-        // Calculate position on timeline (0-100%)
-        const daysFromStart = differenceInDays(detectionDate, startDate);
-        const positionPercent = Math.max(0, Math.min(100, (daysFromStart / (daysToShow - 1)) * 100));
+      // Determine valid date range (clamped to visible window)
+      const rangeStart = isValid(firstDetection) && firstDetection > startDate ? firstDetection : startDate;
+      const rangeEnd = isValid(lastDetection) && lastDetection < today ? lastDetection : today;
+      const rangeDays = Math.max(1, differenceInDays(rangeEnd, rangeStart) + 1);
 
-        // Calculate duration for tail length
-        const durationDays = isValid(firstDetection) && isValid(lastDetection)
-          ? Math.max(1, differenceInDays(lastDetection, firstDetection) + 1)
-          : 1;
-        const tailWidth = Math.min(30, durationDays * 8); // Max 30% width
+      // Generate dots based on article_count, distributed across the date range
+      const signalCount = Math.min(topic.article_count || 1, 20); // Cap at 20 dots per topic
+      const urgency = topic.trend_score?.urgency || topic.synthesis?.urgency || 'medium';
+      const velocity = topic.velocity || 'stable';
+      const score = topic.trend_score?.composite || 50;
 
-        return {
-          ...topic,
-          category,
+      for (let i = 0; i < signalCount; i++) {
+        // Deterministic jitter based on topic id and signal index
+        const hash = ((topic.id * 17 + i * 31) % 100) / 100; // 0-1 deterministic value
+        const jitterOffset = (hash - 0.5) * 0.8; // +/- 0.4 days of jitter
+
+        // Distribute dots across the topic's date range with deterministic jitter
+        const dayOffset = rangeDays > 1
+          ? (i / (signalCount - 1 || 1)) * (rangeDays - 1) + jitterOffset
+          : jitterOffset * 0.5;
+        const signalDate = addDays(rangeStart, Math.max(0, Math.min(rangeDays - 1, dayOffset)));
+
+        const daysFromStart = differenceInDays(signalDate, startDate);
+        // Add small horizontal jitter to position (for dots on same day)
+        const positionJitter = ((topic.id * 7 + i * 13) % 20 - 10) / 100 * (100 / daysToShow);
+        const positionPercent = Math.max(0, Math.min(100, (daysFromStart / (daysToShow - 1)) * 100 + positionJitter));
+
+        dots.push({
+          id: `${topic.id}-${i}`,
+          topicId: topic.id,
+          topic_label: topic.topic_label,
           positionPercent,
-          tailWidth,
-          durationDays,
-        };
-      })
-      .filter(t => t.positionPercent >= 0 && t.positionPercent <= 100)
-      .sort((a, b) => a.positionPercent - b.positionPercent);
+          category,
+          urgency,
+          velocity,
+          score,
+          signalIndex: i + 1,
+          totalSignals: signalCount,
+        });
+      }
+    });
+
+    return dots;
   }, [topics, daysToShow]);
 
-  // Group topics by category for Y-axis positioning
-  const topicsByCategory = useMemo(() => {
+  // Group signals by category
+  const signalsByCategory = useMemo(() => {
     const categories = Object.keys(CATEGORY_CONFIG) as TopicCategory[];
     return categories.map(cat => ({
       category: cat,
-      topics: processedTopics.filter(t => t.category === cat),
-    })).filter(g => g.topics.length > 0);
-  }, [processedTopics]);
+      signals: signalDots.filter(s => s.category === cat),
+    })).filter(g => g.signals.length > 0);
+  }, [signalDots]);
+
+  // Count topics per category for legend
+  const topicCountByCategory = useMemo(() => {
+    const counts: Record<TopicCategory, number> = {} as Record<TopicCategory, number>;
+    topics.forEach(t => {
+      const cat = classifyTopic(t);
+      counts[cat] = (counts[cat] || 0) + 1;
+    });
+    return counts;
+  }, [topics]);
 
   if (topics.length === 0) {
     return (
       <div className={`p-4 text-center text-gray-500 dark:text-gray-400 ${className}`}>
-        No emerging topics detected in the last {daysToShow} days
+        No emerging themes detected in the last {daysToShow} days
       </div>
     );
   }
 
+  const handleMouseEnter = (signal: SignalDot, e: React.MouseEvent) => {
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    setTooltipPos({ x: rect.left + rect.width / 2, y: rect.top });
+    setHoveredSignal(signal);
+  };
+
+  const handleMouseLeave = () => {
+    setHoveredSignal(null);
+  };
+
   return (
-    <div className={`bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 ${className}`}>
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">
-          Topics Timeline ({daysToShow} Days)
-        </h3>
-        <div className="flex items-center gap-3 text-xs text-gray-500">
-          <span className="flex items-center gap-1">
-            <TrendingUp className="w-3 h-3 text-green-500" /> Rising
-          </span>
-          <span className="flex items-center gap-1">
-            <ArrowRight className="w-3 h-3 text-gray-500" /> Stable
-          </span>
-          <span className="flex items-center gap-1">
-            <TrendingDown className="w-3 h-3 text-red-500" /> Declining
-          </span>
+    <div className={`bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 relative ${className}`}>
+      {!hideTitle && (
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            Signals Timeline ({daysToShow} Days)
+          </h3>
+          <div className="flex items-center gap-3 text-xs text-gray-500">
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-red-500" /> High
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-amber-500" /> Medium
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-green-500" /> Low
+            </span>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Timeline */}
       <div className="relative">
@@ -201,14 +270,14 @@ export function TopicsTimelineChart({
           ))}
         </div>
 
-        {/* Category rows */}
-        <div className="relative space-y-2">
-          {topicsByCategory.map(({ category, topics: catTopics }) => {
+        {/* Category swimlanes */}
+        <div className="relative space-y-1">
+          {signalsByCategory.map(({ category, signals }) => {
             const config = CATEGORY_CONFIG[category];
             const CategoryIcon = config.icon;
 
             return (
-              <div key={category} className="relative h-10 flex items-center">
+              <div key={category} className="relative h-12 flex items-center">
                 {/* Category label */}
                 <div
                   className="w-24 flex items-center gap-1.5 text-xs font-medium"
@@ -218,57 +287,44 @@ export function TopicsTimelineChart({
                   <span className="truncate">{config.label}</span>
                 </div>
 
-                {/* Topic markers */}
+                {/* Signal dots */}
                 <div className="flex-1 relative h-full">
-                  {catTopics.map((topic, idx) => {
-                    const { Icon: TrajectoryIcon, color: trajectoryColor } = getTrajectoryIcon(
-                      topic.velocity,
-                      topic.trajectory
-                    );
+                  {signals.map((signal) => {
+                    // Deterministic vertical jitter based on topic id and signal index
+                    // Spread dots across the full swimlane height (-16px to +16px)
+                    const vertHash = ((signal.topicId * 13 + signal.signalIndex * 23) % 100) / 100;
+                    const jitter = (vertHash - 0.5) * 32; // Range: -16px to +16px
+
+                    // Velocity icon selection
+                    const VelocityIcon = signal.velocity === 'accelerating'
+                      ? TrendingUp
+                      : signal.velocity === 'decelerating'
+                        ? TrendingDown
+                        : Minus;
 
                     return (
                       <div
-                        key={topic.id}
-                        className="absolute top-1/2 -translate-y-1/2 flex items-center cursor-pointer hover:z-10 group"
+                        key={signal.id}
+                        className="absolute top-1/2 cursor-pointer hover:z-10 transition-transform hover:scale-150"
                         style={{
-                          left: `${topic.positionPercent}%`,
-                          transform: `translateX(-50%) translateY(-50%)`,
+                          left: `${signal.positionPercent}%`,
+                          transform: `translateX(-50%) translateY(calc(-50% + ${jitter}px))`,
                         }}
-                        onClick={() => onTopicClick?.(topic)}
-                        title={`${topic.topic_label}\n${topic.durationDays} day${topic.durationDays > 1 ? 's' : ''}`}
+                        onMouseEnter={(e) => handleMouseEnter(signal, e)}
+                        onMouseLeave={handleMouseLeave}
+                        onClick={() => {
+                          const topic = topics.find(t => t.id === signal.topicId);
+                          if (topic) onTopicClick?.(topic);
+                        }}
                       >
-                        {/* Duration tail */}
-                        {topic.tailWidth > 8 && (
-                          <div
-                            className="absolute h-1.5 rounded-full opacity-40 -z-10"
-                            style={{
-                              width: `${topic.tailWidth}px`,
-                              right: '50%',
-                              backgroundColor: config.color,
-                            }}
-                          />
-                        )}
-
-                        {/* Topic marker */}
                         <div
-                          className="w-6 h-6 rounded-full flex items-center justify-center shadow-sm border-2 bg-white dark:bg-gray-800 group-hover:scale-125 transition-transform"
-                          style={{ borderColor: config.color }}
+                          className="w-4 h-4 rounded-full border-2 flex items-center justify-center"
+                          style={{
+                            backgroundColor: getUrgencyColor(signal.urgency),
+                            borderColor: config.color,
+                          }}
                         >
-                          <TrajectoryIcon
-                            className="w-3.5 h-3.5"
-                            style={{ color: trajectoryColor }}
-                          />
-                        </div>
-
-                        {/* Tooltip on hover */}
-                        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20">
-                          <div className="bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap shadow-lg">
-                            <div className="font-medium">{topic.topic_label}</div>
-                            <div className="text-gray-300 text-[10px]">
-                              {topic.durationDays} day{topic.durationDays > 1 ? 's' : ''} |{' '}
-                              {topic.trend_score ? `Score: ${Math.round(topic.trend_score.composite)}` : ''}
-                            </div>
-                          </div>
+                          <VelocityIcon className="w-2 h-2 text-white drop-shadow-sm" />
                         </div>
                       </div>
                     );
@@ -282,20 +338,40 @@ export function TopicsTimelineChart({
         {/* Category legend */}
         <div className="flex flex-wrap gap-3 mt-4 pt-3 border-t border-gray-100 dark:border-gray-800">
           {(Object.entries(CATEGORY_CONFIG) as [TopicCategory, typeof CATEGORY_CONFIG[TopicCategory]][]).map(([cat, config]) => {
-            const count = processedTopics.filter(t => t.category === cat).length;
-            if (count === 0) return null;
+            const topicCount = topicCountByCategory[cat] || 0;
+            const signalCount = signalDots.filter(s => s.category === cat).length;
+            if (topicCount === 0) return null;
             const Icon = config.icon;
             return (
               <div key={cat} className="flex items-center gap-1 text-xs">
                 <Icon className="w-3 h-3" style={{ color: config.color }} />
                 <span className="text-gray-600 dark:text-gray-400">
-                  {config.label} ({count})
+                  {config.label}: {topicCount} themes, {signalCount} signals
                 </span>
               </div>
             );
           })}
         </div>
       </div>
+
+      {/* Tooltip (rendered outside the chart for proper stacking) */}
+      {hoveredSignal && (
+        <div
+          className="fixed z-[100] pointer-events-none"
+          style={{
+            left: tooltipPos.x,
+            top: tooltipPos.y - 8,
+            transform: 'translateX(-50%) translateY(-100%)',
+          }}
+        >
+          <div className="bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap shadow-lg">
+            <div className="font-medium">{hoveredSignal.topic_label}</div>
+            <div className="text-gray-300 text-[10px]">
+              Signal {hoveredSignal.signalIndex}/{hoveredSignal.totalSignals} | Score: {Math.round(hoveredSignal.score)} | {hoveredSignal.velocity}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

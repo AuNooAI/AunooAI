@@ -25,7 +25,7 @@ DEEP_ANALYSIS_PROMPT = """Analyze this emerging topic in depth.
 
 Topic: {theme_label}
 Description: {theme_description}
-
+{org_context}
 Related Articles ({article_count} articles):
 {articles_text}
 
@@ -42,10 +42,16 @@ Provide comprehensive analysis as valid JSON (no markdown):
     "timeline": ["Chronological list of key developments mentioned in articles"],
     "current_status": "Where things stand now based on most recent articles"
   }},
-  "implications": {{
-    "industry_impact": "How this affects the industry or sector",
-    "regulatory": "Any regulatory or policy implications",
-    "market": "Market, business, or economic implications"
+  "general_implications": {{
+    "industry_impact": "How this affects the industry or sector broadly",
+    "regulatory": "General regulatory or policy implications",
+    "market": "Broad market, business, or economic implications"
+  }},
+  "organization_implications": {{
+    "strategic_relevance": "How this relates to the organization's strategic priorities (or general strategic considerations if no org context)",
+    "stakeholder_impact": "Impact on key stakeholders",
+    "risk_assessment": "Risks or opportunities this presents",
+    "recommended_response": "Suggested actions or response"
   }},
   "signals": {{
     "growth_indicators": ["Signs this topic is growing in importance"],
@@ -64,6 +70,7 @@ Requirements:
 - For actors, only list those actually mentioned in the articles
 - For timeline, include approximate dates if mentioned
 - If information is not available in articles, say "Not mentioned"
+- For organization_implications, tailor analysis to the organizational context if provided
 """
 
 
@@ -99,7 +106,7 @@ class Events:
 
 @dataclass
 class Implications:
-    """Impact analysis."""
+    """General impact analysis (kept for backward compatibility)."""
     industry_impact: str = ""
     regulatory: str = ""
     market: str = ""
@@ -109,6 +116,23 @@ class Implications:
             "industry_impact": self.industry_impact,
             "regulatory": self.regulatory,
             "market": self.market,
+        }
+
+
+@dataclass
+class OrganizationImplications:
+    """Organization-specific impact analysis."""
+    strategic_relevance: str = ""
+    stakeholder_impact: str = ""
+    risk_assessment: str = ""
+    recommended_response: str = ""
+
+    def to_dict(self) -> Dict[str, str]:
+        return {
+            "strategic_relevance": self.strategic_relevance,
+            "stakeholder_impact": self.stakeholder_impact,
+            "risk_assessment": self.risk_assessment,
+            "recommended_response": self.recommended_response,
         }
 
 
@@ -148,6 +172,7 @@ class DeepAnalysis:
     actors: Actors = field(default_factory=Actors)
     events: Events = field(default_factory=Events)
     implications: Implications = field(default_factory=Implications)
+    organization_implications: OrganizationImplications = field(default_factory=OrganizationImplications)
     signals: Signals = field(default_factory=Signals)
     synthesis: Synthesis = field(default_factory=Synthesis)
     model_used: str = ""
@@ -157,6 +182,7 @@ class DeepAnalysis:
             "actors": self.actors.to_dict(),
             "events": self.events.to_dict(),
             "implications": self.implications.to_dict(),
+            "organization_implications": self.organization_implications.to_dict(),
             "signals": self.signals.to_dict(),
             "synthesis": self.synthesis.to_dict(),
             "model_used": self.model_used,
@@ -265,6 +291,35 @@ class DeepAnalyzer:
 
         return "\n---\n".join(formatted)
 
+    def _build_org_context(self, org_profile: Optional[Dict[str, Any]]) -> str:
+        """Build organizational context string for the prompt."""
+        if not org_profile:
+            return ""
+
+        # Extract lists safely
+        key_concerns = org_profile.get('key_concerns', [])
+        if isinstance(key_concerns, str):
+            key_concerns = [key_concerns]
+
+        strategic_priorities = org_profile.get('strategic_priorities', [])
+        if isinstance(strategic_priorities, str):
+            strategic_priorities = [strategic_priorities]
+
+        stakeholder_focus = org_profile.get('stakeholder_focus', [])
+        if isinstance(stakeholder_focus, str):
+            stakeholder_focus = [stakeholder_focus]
+
+        return f"""
+ORGANIZATIONAL CONTEXT:
+Organization: {org_profile.get('name', 'Unknown')} ({org_profile.get('organization_type', '')} in {org_profile.get('industry', '')})
+Key Concerns: {', '.join(key_concerns) if key_concerns else 'Not specified'}
+Strategic Priorities: {', '.join(strategic_priorities) if strategic_priorities else 'Not specified'}
+Risk Tolerance: {org_profile.get('risk_tolerance', 'Medium')}
+Key Stakeholders: {', '.join(stakeholder_focus) if stakeholder_focus else 'Not specified'}
+
+When analyzing organization_implications, specifically address how this topic affects THIS organization based on the context above.
+"""
+
     def _parse_llm_response(self, response: Any) -> Optional[Dict[str, Any]]:
         """Parse LLM response as JSON."""
         try:
@@ -306,7 +361,8 @@ class DeepAnalyzer:
         theme_description: str,
         article_uris: List[str],
         model_name: Optional[str] = None,
-        max_articles: int = 15
+        max_articles: int = 15,
+        org_profile: Optional[Dict[str, Any]] = None
     ) -> DeepAnalysis:
         """
         Perform deep analysis on a theme.
@@ -317,6 +373,7 @@ class DeepAnalyzer:
             article_uris: List of article URIs assigned to this theme
             model_name: Optional LLM model override
             max_articles: Max articles to include in prompt
+            org_profile: Optional organizational profile for context-aware analysis
 
         Returns:
             DeepAnalysis object with structured analysis
@@ -337,11 +394,15 @@ class DeepAnalyzer:
             logger.warning(f"Could not fetch articles for theme: {theme_label}")
             return result
 
+        # Build organizational context
+        org_context = self._build_org_context(org_profile)
+
         # Format prompt
         articles_text = self._format_articles_for_analysis(articles)
         prompt = DEEP_ANALYSIS_PROMPT.format(
             theme_label=theme_label,
             theme_description=theme_description,
+            org_context=org_context,
             article_count=len(articles),
             articles_text=articles_text
         )
@@ -382,11 +443,21 @@ class DeepAnalyzer:
                 current_status=events_data.get("current_status", "")
             )
 
-            implications_data = parsed.get("implications", {})
+            # Parse general implications (check both old and new field names for compatibility)
+            implications_data = parsed.get("general_implications", parsed.get("implications", {}))
             result.implications = Implications(
                 industry_impact=implications_data.get("industry_impact", ""),
                 regulatory=implications_data.get("regulatory", ""),
                 market=implications_data.get("market", "")
+            )
+
+            # Parse organization-specific implications
+            org_implications_data = parsed.get("organization_implications", {})
+            result.organization_implications = OrganizationImplications(
+                strategic_relevance=org_implications_data.get("strategic_relevance", ""),
+                stakeholder_impact=org_implications_data.get("stakeholder_impact", ""),
+                risk_assessment=org_implications_data.get("risk_assessment", ""),
+                recommended_response=org_implications_data.get("recommended_response", "")
             )
 
             signals_data = parsed.get("signals", {})

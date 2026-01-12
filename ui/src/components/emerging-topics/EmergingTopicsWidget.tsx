@@ -1,5 +1,5 @@
 /**
- * Emerging Topics Dashboard Widget
+ * Emerging Themes Dashboard Widget
  *
  * Displays a compact view of detected emerging topics
  * suitable for embedding in dashboards.
@@ -138,7 +138,7 @@ export function EmergingTopicsWidget({
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <Zap className="w-4 h-4" />
-            Emerging Topics
+            Emerging Themes
           </CardTitle>
         </CardHeader>
         <CardContent className="flex items-center justify-center py-8">
@@ -154,7 +154,7 @@ export function EmergingTopicsWidget({
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <Zap className="w-4 h-4" />
-            Emerging Topics
+            Emerging Themes
           </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col items-center justify-center py-4 gap-2">
@@ -179,7 +179,7 @@ export function EmergingTopicsWidget({
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium flex items-center gap-2">
             <Zap className="w-4 h-4 text-amber-500" />
-            Emerging Topics
+            Emerging Themes
           </CardTitle>
           <div className="flex items-center gap-2">
             <Badge variant="secondary" className="text-xs">
