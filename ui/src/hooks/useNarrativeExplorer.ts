@@ -3,7 +3,7 @@
  * Handles Highlights (incident tracking) and Narratives (article insights)
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   getIncidentTracking,
   getArticleInsights,
@@ -152,23 +152,43 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
   const [isFromCache, setIsFromCache] = useState(false);
   const [cachedAt, setCachedAt] = useState<string | null>(null);
 
-  // Load cached data on mount
+  // Track the last cache key we loaded to avoid duplicate loads
+  const lastLoadedCacheKeyRef = useRef<string | null>(null);
+
+  // Load cached data when config changes (especially when topics become available)
   useEffect(() => {
     const loadCachedData = () => {
+      // Skip if no topics selected
+      if (config.selectedTopics.length === 0) {
+        return;
+      }
+
+      const cacheKey = generateCacheKey(config);
+
+      // Skip if we already loaded this cache key
+      if (lastLoadedCacheKeyRef.current === cacheKey) {
+        return;
+      }
+
       try {
-        const cacheKey = generateCacheKey(config);
+        let loadedSomething = false;
+        let cacheTime: string | null = null;
 
         // Try to load incidents cache
         const incidentsCacheStr = localStorage.getItem(INCIDENTS_CACHE_KEY);
         if (incidentsCacheStr) {
           const incidentsCache: CacheEntry<Incident[]> = JSON.parse(incidentsCacheStr);
           if (incidentsCache.key === cacheKey) {
+            console.log('[useNarrativeExplorer] Loading cached incidents', {
+              count: incidentsCache.data.length,
+              cachedAt: incidentsCache.cachedAt
+            });
             setIncidents(incidentsCache.data);
             if (incidentsCache.response) {
               setIncidentResponse(incidentsCache.response);
             }
-            setIsFromCache(true);
-            setCachedAt(incidentsCache.cachedAt);
+            loadedSomething = true;
+            cacheTime = incidentsCache.cachedAt;
           }
         }
 
@@ -177,23 +197,32 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
         if (themesCacheStr) {
           const themesCache: CacheEntry<ArticleTheme[]> = JSON.parse(themesCacheStr);
           if (themesCache.key === cacheKey) {
+            console.log('[useNarrativeExplorer] Loading cached themes', {
+              count: themesCache.data.length,
+              cachedAt: themesCache.cachedAt
+            });
             setThemes(themesCache.data);
-            setIsFromCache(true);
-            if (!cachedAt) {
-              setCachedAt(themesCache.cachedAt);
+            loadedSomething = true;
+            if (!cacheTime) {
+              cacheTime = themesCache.cachedAt;
             }
           }
         }
+
+        if (loadedSomething) {
+          setIsFromCache(true);
+          setCachedAt(cacheTime);
+        }
+
+        // Mark this cache key as loaded (even if nothing was found)
+        lastLoadedCacheKeyRef.current = cacheKey;
       } catch (err) {
         console.error('Error loading cached data:', err);
       }
     };
 
-    // Only load cache if we have topics selected
-    if (config.selectedTopics.length > 0) {
-      loadCachedData();
-    }
-  }, []); // Only run once on mount
+    loadCachedData();
+  }, [config.selectedTopics, config.dateRange, config.model, config.profileId]);
 
   // Save config to localStorage
   useEffect(() => {
@@ -260,6 +289,7 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
     setLoadingHighlights(true);
     setHighlightsError(null);
     setIsFromCache(false); // Clear cache flag when generating
+    lastLoadedCacheKeyRef.current = null; // Reset so cache can be reloaded later
 
     try {
       const { startDate, endDate } = getDateRange(config.dateRange);
@@ -322,6 +352,7 @@ export function useNarrativeExplorer(): UseNarrativeExplorerReturn {
 
     setLoadingNarratives(true);
     setNarrativesError(null);
+    lastLoadedCacheKeyRef.current = null; // Reset so cache can be reloaded later
 
     try {
       const { startDate, endDate } = getDateRange(config.dateRange);
