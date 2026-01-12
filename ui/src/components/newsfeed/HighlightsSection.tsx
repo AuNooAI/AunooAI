@@ -481,6 +481,7 @@ function CompactIncidentCard({ incident, onClick, isSaved, currentTopic, onSave,
     if (!dateVal) return '';
     try {
       const date = new Date(dateVal);
+      if (isNaN(date.getTime())) return ''; // Handle invalid dates
       return date.toLocaleDateString('en-GB', {
         day: '2-digit',
         month: '2-digit',
@@ -825,6 +826,7 @@ Provide comprehensive analysis with citations to the source articles.`;
     if (!dateVal) return '';
     try {
       const date = new Date(dateVal);
+      if (isNaN(date.getTime())) return ''; // Handle invalid dates
       return date.toLocaleDateString('en-GB', {
         day: '2-digit',
         month: '2-digit',
