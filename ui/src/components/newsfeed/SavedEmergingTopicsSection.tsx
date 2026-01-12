@@ -62,7 +62,7 @@ function getVelocityStyle(velocity: string) {
     default:
       return {
         label: 'Stable',
-        className: 'text-gray-600 dark:text-gray-400',
+        className: 'text-gray-600 dark:text-gray-600 dark:text-gray-400',
         icon: <Circle className="w-3 h-3" />,
       };
   }
@@ -71,7 +71,7 @@ function getVelocityStyle(velocity: string) {
 function getScoreColor(score: number): string {
   if (score >= 70) return 'text-green-600 dark:text-green-400';
   if (score >= 40) return 'text-yellow-600 dark:text-yellow-400';
-  return 'text-gray-600 dark:text-gray-400';
+  return 'text-gray-600 dark:text-gray-600 dark:text-gray-400';
 }
 
 export function SavedEmergingTopicsSection({
@@ -186,9 +186,9 @@ export function SavedEmergingTopicsSection({
         </div>
         <Card>
           <CardContent className="py-8 text-center">
-            <Sparkles className="w-12 h-12 mx-auto text-gray-300 dark:text-gray-600 mb-3" />
-            <p className="text-gray-500 dark:text-gray-400">No tracked topics yet</p>
-            <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">
+            <Sparkles className="w-12 h-12 mx-auto text-gray-600 dark:text-gray-600 dark:text-gray-400 dark:text-gray-600 mb-3" />
+            <p className="text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">No tracked topics yet</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 dark:text-gray-700 dark:text-gray-300 mt-1">
               Save emerging topics from the Emerging Topics tab to track them here
             </p>
           </CardContent>
@@ -245,7 +245,7 @@ export function SavedEmergingTopicsSection({
                       }}
                       className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
                     >
-                      <MoreVertical className="w-4 h-4 text-gray-400" />
+                      <MoreVertical className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-400" />
                     </button>
 
                     {menuOpenId === topic.id && (
@@ -271,7 +271,7 @@ export function SavedEmergingTopicsSection({
                 </div>
 
                 {/* Description */}
-                <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-2 mb-3">
+                <p className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-400 line-clamp-2 mb-3">
                   {topic.topic_description}
                 </p>
 
@@ -284,7 +284,7 @@ export function SavedEmergingTopicsSection({
                       </Badge>
                     ))}
                     {topic.key_entities.length > 3 && (
-                      <Badge variant="outline" className="text-xs text-gray-400">
+                      <Badge variant="outline" className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">
                         +{topic.key_entities.length - 3}
                       </Badge>
                     )}
@@ -292,7 +292,7 @@ export function SavedEmergingTopicsSection({
                 )}
 
                 {/* Stats row */}
-                <div className="flex items-center justify-between text-xs text-gray-500">
+                <div className="flex items-center justify-between text-xs text-gray-700 dark:text-gray-300">
                   <div className="flex items-center gap-3">
                     <span className="font-medium text-gray-900 dark:text-gray-100">
                       {topic.article_count} articles
@@ -310,7 +310,7 @@ export function SavedEmergingTopicsSection({
                 </div>
 
                 {/* Detection date */}
-                <div className="flex items-center gap-1 text-xs text-gray-400 mt-2">
+                <div className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400 mt-2">
                   <Calendar className="w-3 h-3" />
                   Detected {new Date(topic.detection_date).toLocaleDateString()}
                 </div>

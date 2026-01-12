@@ -196,11 +196,11 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
               className="p-1.5 rounded-md hover:bg-gray-100 transition-colors"
               title="Configure Incidents"
             >
-              <Settings2 className="w-4 h-4 text-gray-500" />
+              <Settings2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
             </button>
           )}
         </div>
-        <p className="text-sm text-gray-500">No recent incidents, click refresh</p>
+        <p className="text-sm text-gray-700 dark:text-gray-300">No recent incidents, click refresh</p>
       </section>
     );
   }
@@ -211,7 +211,7 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
       <div className="flex items-center gap-2 mb-4">
         <Crosshair className="w-5 h-5 text-pink-500" />
         <h2 className="text-xl font-semibold text-gray-900">Incidents</h2>
-        <span className="text-sm text-gray-500 ml-2">
+        <span className="text-sm text-gray-700 dark:text-gray-300 ml-2">
           {incidents.length} incident{incidents.length !== 1 ? 's' : ''} tracked
         </span>
         <div className="flex-1" />
@@ -224,7 +224,7 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
               className="p-1.5 rounded-md hover:bg-gray-100 transition-colors"
               title="Download incidents"
             >
-              <Download className="w-4 h-4 text-gray-500" />
+              <Download className="w-4 h-4 text-gray-700 dark:text-gray-300" />
             </button>
 
             {showDownloadDropdown && (
@@ -243,7 +243,7 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
                     }}
                     className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 transition-colors flex items-center gap-2"
                   >
-                    <FileText className="w-4 h-4 text-gray-500" />
+                    <FileText className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                     <span>Export as Markdown</span>
                   </button>
                   <button
@@ -253,7 +253,7 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
                     }}
                     className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 transition-colors flex items-center gap-2"
                   >
-                    <Table className="w-4 h-4 text-gray-500" />
+                    <Table className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                     <span>Export as CSV</span>
                   </button>
                 </div>
@@ -269,7 +269,7 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
             className="p-1.5 rounded-md hover:bg-gray-100 transition-colors"
             title={`Share all ${incidents.length} incidents via email`}
           >
-            <Share2 className="w-4 h-4 text-gray-500" />
+            <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
           </button>
         )}
 
@@ -279,7 +279,7 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
             className="p-1.5 rounded-md hover:bg-gray-100 transition-colors"
             title="Configure Incidents"
           >
-            <Settings2 className="w-4 h-4 text-gray-500" />
+            <Settings2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
           </button>
         )}
       </div>
@@ -301,7 +301,7 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
                 onClick={() => scroll('left')}
                 className="absolute left-1 top-1/2 -translate-y-1/2 z-10 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full p-2 shadow-lg border border-gray-200 dark:border-gray-600"
               >
-                <ChevronLeft className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+                <ChevronLeft className="w-5 h-5 text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
               </button>
             )}
 
@@ -334,7 +334,7 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
                 onClick={() => scroll('right')}
                 className="absolute right-1 top-1/2 -translate-y-1/2 z-10 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full p-2 shadow-lg border border-gray-200 dark:border-gray-600"
               >
-                <ChevronRight className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+                <ChevronRight className="w-5 h-5 text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
               </button>
             )}
           </div>
@@ -526,7 +526,7 @@ function CompactIncidentCard({ incident, onClick, isSaved, currentTopic, onSave,
       >
         {/* Top row: Date + See More + Menu */}
         <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-1 text-[11px] text-gray-600 dark:text-gray-300">
+          <div className="flex items-center gap-1 text-[11px] text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
             <Calendar className="w-3 h-3" />
             <span>{formatDisplayDate(incident.timeline)}</span>
           </div>
@@ -541,7 +541,7 @@ function CompactIncidentCard({ incident, onClick, isSaved, currentTopic, onSave,
                 onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
                 className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
               >
-                <MoreVertical className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                <MoreVertical className="w-4 h-4 text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
               </button>
               {showMenu && (
                 <div className="absolute right-0 top-full mt-1 w-36 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
@@ -549,14 +549,14 @@ function CompactIncidentCard({ incident, onClick, isSaved, currentTopic, onSave,
                     onClick={(e) => handleMenuAction('save', e)}
                     className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                   >
-                    <Bookmark className={`w-4 h-4 ${isSaved ? 'text-amber-500 fill-amber-500' : 'text-gray-700 dark:text-gray-300'}`} />
+                    <Bookmark className={`w-4 h-4 ${isSaved ? 'text-amber-500 fill-amber-500' : 'text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400'}`} />
                     {isSaved ? 'Unsave' : 'Save'}
                   </button>
                   <button
                     onClick={(e) => handleMenuAction('share', e)}
                     className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                   >
-                    <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                    <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
                     Share
                   </button>
                   <button
@@ -564,7 +564,7 @@ function CompactIncidentCard({ incident, onClick, isSaved, currentTopic, onSave,
                     disabled={actionInProgress}
                     className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 disabled:opacity-50"
                   >
-                    <ThumbsUp className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                    <ThumbsUp className="w-4 h-4 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
                     More like this
                   </button>
                   <button
@@ -572,7 +572,7 @@ function CompactIncidentCard({ incident, onClick, isSaved, currentTopic, onSave,
                     disabled={actionInProgress}
                     className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 disabled:opacity-50"
                   >
-                    <ThumbsDown className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                    <ThumbsDown className="w-4 h-4 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
                     Less like this
                   </button>
                   <div className="h-px bg-gray-200 dark:bg-gray-700 my-1" />
@@ -580,14 +580,14 @@ function CompactIncidentCard({ incident, onClick, isSaved, currentTopic, onSave,
                     onClick={(e) => handleMenuAction('export-md', e)}
                     className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                   >
-                    <FileText className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                    <FileText className="w-4 h-4 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
                     Export Markdown
                   </button>
                   <button
                     onClick={(e) => handleMenuAction('export-csv', e)}
                     className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                   >
-                    <Table className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                    <Table className="w-4 h-4 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
                     Export CSV
                   </button>
                 </div>
@@ -611,7 +611,7 @@ function CompactIncidentCard({ incident, onClick, isSaved, currentTopic, onSave,
 
         {/* Summary - displayed on card */}
         {displaySummary && (
-          <p className="text-[11px] text-gray-700 dark:text-gray-300 line-clamp-3 mb-2">
+          <p className="text-[11px] text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 line-clamp-3 mb-2">
             {displaySummary}
           </p>
         )}
@@ -858,7 +858,7 @@ Provide comprehensive analysis with citations to the source articles.`;
         <div className="p-4">
           {/* Top row: Date + See More/Less */}
           <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+            <div className="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
               <Calendar className="w-3.5 h-3.5" />
               <span>{formatDisplayDate(incident.timeline)}</span>
             </div>
@@ -905,7 +905,7 @@ Provide comprehensive analysis with citations to the source articles.`;
                 className="p-1 hover:bg-gray-100 rounded-full transition-colors"
                 title="Close"
               >
-                <X className="w-4 h-4 text-gray-500" />
+                <X className="w-4 h-4 text-gray-700 dark:text-gray-300" />
               </button>
             </div>
           </div>
@@ -927,17 +927,17 @@ Provide comprehensive analysis with citations to the source articles.`;
           )}
 
           {/* Description */}
-          <p className={`text-sm text-gray-600 dark:text-gray-400 mb-3 ${expanded ? '' : 'line-clamp-3'}`}>
+          <p className={`text-sm text-gray-600 dark:text-gray-600 dark:text-gray-400 mb-3 ${expanded ? '' : 'line-clamp-3'}`}>
             {description}
           </p>
 
           {/* Strategic Relevance / Why This Matters - quote block style */}
           {incident.organizational_relevance && (
             <div className="bg-gray-50 dark:bg-gray-900 rounded-lg p-3 mb-3 border-l-4 border-blue-500">
-              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">
+              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 mb-1">
                 Strategic Relevance
               </h4>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
+              <p className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
                 {incident.organizational_relevance}
               </p>
             </div>
@@ -946,10 +946,10 @@ Provide comprehensive analysis with citations to the source articles.`;
           {/* Credibility Assessment */}
           {incident.credibility_summary && (
             <div className="mb-3">
-              <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
+              <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-1">
                 Credibility Assessment
               </h4>
-              <p className={`text-sm text-gray-600 dark:text-gray-400 ${expanded ? '' : 'line-clamp-2'}`}>
+              <p className={`text-sm text-gray-600 dark:text-gray-600 dark:text-gray-400 ${expanded ? '' : 'line-clamp-2'}`}>
                 {incident.credibility_summary}
               </p>
             </div>
@@ -974,7 +974,7 @@ Provide comprehensive analysis with citations to the source articles.`;
           {/* Timeline */}
           {timelineDates.length > 0 && (
             <div className="mb-2">
-              <p className="text-xs text-gray-500 font-medium mb-1 flex items-center gap-1">
+              <p className="text-xs text-gray-700 dark:text-gray-300 font-medium mb-1 flex items-center gap-1">
                 <Calendar className="w-3 h-3" />
                 {timelineDates.length === 1 ? 'Date:' : 'Timeline:'}
               </p>
@@ -998,7 +998,7 @@ Provide comprehensive analysis with citations to the source articles.`;
                   </span>
                 ))}
                 {!expanded && incident.entities.length > 3 && (
-                  <span className="text-xs text-gray-400">+{incident.entities.length - 3} more</span>
+                  <span className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">+{incident.entities.length - 3} more</span>
                 )}
               </div>
             </div>
@@ -1006,8 +1006,8 @@ Provide comprehensive analysis with citations to the source articles.`;
 
           {/* Source Articles */}
           {expanded && articleUris.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-gray-100">
-              <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+            <div className="mt-3 pt-3 border-t border-gray-300 dark:border-gray-700">
+              <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wide mb-2">
                 Source Articles ({articleUris.length})
               </h4>
               <div className="space-y-2">
@@ -1025,7 +1025,7 @@ Provide comprehensive analysis with citations to the source articles.`;
                   );
                 })}
                 {articleUris.length > 3 && (
-                  <p className="text-xs text-gray-400">+{articleUris.length - 3} more articles</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">+{articleUris.length - 3} more articles</p>
                 )}
               </div>
             </div>
@@ -1033,8 +1033,8 @@ Provide comprehensive analysis with citations to the source articles.`;
 
           {/* Investigation Leads */}
           {expanded && investigationLeads.length > 0 && (
-            <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
-              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">Investigation Leads:</p>
+            <div className="mt-3 pt-3 border-t border-gray-300 dark:border-gray-700 dark:border-gray-700">
+              <p className="text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 font-medium mb-2">Investigation Leads:</p>
               <div className="flex flex-wrap gap-1">
                 {investigationLeads.map((lead, i) => (
                   <button
@@ -1071,8 +1071,8 @@ Provide comprehensive analysis with citations to the source articles.`;
 
           {/* Analysis buttons */}
           {expanded && (
-            <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
-              <p className="text-xs text-gray-500 dark:text-gray-400 font-medium mb-2">Analysis</p>
+            <div className="mt-3 pt-3 border-t border-gray-300 dark:border-gray-700 dark:border-gray-700">
+              <p className="text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 font-medium mb-2">Analysis</p>
               <div className="flex flex-wrap items-center gap-4">
                 <button
                   onClick={() => launchResearch(name)}
@@ -1146,10 +1146,10 @@ function TimelineRuler({ dates }: { dates: number[] }) {
         })}
       </div>
       <div className="flex justify-between mt-1">
-        <span className="text-[10px] text-gray-400">
+        <span className="text-[10px] text-gray-600 dark:text-gray-600 dark:text-gray-400">
           {new Date(dates[0]).toLocaleDateString()}
         </span>
-        <span className="text-[10px] text-gray-400">
+        <span className="text-[10px] text-gray-600 dark:text-gray-600 dark:text-gray-400">
           {new Date(dates[dates.length - 1]).toLocaleDateString()}
         </span>
       </div>
@@ -1196,7 +1196,7 @@ function ArticleLink({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium text-gray-900 line-clamp-1">{title}</p>
-          <p className="text-xs text-gray-500 mt-0.5">{source}</p>
+          <p className="text-xs text-gray-700 dark:text-gray-300 mt-0.5">{source}</p>
           {hasMBFC ? (
             <div className="flex flex-wrap gap-1 mt-1">
               {factual && (
@@ -1229,7 +1229,7 @@ function ArticleLink({
             </div>
           )}
         </div>
-        <ExternalLink className="w-3 h-3 text-gray-400 shrink-0" />
+        <ExternalLink className="w-3 h-3 text-gray-600 dark:text-gray-400 shrink-0" />
       </div>
     </a>
   );

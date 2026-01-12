@@ -63,7 +63,7 @@ export function TopicScoreRadar({
           <PolarGrid
             stroke="currentColor"
             strokeOpacity={0.2}
-            className="text-gray-400 dark:text-gray-600"
+            className="text-gray-600 dark:text-gray-400"
           />
           <PolarAngleAxis
             dataKey="metric"

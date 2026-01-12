@@ -119,9 +119,9 @@ export function TopicCluster({
           <h2 className="text-base font-semibold text-gray-900 dark:text-gray-100 group-hover:text-blue-600">
             {category}
           </h2>
-          <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-blue-600" />
+          <ChevronRight className="w-4 h-4 text-gray-600 dark:text-gray-400 group-hover:text-blue-600" />
         </button>
-        <span className="text-xs text-gray-600 dark:text-gray-400 font-medium">
+        <span className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400 font-medium">
           {totalArticles} {totalArticles === 1 ? 'article' : 'articles'}
         </span>
       </div>
@@ -200,7 +200,7 @@ function StoryRow({ cluster, onArticleClick }: StoryRowProps) {
         {/* Summary tooltip on hover */}
         {showTooltip && cluster.primary.summary && (
           <div className="absolute left-full top-0 ml-2 z-50 w-72 p-3 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 pointer-events-none">
-            <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed line-clamp-4">
+            <p className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 leading-relaxed line-clamp-4">
               {cluster.primary.summary}
             </p>
             {cluster.primary.sentiment && (
@@ -210,8 +210,8 @@ function StoryRow({ cluster, onArticleClick }: StoryRowProps) {
                 </span>
                 {cluster.primary.time_to_impact && (
                   <>
-                    <span className="text-gray-400">•</span>
-                    <span className="text-gray-600 dark:text-gray-400">{cluster.primary.time_to_impact}</span>
+                    <span className="text-gray-600 dark:text-gray-600 dark:text-gray-400">•</span>
+                    <span className="text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">{cluster.primary.time_to_impact}</span>
                   </>
                 )}
               </div>
@@ -222,15 +222,15 @@ function StoryRow({ cluster, onArticleClick }: StoryRowProps) {
         {/* Source info row */}
         <div className="flex items-center gap-2 mt-1.5 text-xs">
           {/* Primary source */}
-          <span className="font-medium text-gray-700 dark:text-gray-300">
+          <span className="font-medium text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
             {cluster.primary.news_source}
           </span>
 
           {/* Time ago */}
           {cluster.primary.publication_date && (
             <>
-              <span className="text-gray-400 dark:text-gray-500">·</span>
-              <span className="text-gray-600 dark:text-gray-400">
+              <span className="text-gray-600 dark:text-gray-400 dark:text-gray-700 dark:text-gray-300">·</span>
+              <span className="text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
                 {formatTimeAgo(cluster.primary.publication_date)}
               </span>
             </>
@@ -239,7 +239,7 @@ function StoryRow({ cluster, onArticleClick }: StoryRowProps) {
           {/* Agent signal badge */}
           {extractSignalTags(cluster.primary.tags).length > 0 && (
             <>
-              <span className="text-gray-400 dark:text-gray-500">·</span>
+              <span className="text-gray-600 dark:text-gray-400 dark:text-gray-700 dark:text-gray-300">·</span>
               <AgentSignalBadge agentNames={extractSignalTags(cluster.primary.tags)} compact />
             </>
           )}
@@ -247,10 +247,10 @@ function StoryRow({ cluster, onArticleClick }: StoryRowProps) {
           {/* Related sources count - Google News style */}
           {hasRelated && (
             <>
-              <span className="text-gray-400 dark:text-gray-500">·</span>
+              <span className="text-gray-600 dark:text-gray-400 dark:text-gray-700 dark:text-gray-300">·</span>
               <button
                 onClick={() => setShowRelated(!showRelated)}
-                className="flex items-center gap-1 text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
+                className="flex items-center gap-1 text-gray-600 dark:text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400"
               >
                 <Layers className="w-3 h-3" />
                 <span className="font-medium">{totalSources} sources</span>
@@ -263,7 +263,7 @@ function StoryRow({ cluster, onArticleClick }: StoryRowProps) {
       {/* Expandable full coverage panel */}
       {hasRelated && showRelated && (
         <div className="mx-2 mb-2 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700">
-          <div className="text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">
+          <div className="text-xs font-medium text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-2">
             Full Coverage ({totalSources} sources)
           </div>
           <div className="space-y-2">
@@ -275,7 +275,7 @@ function StoryRow({ cluster, onArticleClick }: StoryRowProps) {
               <div className="flex items-center gap-2 text-xs mb-1">
                 <span className="font-semibold text-blue-600 dark:text-blue-400">{cluster.primary.news_source}</span>
                 {cluster.primary.publication_date && (
-                  <span className="text-gray-600 dark:text-gray-400">{formatTimeAgo(cluster.primary.publication_date)}</span>
+                  <span className="text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">{formatTimeAgo(cluster.primary.publication_date)}</span>
                 )}
               </div>
               <p className="text-sm text-gray-900 dark:text-gray-100 line-clamp-2">{cluster.primary.title}</p>
@@ -303,9 +303,9 @@ function StoryRow({ cluster, onArticleClick }: StoryRowProps) {
                   className="block w-full text-left p-2 bg-white dark:bg-gray-800 rounded hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors border border-transparent hover:border-blue-200 dark:hover:border-blue-700"
                 >
                   <div className="flex items-center gap-2 text-xs mb-1">
-                    <span className="font-medium text-gray-600 dark:text-gray-300">{related.news_source}</span>
+                    <span className="font-medium text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">{related.news_source}</span>
                     {related.publication_date && (
-                      <span className="text-gray-600 dark:text-gray-400">{formatTimeAgo(related.publication_date)}</span>
+                      <span className="text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">{formatTimeAgo(related.publication_date)}</span>
                     )}
                   </div>
                   <p className="text-sm text-gray-700 dark:text-gray-200 line-clamp-2">{related.title}</p>
@@ -314,7 +314,7 @@ function StoryRow({ cluster, onArticleClick }: StoryRowProps) {
             })}
 
             {relatedArticles.length > 4 && (
-              <p className="text-xs text-gray-600 dark:text-gray-400 text-center py-1">
+              <p className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400 text-center py-1">
                 +{relatedArticles.length - 4} more sources covering this story
               </p>
             )}

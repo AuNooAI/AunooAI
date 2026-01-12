@@ -114,11 +114,11 @@ export function NarrativeInsightsSection({ themes, loading, onArticleClick, curr
               className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               title="Configure Narratives"
             >
-              <Settings2 className="w-4 h-4 text-gray-500" />
+              <Settings2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
             </button>
           )}
         </div>
-        <p className="text-sm text-gray-600 dark:text-gray-400">No recent narratives, click refresh</p>
+        <p className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">No recent narratives, click refresh</p>
       </section>
     );
   }
@@ -129,7 +129,7 @@ export function NarrativeInsightsSection({ themes, loading, onArticleClick, curr
       <div className="flex items-center gap-2 mb-4">
         <Brain className="w-5 h-5 text-indigo-500" />
         <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Narratives</h2>
-        <span className="text-sm text-gray-600 dark:text-gray-400 ml-2">
+        <span className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-400 ml-2">
           {themes.length} theme{themes.length !== 1 ? 's' : ''} identified
         </span>
         <div className="flex-1" />
@@ -142,7 +142,7 @@ export function NarrativeInsightsSection({ themes, loading, onArticleClick, curr
               className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
               title="Download narratives"
             >
-              <Download className="w-4 h-4 text-gray-500" />
+              <Download className="w-4 h-4 text-gray-700 dark:text-gray-300" />
             </button>
 
             {showDownloadDropdown && (
@@ -161,7 +161,7 @@ export function NarrativeInsightsSection({ themes, loading, onArticleClick, curr
                     }}
                     className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2"
                   >
-                    <FileText className="w-4 h-4 text-gray-500" />
+                    <FileText className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                     <span>Export as Markdown</span>
                   </button>
                   <button
@@ -171,7 +171,7 @@ export function NarrativeInsightsSection({ themes, loading, onArticleClick, curr
                     }}
                     className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2"
                   >
-                    <Table className="w-4 h-4 text-gray-500" />
+                    <Table className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                     <span>Export as CSV</span>
                   </button>
                 </div>
@@ -187,7 +187,7 @@ export function NarrativeInsightsSection({ themes, loading, onArticleClick, curr
             className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
             title="Share top narrative via email"
           >
-            <Share2 className="w-4 h-4 text-gray-500" />
+            <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
           </button>
         )}
 
@@ -197,7 +197,7 @@ export function NarrativeInsightsSection({ themes, loading, onArticleClick, curr
             className="p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
             title="Configure Narratives"
           >
-            <Settings2 className="w-4 h-4 text-gray-500" />
+            <Settings2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
           </button>
         )}
       </div>
@@ -369,7 +369,7 @@ Write follow-up questions as natural language that users would ask, not as techn
       {/* Header: Articles label + Saved badge + Menu + See More/Less toggle */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+          <span className="text-xs font-medium text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
             Articles
           </span>
           {isSaved && (
@@ -386,7 +386,7 @@ Write follow-up questions as natural language that users would ask, not as techn
               onClick={() => setShowMenu(!showMenu)}
               className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
             >
-              <MoreVertical className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+              <MoreVertical className="w-4 h-4 text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
             </button>
             {showMenu && (
               <div className="absolute right-0 top-full mt-1 w-40 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
@@ -394,14 +394,14 @@ Write follow-up questions as natural language that users would ask, not as techn
                   onClick={() => handleMenuAction('save')}
                   className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                 >
-                  <Bookmark className={`w-4 h-4 ${isSaved ? 'text-amber-500 fill-amber-500' : 'text-gray-700 dark:text-gray-300'}`} />
+                  <Bookmark className={`w-4 h-4 ${isSaved ? 'text-amber-500 fill-amber-500' : 'text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400'}`} />
                   {isSaved ? 'Unsave' : 'Save'}
                 </button>
                 <button
                   onClick={() => handleMenuAction('share')}
                   className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                 >
-                  <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                  <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
                   Share
                 </button>
                 <div className="h-px bg-gray-200 dark:bg-gray-700 my-1" />
@@ -409,14 +409,14 @@ Write follow-up questions as natural language that users would ask, not as techn
                   onClick={() => handleMenuAction('export-md')}
                   className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                 >
-                  <FileText className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                  <FileText className="w-4 h-4 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
                   Export Markdown
                 </button>
                 <button
                   onClick={() => handleMenuAction('export-csv')}
                   className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                 >
-                  <Table className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                  <Table className="w-4 h-4 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
                   Export CSV
                 </button>
               </div>
@@ -447,7 +447,7 @@ Write follow-up questions as natural language that users would ask, not as techn
       </h3>
 
       {/* Theme Summary / Description */}
-      <p className={`text-sm text-gray-700 dark:text-gray-300 ${!expanded ? 'line-clamp-4' : ''}`}>
+      <p className={`text-sm text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 ${!expanded ? 'line-clamp-4' : ''}`}>
         {theme.theme_summary || theme.description}
       </p>
 
@@ -468,7 +468,7 @@ Write follow-up questions as natural language that users would ask, not as techn
             ))}
           </div>
           {theme.articles.length > 8 && (
-            <p className="text-sm text-gray-600 dark:text-gray-400 pt-3">
+            <p className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-400 pt-3">
               +{theme.articles.length - 8} more articles
             </p>
           )}
@@ -512,15 +512,15 @@ function ThemeArticleRow({
       <div className="flex items-center justify-between mb-1">
         {formattedDate && (
           <div className="flex items-center gap-1.5">
-            <Calendar className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
-            <span className="text-xs text-gray-600 dark:text-gray-300">{formattedDate}</span>
+            <Calendar className="w-3.5 h-3.5 text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+            <span className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">{formattedDate}</span>
           </div>
         )}
         <a
           href={article.uri}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400"
+          className="text-gray-700 dark:text-gray-300 hover:text-blue-600 dark:text-gray-600 dark:text-gray-400 dark:hover:text-blue-400"
           onClick={(e) => e.stopPropagation()}
         >
           <ExternalLink className="w-4 h-4" />

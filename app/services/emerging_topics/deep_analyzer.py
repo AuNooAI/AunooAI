@@ -59,7 +59,7 @@ Provide comprehensive analysis as valid JSON (no markdown):
     "watch_for": ["What developments to monitor next"]
   }},
   "synthesis": {{
-    "key_takeaway": "Single most important insight from this topic",
+    "key_takeaway": "The single most important FACTUAL insight about what happened or is developing - focus on the news itself, NOT organizational response or implications",
     "stakeholders_affected": ["Who is most impacted by this development"],
     "urgency": "low|medium|high - how time-sensitive is this topic"
   }}
@@ -71,6 +71,7 @@ Requirements:
 - For timeline, include approximate dates if mentioned
 - If information is not available in articles, say "Not mentioned"
 - For organization_implications, tailor analysis to the organizational context if provided
+- CRITICAL: key_takeaway must describe WHAT HAPPENED or what is developing - do NOT include organizational mission statements, calls to action, or phrases like "demanding rigorous analysis" or "requiring strategic response". Keep organizational framing strictly in organization_implications.
 """
 
 

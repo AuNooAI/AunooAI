@@ -127,7 +127,7 @@ export function SavedNarrativesSection({
           <Brain className="w-5 h-5 text-indigo-500" />
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Saved Narratives</h3>
         </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400">
+        <p className="text-sm text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
           No saved narratives yet. Use the menu on narrative cards to save them.
         </p>
       </section>
@@ -141,7 +141,7 @@ export function SavedNarrativesSection({
         <div className="flex items-center gap-2">
           <Brain className="w-5 h-5 text-indigo-500" />
           <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Saved Narratives</h3>
-          <span className="text-sm text-gray-500 dark:text-gray-400">
+          <span className="text-sm text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
             ({savedNarratives.length})
           </span>
         </div>
@@ -150,9 +150,9 @@ export function SavedNarrativesSection({
           className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
         >
           {isCollapsed ? (
-            <ChevronDown className="w-5 h-5 text-gray-500" />
+            <ChevronDown className="w-5 h-5 text-gray-700 dark:text-gray-300" />
           ) : (
-            <ChevronUp className="w-5 h-5 text-gray-500" />
+            <ChevronUp className="w-5 h-5 text-gray-700 dark:text-gray-300" />
           )}
         </button>
       </div>
@@ -160,7 +160,7 @@ export function SavedNarrativesSection({
       {/* Loading state */}
       {loading && (
         <div className="flex items-center justify-center py-8">
-          <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+          <Loader2 className="w-6 h-6 animate-spin text-gray-600 dark:text-gray-600 dark:text-gray-400" />
         </div>
       )}
 
@@ -182,7 +182,7 @@ export function SavedNarrativesSection({
                       Saved
                     </span>
                     {narrative.topic && (
-                      <span className="text-[10px] text-gray-500 dark:text-gray-400">
+                      <span className="text-[10px] text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
                         {narrative.topic}
                       </span>
                     )}
@@ -196,7 +196,7 @@ export function SavedNarrativesSection({
                       }}
                       className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
                     >
-                      <MoreVertical className="w-4 h-4 text-gray-500" />
+                      <MoreVertical className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                     </button>
                     {menuOpenId === narrative.name && (
                       <>
@@ -215,7 +215,7 @@ export function SavedNarrativesSection({
                             }}
                             className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                           >
-                            <BookmarkX className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                            <BookmarkX className="w-4 h-4 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
                             Unsave
                           </button>
                           <button
@@ -225,7 +225,7 @@ export function SavedNarrativesSection({
                             }}
                             className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                           >
-                            <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                            <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
                             Share
                           </button>
                           <div className="h-px bg-gray-200 dark:bg-gray-700 my-1" />
@@ -236,7 +236,7 @@ export function SavedNarrativesSection({
                             }}
                             className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                           >
-                            <FileText className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                            <FileText className="w-4 h-4 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
                             Export Markdown
                           </button>
                           <button
@@ -246,7 +246,7 @@ export function SavedNarrativesSection({
                             }}
                             className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                           >
-                            <Table className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                            <Table className="w-4 h-4 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
                             Export CSV
                           </button>
                         </div>
@@ -262,13 +262,13 @@ export function SavedNarrativesSection({
 
                 {/* Description */}
                 {narrative.description && (
-                  <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-3 mb-2">
+                  <p className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400 line-clamp-3 mb-2">
                     {narrative.description}
                   </p>
                 )}
 
                 {/* Stats */}
-                <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+                <div className="flex items-center gap-3 text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
                   {narrative.article_count && (
                     <span>{narrative.article_count} articles</span>
                   )}
@@ -286,13 +286,13 @@ export function SavedNarrativesSection({
                     {narrative.key_entities.slice(0, 3).map((entity, i) => (
                       <span
                         key={i}
-                        className="text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 px-1.5 py-0.5 rounded"
+                        className="text-[10px] bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 px-1.5 py-0.5 rounded"
                       >
                         {entity}
                       </span>
                     ))}
                     {narrative.key_entities.length > 3 && (
-                      <span className="text-[10px] text-gray-400">
+                      <span className="text-[10px] text-gray-600 dark:text-gray-600 dark:text-gray-400">
                         +{narrative.key_entities.length - 3} more
                       </span>
                     )}

@@ -134,7 +134,7 @@ export function AgentStatsTable({
       case 'autoprocessing':
         return <Clock className="w-4 h-4 text-purple-500" />;
       default:
-        return <Bot className="w-4 h-4 text-gray-500" />;
+        return <Bot className="w-4 h-4 text-gray-700 dark:text-gray-300" />;
     }
   };
 
@@ -156,7 +156,7 @@ export function AgentStatsTable({
         );
       case 'paused':
         return (
-          <Badge variant="outline" className="bg-gray-50 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+          <Badge variant="outline" className="bg-gray-50 text-gray-600 dark:bg-gray-800 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
             <XCircle className="w-3 h-3 mr-1" />
             Paused
           </Badge>

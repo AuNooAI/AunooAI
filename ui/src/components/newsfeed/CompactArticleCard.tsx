@@ -44,7 +44,7 @@ export function CompactArticleCard({
 
   return (
     <div
-      className={`group py-3 border-b border-gray-100 dark:border-gray-700 last:border-b-0 hover:bg-gray-50 dark:hover:bg-gray-800 px-3 -mx-3 rounded transition-colors ${onClick ? 'cursor-pointer' : ''}`}
+      className={`group py-3 border-b border-gray-300 dark:border-gray-700 dark:border-gray-700 last:border-b-0 hover:bg-gray-50 dark:hover:bg-gray-800 px-3 -mx-3 rounded transition-colors ${onClick ? 'cursor-pointer' : ''}`}
       onClick={handleCardClick}
     >
       <div className="flex items-start gap-3">
@@ -85,13 +85,13 @@ export function CompactArticleCard({
 
           {/* Summary (optional) */}
           {showSummary && article.summary && (
-            <p className="mt-1 text-xs text-gray-500 dark:text-gray-400 line-clamp-2">
+            <p className="mt-1 text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 line-clamp-2">
               {article.summary}
             </p>
           )}
 
           {/* Footer: Date + Source */}
-          <div className="mt-2 flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+          <div className="mt-2 flex items-center gap-3 text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
             <div className="flex items-center gap-1">
               <Calendar className="w-3 h-3" />
               <span>{formatDate(article.publication_date)}</span>
@@ -120,7 +120,7 @@ export function CompactArticleCard({
             {isStarred ? (
               <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" />
             ) : (
-              <StarOff className="w-4 h-4 text-gray-300 dark:text-gray-500 group-hover:text-gray-400" />
+              <StarOff className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-400 dark:text-gray-700 dark:text-gray-300 group-hover:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
             )}
           </button>
         )}

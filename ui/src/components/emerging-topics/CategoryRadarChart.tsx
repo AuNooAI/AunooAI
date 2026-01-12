@@ -192,7 +192,7 @@ export function CategoryRadarChart({
 
   if (topics.length === 0 || activeCategories.length === 0) {
     return (
-      <div className={`flex items-center justify-center p-4 text-gray-500 dark:text-gray-400 ${className}`}>
+      <div className={`flex items-center justify-center p-4 text-gray-700 dark:text-gray-300 ${className}`}>
         No category data available
       </div>
     );
@@ -241,15 +241,15 @@ export function CategoryRadarChart({
                   r={maxRadius * r}
                   fill="none"
                   stroke="currentColor"
-                  strokeOpacity={0.1}
-                  className="text-gray-400 dark:text-gray-600"
+                  strokeOpacity={0.3}
+                  className="text-gray-500 dark:text-gray-500"
                 />
                 {/* Score label on the ring (positioned at top) */}
                 <text
                   x={center}
                   y={center - maxRadius * r - 2}
                   textAnchor="middle"
-                  className="text-[9px] fill-gray-400 dark:fill-gray-500"
+                  className="text-[9px] fill-gray-700 dark:fill-gray-400"
                 >
                   {scoreValue}
                 </text>
@@ -272,8 +272,8 @@ export function CategoryRadarChart({
                 x2={x2}
                 y2={y2}
                 stroke="currentColor"
-                strokeOpacity={0.2}
-                className="text-gray-400 dark:text-gray-600"
+                strokeOpacity={0.4}
+                className="text-gray-500 dark:text-gray-500"
               />
             );
           })}
@@ -284,7 +284,7 @@ export function CategoryRadarChart({
             cy={center}
             r={4}
             fill="currentColor"
-            className="text-gray-300 dark:text-gray-600"
+            className="text-gray-600 dark:text-gray-400"
           />
         </svg>
 
@@ -374,7 +374,7 @@ export function CategoryRadarChart({
               >
                 <Icon className="w-3 h-3" style={{ color: config.color }} />
                 <span className="text-gray-700 dark:text-gray-300">{config.label}</span>
-                <span className="text-gray-500">({count})</span>
+                <span className="text-gray-600 dark:text-gray-400">({count})</span>
               </div>
             );
           })}

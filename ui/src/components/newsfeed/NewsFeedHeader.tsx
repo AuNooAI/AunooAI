@@ -140,7 +140,7 @@ export function NewsFeedHeader({
               className="flex items-center gap-2 px-3 py-2 text-sm bg-white border border-gray-200 rounded-md hover:border-gray-300 min-w-[180px] justify-between"
             >
               <div className="flex items-center gap-2 truncate">
-                <Tag className="w-4 h-4 text-gray-500 shrink-0" />
+                <Tag className="w-4 h-4 text-gray-700 dark:text-gray-300 shrink-0" />
                 <span className="truncate">
                   {selectedTopics.length === 0
                     ? 'Select Topics'
@@ -154,7 +154,7 @@ export function NewsFeedHeader({
                   {selectedTopics.length}
                 </span>
               )}
-              <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+              <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-400 shrink-0" />
             </button>
 
             {topicDropdownOpen && (
@@ -164,17 +164,17 @@ export function NewsFeedHeader({
                     onClick={selectAllTopics}
                     className="w-full px-3 py-2 text-sm text-left hover:bg-gray-50 flex items-center gap-2"
                   >
-                    <Check className="w-4 h-4 text-gray-400" />
+                    <Check className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-400" />
                     Select All
                   </button>
                   <button
                     onClick={clearAllTopics}
                     className="w-full px-3 py-2 text-sm text-left hover:bg-gray-50 flex items-center gap-2"
                   >
-                    <X className="w-4 h-4 text-gray-400" />
+                    <X className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-400" />
                     Clear All
                   </button>
-                  <div className="border-t border-gray-100 my-1" />
+                  <div className="border-t border-gray-300 dark:border-gray-700 my-1" />
                   {topics.map((topic) => (
                     <button
                       key={topic.name}
@@ -203,13 +203,13 @@ export function NewsFeedHeader({
               className="flex items-center gap-2 px-3 py-2 text-sm bg-white border border-gray-200 rounded-md hover:border-gray-300 min-w-[150px] justify-between"
             >
               <div className="flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-gray-500" />
+                <Calendar className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                 <span>
                   {dateRangeOptions.find((o) => o.value === config.dateRange)?.label ||
                     'Date Range'}
                 </span>
               </div>
-              <ChevronDown className="w-4 h-4 text-gray-400" />
+              <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-400" />
             </button>
 
             {dateDropdownOpen && (
@@ -266,10 +266,10 @@ export function NewsFeedHeader({
               className="flex items-center gap-2 px-3 py-2 text-sm bg-white border border-gray-200 rounded-md hover:border-gray-300 min-w-[160px] justify-between"
             >
               <div className="flex items-center gap-2">
-                <Building2 className="w-4 h-4 text-gray-500" />
+                <Building2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                 <span className="truncate">{getProfileLabel()}</span>
               </div>
-              <ChevronDown className="w-4 h-4 text-gray-400" />
+              <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-400" />
             </button>
 
             {profileDropdownOpen && (
@@ -301,7 +301,7 @@ export function NewsFeedHeader({
                       />
                       {profile.name}
                       {profile.is_default && (
-                        <span className="text-xs text-gray-400">(Default)</span>
+                        <span className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">(Default)</span>
                       )}
                     </button>
                   ))}

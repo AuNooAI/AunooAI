@@ -194,7 +194,7 @@ export function NewsfeedScheduleModal({
           <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
             <div>
               <Label className="font-medium">Automatic Generation</Label>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-700 dark:text-gray-300 mt-1">
                 Generate dashboard content on a schedule
               </p>
             </div>
@@ -258,7 +258,7 @@ export function NewsfeedScheduleModal({
                   </SelectContent>
                 </Select>
               </div>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-700 dark:text-gray-300">
                 Dashboard will be generated every {scheduleSettings.check_interval} {scheduleSettings.interval_unit}
               </p>
             </div>
@@ -276,7 +276,7 @@ export function NewsfeedScheduleModal({
                 }
                 className="w-40"
               />
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-700 dark:text-gray-300">
                 Dashboard will be generated daily at {scheduleSettings.schedule_time} (server time)
               </p>
             </div>
@@ -295,7 +295,7 @@ export function NewsfeedScheduleModal({
                 />
                 <div>
                   <span className="text-sm font-medium">Executive Briefing</span>
-                  <p className="text-xs text-gray-500">Six articles with AI analysis</p>
+                  <p className="text-xs text-gray-700 dark:text-gray-300">Six articles with AI analysis</p>
                 </div>
               </label>
               <label className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded cursor-pointer">
@@ -307,7 +307,7 @@ export function NewsfeedScheduleModal({
                 />
                 <div>
                   <span className="text-sm font-medium">Highlights / Incidents</span>
-                  <p className="text-xs text-gray-500">Key events and incidents</p>
+                  <p className="text-xs text-gray-700 dark:text-gray-300">Key events and incidents</p>
                 </div>
               </label>
               <label className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded cursor-pointer">
@@ -319,7 +319,7 @@ export function NewsfeedScheduleModal({
                 />
                 <div>
                   <span className="text-sm font-medium">Narratives</span>
-                  <p className="text-xs text-gray-500">Thematic story threads</p>
+                  <p className="text-xs text-gray-700 dark:text-gray-300">Thematic story threads</p>
                 </div>
               </label>
             </div>

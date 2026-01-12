@@ -130,10 +130,10 @@ export function LLMConfigModal({
                   </button>
                 ))
               ) : (
-                <span className="text-sm text-gray-500">No topics available</span>
+                <span className="text-sm text-gray-700 dark:text-gray-300">No topics available</span>
               )}
             </div>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-700 dark:text-gray-300">
               Select one or more topics to analyze for Incidents and Narratives
             </p>
           </div>
@@ -157,7 +157,7 @@ export function LLMConfigModal({
                     <SelectItem key={model.id} value={model.id}>
                       <div className="flex items-center gap-2">
                         <span>{model.name}</span>
-                        <span className="text-xs text-gray-500">({model.provider})</span>
+                        <span className="text-xs text-gray-700 dark:text-gray-300">({model.provider})</span>
                       </div>
                     </SelectItem>
                   ))
@@ -171,7 +171,7 @@ export function LLMConfigModal({
                 )}
               </SelectContent>
             </Select>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-700 dark:text-gray-300">
               The AI model used to analyze articles and generate insights
             </p>
           </div>
@@ -198,7 +198,7 @@ export function LLMConfigModal({
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-700 dark:text-gray-300">
               Organizational profiles customize the analysis to your organization's priorities
             </p>
           </div>
