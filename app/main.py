@@ -1448,6 +1448,7 @@ async def collect_page(request: Request, session=Depends(verify_session)):
 
 @app.post("/config/newsapi")
 async def save_newsapi_config(config: NewsAPIConfig):
+     # deprecated instead use /providers/configure
     """Save NewsAPI configuration."""
     try:
         env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
@@ -2123,6 +2124,7 @@ async def reset_database():
 
 @app.post("/config/firecrawl")
 async def save_firecrawl_config(config: NewsAPIConfig):  # Reusing the same model since structure is identical
+    # deprecated instead use /providers/configure
     """Save Firecrawl configuration."""
     try:
         env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
@@ -2249,6 +2251,7 @@ async def get_newsdata_config():
 
 @app.post("/config/thenewsapi")
 async def save_thenewsapi_config(config: NewsAPIConfig):  # Reusing the same model since structure is identical
+    # deprecated instead use /providers/configure
     """Save TheNewsAPI configuration."""
     try:
         env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
@@ -2304,6 +2307,7 @@ async def save_thenewsapi_config(config: NewsAPIConfig):  # Reusing the same mod
 
 @app.post("/config/newsdata")
 async def save_newsdata_config(config: NewsAPIConfig):  # Reusing the same model since structure is identical
+    # deprecated instead use /providers/configure
     """Save NewsData.io configuration."""
     try:
         env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
@@ -2892,6 +2896,7 @@ async def get_flow_data(
 
 @app.post("/config/dia")
 async def save_dia_config(config: DiaAPIConfig):
+    # deprecated instead use /providers/configure
     """Persist Dia API key and base URL to the .env file and runtime env."""
     try:
         env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
@@ -2966,6 +2971,7 @@ ELEVEN_ENV_VAR = "ELEVENLABS_API_KEY"
 
 @app.post("/config/elevenlabs")
 async def save_elevenlabs_config(config: NewsAPIConfig):
+    # deprecated instead use /providers/configure
     """Save ElevenLabs API key to .env and environment."""
     try:
         env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
@@ -3073,6 +3079,7 @@ class BlueskyConfig(BaseModel):
 
 @app.post("/config/bluesky")
 async def save_bluesky_config(config: BlueskyConfig):
+    # deprecated instead use /providers/configure
     """Save Bluesky configuration."""
     try:
         env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
@@ -3198,6 +3205,7 @@ class GooglePSEConfig(BaseModel):
 
 @app.post("/config/google_pse")
 async def save_google_pse_config(config: GooglePSEConfig):
+    # deprecated instead use /providers/configure
     """Save Google PSE configuration."""
     try:
         env_path = os.path.join(os.path.dirname(__file__), '..', '.env')

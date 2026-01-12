@@ -1961,12 +1961,15 @@
         }
         
         try {
-            const response = await fetch(`/config/${providerName}`, {
+            const response = await fetch('/providers/configure', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ api_key: key })
+                body: JSON.stringify({
+                    provider: providerName,
+                    credentials: { api_key: key }
+                })
             });
             
             const data = await response.json();
@@ -1975,7 +1978,7 @@
                 throw new Error(data.detail || `Failed to save ${providerName} key`);
             }
             
-            alert(`${providerName} key saved successfully`);
+            showAlert(`${providerName} key saved successfully`, 'success');
             document.getElementById('provider-key').value = '';
             
             // Reload the configuration after saving
@@ -1983,7 +1986,7 @@
             
         } catch (error) {
             console.error(`Error saving ${providerName} key:`, error);
-            alert(`Error saving ${providerName} key: ${error.message}`);
+            showAlert(`Error saving ${providerName} key: ${error.message}`, 'danger');
         }
     });
 
@@ -2194,14 +2197,18 @@
         }
         
         try {
-            const response = await fetch('/config/bluesky', {
+            const response = await fetch('/providers/configure', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
+                    provider: 'bluesky',
                     username: username,
-                    password: password
+                    credentials: {
+                        username: username,
+                        password: password
+                    }
                 })
             });
             
@@ -2230,20 +2237,21 @@
         const cseId = document.getElementById('google-cse-id').value;
 
         if (!apiKey || !cseId) {
-            alert('Please enter both API key and Search Engine ID for Google PSE');
+            showAlert('Please enter both API key and Search Engine ID for Google PSE', 'danger');
             return;
         }
 
         try {
-            const response = await fetch('/config/google_pse', {
+            const response = await fetch('/providers/configure', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    api_key: apiKey,
-                    extra_data: {
-                        GOOGLE_CSE_ID: cseId
+                    provider: 'google_pse',
+                    credentials: {
+                        api_key: apiKey,
+                        cse_id: cseId
                     }
                 })
             });
