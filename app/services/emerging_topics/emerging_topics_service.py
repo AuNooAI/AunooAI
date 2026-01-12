@@ -525,13 +525,20 @@ class EmergingTopicsService:
         if run_id:
             self._complete_detection_run(run_id, len(emerging_topics), articles_sampled, duration)
 
+        # Check for auto-retirement of themes not detected in this run
+        # Uses conservative thresholds: 7 days inactive + 7 missed runs
+        detected_ids = [t.id for t in emerging_topics if t.id is not None]
+        auto_retired = self._check_auto_retirement(detected_ids, topic_filter)
+
         # Final result
+        retired_msg = f", {auto_retired} auto-retired" if auto_retired > 0 else ""
         yield {
             "step": 7,
             "progress": 100,
-            "message": f"Detection complete: {len(emerging_topics)} emerging topics found",
+            "message": f"Detection complete: {len(emerging_topics)} emerging topics found{retired_msg}",
             "total_emerging_topics": len(emerging_topics),
             "emerging_topics": [t.to_dict() for t in emerging_topics],
+            "auto_retired": auto_retired,
             "run_id": run_id,
             "duration_seconds": round(duration, 2),
         }
@@ -1007,6 +1014,105 @@ class EmergingTopicsService:
             if conn:
                 conn.close()
 
+    def _check_auto_retirement(
+        self,
+        detected_topic_ids: List[int],
+        topic_filter: Optional[str] = None,
+        consecutive_miss_threshold: int = 7,
+        min_inactive_days: int = 7
+    ) -> int:
+        """
+        Auto-retire themes that haven't been detected for N consecutive runs.
+
+        Uses conservative thresholds to avoid over-retiring themes.
+        Human curation is the primary method - this is just cleanup.
+
+        Args:
+            detected_topic_ids: IDs of topics detected in this run
+            topic_filter: Optional topic filter (e.g., 'climate')
+            consecutive_miss_threshold: Number of consecutive misses before auto-retirement (default: 7)
+            min_inactive_days: Minimum days since last detection before considering retirement (default: 7)
+
+        Returns:
+            Number of topics auto-retired
+        """
+        conn = None
+        retired_count = 0
+        try:
+            conn = self._get_connection()
+
+            # Build filter clause
+            filter_clause = "WHERE status = 'active' OR status IS NULL"
+            params = {"threshold": consecutive_miss_threshold, "min_days": min_inactive_days}
+
+            if topic_filter:
+                filter_clause += " AND topic_filter = :topic_filter"
+                params["topic_filter"] = topic_filter
+
+            # Exclude topics detected in this run
+            if detected_topic_ids:
+                filter_clause += " AND id NOT IN :detected_ids"
+                # SQLAlchemy needs tuple for IN clause
+                params["detected_ids"] = tuple(detected_topic_ids) if detected_topic_ids else (0,)
+
+            # Find active themes NOT detected in this run that have been inactive for min_inactive_days
+            check_stmt = text(f"""
+                SELECT id, topic_label, last_detection_date, consecutive_detections
+                FROM emerging_topics
+                {filter_clause}
+                AND last_detection_date < CURRENT_DATE - INTERVAL ':min_days days'
+            """.replace(":min_days", str(min_inactive_days)))
+
+            result = conn.execute(check_stmt, params)
+            candidates = result.fetchall()
+
+            for row in candidates:
+                topic_id = row[0]
+                topic_label = row[1]
+                last_detection = row[2]
+
+                # Count how many runs have occurred since this topic was last detected
+                runs_since_stmt = text("""
+                    SELECT COUNT(*) FROM detection_runs
+                    WHERE run_date > :last_detection
+                    AND status = 'completed'
+                    AND (:topic_filter IS NULL OR topic_filter = :topic_filter)
+                """)
+                runs_result = conn.execute(runs_since_stmt, {
+                    "last_detection": last_detection,
+                    "topic_filter": topic_filter
+                })
+                runs_since = runs_result.scalar() or 0
+
+                if runs_since >= consecutive_miss_threshold:
+                    # Auto-retire this topic
+                    retire_stmt = text("""
+                        UPDATE emerging_topics
+                        SET status = 'retired',
+                            consecutive_detections = 0
+                        WHERE id = :id
+                    """)
+                    conn.execute(retire_stmt, {"id": topic_id})
+                    retired_count += 1
+                    logger.info(
+                        f"Auto-retired theme '{topic_label}' (id={topic_id}) - "
+                        f"not detected in {runs_since} consecutive runs"
+                    )
+
+            if retired_count > 0:
+                conn.commit()
+                logger.info(f"Auto-retired {retired_count} declining themes")
+
+        except Exception as exc:
+            logger.error(f"Error in auto-retirement check: {exc}")
+            if conn:
+                conn.rollback()
+        finally:
+            if conn:
+                conn.close()
+
+        return retired_count
+
     async def run_detection(
         self,
         topic_filter: Optional[str] = None,
@@ -1035,7 +1141,8 @@ class EmergingTopicsService:
         days_back: int = 7,
         detection_type: Optional[str] = None,
         min_confidence: float = 0.0,
-        limit: int = 50
+        limit: int = 50,
+        include_retired: bool = False
     ) -> List[EmergingTopic]:
         """Get detected emerging topics from the database."""
         conn = None
@@ -1044,6 +1151,10 @@ class EmergingTopicsService:
 
             filter_clause = "WHERE detection_date >= CURRENT_DATE - :days_back"
             params = {"days_back": days_back, "limit": limit, "min_confidence": min_confidence}
+
+            # Filter out retired themes by default
+            if not include_retired:
+                filter_clause += " AND (status IS NULL OR status != 'retired')"
 
             if topic_filter:
                 filter_clause += " AND topic_filter = :topic"
@@ -1137,6 +1248,132 @@ class EmergingTopicsService:
             topic_filter=topic_filter,
             limit=limit
         )
+
+    def get_retired_topics(
+        self,
+        topic_filter: Optional[str] = None,
+        limit: int = 50
+    ) -> List[EmergingTopic]:
+        """Get retired emerging topics."""
+        conn = None
+        try:
+            conn = self._get_connection()
+
+            filter_clause = "WHERE status = 'retired'"
+            params = {"limit": limit}
+
+            if topic_filter:
+                filter_clause += " AND topic_filter = :topic"
+                params["topic"] = topic_filter
+
+            stmt = text(f"""
+                SELECT
+                    id, topic_label, topic_description, detection_date,
+                    detection_type, cluster_id, article_count, growth_rate,
+                    velocity, confidence_score, key_themes, representative_keywords,
+                    emergence_rationale, article_uris, status,
+                    actors, events, implications, organization_implications, signals, synthesis,
+                    volume_score, velocity_score, diversity_score, novelty_score, composite_score,
+                    first_detection_date, last_detection_date, detection_count, consecutive_detections,
+                    missed_runs, future_horizons
+                FROM emerging_topics
+                {filter_clause}
+                ORDER BY detection_date DESC, confidence_score DESC
+                LIMIT :limit
+            """)
+
+            result = conn.execute(stmt, params)
+
+            topics = []
+            for row in result.mappings():
+                topic = EmergingTopic(
+                    id=row["id"],
+                    topic_label=row["topic_label"],
+                    topic_description=row["topic_description"],
+                    detection_date=row["detection_date"],
+                    detection_type=row["detection_type"],
+                    cluster_id=row["cluster_id"],
+                    article_count=row["article_count"],
+                    article_uris=row["article_uris"] or [],
+                    growth_rate=row["growth_rate"] or 0.0,
+                    velocity=row["velocity"] or "stable",
+                    confidence_score=row["confidence_score"] or 0.0,
+                    key_themes=row["key_themes"] or [],
+                    representative_keywords=row["representative_keywords"] or [],
+                    emergence_rationale=row["emergence_rationale"] or "",
+                    status=row["status"] or "retired",
+                    actors=row.get("actors") or {},
+                    events=row.get("events") or {},
+                    implications=row.get("implications") or {},
+                    organization_implications=row.get("organization_implications") or {},
+                    signals=row.get("signals") or {},
+                    synthesis=row.get("synthesis") or {},
+                    volume_score=row.get("volume_score") or 0.0,
+                    velocity_score=row.get("velocity_score") or 0.0,
+                    diversity_score=row.get("diversity_score") or 0.0,
+                    novelty_score=row.get("novelty_score") or 0.0,
+                    composite_score=row.get("composite_score") or 0.0,
+                    first_detection_date=row.get("first_detection_date"),
+                    last_detection_date=row.get("last_detection_date"),
+                    detection_count=row.get("detection_count") or 1,
+                    consecutive_detections=row.get("consecutive_detections") or 1,
+                    missed_runs=row.get("missed_runs") or 0,
+                    future_horizons=row.get("future_horizons"),
+                )
+                topics.append(topic)
+
+            return topics
+
+        except Exception as exc:
+            logger.error(f"Error getting retired topics: {exc}")
+            return []
+        finally:
+            if conn:
+                conn.close()
+
+    def retire_topic(self, topic_id: int) -> bool:
+        """Manually retire an emerging topic."""
+        conn = None
+        try:
+            conn = self._get_connection()
+            stmt = text("""
+                UPDATE emerging_topics
+                SET status = 'retired', consecutive_detections = 0
+                WHERE id = :topic_id
+            """)
+            result = conn.execute(stmt, {"topic_id": topic_id})
+            conn.commit()
+            return result.rowcount > 0
+        except Exception as exc:
+            logger.error(f"Error retiring topic {topic_id}: {exc}")
+            if conn:
+                conn.rollback()
+            return False
+        finally:
+            if conn:
+                conn.close()
+
+    def restore_topic(self, topic_id: int) -> bool:
+        """Restore a retired topic to active status."""
+        conn = None
+        try:
+            conn = self._get_connection()
+            stmt = text("""
+                UPDATE emerging_topics
+                SET status = 'active'
+                WHERE id = :topic_id
+            """)
+            result = conn.execute(stmt, {"topic_id": topic_id})
+            conn.commit()
+            return result.rowcount > 0
+        except Exception as exc:
+            logger.error(f"Error restoring topic {topic_id}: {exc}")
+            if conn:
+                conn.rollback()
+            return False
+        finally:
+            if conn:
+                conn.close()
 
 
 # Singleton instance

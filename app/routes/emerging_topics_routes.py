@@ -413,6 +413,26 @@ async def get_emerging_topics(
     }
 
 
+@router.get("/retired")
+async def get_retired_topics(
+    topic: Optional[str] = Query(None, description="Topic filter"),
+    limit: int = Query(50, ge=1, le=100, description="Maximum results"),
+    session=Depends(verify_session)
+):
+    """
+    Get retired emerging topics.
+    """
+    service = get_emerging_topics_service()
+    topics = service.get_retired_topics(
+        topic_filter=topic,
+        limit=limit
+    )
+    return {
+        "count": len(topics),
+        "topics": [t.to_dict() for t in topics]
+    }
+
+
 @router.get("/topics/{topic_id}")
 async def get_emerging_topic_detail(
     topic_id: int,
@@ -1198,6 +1218,42 @@ async def untrack_topic(
     finally:
         if conn:
             conn.close()
+
+
+@router.post("/topics/{topic_id}/retire")
+async def retire_topic(
+    topic_id: int,
+    session=Depends(verify_session)
+):
+    """
+    Manually retire an emerging topic (move to archived/retired status).
+    """
+    service = get_emerging_topics_service()
+    success = service.retire_topic(topic_id)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="Topic not found or already retired")
+
+    logger.info(f"Retired topic {topic_id}")
+    return {"success": True, "message": f"Topic {topic_id} retired"}
+
+
+@router.post("/topics/{topic_id}/restore")
+async def restore_topic(
+    topic_id: int,
+    session=Depends(verify_session)
+):
+    """
+    Restore a retired emerging topic back to active status.
+    """
+    service = get_emerging_topics_service()
+    success = service.restore_topic(topic_id)
+
+    if not success:
+        raise HTTPException(status_code=404, detail="Topic not found or already active")
+
+    logger.info(f"Restored topic {topic_id}")
+    return {"success": True, "message": f"Topic {topic_id} restored"}
 
 
 @router.get("/topics/{topic_id}/track-status")
