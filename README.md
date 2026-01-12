@@ -46,9 +46,9 @@ Welcome to the AunooAI documentation. AunooAI is an open strategic intelligence 
 * [Gather](collecting-data/) - Automated intelligence collection
   * [Submit Articles](collecting-data/submitting-articles.md) - Manual article submission
 * [Explore View](doing-research/) - Main workspace overview
-* [Article Investigator](doing-research/article-investigator.md) - Research and filter articles
-* [Narrative Explorer](doing-research/narrative-view.md) - Pattern analysis and themes
-* [Six Articles](doing-research/six-articles.md) - Executive briefing tool
+* [Article Investigator](doing-research/news-feed.md) - Research and filter articles
+* [Narrative Explorer](doing-research/emerging-themes.md) - Pattern analysis and themes
+* [Six Articles](doing-research/observer-agents.md) - Executive briefing tool
 * [Anticipate ](anticipate-foresight-tools.md) - Strategic foresight dashboards
   * Strategic Recommendations
   * Market Signals & Strategic Risks
@@ -117,7 +117,7 @@ Welcome to the AunooAI documentation. AunooAI is an open strategic intelligence 
 | Submit articles manually       | [Submit Articles](collecting-data/submitting-articles.md) | URL Submission        |
 | Analyze collected articles     | [Article Investigator](doing-research/)                   | Getting Started       |
 | Find patterns and themes       | [Narrative Explorer](doing-research/)                     | How to Use            |
-| Brief executives               | [Six Articles](doing-research/six-articles.md)            | Getting Started       |
+| Brief executives               | [Six Articles](doing-research/observer-agents.md)         | Getting Started       |
 | Forecast future impacts        | [Anticipate](anticipate-foresight-tools.md)               | Future Horizons       |
 | Check system health            | [Operations HQ](operations-hq.md)                         | System Health Status  |
 | Backup my data                 | [Docker Installation](docker-installation-guide.md)       | Backup Data           |
