@@ -423,75 +423,60 @@ async def _fetch_feed_articles(
 
             logger.info(f"Stored {new_articles_count} new articles from RSS feed {feed_id}")
 
-            # Run auto-ingest pipeline if enabled and we have new articles
+            # Run enrichment pipeline for RSS articles (always runs - RSS has own relevance threshold)
             enriched_count = 0
             if new_articles_count > 0:
                 try:
                     ingest_service = AutomatedIngestService(db)
 
-                    # Check if auto-ingest is enabled
-                    settings = db.facade.get_or_create_keyword_monitor_settings()
-                    auto_ingest_enabled = settings.get('auto_ingest_enabled', False) if settings else False
+                    # RSS feeds always run enrichment - they have their own relevance threshold
+                    # (not tied to keyword monitor's auto-ingest setting)
+                    logger.info(f"Running enrichment pipeline for {new_articles_count} RSS articles")
 
-                    if auto_ingest_enabled:
-                        logger.info(f"Running auto-ingest pipeline for {new_articles_count} RSS articles")
-                        # Get keywords for the topic to use for relevance scoring
-                        topic_keywords = db.facade.get_monitored_keywords_for_topic((topic,))
+                    # Get keywords for the topic to use for relevance scoring
+                    topic_keywords = db.facade.get_monitored_keywords_for_topic((topic,))
 
-                        # Format articles for batch processing (needs 'uri' field)
-                        batch_articles = []
-                        for article in articles:
-                            article_url = article.get('url', '').strip()
-                            if article_url:
-                                batch_articles.append({
-                                    'uri': article_url,
-                                    'url': article_url,
-                                    'title': article.get('title', ''),
-                                    'news_source': article.get('source', 'RSS'),  # Use news_source key for pipeline compatibility
-                                    'published_date': article.get('published_date'),
-                                    'summary': article.get('summary', ''),
-                                    'topic': topic  # Include topic for pipeline consistency
-                                })
+                    # Format articles for batch processing (needs 'uri' field)
+                    batch_articles = []
+                    for article in articles:
+                        article_url = article.get('url', '').strip()
+                        if article_url:
+                            batch_articles.append({
+                                'uri': article_url,
+                                'url': article_url,
+                                'title': article.get('title', ''),
+                                'news_source': article.get('source', 'RSS'),  # Use news_source key for pipeline compatibility
+                                'published_date': article.get('published_date'),
+                                'summary': article.get('summary', ''),
+                                'topic': topic  # Include topic for pipeline consistency
+                            })
 
-                        if batch_articles:
-                            # Convert relevance_threshold from percentage (0-100) to decimal (0.0-1.0)
-                            # 0 = skip filtering, otherwise convert to decimal
-                            threshold_override = None
-                            if relevance_threshold == 0:
-                                threshold_override = 0  # Signal to skip filtering
-                            elif relevance_threshold > 0:
-                                threshold_override = relevance_threshold / 100.0  # Convert to 0.0-1.0 range
+                    if batch_articles:
+                        # Convert relevance_threshold from percentage (0-100) to decimal (0.0-1.0)
+                        # 0 = skip filtering, otherwise convert to decimal
+                        threshold_override = None
+                        if relevance_threshold == 0:
+                            threshold_override = 0  # Signal to skip filtering
+                        elif relevance_threshold > 0:
+                            threshold_override = relevance_threshold / 100.0  # Convert to 0.0-1.0 range
 
-                            # Process through batch enrichment pipeline
-                            result = await ingest_service.process_articles_batch(
-                                articles=batch_articles,
-                                topic=topic,
-                                keywords=topic_keywords,
-                                relevance_threshold_override=threshold_override
-                            )
-                            enriched_count = result.get('saved', 0)
-                            logger.info(f"Auto-ingest completed: {result}")
+                        # Process through batch enrichment pipeline
+                        result = await ingest_service.process_articles_batch(
+                            articles=batch_articles,
+                            topic=topic,
+                            keywords=topic_keywords,
+                            relevance_threshold_override=threshold_override
+                        )
+                        enriched_count = result.get('saved', 0)
+                        logger.info(f"RSS enrichment completed: {result}")
 
-                            # Create completion notification
-                            try:
-                                db.facade.create_notification(
-                                    username=None,  # System-wide notification
-                                    type='auto_ingest_complete',
-                                    title='RSS Feed Complete',
-                                    message=f'Fetched {new_articles_count} articles, {enriched_count} enriched from RSS feed',
-                                    link='/gather'
-                                )
-                            except Exception as notif_err:
-                                logger.error(f"Failed to create RSS notification: {notif_err}")
-                    else:
-                        logger.info("Auto-ingest is disabled, skipping enrichment")
-                        # Still notify about articles collected
+                        # Create completion notification
                         try:
                             db.facade.create_notification(
-                                username=None,
+                                username=None,  # System-wide notification
                                 type='auto_ingest_complete',
                                 title='RSS Feed Complete',
-                                message=f'Fetched {new_articles_count} new articles from RSS feed (enrichment disabled)',
+                                message=f'Fetched {new_articles_count} articles, {enriched_count} enriched from RSS feed',
                                 link='/gather'
                             )
                         except Exception as notif_err:

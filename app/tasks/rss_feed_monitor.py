@@ -205,7 +205,10 @@ class RSSFeedMonitor:
             return False
 
     async def _run_auto_ingest(self, articles: List[Dict], topic: str, relevance_threshold: int = None) -> int:
-        """Run auto-ingest pipeline if enabled.
+        """Run enrichment pipeline for RSS articles.
+
+        RSS feeds always run enrichment - they have their own relevance threshold
+        and are not tied to the keyword monitor's auto-ingest setting.
 
         Args:
             articles: List of article data from RSS feed
@@ -218,15 +221,9 @@ class RSSFeedMonitor:
         try:
             from app.services.automated_ingest_service import AutomatedIngestService
 
-            # Check if auto-ingest is enabled
-            settings = self.db.facade.get_or_create_keyword_monitor_settings()
-            auto_ingest_enabled = settings.get('auto_ingest_enabled', False) if settings else False
-
-            if not auto_ingest_enabled:
-                logger.debug("Auto-ingest is disabled, skipping enrichment")
-                return 0
-
-            logger.info(f"Running auto-ingest pipeline for RSS articles in topic '{topic}'")
+            # RSS feeds always enrich - they have their own relevance threshold setting
+            # (not tied to keyword monitor's auto-ingest setting)
+            logger.info(f"Running enrichment pipeline for RSS articles in topic '{topic}'")
             ingest_service = AutomatedIngestService(self.db)
 
             # Get keywords for the topic
