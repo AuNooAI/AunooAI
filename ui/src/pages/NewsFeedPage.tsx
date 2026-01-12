@@ -611,7 +611,22 @@ export function NewsFeedPage() {
     return groupedArticles[categoryName] || [];
   }, [categoryClusters, groupedArticles]);
 
-  // Sort categories: use custom order if set, otherwise by article count
+  // Helper to get most recent article date in a category
+  const getMostRecentDate = (category: string): Date => {
+    const articles = groupedArticles[category] || [];
+    let mostRecent = new Date(0); // Default to epoch
+    for (const article of articles) {
+      if (article.publication_date) {
+        const articleDate = new Date(article.publication_date);
+        if (articleDate > mostRecent) {
+          mostRecent = articleDate;
+        }
+      }
+    }
+    return mostRecent;
+  };
+
+  // Sort categories: use custom order if set, otherwise by most recent article
   const sortedCategories = [...categories]
     .filter((cat) => !hiddenCategories.has(cat))
     .sort((a, b) => {
@@ -620,15 +635,15 @@ export function NewsFeedPage() {
         const indexA = categoryOrder.indexOf(a);
         const indexB = categoryOrder.indexOf(b);
         // Categories in the order list come first, in that order
-        // New categories not in the list go to the end, sorted by article count
+        // New categories not in the list go to the end, sorted by recency
         if (indexA !== -1 && indexB !== -1) return indexA - indexB;
         if (indexA !== -1) return -1;
         if (indexB !== -1) return 1;
       }
-      // Default: sort by article count (descending)
-      const countA = groupedArticles[a]?.length || 0;
-      const countB = groupedArticles[b]?.length || 0;
-      return countB - countA;
+      // Default: sort by most recent article (descending - newest first)
+      const dateA = getMostRecentDate(a);
+      const dateB = getMostRecentDate(b);
+      return dateB.getTime() - dateA.getTime();
     });
 
   return (
