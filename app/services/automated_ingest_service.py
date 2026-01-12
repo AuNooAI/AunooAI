@@ -608,9 +608,15 @@ class AutomatedIngestService:
         self,
         article: Dict[str, Any],
         topic: str,
-        keywords: List[str]
+        keywords: List[str],
+        relevance_threshold_override: float = None
     ) -> Dict[str, Any]:
-        """Process a single article asynchronously with optimized database operations"""
+        """Process a single article asynchronously with optimized database operations
+
+        Args:
+            relevance_threshold_override: If provided, use this threshold instead of global.
+                                          If 0, skip relevance filtering entirely.
+        """
         article_uri = article.get('uri', 'unknown')
         article_title = article.get('title', 'Unknown Title')
 
@@ -626,64 +632,75 @@ class AutomatedIngestService:
 
             # Step 1: QUICK relevance check FIRST (before expensive operations)
             # Use only title and existing summary to save costs
-            try:
-                # Do a quick relevance check with just title + summary (no scraping/LLM yet)
-                quick_relevance_result = await self._score_article_relevance_async(
-                    article, topic, keywords
-                )
-                quick_relevance_score = quick_relevance_result.get("relevance_score", 0)
-                relevance_threshold = self.get_relevance_threshold()
 
-                self.logger.debug(f"🎯 Quick relevance check: {quick_relevance_score} (threshold: {relevance_threshold})")
+            # Determine relevance threshold: override=0 means skip filtering entirely
+            self.logger.info(f"🔍 Relevance override for {article_uri}: {relevance_threshold_override} (type: {type(relevance_threshold_override).__name__})")
+            if relevance_threshold_override is not None and relevance_threshold_override == 0:
+                # Skip relevance filtering for this article (e.g., RSS feed with threshold=0)
+                self.logger.debug(f"⚡ Skipping relevance filtering for {article_uri} (threshold override = 0)")
+                quick_relevance_score = 1.0  # Treat as fully relevant
+                quick_relevance_result = {"relevance_score": 1.0, "keyword_relevance_score": 1.0, "topic_alignment_score": 1.0, "confidence_score": 1.0}
+                relevance_threshold = 0
+            else:
+                try:
+                    # Do a quick relevance check with just title + summary (no scraping/LLM yet)
+                    quick_relevance_result = await self._score_article_relevance_async(
+                        article, topic, keywords
+                    )
+                    quick_relevance_score = quick_relevance_result.get("relevance_score", 0)
+                    # Use override if provided, otherwise use global setting
+                    relevance_threshold = relevance_threshold_override if relevance_threshold_override is not None else self.get_relevance_threshold()
 
-                # If article fails relevance threshold, stop processing immediately
-                if quick_relevance_score < relevance_threshold:
-                    self.logger.info(f"⚡ Article {article_uri} filtered early (score: {quick_relevance_score} < {relevance_threshold}) - saving costs")
+                    self.logger.debug(f"🎯 Quick relevance check: {quick_relevance_score} (threshold: {relevance_threshold})")
 
-                    # Save with minimal data to database
-                    try:
-                        article.update({
-                            "topic": topic,
-                            "ingest_status": "filtered_relevance",
-                            # Populate ALL three score fields from relevance result
-                            "keyword_relevance_score": quick_relevance_result.get("keyword_relevance_score", quick_relevance_score),
-                            "topic_alignment_score": quick_relevance_result.get("topic_alignment_score", quick_relevance_score),
-                            "confidence_score": quick_relevance_result.get("confidence_score", quick_relevance_score),
-                            "overall_match_explanation": quick_relevance_result.get("overall_match_explanation", "")
-                        })
-                        await self.async_db.save_below_threshold_article(article)
-                        self.db.facade.mark_article_as_below_threshold(article_uri)
-                    except Exception as e:
-                        self.logger.warning(f"Failed to save below-threshold article: {e}")
+                    # If article fails relevance threshold, stop processing immediately
+                    if quick_relevance_score < relevance_threshold:
+                        self.logger.info(f"⚡ Article {article_uri} filtered early (score: {quick_relevance_score} < {relevance_threshold}) - saving costs")
 
+                        # Save with minimal data to database
+                        try:
+                            article.update({
+                                "topic": topic,
+                                "ingest_status": "filtered_relevance",
+                                # Populate ALL three score fields from relevance result
+                                "keyword_relevance_score": quick_relevance_result.get("keyword_relevance_score", quick_relevance_score),
+                                "topic_alignment_score": quick_relevance_result.get("topic_alignment_score", quick_relevance_score),
+                                "confidence_score": quick_relevance_result.get("confidence_score", quick_relevance_score),
+                                "overall_match_explanation": quick_relevance_result.get("overall_match_explanation", "")
+                            })
+                            await self.async_db.save_below_threshold_article(article)
+                            self.db.facade.mark_article_as_below_threshold(article_uri)
+                        except Exception as e:
+                            self.logger.warning(f"Failed to save below-threshold article: {e}")
+
+                        return {
+                            "status": "filtered",
+                            "uri": article_uri,
+                            "relevance_score": quick_relevance_score,
+                            "reason": "relevance_threshold",
+                            "threshold": relevance_threshold
+                        }
+
+                except Exception as e:
+                    self.logger.error(f"Quick relevance check failed for {article_uri}: {e}")
+                    # Save article with error status but preserve attempt record
+                    article.update({
+                        "topic": topic,
+                        "ingest_status": "relevance_check_failed",
+                        "keyword_relevance_score": 0.0,
+                        "topic_alignment_score": 0.0,
+                        "confidence_score": 0.0,
+                        "overall_match_explanation": f"Relevance check failed: {str(e)}"
+                    })
+                    await self.async_db.save_below_threshold_article(article)
+                    self.logger.info(f"Saved article {article_uri} with relevance_check_failed status")
+                    # Return early - skip enrichment for this article
                     return {
-                        "status": "filtered",
+                        "status": "error",
                         "uri": article_uri,
-                        "relevance_score": quick_relevance_score,
-                        "reason": "relevance_threshold",
-                        "threshold": relevance_threshold
+                        "error": str(e),
+                        "reason": "relevance_check_failed"
                     }
-
-            except Exception as e:
-                self.logger.error(f"Quick relevance check failed for {article_uri}: {e}")
-                # Save article with error status but preserve attempt record
-                article.update({
-                    "topic": topic,
-                    "ingest_status": "relevance_check_failed",
-                    "keyword_relevance_score": 0.0,
-                    "topic_alignment_score": 0.0,
-                    "confidence_score": 0.0,
-                    "overall_match_explanation": f"Relevance check failed: {str(e)}"
-                })
-                await self.async_db.save_below_threshold_article(article)
-                self.logger.info(f"Saved article {article_uri} with relevance_check_failed status")
-                # Return early - skip enrichment for this article
-                return {
-                    "status": "error",
-                    "uri": article_uri,
-                    "error": str(e),
-                    "reason": "relevance_check_failed"
-                }
 
             # Step 2: Article PASSED quick check - now do expensive operations
             self.logger.info(f"✅ Article {article_uri} passed quick check (score: {quick_relevance_score}) - proceeding with enrichment")
@@ -785,8 +802,16 @@ class AutomatedIngestService:
 
             # Step 5: Check final relevance threshold (double-check after full analysis)
             relevance_score = relevance_result.get("relevance_score", quick_relevance_score)
-            relevance_threshold = self.get_relevance_threshold()
-            
+            # Use the override threshold if provided, otherwise use global setting
+            # Note: relevance_threshold was already set earlier for override=0 case
+            if relevance_threshold_override is not None:
+                if relevance_threshold_override == 0:
+                    relevance_threshold = 0  # Skip filtering for RSS feeds with threshold=0
+                else:
+                    relevance_threshold = relevance_threshold_override
+            else:
+                relevance_threshold = self.get_relevance_threshold()
+
             if relevance_score >= relevance_threshold:
                 # Step 5: Quality check (simplified for async)
                 try:
@@ -1039,16 +1064,18 @@ class AutomatedIngestService:
             self.logger.error(f"Vector database upsert failed: {e}")
             raise
 
-    async def process_articles_batch(self, articles: List[Dict[str, Any]], topic: str = None, keywords: List[str] = None, dry_run: bool = False) -> Dict[str, Any]:
+    async def process_articles_batch(self, articles: List[Dict[str, Any]], topic: str = None, keywords: List[str] = None, dry_run: bool = False, relevance_threshold_override: float = None) -> Dict[str, Any]:
         """
         Process a batch of articles through the enrichment pipeline
-        
+
         Args:
             articles: List of article data dictionaries
             topic: Topic name for context
             keywords: List of keywords for relevance scoring
             dry_run: If True, skip database operations
-            
+            relevance_threshold_override: If provided, use this threshold instead of global.
+                                          If 0, skip relevance filtering entirely.
+
         Returns:
             Processing results summary
         """
@@ -1101,7 +1128,7 @@ class AutomatedIngestService:
                 tasks = []
                 for article in batch:
                     task = asyncio.create_task(
-                        self._process_single_article_async(article, topic, keywords)
+                        self._process_single_article_async(article, topic, keywords, relevance_threshold_override)
                     )
                     tasks.append(task)
 
