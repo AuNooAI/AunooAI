@@ -59,7 +59,57 @@ export interface ShareIncidentsData {
   }>;
 }
 
-export type ShareData = ShareIncidentData | ShareNarrativeData | ShareBriefingData | ShareIncidentsData;
+export interface ShareEmergingTopicData {
+  type: 'emerging_topic';
+  topic_id?: number;
+  topic_label: string;
+  topic_description?: string;
+  score?: number;
+  urgency?: string;
+  velocity?: string;
+  article_count?: number;
+  key_themes?: string[];
+  key_entities?: string[];
+  why_emerging?: string;
+  // Enhanced fields for full topic details
+  key_takeaway?: string;
+  trend_score?: {
+    volume?: number;
+    velocity?: number;
+    diversity?: number;
+    novelty?: number;
+    composite?: number;
+  };
+  actors?: {
+    companies?: string[];
+    people?: string[];
+    organizations?: string[];
+  };
+  events?: {
+    trigger_event?: string;
+    timeline?: Array<string | { date?: string; event?: string }>;
+    current_status?: string;
+  };
+  implications?: {
+    industry_impact?: string;
+    regulatory?: string;
+    market?: string;
+  };
+  organization_implications?: {
+    strategic_relevance?: string;
+    stakeholder_impact?: string;
+    risk_assessment?: string;
+    recommended_response?: string;
+  };
+  articles?: Array<{
+    title?: string;
+    news_source?: string;
+    publication_date?: string;
+    uri?: string;
+  }>;
+}
+
+export type ShareData = ShareIncidentData | ShareNarrativeData | ShareBriefingData | ShareIncidentsData | ShareEmergingTopicData;
 
 interface ShareModalProps {
   open: boolean;
@@ -165,6 +215,28 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
           key_points: data.key_points,
           topic: data.topic,
         };
+      } else if (data.type === 'emerging_topic') {
+        endpoint = '/api/share/emerging-topic';
+        body = {
+          to_email: email,
+          topic_id: data.topic_id,
+          topic_label: data.topic_label,
+          topic_description: data.topic_description,
+          score: data.score,
+          urgency: data.urgency,
+          velocity: data.velocity,
+          article_count: data.article_count,
+          key_themes: data.key_themes,
+          key_entities: data.key_entities,
+          why_emerging: data.why_emerging,
+          // Enhanced fields
+          key_takeaway: data.key_takeaway,
+          trend_score: data.trend_score,
+          actors: data.actors,
+          events: data.events,
+          implications: data.implications,
+          articles: data.articles,
+        };
       } else {
         endpoint = '/api/share/briefing';
         body = {
@@ -215,6 +287,8 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
         return `Share Narrative: ${data.narrative_name}`;
       case 'briefing':
         return `Share Briefing: ${data.persona}`;
+      case 'emerging_topic':
+        return `Share Emerging Topic: ${data.topic_label}`;
       default:
         return 'Share via Email';
     }

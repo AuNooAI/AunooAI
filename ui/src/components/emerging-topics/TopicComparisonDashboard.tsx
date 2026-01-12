@@ -1,15 +1,12 @@
 /**
  * Emerging Topics Overview Dashboard
- * Contains: Timeline Chart, Category Radar, Scatter plot, and Score distribution
+ * Contains: Timeline Chart, Category Radar, and Score distribution
  */
 
 import { useMemo, useState } from 'react';
 import {
-  ScatterChart,
-  Scatter,
   XAxis,
   YAxis,
-  ZAxis,
   Tooltip,
   ResponsiveContainer,
   BarChart,
@@ -17,7 +14,7 @@ import {
   Cell,
   CartesianGrid,
 } from 'recharts';
-import { ChevronDown, ChevronUp, BarChart3, TrendingUp, Calendar, PieChart } from 'lucide-react';
+import { ChevronDown, ChevronUp, BarChart3, Calendar, PieChart } from 'lucide-react';
 import { TopicsTimelineChart } from './TopicsTimelineChart';
 import { CategoryRadarChart } from './CategoryRadarChart';
 
@@ -74,18 +71,6 @@ export function TopicComparisonDashboard({
 }: TopicComparisonDashboardProps) {
   const [isExpanded, setIsExpanded] = useState(true);
 
-  // Transform data for scatter plot
-  const scatterData = useMemo(() => {
-    return topics.map((t) => ({
-      id: t.id,
-      name: t.topic_label,
-      x: t.trend_score?.composite || (t.confidence_score || 0) * 100,
-      y: t.article_count,
-      velocity: t.velocity || 'stable',
-      color: velocityColors[t.velocity || 'stable'],
-    }));
-  }, [topics]);
-
   // Transform data for histogram (score distribution)
   const histogramData = useMemo(() => {
     const buckets = [
@@ -134,10 +119,10 @@ export function TopicComparisonDashboard({
         <div className="flex items-center gap-2">
           <BarChart3 className="w-5 h-5 text-pink-500" />
           <span className="font-medium text-gray-900 dark:text-gray-100">
-            Emerging Topics Overview
+            Emerging Themes Overview
           </span>
           <span className="text-sm text-gray-500 dark:text-gray-400">
-            ({topics.length} topics)
+            ({topics.length} themes)
           </span>
         </div>
         {isExpanded ? (
@@ -150,20 +135,24 @@ export function TopicComparisonDashboard({
       {/* Content */}
       {isExpanded && (
         <div className="px-4 pb-4 border-t border-gray-100 dark:border-gray-800">
-          {/* Row 1: Timeline Chart and Category Radar */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4">
-            <div className="lg:col-span-2">
-              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-                <Calendar className="w-4 h-4" />
-                Topics Timeline (7 Days)
-              </h4>
-              <TopicsTimelineChart
-                topics={topics}
-                daysToShow={7}
-                onTopicClick={onTopicClick}
-                className="border-0 p-0 bg-transparent"
-              />
-            </div>
+          {/* Row 1: Timeline Chart (full width) */}
+          <div className="mt-4">
+            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+              <Calendar className="w-4 h-4" />
+              Topics Timeline (7 Days)
+            </h4>
+            <TopicsTimelineChart
+              topics={topics}
+              daysToShow={7}
+              onTopicClick={onTopicClick}
+              className="border-0 p-0 bg-transparent"
+              hideTitle={true}
+            />
+          </div>
+
+          {/* Row 2: Category Radar + Score Distribution side by side */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6 pt-4 border-t border-gray-100 dark:border-gray-800">
+            {/* Category Radar */}
             <div>
               <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
                 <PieChart className="w-4 h-4" />
@@ -171,75 +160,10 @@ export function TopicComparisonDashboard({
               </h4>
               <CategoryRadarChart
                 topics={topics}
-                size={220}
-                showLegend={false}
+                size={240}
+                showLegend={true}
                 className="border-0 p-0 bg-transparent"
               />
-            </div>
-          </div>
-
-          {/* Row 2: Scatter Plot and Histogram */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6 pt-4 border-t border-gray-100 dark:border-gray-800">
-            {/* Scatter Plot: Score vs Article Count */}
-            <div>
-              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
-                <TrendingUp className="w-4 h-4" />
-                Score vs Article Count
-              </h4>
-              <div className="h-56 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ScatterChart margin={{ top: 10, right: 10, bottom: 30, left: 10 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
-                    <XAxis
-                      type="number"
-                      dataKey="x"
-                      name="Score"
-                      domain={[0, 100]}
-                      tick={{ fontSize: 11, fill: 'currentColor' }}
-                      tickLine={false}
-                      axisLine={{ stroke: 'currentColor', strokeOpacity: 0.2 }}
-                      label={{ value: 'Composite Score', position: 'bottom', offset: 15, fontSize: 11, fill: 'currentColor' }}
-                    />
-                    <YAxis
-                      type="number"
-                      dataKey="y"
-                      name="Articles"
-                      tick={{ fontSize: 11, fill: 'currentColor' }}
-                      tickLine={false}
-                      axisLine={{ stroke: 'currentColor', strokeOpacity: 0.2 }}
-                      label={{ value: 'Articles', angle: -90, position: 'insideLeft', fontSize: 11, fill: 'currentColor' }}
-                    />
-                    <ZAxis range={[60, 200]} />
-                    <Tooltip
-                      cursor={{ strokeDasharray: '3 3' }}
-                      content={({ active, payload }) => {
-                        if (active && payload && payload.length) {
-                          const data = payload[0].payload;
-                          return (
-                            <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-2 text-sm">
-                              <div className="font-medium text-gray-900 dark:text-gray-100 max-w-[200px] truncate">
-                                {data.name}
-                              </div>
-                              <div className="text-gray-600 dark:text-gray-400">
-                                Score: {Math.round(data.x)} · Articles: {data.y}
-                              </div>
-                              <div className="text-xs" style={{ color: data.color }}>
-                                {data.velocity}
-                              </div>
-                            </div>
-                          );
-                        }
-                        return null;
-                      }}
-                    />
-                    <Scatter data={scatterData}>
-                      {scatterData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} fillOpacity={0.7} />
-                      ))}
-                    </Scatter>
-                  </ScatterChart>
-                </ResponsiveContainer>
-              </div>
             </div>
 
             {/* Score Distribution Histogram */}
@@ -248,7 +172,7 @@ export function TopicComparisonDashboard({
                 <BarChart3 className="w-4 h-4" />
                 Score Distribution
               </h4>
-              <div className="h-56 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-2">
+              <div className="h-64 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-2">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={histogramData} margin={{ top: 10, right: 10, bottom: 30, left: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />

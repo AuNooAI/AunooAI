@@ -4,7 +4,7 @@
  * Dots colored by urgency level
  */
 
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Building2,
   Globe,
@@ -12,10 +12,14 @@ import {
   Users,
   Cpu,
   HelpCircle,
+  AlertTriangle,
+  TrendingUp,
+  TrendingDown,
+  Minus,
 } from 'lucide-react';
 
 // Category definitions - must match TopicsTimelineChart
-export type TopicCategory = 'business' | 'geopolitics' | 'regulation' | 'society' | 'technology' | 'other';
+export type TopicCategory = 'business' | 'geopolitics' | 'regulation' | 'society' | 'technology' | 'crisis' | 'other';
 
 const CATEGORY_CONFIG: Record<TopicCategory, { icon: React.ComponentType<{ className?: string }>; color: string; label: string }> = {
   business: { icon: Building2, color: '#3b82f6', label: 'Business' },
@@ -23,6 +27,7 @@ const CATEGORY_CONFIG: Record<TopicCategory, { icon: React.ComponentType<{ class
   regulation: { icon: Scale, color: '#8b5cf6', label: 'Regulation' },
   society: { icon: Users, color: '#22c55e', label: 'Society' },
   technology: { icon: Cpu, color: '#06b6d4', label: 'Technology' },
+  crisis: { icon: AlertTriangle, color: '#f97316', label: 'Crisis' },
   other: { icon: HelpCircle, color: '#6b7280', label: 'Other' },
 };
 
@@ -33,14 +38,20 @@ const CATEGORY_KEYWORDS: Record<TopicCategory, string[]> = {
   regulation: ['law', 'regulation', 'policy', 'legislation', 'compliance', 'legal', 'court', 'privacy', 'antitrust', 'government', 'bill', 'act', 'ruling', 'enforcement'],
   society: ['social', 'culture', 'health', 'education', 'community', 'public', 'climate', 'environment', 'protest', 'rights', 'welfare', 'demographic'],
   technology: ['ai', 'artificial intelligence', 'tech', 'software', 'digital', 'cyber', 'data', 'cloud', 'quantum', 'automation', 'algorithm', 'semiconductor', 'chip'],
+  crisis: ['crisis', 'emergency', 'disaster', 'catastrophe', 'outbreak', 'pandemic', 'collapse', 'failure', 'crash', 'breach', 'attack', 'threat', 'warning', 'alert', 'urgent', 'critical', 'severe', 'escalation', 'volatility', 'turmoil', 'disruption', 'shortage', 'outage'],
   other: [],
 };
 
 interface EmergingTopicData {
   id: number;
   topic_label: string;
+  article_count?: number;
+  velocity?: 'accelerating' | 'stable' | 'decelerating';
   trend_score?: {
     composite: number;
+    urgency?: 'low' | 'medium' | 'high';
+  };
+  synthesis?: {
     urgency?: 'low' | 'medium' | 'high';
   };
   key_themes?: string[];
@@ -82,6 +93,18 @@ function getUrgencyColor(urgency: string | undefined): string {
   }
 }
 
+interface ProcessedTopic extends EmergingTopicData {
+  category: TopicCategory;
+  score: number;
+  urgency: string;
+  velocityType: 'accelerating' | 'stable' | 'decelerating';
+  angle: number;
+  radiusPercent: number;
+  color: string;
+  categoryColor: string;
+  dotSize: number; // Size in pixels based on article count
+}
+
 export function CategoryRadarChart({
   topics,
   size = 300,
@@ -89,6 +112,9 @@ export function CategoryRadarChart({
   className = '',
   onTopicClick,
 }: CategoryRadarChartProps) {
+  const [hoveredTopic, setHoveredTopic] = useState<ProcessedTopic | null>(null);
+  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+
   // Get categories that have topics
   const activeCategories = useMemo(() => {
     const categories = Object.keys(CATEGORY_CONFIG) as TopicCategory[];
@@ -106,10 +132,17 @@ export function CategoryRadarChart({
   const processedTopics = useMemo(() => {
     if (activeCategories.length === 0) return [];
 
-    return topics.map(topic => {
+    // Find max article count for sizing dots
+    const maxArticles = Math.max(...topics.map(t => t.article_count || 1), 1);
+    const minDotSize = 12; // px
+    const maxDotSize = 28; // px
+
+    return topics.map((topic, idx) => {
       const category = classifyTopic(topic);
       const score = topic.trend_score?.composite || 50;
-      const urgency = topic.trend_score?.urgency || 'medium';
+      // Check both trend_score.urgency and synthesis.urgency
+      const urgency = topic.trend_score?.urgency || topic.synthesis?.urgency || 'medium';
+      const velocityType = topic.velocity || 'stable';
 
       // Calculate angle based on category position
       const categoryIndex = activeCategories.indexOf(category);
@@ -117,23 +150,30 @@ export function CategoryRadarChart({
       // Start from top (-90 degrees) and go clockwise
       const angle = -Math.PI / 2 + categoryIndex * angleStep;
 
-      // Add some jitter within category to avoid overlap
-      const jitter = (Math.random() - 0.5) * 0.3; // +/- 15% of angle step
+      // Add deterministic jitter within category to avoid overlap (based on topic id)
+      const jitter = ((topic.id * 7) % 10 - 5) / 10 * 0.3; // +/- 15% of angle step
       const finalAngle = angle + jitter * angleStep;
 
       // Radius based on score (0-100 maps to 20%-90% of max radius)
       const normalizedScore = Math.max(0, Math.min(100, score));
       const radiusPercent = 0.2 + (normalizedScore / 100) * 0.7;
 
+      // Dot size based on article count (scale from min to max)
+      const articleCount = topic.article_count || 1;
+      const sizeRatio = Math.log(articleCount + 1) / Math.log(maxArticles + 1); // Log scale for better distribution
+      const dotSize = minDotSize + sizeRatio * (maxDotSize - minDotSize);
+
       return {
         ...topic,
         category,
         score,
         urgency,
+        velocityType,
         angle: finalAngle,
         radiusPercent,
         color: getUrgencyColor(urgency),
         categoryColor: CATEGORY_CONFIG[category].color,
+        dotSize,
       };
     });
   }, [topics, activeCategories]);
@@ -161,8 +201,18 @@ export function CategoryRadarChart({
   const center = size / 2;
   const maxRadius = (size / 2) * 0.85;
 
+  const handleMouseEnter = (topic: ProcessedTopic, e: React.MouseEvent) => {
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    setTooltipPos({ x: rect.left + rect.width / 2, y: rect.top });
+    setHoveredTopic(topic);
+  };
+
+  const handleMouseLeave = () => {
+    setHoveredTopic(null);
+  };
+
   return (
-    <div className={`bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 ${className}`}>
+    <div className={`bg-white dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 p-4 relative ${className}`}>
       {/* Legend for urgency levels */}
       <div className="flex items-center justify-end gap-2 text-xs mb-2">
         <span className="flex items-center gap-1">
@@ -176,37 +226,47 @@ export function CategoryRadarChart({
         </span>
       </div>
 
-      {/* Radar Chart SVG */}
-      <svg width={size} height={size} className="mx-auto">
-        {/* Concentric circles (score rings) */}
-        {[0.25, 0.5, 0.75, 1].map((r, i) => (
-          <circle
-            key={i}
-            cx={center}
-            cy={center}
-            r={maxRadius * r}
-            fill="none"
-            stroke="currentColor"
-            strokeOpacity={0.1}
-            className="text-gray-400 dark:text-gray-600"
-          />
-        ))}
+      {/* Radar Chart Container */}
+      <div className="relative mx-auto" style={{ width: size, height: size }}>
+        {/* SVG for background elements */}
+        <svg width={size} height={size} className="absolute inset-0">
+          {/* Concentric circles (score rings) with labels */}
+          {[0.25, 0.5, 0.75, 1].map((r, i) => {
+            const scoreValue = Math.round(r * 100);
+            return (
+              <g key={i}>
+                <circle
+                  cx={center}
+                  cy={center}
+                  r={maxRadius * r}
+                  fill="none"
+                  stroke="currentColor"
+                  strokeOpacity={0.1}
+                  className="text-gray-400 dark:text-gray-600"
+                />
+                {/* Score label on the ring (positioned at top) */}
+                <text
+                  x={center}
+                  y={center - maxRadius * r - 2}
+                  textAnchor="middle"
+                  className="text-[9px] fill-gray-400 dark:fill-gray-500"
+                >
+                  {scoreValue}
+                </text>
+              </g>
+            );
+          })}
 
-        {/* Category spokes */}
-        {activeCategories.map((cat, i) => {
-          const angleStep = (2 * Math.PI) / activeCategories.length;
-          const angle = -Math.PI / 2 + i * angleStep;
-          const x2 = center + Math.cos(angle) * maxRadius;
-          const y2 = center + Math.sin(angle) * maxRadius;
-          const labelX = center + Math.cos(angle) * (maxRadius + 20);
-          const labelY = center + Math.sin(angle) * (maxRadius + 20);
-          const config = CATEGORY_CONFIG[cat];
-          const Icon = config.icon;
+          {/* Category spokes */}
+          {activeCategories.map((cat, i) => {
+            const angleStep = (2 * Math.PI) / activeCategories.length;
+            const angle = -Math.PI / 2 + i * angleStep;
+            const x2 = center + Math.cos(angle) * maxRadius;
+            const y2 = center + Math.sin(angle) * maxRadius;
 
-          return (
-            <g key={cat}>
-              {/* Spoke line */}
+            return (
               <line
+                key={cat}
                 x1={center}
                 y1={center}
                 x2={x2}
@@ -215,60 +275,92 @@ export function CategoryRadarChart({
                 strokeOpacity={0.2}
                 className="text-gray-400 dark:text-gray-600"
               />
-              {/* Category label */}
-              <foreignObject
-                x={labelX - 30}
-                y={labelY - 10}
-                width={60}
-                height={20}
-                style={{ overflow: 'visible' }}
-              >
-                <div
-                  className="flex items-center justify-center gap-1 text-xs font-medium whitespace-nowrap"
-                  style={{ color: config.color }}
-                >
-                  <Icon className="w-3 h-3" />
-                  <span>{config.label}</span>
-                </div>
-              </foreignObject>
-            </g>
+            );
+          })}
+
+          {/* Center point */}
+          <circle
+            cx={center}
+            cy={center}
+            r={4}
+            fill="currentColor"
+            className="text-gray-300 dark:text-gray-600"
+          />
+        </svg>
+
+        {/* Category labels (HTML for better rendering) */}
+        {activeCategories.map((cat, i) => {
+          const angleStep = (2 * Math.PI) / activeCategories.length;
+          const angle = -Math.PI / 2 + i * angleStep;
+          const labelX = center + Math.cos(angle) * (maxRadius + 25);
+          const labelY = center + Math.sin(angle) * (maxRadius + 25);
+          const config = CATEGORY_CONFIG[cat];
+          const Icon = config.icon;
+
+          return (
+            <div
+              key={cat}
+              className="absolute flex items-center gap-1 text-xs font-medium whitespace-nowrap"
+              style={{
+                left: labelX,
+                top: labelY,
+                transform: 'translate(-50%, -50%)',
+                color: config.color,
+              }}
+            >
+              <Icon className="w-3 h-3" />
+              <span>{config.label}</span>
+            </div>
           );
         })}
 
-        {/* Topic dots */}
-        {processedTopics.map((topic, idx) => {
+        {/* Topic dots (HTML for better hover handling) - sized by article count, with velocity icons */}
+        {processedTopics.map((topic) => {
           const r = maxRadius * topic.radiusPercent;
           const x = center + Math.cos(topic.angle) * r;
           const y = center + Math.sin(topic.angle) * r;
 
+          // Get velocity icon
+          const VelocityIcon = topic.velocityType === 'accelerating'
+            ? TrendingUp
+            : topic.velocityType === 'decelerating'
+              ? TrendingDown
+              : Minus;
+
+          // Icon size based on dot size (roughly 60% of dot)
+          const iconSize = Math.max(8, Math.floor(topic.dotSize * 0.5));
+
           return (
-            <g key={topic.id} className="cursor-pointer group">
-              {/* Dot with category border */}
-              <circle
-                cx={x}
-                cy={y}
-                r={8}
-                fill={topic.color}
-                stroke={topic.categoryColor}
-                strokeWidth={2}
-                className="transition-all group-hover:r-10"
-                onClick={() => onTopicClick?.(topic)}
-              />
-              {/* Hover tooltip */}
-              <title>{`${topic.topic_label}\nScore: ${Math.round(topic.score)}\nUrgency: ${topic.urgency}`}</title>
-            </g>
+            <div
+              key={topic.id}
+              className="absolute cursor-pointer transition-transform hover:scale-125 hover:z-10"
+              style={{
+                left: x,
+                top: y,
+                transform: 'translate(-50%, -50%)',
+              }}
+              onMouseEnter={(e) => handleMouseEnter(topic, e)}
+              onMouseLeave={handleMouseLeave}
+              onClick={() => onTopicClick?.(topic)}
+            >
+              <div
+                className="rounded-full flex items-center justify-center"
+                style={{
+                  width: `${topic.dotSize}px`,
+                  height: `${topic.dotSize}px`,
+                  backgroundColor: topic.color,
+                  border: `2px solid ${topic.categoryColor}`,
+                }}
+              >
+                <VelocityIcon
+                  className="text-white drop-shadow-sm"
+                  style={{ width: iconSize, height: iconSize }}
+                />
+              </div>
+            </div>
           );
         })}
-
-        {/* Center point */}
-        <circle
-          cx={center}
-          cy={center}
-          r={4}
-          fill="currentColor"
-          className="text-gray-300 dark:text-gray-600"
-        />
-      </svg>
+      </div>
 
       {/* Category summary */}
       {showLegend && (
@@ -286,6 +378,25 @@ export function CategoryRadarChart({
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Tooltip (rendered outside for proper z-index) */}
+      {hoveredTopic && (
+        <div
+          className="fixed z-[100] pointer-events-none"
+          style={{
+            left: tooltipPos.x,
+            top: tooltipPos.y - 8,
+            transform: 'translateX(-50%) translateY(-100%)',
+          }}
+        >
+          <div className="bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap shadow-lg">
+            <div className="font-medium">{hoveredTopic.topic_label}</div>
+            <div className="text-gray-300 text-[10px]">
+              Score: {Math.round(hoveredTopic.score)} | {hoveredTopic.urgency} urgency | {hoveredTopic.velocityType} | {hoveredTopic.article_count || 1} signals
+            </div>
+          </div>
         </div>
       )}
     </div>
