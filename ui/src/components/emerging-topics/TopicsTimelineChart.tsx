@@ -212,7 +212,7 @@ export function TopicsTimelineChart({
 
   if (topics.length === 0) {
     return (
-      <div className={`p-4 text-center text-gray-500 dark:text-gray-400 ${className}`}>
+      <div className={`p-4 text-center text-gray-700 dark:text-gray-300 ${className}`}>
         No emerging themes detected in the last {daysToShow} days
       </div>
     );
@@ -235,7 +235,7 @@ export function TopicsTimelineChart({
           <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">
             Signals Timeline ({daysToShow} Days)
           </h3>
-          <div className="flex items-center gap-3 text-xs text-gray-500">
+          <div className="flex items-center gap-3 text-xs text-gray-700 dark:text-gray-300">
             <span className="flex items-center gap-1">
               <span className="w-2 h-2 rounded-full bg-red-500" /> High
             </span>
@@ -252,7 +252,7 @@ export function TopicsTimelineChart({
       {/* Timeline */}
       <div className="relative">
         {/* Date axis */}
-        <div className="flex justify-between mb-2 text-xs text-gray-500 dark:text-gray-400 px-1">
+        <div className="flex justify-between mb-2 text-xs text-gray-700 dark:text-gray-300 px-1">
           {dateRange.map((date, i) => (
             <span key={i} className="text-center" style={{ width: `${100 / daysToShow}%` }}>
               {format(date, 'MMM d')}
@@ -265,7 +265,7 @@ export function TopicsTimelineChart({
           {dateRange.map((_, i) => (
             <div
               key={i}
-              className="flex-1 border-l border-gray-100 dark:border-gray-800 first:border-l-0"
+              className="flex-1 border-l border-gray-300 dark:border-gray-700 first:border-l-0"
             />
           ))}
         </div>
@@ -345,7 +345,7 @@ export function TopicsTimelineChart({
             return (
               <div key={cat} className="flex items-center gap-1 text-xs">
                 <Icon className="w-3 h-3" style={{ color: config.color }} />
-                <span className="text-gray-600 dark:text-gray-400">
+                <span className="text-gray-700 dark:text-gray-300">
                   {config.label}: {topicCount} themes, {signalCount} signals
                 </span>
               </div>

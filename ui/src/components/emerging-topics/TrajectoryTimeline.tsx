@@ -131,7 +131,7 @@ export function TrajectoryTimeline({
       {/* Timeline bar */}
       <div className="flex-1">
         {/* Date range label */}
-        <div className="flex justify-between text-[10px] text-gray-400 dark:text-gray-500 mb-1">
+        <div className="flex justify-between text-[10px] text-gray-600 dark:text-gray-400 mb-1">
           <span>{formatDate(firstDetection)}</span>
           <span>{formatDate(lastDetection)}</span>
         </div>
@@ -166,7 +166,7 @@ export function TrajectoryTimeline({
             </span>
           )}
           {missedRuns > 0 && (
-            <span className="text-gray-400">
+            <span className="text-gray-600 dark:text-gray-400">
               {missedRuns} gaps
             </span>
           )}

@@ -164,7 +164,7 @@ export function NarrativesConfigModal({ open, onClose }: NarrativesConfigModalPr
                 <div className="flex items-center justify-center py-12">
                   <div className="text-center">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500 mx-auto mb-4"></div>
-                    <p className="text-gray-500">Loading configuration...</p>
+                    <p className="text-gray-700 dark:text-gray-300">Loading configuration...</p>
                   </div>
                 </div>
               )}
@@ -187,10 +187,10 @@ export function NarrativesConfigModal({ open, onClose }: NarrativesConfigModalPr
                     <MessageSquare className="w-5 h-5 text-indigo-500" />
                     <h4 className="font-semibold text-gray-900 dark:text-gray-100">Prompt Templates</h4>
                   </div>
-                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
+                  <p className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 mb-2">
                     The core instructions that guide the AI's thematic analysis approach.
                   </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                  <p className="text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
                     <span className="font-medium">Use this when:</span> You want to change how themes are identified or structured.
                   </p>
                 </div>
@@ -210,7 +210,7 @@ export function NarrativesConfigModal({ open, onClose }: NarrativesConfigModalPr
                   <div className="lg:col-span-2 space-y-4">
                     <div>
                       <Label className="font-semibold">System Prompt Template</Label>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                      <p className="text-sm text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 mb-2">
                         Defines the AI's role and how it should analyze articles to identify themes.
                       </p>
                       <Textarea
@@ -224,7 +224,7 @@ export function NarrativesConfigModal({ open, onClose }: NarrativesConfigModalPr
 
                     <div>
                       <Label className="font-semibold">User Prompt Template</Label>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                      <p className="text-sm text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 mb-2">
                         The message sent with each request, containing the articles to analyze.
                       </p>
                       <Textarea
@@ -243,11 +243,11 @@ export function NarrativesConfigModal({ open, onClose }: NarrativesConfigModalPr
                       <div className="space-y-2 text-sm">
                         <div>
                           <code className="text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-1 py-0.5 rounded text-xs">{'{topic}'}</code>
-                          <p className="text-gray-500 dark:text-gray-400 text-xs mt-0.5">Replaced with the selected topic name</p>
+                          <p className="text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 text-xs mt-0.5">Replaced with the selected topic name</p>
                         </div>
                         <div>
                           <code className="text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950 px-1 py-0.5 rounded text-xs">{'{articles_text}'}</code>
-                          <p className="text-gray-500 dark:text-gray-400 text-xs mt-0.5">Replaced with formatted article content (title, source, summary, URI)</p>
+                          <p className="text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 text-xs mt-0.5">Replaced with formatted article content (title, source, summary, URI)</p>
                         </div>
                       </div>
                     </div>
@@ -263,7 +263,7 @@ export function NarrativesConfigModal({ open, onClose }: NarrativesConfigModalPr
 
                     <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
                       <h4 className="font-semibold text-gray-900 dark:text-gray-100 mb-2">Tips</h4>
-                      <ul className="text-xs text-gray-600 dark:text-gray-300 space-y-1.5 list-disc list-inside">
+                      <ul className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 space-y-1.5 list-disc list-inside">
                         <li>Adjust "3-5 themes" to change how many themes are identified</li>
                         <li>Add domain expertise to improve relevance</li>
                         <li>Include specific focus areas or exclusions</li>

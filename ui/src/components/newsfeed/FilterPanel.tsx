@@ -108,14 +108,14 @@ export function FilterPanel({
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
         <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-gray-500" />
+          <Filter className="w-4 h-4 text-gray-700 dark:text-gray-300" />
           <h3 className="font-semibold text-gray-900">Filter Incidents</h3>
         </div>
         <button
           onClick={onClose}
           className="p-1 hover:bg-gray-100 rounded-full transition-colors"
         >
-          <X className="w-4 h-4 text-gray-500" />
+          <X className="w-4 h-4 text-gray-700 dark:text-gray-300" />
         </button>
       </div>
 

@@ -333,7 +333,7 @@ export function IncidentConfigModal({ open, onClose }: IncidentConfigModalProps)
                 <div className="flex items-center justify-center py-12">
                   <div className="text-center">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-pink-500 mx-auto mb-4"></div>
-                    <p className="text-gray-500">Loading configuration...</p>
+                    <p className="text-gray-700 dark:text-gray-300">Loading configuration...</p>
                   </div>
                 </div>
               )}
@@ -395,7 +395,7 @@ export function IncidentConfigModal({ open, onClose }: IncidentConfigModalProps)
                   <div className="lg:col-span-2 space-y-4 min-w-0">
                     <div>
                       <Label className="font-semibold">System Prompt Template</Label>
-                      <p className="text-sm text-gray-500 mb-2">
+                      <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
                         Customize the system prompt used for incident tracking analysis.
                         Use {'{topic}'} and {'{ontology_text}'} as placeholders.
                       </p>
@@ -411,7 +411,7 @@ export function IncidentConfigModal({ open, onClose }: IncidentConfigModalProps)
 
                     <div>
                       <Label className="font-semibold">User Prompt Template</Label>
-                      <p className="text-sm text-gray-500 mb-2">
+                      <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
                         Customize how articles are presented to the AI.
                       </p>
                       <Textarea
@@ -426,7 +426,7 @@ export function IncidentConfigModal({ open, onClose }: IncidentConfigModalProps)
 
                     <div>
                       <Label className="font-semibold">Profile Context Template</Label>
-                      <p className="text-sm text-gray-500 mb-2">
+                      <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
                         Configure how organizational profiles are integrated.
                       </p>
                       <Textarea
@@ -478,7 +478,7 @@ export function IncidentConfigModal({ open, onClose }: IncidentConfigModalProps)
                   <div className="lg:col-span-2 space-y-4 min-w-0">
                     <div>
                       <Label className="font-semibold">Base Ontology</Label>
-                      <p className="text-sm text-gray-500 mb-2">
+                      <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
                         Define the types, subtypes, and classification rules.
                       </p>
                       <Textarea
@@ -493,7 +493,7 @@ export function IncidentConfigModal({ open, onClose }: IncidentConfigModalProps)
 
                     <div>
                       <Label className="font-semibold">Domain Key</Label>
-                      <p className="text-sm text-gray-500 mb-2">
+                      <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
                         Use 'vanilla' for no domain-specific overlay.
                       </p>
                       <Input
@@ -549,7 +549,7 @@ export function IncidentConfigModal({ open, onClose }: IncidentConfigModalProps)
 
                     <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
                       <h4 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">Required Fields</h4>
-                      <ul className="text-sm text-gray-600 dark:text-gray-300 space-y-1 list-disc list-inside">
+                      <ul className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 space-y-1 list-disc list-inside">
                         <li>name, type, subtype</li>
                         <li>description, timeline</li>
                         <li>significance, plausibility</li>
@@ -567,7 +567,7 @@ export function IncidentConfigModal({ open, onClose }: IncidentConfigModalProps)
                   <div className="lg:col-span-2 space-y-4 min-w-0">
                     <div>
                       <Label className="font-semibold">Analysis Instructions</Label>
-                      <p className="text-sm text-gray-500 mb-2">
+                      <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
                         Specific instructions for how the AI should analyze articles.
                       </p>
                       <Textarea
@@ -583,7 +583,7 @@ export function IncidentConfigModal({ open, onClose }: IncidentConfigModalProps)
 
                     <div>
                       <Label className="font-semibold">Quality Control Guidelines</Label>
-                      <p className="text-sm text-gray-500 mb-2">
+                      <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
                         Guidelines for credibility, extraordinary claims, source quality.
                       </p>
                       <Textarea
@@ -599,7 +599,7 @@ export function IncidentConfigModal({ open, onClose }: IncidentConfigModalProps)
 
                     <div>
                       <Label className="font-semibold">Output Format Requirements</Label>
-                      <p className="text-sm text-gray-500 mb-2">
+                      <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
                         Specific JSON structure and formatting requirements.
                       </p>
                       <Textarea
@@ -623,7 +623,7 @@ export function IncidentConfigModal({ open, onClose }: IncidentConfigModalProps)
                       <div className="space-y-3 text-sm">
                         <div>
                           <p className="font-medium text-gray-700 dark:text-gray-200">Analysis Quality:</p>
-                          <ul className="text-gray-600 dark:text-gray-300 list-disc list-inside mt-1 space-y-0.5">
+                          <ul className="text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 list-disc list-inside mt-1 space-y-0.5">
                             <li>Be specific about credibility assessment</li>
                             <li>Include source quality indicators</li>
                             <li>Flag extraordinary claims</li>
@@ -633,7 +633,7 @@ export function IncidentConfigModal({ open, onClose }: IncidentConfigModalProps)
                         </div>
                         <div>
                           <p className="font-medium text-gray-700 dark:text-gray-200">Profile Context:</p>
-                          <ul className="text-gray-600 dark:text-gray-300 list-disc list-inside mt-1 space-y-0.5">
+                          <ul className="text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 list-disc list-inside mt-1 space-y-0.5">
                             <li>Consider organizational priorities</li>
                             <li>Align with risk tolerance</li>
                             <li>Focus on relevant stakeholders</li>
@@ -686,8 +686,8 @@ function InfoCard({
         {icon}
         <h4 className="font-semibold text-gray-900 dark:text-gray-100">{title}</h4>
       </div>
-      <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">{description}</p>
-      <p className="text-xs text-gray-500 dark:text-gray-400">
+      <p className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 mb-2">{description}</p>
+      <p className="text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
         <span className="font-medium">Use this when:</span> {useCase}
       </p>
     </div>
@@ -698,7 +698,7 @@ function PlaceholderItem({ name, desc }: { name: string; desc: string }) {
   return (
     <div>
       <code className="text-pink-600 dark:text-pink-400 bg-pink-50 dark:bg-pink-950 px-1 py-0.5 rounded text-xs">{name}</code>
-      <p className="text-gray-500 dark:text-gray-400 text-xs mt-0.5">{desc}</p>
+      <p className="text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 text-xs mt-0.5">{desc}</p>
     </div>
   );
 }
@@ -707,7 +707,7 @@ function TypeItem({ type, desc }: { type: string; desc: string }) {
   return (
     <div>
       <code className="text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950 px-1 py-0.5 rounded text-xs">{type}</code>
-      <p className="text-gray-500 dark:text-gray-400 text-xs mt-0.5">{desc}</p>
+      <p className="text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 text-xs mt-0.5">{desc}</p>
     </div>
   );
 }

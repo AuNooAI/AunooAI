@@ -2111,10 +2111,10 @@ Use factual_reporting, MBFC credibility, and bias indicators. Down-rank or flag 
 {ontology_text}
 
 Required fields for each item:
-- name
+- name: concise, factual headline (what happened)
 - type: incident | entity | event | expertise | informed_insider | trend_signal | strategic_shift
 - subtype: from the allowed list for the chosen type
-- description
+- description: FACTUAL summary of what happened/is happening - include who, what, when, where. Do NOT include organizational implications, calls to action, or mission statements. Keep it objective and news-focused.
 - article_uris
 - timeline
 - significance: low | medium | high (reduce if credibility concerns exist)
@@ -2124,7 +2124,7 @@ Required fields for each item:
 - source_quality: high | mixed | low
 - misinfo_flags: [] e.g., "extraordinary_claim", "no_independent_verification", "low_factuality_source", "fringe_bias"
 - credibility_summary: 1-2 sentence rationale
-- organizational_relevance: 1-2 sentences explaining why this is specifically relevant to the organization's priorities, concerns, or strategic objectives
+- organizational_relevance: 1-2 sentences explaining why this is specifically relevant to the organization's priorities, concerns, or strategic objectives (THIS is where organizational context belongs, NOT in description)
 
 Devil's Advocate Smell Test:
 - Add a "devils_advocate" field with brief caution if the claim appears hyperbolic or extraordinary relative to typical evidence.

@@ -176,7 +176,7 @@ Please provide:
               {isStarred ? (
                 <Star className="w-5 h-5 text-yellow-500 fill-yellow-500" />
               ) : (
-                <Star className="w-5 h-5 text-gray-400 hover:text-yellow-500" />
+                <Star className="w-5 h-5 text-gray-600 dark:text-gray-400 hover:text-yellow-500" />
               )}
             </button>
 
@@ -190,7 +190,7 @@ Please provide:
                   onClick={() => setShowMenu(!showMenu)}
                   className="p-2 hover:bg-gray-100 rounded-full transition-colors"
                 >
-                  <MoreVertical className="w-5 h-5 text-gray-500" />
+                  <MoreVertical className="w-5 h-5 text-gray-700 dark:text-gray-300" />
                 </button>
                 {showMenu && (
                   <div className="absolute right-0 top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1 min-w-[160px]">
@@ -224,20 +224,20 @@ Please provide:
                 onClick={onClose}
                 className="p-2 hover:bg-gray-100 rounded-full transition-colors"
               >
-                <X className="w-5 h-5 text-gray-500" />
+                <X className="w-5 h-5 text-gray-700 dark:text-gray-300" />
               </button>
             </div>
           </div>
 
           {/* Tabs - only show when there are related articles */}
           {hasRelated && (
-            <div className="px-6 flex border-t border-gray-100">
+            <div className="px-6 flex border-t border-gray-300 dark:border-gray-700">
               <button
                 onClick={() => setActiveTab('details')}
                 className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
                   activeTab === 'details'
                     ? 'border-pink-500 text-pink-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                    : 'border-transparent text-gray-700 dark:text-gray-300 hover:text-gray-700'
                 }`}
               >
                 Details
@@ -247,7 +247,7 @@ Please provide:
                 className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${
                   activeTab === 'related'
                     ? 'border-pink-500 text-pink-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                    : 'border-transparent text-gray-700 dark:text-gray-300 hover:text-gray-700'
                 }`}
               >
                 <Layers className="w-4 h-4" />
@@ -276,10 +276,10 @@ Please provide:
           </h1>
 
           {/* Source and date */}
-          <div className="flex items-center gap-2 mt-3 text-sm text-gray-500">
+          <div className="flex items-center gap-2 mt-3 text-sm text-gray-700 dark:text-gray-300">
             <Building2 className="w-4 h-4" />
             <span className="font-medium">{article.source?.name || 'Unknown source'}</span>
-            <span className="text-gray-300">•</span>
+            <span className="text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">•</span>
             <Clock className="w-4 h-4" />
             <span>{formatDate(article.publication_date)}</span>
           </div>
@@ -399,7 +399,7 @@ Please provide:
               <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-1">
                 Full Coverage
               </h3>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-700 dark:text-gray-300">
                 {relatedArticles.length + 1} sources reporting on this story
               </p>
             </div>
@@ -430,19 +430,19 @@ Please provide:
                       <span className="font-medium text-gray-700">{related.news_source}</span>
                       {related.publication_date && (
                         <>
-                          <span className="text-gray-300">•</span>
-                          <span className="text-gray-500">{formatRelativeTime(related.publication_date)}</span>
+                          <span className="text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">•</span>
+                          <span className="text-gray-700 dark:text-gray-300">{formatRelativeTime(related.publication_date)}</span>
                         </>
                       )}
                     </div>
-                    <ChevronRight className="w-4 h-4 text-gray-400" />
+                    <ChevronRight className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-400" />
                   </div>
                   <h4 className="font-medium text-gray-900 mb-2 line-clamp-2">{related.title}</h4>
                   {related.summary && (
                     <p className="text-sm text-gray-600 line-clamp-2">{related.summary}</p>
                   )}
                   {related.similarity_score && (
-                    <div className="mt-2 flex items-center gap-1 text-xs text-gray-400">
+                    <div className="mt-2 flex items-center gap-1 text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">
                       <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400"></span>
                       <span>{Math.round(related.similarity_score * 100)}% similar</span>
                     </div>
@@ -469,7 +469,7 @@ function MetadataItem({ icon, label, value, valueColor }: MetadataItemProps) {
 
   return (
     <div className="bg-gray-50 rounded-lg p-3">
-      <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-1">
+      <div className="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300 mb-1">
         {icon}
         <span className="uppercase tracking-wide">{label}</span>
       </div>

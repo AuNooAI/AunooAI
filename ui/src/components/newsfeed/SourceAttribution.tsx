@@ -27,11 +27,11 @@ export function SourceAttribution({
   // Handle missing source
   if (!source) {
     return (
-      <div className={`flex items-center gap-2 ${textSize} text-gray-500`}>
+      <div className={`flex items-center gap-2 ${textSize} text-gray-700 dark:text-gray-300`}>
         <span className="font-medium text-gray-700">Unknown Source</span>
         {formattedDate && (
           <>
-            <span className="text-gray-300">|</span>
+            <span className="text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">|</span>
             <span>{formattedDate}</span>
           </>
         )}
@@ -40,20 +40,20 @@ export function SourceAttribution({
   }
 
   return (
-    <div className={`flex items-center gap-2 ${textSize} text-gray-500`}>
+    <div className={`flex items-center gap-2 ${textSize} text-gray-700 dark:text-gray-300`}>
       <span className="font-medium text-gray-700">{source.name || 'Unknown'}</span>
       {source.country && (
-        <span className="text-gray-400">({source.country})</span>
+        <span className="text-gray-600 dark:text-gray-600 dark:text-gray-400">({source.country})</span>
       )}
       {formattedDate && (
         <>
-          <span className="text-gray-300">|</span>
+          <span className="text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">|</span>
           <span>{formattedDate}</span>
         </>
       )}
       {showBias && (source.bias || source.factuality) && (
         <>
-          <span className="text-gray-300">|</span>
+          <span className="text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">|</span>
           <ArticleBiasIndicator
             bias={source.bias}
             factuality={source.factuality}

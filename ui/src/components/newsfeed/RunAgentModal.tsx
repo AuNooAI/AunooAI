@@ -113,7 +113,7 @@ export function RunAgentModal({
                   )}
                 </div>
                 <p className={`text-sm mt-0.5 ${
-                  selectedDays === option.value ? 'text-pink-600' : 'text-gray-500'
+                  selectedDays === option.value ? 'text-pink-600' : 'text-gray-700 dark:text-gray-300'
                 }`}>
                   {option.description}
                 </p>
@@ -135,7 +135,7 @@ export function RunAgentModal({
                 <Tag className="w-4 h-4 text-green-500" />
                 <span className="font-medium text-gray-900">Tag matching articles</span>
               </div>
-              <p className="text-sm text-gray-500 mt-0.5">
+              <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5">
                 Add signal tags to matched articles for easy filtering
               </p>
             </div>
@@ -154,7 +154,7 @@ export function RunAgentModal({
                   <FileText className="w-4 h-4 text-blue-500" />
                   <span className="font-medium text-gray-900">Generate unified report</span>
                 </div>
-                <p className="text-sm text-gray-500 mt-0.5">
+                <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5">
                   Create a combined intelligence report across all agents
                 </p>
               </div>

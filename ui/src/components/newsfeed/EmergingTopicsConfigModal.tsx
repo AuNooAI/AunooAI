@@ -394,7 +394,7 @@ export function EmergingTopicsConfigModal({
               <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
                 <div>
                   <Label className="font-medium">Enable Notifications</Label>
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs text-gray-700 dark:text-gray-300 mt-1">
                     Get alerted about new emerging topics
                   </p>
                 </div>
@@ -528,7 +528,7 @@ export function EmergingTopicsConfigModal({
                   max={100}
                   step={5}
                 />
-                <p className="text-xs text-gray-500">Only notify for topics above this confidence</p>
+                <p className="text-xs text-gray-700 dark:text-gray-300">Only notify for topics above this confidence</p>
               </div>
 
               {/* Cooldown */}
@@ -548,7 +548,7 @@ export function EmergingTopicsConfigModal({
                   max={1440}
                   step={60}
                 />
-                <p className="text-xs text-gray-500">Minimum time between notification batches</p>
+                <p className="text-xs text-gray-700 dark:text-gray-300">Minimum time between notification batches</p>
               </div>
 
               {/* Detection Type Filters */}

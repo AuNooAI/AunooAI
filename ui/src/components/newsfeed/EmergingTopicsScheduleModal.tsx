@@ -155,7 +155,7 @@ export function EmergingTopicsScheduleModal({
           <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
             <div>
               <Label className="font-medium">Automatic Detection</Label>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-700 dark:text-gray-300 mt-1">
                 Run detection on a schedule
               </p>
             </div>

@@ -132,7 +132,7 @@ export function ScheduleTimelineBar({ agents, systemSchedules = [] }: ScheduleTi
 
   if (!hasAnySchedules) {
     return (
-      <div className="text-sm text-gray-400 text-center py-4">
+      <div className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-400 text-center py-4">
         No scheduled tasks. Enable scheduling in settings.
       </div>
     );
@@ -153,7 +153,7 @@ export function ScheduleTimelineBar({ agents, systemSchedules = [] }: ScheduleTi
           y={barY}
           width={svgWidth - padding * 2}
           height={barHeight}
-          fill="#f3f4f6"
+          className="fill-gray-200 dark:fill-gray-700"
           rx={4}
         />
 
@@ -167,7 +167,7 @@ export function ScheduleTimelineBar({ agents, systemSchedules = [] }: ScheduleTi
                 y1={barY - 4}
                 x2={x}
                 y2={barY + barHeight + 4}
-                stroke="#d1d5db"
+                className="stroke-gray-400 dark:stroke-gray-500"
                 strokeWidth={1}
               />
               <text
@@ -175,7 +175,7 @@ export function ScheduleTimelineBar({ agents, systemSchedules = [] }: ScheduleTi
                 y={barY - 10}
                 textAnchor="middle"
                 fontSize={10}
-                fill="#9ca3af"
+                className="fill-gray-600 dark:fill-gray-400"
               >
                 {hour.toString().padStart(2, '0')}:00
               </text>
@@ -321,7 +321,7 @@ Next run: {time.toLocaleString()}
       </svg>
 
       {/* Legend */}
-      <div className="flex items-center justify-center gap-4 mt-2 text-xs text-gray-500 flex-wrap">
+      <div className="flex items-center justify-center gap-4 mt-2 text-xs text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 flex-wrap">
         <div className="flex items-center gap-1">
           <div className="w-2 h-2 bg-green-500 rounded-full" />
           <span>Active Agent</span>

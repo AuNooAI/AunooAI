@@ -460,7 +460,7 @@ export function AddAgentModal({
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-700 dark:text-gray-300">
               Optionally limit this agent to articles from a specific topic
             </p>
           </div>
@@ -488,14 +488,14 @@ export function AddAgentModal({
                 ))}
               </SelectContent>
             </Select>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-700 dark:text-gray-300">
               Select the AI model to use for analyzing articles
             </p>
           </div>
 
           {/* Quick Start Templates */}
           <div className="space-y-2">
-            <Label className="text-gray-500">Quick Start Templates</Label>
+            <Label className="text-gray-700 dark:text-gray-300">Quick Start Templates</Label>
             <div className="flex flex-wrap gap-2">
               {exampleInstructions.map((example) => (
                 <button
@@ -521,7 +521,7 @@ export function AddAgentModal({
               rows={4}
               disabled={saving || loading}
             />
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-700 dark:text-gray-300">
               The AI will follow these instructions when analyzing articles and explain why each match is relevant
             </p>
           </div>
@@ -537,7 +537,7 @@ export function AddAgentModal({
               rows={3}
               disabled={saving || loading}
             />
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-700 dark:text-gray-300">
               Specific entities mentioned here will be prioritized in article matching
             </p>
           </div>
@@ -566,7 +566,7 @@ export function AddAgentModal({
                     <SelectItem value="semantic">Semantic Search (Precise)</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-700 dark:text-gray-300">
                   {searchStrategy === 'recent' && 'Analyzes the most recent articles only'}
                   {searchStrategy === 'chunked' && 'Processes all articles in batches'}
                   {searchStrategy === 'semantic' && 'Uses vector search to find relevant articles first'}
@@ -585,7 +585,7 @@ export function AddAgentModal({
                   onChange={(e) => setMaxArticles(Math.min(1000, Math.max(10, parseInt(e.target.value) || 100)))}
                   disabled={saving || loading}
                 />
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-700 dark:text-gray-300">
                   Maximum articles to analyze (10-1000)
                 </p>
               </div>
@@ -607,7 +607,7 @@ export function AddAgentModal({
                 />
                 <span className="text-sm text-gray-600">matches to trigger alert actions</span>
               </div>
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-gray-700 dark:text-gray-300">
                 Email/DM notifications only sent when this many matches are found
               </p>
             </div>
@@ -618,7 +618,7 @@ export function AddAgentModal({
             <div className="flex items-center gap-2">
               <Label className="text-base font-medium">When Matches Are Found</Label>
             </div>
-            <p className="text-sm text-gray-500 -mt-1">
+            <p className="text-sm text-gray-700 dark:text-gray-300 -mt-1">
               Configure what happens when the agent finds matching articles
             </p>
 
@@ -635,7 +635,7 @@ export function AddAgentModal({
                     <Bell className="w-4 h-4 text-pink-500" />
                     <span className="font-medium text-gray-900">Add Notification</span>
                   </div>
-                  <p className="text-sm text-gray-500 mt-0.5">
+                  <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5">
                     Add alerts to the notification bell for review
                   </p>
                 </div>
@@ -653,7 +653,7 @@ export function AddAgentModal({
                     <Tag className="w-4 h-4 text-green-500" />
                     <span className="font-medium text-gray-900">Tag Matching Articles</span>
                   </div>
-                  <p className="text-sm text-gray-500 mt-0.5">
+                  <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5">
                     Add a "SIGNAL_{'{'}agent_name{'}'}" tag to matched articles for filtering
                   </p>
                 </div>
@@ -671,7 +671,7 @@ export function AddAgentModal({
                     <Star className="w-4 h-4 text-yellow-500" />
                     <span className="font-medium text-gray-900">Star Matching Articles</span>
                   </div>
-                  <p className="text-sm text-gray-500 mt-0.5">
+                  <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5">
                     Add matched articles to your starred collection
                   </p>
                 </div>
@@ -695,7 +695,7 @@ export function AddAgentModal({
                       <FileText className="w-4 h-4 text-blue-500" />
                       <span className="font-medium text-gray-900">Generate Report</span>
                     </div>
-                    <p className="text-sm text-gray-500 mt-0.5">
+                    <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5">
                       Automatically generate a summary report when matches are found
                     </p>
                   </div>
@@ -728,7 +728,7 @@ export function AddAgentModal({
                           className="font-mono text-sm"
                         />
                         <div className="flex justify-between items-center">
-                          <p className="text-xs text-gray-400">
+                          <p className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">
                             This prompt tells the AI how to analyze and summarize matched articles
                           </p>
                           <button
@@ -764,7 +764,7 @@ export function AddAgentModal({
                       <Mic className="w-4 h-4 text-purple-500" />
                       <span className="font-medium text-gray-900">Generate Podcast Summary</span>
                     </div>
-                    <p className="text-sm text-gray-500 mt-0.5">
+                    <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5">
                       Create an audio-friendly narrative summary of matches for podcast-style delivery
                     </p>
                   </div>
@@ -790,14 +790,14 @@ export function AddAgentModal({
                               <div className="flex items-center gap-2">
                                 <span>{voice.name}</span>
                                 {voice.category && (
-                                  <span className="text-xs text-gray-400">({voice.category})</span>
+                                  <span className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">({voice.category})</span>
                                 )}
                               </div>
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
-                      <p className="text-xs text-gray-400">
+                      <p className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">
                         Select the voice to use when generating audio from the podcast summary
                       </p>
                     </div>
@@ -806,7 +806,7 @@ export function AddAgentModal({
                     <button
                       type="button"
                       onClick={() => setShowPodcastPrompt(!showPodcastPrompt)}
-                      className="w-full flex items-center gap-2 p-3 text-sm text-gray-600 hover:bg-gray-50 border-t border-gray-100"
+                      className="w-full flex items-center gap-2 p-3 text-sm text-gray-600 hover:bg-gray-50 border-t border-gray-300 dark:border-gray-700"
                     >
                       {showPodcastPrompt ? (
                         <ChevronDown className="w-4 h-4" />
@@ -827,7 +827,7 @@ export function AddAgentModal({
                           className="font-mono text-sm"
                         />
                         <div className="flex justify-between items-center">
-                          <p className="text-xs text-gray-400">
+                          <p className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">
                             This prompt tells the AI how to create an audio-friendly summary
                           </p>
                           <button
@@ -857,7 +857,7 @@ export function AddAgentModal({
                     <Search className="w-4 h-4 text-orange-500" />
                     <span className="font-medium text-gray-900">Deep Research</span>
                   </div>
-                  <p className="text-sm text-gray-500 mt-0.5">
+                  <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5">
                     Trigger a deep research process to gather additional related articles from the dataset
                   </p>
                 </div>
@@ -881,7 +881,7 @@ export function AddAgentModal({
                       <Mail className="w-4 h-4 text-cyan-500" />
                       <span className="font-medium text-gray-900">Send Email</span>
                     </div>
-                    <p className="text-sm text-gray-500 mt-0.5">
+                    <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5">
                       Send an email notification when matches are found
                     </p>
                   </div>
@@ -912,7 +912,7 @@ export function AddAgentModal({
                           type="email"
                           disabled={saving || loading}
                         />
-                        <p className="text-xs text-gray-400">
+                        <p className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">
                           Leave blank to use the default notification email
                         </p>
                       </div>
@@ -939,7 +939,7 @@ export function AddAgentModal({
                       <MessageCircle className="w-4 h-4 text-sky-500" />
                       <span className="font-medium text-gray-900">Send Bluesky DM</span>
                     </div>
-                    <p className="text-sm text-gray-500 mt-0.5">
+                    <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5">
                       Send a direct message on Bluesky when matches are found
                     </p>
                   </div>
@@ -969,7 +969,7 @@ export function AddAgentModal({
                           placeholder="@username or username.bsky.social"
                           disabled={saving || loading}
                         />
-                        <p className="text-xs text-gray-400">
+                        <p className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">
                           Bluesky handle to receive DM alerts
                         </p>
                       </div>
@@ -989,9 +989,9 @@ export function AddAgentModal({
                   <div className="flex items-center gap-2">
                     <Workflow className="w-4 h-4 text-purple-500" />
                     <span className="font-medium text-gray-900">Trigger Workflow</span>
-                    <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">Soon</span>
+                    <span className="text-xs text-gray-600 dark:text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">Soon</span>
                   </div>
-                  <p className="text-sm text-gray-500 mt-0.5">
+                  <p className="text-sm text-gray-700 dark:text-gray-300 mt-0.5">
                     Execute a custom workflow (e.g., send to Slack, create task)
                   </p>
                 </div>
@@ -1005,13 +1005,13 @@ export function AddAgentModal({
               <div className="flex items-center gap-2">
                 <Label htmlFor="agent-active" className="font-medium">Active Status</Label>
                 <div className="group relative">
-                  <Info className="w-4 h-4 text-gray-400 cursor-help" />
+                  <Info className="w-4 h-4 text-gray-600 dark:text-gray-400 cursor-help" />
                   <div className="absolute bottom-full left-0 mb-2 w-64 p-2 bg-gray-900 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
                     Active agents will be included when you click "Run All". Paused agents can still be run individually.
                   </div>
                 </div>
               </div>
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-gray-700 dark:text-gray-300">
                 {isActive
                   ? 'Agent will run when "Run All" is clicked'
                   : 'Agent is paused and must be run manually'
@@ -1034,7 +1034,7 @@ export function AddAgentModal({
                   <Clock className="w-4 h-4 text-pink-500" />
                   <Label htmlFor="schedule-enabled" className="font-medium">Scheduled Execution</Label>
                 </div>
-                <p className="text-sm text-gray-500">
+                <p className="text-sm text-gray-700 dark:text-gray-300">
                   {scheduleEnabled
                     ? 'Agent will run automatically on schedule'
                     : 'Enable to run this agent on a schedule'
@@ -1099,7 +1099,7 @@ export function AddAgentModal({
                         </SelectContent>
                       </Select>
                     </div>
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-700 dark:text-gray-300">
                       Agent will run every {scheduleInterval} {scheduleUnit}
                     </p>
                   </div>
@@ -1116,7 +1116,7 @@ export function AddAgentModal({
                       disabled={saving || loading}
                       className="w-40"
                     />
-                    <p className="text-xs text-gray-500">
+                    <p className="text-xs text-gray-700 dark:text-gray-300">
                       Agent will run daily at {scheduleTime} (server time)
                     </p>
                   </div>
@@ -1141,7 +1141,7 @@ export function AddAgentModal({
                       <SelectItem value="30">Last 30 days</SelectItem>
                     </SelectContent>
                   </Select>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-gray-700 dark:text-gray-300">
                     Analyze articles from the last {scheduleDaysBack} day{scheduleDaysBack !== 1 ? 's' : ''} on each run
                   </p>
                 </div>
@@ -1149,13 +1149,13 @@ export function AddAgentModal({
                 {/* Next Run Preview */}
                 {isEditMode && editAgent?.next_run_at && (
                   <div className="p-3 bg-gray-50 rounded-lg">
-                    <p className="text-xs font-medium text-gray-500">Next Scheduled Run</p>
+                    <p className="text-xs font-medium text-gray-700 dark:text-gray-300">Next Scheduled Run</p>
                     <p className="text-sm text-gray-700">
                       {new Date(editAgent.next_run_at).toLocaleString()}
                     </p>
                     {editAgent.last_run_at && (
                       <>
-                        <p className="text-xs font-medium text-gray-500 mt-2">Last Run</p>
+                        <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mt-2">Last Run</p>
                         <p className="text-sm text-gray-700">
                           {new Date(editAgent.last_run_at).toLocaleString()}
                           {editAgent.last_run_status && (

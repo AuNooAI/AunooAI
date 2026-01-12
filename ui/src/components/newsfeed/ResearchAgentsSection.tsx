@@ -284,14 +284,14 @@ export function ResearchAgentsSection({
       {loadingAgents && agents.length === 0 ? (
         <div className="flex items-center justify-center py-8">
           <Loader2 className="w-6 h-6 animate-spin text-pink-500" />
-          <span className="ml-2 text-gray-500">Loading research agents...</span>
+          <span className="ml-2 text-gray-700 dark:text-gray-700 dark:text-gray-300 dark:text-gray-700 dark:text-gray-300">Loading research agents...</span>
         </div>
       ) : agents.length === 0 ? (
         /* Empty State */
-        <div className="bg-gray-50 rounded-lg p-8 text-center border border-dashed border-gray-300">
-          <Bot className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+        <div className="bg-gray-50 rounded-lg p-8 text-center border border-dashed border-gray-400 dark:border-gray-600">
+          <Bot className="w-12 h-12 text-gray-700 dark:text-gray-300 dark:text-gray-700 dark:text-gray-300 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-900 mb-2">No Research Agents Yet</h3>
-          <p className="text-gray-500 mb-4 max-w-md mx-auto">
+          <p className="text-gray-700 dark:text-gray-700 dark:text-gray-300 dark:text-gray-700 dark:text-gray-300 mb-4 max-w-md mx-auto">
             Create AI-powered research agents to automatically monitor your news feed for specific topics,
             threats, opportunities, or custom criteria.
           </p>
@@ -324,9 +324,9 @@ export function ResearchAgentsSection({
                       className="p-1 hover:bg-gray-200 rounded transition-colors"
                     >
                       {isExpanded ? (
-                        <ChevronDown className="w-4 h-4 text-gray-500" />
+                        <ChevronDown className="w-4 h-4 text-gray-700 dark:text-gray-700 dark:text-gray-300 dark:text-gray-700 dark:text-gray-300" />
                       ) : (
-                        <ChevronRight className="w-4 h-4 text-gray-500" />
+                        <ChevronRight className="w-4 h-4 text-gray-700 dark:text-gray-700 dark:text-gray-300 dark:text-gray-700 dark:text-gray-300" />
                       )}
                     </button>
                     <div className="flex-1 min-w-0">
@@ -352,13 +352,13 @@ export function ResearchAgentsSection({
                           </span>
                         )}
                         {agent.last_run_at && (
-                          <span className="text-xs text-gray-400" title={`Last run: ${new Date(agent.last_run_at).toLocaleString()}`}>
+                          <span className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" title={`Last run: ${new Date(agent.last_run_at).toLocaleString()}`}>
                             {new Date(agent.last_run_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}, {new Date(agent.last_run_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         )}
                       </div>
                       {agent.description && (
-                        <p className="text-sm text-gray-500 truncate mt-0.5">
+                        <p className="text-sm text-gray-700 dark:text-gray-700 dark:text-gray-300 dark:text-gray-700 dark:text-gray-300 truncate mt-0.5">
                           {agent.description}
                         </p>
                       )}
@@ -400,9 +400,9 @@ export function ResearchAgentsSection({
 
                 {/* Expanded Content */}
                 {isExpanded && (
-                  <div className="p-3 border-t border-gray-100">
+                  <div className="p-3 border-t border-gray-300 dark:border-gray-700">
                     <div className="mb-3">
-                      <h4 className="text-xs font-medium text-gray-500 uppercase mb-1">
+                      <h4 className="text-xs font-medium text-gray-700 dark:text-gray-700 dark:text-gray-300 dark:text-gray-700 dark:text-gray-300 uppercase mb-1">
                         Research Instruction
                       </h4>
                       <p className="text-sm text-gray-700 bg-gray-50 p-2 rounded font-mono">
@@ -414,7 +414,7 @@ export function ResearchAgentsSection({
                     {agentAlerts.length > 0 ? (
                       <div>
                         <div className="flex items-center justify-between mb-2">
-                          <h4 className="text-xs font-medium text-gray-500 uppercase">
+                          <h4 className="text-xs font-medium text-gray-700 dark:text-gray-700 dark:text-gray-300 dark:text-gray-700 dark:text-gray-300 uppercase">
                             Matches ({agentAlerts.length})
                           </h4>
                           <Button
@@ -431,7 +431,7 @@ export function ResearchAgentsSection({
                           {agentAlerts.map(alert => (
                             <div
                               key={alert.id}
-                              className="p-3 bg-gray-50 rounded-lg border border-gray-100"
+                              className="p-3 bg-gray-50 rounded-lg border border-gray-300 dark:border-gray-700"
                             >
                               <div className="flex items-start gap-3">
                                 {getThreatLevelIcon(alert.threat_level)}
@@ -453,12 +453,12 @@ export function ResearchAgentsSection({
                                   {/* Reasoning - Why this article is relevant */}
                                   {alert.reasoning && (
                                     <div className="mt-2 p-2 bg-white rounded border-l-2 border-pink-300">
-                                      <p className="text-xs font-medium text-gray-500 mb-1">Why this is relevant:</p>
+                                      <p className="text-xs font-medium text-gray-700 dark:text-gray-700 dark:text-gray-300 dark:text-gray-700 dark:text-gray-300 mb-1">Why this is relevant:</p>
                                       <p className="text-sm text-gray-700">{alert.reasoning}</p>
                                     </div>
                                   )}
 
-                                  <div className="flex items-center gap-3 mt-2 text-xs text-gray-400">
+                                  <div className="flex items-center gap-3 mt-2 text-xs text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
                                     {alert.article_source && (
                                       <span>{alert.article_source}</span>
                                     )}
@@ -475,14 +475,14 @@ export function ResearchAgentsSection({
                                     className="p-1.5 hover:bg-gray-200 rounded"
                                     title="Open article"
                                   >
-                                    <ExternalLink className="w-4 h-4 text-gray-400" />
+                                    <ExternalLink className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
                                   </a>
                                   <button
                                     onClick={() => onAcknowledgeAlert(alert.id)}
                                     className="p-1.5 hover:bg-green-100 rounded"
                                     title="Dismiss"
                                   >
-                                    <CheckCircle className="w-4 h-4 text-gray-400 hover:text-green-600" />
+                                    <CheckCircle className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-400 hover:text-green-600" />
                                   </button>
                                 </div>
                               </div>
@@ -491,7 +491,7 @@ export function ResearchAgentsSection({
                         </div>
                       </div>
                     ) : (
-                      <p className="text-sm text-gray-500 text-center py-4 bg-gray-50 rounded">
+                      <p className="text-sm text-gray-700 dark:text-gray-700 dark:text-gray-300 dark:text-gray-700 dark:text-gray-300 text-center py-4 bg-gray-50 rounded">
                         No matches found yet. Run the agent to analyze recent articles.
                       </p>
                     )}

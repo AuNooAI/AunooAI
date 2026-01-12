@@ -121,7 +121,7 @@ export function SignalReportsTab({ topic }: SignalReportsTabProps) {
     return (
       <div className="flex items-center justify-center py-12">
         <Loader2 className="w-6 h-6 animate-spin text-pink-500" />
-        <span className="ml-2 text-gray-500">Loading reports...</span>
+        <span className="ml-2 text-gray-700 dark:text-gray-300">Loading reports...</span>
       </div>
     );
   }
@@ -141,9 +141,9 @@ export function SignalReportsTab({ topic }: SignalReportsTabProps) {
   if (reports.length === 0) {
     return (
       <div className="bg-gray-50 rounded-lg p-8 text-center border border-dashed border-gray-300">
-        <FileText className="w-12 h-12 text-gray-300 mx-auto mb-4" />
+        <FileText className="w-12 h-12 text-gray-600 dark:text-gray-600 dark:text-gray-400 mx-auto mb-4" />
         <h3 className="text-lg font-medium text-gray-900 mb-2">No Reports Yet</h3>
-        <p className="text-gray-500 mb-4 max-w-md mx-auto">
+        <p className="text-gray-700 dark:text-gray-300 mb-4 max-w-md mx-auto">
           Reports are automatically generated when Research Agents with "Generate Report" enabled find matches.
           Enable report generation on an agent and run it to create your first report.
         </p>
@@ -182,15 +182,15 @@ export function SignalReportsTab({ topic }: SignalReportsTabProps) {
                   className="p-1 hover:bg-gray-200 rounded transition-colors"
                 >
                   {expandedReport === report.id ? (
-                    <ChevronDown className="w-4 h-4 text-gray-500" />
+                    <ChevronDown className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                   ) : (
-                    <ChevronRight className="w-4 h-4 text-gray-500" />
+                    <ChevronRight className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                   )}
                 </button>
                 <FileText className="w-5 h-5 text-blue-500 shrink-0" />
                 <div className="flex-1 min-w-0">
                   <h3 className="font-medium text-gray-900 truncate">{report.name}</h3>
-                  <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                  <div className="flex items-center gap-3 mt-1 text-xs text-gray-700 dark:text-gray-300">
                     <span className="flex items-center gap-1">
                       <Bot className="w-3 h-3" />
                       {report.instruction_name}
@@ -234,11 +234,11 @@ export function SignalReportsTab({ topic }: SignalReportsTabProps) {
 
             {/* Expanded Content */}
             {expandedReport === report.id && (
-              <div className="border-t border-gray-100">
+              <div className="border-t border-gray-300 dark:border-gray-700">
                 {loadingReport === report.id ? (
                   <div className="p-8 text-center">
                     <Loader2 className="w-6 h-6 animate-spin text-pink-500 mx-auto" />
-                    <p className="text-sm text-gray-500 mt-2">Loading report...</p>
+                    <p className="text-sm text-gray-700 dark:text-gray-300 mt-2">Loading report...</p>
                   </div>
                 ) : fullReport ? (
                   <div className="p-4 space-y-4">
@@ -250,14 +250,14 @@ export function SignalReportsTab({ topic }: SignalReportsTabProps) {
                     )}
 
                     {/* Report Content */}
-                    <div className="prose prose-sm max-w-none bg-white border border-gray-100 rounded-lg p-4">
+                    <div className="prose prose-sm max-w-none bg-white border border-gray-300 dark:border-gray-700 rounded-lg p-4">
                       <ReactMarkdown>{fullReport.report_content || 'No content available'}</ReactMarkdown>
                     </div>
 
                     {/* Article Links */}
                     {fullReport.article_uris && fullReport.article_uris.length > 0 && (
                       <div className="mt-4">
-                        <h4 className="text-xs font-medium text-gray-500 uppercase mb-2">
+                        <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300 uppercase mb-2">
                           Source Articles ({fullReport.article_uris.length})
                         </h4>
                         <div className="flex flex-wrap gap-2">
@@ -274,7 +274,7 @@ export function SignalReportsTab({ topic }: SignalReportsTabProps) {
                             </a>
                           ))}
                           {fullReport.article_uris.length > 10 && (
-                            <span className="px-2 py-1 text-xs text-gray-500">
+                            <span className="px-2 py-1 text-xs text-gray-700 dark:text-gray-300">
                               +{fullReport.article_uris.length - 10} more
                             </span>
                           )}
@@ -295,7 +295,7 @@ export function SignalReportsTab({ topic }: SignalReportsTabProps) {
                     </div>
                   </div>
                 ) : (
-                  <div className="p-8 text-center text-gray-500">
+                  <div className="p-8 text-center text-gray-700 dark:text-gray-300">
                     Failed to load report details
                   </div>
                 )}
