@@ -509,6 +509,7 @@ export interface RSSFeed {
   check_interval: number;
   interval_unit: string;
   relevance_threshold: number;  // 0 = skip filtering, 1-100 = threshold %
+  default_factual_reporting?: string;  // 'very high', 'high', 'mostly factual', 'mixed', 'low', 'very low'
   last_checked_at?: string;
   last_article_date?: string;
   articles_fetched: number;
@@ -527,6 +528,7 @@ export interface RSSFeedCreate {
   check_interval?: number;
   interval_unit?: string;
   relevance_threshold?: number;
+  default_factual_reporting?: string;
 }
 
 export interface RSSFeedUpdate {
@@ -538,6 +540,7 @@ export interface RSSFeedUpdate {
   check_interval?: number;
   interval_unit?: string;
   relevance_threshold?: number;
+  default_factual_reporting?: string;
 }
 
 export interface RSSFeedTestResult {
