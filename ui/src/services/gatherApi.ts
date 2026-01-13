@@ -60,6 +60,7 @@ export interface KeywordStats {
 export interface MonitorStatus {
   running: boolean;
   last_check_time?: string;
+  next_check_time?: string;
   last_error?: string;
   requests_today: number;
   daily_limit: number;
@@ -213,7 +214,7 @@ export async function deleteUnscoredArticles(groupId: number): Promise<{ success
 // Status & Stats
 export async function getMonitorStatus(): Promise<MonitorStatus> {
   interface StatusResponse {
-    background_task?: { running?: boolean; last_check_time?: string; last_error?: string };
+    background_task?: { running?: boolean; last_check_time?: string; next_check_time?: string; last_error?: string };
     settings?: { is_enabled?: boolean; daily_request_limit?: number };
     api_usage?: { requests_today?: number; limit?: number };
   }
@@ -221,6 +222,7 @@ export async function getMonitorStatus(): Promise<MonitorStatus> {
   return {
     running: response?.background_task?.running || false,
     last_check_time: response?.background_task?.last_check_time,
+    next_check_time: response?.background_task?.next_check_time,
     last_error: response?.background_task?.last_error,
     requests_today: response?.api_usage?.requests_today || 0,
     daily_limit: response?.api_usage?.limit || response?.settings?.daily_request_limit || 100,

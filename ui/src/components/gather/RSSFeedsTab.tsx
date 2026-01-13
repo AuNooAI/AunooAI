@@ -130,6 +130,62 @@ export function RSSFeedsTab({ topics }: RSSFeedsTabProps) {
     return `${interval} minute${interval !== 1 ? 's' : ''}`;
   };
 
+  // Format last check time relative
+  const formatLastCheck = () => {
+    if (!monitorStatus?.last_check_time) return 'Never';
+    const date = new Date(monitorStatus.last_check_time);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return date.toLocaleDateString();
+  };
+
+  // Calculate next check time based on feed with shortest interval
+  const formatNextCheck = () => {
+    if (!monitorStatus?.last_check_time || feeds.length === 0) return 'Unknown';
+
+    // Find the feed due soonest
+    const now = new Date();
+    let soonestDue: Date | null = null;
+
+    for (const feed of feeds) {
+      if (!feed.is_active) continue;
+
+      const lastChecked = feed.last_checked_at ? new Date(feed.last_checked_at) : null;
+      if (!lastChecked) {
+        // Never checked = due now
+        return 'Now';
+      }
+
+      // Calculate next due time for this feed
+      let intervalMs = feed.check_interval * 60 * 1000; // Default minutes
+      if (feed.interval_unit === 'hours') intervalMs = feed.check_interval * 60 * 60 * 1000;
+      if (feed.interval_unit === 'days') intervalMs = feed.check_interval * 24 * 60 * 60 * 1000;
+
+      const dueTime = new Date(lastChecked.getTime() + intervalMs);
+      if (!soonestDue || dueTime < soonestDue) {
+        soonestDue = dueTime;
+      }
+    }
+
+    if (!soonestDue) return 'Unknown';
+
+    const diffMs = soonestDue.getTime() - now.getTime();
+    if (diffMs <= 0) return 'Now';
+
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+
+    if (diffMins < 60) return `${diffMins}m`;
+    if (diffHours < 24) return `${diffHours}h`;
+    return `${Math.floor(diffHours / 24)}d`;
+  };
+
   // Get status icon
   const getStatusIcon = (feed: RSSFeed) => {
     if (feed.last_error) {
@@ -166,13 +222,25 @@ export function RSSFeedsTab({ topics }: RSSFeedsTabProps) {
           )}
           <ProcessingStatusBadge />
         </div>
-        <button
-          className="rss-feeds-add-btn"
-          onClick={() => setIsModalOpen(true)}
-        >
-          <Plus className="w-4 h-4" />
-          Add Feed
-        </button>
+        <div className="rss-feeds-header-right">
+          <div className="rss-feeds-timing">
+            <span className="rss-feeds-timing-item">
+              <Clock className="w-3 h-3" />
+              Last: {formatLastCheck()}
+            </span>
+            <span className="rss-feeds-timing-item">
+              <RefreshCw className="w-3 h-3" />
+              Next: {formatNextCheck()}
+            </span>
+          </div>
+          <button
+            className="rss-feeds-add-btn"
+            onClick={() => setIsModalOpen(true)}
+          >
+            <Plus className="w-4 h-4" />
+            Add Feed
+          </button>
+        </div>
       </div>
 
       {/* Error display */}

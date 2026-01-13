@@ -2870,6 +2870,30 @@
   gap: 12px;
 }
 
+.rss-feeds-header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.rss-feeds-timing {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.dark .rss-feeds-timing {
+  color: #9ca3af;
+}
+
+.rss-feeds-timing-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .rss-feeds-title {
   display: flex;
   align-items: center;
