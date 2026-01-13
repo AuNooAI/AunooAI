@@ -1,64 +1,6 @@
 {
   "topics": [
     {
-      "name": "AI and Machine Learning",
-      "description": "Comprehensive coverage of artificial intelligence and machine learning developments, including research breakthroughs, commercial applications, ethical considerations, regulatory frameworks, and societal impacts. This topic encompasses AI in various sectors including business, healthcare, education, law, science, and the arts, as well as the broader implications for employment, trust, security, and the path toward artificial general intelligence (AGI).",
-      "categories": [
-        "AI Warbots",
-        "AI Business",
-        "Releases and Announcements",
-        "Sovereign AI & AI Nationalism",
-        "AI Copyright, Regulation, and Antitrust",
-        "AI at Work and Employment",
-        "AI and Society",
-        "AI Trust, Risk, and Security Management",
-        "AI in Finance",
-        "AI in Journalism",
-        "AI Healthcare",
-        "AI in Education",
-        "AI in Law and the Legal Profession",
-        "AI in Science",
-        "AI in Art and the Media",
-        "AI in Software Development",
-        "AI Ethics",
-        "AI and Robotics",
-        "AI in the Data Center",
-        "AI Carbon Footprint",
-        "The Path to AGI",
-        "Interesting Papers & Articles on Applied AI",
-        "Other"
-      ],
-      "future_signals": [
-        "AI is hype",
-        "AI has plateaued",
-        "AI will evolve gradually",
-        "AI will accelerate",
-        "AI is a bubble"
-      ],
-      "sentiment": [
-        "Hyperbolic",
-        "Positive",
-        "Neutral",
-        "Negative",
-        "Critical"
-      ],
-      "time_to_impact": [
-        "Immediate",
-        "Short-term",
-        "Mid-term",
-        "Long-term"
-      ],
-      "driver_types": [
-        "Accelerator",
-        "Delayer",
-        "Blocker",
-        "Initiator",
-        "Terminator",
-        "Unknown",
-        "Catalyst"
-      ]
-    },
-    {
       "name": "Trend Monitoring",
       "description": "Track emerging trends across various domains, monitoring adoption patterns, market dynamics, and public sentiment. This topic helps identify whether trends are gaining momentum, stagnating, declining, or being overhyped, providing insights into technology adoption curves, market maturity, and strategic opportunities.",
       "categories": [
@@ -131,81 +73,35 @@
       ]
     },
     {
-      "name": "Religion, Magic and Occultism",
-      "description": "Religion, Magic and Occultism",
+      "name": "Threat Intelligence",
+      "description": "Track news and reports on cyber threat intelligence",
       "categories": [
-        "Christian Theology",
-        "Catholic Church",
-        "Protestant Churches",
-        "Orthodox Christianity",
-        "Interfaith Relations",
-        "Religious Studies",
-        "Spirituality and Mysticism",
-        "Occultism and Esoteric Practices",
-        "Religious Ethics and Philosophy",
-        "Religious Education",
-        "Religious Freedom and Rights",
-        "Religious Extremism",
-        "Other"
+        "Malware and Ransomware",
+        "Phishing and Social Engineering",
+        "Advanced Persistent Threats (APTs)",
+        "Vulnerability and Exploit Reports",
+        "Cybercrime Groups",
+        "Nation-State Cyber Operations",
+        "Incident Response and Forensics",
+        "Threat Intelligence Sharing",
+        "Cybersecurity Regulations and Compliance",
+        "Zero-Day Exploits",
+        "Cyber Defense Technologies",
+        "Supply Chain Attacks",
+        "Insider Threats",
+        "Emerging Threats",
+        "Threat Actor Profiles",
+        "Cybersecurity Frameworks",
+        "Dark Web Monitoring",
+        "IoT and OT Security Threats",
+        "Cloud Security Threats",
+        "Cryptojacking and Financial Threats"
       ],
       "future_signals": [
-        "Religious Revival",
-        "Secularization Accelerating",
-        "Interfaith Cooperation Growing",
-        "Religious Conflict Intensifying",
-        "Spiritual Practices Evolving"
-      ],
-      "sentiment": [
-        "Positive",
-        "Neutral",
-        "Negative",
-        "Critical",
-        "Optimistic"
-      ],
-      "time_to_impact": [
-        "Immediate",
-        "Short-term",
-        "Mid-term",
-        "Long-term"
-      ],
-      "driver_types": [
-        "Catalyst",
-        "Accelerator",
-        "Delayer",
-        "Blocker",
-        "Initiator",
-        "Terminator",
-        "Unknown"
-      ],
-      "keywords": []
-    },
-    {
-      "name": "Cloud Repatriation",
-      "description": "Cloud Repatriation",
-      "categories": [
-        "Public Cloud Providers",
-        "Private Cloud Infrastructure",
-        "Hybrid Cloud Models",
-        "Workload Migration",
-        "Cost Management",
-        "Security and Compliance",
-        "Performance and Latency",
-        "Cloud Vendor Lock-in",
-        "Data Sovereignty",
-        "Enterprise IT Strategy",
-        "Cloud Exit Strategies",
-        "Cloud Cost Optimization",
-        "Cloud Service Contracts",
-        "Cloud Management Platforms",
-        "Cloud Repatriation Case Studies",
-        "Other"
-      ],
-      "future_signals": [
-        "Widespread cloud exit",
-        "Selective workload repatriation",
-        "Hybrid equilibrium emerges",
-        "Cloud dominance continues",
-        "Cloud repatriation slows"
+        "Emergence of new state-sponsored cyberwarfare",
+        "Ransomware attacks become obsolete",
+        "Cyber threat landscape fragments regionally",
+        "Major cyberattack triggers global regulatory overhaul"
       ],
       "sentiment": [
         "Positive",
@@ -226,38 +122,43 @@
         "Blocker"
       ],
       "keywords": [
-        "cloud repatriation",
-        "cloud exit",
-        "hybrid cloud"
+        "cyber threat",
+        "cybersecurity",
+        "threat actor",
+        "APT",
+        "nation state threat actor",
+        "advanced persistent threat",
+        "data breach",
+        "cyber incident"
       ]
     },
     {
-      "name": "Geopolitical Hotspots",
-      "description": "Geopolitical Hotspots and developments",
+      "name": "Data Security Innovation",
+      "description": "Keep track of what technologies are emerging in this realm of information. ",
       "categories": [
-        "Conflict Zones",
-        "Strategic Alliances",
-        "Economic Sanctions and Trade Wars",
-        "Military Deployments and Exercises",
-        "Diplomatic Negotiations and Treaties",
-        "Resource Competition",
-        "Cyber Warfare and Information Operations",
-        "Migration and Refugee Flows",
-        "Regional Power Shifts",
-        "Terrorism and Insurgency",
-        "International Organizations and Responses",
-        "Nuclear and WMD Developments",
-        "Energy Security",
-        "Maritime Disputes",
-        "Human Rights and Political Movements",
-        "Other"
+        "Encryption Technologies",
+        "Authentication and Identity Management",
+        "Data Loss Prevention",
+        "Privacy-Enhancing Technologies",
+        "Cloud Security Innovations",
+        "Zero Trust Architectures",
+        "Secure Access Service Edge (SASE)",
+        "Quantum-safe Security",
+        "Regulatory and Compliance Impact",
+        "Threat Detection and Response",
+        "Data Security in IoT",
+        "Blockchain for Data Security",
+        "AI and Machine Learning in Security",
+        "Data Masking and Tokenization",
+        "Security Automation and Orchestration",
+        "Emerging Standards and Protocols"
       ],
       "future_signals": [
-        "Escalation into armed conflict",
-        "Peace agreements and de-escalation",
-        "Frozen conflicts persist",
-        "Shifts in regional power balance",
-        "New alliances form"
+        "Quantum computing breaks current encryption",
+        "Privacy-enhancing tech becomes regulatory standard",
+        "AI-driven security automation dominates",
+        "Data breaches become less frequent but more severe",
+        "Decentralized identity replaces traditional authentication"
       ],
       "sentiment": [
         "Positive",
@@ -278,94 +179,123 @@
         "Blocker"
       ],
       "keywords": [
-        "Cyber warfare",
-        "Surveillance technology",
-        "Drones",
-        "geopolitics",
-        "conflict",
-        "diplomacy"
+        "Palo Alto Networks",
+        "CrowdStrike",
+        "FireEye",
+        "Zero Trust Architecture",
+        "Homomorphic Encryption",
+        "Blockchain Security",
+        "cybersecurity innovation",
+        "data encryption",
+        "threat intelligence",
+        "Bruce Schneier",
+        "Mikko Hypponen",
+        "fake news",
+        "conspiracy theory"
       ]
     },
     {
-      "name": "Compensatory R&D Investment Abroad",
-      "description": "Tracking international R&D investment shifts and compensatory research funding movements abroad",
-      "categories": ["Investment Shifts", "International R&D", "Other"],
-      "future_signals": ["Investment increasing", "Investment declining", "Stable"],
-      "sentiment": ["Positive", "Neutral", "Negative"],
-      "time_to_impact": ["Immediate", "Short-term", "Mid-term", "Long-term"],
-      "driver_types": ["Accelerator", "Delayer", "Blocker", "Catalyst"]
+      "name": "AI-driven Cyberattacks",
+      "description": "The topic 'AI-driven Cyberattacks' focuses on the intersection of artificial intelligence and cybersecurity threats, specifically tracking the emergence, evolution, and impact of cyberattacks powered or enhanced by AI technologies. It covers categories that analyze attack types, defense mechanisms, threat actors, and affected sectors. Future signals represent possible alternative futures regarding the prevalence, sophistication, and countermeasures of AI-driven cyberattacks. Sentiments reflect attitudes toward the risks and opportunities in this domain. Time to impact and driver types help assess urgency and influence factors. Keywords include verified companies, technologies, and general terms relevant to AI and cybersecurity, while excluding misinformation and spam terms.",
+      "categories": [
+        "AI-powered Malware and Ransomware",
+        "Automated Phishing and Social Engineering",
+        "AI-driven Vulnerability Exploits",
+        "Threat Actor AI Capabilities",
+        "AI in Incident Response and Defense",
+        "AI-enabled Cyber Espionage",
+        "AI and Zero-Day Exploits",
+        "AI in Cybersecurity Regulations",
+        "AI-driven Supply Chain Attacks",
+        "AI in Cyber Threat Intelligence",
+        "AI and Insider Threat Detection",
+        "AI in Cloud Security Threats",
+        "AI and IoT Security Threats",
+        "AI in Cybersecurity Automation",
+        "Ethical and Legal Implications of AI Cyberattacks",
+        "Other"
+      ],
+      "future_signals": [
+        "AI-driven cyberattacks become widespread and autonomous",
+        "Effective AI-based defenses neutralize AI cyber threats",
+        "Regulatory frameworks limit AI use in cyberattacks",
+        "AI cyberattacks remain niche and targeted",
+        "AI cyberattack sophistication plateaus due to technical limits"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "keywords": [
+        "cyber threat",
+        "cybersecurity",
+        "AI cyberattack"
+      ]
     },
     {
-      "name": "University Grants & Science Infrastructure Impact",
-      "description": "Monitoring university research grants and science infrastructure impacts",
-      "categories": ["Grant Funding", "Infrastructure", "Research Impact", "Other"],
-      "future_signals": ["Funding increasing", "Funding cuts", "Infrastructure changes"],
-      "sentiment": ["Positive", "Neutral", "Negative"],
-      "time_to_impact": ["Immediate", "Short-term", "Mid-term", "Long-term"],
-      "driver_types": ["Accelerator", "Delayer", "Blocker", "Catalyst"]
-    },
-    {
-      "name": "Publishing & Integrity Organizations Watch List",
-      "description": "Tracking publishing integrity issues and organizational watch list developments",
-      "categories": ["Integrity Issues", "Retractions", "Publishing Standards", "Other"],
-      "future_signals": ["Standards improving", "Issues increasing", "Stable"],
-      "sentiment": ["Positive", "Neutral", "Negative", "Critical"],
-      "time_to_impact": ["Immediate", "Short-term", "Mid-term", "Long-term"],
-      "driver_types": ["Accelerator", "Delayer", "Blocker", "Catalyst"]
-    },
-    {
-      "name": "Attacks on Expertise & Peer Review",
-      "description": "Monitoring challenges to scientific expertise and peer review systems",
-      "categories": ["Peer Review", "Expert Authority", "Misinformation", "Other"],
-      "future_signals": ["Trust declining", "Trust improving", "Stable"],
-      "sentiment": ["Positive", "Neutral", "Negative", "Critical"],
-      "time_to_impact": ["Immediate", "Short-term", "Mid-term", "Long-term"],
-      "driver_types": ["Accelerator", "Delayer", "Blocker", "Catalyst"]
-    },
-    {
-      "name": "Patent Cliffs",
-      "description": "Tracking patent expiration impacts on pharmaceutical and technology sectors",
-      "categories": ["Pharmaceutical", "Technology", "Generic Entry", "Other"],
-      "future_signals": ["Major cliff approaching", "Post-cliff impact", "Stable"],
-      "sentiment": ["Positive", "Neutral", "Negative"],
-      "time_to_impact": ["Immediate", "Short-term", "Mid-term", "Long-term"],
-      "driver_types": ["Accelerator", "Delayer", "Blocker", "Catalyst"]
-    },
-    {
-      "name": "U.S. Federal R&D Pullback",
-      "description": "Monitoring US federal research and development funding changes and pullbacks",
-      "categories": ["Budget Cuts", "Program Changes", "Agency Impacts", "Other"],
-      "future_signals": ["Funding restored", "Further cuts", "Stable"],
-      "sentiment": ["Positive", "Neutral", "Negative", "Critical"],
-      "time_to_impact": ["Immediate", "Short-term", "Mid-term", "Long-term"],
-      "driver_types": ["Accelerator", "Delayer", "Blocker", "Catalyst"]
-    },
-    {
-      "name": "Scientific Publishers - General Monitoring",
-      "description": "General monitoring of scientific publishing industry developments",
-      "categories": ["Industry Trends", "Business Models", "Technology", "Other"],
-      "future_signals": ["Industry growing", "Disruption coming", "Stable"],
-      "sentiment": ["Positive", "Neutral", "Negative"],
-      "time_to_impact": ["Immediate", "Short-term", "Mid-term", "Long-term"],
-      "driver_types": ["Accelerator", "Delayer", "Blocker", "Catalyst"]
-    },
-    {
-      "name": "Open Science Transition Uncertainty",
-      "description": "Tracking uncertainties and developments in the transition to open science",
-      "categories": ["Open Access", "Data Sharing", "Policy Changes", "Other"],
-      "future_signals": ["Transition accelerating", "Resistance growing", "Stable"],
-      "sentiment": ["Positive", "Neutral", "Negative"],
-      "time_to_impact": ["Immediate", "Short-term", "Mid-term", "Long-term"],
-      "driver_types": ["Accelerator", "Delayer", "Blocker", "Catalyst"]
-    },
-    {
-      "name": "US Civil War",
-      "description": "Historical research and analysis related to the US Civil War",
-      "categories": ["Historical Research", "Commemoration", "Other"],
-      "future_signals": ["Research ongoing", "New discoveries"],
-      "sentiment": ["Neutral", "Positive"],
-      "time_to_impact": ["Long-term"],
-      "driver_types": ["Catalyst"]
+      "name": "Russian Nation State Activity",
+      "description": "Tracking Russian Nation State Activity",
+      "categories": [
+        "Military Operations and Exercises",
+        "Cyber Warfare and Cybersecurity",
+        "Political Influence and Election Interference",
+        "Economic Sanctions and Countermeasures",
+        "Diplomatic Relations and Negotiations",
+        "Energy and Resource Strategy",
+        "Disinformation and Information Warfare",
+        "Intelligence and Espionage Activities",
+        "Legal and Regulatory Actions",
+        "International Alliances and Conflicts",
+        "Domestic Security and Control Measures",
+        "Technology and Defense Development",
+        "Media and Propaganda",
+        "Sanctions Evasion Techniques",
+        "Other"
+      ],
+      "future_signals": [
+        "Escalation to large-scale military conflict",
+        "De-escalation through diplomatic agreements",
+        "Increased cyberattacks targeting critical infrastructure",
+        "Successful sanctions evasion sustaining economy",
+        "Internal political instability weakens state control"
+      ],
+      "sentiment": [
+        "Positive",
+        "Negative",
+        "Neutral"
+      ],
+      "time_to_impact": [
+        "Immediate (0-6 months)",
+        "Short-term (6-18 months)",
+        "Mid-term (18-60 months)",
+        "Long-term (60+ months)"
+      ],
+      "driver_types": [
+        "Initiator",
+        "Accelerator",
+        "Catalyst",
+        "Inhibitor",
+        "Blocker"
+      ],
+      "keywords": [
+        "Russian Federation",
+        "nation state cyber operations",
+        "hybrid warfare"
+      ]
     }
   ],
   "ai_models": [
@@ -549,27 +479,6 @@
           "label": "Dia Base URL",
           "placeholder": "http://localhost:8000/v1/tts",
           "type": "text"
-        }
-      ]
-    },
-    {
-      "name": "google_pse",
-      "display_name": "Google Programmable Search",
-      "config_type": "api_key",
-      "description": "Web search using Google Programmable Search Engine for external research",
-      "enabled": true,
-      "api_key_required": true,
-      "api_key_name": "GOOGLE_API_KEY",
-      "api_key_description": "Your Google Cloud API key with Custom Search API enabled",
-      "api_key_placeholder": "Enter your Google API key",
-      "api_key_help": "Get your API key from https://console.cloud.google.com/apis/credentials",
-      "extra_fields": [
-        {
-          "field": "GOOGLE_CSE_ID",
-          "label": "Search Engine ID",
-          "placeholder": "Enter your Custom Search Engine ID",
-          "type": "text",
-          "help": "Create at https://programmablesearchengine.google.com/"
         }
       ]
     }
