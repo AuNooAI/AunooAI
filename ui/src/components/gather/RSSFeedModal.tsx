@@ -57,6 +57,7 @@ export function RSSFeedModal({
   const [checkInterval, setCheckInterval] = useState(60);
   const [intervalUnit, setIntervalUnit] = useState('minutes');
   const [relevanceThreshold, setRelevanceThreshold] = useState(0);
+  const [defaultFactualReporting, setDefaultFactualReporting] = useState<string>('');
 
   // UI state
   const [saving, setSaving] = useState(false);
@@ -75,6 +76,7 @@ export function RSSFeedModal({
       setCheckInterval(feed.check_interval);
       setIntervalUnit(feed.interval_unit);
       setRelevanceThreshold(feed.relevance_threshold || 0);
+      setDefaultFactualReporting(feed.default_factual_reporting || '');
     } else {
       // Reset to defaults
       setName('');
@@ -85,6 +87,7 @@ export function RSSFeedModal({
       setCheckInterval(60);
       setIntervalUnit('minutes');
       setRelevanceThreshold(0);
+      setDefaultFactualReporting('');
     }
     setTestResult(null);
     setError(null);
@@ -146,7 +149,8 @@ export function RSSFeedModal({
           is_active: isActive,
           check_interval: checkInterval,
           interval_unit: intervalUnit,
-          relevance_threshold: relevanceThreshold
+          relevance_threshold: relevanceThreshold,
+          default_factual_reporting: defaultFactualReporting || undefined
         };
         await updateRSSFeed(feed.id, updates);
       } else {
@@ -159,7 +163,8 @@ export function RSSFeedModal({
           is_active: isActive,
           check_interval: checkInterval,
           interval_unit: intervalUnit,
-          relevance_threshold: relevanceThreshold
+          relevance_threshold: relevanceThreshold,
+          default_factual_reporting: defaultFactualReporting || undefined
         };
         await createRSSFeed(newFeed);
       }
@@ -174,7 +179,7 @@ export function RSSFeedModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="rss-feed-modal">
+      <DialogContent className="rss-feed-modal" style={{ display: 'block', maxHeight: '85vh', overflowY: 'auto' }}>
         <DialogHeader>
           <DialogTitle className="rss-feed-modal-title">
             <Rss className="w-5 h-5 text-pink-500" />
@@ -322,6 +327,29 @@ export function RSSFeedModal({
               {relevanceThreshold === 0
                 ? 'All articles will be enriched without relevance filtering'
                 : `Only articles with ${relevanceThreshold}%+ relevance will be enriched`
+              }
+            </span>
+          </div>
+
+          {/* Default Factual Reporting selector */}
+          <div className="rss-feed-modal-field">
+            <Label htmlFor="feed-factual-reporting">Default Factual Reporting</Label>
+            <Select
+              value={defaultFactualReporting || 'none'}
+              onValueChange={(val) => setDefaultFactualReporting(val === 'none' ? '' : val)}
+            >
+              <SelectTrigger id="feed-factual-reporting">
+                <SelectValue placeholder="Don't set (use AI analysis)" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Don't set (use MBFC/AI)</SelectItem>
+                <SelectItem value="high">High</SelectItem>
+              </SelectContent>
+            </Select>
+            <span className="rss-feed-switch-hint">
+              {defaultFactualReporting
+                ? `Articles from this feed will be marked as "${defaultFactualReporting}" credibility`
+                : 'Credibility will be determined by AI analysis or media bias database'
               }
             </span>
           </div>
