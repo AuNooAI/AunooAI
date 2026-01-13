@@ -150,18 +150,27 @@ class RSSCollector(ArticleCollector):
         # Clean HTML from summary (basic cleanup)
         summary = self._strip_html(summary)[:1000]  # Limit length
 
-        # Get published date
+        # Get published date - prefer parsed version, fall back to raw string
         published_date = None
         for date_field in ['published', 'updated', 'created']:
-            if entry.get(date_field):
-                published_date = entry.get(date_field)
-                break
+            # First try the pre-parsed struct_time (more reliable)
             if entry.get(f'{date_field}_parsed'):
                 try:
                     parsed = entry.get(f'{date_field}_parsed')
                     published_date = datetime.fromtimestamp(mktime(parsed), tz=timezone.utc).isoformat()
+                    break
                 except:
                     pass
+            # Fall back to raw string and parse it
+            if entry.get(date_field):
+                raw_date = entry.get(date_field)
+                # Try to parse and normalize to ISO format
+                parsed_dt = self._parse_date(raw_date)
+                if parsed_dt:
+                    published_date = parsed_dt.isoformat()
+                else:
+                    # Last resort: use raw string (may cause issues)
+                    published_date = raw_date
                 break
 
         if not published_date:
