@@ -44,7 +44,13 @@ class KeywordMonitorJob:
 
 def get_task_status() -> Dict:
     """Get the current status of the keyword monitor background task"""
-    return _background_task_status.copy()
+    status = _background_task_status.copy()
+    # Serialize datetime objects to ISO format strings for JSON response
+    if status.get("last_check_time") and isinstance(status["last_check_time"], datetime):
+        status["last_check_time"] = status["last_check_time"].isoformat()
+    if status.get("next_check_time") and isinstance(status["next_check_time"], datetime):
+        status["next_check_time"] = status["next_check_time"].isoformat()
+    return status
 
 def get_keyword_monitor_jobs() -> Dict:
     """Get all active keyword monitor jobs for integration with badge system"""

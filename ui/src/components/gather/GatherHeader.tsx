@@ -43,6 +43,24 @@ export function GatherHeader({
     return date.toLocaleDateString();
   };
 
+  // Format next check time
+  const formatNextCheck = () => {
+    if (!isCollectionEnabled) return 'Disabled';
+    if (!status?.next_check_time) return 'Unknown';
+    const date = new Date(status.next_check_time);
+    const now = new Date();
+    const diffMs = date.getTime() - now.getTime();
+
+    if (diffMs <= 0) return 'Now';
+
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+
+    if (diffMins < 60) return `${diffMins}m`;
+    if (diffHours < 24) return `${diffHours}h`;
+    return `${Math.floor(diffHours / 24)}d`;
+  };
+
   return (
     <header className="gather-header">
       <div className="gather-header-top">
@@ -63,6 +81,10 @@ export function GatherHeader({
               <span className="gather-status-item">
                 <span className="gather-status-label">Last check:</span>
                 <span className="gather-status-value">{formatLastCheck()}</span>
+              </span>
+              <span className="gather-status-item">
+                <span className="gather-status-label">Next check:</span>
+                <span className="gather-status-value">{formatNextCheck()}</span>
               </span>
             </>
           )}
