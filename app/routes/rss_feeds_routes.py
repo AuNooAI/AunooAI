@@ -29,6 +29,7 @@ class RSSFeedCreate(BaseModel):
     check_interval: int = 60
     interval_unit: str = "minutes"
     relevance_threshold: int = 0  # 0 = skip filtering, 1-100 = threshold %
+    default_factual_reporting: Optional[str] = None  # 'very high', 'high', 'mostly factual', 'mixed', 'low', 'very low'
 
 
 class RSSFeedUpdate(BaseModel):
@@ -40,6 +41,7 @@ class RSSFeedUpdate(BaseModel):
     check_interval: Optional[int] = None
     interval_unit: Optional[str] = None
     relevance_threshold: Optional[int] = None
+    default_factual_reporting: Optional[str] = None
 
 
 class RSSFeedResponse(BaseModel):
@@ -52,6 +54,7 @@ class RSSFeedResponse(BaseModel):
     check_interval: int
     interval_unit: str
     relevance_threshold: int
+    default_factual_reporting: Optional[str]
     last_checked_at: Optional[datetime]
     last_article_date: Optional[datetime]
     articles_fetched: int
@@ -152,6 +155,7 @@ async def create_rss_feed(feed: RSSFeedCreate, session=Depends(verify_session)) 
             check_interval=feed.check_interval,
             interval_unit=feed.interval_unit,
             relevance_threshold=feed.relevance_threshold,
+            default_factual_reporting=feed.default_factual_reporting,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc)
         ).returning(t_rss_feeds.c.id)
@@ -336,7 +340,8 @@ async def fetch_rss_feed(
             feed_url=feed['url'],
             topic=feed['topic'],
             last_article_date=feed.get('last_article_date'),
-            relevance_threshold=feed.get('relevance_threshold', 0)
+            relevance_threshold=feed.get('relevance_threshold', 0),
+            default_factual_reporting=feed.get('default_factual_reporting')
         )
 
         return {
@@ -357,12 +362,14 @@ async def _fetch_feed_articles(
     feed_url: str,
     topic: str,
     last_article_date: Optional[datetime] = None,
-    relevance_threshold: int = 0
+    relevance_threshold: int = 0,
+    default_factual_reporting: Optional[str] = None
 ):
     """Background task to fetch articles from an RSS feed.
 
     Args:
         relevance_threshold: Per-feed relevance threshold (0=skip filtering, 1-100=threshold %)
+        default_factual_reporting: Factual reporting level to set on enriched articles ('very high', 'high', 'mostly factual', 'mixed', 'low', 'very low')
     """
     try:
         from app.database import get_database_instance
@@ -401,12 +408,21 @@ async def _fetch_feed_articles(
                         from sqlalchemy import insert as sql_insert
                         from app.database_models import t_articles
 
+                        # Normalize publication_date to ISO format for consistent queries
+                        pub_date = article.get('published_date')
+                        if pub_date:
+                            # Use collector's date parser to normalize format
+                            parsed_dt = collector._parse_date(pub_date)
+                            if parsed_dt:
+                                pub_date = parsed_dt.isoformat()
+                            # else keep original string (shouldn't happen with fixed collector)
+
                         conn = db._temp_get_connection()
                         conn.execute(sql_insert(t_articles).values(
                             uri=article_url,
                             title=article.get('title', '')[:500] if article.get('title') else '',
                             news_source=article.get('source', 'RSS')[:200] if article.get('source') else 'RSS',
-                            publication_date=article.get('published_date'),
+                            publication_date=pub_date,
                             summary=article.get('summary', '')[:2000] if article.get('summary') else '',
                             topic=topic,
                             analyzed=False
@@ -469,6 +485,25 @@ async def _fetch_feed_articles(
                         )
                         enriched_count = result.get('saved', 0)
                         logger.info(f"RSS enrichment completed: {result}")
+
+                        # Apply default_factual_reporting to enriched articles if set
+                        if default_factual_reporting and enriched_count > 0:
+                            try:
+                                # Get URIs of articles we just processed
+                                article_uris = [a['uri'] for a in batch_articles if a.get('uri')]
+                                if article_uris:
+                                    # Update factual_reporting for these articles
+                                    update_factual_stmt = update(t_articles).where(
+                                        t_articles.c.uri.in_(article_uris)
+                                    ).values(
+                                        factual_reporting=default_factual_reporting
+                                    )
+                                    conn = db._temp_get_connection()
+                                    conn.execute(update_factual_stmt)
+                                    conn.commit()
+                                    logger.info(f"Set factual_reporting='{default_factual_reporting}' for {len(article_uris)} RSS articles")
+                            except Exception as fr_err:
+                                logger.error(f"Failed to set factual_reporting on RSS articles: {fr_err}")
 
                         # Create completion notification
                         try:

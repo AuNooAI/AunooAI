@@ -86,6 +86,7 @@ class RSSFeedMonitor:
         feed_name = feed['name']
         last_article_date = feed.get('last_article_date')
         relevance_threshold = feed.get('relevance_threshold', 0)
+        default_factual_reporting = feed.get('default_factual_reporting')
 
         try:
             collector = RSSCollector()
@@ -121,7 +122,9 @@ class RSSFeedMonitor:
                 # Run auto-ingest if enabled and we have new articles
                 enriched_count = 0
                 if new_articles_count > 0:
-                    enriched_count = await self._run_auto_ingest(articles, topic, relevance_threshold)
+                    enriched_count = await self._run_auto_ingest(
+                        articles, topic, relevance_threshold, default_factual_reporting
+                    )
 
                 # Update feed status
                 update_stmt = update(t_rss_feeds).where(
@@ -204,7 +207,13 @@ class RSSFeedMonitor:
             logger.error(f"Error storing article: {e}")
             return False
 
-    async def _run_auto_ingest(self, articles: List[Dict], topic: str, relevance_threshold: int = None) -> int:
+    async def _run_auto_ingest(
+        self,
+        articles: List[Dict],
+        topic: str,
+        relevance_threshold: int = None,
+        default_factual_reporting: str = None
+    ) -> int:
         """Run enrichment pipeline for RSS articles.
 
         RSS feeds always run enrichment - they have their own relevance threshold
@@ -214,6 +223,7 @@ class RSSFeedMonitor:
             articles: List of article data from RSS feed
             topic: Topic name for context
             relevance_threshold: Per-feed relevance threshold (0=skip filtering, 1-100=threshold %)
+            default_factual_reporting: Factual reporting level to set on articles ('very high', 'high', etc.)
 
         Returns:
             Number of articles successfully enriched
@@ -262,6 +272,24 @@ class RSSFeedMonitor:
                 )
                 saved = result.get('saved', 0)
                 logger.info(f"Auto-ingest completed: {result}")
+
+                # Apply default_factual_reporting to enriched articles if set
+                if default_factual_reporting and saved > 0:
+                    try:
+                        from app.database_models import t_articles
+                        article_uris = [a['uri'] for a in batch_articles if a.get('uri')]
+                        if article_uris:
+                            update_factual_stmt = update(t_articles).where(
+                                t_articles.c.uri.in_(article_uris)
+                            ).values(
+                                factual_reporting=default_factual_reporting
+                            )
+                            conn = self.db._temp_get_connection()
+                            conn.execute(update_factual_stmt)
+                            conn.commit()
+                            logger.info(f"Set factual_reporting='{default_factual_reporting}' for {len(article_uris)} RSS articles")
+                    except Exception as fr_err:
+                        logger.error(f"Failed to set factual_reporting on RSS articles: {fr_err}")
 
                 # Create completion notification
                 try:

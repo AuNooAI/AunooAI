@@ -3218,9 +3218,13 @@
   background: rgba(31, 41, 55, 0.9);
 }
 
-/* RSS Feed Modal */
-.rss-feed-modal {
-  max-width: 500px;
+/* RSS Feed Modal - override Radix grid layout */
+.rss-feed-modal,
+[data-slot="dialog-content"].rss-feed-modal {
+  max-width: 500px !important;
+  max-height: 85vh !important;
+  display: block !important;
+  overflow-y: auto !important;
 }
 
 .rss-feed-modal-title {
