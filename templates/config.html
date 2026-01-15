@@ -2019,6 +2019,10 @@
                 {
                     name: "Web Search",
                     providers: ["google_pse"]
+                },
+                {
+                    name: "Email",
+                    providers: ["resend"]
                 }
             ];
             
@@ -2751,6 +2755,10 @@
                 {
                     name: "Web Search",
                     providers: ["google_pse"]
+                },
+                {
+                    name: "Email",
+                    providers: ["resend"]
                 }
                 // Don't include Social Media/Bluesky here since it uses a different auth method
             ];
@@ -2760,7 +2768,7 @@
                 // Create option group
                 const optgroup = document.createElement('optgroup');
                 optgroup.label = category.name;
-                
+                console.log("vignesh providers loaded", data.providers);
                 // Add providers from this category
                 let hasProvidersInCategory = false;
                 for (const providerName of category.providers) {

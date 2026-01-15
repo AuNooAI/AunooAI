@@ -129,6 +129,18 @@
           "help": "Create at https://programmablesearchengine.google.com/"
         }
       ]
+    },
+    {
+      "name": "resend",
+      "display_name": "Resend",
+      "config_type": "api_key",
+      "description": "Email sending service for notifications and reports",
+      "enabled": true,
+      "api_key_required": true,
+      "api_key_name": "RESEND_API_KEY",
+      "api_key_description": "Your Resend API key",
+      "api_key_placeholder": "Enter your Resend API key",
+      "api_key_help": "Get your API key from https://resend.com/api-keys"
     }
   ]
 } 
