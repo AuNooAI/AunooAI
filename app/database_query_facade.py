@@ -5455,6 +5455,203 @@ class DatabaseQueryFacade:
         result = self._execute_with_rollback(statement).scalar()
         return result if result else 0
 
+    def get_news_feed_articles_chronological(
+        self,
+        start_date: str = None,
+        end_date: str = None,
+        topic: str = None,
+        offset: int = 0,
+        limit: int = 25
+    ) -> List[Dict]:
+        """
+        Get articles sorted by publication date (newest first) without clustering.
+
+        Returns a flat list of enriched articles sorted chronologically.
+        Only returns articles with category and sentiment set.
+
+        Args:
+            start_date: Start date string (YYYY-MM-DD HH:MM:SS) or None for all
+            end_date: End date string (YYYY-MM-DD HH:MM:SS)
+            topic: Optional topic filter
+            offset: Number of articles to skip (for pagination)
+            limit: Maximum number of articles to return
+
+        Returns:
+            List of article dictionaries sorted by publication_date DESC
+        """
+        # Build WHERE conditions
+        where_conditions = []
+
+        # Date range filter
+        if start_date and end_date:
+            where_conditions.append(
+                and_(
+                    articles.c.publication_date >= start_date,
+                    articles.c.publication_date <= end_date
+                )
+            )
+        elif end_date:
+            where_conditions.append(articles.c.publication_date <= end_date)
+
+        # Required filters - only show enriched articles
+        where_conditions.extend([
+            articles.c.publication_date.isnot(None),
+            articles.c.category.isnot(None),
+            articles.c.category != '',
+            articles.c.sentiment.isnot(None)
+        ])
+
+        # Spam/promotional content filters
+        where_conditions.extend([
+            not_(articles.c.title.like('%Call@%')),
+            not_(articles.c.title.like('%+91%')),
+            not_(articles.c.title.like('%best%agency%')),
+            not_(articles.c.title.like('%#1%')),
+            not_(articles.c.summary.like('%Call@%')),
+            not_(articles.c.summary.like('%phone%number%')),
+            not_(articles.c.news_source.like('%medium.com/@%'))
+        ])
+
+        # Topic filter
+        if topic:
+            if ' | ' in topic:
+                # Multiple topics separated by " | "
+                topics = [t.strip() for t in topic.split(' | ') if t.strip()]
+                topic_conditions = []
+                for t in topics:
+                    topic_pattern = f"%{t}%"
+                    topic_conditions.append(
+                        or_(
+                            articles.c.topic == t,
+                            articles.c.title.like(topic_pattern),
+                            articles.c.summary.like(topic_pattern)
+                        )
+                    )
+                where_conditions.append(or_(*topic_conditions))
+            else:
+                topic_pattern = f"%{topic}%"
+                where_conditions.append(
+                    or_(
+                        articles.c.topic == topic,
+                        articles.c.title.like(topic_pattern),
+                        articles.c.summary.like(topic_pattern)
+                    )
+                )
+
+        # Build query - simple ORDER BY publication_date DESC
+        statement = select(
+            articles.c.uri,
+            articles.c.title,
+            articles.c.summary,
+            articles.c.news_source,
+            articles.c.publication_date,
+            articles.c.category,
+            articles.c.topic,
+            articles.c.sentiment,
+            articles.c.time_to_impact,
+            articles.c.tags,
+            articles.c.bias,
+            articles.c.factual_reporting,
+            articles.c.mbfc_credibility_rating,
+            articles.c.bias_country
+        ).where(
+            and_(*where_conditions)
+        ).order_by(
+            articles.c.publication_date.desc()
+        ).offset(offset).limit(limit)
+
+        # Execute and return results
+        results = self._execute_with_rollback(statement).mappings().fetchall()
+
+        articles_list = []
+        for row in results:
+            article_dict = dict(row)
+            articles_list.append(article_dict)
+
+        return articles_list
+
+    def get_news_feed_articles_chronological_count(
+        self,
+        start_date: str = None,
+        end_date: str = None,
+        topic: str = None
+    ) -> int:
+        """
+        Get count of articles for chronological list view.
+
+        Args:
+            start_date: Start date string (YYYY-MM-DD HH:MM:SS) or None for all
+            end_date: End date string (YYYY-MM-DD HH:MM:SS)
+            topic: Optional topic filter
+
+        Returns:
+            Integer count of matching articles
+        """
+        # Build WHERE conditions (same as chronological query)
+        where_conditions = []
+
+        if start_date and end_date:
+            where_conditions.append(
+                and_(
+                    articles.c.publication_date >= start_date,
+                    articles.c.publication_date <= end_date
+                )
+            )
+        elif end_date:
+            where_conditions.append(articles.c.publication_date <= end_date)
+
+        where_conditions.extend([
+            articles.c.publication_date.isnot(None),
+            articles.c.category.isnot(None),
+            articles.c.category != '',
+            articles.c.sentiment.isnot(None)
+        ])
+
+        where_conditions.extend([
+            not_(articles.c.title.like('%Call@%')),
+            not_(articles.c.title.like('%+91%')),
+            not_(articles.c.title.like('%best%agency%')),
+            not_(articles.c.title.like('%#1%')),
+            not_(articles.c.summary.like('%Call@%')),
+            not_(articles.c.summary.like('%phone%number%')),
+            not_(articles.c.news_source.like('%medium.com/@%'))
+        ])
+
+        if topic:
+            if ' | ' in topic:
+                topics = [t.strip() for t in topic.split(' | ') if t.strip()]
+                topic_conditions = []
+                for t in topics:
+                    topic_pattern = f"%{t}%"
+                    topic_conditions.append(
+                        or_(
+                            articles.c.topic == t,
+                            articles.c.title.like(topic_pattern),
+                            articles.c.summary.like(topic_pattern)
+                        )
+                    )
+                where_conditions.append(or_(*topic_conditions))
+            else:
+                topic_pattern = f"%{topic}%"
+                where_conditions.append(
+                    or_(
+                        articles.c.topic == topic,
+                        articles.c.title.like(topic_pattern),
+                        articles.c.summary.like(topic_pattern)
+                    )
+                )
+
+        statement = select(
+            func.count()
+        ).select_from(
+            articles
+        ).where(
+            and_(*where_conditions)
+        )
+
+        result = self._execute_with_rollback(statement).scalar()
+        return result if result else 0
+
     def get_articles_by_uris(self, uris: List[str]) -> List[Dict]:
         """
         Fetch articles directly by their URIs, regardless of date filters.
@@ -10580,3 +10777,95 @@ class DatabaseQueryFacade:
             'limit': limit
         })
         return [dict(row) for row in result.mappings().fetchall()]
+
+    def get_article_filter_options(self, start_date: str = None, end_date: str = None, topic: str = None):
+        """Get available filter options (sources, factuality, bias) for article list.
+
+        Args:
+            start_date: Optional start date filter (YYYY-MM-DD)
+            end_date: Optional end date filter (YYYY-MM-DD HH:MM:SS)
+            topic: Optional topic filter
+
+        Returns:
+            Dict with sources, factuality, and bias lists
+        """
+        # Build WHERE conditions
+        conditions = [
+            "sentiment IS NOT NULL",
+            "publication_date IS NOT NULL",
+            "title NOT LIKE '%Call@%'",
+            "title NOT LIKE '%+91%'",
+            "title NOT LIKE '%best%agency%'",
+            "title NOT LIKE '%#1%'",
+            "summary NOT LIKE '%Call@%'",
+            "summary NOT LIKE '%phone%number%'",
+            "news_source NOT LIKE '%medium.com/@%'"
+        ]
+
+        params = {}
+
+        if start_date and end_date:
+            conditions.append("publication_date >= :start_date")
+            conditions.append("publication_date <= :end_date")
+            params['start_date'] = start_date
+            params['end_date'] = end_date
+
+        if topic:
+            conditions.append("""(
+                topic = :topic
+                OR title LIKE :topic_pattern
+                OR summary LIKE :topic_pattern
+            )""")
+            params['topic'] = topic
+            params['topic_pattern'] = f'%{topic}%'
+
+        where_clause = " AND ".join(conditions)
+
+        # Query for distinct sources with counts
+        sources_query = text(f"""
+            SELECT news_source as name, COUNT(*) as count
+            FROM articles
+            WHERE {where_clause}
+            AND news_source IS NOT NULL
+            AND news_source != ''
+            GROUP BY news_source
+            ORDER BY count DESC
+            LIMIT 100
+        """)
+
+        # Query for distinct factuality levels with counts
+        factuality_query = text(f"""
+            SELECT factual_reporting as level, COUNT(*) as count
+            FROM articles
+            WHERE {where_clause}
+            AND factual_reporting IS NOT NULL
+            AND factual_reporting != ''
+            GROUP BY factual_reporting
+            ORDER BY count DESC
+        """)
+
+        # Query for distinct bias values with counts
+        bias_query = text(f"""
+            SELECT bias as level, COUNT(*) as count
+            FROM articles
+            WHERE {where_clause}
+            AND bias IS NOT NULL
+            AND bias != ''
+            GROUP BY bias
+            ORDER BY count DESC
+        """)
+
+        sources_result = self._execute_with_rollback(sources_query, params)
+        sources = [{"name": row['name'], "count": row['count']} for row in sources_result.mappings().fetchall()]
+
+        factuality_result = self._execute_with_rollback(factuality_query, params)
+        factuality = [{"level": row['level'], "count": row['count']} for row in factuality_result.mappings().fetchall()]
+
+        bias_result = self._execute_with_rollback(bias_query, params)
+        bias = [{"level": row['level'], "count": row['count']} for row in bias_result.mappings().fetchall()]
+
+        return {
+            "sources": sources,
+            "factuality": factuality,
+            "bias": bias
+        }

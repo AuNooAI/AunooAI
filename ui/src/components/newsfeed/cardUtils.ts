@@ -121,6 +121,53 @@ export function formatDate(dateString?: string): string {
 }
 
 /**
+ * Format date as relative time (e.g., "2 hours ago", "3 days ago")
+ */
+export function formatRelativeTime(dateString?: string): string {
+  if (!dateString) return '';
+
+  try {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    // Fall back to formatted date for older articles
+    return formatDate(dateString);
+  } catch {
+    return dateString;
+  }
+}
+
+/**
+ * Get time period label for grouping articles
+ */
+export function getTimePeriodLabel(dateString?: string): string {
+  if (!dateString) return 'Unknown';
+
+  try {
+    const date = new Date(dateString);
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today.getTime() - 86400000);
+    const thisWeek = new Date(today.getTime() - 7 * 86400000);
+
+    if (date >= today) return 'Today';
+    if (date >= yesterday) return 'Yesterday';
+    if (date >= thisWeek) return 'This Week';
+    return 'Earlier';
+  } catch {
+    return 'Unknown';
+  }
+}
+
+/**
  * Get type badge color (for incident cards)
  */
 export function getTypeBadgeColor(type?: string): string {

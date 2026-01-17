@@ -965,3 +965,116 @@ export async function deleteSavedNarrative(narrativeName: string, topic?: string
     return false;
   }
 }
+
+// ============================================================================
+// List View API (Chronological Articles)
+// ============================================================================
+
+export interface ArticlesListParams {
+  dateRange?: DateRange;
+  topic?: string;
+  page?: number;
+  perPage?: number;
+}
+
+export interface ArticlesListResponse {
+  articles: BackendArticle[];
+  total_count: number;
+  page: number;
+  per_page: number;
+  total_pages: number;
+}
+
+/**
+ * Get articles as a flat list sorted by publication date (newest first)
+ * Used for the "List View" in the explore page
+ */
+export async function getArticlesList(params: ArticlesListParams): Promise<{
+  articles: NewsArticle[];
+  totalCount: number;
+  page: number;
+  perPage: number;
+  totalPages: number;
+}> {
+  const queryParams = new URLSearchParams();
+
+  if (params.dateRange) queryParams.append('date_range', params.dateRange);
+  if (params.topic) queryParams.append('topic', params.topic);
+  if (params.page) queryParams.append('page', params.page.toString());
+  if (params.perPage) queryParams.append('per_page', params.perPage.toString());
+
+  const response = await fetch(`/api/news-feed/articles/list?${queryParams}`, {
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch articles list: ${response.status}`);
+  }
+
+  const data: ArticlesListResponse = await response.json();
+
+  // Transform articles to frontend format
+  const transformedArticles = (data.articles || []).map(transformArticle);
+
+  return {
+    articles: transformedArticles,
+    totalCount: data.total_count || 0,
+    page: data.page || 1,
+    perPage: data.per_page || 25,
+    totalPages: data.total_pages || 0,
+  };
+}
+
+// Filter options types
+export interface FilterOption {
+  name?: string;
+  level?: string;
+  count: number;
+}
+
+export interface ArticleFilterOptions {
+  sources: FilterOption[];
+  factuality: FilterOption[];
+  bias: FilterOption[];
+}
+
+/**
+ * Get available filter options for article list (sources, factuality, bias)
+ */
+export async function getArticleFilterOptions(params: {
+  dateRange?: DateRange;
+  topic?: string;
+}): Promise<ArticleFilterOptions> {
+  const queryParams = new URLSearchParams();
+
+  if (params.dateRange) queryParams.append('date_range', params.dateRange);
+  if (params.topic) queryParams.append('topic', params.topic);
+
+  const response = await fetch(`/api/news-feed/filter-options?${queryParams}`, {
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch filter options: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Get configured categories for a specific topic
+ */
+export async function getTopicCategories(topicName: string): Promise<{
+  topic: string;
+  categories: string[];
+}> {
+  const response = await fetch(`/api/news-feed/topic/${encodeURIComponent(topicName)}/categories`, {
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to fetch topic categories: ${response.status}`);
+  }
+
+  return response.json();
+}
