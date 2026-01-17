@@ -296,6 +296,96 @@
         "nation state cyber operations",
         "hybrid warfare"
       ]
+    },
+    {
+      "name": "U.S. Federal R&D Pullback",
+      "description": "Tracking U.S. federal research and development funding changes and policy shifts",
+      "categories": ["Policy Changes", "Budget Cuts", "Agency Restructuring", "Research Priorities", "Other"],
+      "future_signals": ["Significant funding reduction", "Program cancellation", "Policy reversal", "Budget restoration"],
+      "sentiment": ["Positive", "Negative", "Neutral"],
+      "time_to_impact": ["Immediate (0-6 months)", "Short-term (6-18 months)", "Mid-term (18-60 months)", "Long-term (60+ months)"],
+      "driver_types": ["Initiator", "Accelerator", "Catalyst", "Inhibitor", "Blocker"]
+    },
+    {
+      "name": "Open Science Transition Uncertainty",
+      "description": "Tracking the transition to open science practices and associated uncertainties",
+      "categories": ["Open Access", "Data Sharing", "Preprints", "Policy Changes", "Publisher Response", "Other"],
+      "future_signals": ["Widespread adoption", "Resistance from publishers", "Hybrid models emerge", "Regulatory mandates"],
+      "sentiment": ["Positive", "Negative", "Neutral"],
+      "time_to_impact": ["Immediate (0-6 months)", "Short-term (6-18 months)", "Mid-term (18-60 months)", "Long-term (60+ months)"],
+      "driver_types": ["Initiator", "Accelerator", "Catalyst", "Inhibitor", "Blocker"]
+    },
+    {
+      "name": "University Grants & Science Infrastructure Impact",
+      "description": "Tracking impacts on university grants and scientific infrastructure",
+      "categories": ["Grant Funding", "Infrastructure Investment", "Research Facilities", "Equipment", "Staffing", "Other"],
+      "future_signals": ["Funding increase", "Funding decrease", "Infrastructure modernization", "Facility closures"],
+      "sentiment": ["Positive", "Negative", "Neutral"],
+      "time_to_impact": ["Immediate (0-6 months)", "Short-term (6-18 months)", "Mid-term (18-60 months)", "Long-term (60+ months)"],
+      "driver_types": ["Initiator", "Accelerator", "Catalyst", "Inhibitor", "Blocker"]
+    },
+    {
+      "name": "Compensatory R&D Investment Abroad",
+      "description": "Tracking R&D investment shifts to foreign markets compensating for domestic changes",
+      "categories": ["Foreign Investment", "Relocation", "Partnerships", "Talent Migration", "Other"],
+      "future_signals": ["Investment surge abroad", "Talent exodus", "Return of investment", "New research hubs"],
+      "sentiment": ["Positive", "Negative", "Neutral"],
+      "time_to_impact": ["Immediate (0-6 months)", "Short-term (6-18 months)", "Mid-term (18-60 months)", "Long-term (60+ months)"],
+      "driver_types": ["Initiator", "Accelerator", "Catalyst", "Inhibitor", "Blocker"]
+    },
+    {
+      "name": "Attacks on Expertise & Peer Review",
+      "description": "Tracking challenges to scientific expertise and the peer review process",
+      "categories": ["Misinformation", "Policy Attacks", "Peer Review Criticism", "Expert Credibility", "Other"],
+      "future_signals": ["Increased skepticism", "Reform movements", "Alternative review systems", "Expert rehabilitation"],
+      "sentiment": ["Positive", "Negative", "Neutral"],
+      "time_to_impact": ["Immediate (0-6 months)", "Short-term (6-18 months)", "Mid-term (18-60 months)", "Long-term (60+ months)"],
+      "driver_types": ["Initiator", "Accelerator", "Catalyst", "Inhibitor", "Blocker"]
+    },
+    {
+      "name": "Publishing & Integrity Organizations Watch List",
+      "description": "Monitoring publishing integrity organizations and their activities",
+      "categories": ["Retractions", "Misconduct", "Policy Updates", "Standards", "Other"],
+      "future_signals": ["New standards adopted", "Major retractions", "Organization changes", "Industry consolidation"],
+      "sentiment": ["Positive", "Negative", "Neutral"],
+      "time_to_impact": ["Immediate (0-6 months)", "Short-term (6-18 months)", "Mid-term (18-60 months)", "Long-term (60+ months)"],
+      "driver_types": ["Initiator", "Accelerator", "Catalyst", "Inhibitor", "Blocker"]
+    },
+    {
+      "name": "Scientific Publishers - General Monitoring",
+      "description": "General monitoring of scientific publishing industry trends and developments",
+      "categories": ["Market Trends", "Mergers & Acquisitions", "Business Models", "Technology", "Other"],
+      "future_signals": ["Industry consolidation", "New entrants", "Business model shifts", "Technology disruption"],
+      "sentiment": ["Positive", "Negative", "Neutral"],
+      "time_to_impact": ["Immediate (0-6 months)", "Short-term (6-18 months)", "Mid-term (18-60 months)", "Long-term (60+ months)"],
+      "driver_types": ["Initiator", "Accelerator", "Catalyst", "Inhibitor", "Blocker"]
+    },
+    {
+      "name": "Patent Cliffs",
+      "description": "Tracking pharmaceutical and technology patent expirations and their market impact",
+      "categories": ["Pharmaceutical", "Technology", "Generic Entry", "Market Impact", "Other"],
+      "future_signals": ["Major expirations", "Generic launches", "Market disruption", "Innovation response"],
+      "sentiment": ["Positive", "Negative", "Neutral"],
+      "time_to_impact": ["Immediate (0-6 months)", "Short-term (6-18 months)", "Mid-term (18-60 months)", "Long-term (60+ months)"],
+      "driver_types": ["Initiator", "Accelerator", "Catalyst", "Inhibitor", "Blocker"]
+    },
+    {
+      "name": "AI and Machine Learning",
+      "description": "Tracking developments in artificial intelligence and machine learning",
+      "categories": ["Research Advances", "Applications", "Policy & Regulation", "Industry Adoption", "Ethics", "Other"],
+      "future_signals": ["Breakthrough discovery", "Widespread adoption", "Regulatory framework", "Ethical concerns addressed"],
+      "sentiment": ["Positive", "Negative", "Neutral"],
+      "time_to_impact": ["Immediate (0-6 months)", "Short-term (6-18 months)", "Mid-term (18-60 months)", "Long-term (60+ months)"],
+      "driver_types": ["Initiator", "Accelerator", "Catalyst", "Inhibitor", "Blocker"]
+    },
+    {
+      "name": "Geopolitical Hotspots",
+      "description": "Monitoring geopolitical tensions and conflicts worldwide",
+      "categories": ["Regional Conflicts", "Trade Disputes", "Diplomatic Relations", "Sanctions", "Military Activity", "Other"],
+      "future_signals": ["Escalation", "De-escalation", "New alliances", "Economic impact"],
+      "sentiment": ["Positive", "Negative", "Neutral"],
+      "time_to_impact": ["Immediate (0-6 months)", "Short-term (6-18 months)", "Mid-term (18-60 months)", "Long-term (60+ months)"],
+      "driver_types": ["Initiator", "Accelerator", "Catalyst", "Inhibitor", "Blocker"]
     }
   ],
   "ai_models": [

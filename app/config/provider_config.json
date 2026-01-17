@@ -37,6 +37,18 @@
       "api_key_help": "Get your API key from https://thenewsapi.com/account"
     },
     {
+      "name": "newsfirehose",
+      "display_name": "NewsFirehose",
+      "config_type": "api_key",
+      "description": "Unified news aggregation API combining multiple sources",
+      "enabled": true,
+      "api_key_required": true,
+      "api_key_name": "PROVIDER_NEWSFIREHOSE_API_KEY",
+      "api_key_description": "Your NewsFirehose API key",
+      "api_key_placeholder": "Enter your NewsFirehose API key",
+      "api_key_help": "Contact your NewsFirehose administrator for API access"
+    },
+    {
       "name": "firecrawl",
       "display_name": "Firecrawl Scraper",
       "config_type": "api_key",

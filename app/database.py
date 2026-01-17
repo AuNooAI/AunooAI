@@ -206,59 +206,64 @@ class Database:
             self._facade = DatabaseQueryFacade(self, logger)
         return self._facade
 
-    # TODO: Replace get_connection with this function once all queries moved to SQLAlchemy.
-    def _temp_get_connection(self):
-        thread_id = threading.get_ident()
+    # Class-level PostgreSQL engine (shared across all Database instances)
+    _pg_engine_lock = threading.Lock()
+    _pg_engine_instance = None
 
-        # TODO: TEMPORARY PATCH FOR REPLACING DIRECT sqlite CONNECTIONS WITH SQLALCHEMY
-        # TODO: FOR PGSL OR OTHER TYPES OF ENGINES RE-USE EXISTING CONNECTIONS TO AVOID EXHAUSTING RESOURCES!!!
-        # TODO: MUST INCLUDE DEFAULT TABLE VALUES IN MIGRATIONS, SEE GIT COMMITS FOR WHAT HAS BEEN REMOVED!!!!!
+    # TODO: Replace get_connection with this function once all queries moved to SQLAlchemy.
+    def _temp_get_connection(self, max_retries=3):
+        thread_id = threading.get_ident()
+        import os
+        db_type = os.getenv('DB_TYPE', 'sqlite').lower()
+
+        # For PostgreSQL, always get a fresh connection from pool (pool_pre_ping handles health checks)
+        # This avoids stale cached connections that can die between health check and actual query
+        if db_type == 'postgresql':
+            for attempt in range(max_retries):
+                try:
+                    # Create engine once using double-checked locking (thread-safe)
+                    if Database._pg_engine_instance is None:
+                        with Database._pg_engine_lock:
+                            if Database._pg_engine_instance is None:
+                                from sqlalchemy import create_engine
+                                from app.config.settings import db_settings
+                                database_url = db_settings.get_sync_database_url()
+                                logger.info(f"Creating PostgreSQL connection pool: {db_settings.DB_NAME}")
+                                Database._pg_engine_instance = create_engine(
+                                    database_url,
+                                    echo=False,
+                                    pool_pre_ping=True,  # Check connection health on checkout
+                                    pool_recycle=300,     # Recycle every 5 min
+                                    pool_size=20,
+                                    max_overflow=10,
+                                    pool_timeout=30
+                                )
+
+                    # Get fresh connection from pool each time
+                    connection = Database._pg_engine_instance.connect()
+                    return connection
+                except Exception as e:
+                    logger.warning(f"PostgreSQL connection attempt {attempt + 1}/{max_retries} failed: {e}")
+                    if attempt == max_retries - 1:
+                        raise
+                    import time
+                    time.sleep(0.5 * (attempt + 1))  # Exponential backoff
+
+        # SQLite: use thread-cached connections (original behavior)
         if thread_id not in self._sqlalchemy_connections:
             logger.debug(f"Creating new SQLAlchemy connection for thread {thread_id}")
             from sqlalchemy import create_engine
-            import os
 
-            # Check DB_TYPE environment variable to support PostgreSQL
-            db_type = os.getenv('DB_TYPE', 'sqlite').lower()
-
-            if db_type == 'postgresql':
-                # Use PostgreSQL connection
-                from app.config.settings import db_settings
-                database_url = db_settings.get_sync_database_url()
-                logger.info(f"Creating PostgreSQL connection: {db_settings.DB_NAME}")
-                engine = create_engine(
-                    database_url,
-                    echo=False,  # Disable SQL query logging for production
-                    pool_pre_ping=True,  # Check connection health on checkout
-                    pool_recycle=300,     # Recycle connections every 5 min (before pgbouncer's 10 min idle timeout)
-                    pool_size=20,         # Increased from 10 to support background processing
-                    max_overflow=10,      # Increased from 5 for peak loads
-                    pool_timeout=30       # Timeout waiting for connection from pool
-                )
-            else:
-                # Use SQLite connection (default)
-                logger.debug(f"Creating SQLite connection: {self.db_path}")
-                engine = create_engine(
-                    f"sqlite:///{self.db_path}",
-                    echo=False,  # Disable SQL query logging for production
-                    connect_args={"check_same_thread": False}
-                )
+            logger.debug(f"Creating SQLite connection: {self.db_path}")
+            engine = create_engine(
+                f"sqlite:///{self.db_path}",
+                echo=False,
+                connect_args={"check_same_thread": False}
+            )
 
             connection = engine.connect()
-
-            # TODO: Rename this to a less verbose name.
             self._sqlalchemy_connections[thread_id] = connection
             logger.debug(f"Created SQLAlchemy connection for thread {thread_id}")
-
-            # from sqlalchemy import select
-            #
-            # import database_models
-            # select_stmt = select(database_models.t_users)
-            # result = connection.execute(select_stmt)
-            #
-            # import pprint
-            # pprint.pp([user for user in result])
-            # TODO: END TEMPORARY PATCH
         else:
             conn = self._sqlalchemy_connections[thread_id]
             try:

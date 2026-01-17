@@ -303,15 +303,23 @@ class AutomatedIngestService:
             # Get topic description from config
             topic_description = get_topic_description(topic)
 
-            # Prepare article text for analysis
-            article_text = f"{article_data.get('title', '')} {article_data.get('summary', '')}"
+            # Prepare article text for analysis - use full content if available (from NewsFirehose, NewsData.io, etc.)
+            # Priority: content (full article) > summary > empty
+            article_full_content = article_data.get('content', '')
+            article_summary = article_data.get('summary', '')
+            article_content = article_full_content or article_summary
+            article_text = f"{article_data.get('title', '')}\n\n{article_content}"
+
+            # Log content source for debugging
+            content_source = "full content" if article_full_content else ("summary" if article_summary else "none")
+            self.logger.info(f"📊 Relevance check using {content_source} ({len(article_content)} chars) for: {article_data.get('title', '')[:60]}...")
 
             # Calculate relevance score using correct parameter names
             keywords_str = ", ".join(keywords) if isinstance(keywords, list) else str(keywords)
             relevance_result = self.relevance_calculator.analyze_relevance(
                 title=article_data.get('title', ''),
                 source=article_data.get('news_source', ''),
-                content=article_text,
+                content=article_text,  # Now includes full content when available
                 topic=topic,
                 keywords=keywords_str,
                 topic_description=topic_description
@@ -1093,12 +1101,36 @@ class AutomatedIngestService:
             # QUICK FIX: Use concurrent async processing instead of sequential loop
             # This prevents blocking the event loop during auto-ingest
 
-            # Pre-scrape all articles in batch for efficiency
-            article_uris = [article.get('uri') for article in articles if article.get('uri')]
-            self.logger.info(f"🚀 Pre-scraping {len(article_uris)} articles in batch...")
+            # Separate articles that need scraping from those that already have content
+            # NewsFirehose and NewsData.io provide full content - no scraping needed
+            articles_needing_scrape = []
+            articles_with_content = {}
 
-            scraped_content = await self.scrape_articles_batch(article_uris)
-            self.logger.info(f"✅ Batch scraping completed: {len(scraped_content)} articles")
+            for article in articles:
+                article_uri = article.get('uri')
+                if not article_uri:
+                    continue
+
+                # Check if article already has content from collector
+                existing_content = article.get('content')
+                if existing_content and len(existing_content) > 200:
+                    # Article has substantial content from collector - skip scraping
+                    articles_with_content[article_uri] = existing_content
+                    self.logger.debug(f"📄 Using collector content for {article_uri} ({len(existing_content)} chars)")
+                else:
+                    articles_needing_scrape.append(article_uri)
+
+            self.logger.info(f"📊 Content status: {len(articles_with_content)} have content, {len(articles_needing_scrape)} need scraping")
+
+            # Only batch scrape articles that don't have content
+            scraped_content = {}
+            if articles_needing_scrape:
+                self.logger.info(f"🚀 Pre-scraping {len(articles_needing_scrape)} articles in batch...")
+                scraped_content = await self.scrape_articles_batch(articles_needing_scrape)
+                self.logger.info(f"✅ Batch scraping completed: {len(scraped_content)} articles")
+
+            # Combine content from collectors and scraped content
+            all_content = {**articles_with_content, **scraped_content}
 
             # Process articles concurrently using existing async infrastructure
             # This is the KEY FIX: use _process_single_article_async() which properly uses
@@ -1111,9 +1143,9 @@ class AutomatedIngestService:
             # Create tasks for all articles
             all_article_data = []
             for article in articles:
-                # Attach pre-scraped content to article for processing
+                # Attach content to article for processing (from collector or scraped)
                 article_uri = article.get('uri', 'unknown')
-                article['_scraped_content'] = scraped_content.get(article_uri)
+                article['_scraped_content'] = all_content.get(article_uri)
                 all_article_data.append(article)
 
             # Process in batches to prevent connection pool exhaustion
