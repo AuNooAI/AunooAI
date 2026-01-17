@@ -18,6 +18,10 @@ import {
   Check,
   Bookmark,
   Sparkles,
+  LayoutGrid,
+  List,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { useNewsFeed } from '../hooks/useNewsFeed';
 import { useNarrativeExplorer } from '../hooks/useNarrativeExplorer';
@@ -35,6 +39,7 @@ import { ResearchAgentsSection } from '../components/newsfeed/ResearchAgentsSect
 import { SignalReportsTab } from '../components/newsfeed/SignalReportsTab';
 import { EmergingTopicsTab } from '../components/newsfeed/EmergingTopicsTab';
 import { TopicCluster, getCategoryIcon } from '../components/newsfeed/TopicCluster';
+import { ArticleListView } from '../components/newsfeed/ArticleListView';
 import { OnboardingWizard } from '../components/onboarding/OnboardingWizard';
 import { AuspexChat } from '../components/auspex';
 import { ArticleDetailPanel } from '../components/newsfeed/ArticleDetailPanel';
@@ -148,6 +153,7 @@ export function NewsFeedPage() {
 
   // UI State
   const [currentTab, setCurrentTab] = useState<'feed' | 'emerging' | 'agents' | 'saved'>('feed');
+  const [viewMode, setViewMode] = useState<'clustered' | 'list'>('clustered');
   const [emergingTopicsCount, setEmergingTopicsCount] = useState(0);
   const [reportsCount, setReportsCount] = useState(0);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
@@ -854,66 +860,106 @@ export function NewsFeedPage() {
                       />
                     )}
 
-                    {/* Section 4: Your Topics - Google News style multi-column grid */}
-                {visibleSections.topics && sortedCategories.length > 0 && (
+                    {/* Section 4: Your Topics - Clustered or List view */}
+                {visibleSections.topics && (
                   <div className="mt-8">
                     <div className="flex items-center justify-between mb-6">
                       <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">Latest News</h2>
+                      {/* View Mode Toggle - Icon only */}
+                      <div className="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-0.5">
+                        <button
+                          onClick={() => setViewMode('clustered')}
+                          className={`p-1.5 rounded-md transition-colors ${
+                            viewMode === 'clustered'
+                              ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
+                              : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+                          }`}
+                          title="Clustered View"
+                        >
+                          <LayoutGrid className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setViewMode('list')}
+                          className={`p-1.5 rounded-md transition-colors ${
+                            viewMode === 'list'
+                              ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm'
+                              : 'text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+                          }`}
+                          title="List View"
+                        >
+                          <List className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
 
-                    {/* Multi-column grid layout like Google News */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-2">
-                      {sortedCategories.slice(0, 9).map((category) => {
-                        const categoryArticles = groupedArticles[category] || [];
-                        const categoryTopic = categoryArticles[0]?.topic;
-                        const clusters = categoryClusters[category];
-                        return (
-                          <TopicCluster
-                            key={category}
-                            category={category}
-                            topic={categoryTopic}
-                            articles={categoryArticles}
-                            clusters={clusters}
-                            starredArticles={starredArticles}
-                            onStar={starArticle}
-                            onUnstar={unstarArticle}
-                            onArticleClick={handleArticleClick}
-                            onSeeMore={(cat, topic) => setSelectedCategory({ name: cat, topic })}
-                            maxItems={4}
-                            databaseCount={categoryCounts[category]}
-                          />
-                        );
-                      })}
-                    </div>
+                    {/* List View - Chronological articles */}
+                    {viewMode === 'list' && (
+                      <ArticleListView
+                        dateRange={config.dateRange as any}
+                        topic={config.topic}
+                        categories={categories}
+                        starredArticles={starredArticles}
+                        onStar={starArticle}
+                        onUnstar={unstarArticle}
+                        onArticleClick={handleArticleClick}
+                      />
+                    )}
 
-                    {/* Show remaining categories as clickable chips */}
-                    {sortedCategories.length > 9 && (
-                      <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
-                        <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-3">More topics</h3>
-                        <div className="flex flex-wrap gap-2">
-                          {sortedCategories.slice(9).map((category) => {
-                            const catArticles = groupedArticles[category] || [];
-                            const catTopic = catArticles[0]?.topic;
-                            const displayCount = categoryCounts[category] ?? catArticles.length;
+                    {/* Clustered View - Google News style multi-column grid */}
+                    {viewMode === 'clustered' && sortedCategories.length > 0 && (
+                      <>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-2">
+                          {sortedCategories.slice(0, 9).map((category) => {
+                            const categoryArticles = groupedArticles[category] || [];
+                            const categoryTopic = categoryArticles[0]?.topic;
+                            const clusters = categoryClusters[category];
                             return (
-                              <button
+                              <TopicCluster
                                 key={category}
-                                onClick={() => setSelectedCategory({ name: category, topic: catTopic })}
-                                className="px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-gray-700 dark:text-gray-300 transition-colors"
-                              >
-                                {category}
-                                <span className="ml-1 text-gray-500 dark:text-gray-400">({displayCount})</span>
-                              </button>
+                                category={category}
+                                topic={categoryTopic}
+                                articles={categoryArticles}
+                                clusters={clusters}
+                                starredArticles={starredArticles}
+                                onStar={starArticle}
+                                onUnstar={unstarArticle}
+                                onArticleClick={handleArticleClick}
+                                onSeeMore={(cat, topic) => setSelectedCategory({ name: cat, topic })}
+                                maxItems={4}
+                                databaseCount={categoryCounts[category]}
+                              />
                             );
                           })}
                         </div>
-                      </div>
-                    )}
-                  </div>
-                )}
 
-                    {/* Empty State */}
-                    {articles.length === 0 && !loading && (
+                        {/* Show remaining categories as clickable chips */}
+                        {sortedCategories.length > 9 && (
+                          <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+                            <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-3">More topics</h3>
+                            <div className="flex flex-wrap gap-2">
+                              {sortedCategories.slice(9).map((category) => {
+                                const catArticles = groupedArticles[category] || [];
+                                const catTopic = catArticles[0]?.topic;
+                                const displayCount = categoryCounts[category] ?? catArticles.length;
+                                return (
+                                  <button
+                                    key={category}
+                                    onClick={() => setSelectedCategory({ name: category, topic: catTopic })}
+                                    className="px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full text-gray-700 dark:text-gray-300 transition-colors"
+                                  >
+                                    {category}
+                                    <span className="ml-1 text-gray-500 dark:text-gray-400">({displayCount})</span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {/* Empty state for clustered view */}
+                    {viewMode === 'clustered' && sortedCategories.length === 0 && !loading && (
                       <div className="flex flex-col items-center justify-center h-64 text-center">
                         <Newspaper className="w-12 h-12 text-gray-300 dark:text-gray-600 mb-4" />
                         <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">No articles found</h3>
@@ -922,6 +968,8 @@ export function NewsFeedPage() {
                         </p>
                       </div>
                     )}
+                  </div>
+                )}
                   </>
                 )}
               </>

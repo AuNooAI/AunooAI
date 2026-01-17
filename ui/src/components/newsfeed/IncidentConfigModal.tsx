@@ -40,7 +40,8 @@ interface IncidentConfigModalProps {
 }
 
 // Default templates - matching news_feed_new.html
-const DEFAULT_SYSTEM_PROMPT = `You are a threat intelligence analyst tracking incidents, entities, and events in {topic}.
+// Note: {topic_label} and {topic_focus} are dynamically set based on selected topic and org profile
+const DEFAULT_SYSTEM_PROMPT = `You are a threat intelligence analyst tracking incidents, entities, and events in {topic_label}, with focus on {topic_focus}.
 
 IMPORTANT: Assess credibility and plausibility. Treat extraordinary, self-reported breakthroughs with skepticism.
 Use factual_reporting, MBFC credibility, and bias indicators. Down-rank or flag items from low/mixed credibility or fringe bias sources.
@@ -459,7 +460,9 @@ export function IncidentConfigModal({ open, onClose }: IncidentConfigModalProps)
                         Available Placeholders
                       </h4>
                       <div className="space-y-2 text-sm">
-                        <PlaceholderItem name="{topic}" desc="Current analysis topic" />
+                        <PlaceholderItem name="{topic}" desc="Current analysis topic (raw)" />
+                        <PlaceholderItem name="{topic_label}" desc="Dynamic label based on topic/org (e.g., 'AI and Machine Learning', 'Publishing news')" />
+                        <PlaceholderItem name="{topic_focus}" desc="Dynamic focus from org profile priorities or topic-specific interests" />
                         <PlaceholderItem name="{ontology_text}" desc="Generated ontology guidance" />
                         <PlaceholderItem name="{articles_text}" desc="Formatted article content" />
                         <PlaceholderItem name="{profile_context}" desc="Organizational profile context" />

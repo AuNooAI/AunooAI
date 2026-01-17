@@ -2086,18 +2086,62 @@ Extraordinary Claims Protocol:
         analysis_instructions = req.analysis_instructions if req.analysis_instructions else default_analysis_instructions
         quality_guidelines = req.quality_guidelines if req.quality_guidelines else default_quality_guidelines
 
+        # Build dynamic topic label and focus based on topic and org profile
+        # This is computed first so it can be used in both custom and default prompts
+        topic_label = "the selected topics"  # Default generic label
+        topic_focus = "strategic business developments, industry trends, and emerging opportunities"  # Default generic
+
+        if req.topic:
+            # Use topic name as the label
+            topic_label = req.topic
+            # Map common topics to focus descriptions
+            topic_focus_map = {
+                "AI and Machine Learning": "AI's strategic, technical, and societal impacts",
+                "Technology": "technological developments, digital transformation, and innovation",
+                "Business": "market dynamics, competitive landscape, and business strategy",
+                "Finance": "financial markets, investment trends, and economic indicators",
+                "Healthcare": "healthcare innovations, regulatory changes, and industry developments",
+                "Energy": "energy markets, sustainability initiatives, and industry transitions",
+                "Cybersecurity": "security threats, vulnerabilities, compliance requirements, and risk management",
+            }
+            topic_focus = topic_focus_map.get(req.topic, f"{req.topic.lower()} developments, trends, and strategic implications")
+        elif topics_list:
+            # Multiple topics selected
+            topic_label = ', '.join(topics_list[:3]) + ('...' if len(topics_list) > 3 else '')
+
+        # If org profile exists, use its context for more specific focus
+        if req.profile_id and profile_context:
+            # Extract key concerns and priorities from profile for topic focus
+            try:
+                from app.database_query_facade import DatabaseQueryFacade
+                profile_row = DatabaseQueryFacade(db, logger).get_organisational_profile(req.profile_id)
+                if profile_row:
+                    import json
+                    key_concerns = json.loads(profile_row['key_concerns']) if profile_row['key_concerns'] else []
+                    strategic_priorities = json.loads(profile_row['strategic_priorities']) if profile_row['strategic_priorities'] else []
+                    org_focus = key_concerns + strategic_priorities
+                    if org_focus:
+                        topic_focus = ', '.join(org_focus[:5])  # Limit to top 5
+                    # Use industry for topic label if no specific topic
+                    if not req.topic and profile_row.get('industry'):
+                        topic_label = f"{profile_row['industry']} news and developments"
+            except Exception as e:
+                logger.warning(f"Could not extract org profile focus: {e}")
+
         # Check if custom system prompt provided
         if req.system_prompt:
             # Use custom system prompt with placeholder replacement
             system_prompt = req.system_prompt.replace('{topic}', req.topic or 'the selected topics')
+            system_prompt = system_prompt.replace('{topic_label}', topic_label)
+            system_prompt = system_prompt.replace('{topic_focus}', topic_focus)
             system_prompt = system_prompt.replace('{profile_context}', profile_context)
             system_prompt = system_prompt.replace('{analysis_instructions}', analysis_instructions)
             system_prompt = system_prompt.replace('{quality_guidelines}', quality_guidelines)
             system_prompt = system_prompt.replace('{ontology_text}', ontology_text)
-            logger.info(f"Using custom system prompt for incident tracking on {req.topic}")
+            logger.info(f"Using custom system prompt for incident tracking on {topic_label}")
         else:
             # Default system prompt
-            system_prompt = f"""You are a threat intelligence analyst tracking incidents, entities, and events in {req.topic}.
+            system_prompt = f"""You are a threat intelligence analyst tracking incidents, entities, and events in {topic_label}, with focus on {topic_focus}.
 
 IMPORTANT: Assess credibility and plausibility. Treat extraordinary, self-reported breakthroughs with skepticism.
 Use factual_reporting, MBFC credibility, and bias indicators. Down-rank or flag items from low/mixed credibility or fringe bias sources.
