@@ -55,9 +55,10 @@ interface SixArticlesTuneModalProps {
 const RISK_APPETITES = ['low', 'moderate', 'high', 'aggressive'];
 
 // Default prompt template (matches backend)
-const DEFAULT_PROMPT_TEMPLATE = `🎯 {persona} Daily Top-{article_count} AI Articles — Analyst Prompt
+// Note: Topic label and interests are dynamically set based on selected topic and org profile
+const DEFAULT_PROMPT_TEMPLATE = `🎯 {persona} Daily Top-{article_count} {topic_label} — Analyst Prompt
 
-You are an analyst selecting the {article_count} most important articles published in the last 24 hours for {persona_description} interested in AI's strategic, technical, and societal impacts, with specific focus on {persona_focus}.
+You are an analyst selecting the {article_count} most important articles published in the last 24 hours for {persona_description} interested in {topic_interests}, with specific focus on {persona_focus}.
 {starred_instruction}
 
 {audience_profile}
@@ -506,6 +507,8 @@ export function SixArticlesTuneModal({
                         {[
                           { name: '{persona}', desc: 'Selected persona name (CEO, CMO, etc.)' },
                           { name: '{article_count}', desc: 'Number of articles to select' },
+                          { name: '{topic_label}', desc: 'Dynamic label based on topic/org (e.g., "AI Articles", "Technology News")' },
+                          { name: '{topic_interests}', desc: 'Dynamic interests from org profile or topic' },
                           { name: '{persona_description}', desc: 'Full persona description' },
                           { name: '{persona_focus}', desc: 'Persona focus areas' },
                           { name: '{audience_profile}', desc: 'Audience profile details' },

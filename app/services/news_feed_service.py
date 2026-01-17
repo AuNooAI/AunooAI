@@ -540,7 +540,8 @@ class NewsFeedService:
                 org_profile,
                 persona=request.persona,
                 article_count=request.article_count,
-                starred_articles=request.starred_articles
+                starred_articles=request.starred_articles,
+                topic=request.topic
             )
             logger.info("Successfully built six articles prompt")
         except Exception as e:
@@ -912,7 +913,8 @@ Please try again and return ONLY articles with URIs from this list."""}
             persona=request.persona,
             article_count=request.article_count,
             starred_articles=filtered_starred,
-            user_id=request.user_id
+            user_id=request.user_id,
+            topic=request.topic
         )
         
         try:
@@ -1139,7 +1141,7 @@ Focus on stories with:
 
 Return ONLY the JSON response."""
     
-    def _build_six_articles_analyst_prompt(self, articles_data: List[Dict], date: datetime, org_profile: Optional[Dict] = None, persona: str = "CEO", article_count: int = 6, starred_articles: Optional[List[str]] = None, user_id: Optional[int] = None) -> str:
+    def _build_six_articles_analyst_prompt(self, articles_data: List[Dict], date: datetime, org_profile: Optional[Dict] = None, persona: str = "CEO", article_count: int = 6, starred_articles: Optional[List[str]] = None, user_id: Optional[int] = None, topic: Optional[str] = None) -> str:
         """Build AI prompt for six articles detailed analysis with organizational context and custom config"""
 
         # Prepare all articles for comprehensive analysis, marking starred ones
@@ -1231,12 +1233,47 @@ CRITICAL: Your JSON output array MUST include ALL starred articles - they are re
 - Then add {article_count - len(starred_articles)} more articles to reach exactly {article_count} total
 - Return exactly {article_count} articles in your JSON array"""
 
+        # Build dynamic topic label and interests based on topic and org_profile
+        # This is computed first so it can be used in both custom and default prompts
+        topic_label = "Articles"  # Default generic label
+        topic_interests = "strategic business developments, industry trends, and emerging opportunities"  # Default generic
+
+        if topic:
+            # Use topic name as the label
+            topic_label = f"{topic} Articles"
+            # Map common topics to interest descriptions
+            topic_interest_map = {
+                "AI and Machine Learning": "AI's strategic, technical, and societal impacts",
+                "Technology": "technological developments, digital transformation, and innovation",
+                "Business": "market dynamics, competitive landscape, and business strategy",
+                "Finance": "financial markets, investment trends, and economic indicators",
+                "Healthcare": "healthcare innovations, regulatory changes, and industry developments",
+                "Energy": "energy markets, sustainability initiatives, and industry transitions",
+                "Cybersecurity": "security threats, vulnerabilities, compliance requirements, and risk management",
+            }
+            topic_interests = topic_interest_map.get(topic, f"{topic.lower()} developments, trends, and strategic implications")
+
+        if org_profile:
+            # Override with org-specific focus if available
+            org_interests = []
+            if org_profile.get('strategic_priorities'):
+                org_interests.extend(org_profile.get('strategic_priorities', []))
+            if org_profile.get('key_concerns'):
+                org_interests.extend(org_profile.get('key_concerns', []))
+            if org_interests:
+                topic_interests = ', '.join(org_interests[:5])  # Limit to top 5 interests
+            # Add industry context if available
+            if org_profile.get('industry'):
+                topic_label = f"{org_profile.get('industry', 'Industry')} Articles"
+
         # Use custom prompt template if provided, otherwise use default
         if custom_config and custom_config.get('systemPrompt'):
             # Replace placeholders in custom prompt
             custom_prompt = custom_config['systemPrompt']
             custom_prompt = custom_prompt.replace('{persona}', persona_info['title'])
             custom_prompt = custom_prompt.replace('{article_count}', str(article_count))
+            custom_prompt = custom_prompt.replace('{topic_label}', topic_label)
+            custom_prompt = custom_prompt.replace('{topic_interests}', topic_interests)
             custom_prompt = custom_prompt.replace('{persona_description}', persona_info['description'])
             custom_prompt = custom_prompt.replace('{persona_focus}', persona_info['focus'])
             custom_prompt = custom_prompt.replace('{starred_instruction}', starred_instruction)
@@ -1246,9 +1283,9 @@ CRITICAL: Your JSON output array MUST include ALL starred articles - they are re
             return custom_prompt
 
         # Default prompt template
-        return f"""🎯 {persona_info['title']} Daily Top-{article_count} AI Articles — Analyst Prompt
+        return f"""🎯 {persona_info['title']} Daily Top-{article_count} {topic_label} — Analyst Prompt
 
-You are an analyst selecting the {article_count} most important articles published in the last 24 hours for {persona_info['description']} interested in AI's strategic, technical, and societal impacts, with specific focus on {persona_info['focus']}.
+You are an analyst selecting the {article_count} most important articles published in the last 24 hours for {persona_info['description']} interested in {topic_interests}, with specific focus on {persona_info['focus']}.
 {starred_instruction}
 
 {audience_profile}
@@ -1427,7 +1464,7 @@ START YOUR RESPONSE WITH [ AND END WITH ] - NOTHING ELSE."""
 
         return profile_text
 
-    def _build_enhanced_six_articles_analyst_prompt(self, articles_data: List[Dict], articles_with_bias: List[Dict], articles_by_source: Dict, date: datetime, org_profile: Optional[Dict] = None, persona: str = "CEO", article_count: int = 6, starred_articles: Optional[List[str]] = None, user_id: Optional[int] = None) -> str:
+    def _build_enhanced_six_articles_analyst_prompt(self, articles_data: List[Dict], articles_with_bias: List[Dict], articles_by_source: Dict, date: datetime, org_profile: Optional[Dict] = None, persona: str = "CEO", article_count: int = 6, starred_articles: Optional[List[str]] = None, user_id: Optional[int] = None, topic: Optional[str] = None) -> str:
         """Build enhanced AI prompt that considers related articles and political leanings with custom config"""
 
         # Prepare all articles for analysis, marking starred ones
@@ -1541,12 +1578,47 @@ CRITICAL: Your JSON output array MUST include ALL starred articles - they are re
 - Then add {article_count - len(starred_articles)} more articles to reach exactly {article_count} total
 - Return exactly {article_count} articles in your JSON array"""
 
+        # Build dynamic topic label and interests based on topic and org_profile
+        # This is computed first so it can be used in both custom and default prompts
+        topic_label = "Articles"  # Default generic label
+        topic_interests = "strategic business developments, industry trends, and emerging opportunities"  # Default generic
+
+        if topic:
+            # Use topic name as the label
+            topic_label = f"{topic} Articles"
+            # Map common topics to interest descriptions
+            topic_interest_map = {
+                "AI and Machine Learning": "AI's strategic, technical, and societal impacts",
+                "Technology": "technological developments, digital transformation, and innovation",
+                "Business": "market dynamics, competitive landscape, and business strategy",
+                "Finance": "financial markets, investment trends, and economic indicators",
+                "Healthcare": "healthcare innovations, regulatory changes, and industry developments",
+                "Energy": "energy markets, sustainability initiatives, and industry transitions",
+                "Cybersecurity": "security threats, vulnerabilities, compliance requirements, and risk management",
+            }
+            topic_interests = topic_interest_map.get(topic, f"{topic.lower()} developments, trends, and strategic implications")
+
+        if org_profile:
+            # Override with org-specific focus if available
+            org_interests = []
+            if org_profile.get('strategic_priorities'):
+                org_interests.extend(org_profile.get('strategic_priorities', []))
+            if org_profile.get('key_concerns'):
+                org_interests.extend(org_profile.get('key_concerns', []))
+            if org_interests:
+                topic_interests = ', '.join(org_interests[:5])  # Limit to top 5 interests
+            # Add industry context if available
+            if org_profile.get('industry'):
+                topic_label = f"{org_profile.get('industry', 'Industry')} Articles"
+
         # Use custom prompt template if provided, otherwise use default
         if custom_config and custom_config.get('systemPrompt'):
             # Replace placeholders in custom prompt (including enhanced-specific context)
             custom_prompt = custom_config['systemPrompt']
             custom_prompt = custom_prompt.replace('{persona}', persona_info['title'])
             custom_prompt = custom_prompt.replace('{article_count}', str(article_count))
+            custom_prompt = custom_prompt.replace('{topic_label}', topic_label)
+            custom_prompt = custom_prompt.replace('{topic_interests}', topic_interests)
             custom_prompt = custom_prompt.replace('{persona_description}', persona_info['description'])
             custom_prompt = custom_prompt.replace('{persona_focus}', persona_info['focus'])
             custom_prompt = custom_prompt.replace('{starred_instruction}', starred_instruction)
@@ -1558,9 +1630,9 @@ CRITICAL: Your JSON output array MUST include ALL starred articles - they are re
             return custom_prompt
 
         # Default enhanced prompt template
-        return f"""🎯 {persona_info['title']} Daily Top-{article_count} AI Articles — Analyst Prompt
+        return f"""🎯 {persona_info['title']} Daily Top-{article_count} {topic_label} — Analyst Prompt
 
-You are an analyst selecting the {article_count} most important articles published in the last 24 hours for {persona_info['description']} interested in AI's strategic, technical, and societal impacts, with specific focus on {persona_info['focus']}.
+You are an analyst selecting the {article_count} most important articles published in the last 24 hours for {persona_info['description']} interested in {topic_interests}, with specific focus on {persona_info['focus']}.
 {starred_instruction}
 
 {audience_profile}
