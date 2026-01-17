@@ -306,6 +306,75 @@ async def get_clustered_articles(
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
+@router.get("/articles/list")
+async def get_articles_list(
+    date_range: Optional[str] = Query("7d", description="Date range: 24h, 7d, 30d, 3m, 1y, all"),
+    topic: Optional[str] = Query(None, description="Optional topic filter"),
+    page: int = Query(1, ge=1, description="Page number for pagination"),
+    per_page: int = Query(25, ge=1, le=100, description="Items per page"),
+    db: Database = Depends(get_database_instance)
+):
+    """Get articles as a flat list sorted by publication date (newest first).
+
+    Unlike the clustered view, this returns articles in a simple chronological list
+    sorted by when they were published, without any grouping or clustering.
+    Only returns enriched articles (those with category and sentiment set).
+    """
+    try:
+        # Get DB facade
+        db_facade = DatabaseQueryFacade(db, logger)
+
+        # Calculate date range parameters
+        now = datetime.now()
+        if date_range == "24h":
+            start_date = now - timedelta(days=1)
+        elif date_range == "7d":
+            start_date = now - timedelta(days=7)
+        elif date_range == "30d":
+            start_date = now - timedelta(days=30)
+        elif date_range == "3m":
+            start_date = now - timedelta(days=90)
+        elif date_range == "1y":
+            start_date = now - timedelta(days=365)
+        elif date_range == "all":
+            start_date = None
+        else:
+            start_date = now - timedelta(days=7)  # Default to 7d
+
+        # Calculate offset for pagination
+        offset = (page - 1) * per_page
+
+        # Get articles sorted chronologically by publication date
+        articles_data = db_facade.get_news_feed_articles_chronological(
+            start_date=start_date.strftime('%Y-%m-%d %H:%M:%S') if start_date else None,
+            end_date=now.strftime('%Y-%m-%d %H:%M:%S'),
+            topic=topic,
+            offset=offset,
+            limit=per_page
+        )
+
+        # Get total count for pagination
+        total_count = db_facade.get_news_feed_articles_chronological_count(
+            start_date=start_date.strftime('%Y-%m-%d %H:%M:%S') if start_date else None,
+            end_date=now.strftime('%Y-%m-%d %H:%M:%S'),
+            topic=topic
+        )
+
+        total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 0
+
+        return {
+            "articles": articles_data,
+            "total_count": total_count,
+            "page": page,
+            "per_page": per_page,
+            "total_pages": total_pages
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting articles list: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
 @router.get("/six-articles")
 async def get_six_articles_report(
     date: Optional[str] = Query(None, description="Date in YYYY-MM-DD format"),
@@ -2286,3 +2355,95 @@ async def delete_saved_narrative(
     except Exception as e:
         logger.error(f"Error deleting narrative: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/filter-options")
+async def get_filter_options(
+    date_range: Optional[str] = Query("7d", description="Date range: 24h, 7d, 30d, 3m, 1y, all"),
+    topic: Optional[str] = Query(None, description="Optional topic filter"),
+    db: Database = Depends(get_database_instance)
+):
+    """Get available filter options (sources, factuality levels) for article list.
+
+    Returns distinct sources and factuality levels from articles matching
+    the current date range and topic filters.
+    """
+    from starlette.concurrency import run_in_threadpool
+
+    try:
+        # Calculate date range
+        now = datetime.now()
+
+        if date_range == '24h':
+            start_date = (now - timedelta(days=1)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '72h':
+            start_date = (now - timedelta(days=3)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '7d':
+            start_date = (now - timedelta(days=7)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '30d':
+            start_date = (now - timedelta(days=30)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '3m':
+            start_date = (now - timedelta(days=90)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == '1y':
+            start_date = (now - timedelta(days=365)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+        elif date_range == 'all':
+            start_date = None
+            end_date = None
+        else:
+            start_date = (now - timedelta(days=7)).strftime('%Y-%m-%d')
+            end_date = now.strftime('%Y-%m-%d %H:%M:%S')
+
+        # Use facade to get filter options
+        db_facade = DatabaseQueryFacade(db, logger)
+        result = await run_in_threadpool(
+            db_facade.get_article_filter_options,
+            start_date,
+            end_date,
+            topic
+        )
+
+        logger.info(f"Filter options: {len(result['sources'])} sources, {len(result['factuality'])} factuality levels, {len(result['bias'])} bias levels")
+
+        return result
+
+    except Exception as e:
+        logger.error(f"Error getting filter options: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+
+@router.get("/topic/{topic_name}/categories")
+async def get_topic_categories(
+    topic_name: str,
+):
+    """Get the configured categories for a specific topic.
+
+    Returns the categories defined in config.json for the given topic.
+    """
+    from app.config.config import load_config
+
+    try:
+        config = load_config()
+        topic_configs = {t['name']: t for t in config.get('topics', [])}
+
+        if topic_name not in topic_configs:
+            raise HTTPException(status_code=404, detail=f"Topic '{topic_name}' not found")
+
+        topic_config = topic_configs[topic_name]
+        categories = topic_config.get('categories', [])
+
+        return {
+            "topic": topic_name,
+            "categories": categories
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting topic categories: {e}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")

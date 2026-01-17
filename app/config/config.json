@@ -4,8 +4,16 @@
       "name": "Trend Monitoring",
       "description": "Track emerging trends across various domains, monitoring adoption patterns, market dynamics, and public sentiment. This topic helps identify whether trends are gaining momentum, stagnating, declining, or being overhyped, providing insights into technology adoption curves, market maturity, and strategic opportunities.",
       "categories": [
-        "Category 1",
-        "Category 2"
+        "Technology Adoption",
+        "Market Dynamics",
+        "Consumer Behavior",
+        "Industry Transformation",
+        "Regulatory Changes",
+        "Investment Signals",
+        "Workforce Trends",
+        "Emerging Technologies",
+        "Social and Cultural Shifts",
+        "Other"
       ],
       "future_signals": [
         "Adoption is rising",
@@ -40,9 +48,17 @@
       "name": "Competitor Analysis",
       "description": "Monitor competitive landscape, tracking competitor activities, market positioning, financial performance, strategic moves, and business developments. This includes M&A activity, product launches, expansion plans, pivots, market share changes, and other signals that indicate competitive dynamics and market shifts.",
       "categories": [
-        "Competitor 1",
-        "Competitor 2",
-        "Competitor 3"
+        "Product Launches",
+        "Mergers and Acquisitions",
+        "Leadership Changes",
+        "Financial Performance",
+        "Market Expansion",
+        "Strategic Partnerships",
+        "Pricing Changes",
+        "Technology Investments",
+        "Workforce Moves",
+        "Regulatory Impact",
+        "Other"
       ],
       "future_signals": [
         "Hypergrowth",
@@ -372,7 +388,31 @@
     {
       "name": "AI and Machine Learning",
       "description": "Tracking developments in artificial intelligence and machine learning",
-      "categories": ["Research Advances", "Applications", "Policy & Regulation", "Industry Adoption", "Ethics", "Other"],
+      "categories": [
+        "AI Warbots",
+        "AI Business",
+        "Releases and Announcements",
+        "Sovereign AI & AI Nationalism",
+        "AI Copyright, Regulation, and Antitrust",
+        "AI at Work and Employment",
+        "AI and Society",
+        "AI Trust, Risk, and Security Management",
+        "AI in Finance",
+        "AI in Journalism",
+        "AI Healthcare",
+        "AI in Education",
+        "AI in Law and the Legal Profession",
+        "AI in Science",
+        "AI in Art and the Media",
+        "AI in Software Development",
+        "AI Ethics",
+        "AI and Robotics",
+        "AI in the Data Center",
+        "AI Carbon Footprint",
+        "The Path to AGI",
+        "Interesting Papers & Articles on Applied AI",
+        "Other"
+      ],
       "future_signals": ["Breakthrough discovery", "Widespread adoption", "Regulatory framework", "Ethical concerns addressed"],
       "sentiment": ["Positive", "Negative", "Neutral"],
       "time_to_impact": ["Immediate (0-6 months)", "Short-term (6-18 months)", "Mid-term (18-60 months)", "Long-term (60+ months)"],
