@@ -124,6 +124,7 @@ export function AuspexChat({ buttonClassName }: AuspexChatProps) {
   // Listen for global Auspex open events
   useEffect(() => {
     const handleAuspexOpen = (event: CustomEvent<AuspexOpenEventDetail>) => {
+      console.log('[AuspexChat] Received open event:', event.detail);
       const { query, topic } = event.detail;
       if (query) {
         setInitialQuery(query);
@@ -133,8 +134,10 @@ export function AuspexChat({ buttonClassName }: AuspexChatProps) {
         setSelectedTopic(topic);
       }
       setIsOpen(true);
+      console.log('[AuspexChat] Modal opened with query:', query);
     };
 
+    console.log('[AuspexChat] Setting up event listener for:', AUSPEX_OPEN_EVENT);
     window.addEventListener(AUSPEX_OPEN_EVENT, handleAuspexOpen as EventListener);
     return () => {
       window.removeEventListener(AUSPEX_OPEN_EVENT, handleAuspexOpen as EventListener);

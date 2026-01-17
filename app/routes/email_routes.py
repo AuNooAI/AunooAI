@@ -4,7 +4,7 @@ Email sharing routes for sending content via email.
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
-from typing import Optional, List
+from typing import Optional, List, Union
 import logging
 import os
 import urllib.parse
@@ -23,6 +23,14 @@ class EmailStatusResponse(BaseModel):
     provider: Optional[str] = None
 
 
+class ArticleRef(BaseModel):
+    """Article reference for incident sharing."""
+    title: Optional[str] = None
+    source: Optional[str] = None
+    url: Optional[str] = None
+    summary: Optional[str] = None
+
+
 class ShareIncidentRequest(BaseModel):
     """Request to share an incident via email."""
     to_email: str
@@ -35,6 +43,12 @@ class ShareIncidentRequest(BaseModel):
     strategic_relevance: Optional[str] = None
     plausibility: Optional[str] = None
     source_quality: Optional[str] = None
+    credibility_summary: Optional[str] = None
+    timeline: Optional[Union[str, List[str]]] = None  # Can be string or array
+    investigation_leads: Optional[Union[str, List[str]]] = None  # Can be string or array
+    first_seen: Optional[str] = None
+    last_seen: Optional[str] = None
+    articles: Optional[List[ArticleRef]] = None
 
 
 class IncidentData(BaseModel):
@@ -47,6 +61,7 @@ class IncidentData(BaseModel):
     strategic_relevance: Optional[str] = None
     plausibility: Optional[str] = None
     source_quality: Optional[str] = None
+    articles: Optional[List[ArticleRef]] = None
 
 
 class ShareIncidentsRequest(BaseModel):
@@ -54,6 +69,15 @@ class ShareIncidentsRequest(BaseModel):
     to_email: str
     topic: Optional[str] = None
     incidents: List[IncidentData]
+
+
+class NarrativeArticleRef(BaseModel):
+    """Article reference for narrative sharing."""
+    title: Optional[str] = None
+    source: Optional[str] = None
+    url: Optional[str] = None
+    summary: Optional[str] = None
+    date: Optional[str] = None
 
 
 class ShareNarrativeRequest(BaseModel):
@@ -68,6 +92,7 @@ class ShareNarrativeRequest(BaseModel):
     article_count: Optional[int] = None
     source_count: Optional[int] = None
     key_entities: Optional[List[str]] = None
+    articles: Optional[List[NarrativeArticleRef]] = None
 
 
 class ShareBriefingRequest(BaseModel):
@@ -102,6 +127,19 @@ class ShareEmergingTopicRequest(BaseModel):
     articles: Optional[List[dict]] = None  # title, news_source, publication_date, uri
 
 
+class ShareArticleRequest(BaseModel):
+    """Request to share an article via email."""
+    to_email: str
+    title: str
+    url: Optional[str] = None
+    source: Optional[str] = None
+    summary: Optional[str] = None
+    category: Optional[str] = None
+    topic: Optional[str] = None
+    sentiment: Optional[str] = None
+    publication_date: Optional[str] = None
+
+
 class ShareResponse(BaseModel):
     """Response for share requests."""
     success: bool
@@ -126,6 +164,7 @@ async def share_incident(
     session=Depends(verify_session)
 ):
     """Share an incident via email."""
+    logger.info(f"share_incident called with incident_name={request.incident_name}, to_email={request.to_email}")
     email_service = get_email_service()
 
     if not email_service.is_available():
@@ -177,12 +216,94 @@ async def share_incident(
         html_parts.append(f'<p style="margin: 0; color: #333;">{request.strategic_relevance}</p>')
         html_parts.append('</div>')
 
+    if request.credibility_summary:
+        html_parts.append(f'<div style="background: #fff3e0; padding: 15px; border-radius: 4px; margin: 15px 0; border-left: 4px solid #ff9800;">')
+        html_parts.append(f'<h4 style="color: #e65100; margin: 0 0 8px 0;">Credibility Assessment</h4>')
+        html_parts.append(f'<p style="margin: 0; color: #333;">{request.credibility_summary}</p>')
+        html_parts.append('</div>')
+
+    # Timeline
+    if request.first_seen or request.last_seen or request.timeline:
+        html_parts.append(f'<div style="background: #fce4ec; padding: 15px; border-radius: 4px; margin: 15px 0; border-left: 4px solid #e91e63;">')
+        html_parts.append(f'<h4 style="color: #c2185b; margin: 0 0 8px 0;">Timeline</h4>')
+        if request.first_seen or request.last_seen:
+            timeline_text = []
+            if request.first_seen:
+                timeline_text.append(f'First seen: {request.first_seen}')
+            if request.last_seen:
+                timeline_text.append(f'Last seen: {request.last_seen}')
+            html_parts.append(f'<p style="margin: 0 0 8px 0; color: #333; font-size: 13px;">{" | ".join(timeline_text)}</p>')
+        if request.timeline:
+            # Handle both string and list formats
+            if isinstance(request.timeline, list):
+                html_parts.append('<ul style="margin: 0; padding-left: 20px;">')
+                for item in request.timeline:
+                    html_parts.append(f'<li style="margin: 4px 0; color: #333;">{item}</li>')
+                html_parts.append('</ul>')
+            else:
+                html_parts.append(f'<p style="margin: 0; color: #333;">{request.timeline}</p>')
+        html_parts.append('</div>')
+
+    if request.investigation_leads:
+        html_parts.append(f'<div style="background: #f3e5f5; padding: 15px; border-radius: 4px; margin: 15px 0; border-left: 4px solid #9c27b0;">')
+        html_parts.append(f'<h4 style="color: #7b1fa2; margin: 0 0 8px 0;">Investigation Leads</h4>')
+        # Handle both string and list formats
+        if isinstance(request.investigation_leads, list):
+            html_parts.append('<ul style="margin: 0; padding-left: 20px;">')
+            for lead in request.investigation_leads[:5]:
+                html_parts.append(f'<li style="margin: 4px 0; color: #333;">{lead}</li>')
+            html_parts.append('</ul>')
+        else:
+            html_parts.append(f'<p style="margin: 0; color: #333;">{request.investigation_leads}</p>')
+        html_parts.append('</div>')
+
     if request.entities:
         html_parts.append(f'<p style="margin: 15px 0;"><strong>Key Entities:</strong></p>')
         html_parts.append('<div style="display: flex; flex-wrap: wrap; gap: 4px;">')
         for entity in request.entities[:10]:
             html_parts.append(f'<span style="background: #e8eaf6; color: #3f51b5; padding: 4px 8px; border-radius: 4px; font-size: 12px;">{entity}</span>')
         html_parts.append('</div>')
+
+    # Source articles
+    if request.articles and len(request.articles) > 0:
+        html_parts.append('<div style="margin: 20px 0; padding-top: 15px; border-top: 1px solid #e9ecef;">')
+        html_parts.append(f'<h4 style="color: #333; margin: 0 0 12px 0;">Source Articles ({len(request.articles)})</h4>')
+        for i, article in enumerate(request.articles[:5], 1):
+            title = article.title or 'Untitled'
+            source = article.source or 'Unknown'
+            url = article.url or ''
+            html_parts.append('<div style="background: white; padding: 10px; border-radius: 4px; margin: 8px 0; border: 1px solid #e9ecef;">')
+            if url:
+                html_parts.append(f'<div style="font-weight: 500; color: #333; margin-bottom: 4px;">{i}. <a href="{url}" style="color: #1976d2; text-decoration: none;">{title}</a></div>')
+            else:
+                html_parts.append(f'<div style="font-weight: 500; color: #333; margin-bottom: 4px;">{i}. {title}</div>')
+            html_parts.append(f'<div style="font-size: 12px; color: #666;">{source}</div>')
+            if article.summary:
+                html_parts.append(f'<div style="font-size: 13px; color: #555; margin-top: 6px; line-height: 1.4;">{article.summary[:200]}{"..." if len(article.summary) > 200 else ""}</div>')
+            html_parts.append('</div>')
+        html_parts.append('</div>')
+
+    # Action buttons section - build rich Auspex query with context
+    auspex_context_parts = [f"Analyze this incident: {request.incident_name}"]
+    if request.description:
+        auspex_context_parts.append(f"\nDescription: {request.description[:300]}")
+    if request.entities:
+        auspex_context_parts.append(f"\nKey entities: {', '.join(request.entities[:5])}")
+    if request.articles:
+        article_titles = [a.title for a in request.articles[:3] if a.title]
+        if article_titles:
+            auspex_context_parts.append(f"\nSource articles: {'; '.join(article_titles)}")
+    auspex_context_parts.append("\n\nProvide strategic analysis and implications.")
+    auspex_query = urllib.parse.quote(''.join(auspex_context_parts))
+    html_parts.append('<div style="margin: 20px 0; padding: 15px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px; text-align: center;">')
+    html_parts.append('<p style="color: #666; font-size: 12px; margin: 0 0 12px 0;">Continue exploring in AuNoo AI</p>')
+    html_parts.append('<div style="display: inline-block;">')
+    # View Highlights button
+    html_parts.append('<a href="https://bugfixing.aunoo.ai/explore?tab=highlights" style="display: inline-block; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">View Highlights</a>')
+    # Ask Auspex button
+    html_parts.append(f'<a href="https://bugfixing.aunoo.ai/explore?auspex_query={auspex_query}" style="display: inline-block; background: #1976d2; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">Ask Auspex</a>')
+    html_parts.append('</div>')
+    html_parts.append('</div>')
 
     html_parts.extend([
         '</div>',
@@ -194,22 +315,60 @@ async def share_incident(
 
     body_html = '\n'.join(html_parts)
 
-    # Plain text version
+    # Plain text version - build article list
+    articles_text = ""
+    if request.articles:
+        articles_text = "\n\nSource Articles:\n" + "\n".join([
+            f"  {i+1}. {a.title or 'Untitled'} - {a.source or 'Unknown'}" + (f"\n      {a.url}" if a.url else "")
+            for i, a in enumerate(request.articles[:5])
+        ])
+
+    # Build timeline text
+    timeline_text = ""
+    if request.first_seen or request.last_seen or request.timeline:
+        timeline_parts = []
+        if request.first_seen:
+            timeline_parts.append(f"First seen: {request.first_seen}")
+        if request.last_seen:
+            timeline_parts.append(f"Last seen: {request.last_seen}")
+        if request.timeline:
+            # Handle both string and list formats
+            if isinstance(request.timeline, list):
+                timeline_parts.append("Timeline:\n" + "\n".join(f"  - {item}" for item in request.timeline))
+            else:
+                timeline_parts.append(f"Timeline: {request.timeline}")
+        timeline_text = "\n" + "\n".join(timeline_parts)
+
+    # Build investigation leads text
+    leads_text = ""
+    if request.investigation_leads:
+        # Handle both string and list formats
+        if isinstance(request.investigation_leads, list):
+            leads_text = "\n\nInvestigation Leads:\n" + "\n".join([f"  - {lead}" for lead in request.investigation_leads[:5]])
+        else:
+            leads_text = f"\n\nInvestigation Leads:\n  {request.investigation_leads}"
+
     body_text = f"""Incident: {request.incident_name}
 
 Type: {request.incident_type or 'N/A'}
 Significance: {request.significance or 'N/A'}
 {f'Topic: {request.topic}' if request.topic else ''}
 {f'Plausibility: {request.plausibility}' if request.plausibility else ''}
-{f'Source Quality: {request.source_quality}' if request.source_quality else ''}
+{f'Source Quality: {request.source_quality}' if request.source_quality else ''}{timeline_text}
 
 {request.description or ''}
 
 {f'Strategic Relevance: {request.strategic_relevance}' if request.strategic_relevance else ''}
 
-{f'Key Entities: {", ".join(request.entities[:10])}' if request.entities else ''}
+{f'Credibility Assessment: {request.credibility_summary}' if request.credibility_summary else ''}{leads_text}
+
+{f'Key Entities: {", ".join(request.entities[:10])}' if request.entities else ''}{articles_text}
 
 ---
+Continue exploring in AuNoo AI:
+  View Highlights: https://bugfixing.aunoo.ai/explore?tab=highlights
+  Ask Auspex: https://bugfixing.aunoo.ai/explore?auspex_query={auspex_query}
+
 Shared from AuNoo AI
 """
 
@@ -229,6 +388,118 @@ Shared from AuNoo AI
 
     except Exception as e:
         logger.error(f"Error sharing incident: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/share/article", response_model=ShareResponse)
+async def share_article(
+    request: ShareArticleRequest,
+    session=Depends(verify_session)
+):
+    """Share an article via email."""
+    email_service = get_email_service()
+
+    if not email_service.is_available():
+        raise HTTPException(
+            status_code=503,
+            detail="Email service not configured. Set RESEND_API_KEY environment variable."
+        )
+
+    # Build email content
+    subject = f"[AuNoo AI] Article: {request.title[:60]}{'...' if len(request.title) > 60 else ''}"
+
+    # Build HTML email
+    html_parts = [
+        f'<div style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif; max-width: 600px; margin: 0 auto;">',
+        f'<div style="background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); padding: 20px; border-radius: 8px 8px 0 0;">',
+        f'<h1 style="color: white; margin: 0; font-size: 24px;">Shared Article</h1>',
+        f'</div>',
+        f'<div style="background: #f8f9fa; padding: 20px; border: 1px solid #e9ecef; border-top: none;">',
+        f'<h2 style="color: #333; margin-top: 0; line-height: 1.4;">{request.title}</h2>',
+    ]
+
+    # Source and date
+    source_info = []
+    if request.source:
+        source_info.append(request.source)
+    if request.publication_date:
+        try:
+            from datetime import datetime
+            date_obj = datetime.fromisoformat(request.publication_date.replace('Z', '+00:00'))
+            source_info.append(date_obj.strftime('%B %d, %Y'))
+        except:
+            source_info.append(request.publication_date)
+    if source_info:
+        html_parts.append(f'<p style="color: #666; margin: 5px 0; font-size: 14px;">{" · ".join(source_info)}</p>')
+
+    # Badges
+    badges_html = []
+    if request.category:
+        badges_html.append(f'<span style="background: #ec4899; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-right: 4px;">{request.category}</span>')
+    if request.topic:
+        badges_html.append(f'<span style="background: #8b5cf6; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-right: 4px;">{request.topic}</span>')
+    if request.sentiment:
+        sentiment_color = {"positive": "#28a745", "negative": "#dc3545", "neutral": "#6c757d", "mixed": "#ffc107"}.get(request.sentiment.lower(), "#6c757d")
+        text_color = "#000" if request.sentiment.lower() in ["mixed", "neutral"] else "#fff"
+        badges_html.append(f'<span style="background: {sentiment_color}; color: {text_color}; padding: 4px 8px; border-radius: 4px; font-size: 12px;">{request.sentiment}</span>')
+
+    if badges_html:
+        html_parts.append(f'<p style="margin: 15px 0;">{"".join(badges_html)}</p>')
+
+    if request.summary:
+        html_parts.append(f'<div style="background: white; padding: 15px; border-radius: 4px; margin: 15px 0; border-left: 4px solid #ec4899;">')
+        html_parts.append(f'<h4 style="color: #be185d; margin: 0 0 8px 0;">Summary</h4>')
+        html_parts.append(f'<p style="margin: 0; color: #333; line-height: 1.6;">{request.summary}</p>')
+        html_parts.append('</div>')
+
+    # Read full article button
+    if request.url:
+        html_parts.append(f'<div style="margin: 20px 0; text-align: center;">')
+        html_parts.append(f'<a href="{request.url}" style="display: inline-block; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 500;">Read Full Article</a>')
+        html_parts.append('</div>')
+
+    html_parts.extend([
+        '</div>',
+        '<div style="background: #f1f3f4; padding: 15px; text-align: center; border-radius: 0 0 8px 8px; border: 1px solid #e9ecef; border-top: none;">',
+        '<p style="color: #666; font-size: 12px; margin: 0;">Shared from <strong>AuNoo AI</strong></p>',
+        '</div>',
+        '</div>'
+    ])
+
+    body_html = '\n'.join(html_parts)
+
+    # Plain text version
+    body_text = f"""Article: {request.title}
+
+{f'Source: {request.source}' if request.source else ''}
+{f'Date: {request.publication_date}' if request.publication_date else ''}
+{f'Category: {request.category}' if request.category else ''}
+{f'Topic: {request.topic}' if request.topic else ''}
+
+{request.summary or ''}
+
+{f'Read full article: {request.url}' if request.url else ''}
+
+---
+Shared from AuNoo AI
+"""
+
+    try:
+        success = email_service.send_email(
+            to_addresses=[request.to_email],
+            subject=subject,
+            body_html=body_html,
+            body_text=body_text
+        )
+
+        if success:
+            logger.info(f"Article shared via email to {request.to_email}")
+            return ShareResponse(success=True, message="Article shared successfully")
+        else:
+            raise HTTPException(status_code=500, detail="Failed to send email")
+
+    except Exception as e:
+        logger.error(f"Error sharing article: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -294,6 +565,20 @@ async def share_incidents(
         if incident.entities:
             entities_html = " ".join([f'<span style="background: #e8eaf6; color: #3f51b5; padding: 2px 6px; border-radius: 3px; font-size: 11px; margin-right: 3px;">{e}</span>' for e in incident.entities[:5]])
             html_parts.append(f'<p style="margin: 10px 0 0 0;">{entities_html}</p>')
+
+        # Source articles for this incident
+        if incident.articles and len(incident.articles) > 0:
+            html_parts.append('<div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #eee;">')
+            html_parts.append(f'<p style="margin: 0 0 6px 0; font-size: 11px; color: #666; font-weight: 600;">Source Articles:</p>')
+            for j, article in enumerate(incident.articles[:3], 1):
+                title = article.title or 'Untitled'
+                source = article.source or ''
+                url = article.url or ''
+                if url:
+                    html_parts.append(f'<p style="margin: 2px 0; font-size: 12px; color: #555;">• <a href="{url}" style="color: #1976d2; text-decoration: none;">{title}</a>{" - " + source if source else ""}</p>')
+                else:
+                    html_parts.append(f'<p style="margin: 2px 0; font-size: 12px; color: #555;">• {title}{" - " + source if source else ""}</p>')
+            html_parts.append('</div>')
 
         html_parts.append('</div>')
 
@@ -401,6 +686,49 @@ async def share_narrative(
             html_parts.append(f'<span style="background: #e8f5e9; color: #2e7d32; padding: 4px 8px; border-radius: 4px; font-size: 12px;">{entity}</span>')
         html_parts.append('</div>')
 
+    # Source articles
+    if request.articles and len(request.articles) > 0:
+        html_parts.append('<div style="margin: 20px 0; padding-top: 15px; border-top: 1px solid #e9ecef;">')
+        html_parts.append(f'<h4 style="color: #333; margin: 0 0 12px 0;">Source Articles ({len(request.articles)})</h4>')
+        for i, article in enumerate(request.articles[:8], 1):
+            title = article.title or 'Untitled'
+            source = article.source or 'Unknown'
+            url = article.url or ''
+            date = article.date or ''
+            html_parts.append('<div style="background: white; padding: 10px; border-radius: 4px; margin: 8px 0; border: 1px solid #e9ecef;">')
+            if url:
+                html_parts.append(f'<div style="font-weight: 500; color: #333; margin-bottom: 4px;">{i}. <a href="{url}" style="color: #2e7d32; text-decoration: none;">{title}</a></div>')
+            else:
+                html_parts.append(f'<div style="font-weight: 500; color: #333; margin-bottom: 4px;">{i}. {title}</div>')
+            source_line = source + (f" · {date}" if date else "")
+            html_parts.append(f'<div style="font-size: 12px; color: #666;">{source_line}</div>')
+            if article.summary:
+                html_parts.append(f'<div style="font-size: 13px; color: #555; margin-top: 6px; line-height: 1.4;">{article.summary[:200]}{"..." if len(article.summary) > 200 else ""}</div>')
+            html_parts.append('</div>')
+        html_parts.append('</div>')
+
+    # Action buttons section - build rich Auspex query with context
+    auspex_context_parts = [f"Analyze this narrative: {request.narrative_name}"]
+    if request.description:
+        auspex_context_parts.append(f"\nDescription: {request.description[:300]}")
+    if request.key_entities:
+        auspex_context_parts.append(f"\nKey entities: {', '.join(request.key_entities[:5])}")
+    if request.articles:
+        article_titles = [a.title for a in request.articles[:3] if a.title]
+        if article_titles:
+            auspex_context_parts.append(f"\nSource articles: {'; '.join(article_titles)}")
+    auspex_context_parts.append("\n\nProvide strategic analysis, key implications, and recommended actions.")
+    auspex_query = urllib.parse.quote(''.join(auspex_context_parts))
+    html_parts.append('<div style="margin: 20px 0; padding: 15px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px; text-align: center;">')
+    html_parts.append('<p style="color: #666; font-size: 12px; margin: 0 0 12px 0;">Continue exploring in AuNoo AI</p>')
+    html_parts.append('<div style="display: inline-block;">')
+    # View Narratives button
+    html_parts.append('<a href="https://bugfixing.aunoo.ai/explore?tab=narratives" style="display: inline-block; background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">View Narratives</a>')
+    # Ask Auspex button
+    html_parts.append(f'<a href="https://bugfixing.aunoo.ai/explore?auspex_query={auspex_query}" style="display: inline-block; background: #1976d2; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">Ask Auspex</a>')
+    html_parts.append('</div>')
+    html_parts.append('</div>')
+
     html_parts.extend([
         '</div>',
         '<div style="background: #f1f3f4; padding: 15px; text-align: center; border-radius: 0 0 8px 8px; border: 1px solid #e9ecef; border-top: none;">',
@@ -411,6 +739,14 @@ async def share_narrative(
 
     body_html = '\n'.join(html_parts)
 
+    # Plain text version - build article list
+    articles_text = ""
+    if request.articles:
+        articles_text = "\n\nSource Articles:\n" + "\n".join([
+            f"  {i+1}. {a.title or 'Untitled'} - {a.source or 'Unknown'}" + (f"\n      {a.url}" if a.url else "")
+            for i, a in enumerate(request.articles[:8])
+        ])
+
     body_text = f"""Narrative: {request.narrative_name}
 
 {f'Topic: {request.topic}' if request.topic else ''}
@@ -418,9 +754,13 @@ async def share_narrative(
 {request.description or ''}
 
 {f'Key Points:' if request.key_points else ''}
-{chr(10).join(f'- {p}' for p in (request.key_points or []))}
+{chr(10).join(f'- {p}' for p in (request.key_points or []))}{articles_text}
 
 ---
+Continue exploring in AuNoo AI:
+  View Narratives: https://bugfixing.aunoo.ai/explore?tab=narratives
+  Ask Auspex: https://bugfixing.aunoo.ai/explore?auspex_query={auspex_query}
+
 Shared from AuNoo AI
 """
 
@@ -752,15 +1092,27 @@ async def share_emerging_topic(
             html_parts.append('</div>')
         html_parts.append('</div>')
 
-    # Action buttons section
+    # Action buttons section - build rich Auspex query with context
+    auspex_context_parts = [f"Analyze this emerging topic: {request.topic_label}"]
+    if request.topic_description:
+        auspex_context_parts.append(f"\nDescription: {request.topic_description[:300]}")
+    if request.why_emerging:
+        auspex_context_parts.append(f"\nWhy emerging: {request.why_emerging[:200]}")
+    if request.key_entities:
+        auspex_context_parts.append(f"\nKey entities: {', '.join(request.key_entities[:5])}")
+    if request.articles:
+        article_titles = [a.get('title') for a in request.articles[:3] if a.get('title')]
+        if article_titles:
+            auspex_context_parts.append(f"\nSource articles: {'; '.join(article_titles)}")
+    auspex_context_parts.append("\n\nProvide strategic analysis, market implications, and recommended monitoring approach.")
+    auspex_query = urllib.parse.quote(''.join(auspex_context_parts))
+
     html_parts.append('<div style="margin: 20px 0; padding: 15px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px; text-align: center;">')
     html_parts.append('<p style="color: #666; font-size: 12px; margin: 0 0 12px 0;">Continue exploring in AuNoo AI</p>')
     html_parts.append('<div style="display: inline-block;">')
     # View in App button - links to Emerging Themes tab
     html_parts.append('<a href="https://bugfixing.aunoo.ai/explore?tab=emerging-topics" style="display: inline-block; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">View Emerging Themes</a>')
-    # Ask Auspex button
-    auspex_query = urllib.parse.quote(f"Analyze this emerging theme in depth: {request.topic_label}")
-    html_parts.append(f'<a href="https://bugfixing.aunoo.ai/explore?tab=auspex&query={auspex_query}" style="display: inline-block; background: #1976d2; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">Ask Auspex</a>')
+    html_parts.append(f'<a href="https://bugfixing.aunoo.ai/explore?auspex_query={auspex_query}" style="display: inline-block; background: #1976d2; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">Ask Auspex</a>')
     html_parts.append('</div>')
     html_parts.append('</div>')
 
@@ -826,7 +1178,7 @@ async def share_emerging_topic(
     text_parts.append("---")
     text_parts.append("Continue exploring in AuNoo AI:")
     text_parts.append("  View Emerging Themes: https://bugfixing.aunoo.ai/explore?tab=emerging-topics")
-    text_parts.append(f"  Ask Auspex: https://bugfixing.aunoo.ai/explore?tab=auspex&query={auspex_query}")
+    text_parts.append(f"  Ask Auspex: https://bugfixing.aunoo.ai/explore?auspex_query={auspex_query}")
     text_parts.append("")
     text_parts.append("Shared from AuNoo AI")
     body_text = "\n".join(text_parts)
