@@ -1504,6 +1504,15 @@ async def get_available_providers():
             "configured": True
         })
 
+    # Check NewsFirehose (matches newsfirehose_collector.py)
+    if os.getenv('PROVIDER_NEWSFIREHOSE_API_KEY') or os.getenv('NEWSFIREHOSE_API_KEY'):
+        available.append({
+            "id": "newsfirehose",
+            "name": "NewsFirehose",
+            "description": "Unified news aggregation",
+            "configured": True
+        })
+
     # Check Bluesky (matches bluesky_collector.py)
     if os.getenv('PROVIDER_BLUESKY_USERNAME') and os.getenv('PROVIDER_BLUESKY_PASSWORD'):
         available.append({

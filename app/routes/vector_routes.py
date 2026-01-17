@@ -4151,18 +4151,16 @@ Return a JSON array of match objects. Only include articles that match the crite
             user_prompt = f"Analyze these articles for the signal '{instruction['name']}':\n\n{articles_text}"
 
             try:
-                response = await run_in_threadpool(
-                    ai_model.chat,
+                # Use generate_response which returns content directly (not a dict)
+                content = await run_in_threadpool(
+                    ai_model.generate_response,
                     messages=[
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
-                    ],
-                    temperature=0.1,
-                    max_tokens=4000
+                    ]
                 )
 
-                if response and response.get("choices"):
-                    content = response["choices"][0].get("message", {}).get("content", "")
+                if content:
                     # Parse JSON response
                     import json
                     import re

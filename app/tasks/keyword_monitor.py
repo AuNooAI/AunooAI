@@ -144,8 +144,12 @@ class KeywordMonitor:
             from app.collectors.arxiv_collector import ArxivCollector
             return ArxivCollector()
 
+        elif provider == 'newsfirehose':
+            from app.collectors.newsfirehose_collector import NewsFirehoseCollector
+            return NewsFirehoseCollector()
+
         else:
-            raise ValueError(f"Unknown provider '{provider}'. Valid options: 'newsapi', 'thenewsapi', 'newsdata', 'bluesky', 'semantic_scholar', 'arxiv'")
+            raise ValueError(f"Unknown provider '{provider}'. Valid options: 'newsapi', 'thenewsapi', 'newsdata', 'bluesky', 'semantic_scholar', 'arxiv', 'newsfirehose'")
 
     def _init_collectors(self):
         """Initialize all selected collectors (multi-collector support)"""
@@ -619,7 +623,7 @@ class KeywordMonitor:
 
             # === 2. Regenerate Article Insights (Narratives) ===
             try:
-                from app.routes.dashboard_routes import get_article_insights, get_topic_articles
+                from app.routes.dashboard_routes import get_article_insights, get_topic_articles, ArticleInsightsRequest
 
                 # Calculate date range (24 hours back)
                 end_date = datetime.now()
@@ -630,15 +634,20 @@ class KeywordMonitor:
                 # Create a mock session for the dependency
                 mock_session = {'user': {'username': username}}
 
-                logger.info(f"Regenerating article insights for topic '{topic}'")
-                insights = await get_article_insights(
-                    topic_name=topic,
-                    db=self.db,
+                # Create proper request object for the route handler
+                insights_request = ArticleInsightsRequest(
                     start_date=start_date_str,
                     end_date=end_date_str,
                     days_limit=1,
                     force_regenerate=True,
-                    model=model,
+                    model=model
+                )
+
+                logger.info(f"Regenerating article insights for topic '{topic}'")
+                insights = await get_article_insights(
+                    topic_name=topic,
+                    request=insights_request,
+                    db=self.db,
                     session=mock_session
                 )
                 logger.info(f"Successfully regenerated {len(insights)} article insight themes for topic '{topic}'")
@@ -664,6 +673,10 @@ class KeywordMonitor:
                     domain: Optional[str] = None
                     profile_id: Optional[int] = None
                     test_articles: Optional[List] = None
+                    analysis_instructions: Optional[str] = None
+                    quality_guidelines: Optional[str] = None
+                    system_prompt: Optional[str] = None
+                    user_prompt: Optional[str] = None
 
                     def get_topics_list(self):
                         if self.topics:
@@ -818,10 +831,17 @@ class KeywordMonitor:
                     'news_source': article.get('source', ''),
                     'publication_date': article.get('published_date', ''),
                     'summary': article.get('summary', ''),
+                    'content': article.get('content', ''),  # Preserve collector content (NewsFirehose, NewsData.io)
                     'topic': topic,
                     'analyzed': False
                 }
                 formatted_articles.append(formatted_article)
+
+            # Log content status for debugging
+            articles_with_content = sum(1 for a in formatted_articles if a.get('content') and len(a.get('content', '')) > 200)
+            logger.info(f"📊 Content status: {articles_with_content}/{len(formatted_articles)} articles have content > 200 chars")
+            if formatted_articles and formatted_articles[0].get('content'):
+                logger.info(f"📝 Sample content length: {len(formatted_articles[0].get('content', ''))} chars")
 
             # Process articles through the automated pipeline
             results = await self.auto_ingest_service.process_articles_batch(formatted_articles, topic, keywords)
