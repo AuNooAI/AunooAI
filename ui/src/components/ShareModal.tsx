@@ -8,8 +8,21 @@ import { createPortal } from 'react-dom';
 import { Button } from './ui/button';
 import { Label } from './ui/label';
 import { Loader2, Send, Mail, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { extractErrorMessage } from '../services/api';
 
 // Types for different share content
+export interface ShareArticleData {
+  type: 'article';
+  title: string;
+  url?: string;
+  source?: string;
+  summary?: string;
+  category?: string;
+  topic?: string;
+  sentiment?: string;
+  publication_date?: string;
+}
+
 export interface ShareIncidentData {
   type: 'incident';
   incident_name: string;
@@ -21,6 +34,17 @@ export interface ShareIncidentData {
   strategic_relevance?: string;
   plausibility?: string;
   source_quality?: string;
+  credibility_summary?: string;
+  timeline?: string | string[];
+  investigation_leads?: string[];
+  first_seen?: string;
+  last_seen?: string;
+  articles?: Array<{
+    title?: string;
+    source?: string;
+    url?: string;
+    summary?: string;
+  }>;
 }
 
 export interface ShareNarrativeData {
@@ -34,6 +58,13 @@ export interface ShareNarrativeData {
   article_count?: number;
   source_count?: number;
   key_entities?: string[];
+  articles?: Array<{
+    title?: string;
+    source?: string;
+    url?: string;
+    summary?: string;
+    date?: string;
+  }>;
 }
 
 export interface ShareBriefingData {
@@ -56,6 +87,12 @@ export interface ShareIncidentsData {
     strategic_relevance?: string;
     plausibility?: string;
     source_quality?: string;
+    articles?: Array<{
+      title?: string;
+      source?: string;
+      url?: string;
+      summary?: string;
+    }>;
   }>;
 }
 
@@ -109,7 +146,7 @@ export interface ShareEmergingTopicData {
   }>;
 }
 
-export type ShareData = ShareIncidentData | ShareNarrativeData | ShareBriefingData | ShareIncidentsData | ShareEmergingTopicData;
+export type ShareData = ShareArticleData | ShareIncidentData | ShareNarrativeData | ShareBriefingData | ShareIncidentsData | ShareEmergingTopicData;
 
 interface ShareModalProps {
   open: boolean;
@@ -185,7 +222,20 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
       let endpoint: string;
       let body: Record<string, unknown>;
 
-      if (data.type === 'incident') {
+      if (data.type === 'article') {
+        endpoint = '/api/share/article';
+        body = {
+          to_email: email,
+          title: data.title,
+          url: data.url,
+          source: data.source,
+          summary: data.summary,
+          category: data.category,
+          topic: data.topic,
+          sentiment: data.sentiment,
+          publication_date: data.publication_date,
+        };
+      } else if (data.type === 'incident') {
         endpoint = '/api/share/incident';
         body = {
           to_email: email,
@@ -198,6 +248,12 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
           strategic_relevance: data.strategic_relevance,
           plausibility: data.plausibility,
           source_quality: data.source_quality,
+          credibility_summary: data.credibility_summary,
+          timeline: data.timeline,
+          investigation_leads: data.investigation_leads,
+          first_seen: data.first_seen,
+          last_seen: data.last_seen,
+          articles: data.articles,
         };
       } else if (data.type === 'incidents') {
         endpoint = '/api/share/incidents';
@@ -214,6 +270,12 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
           description: data.description,
           key_points: data.key_points,
           topic: data.topic,
+          sentiment: data.sentiment,
+          confidence: data.confidence,
+          article_count: data.article_count,
+          source_count: data.source_count,
+          key_entities: data.key_entities,
+          articles: data.articles,
         };
       } else if (data.type === 'emerging_topic') {
         endpoint = '/api/share/emerging-topic';
@@ -266,7 +328,7 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
         }, 1500);
       } else {
         const errorData = await response.json();
-        setError(errorData.detail || 'Failed to send email');
+        setError(extractErrorMessage(errorData, 'Failed to send email'));
       }
     } catch (err) {
       console.error('Error sending share email:', err);
@@ -279,6 +341,8 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
   // Get title based on share type
   const getTitle = () => {
     switch (data.type) {
+      case 'article':
+        return `Share Article: ${data.title.slice(0, 50)}${data.title.length > 50 ? '...' : ''}`;
       case 'incident':
         return `Share Incident: ${data.incident_name}`;
       case 'incidents':

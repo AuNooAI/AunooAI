@@ -73,6 +73,15 @@ export function NarrativeInsightsSection({ themes, loading, onArticleClick, curr
 
   // Share handler for narratives
   const handleShareNarrative = (theme: ArticleTheme) => {
+    // Map articles to the share format
+    const shareArticles = theme.articles?.slice(0, 8).map(article => ({
+      title: article.title,
+      source: article.news_source,
+      url: article.uri,
+      summary: article.short_summary || article.summary,
+      date: article.publication_date,
+    }));
+
     setShareData({
       type: 'narrative',
       narrative_name: theme.theme_name || (theme as any).name || 'Untitled Narrative',
@@ -84,6 +93,7 @@ export function NarrativeInsightsSection({ themes, loading, onArticleClick, curr
       article_count: theme.article_count,
       source_count: theme.source_count,
       key_entities: theme.key_entities,
+      articles: shareArticles,
     });
     setShowShareModal(true);
   };

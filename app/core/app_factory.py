@@ -4,8 +4,10 @@ import logging
 import os
 import asyncio
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from app.middleware.setup import setup_middleware
 from app.core.templates import setup_templates
@@ -189,7 +191,16 @@ def create_app() -> FastAPI:
 
     # Initialize FastAPI app with lifespan management
     app = FastAPI(title="AuNoo AI", lifespan=lifespan)
-    
+
+    # Add validation error handler for debugging
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(request: Request, exc: RequestValidationError):
+        logger.error(f"Validation error on {request.url.path}: {exc.errors()}")
+        return JSONResponse(
+            status_code=422,
+            content={"detail": exc.errors()}
+        )
+
     # Setup middleware
     setup_middleware(app)
     

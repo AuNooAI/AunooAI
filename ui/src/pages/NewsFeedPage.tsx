@@ -58,6 +58,32 @@ import { Button } from '../components/ui/button';
 import { openAuspexWithQuery } from '../utils/auspexEvents';
 import '../components/gather/gather.css';
 
+// Helper to safely convert any error to a displayable string
+function formatError(error: unknown): string {
+  if (typeof error === 'string') return error;
+  if (error === null || error === undefined) return 'Unknown error';
+  if (typeof error === 'object') {
+    // Handle Pydantic validation errors
+    if ('msg' in error && typeof (error as Record<string, unknown>).msg === 'string') {
+      return (error as Record<string, unknown>).msg as string;
+    }
+    // Handle standard error objects
+    if ('message' in error && typeof (error as Record<string, unknown>).message === 'string') {
+      return (error as Record<string, unknown>).message as string;
+    }
+    if ('detail' in error && typeof (error as Record<string, unknown>).detail === 'string') {
+      return (error as Record<string, unknown>).detail as string;
+    }
+    // Fallback to JSON stringification
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return String(error);
+    }
+  }
+  return String(error);
+}
+
 // Section visibility settings
 interface VisibleSections {
   briefing: boolean;
@@ -299,14 +325,18 @@ export function NewsFeedPage() {
     const urlParams = new URLSearchParams(window.location.search);
     const auspexQuery = urlParams.get('auspex_query');
     if (auspexQuery) {
-      // Delay to ensure Auspex component is mounted
+      console.log('[Auspex Deep Link] Found query:', auspexQuery);
+      // Longer delay to ensure Auspex component is fully mounted
       setTimeout(() => {
-        openAuspexWithQuery(auspexQuery);  // Already decoded by URLSearchParams
-      }, 800);
-      // Clean up URL without reloading
-      const newUrl = new URL(window.location.href);
-      newUrl.searchParams.delete('auspex_query');
-      window.history.replaceState({}, '', newUrl.toString());
+        console.log('[Auspex Deep Link] Opening Auspex with query');
+        openAuspexWithQuery(auspexQuery, false);  // Already decoded by URLSearchParams
+      }, 1500);
+      // Clean up URL without reloading (after a delay so we can debug if needed)
+      setTimeout(() => {
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.delete('auspex_query');
+        window.history.replaceState({}, '', newUrl.toString());
+      }, 2000);
     }
   }, []);
 
@@ -755,7 +785,7 @@ export function NewsFeedPage() {
                 <AlertCircle className="h-4 w-4" />
                 <AlertTitle>Error</AlertTitle>
                 <AlertDescription className="flex items-center justify-between">
-                  <span>{error}</span>
+                  <span>{formatError(error)}</span>
                   <button onClick={clearError} className="text-sm underline hover:no-underline">
                     Dismiss
                   </button>
@@ -767,7 +797,7 @@ export function NewsFeedPage() {
                 <AlertCircle className="h-4 w-4" />
                 <AlertTitle>Incidents Error</AlertTitle>
                 <AlertDescription className="flex items-center justify-between">
-                  <span>{highlightsError}</span>
+                  <span>{formatError(highlightsError)}</span>
                   <button onClick={clearNarrativeErrors} className="text-sm underline hover:no-underline">
                     Dismiss
                   </button>
@@ -779,7 +809,7 @@ export function NewsFeedPage() {
                 <AlertCircle className="h-4 w-4" />
                 <AlertTitle>Narratives Error</AlertTitle>
                 <AlertDescription className="flex items-center justify-between">
-                  <span>{narrativesError}</span>
+                  <span>{formatError(narrativesError)}</span>
                   <button onClick={clearNarrativeErrors} className="text-sm underline hover:no-underline">
                     Dismiss
                   </button>
