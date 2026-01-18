@@ -343,9 +343,9 @@
   font-size: 0.875rem;
 }
 
-.trend-velocity.velocity-up { color: #ef4444; }
+.trend-velocity.velocity-up { color: #22c55e; }
 .trend-velocity.velocity-stable { color: #64748b; }
-.trend-velocity.velocity-down { color: #22c55e; }
+.trend-velocity.velocity-down { color: #f59e0b; }
 
 .trend-bar-container {
   display: flex;

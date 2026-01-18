@@ -442,8 +442,8 @@ const TrendItem: React.FC<{ trend: TrendStatus; articles?: Article[] }> = ({ tre
 
   const getVelocityIcon = (velocity: string) => {
     switch (velocity) {
-      case 'accelerating': return <TrendingUp className="w-4 h-4 text-red-500" />;
-      case 'decelerating': return <TrendingDown className="w-4 h-4 text-green-500" />;
+      case 'accelerating': return <TrendingUp className="w-4 h-4 text-green-500" />;
+      case 'decelerating': return <TrendingDown className="w-4 h-4 text-amber-500" />;
       default: return <Minus className="w-4 h-4 text-gray-400" />;
     }
   };
