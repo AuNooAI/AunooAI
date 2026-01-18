@@ -48,9 +48,9 @@ const TrendsRadarCompact: React.FC<TrendsRadarCompactProps> = ({
   const getVelocityIcon = (velocity: string) => {
     switch (velocity) {
       case 'accelerating':
-        return <TrendingUp className="w-4 h-4 text-red-500" />;
+        return <TrendingUp className="w-4 h-4 text-green-500" />;
       case 'decelerating':
-        return <TrendingDown className="w-4 h-4 text-green-500" />;
+        return <TrendingDown className="w-4 h-4 text-amber-500" />;
       default:
         return <Minus className="w-4 h-4 text-gray-400" />;
     }
@@ -165,13 +165,13 @@ const TrendsRadarCompact: React.FC<TrendsRadarCompactProps> = ({
         <div className="flex items-center justify-between pt-2 border-t text-xs text-gray-500">
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1">
-              <TrendingUp className="w-3 h-3 text-red-500" /> Accelerating
+              <TrendingUp className="w-3 h-3 text-green-500" /> Accelerating
             </span>
             <span className="flex items-center gap-1">
               <Minus className="w-3 h-3 text-gray-400" /> Stable
             </span>
             <span className="flex items-center gap-1">
-              <TrendingDown className="w-3 h-3 text-green-500" /> Decelerating
+              <TrendingDown className="w-3 h-3 text-amber-500" /> Decelerating
             </span>
           </div>
           <div className="flex items-center gap-2">
