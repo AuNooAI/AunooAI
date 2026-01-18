@@ -3,6 +3,64 @@
  * Connects React frontend to FastAPI backend
  */
 
+/**
+ * Safely extract an error message from an API error response.
+ * Handles Pydantic validation errors (array of {type, loc, msg, input}) and standard errors.
+ */
+export function extractErrorMessage(errorData: unknown, fallback: string = 'An error occurred'): string {
+  // Handle string errors directly
+  if (typeof errorData === 'string') {
+    return errorData;
+  }
+
+  if (!errorData || typeof errorData !== 'object') {
+    return fallback;
+  }
+
+  const data = errorData as Record<string, unknown>;
+
+  // Handle direct Pydantic validation error object: { type, loc, msg, input }
+  if ('msg' in data && 'type' in data) {
+    return typeof data.msg === 'string' ? data.msg : fallback;
+  }
+
+  // Handle Pydantic validation errors: { detail: [{type, loc, msg, input}] }
+  if (Array.isArray(data.detail)) {
+    const messages = data.detail
+      .map((err: unknown) => {
+        if (typeof err === 'object' && err !== null && 'msg' in err) {
+          return (err as Record<string, unknown>).msg;
+        }
+        if (typeof err === 'string') {
+          return err;
+        }
+        return null;
+      })
+      .filter(Boolean);
+    if (messages.length > 0) {
+      return messages.join('; ');
+    }
+  }
+
+  // Handle standard error: { detail: "message" } or { message: "message" }
+  if (typeof data.detail === 'string') {
+    return data.detail;
+  }
+  if (typeof data.message === 'string') {
+    return data.message;
+  }
+  if (typeof data.error === 'string') {
+    return data.error;
+  }
+
+  // Handle nested error object: { error: { type, loc, msg, input } }
+  if (data.error && typeof data.error === 'object') {
+    return extractErrorMessage(data.error, fallback);
+  }
+
+  return fallback;
+}
+
 // Types
 export interface StrategicRecommendations {
   near_term: {
@@ -311,7 +369,7 @@ async function fetchWithAuth<T>(
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
-      throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+      throw new Error(extractErrorMessage(errorData, `HTTP ${response.status}: ${response.statusText}`));
     }
 
     return await response.json();
@@ -982,7 +1040,7 @@ export function startSIOScanStream(
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
-        throw new Error(errorData.detail || `HTTP ${response.status}`);
+        throw new Error(extractErrorMessage(errorData, `HTTP ${response.status}`));
       }
 
       const reader = response.body?.getReader();
@@ -1021,7 +1079,7 @@ export function startSIOScanStream(
                   audit_trail: data.audit_trail,
                 });
               } else if (data.stage === 'error') {
-                onError(data.error || 'Unknown error');
+                onError(extractErrorMessage(data.error, 'Unknown error'));
               } else {
                 onProgress(data);
               }
