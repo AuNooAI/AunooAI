@@ -39,6 +39,7 @@ class RSSFeedMonitor:
 
     async def get_due_feeds(self) -> List[Dict]:
         """Get feeds that are due for checking based on their individual schedules."""
+        conn = None
         try:
             now = datetime.now(timezone.utc)
 
@@ -77,6 +78,12 @@ class RSSFeedMonitor:
         except Exception as e:
             logger.error(f"Error getting due feeds: {e}")
             return []
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     async def fetch_feed(self, feed: Dict) -> int:
         """Fetch articles from a single RSS feed."""
@@ -148,8 +155,11 @@ class RSSFeedMonitor:
                 )
 
             conn = self.db._temp_get_connection()
-            conn.execute(update_stmt)
-            conn.commit()
+            try:
+                conn.execute(update_stmt)
+                conn.commit()
+            finally:
+                conn.close()
 
             return new_articles_count
 
@@ -166,8 +176,11 @@ class RSSFeedMonitor:
             )
 
             conn = self.db._temp_get_connection()
-            conn.execute(update_stmt)
-            conn.commit()
+            try:
+                conn.execute(update_stmt)
+                conn.commit()
+            finally:
+                conn.close()
 
             return 0
 
@@ -180,6 +193,7 @@ class RSSFeedMonitor:
         if not url:
             return False
 
+        conn = None
         try:
             # Check if article exists
             article_exists = self.db.facade.article_exists((url,))
@@ -206,6 +220,12 @@ class RSSFeedMonitor:
         except Exception as e:
             logger.error(f"Error storing article: {e}")
             return False
+        finally:
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
     async def _run_auto_ingest(
         self,
@@ -285,9 +305,12 @@ class RSSFeedMonitor:
                                 factual_reporting=default_factual_reporting
                             )
                             conn = self.db._temp_get_connection()
-                            conn.execute(update_factual_stmt)
-                            conn.commit()
-                            logger.info(f"Set factual_reporting='{default_factual_reporting}' for {len(article_uris)} RSS articles")
+                            try:
+                                conn.execute(update_factual_stmt)
+                                conn.commit()
+                                logger.info(f"Set factual_reporting='{default_factual_reporting}' for {len(article_uris)} RSS articles")
+                            finally:
+                                conn.close()
                     except Exception as fr_err:
                         logger.error(f"Failed to set factual_reporting on RSS articles: {fr_err}")
 
@@ -357,12 +380,15 @@ class RSSFeedMonitor:
 
             if updates:
                 conn = self.db._temp_get_connection()
-                conn.execute(text(f"""
-                    UPDATE rss_feed_monitor_status
-                    SET {', '.join(updates)}
-                    WHERE id = :id
-                """), params)
-                conn.commit()
+                try:
+                    conn.execute(text(f"""
+                        UPDATE rss_feed_monitor_status
+                        SET {', '.join(updates)}
+                        WHERE id = :id
+                    """), params)
+                    conn.commit()
+                finally:
+                    conn.close()
 
         except Exception as e:
             logger.error(f"Error updating monitor status: {e}")
