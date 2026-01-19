@@ -532,7 +532,7 @@ class KeywordMonitor:
                         type='auto_ingest_complete',
                         title='Auto-Collect Complete',
                         message=f'Processed {total_auto_ingest_processed} articles across {processed_keywords} keywords in "{group_name}". Saved: {total_auto_ingest_saved}, Errors: {total_auto_ingest_errors}',
-                        link='/keyword-alerts'
+                        link='/gather'
                     )
                 except Exception as notif_err:
                     logger.error(f"Failed to create auto-ingest completion notification: {notif_err}")

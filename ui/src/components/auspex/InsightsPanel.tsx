@@ -6,6 +6,7 @@ import { useState, useMemo } from 'react';
 import { Sparkles, RefreshCw, BarChart2, Lightbulb, TrendingUp, AlertCircle, ExternalLink, Copy, Check, Download } from 'lucide-react';
 import { parseConversationStats, hasEnoughContent, formatNumber, backendStatsToConversationStats, type ConversationStats, type BackendArticleStats } from '../../utils/insightsParser';
 import { generateInsights, type ChatInsights } from '../../services/auspexService';
+import { extractErrorMessage } from '../../services/api';
 
 interface InsightsPanelProps {
   messages: Array<{ role: string; content: string }>;
@@ -136,7 +137,7 @@ export function InsightsPanel({ messages, chatId, backendArticleStats }: Insight
       if (response.insights) {
         setAiInsights(response.insights);
       } else if (response.message) {
-        setError(response.message);
+        setError(extractErrorMessage(response.message, 'Failed to generate insights'));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to generate insights');

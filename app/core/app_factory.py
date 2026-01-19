@@ -196,9 +196,21 @@ def create_app() -> FastAPI:
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
         logger.error(f"Validation error on {request.url.path}: {exc.errors()}")
+        # Convert errors to JSON-serializable format (handle ValueError objects etc.)
+        errors = []
+        for err in exc.errors():
+            error_dict = dict(err)
+            # Convert any non-serializable objects to strings
+            if 'ctx' in error_dict and error_dict['ctx']:
+                ctx = error_dict['ctx']
+                if isinstance(ctx, dict):
+                    for key, value in ctx.items():
+                        if isinstance(value, Exception):
+                            ctx[key] = str(value)
+            errors.append(error_dict)
         return JSONResponse(
             status_code=422,
-            content={"detail": exc.errors()}
+            content={"detail": errors}
         )
 
     # Setup middleware

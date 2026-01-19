@@ -170,7 +170,7 @@ export function SharedNavigation({ currentPage, onTopicEditorClick }: SharedNavi
                         <span className="text-xs">Topic Editor</span>
                       </button>
                     ) : (
-                      <a href="/trend-convergence?onboarding=true" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
+                      <a href="/create_topic" className="flex items-center gap-3 pl-10 pr-3 py-2 rounded-md text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-pink-600 transition-all">
                         <FolderPlus className="w-3.5 h-3.5" />
                         <span className="text-xs">Topic Editor</span>
                       </a>

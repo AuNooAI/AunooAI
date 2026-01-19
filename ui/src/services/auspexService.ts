@@ -287,7 +287,25 @@ export async function* startDeepResearch(params: DeepResearchParams): AsyncGener
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to start research: ${response.statusText}`);
+    // Try to extract detailed error message from response
+    let errorMessage = response.statusText;
+    try {
+      const errorData = await response.json();
+      if (errorData.detail) {
+        // Handle validation errors (array of error objects)
+        if (Array.isArray(errorData.detail)) {
+          const messages = errorData.detail.map((err: { msg?: string }) => err.msg || 'Unknown error');
+          errorMessage = messages.join('. ');
+        } else if (typeof errorData.detail === 'string') {
+          errorMessage = errorData.detail;
+        }
+      } else if (errorData.message) {
+        errorMessage = errorData.message;
+      }
+    } catch {
+      // If we can't parse JSON, use statusText
+    }
+    throw new Error(errorMessage);
   }
 
   const reader = response.body?.getReader();

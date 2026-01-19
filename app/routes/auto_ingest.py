@@ -114,7 +114,7 @@ async def run_auto_ingest(background_tasks: BackgroundTasks, session=Depends(ver
                 type='auto_ingest_started',
                 title='Auto-Collect Started',
                 message=f'Processing {total_articles} pending articles...',
-                link='/keyword-alerts'
+                link='/gather'
             )
         except Exception as notif_err:
             logger.error(f"Failed to create auto-ingest start notification: {notif_err}")

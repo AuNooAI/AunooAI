@@ -462,7 +462,7 @@ async def run_auto_ingest_task(progress_callback=None, username=None):
                     type='auto_ingest_complete',
                     title='Auto-Collect Complete',
                     message=f'Processed {processed} articles. Saved: {saved}, Errors: {errors_count}',
-                    link='/keyword-alerts'
+                    link='/gather'
                 )
             except Exception as notif_err:
                 logger.error(f"Failed to create auto-ingest notification: {notif_err}")
@@ -484,7 +484,7 @@ async def run_auto_ingest_task(progress_callback=None, username=None):
                     type='auto_ingest_error',
                     title='Auto-Collect Failed',
                     message=f'Error: {str(e)}',
-                    link='/keyword-alerts'
+                    link='/gather'
                 )
             except Exception as notif_err:
                 logger.error(f"Failed to create error notification: {notif_err}")

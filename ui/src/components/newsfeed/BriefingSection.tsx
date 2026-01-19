@@ -32,6 +32,7 @@ import {
   Volume2,
   Loader2,
 } from 'lucide-react';
+import { extractErrorMessage } from '../../services/api';
 import { type NewsArticle, type SixArticlesReport, type TopStory, type Persona, type SixArticlesConfig } from '../../services/newsFeedApi';
 import { Skeleton } from '../ui/skeleton';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
@@ -427,7 +428,7 @@ export function BriefingSection({
                 setShowAudioPlayer(true);
               } else if (statusData.status === 'failed') {
                 clearInterval(pollInterval);
-                setPodcastError(statusData.error || 'Podcast generation failed');
+                setPodcastError(extractErrorMessage(statusData.error, 'Podcast generation failed'));
                 setIsGeneratingAudio(false);
               }
             }

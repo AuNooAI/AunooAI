@@ -6353,6 +6353,51 @@ class DatabaseQueryFacade:
             self.connection.rollback()
             return False
 
+    def update_auspex_chat_metadata(self, chat_id: int, metadata: dict) -> bool:
+        """
+        Update metadata for an Auspex chat session.
+
+        Metadata can include compaction stats, context quality metrics, etc.
+
+        Args:
+            chat_id: The chat session ID
+            metadata: Dictionary of metadata to store/update
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Get existing metadata
+            result = self._execute_with_rollback(
+                select(auspex_chats.c.metadata)
+                .where(auspex_chats.c.id == chat_id)
+            ).fetchone()
+
+            existing_metadata = {}
+            if result and result[0]:
+                try:
+                    existing_metadata = json.loads(result[0]) if isinstance(result[0], str) else result[0]
+                except:
+                    existing_metadata = {}
+
+            # Merge with new metadata
+            existing_metadata.update(metadata)
+
+            self._execute_with_rollback(
+                update(auspex_chats)
+                .where(auspex_chats.c.id == chat_id)
+                .values(
+                    metadata=json.dumps(existing_metadata),
+                    updated_at=func.now()
+                )
+            )
+            self.connection.commit()
+            return True
+        except Exception as e:
+            self.logger.error(f"Error updating auspex chat metadata: {e}")
+            self.connection.rollback()
+            return False
+
     def delete_auspex_chat(self, chat_id: int) -> bool:
         """Delete an Auspex chat session and its messages."""
         try:

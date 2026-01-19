@@ -145,7 +145,7 @@ export function NotificationBell({ className = '' }: NotificationBellProps) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => window.location.href = '/keyword-alerts'}
+              onClick={() => window.location.href = '/gather'}
             >
               View all
             </Button>

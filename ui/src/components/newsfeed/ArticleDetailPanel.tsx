@@ -5,11 +5,12 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { X, ExternalLink, Star, StarOff, MessageSquare, Clock, TrendingUp, Building2, Layers, ChevronRight, MoreVertical, ThumbsUp, ThumbsDown, Share, Bot, Loader2 } from 'lucide-react';
+import { X, ExternalLink, Star, StarOff, MessageSquare, Clock, TrendingUp, Building2, Layers, ChevronRight, MoreVertical, ThumbsUp, ThumbsDown, Share, Copy, Mail, Bot, Loader2 } from 'lucide-react';
 import { type NewsArticle, type ClusterRelatedArticle, recordArticlePreference } from '../../services/newsFeedApi';
 import { ArticleBiasIndicator } from './ArticleBiasIndicator';
 import { Button } from '../ui/button';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
+import { ShareModal, type ShareArticleData } from '../ShareModal';
 
 interface ArticleDetailPanelProps {
   article: NewsArticle | null;
@@ -33,6 +34,7 @@ export function ArticleDetailPanel({
   const [activeTab, setActiveTab] = useState<'details' | 'related'>('details');
   const [showMenu, setShowMenu] = useState(false);
   const [preferenceLoading, setPreferenceLoading] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const hasRelated = relatedArticles.length > 0;
 
@@ -64,12 +66,15 @@ export function ArticleDetailPanel({
       } finally {
         setPreferenceLoading(false);
       }
-    } else if (action === 'share') {
+    } else if (action === 'copy') {
       // Copy article URL to clipboard
       const url = article.url || article.uri;
       if (url) {
         navigator.clipboard.writeText(url).catch(console.error);
       }
+    } else if (action === 'share') {
+      // Open share modal for email
+      setShowShareModal(true);
     }
   };
 
@@ -211,11 +216,18 @@ Please provide:
                       Less like this
                     </button>
                     <button
+                      onClick={() => handleMenuAction('copy')}
+                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                    >
+                      <Copy className="w-4 h-4" />
+                      Copy link
+                    </button>
+                    <button
                       onClick={() => handleMenuAction('share')}
                       className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
                     >
-                      <Share className="w-4 h-4" />
-                      Copy link
+                      <Mail className="w-4 h-4" />
+                      Share via email
                     </button>
                   </div>
                 )}
@@ -453,6 +465,25 @@ Please provide:
           </div>
         )}
       </div>
+
+      {/* Share Modal */}
+      {article && (
+        <ShareModal
+          open={showShareModal}
+          onOpenChange={setShowShareModal}
+          data={{
+            type: 'article',
+            title: article.title,
+            url: article.url || article.uri,
+            source: article.source?.name,
+            summary: article.summary,
+            category: article.category,
+            topic: article.topic,
+            sentiment: article.sentiment,
+            publication_date: article.publication_date,
+          } as ShareArticleData}
+        />
+      )}
     </>
   );
 }

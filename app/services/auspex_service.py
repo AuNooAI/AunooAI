@@ -25,6 +25,18 @@ from app.ai_models import get_ai_model
 # Import sampling framework for strategy-based article selection
 from app.services.sampling import get_registry, SamplingContext
 
+# Import URL detection and lookup services
+from app.services.url_detector import detect_urls, is_url_query
+from app.services.url_lookup_service import lookup_urls_in_message, get_url_lookup_service
+
+# Import conversation compaction
+from app.services.conversation_compactor import (
+    needs_compaction,
+    compact_conversation,
+    get_compaction_status,
+    estimate_messages_tokens
+)
+
 logger = logging.getLogger(__name__)
 
 # =============================================================================
@@ -201,6 +213,169 @@ def build_system_prompt(query: str = None, query_depth: str = None) -> str:
 
 # Legacy compatibility - default to standard format
 DEFAULT_AUSPEX_PROMPT = AUSPEX_CORE_PROMPT + AUSPEX_STANDARD_FORMAT
+
+# =============================================================================
+# VERSATILE PROMPT SYSTEM
+# =============================================================================
+
+# Query intent patterns for classification
+CASUAL_PATTERNS = [
+    r'^(hi|hello|hey|greetings|good\s+(morning|afternoon|evening))[\s!.,]*$',
+    r'^how\s+are\s+you',
+    r'^what\'?s\s+up',
+    r'^thanks?(\s+you)?[\s!.,]*$',
+    r'^(bye|goodbye|see\s+you)[\s!.,]*$',
+]
+
+SYSTEM_PATTERNS = [
+    r'(can|do)\s+you\s+(help|assist|do)',
+    r'what\s+(can|do)\s+you\s+do',
+    r'how\s+do\s+(i|you)\s+use',
+    r'explain\s+(your|the)\s+(features?|capabilities)',
+    r'what\s+are\s+your\s+(features?|capabilities)',
+    r'(tell|show)\s+me\s+about\s+(yourself|your\s+features)',
+]
+
+RESEARCH_PATTERNS = [
+    r'(what|how|why|when|where|who)\s+.*(article|news|report|coverage|data|trend)',
+    r'(search|find|look\s*up|analyze|summarize)',
+    r'(sentiment|trend|pattern|theme|topic)',
+    r'(compare|contrast|difference|between)',
+    r'(latest|recent|new|current)\s+(news|article|coverage|development)',
+]
+
+
+def classify_query_intent(query: str) -> str:
+    """
+    Classify query intent for response style adjustment.
+
+    Returns: 'casual', 'system', 'research', or 'general'
+
+    Note: This affects response STYLE, not database search behavior.
+    Database tools are always available regardless of intent.
+    """
+    query_lower = query.lower().strip()
+
+    # Check casual patterns (greetings, etc.)
+    for pattern in CASUAL_PATTERNS:
+        if re.search(pattern, query_lower):
+            return 'casual'
+
+    # Check system/feature question patterns
+    for pattern in SYSTEM_PATTERNS:
+        if re.search(pattern, query_lower):
+            return 'system'
+
+    # Check research patterns
+    for pattern in RESEARCH_PATTERNS:
+        if re.search(pattern, query_lower):
+            return 'research'
+
+    return 'general'
+
+
+# Versatile core prompt - conversational but data-focused
+AUSPEX_VERSATILE_CORE = """You are Auspex, an AI research assistant that helps users explore and understand news article databases.
+
+## Current Date Context
+Today's date is: {current_date}
+
+IMPORTANT: Your training data has a knowledge cutoff. The articles in this database contain CURRENT information. You MUST:
+- Trust article content over your training data for current events
+- Do not "correct" or question article descriptions of current political situations, people in office, or recent events
+- If articles describe someone as current president/leader, accept that as fact
+- Report what articles say, even if it seems to conflict with your prior knowledge
+
+## Your Approach
+1. **Always search the database** for relevant information, even for general questions
+2. **Be conversational** but stay grounded in data
+3. **Clearly distinguish** what comes from the database vs your general knowledge
+
+## Response Guidelines
+- For data-backed claims: Use citations like [Article Title](URL)
+- For opinions or analysis: Clearly state "Based on my analysis..." or "From what I observe..."
+- When no data found: Explicitly say "I didn't find any articles on this topic in the database"
+- For casual conversation: Respond briefly but offer to help with research
+
+## Citation Requirements
+Every factual claim about the articles must include a source:
+- "Sentiment is 67% positive ([Reuters](url), [WSJ](url))"
+- "[TechCrunch](url) reports the acquisition closed for $2B"
+
+## What You Do
+- Search and analyze article databases
+- Extract specific data points, quotes, and trends
+- Provide sentiment analysis and pattern recognition
+- Compare coverage across sources and time periods
+"""
+
+# Data integrity block - always included
+AUSPEX_DATA_INTEGRITY = """
+## Data Integrity Standards
+1. **Database First**: Always search the database before answering questions about topics
+2. **Source Attribution**: Every factual claim must cite its source article
+3. **Clear Boundaries**: Distinguish between:
+   - "The database shows..." (data-based)
+   - "Based on my knowledge..." (general knowledge)
+   - "I couldn't find data on this..." (no matches)
+4. **No Hallucination**: Never invent article titles, URLs, or quotes
+"""
+
+# System mode block - for feature questions
+AUSPEX_SYSTEM_MODE = """
+## Answering Questions About Your Capabilities
+When users ask about what you can do:
+- Briefly explain your research capabilities
+- Offer to demonstrate with a sample search
+- Keep explanations concise
+
+You can:
+- Search article databases by topic, keyword, or semantic meaning
+- Analyze sentiment and trends across articles
+- Extract specific data points, quotes, and statistics
+- Compare coverage across sources and time periods
+- Generate visualizations like sentiment charts
+"""
+
+# Casual mode block - for greetings
+AUSPEX_CASUAL_MODE = """
+## Casual Conversation Style
+For greetings and casual messages:
+- Respond briefly and warmly
+- Offer to help with research
+- Don't over-explain your capabilities unless asked
+"""
+
+
+def build_versatile_prompt(query: str) -> str:
+    """
+    Build a versatile system prompt based on query intent.
+
+    The prompt always includes data integrity requirements.
+    Style varies based on intent but database search is always available.
+    """
+    intent = classify_query_intent(query)
+
+    # Inject current date into the core prompt
+    from datetime import datetime
+    current_date = datetime.now().strftime("%B %d, %Y")
+    core_with_date = AUSPEX_VERSATILE_CORE.format(current_date=current_date)
+
+    # Always start with versatile core and data integrity
+    prompt_parts = [core_with_date, AUSPEX_DATA_INTEGRITY]
+
+    # Add intent-specific guidance
+    if intent == 'system':
+        prompt_parts.append(AUSPEX_SYSTEM_MODE)
+    elif intent == 'casual':
+        prompt_parts.append(AUSPEX_CASUAL_MODE)
+    elif intent == 'research':
+        # For research, add the appropriate format block
+        query_depth = classify_query_depth(query)
+        prompt_parts.append(get_format_block(query_depth))
+
+    return "\n".join(prompt_parts)
+
 
 class OptimizedContextManager:
     """Manages context window optimization for Auspex."""
@@ -1440,9 +1615,42 @@ class AuspexService:
             # Get chat history
             messages = self.db.get_auspex_messages(chat_id)
 
+            # Get chat for topic context
+            chat = self.db.get_auspex_chat(chat_id)
+            current_topic = chat.get('topic') if chat else None
+
+            # Check if conversation needs compaction
+            conversation_for_compaction = [
+                {"role": msg['role'], "content": msg['content']}
+                for msg in messages if msg['role'] != 'system'
+            ]
+
+            compaction_applied = False
+            compaction_summary = None
+            if needs_compaction(conversation_for_compaction):
+                logger.info(f"Conversation {chat_id} needs compaction, applying...")
+                compacted = await compact_conversation(
+                    conversation_for_compaction,
+                    recent_turns_to_keep=6,
+                    topic_context=current_topic
+                )
+                conversation_for_compaction = compacted.messages
+                compaction_applied = compacted.metrics.compaction_applied
+                compaction_summary = compacted.summary_context
+
+                # Store compaction metrics in chat metadata
+                if compaction_applied:
+                    try:
+                        self.db.update_auspex_chat_metadata(
+                            chat_id,
+                            {"last_compaction": get_compaction_status(compacted.metrics)}
+                        )
+                    except Exception as e:
+                        logger.warning(f"Could not save compaction metadata: {e}")
+
             # Build conversation history for LLM
             conversation = []
-            for msg in messages:
+            for msg in conversation_for_compaction:
                 if msg['role'] != 'system':  # Skip system messages in conversation
                     conversation.append({
                         "role": msg['role'],
@@ -1461,6 +1669,25 @@ class AuspexService:
                 role="user",
                 content=message
             )
+
+            # URL Detection and Lookup
+            url_context = None
+            url_query_detected, urls_found = is_url_query(message)
+            if url_query_detected and urls_found:
+                logger.info(f"URL query detected with {len(urls_found)} URL(s): {urls_found}")
+                try:
+                    # Look up URLs in database and externally
+                    topic_for_lookup = current_topic if current_topic and current_topic != '__all__' else None
+                    url_context = await lookup_urls_in_message(
+                        urls_found,
+                        current_topic=topic_for_lookup,
+                        include_external=True,
+                        include_firecrawl=True
+                    )
+                    logger.info(f"URL lookup completed, context length: {len(url_context) if url_context else 0}")
+                except Exception as e:
+                    logger.warning(f"URL lookup failed: {e}")
+                    url_context = None
 
             # Update chat session with profile_id if provided
             if profile_id:
@@ -1485,7 +1712,15 @@ class AuspexService:
                 {"role": "system", "content": system_prompt_content},
                 *conversation
             ]
-            
+
+            # Inject URL lookup context if URLs were detected
+            if url_context:
+                llm_messages.append({
+                    "role": "assistant",
+                    "content": f"[URL LOOKUP RESULTS]\n{url_context}\n[END URL LOOKUP]"
+                })
+                logger.info("Injected URL lookup context into conversation")
+
             # Check if we need to use tools based on the message content and tools_config
             use_tools = tools_config and any(tools_config.values()) if tools_config else True
             needs_tools = use_tools and await self._should_use_tools(message)
@@ -1638,10 +1873,19 @@ class AuspexService:
             query: Optional user query to adapt prompt format (quick/standard/deep)
         """
         try:
-            # Determine query depth and build appropriate base prompt
+            # Determine query intent and build versatile prompt
+            query_intent = classify_query_intent(query) if query else 'general'
             query_depth = classify_query_depth(query) if query else 'standard'
-            base_content = build_system_prompt(query, query_depth)
-            logger.info(f"Query depth detected: {query_depth} for query: {query[:50] if query else 'None'}...")
+
+            # Use versatile prompt for general/casual/system queries
+            # Use data-focused prompt for research queries
+            if query_intent in ('casual', 'system', 'general'):
+                base_content = build_versatile_prompt(query or '')
+            else:
+                # Research queries - use the original data-focused prompt
+                base_content = build_system_prompt(query, query_depth)
+
+            logger.info(f"Query intent: {query_intent}, depth: {query_depth} for query: {query[:50] if query else 'None'}...")
 
             # Create base prompt dict
             base_prompt = {
@@ -1829,28 +2073,36 @@ If your analysis requires tables or comparison matrices (e.g., strategic assessm
             return self.get_system_prompt()
 
     async def _should_use_tools(self, message: str) -> bool:
-        """Determine if message requires tool usage."""
-        tool_keywords = [
-            "search", "find", "latest", "recent", "news", "articles", "trends",
-            "sentiment", "analyze", "data", "statistics", "categories", "compare",
-            "what's happening", "current", "update", "insights", "patterns",
-            "comprehensive", "detailed", "deep", "thorough", "analysis", "themes",
-            "follow up", "more", "details", "expand", "elaborate", "investigate",
-            "chart", "graph", "pie", "visualization", "visualize", "plot", "donut",
-            # Plugin tool triggers
-            "future", "impact", "prediction", "forecast", "outlook", "risk", "opportunity",
-            "bias", "partisan", "political", "left", "right", "liberal", "conservative"
-        ]
-        
-        message_lower = message.lower()
-        should_use = any(keyword in message_lower for keyword in tool_keywords)
-        
-        logger.info(f"Tool detection for message '{message}': {should_use}")
-        if should_use:
-            found_keywords = [kw for kw in tool_keywords if kw in message_lower]
-            logger.info(f"Found keywords: {found_keywords}")
+        """
+        Determine if message requires tool usage.
 
-        return should_use
+        Per the versatile prompt philosophy:
+        - Database tools are ALWAYS available (never skip completely)
+        - Only pure greetings with no question skip tool usage
+        - This ensures data is always searched, even for general questions
+        """
+        message_lower = message.lower().strip()
+
+        # Pure greeting patterns that don't need tools
+        # Only skip tools for these very specific patterns
+        pure_greeting_patterns = [
+            r'^(hi|hello|hey|greetings)[\s!.,]*$',
+            r'^good\s+(morning|afternoon|evening|day)[\s!.,]*$',
+            r'^thanks?(\s+you)?[\s!.,]*$',
+            r'^(bye|goodbye|see\s+you|take\s+care)[\s!.,]*$',
+            r'^(ok|okay|sure|got\s+it|understood)[\s!.,]*$',
+        ]
+
+        # Check if this is a pure greeting (no tools needed)
+        for pattern in pure_greeting_patterns:
+            if re.search(pattern, message_lower):
+                logger.info(f"Pure greeting detected, skipping tools: '{message}'")
+                return False
+
+        # For everything else, use tools - database should always be searched
+        # This is the key change: we default to using tools rather than requiring keywords
+        logger.info(f"Tool usage enabled for message: '{message}' (versatile mode)")
+        return True
 
     def _detect_chart_request(self, message: str) -> Optional[str]:
         """

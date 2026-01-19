@@ -3,6 +3,8 @@
  * Handles Highlights (incident tracking) and Narratives (article insights)
  */
 
+import { extractErrorMessage } from './api';
+
 // Types for Incident Tracking (Highlights)
 export type IncidentType = 'incident' | 'entity' | 'expertise' | 'informed_insider' | 'trend_signal' | 'strategic_shift' | 'event';
 export type IncidentSignificance = 'high' | 'medium' | 'low';
@@ -213,11 +215,8 @@ export async function getIncidentTracking(params: IncidentTrackingParams): Promi
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    const errorMessage = typeof error.detail === 'string'
-      ? error.detail
-      : (error.detail?.message || JSON.stringify(error.detail) || `Failed to fetch incident tracking: ${response.status}`);
-    throw new Error(errorMessage);
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to fetch incident tracking: ${response.status}`));
   }
 
   return response.json();
@@ -249,11 +248,8 @@ export async function getArticleInsights(params: ArticleInsightsParams): Promise
   );
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    const errorMessage = typeof error.detail === 'string'
-      ? error.detail
-      : (error.detail?.message || JSON.stringify(error.detail) || `Failed to fetch article insights: ${response.status}`);
-    throw new Error(errorMessage);
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to fetch article insights: ${response.status}`));
   }
 
   return response.json();
@@ -414,8 +410,8 @@ export async function saveIncidentConfig(config: IncidentConfig): Promise<void> 
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(error.detail || `Failed to save incident config: ${response.status}`);
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to save incident config: ${response.status}`));
   }
 }
 
@@ -465,8 +461,8 @@ export async function updateIncidentStatus(
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(error.detail || `Failed to update incident status: ${response.status}`);
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to update incident status: ${response.status}`));
   }
 
   return response.json();
@@ -484,8 +480,8 @@ export async function deleteIncident(incidentName: string): Promise<{ success: b
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(error.detail || `Failed to delete incident: ${response.status}`);
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to delete incident: ${response.status}`));
   }
 
   return response.json();
@@ -505,8 +501,8 @@ export async function saveIncident(
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(error.detail || `Failed to save incident: ${response.status}`);
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to save incident: ${response.status}`));
   }
 
   return response.json();
@@ -526,8 +522,8 @@ export async function unsaveIncident(
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(error.detail || `Failed to unsave incident: ${response.status}`);
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to unsave incident: ${response.status}`));
   }
 
   return response.json();
@@ -545,8 +541,8 @@ export async function getSavedIncidents(
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(error.detail || `Failed to get saved incidents: ${response.status}`);
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to get saved incidents: ${response.status}`));
   }
 
   const data = await response.json();
@@ -573,8 +569,8 @@ export async function recordIncidentPreference(
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(error.detail || `Failed to record preference: ${response.status}`);
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to record preference: ${response.status}`));
   }
 
   return response.json();
@@ -592,8 +588,8 @@ export async function getIncidentPreferences(): Promise<{
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(error.detail || `Failed to get preferences: ${response.status}`);
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to get preferences: ${response.status}`));
   }
 
   return response.json();

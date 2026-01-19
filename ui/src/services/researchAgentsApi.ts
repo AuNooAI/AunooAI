@@ -3,6 +3,8 @@
  * Connects React frontend to FastAPI backend for signal instructions (Research Agents)
  */
 
+import { extractErrorMessage } from './api';
+
 // Types
 export interface ResearchAgent {
   id: number;
@@ -158,7 +160,7 @@ async function fetchWithAuth<T>(
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
-      throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+      throw new Error(extractErrorMessage(errorData, `HTTP ${response.status}: ${response.statusText}`));
     }
 
     return await response.json();
