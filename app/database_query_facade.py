@@ -6973,7 +6973,7 @@ class DatabaseQueryFacade:
             self.logger.error(f"Error setting user preference: {e}")
             if conn:
                 conn.rollback()
-            return False
+            raise  # Re-raise to allow caller to see the actual error
 
     # ==========================================
     # Analysis Run Logging Methods

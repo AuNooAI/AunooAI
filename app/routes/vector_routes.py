@@ -1,5 +1,6 @@
 from typing import Optional, Dict, Any, List
 import logging
+from datetime import datetime
 from dateutil.parser import parse as dt_parse  # add top of file
 import json
 from pathlib import Path
@@ -2543,7 +2544,12 @@ class _IncidentPreferenceRequest(BaseModel):
     """Request model for recording incident preferences."""
     incident_name: str
     preference: str  # 'more' or 'less'
-    incident_data: dict = {}  # type, topic, entities for learning
+    incident_data: dict = {}  # Extended data for fine-tuning
+
+
+class _ClearIncidentPreferenceRequest(BaseModel):
+    """Request model for clearing an incident preference."""
+    incident_name: str
 
 
 @router.post("/incident-preference")
@@ -2563,45 +2569,149 @@ async def record_incident_preference(
         facade = DatabaseQueryFacade(db, logger)
 
         # Get current preferences
-        username = session.get('username', 'default')
-        current_prefs = facade.get_user_preference(username, 'incident_preferences') or {
-            'more_like': [],
-            'less_like': []
-        }
+        username = session.get('user', {}).get('username')
+        if not username:
+            raise HTTPException(status_code=401, detail="User not authenticated")
+        current_prefs = facade.get_user_preference(username, 'incident_preferences') or {}
 
-        # Build preference entry from incident data
+        # Ensure we have proper list structure (handle legacy data)
+        if not isinstance(current_prefs.get('more_like'), list):
+            current_prefs['more_like'] = []
+        if not isinstance(current_prefs.get('less_like'), list):
+            current_prefs['less_like'] = []
+
+        # Remove any existing preference for this incident (allows toggling)
+        # Handle both dict entries and legacy non-dict entries
+        current_prefs['more_like'] = [
+            p for p in current_prefs['more_like']
+            if isinstance(p, dict) and p.get('incident_name') != request.incident_name
+        ]
+        current_prefs['less_like'] = [
+            p for p in current_prefs['less_like']
+            if isinstance(p, dict) and p.get('incident_name') != request.incident_name
+        ]
+
+        # Build preference entry from incident data - extended for fine-tuning
         pref_entry = {
             'incident_name': request.incident_name,
             'timestamp': datetime.now().isoformat()
         }
+        # Basic fields
         if request.incident_data.get('type'):
             pref_entry['type'] = request.incident_data['type']
         if request.incident_data.get('topic'):
             pref_entry['topic'] = request.incident_data['topic']
         if request.incident_data.get('entities'):
-            pref_entry['entities'] = request.incident_data['entities'][:3]
+            pref_entry['entities'] = request.incident_data['entities'][:10]  # Expanded from 3 to 10
+
+        # Enhanced fields for fine-tuning
+        if request.incident_data.get('summary'):
+            pref_entry['summary'] = request.incident_data['summary'][:2000]  # Limit length
+        if request.incident_data.get('article_urls'):
+            pref_entry['article_urls'] = request.incident_data['article_urls'][:10]
+        if request.incident_data.get('article_titles'):
+            pref_entry['article_titles'] = request.incident_data['article_titles'][:10]
+        if request.incident_data.get('significance'):
+            pref_entry['significance'] = request.incident_data['significance']
+        if request.incident_data.get('velocity'):
+            pref_entry['velocity'] = request.incident_data['velocity']
+        if request.incident_data.get('browsing_topic'):
+            pref_entry['browsing_topic'] = request.incident_data['browsing_topic']
 
         # Add to appropriate list
         target_list = 'more_like' if request.preference == 'more' else 'less_like'
         current_prefs[target_list].append(pref_entry)
 
-        # Keep only last 50 preferences per category
-        current_prefs['more_like'] = current_prefs['more_like'][-50:]
-        current_prefs['less_like'] = current_prefs['less_like'][-50:]
+        # Keep only last 500 preferences per category (increased from 50 for fine-tuning)
+        current_prefs['more_like'] = current_prefs['more_like'][-500:]
+        current_prefs['less_like'] = current_prefs['less_like'][-500:]
 
         # Save updated preferences
-        success = facade.set_user_preference(username, 'incident_preferences', current_prefs)
+        try:
+            success = facade.set_user_preference(username, 'incident_preferences', current_prefs)
+        except Exception as db_err:
+            import traceback
+            logger.error(f"Database error saving preference: {db_err}\n{traceback.format_exc()}")
+            raise HTTPException(status_code=500, detail=f"Database error: {str(db_err)}")
 
         if success:
             return {"success": True, "message": f"Preference '{request.preference}' recorded"}
         else:
-            raise HTTPException(status_code=500, detail="Failed to save preference")
+            raise HTTPException(status_code=500, detail="Failed to save preference (returned False)")
 
     except HTTPException:
         raise
     except Exception as exc:
-        logger.error("Error recording incident preference: %s", exc)
-        raise HTTPException(status_code=500, detail="Error recording preference")
+        import traceback
+        logger.error("Error recording incident preference: %s\n%s", exc, traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error recording preference: {str(exc)}")
+
+
+@router.delete("/incident-preference")
+async def clear_incident_preference(
+    request: _ClearIncidentPreferenceRequest,
+    session=Depends(verify_session),
+):
+    """Clear a preference for an incident (toggle off)."""
+    try:
+        from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+
+        # Get current preferences
+        username = session.get('user', {}).get('username')
+        if not username:
+            raise HTTPException(status_code=401, detail="User not authenticated")
+        current_prefs = facade.get_user_preference(username, 'incident_preferences') or {}
+
+        # Ensure we have proper list structure (handle legacy data)
+        if not isinstance(current_prefs.get('more_like'), list):
+            current_prefs['more_like'] = []
+        if not isinstance(current_prefs.get('less_like'), list):
+            current_prefs['less_like'] = []
+
+        # Remove the incident from both lists
+        original_more_count = len(current_prefs['more_like'])
+        original_less_count = len(current_prefs['less_like'])
+
+        current_prefs['more_like'] = [
+            p for p in current_prefs['more_like']
+            if isinstance(p, dict) and p.get('incident_name') != request.incident_name
+        ]
+        current_prefs['less_like'] = [
+            p for p in current_prefs['less_like']
+            if isinstance(p, dict) and p.get('incident_name') != request.incident_name
+        ]
+
+        removed = (
+            original_more_count != len(current_prefs['more_like']) or
+            original_less_count != len(current_prefs['less_like'])
+        )
+
+        # Save updated preferences
+        try:
+            success = facade.set_user_preference(username, 'incident_preferences', current_prefs)
+        except Exception as db_err:
+            import traceback
+            logger.error(f"Database error clearing preference: {db_err}\n{traceback.format_exc()}")
+            raise HTTPException(status_code=500, detail=f"Database error: {str(db_err)}")
+
+        if success:
+            if removed:
+                return {"success": True, "message": "Preference cleared"}
+            else:
+                return {"success": True, "message": "No preference found to clear"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to clear preference (returned False)")
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        import traceback
+        logger.error("Error clearing incident preference: %s\n%s", exc, traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Error clearing preference: {str(exc)}")
 
 
 @router.get("/incident-preferences")
@@ -2615,17 +2725,337 @@ async def get_incident_preferences(
 
         db = get_database_instance()
         facade = DatabaseQueryFacade(db, logger)
-        username = session.get('username', 'default')
-        prefs = facade.get_user_preference(username, 'incident_preferences') or {
-            'more_like': [],
-            'less_like': []
+        username = session.get('user', {}).get('username')
+        if not username:
+            raise HTTPException(status_code=401, detail="User not authenticated")
+        prefs = facade.get_user_preference(username, 'incident_preferences') or {}
+
+        # Ensure we return proper structure with only valid dict entries
+        result = {
+            'more_like': [
+                p for p in (prefs.get('more_like') or [])
+                if isinstance(p, dict) and p.get('incident_name')
+            ],
+            'less_like': [
+                p for p in (prefs.get('less_like') or [])
+                if isinstance(p, dict) and p.get('incident_name')
+            ]
         }
 
-        return prefs
+        return result
 
     except Exception as exc:
         logger.error("Error getting incident preferences: %s", exc)
         raise HTTPException(status_code=500, detail="Error retrieving preferences")
+
+
+# ------------------------------------------------------------------
+# Briefing preference endpoints (more/less like this)
+# ------------------------------------------------------------------
+
+class _BriefingPreferenceData(BaseModel):
+    """Extended data for briefing preferences (for fine-tuning)."""
+    summary: Optional[str] = None
+    category: Optional[str] = None
+    executive_takeaway: Optional[str] = None
+    strategic_relevance: Optional[str] = None
+    signal_strength: Optional[str] = None
+    risk_opportunity: Optional[str] = None
+    time_horizon: Optional[str] = None
+    source: Optional[str] = None
+    url: Optional[str] = None
+
+
+class _BriefingPreferenceRequest(BaseModel):
+    """Request model for recording briefing preferences."""
+    headline: str
+    preference: str  # 'more' or 'less'
+    briefing_data: Optional[_BriefingPreferenceData] = None
+
+
+class _ClearBriefingPreferenceRequest(BaseModel):
+    """Request model for clearing a briefing preference."""
+    headline: str
+
+
+class _HideBriefingRequest(BaseModel):
+    """Request model for hiding a briefing story."""
+    headline: str
+
+
+@router.post("/briefing-preference")
+async def record_briefing_preference(
+    request: _BriefingPreferenceRequest,
+    session=Depends(verify_session),
+):
+    """Record more/less like this preference for a briefing story."""
+    try:
+        from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        if request.preference not in ['more', 'less']:
+            raise HTTPException(status_code=400, detail="Invalid preference. Must be 'more' or 'less'")
+
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+
+        # Get current preferences
+        username = session.get('user', {}).get('username')
+        if not username:
+            raise HTTPException(status_code=401, detail="User not authenticated")
+        current_prefs = facade.get_user_preference(username, 'briefing_preferences') or {}
+
+        # Ensure we have proper list structure
+        if not isinstance(current_prefs.get('more_like'), list):
+            current_prefs['more_like'] = []
+        if not isinstance(current_prefs.get('less_like'), list):
+            current_prefs['less_like'] = []
+
+        # Remove any existing preference for this briefing (allows toggling)
+        current_prefs['more_like'] = [
+            p for p in current_prefs['more_like']
+            if isinstance(p, dict) and p.get('headline') != request.headline
+        ]
+        current_prefs['less_like'] = [
+            p for p in current_prefs['less_like']
+            if isinstance(p, dict) and p.get('headline') != request.headline
+        ]
+
+        # Build new preference entry with enriched data
+        new_entry = {
+            'headline': request.headline,
+            'timestamp': datetime.now().isoformat(),
+        }
+        if request.briefing_data:
+            data = request.briefing_data
+            if data.summary:
+                new_entry['summary'] = data.summary
+            if data.category:
+                new_entry['category'] = data.category
+            if data.executive_takeaway:
+                new_entry['executive_takeaway'] = data.executive_takeaway
+            if data.strategic_relevance:
+                new_entry['strategic_relevance'] = data.strategic_relevance
+            if data.signal_strength:
+                new_entry['signal_strength'] = data.signal_strength
+            if data.risk_opportunity:
+                new_entry['risk_opportunity'] = data.risk_opportunity
+            if data.time_horizon:
+                new_entry['time_horizon'] = data.time_horizon
+            if data.source:
+                new_entry['source'] = data.source
+            if data.url:
+                new_entry['url'] = data.url
+
+        # Add to appropriate list
+        if request.preference == 'more':
+            current_prefs['more_like'].append(new_entry)
+        else:
+            current_prefs['less_like'].append(new_entry)
+
+        # Save updated preferences
+        facade.set_user_preference(username, 'briefing_preferences', current_prefs)
+
+        return {"success": True, "message": f"Briefing preference '{request.preference}' recorded"}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error recording briefing preference: %s", exc)
+        raise HTTPException(status_code=500, detail="Error recording preference")
+
+
+@router.delete("/briefing-preference")
+async def clear_briefing_preference(
+    request: _ClearBriefingPreferenceRequest,
+    session=Depends(verify_session),
+):
+    """Clear a preference for a briefing story (toggle off)."""
+    try:
+        from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+
+        # Get current preferences
+        username = session.get('user', {}).get('username')
+        if not username:
+            raise HTTPException(status_code=401, detail="User not authenticated")
+        current_prefs = facade.get_user_preference(username, 'briefing_preferences') or {}
+
+        # Ensure we have proper list structure
+        if not isinstance(current_prefs.get('more_like'), list):
+            current_prefs['more_like'] = []
+        if not isinstance(current_prefs.get('less_like'), list):
+            current_prefs['less_like'] = []
+
+        # Remove the briefing from both lists
+        original_more_count = len(current_prefs['more_like'])
+        original_less_count = len(current_prefs['less_like'])
+
+        current_prefs['more_like'] = [
+            p for p in current_prefs['more_like']
+            if isinstance(p, dict) and p.get('headline') != request.headline
+        ]
+        current_prefs['less_like'] = [
+            p for p in current_prefs['less_like']
+            if isinstance(p, dict) and p.get('headline') != request.headline
+        ]
+
+        removed = (original_more_count - len(current_prefs['more_like'])) + \
+                  (original_less_count - len(current_prefs['less_like']))
+
+        if removed > 0:
+            facade.set_user_preference(username, 'briefing_preferences', current_prefs)
+            return {"success": True, "message": "Briefing preference cleared"}
+        else:
+            return {"success": True, "message": "No preference found to clear"}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error clearing briefing preference: %s", exc)
+        raise HTTPException(status_code=500, detail="Error clearing preference")
+
+
+@router.get("/briefing-preferences")
+async def get_briefing_preferences(
+    session=Depends(verify_session),
+):
+    """Get user's briefing preferences for AI ranking."""
+    try:
+        from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+        username = session.get('user', {}).get('username')
+        if not username:
+            raise HTTPException(status_code=401, detail="User not authenticated")
+        prefs = facade.get_user_preference(username, 'briefing_preferences') or {}
+
+        # Ensure we return proper structure with only valid dict entries
+        result = {
+            'more_like': [
+                p for p in (prefs.get('more_like') or [])
+                if isinstance(p, dict) and p.get('headline')
+            ],
+            'less_like': [
+                p for p in (prefs.get('less_like') or [])
+                if isinstance(p, dict) and p.get('headline')
+            ]
+        }
+
+        return result
+
+    except Exception as exc:
+        logger.error("Error getting briefing preferences: %s", exc)
+        raise HTTPException(status_code=500, detail="Error retrieving preferences")
+
+
+# ------------------------------------------------------------------
+# Briefing hide endpoint
+# ------------------------------------------------------------------
+
+@router.post("/briefing-hide")
+async def hide_briefing(
+    request: _HideBriefingRequest,
+    session=Depends(verify_session),
+):
+    """Hide a briefing story from future display."""
+    try:
+        from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+
+        username = session.get('user', {}).get('username')
+        if not username:
+            raise HTTPException(status_code=401, detail="User not authenticated")
+
+        # Get current hidden briefings
+        hidden = facade.get_user_preference(username, 'hidden_briefings') or []
+        if not isinstance(hidden, list):
+            hidden = []
+
+        # Add if not already hidden
+        if request.headline not in hidden:
+            hidden.append(request.headline)
+            facade.set_user_preference(username, 'hidden_briefings', hidden)
+            return {"success": True, "message": "Briefing hidden"}
+        else:
+            return {"success": True, "message": "Briefing already hidden"}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error hiding briefing: %s", exc)
+        raise HTTPException(status_code=500, detail="Error hiding briefing")
+
+
+@router.delete("/briefing-hide")
+async def unhide_briefing(
+    request: _HideBriefingRequest,
+    session=Depends(verify_session),
+):
+    """Unhide a briefing story."""
+    try:
+        from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+
+        username = session.get('user', {}).get('username')
+        if not username:
+            raise HTTPException(status_code=401, detail="User not authenticated")
+
+        # Get current hidden briefings
+        hidden = facade.get_user_preference(username, 'hidden_briefings') or []
+        if not isinstance(hidden, list):
+            hidden = []
+
+        # Remove if present
+        if request.headline in hidden:
+            hidden.remove(request.headline)
+            facade.set_user_preference(username, 'hidden_briefings', hidden)
+            return {"success": True, "message": "Briefing unhidden"}
+        else:
+            return {"success": True, "message": "Briefing was not hidden"}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("Error unhiding briefing: %s", exc)
+        raise HTTPException(status_code=500, detail="Error unhiding briefing")
+
+
+@router.get("/hidden-briefings")
+async def get_hidden_briefings(
+    session=Depends(verify_session),
+):
+    """Get list of hidden briefing headlines."""
+    try:
+        from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+        username = session.get('user', {}).get('username')
+        if not username:
+            raise HTTPException(status_code=401, detail="User not authenticated")
+
+        hidden = facade.get_user_preference(username, 'hidden_briefings') or []
+        if not isinstance(hidden, list):
+            hidden = []
+
+        return {"hidden_briefings": hidden}
+
+    except Exception as exc:
+        logger.error("Error getting hidden briefings: %s", exc)
+        raise HTTPException(status_code=500, detail="Error retrieving hidden briefings")
 
 
 # ------------------------------------------------------------------

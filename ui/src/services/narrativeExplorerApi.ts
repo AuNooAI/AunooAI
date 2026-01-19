@@ -8,13 +8,14 @@ import { extractErrorMessage } from './api';
 // Types for Incident Tracking (Highlights)
 export type IncidentType = 'incident' | 'entity' | 'expertise' | 'informed_insider' | 'trend_signal' | 'strategic_shift' | 'event';
 export type IncidentSignificance = 'high' | 'medium' | 'low';
-export type IncidentStatus = 'active' | 'seen' | 'saved';
+export type IncidentStatus = 'active' | 'seen' | 'saved' | 'deleted';
 export type Plausibility = 'likely' | 'questionable' | 'implausible';
 export type SourceQuality = 'high' | 'mixed' | 'low';
 
 export interface IncidentArticleMetadata {
   title: string;
   news_source: string;
+  uri?: string;
   factual_reporting?: string;
   mbfc_credibility_rating?: string;
   bias?: string;
@@ -550,12 +551,28 @@ export async function getSavedIncidents(
 }
 
 /**
+ * Extended incident data for fine-tuning purposes
+ */
+export interface IncidentPreferenceData {
+  type?: string;
+  topic?: string;
+  entities?: string[];
+  // Enhanced fields for fine-tuning
+  summary?: string;
+  article_urls?: string[];
+  article_titles?: string[];
+  significance?: string;
+  velocity?: string;
+  browsing_topic?: string;
+}
+
+/**
  * Record more/less like this preference for an incident
  */
 export async function recordIncidentPreference(
   incidentName: string,
   preference: 'more' | 'less',
-  incidentData: { type?: string; topic?: string; entities?: string[] } = {}
+  incidentData: IncidentPreferenceData = {}
 ): Promise<{ success: boolean; message: string }> {
   const response = await fetch('/api/incident-preference', {
     method: 'POST',
@@ -577,11 +594,51 @@ export async function recordIncidentPreference(
 }
 
 /**
+ * Clear a preference for an incident (toggle off)
+ */
+export async function clearIncidentPreference(
+  incidentName: string
+): Promise<{ success: boolean; message: string }> {
+  const response = await fetch('/api/incident-preference', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      incident_name: incidentName,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to clear preference: ${response.status}`));
+  }
+
+  return response.json();
+}
+
+/**
+ * Stored incident preference entry
+ */
+export interface IncidentPreferenceEntry {
+  incident_name: string;
+  timestamp: string;
+  type?: string;
+  topic?: string;
+  entities?: string[];
+  summary?: string;
+  article_urls?: string[];
+  article_titles?: string[];
+  significance?: string;
+  velocity?: string;
+  browsing_topic?: string;
+}
+
+/**
  * Get user's incident preferences
  */
 export async function getIncidentPreferences(): Promise<{
-  more_like: Array<{ type?: string; topic?: string; entities?: string[] }>;
-  less_like: Array<{ type?: string; topic?: string; entities?: string[] }>;
+  more_like: IncidentPreferenceEntry[];
+  less_like: IncidentPreferenceEntry[];
 }> {
   const response = await fetch('/api/incident-preferences', {
     credentials: 'include',
@@ -737,4 +794,145 @@ export function prettifyMisinfoFlag(flag: string): string {
     case 'fringe_bias': return 'Fringe bias';
     default: return flag.replace(/_/g, ' ');
   }
+}
+
+// ===== Briefing Preference API =====
+
+/**
+ * Extended briefing data for fine-tuning purposes
+ */
+export interface BriefingPreferenceData {
+  summary?: string;
+  category?: string;
+  executive_takeaway?: string;
+  strategic_relevance?: string;
+  signal_strength?: string;
+  risk_opportunity?: string;
+  time_horizon?: string;
+  source?: string;
+  url?: string;
+}
+
+/**
+ * Stored briefing preference entry
+ */
+export interface BriefingPreferenceEntry {
+  headline: string;
+  timestamp: string;
+  summary?: string;
+  category?: string;
+  executive_takeaway?: string;
+  strategic_relevance?: string;
+  signal_strength?: string;
+  risk_opportunity?: string;
+  time_horizon?: string;
+  source?: string;
+  url?: string;
+}
+
+/**
+ * Record more/less like this preference for a briefing story
+ */
+export async function recordBriefingPreference(
+  headline: string,
+  preference: 'more' | 'less',
+  briefingData: BriefingPreferenceData = {}
+): Promise<{ success: boolean; message: string }> {
+  const response = await fetch('/api/briefing-preference', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      headline,
+      preference,
+      briefing_data: briefingData,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to record preference: ${response.status}`));
+  }
+
+  return response.json();
+}
+
+/**
+ * Clear a preference for a briefing story (toggle off)
+ */
+export async function clearBriefingPreference(
+  headline: string
+): Promise<{ success: boolean; message: string }> {
+  const response = await fetch('/api/briefing-preference', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      headline,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to clear preference: ${response.status}`));
+  }
+
+  return response.json();
+}
+
+/**
+ * Get user's briefing preferences
+ */
+export async function getBriefingPreferences(): Promise<{
+  more_like: BriefingPreferenceEntry[];
+  less_like: BriefingPreferenceEntry[];
+}> {
+  const response = await fetch('/api/briefing-preferences', {
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to get preferences: ${response.status}`));
+  }
+
+  return response.json();
+}
+
+/**
+ * Hide a briefing story from future display
+ */
+export async function hideBriefing(
+  headline: string
+): Promise<{ success: boolean; message: string }> {
+  const response = await fetch('/api/briefing-hide', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ headline }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to hide briefing: ${response.status}`));
+  }
+
+  return response.json();
+}
+
+/**
+ * Get list of hidden briefing headlines
+ */
+export async function getHiddenBriefings(): Promise<string[]> {
+  const response = await fetch('/api/hidden-briefings', {
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to get hidden briefings: ${response.status}`));
+  }
+
+  const data = await response.json();
+  return data.hidden_briefings || [];
 }

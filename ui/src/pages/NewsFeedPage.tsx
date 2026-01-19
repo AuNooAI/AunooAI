@@ -179,7 +179,7 @@ export function NewsFeedPage() {
 
   // UI State
   const [currentTab, setCurrentTab] = useState<'feed' | 'emerging' | 'agents' | 'saved'>('feed');
-  const [viewMode, setViewMode] = useState<'clustered' | 'list'>('clustered');
+  const [viewMode, setViewMode] = useState<'clustered' | 'list'>('list');
   const [emergingTopicsCount, setEmergingTopicsCount] = useState(0);
   const [reportsCount, setReportsCount] = useState(0);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
