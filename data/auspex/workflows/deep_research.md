@@ -2,9 +2,17 @@
 name: "deep_research_workflow"
 version: "1.0.0"
 type: "workflow"
-description: "Multi-step autonomous research with planning, searching, synthesis, and reporting"
+description: "Multi-step autonomous research with exploration, planning, parallel searching, synthesis, and reporting"
 
 stages:
+  - name: exploration
+    agent: corpus_explorer
+    timeout: 30
+    outputs:
+      - corpus_context
+      - themes
+      - sample_titles
+
   - name: planning
     agent: research_planner
     timeout: 30
@@ -15,7 +23,7 @@ stages:
 
   - name: searching
     agent: research_searcher
-    timeout: 120
+    timeout: 180  # Increased from 120 for more comprehensive search
     parallel: true
     max_iterations: 5
     inputs:
@@ -49,14 +57,14 @@ stages:
 config:
   max_total_tokens: 100000
   credibility_threshold: 40
-  source_diversity_min: 5
+  source_diversity_min: 10  # Increased from 5 for better diversity
   allow_external_search: true
-  total_timeout: 300
+  total_timeout: 360  # Increased to accommodate more comprehensive search
 
 sampling:
   strategy: "balanced"
-  articles_per_query: 20
-  max_total_articles: 100
+  articles_per_query: 100  # Increased from 20 for better coverage
+  max_total_articles: 500  # Increased from 100 for comprehensive research
   recency_weight: 0.3
   diversity:
     category_diversity: true
@@ -68,7 +76,7 @@ sampling:
       negative: 20
       mixed: 10
     source_diversity: true
-    max_per_source: 5
+    max_per_source: 30  # Increased from 5 to allow more depth per source
 
 filtering:
   min_credibility: 40

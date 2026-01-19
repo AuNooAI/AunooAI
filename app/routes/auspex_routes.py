@@ -1395,9 +1395,9 @@ class DeepResearchRequest(BaseModel):
     @field_validator('query')
     @classmethod
     def validate_query(cls, v: str) -> str:
-        """Ensure query is not empty."""
-        if not v or len(v.strip()) < 5:
-            raise ValueError("Research query must be at least 5 characters")
+        """Ensure query is not empty - short queries will get friendly prompt for more details."""
+        if not v or not v.strip():
+            raise ValueError("Please enter a research question")
         return v.strip()
 
     @field_validator('topic')

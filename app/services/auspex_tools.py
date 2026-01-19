@@ -113,12 +113,27 @@ class AuspexToolsService:
 
         return sampler.sample(articles, limit, context)
 
+    # Topic values that indicate cross-topic (all topics) mode
+    CROSS_TOPIC_VALUES = {"__all__", "All Topics", "all", "all_topics", "", None}
+
+    def _normalize_topic(self, topic: Optional[str]) -> Optional[str]:
+        """
+        Normalize topic for database queries.
+        Special values like '__all__', 'All Topics' are converted to None for cross-topic mode.
+        """
+        if topic is None or topic in self.CROSS_TOPIC_VALUES:
+            return None
+        return topic
+
     async def enhanced_database_search(self, query: str, topic: str = None, limit: int = 50, model: str = None) -> Dict:
         """Enhanced database search with hybrid vector/SQL search and intelligent query parsing.
 
-        If topic is None (cross-topic mode), searches across all topics.
+        If topic is None or a special value like '__all__' (cross-topic mode), searches across all topics.
         """
         try:
+            # Normalize topic - convert '__all__', 'All Topics', etc. to None for cross-topic mode
+            topic = self._normalize_topic(topic)
+
             # Get model from configured models if not specified
             if model is None:
                 available = get_available_models()
@@ -201,7 +216,9 @@ class AuspexToolsService:
                             "publication_date": result["metadata"].get("publication_date"),
                             "news_source": result["metadata"].get("news_source"),
                             "tags": result["metadata"].get("tags", "").split(",") if result["metadata"].get("tags") else [],
-                            "similarity_score": result.get("score", 0)
+                            "similarity_score": result.get("score", 0),
+                            "_from_vector_db": True,  # Mark as from internal vector database
+                            "source_type": "database"  # Explicit source type for routing
                         })
                 
                 logger.debug(f"Vector search found {len(vector_articles)} semantically relevant articles")

@@ -30,8 +30,20 @@ class SearchSource(str, Enum):
 class SearchRouter:
     """Routes search queries to appropriate sources based on query analysis."""
 
+    # Topic values that indicate cross-topic (all topics) mode
+    CROSS_TOPIC_VALUES = {"__all__", "All Topics", "all", "all_topics", "", None}
+
     def __init__(self):
         self.db = get_database_instance()
+
+    def _normalize_topic(self, topic: Optional[str]) -> Optional[str]:
+        """
+        Normalize topic for database queries.
+        Special values like '__all__', 'All Topics' are converted to None for cross-topic mode.
+        """
+        if topic is None or topic in self.CROSS_TOPIC_VALUES:
+            return None
+        return topic
 
         # Recency patterns - suggest external search for very recent events
         self.recency_patterns = [
@@ -248,7 +260,7 @@ class SearchRouter:
 
         Args:
             query: Search query
-            topic: Topic to search within
+            topic: Topic to search within (special values like '__all__' are normalized to None for cross-topic)
             limit: Maximum results
             force_source: Force a specific source (overrides analysis)
             tools_service: AuspexToolsService instance for executing searches
@@ -257,6 +269,9 @@ class SearchRouter:
             Dict with search results and routing metadata
         """
         import asyncio
+
+        # Normalize topic - convert '__all__', 'All Topics', etc. to None for cross-topic mode
+        normalized_topic = self._normalize_topic(topic)
 
         # Analyze query if not forcing source
         if force_source:
@@ -267,12 +282,12 @@ class SearchRouter:
                 "confidence": 1.0
             }
         else:
-            analysis = self.analyze_query(query, topic)
+            analysis = self.analyze_query(query, normalized_topic)
             source = analysis["source"]
 
         results = {
             "query": query,
-            "topic": topic,
+            "topic": normalized_topic,  # Use normalized topic
             "source_used": source.value,
             "routing_analysis": analysis,
             "articles": [],
@@ -289,7 +304,7 @@ class SearchRouter:
             if source == SearchSource.VECTOR_DB:
                 db_results = await tools_service.enhanced_database_search(
                     query=query,
-                    topic=topic,
+                    topic=normalized_topic,  # Use normalized topic
                     limit=limit
                 )
                 results["articles"] = db_results.get("articles", [])
@@ -322,7 +337,7 @@ class SearchRouter:
                 # Execute both searches in parallel - use Google PSE for external
                 db_task = tools_service.enhanced_database_search(
                     query=query,
-                    topic=topic,
+                    topic=normalized_topic,  # Use normalized topic
                     limit=limit // 2
                 )
                 ext_task = tools_service.google_web_search(
@@ -344,6 +359,7 @@ class SearchRouter:
                     logger.info(f"Hybrid: Database search returned {len(db_articles)} articles")
                     for article in db_articles:
                         article["source_type"] = "database"
+                        article["_from_vector_db"] = True  # Mark as from internal database
                         combined_articles.append(article)
                 else:
                     logger.warning(f"Database search failed in hybrid: {db_results}")
