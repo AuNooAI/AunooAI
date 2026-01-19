@@ -159,7 +159,7 @@ class UrlLookupService:
     def _lookup_in_topic(self, url: str, topic: str) -> Optional[Dict]:
         """Look up URL in a specific topic."""
         try:
-            article = self.db.get_article_by_url(url)
+            article = self.db.facade.get_article_by_url(url)
             if article and article.get('topic') == topic:
                 return dict(article)
             return None
@@ -170,7 +170,7 @@ class UrlLookupService:
     def _lookup_all_topics(self, url: str) -> Optional[Dict]:
         """Look up URL across all topics."""
         try:
-            article = self.db.get_article_by_url(url)
+            article = self.db.facade.get_article_by_url(url)
             if article:
                 return dict(article)
             return None
