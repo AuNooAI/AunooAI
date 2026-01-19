@@ -19,6 +19,7 @@ import {
   type UpdateAgentRequest,
   type PodcastSummary,
 } from '../services/researchAgentsApi';
+import { extractErrorMessage } from '../services/api';
 
 export interface UseResearchAgentsState {
   agents: ResearchAgent[];
@@ -170,7 +171,7 @@ export function useResearchAgents(initialTopic?: string): UseResearchAgentsState
         await fetchAlerts({ topic: options?.topic });
         return true;
       } else {
-        setError(response.message || 'Failed to run research agent');
+        setError(extractErrorMessage(response.message, 'Failed to run research agent'));
         return false;
       }
     } catch (err) {
@@ -222,7 +223,7 @@ export function useResearchAgents(initialTopic?: string): UseResearchAgentsState
         }
         return true;
       } else {
-        setError(response.message || 'Failed to run research agents');
+        setError(extractErrorMessage(response.message, 'Failed to run research agents'));
         return false;
       }
     } catch (err) {

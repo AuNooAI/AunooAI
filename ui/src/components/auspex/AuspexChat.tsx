@@ -26,6 +26,7 @@ import { AuspexChatButton } from './AuspexChatButton';
 import { AuspexChatModal } from './AuspexChatModal';
 import { getModelContextLimit } from '../../services/auspexService';
 import { AUSPEX_OPEN_EVENT, type AuspexOpenEventDetail } from '../../utils/auspexEvents';
+import { showError } from '../../utils/toast';
 
 interface AuspexChatProps {
   /** Additional class names for the floating button */
@@ -144,12 +145,12 @@ export function AuspexChat({ buttonClassName }: AuspexChatProps) {
     };
   }, [topics, setSelectedTopic]);
 
-  // Show error alert when error state changes
+  // Show error toast when error state changes
   useEffect(() => {
     if (error) {
       console.error('Auspex Chat Error:', error);
-      // Show user-friendly error notification
-      alert(`Auspex Error: ${error}`);
+      // Show user-friendly error toast instead of blocking alert
+      showError(error, 6000);
       clearError();
     }
   }, [error, clearError]);

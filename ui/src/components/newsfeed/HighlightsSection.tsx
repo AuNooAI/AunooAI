@@ -95,9 +95,27 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareData, setShareData] = useState<ShareData | null>(null);
 
-  // Share handler - opens modal with single incident data
+  // Share handler - opens modal with single incident data including articles
   const handleShare = (incident: Incident) => {
     const name = incident.name || incident.title || 'Unnamed Incident';
+    // Build articles array from incident data - use article_metadata as primary source
+    const articleMetadata = incident.article_metadata || [];
+    const articleUris = incident.article_uris || [];
+    const legacyArticles = incident.articles || [];
+
+    // Merge data from all sources
+    const articles = articleMetadata.length > 0
+      ? articleMetadata.slice(0, 5).map((meta, i) => ({
+          title: meta.title,
+          source: meta.news_source,
+          url: meta.uri || articleUris[i],
+        }))
+      : legacyArticles.slice(0, 5).map((article, i) => ({
+          title: article.title,
+          source: article.source,
+          url: article.uri || articleUris[i],
+        }));
+
     setShareData({
       type: 'incident',
       incident_name: name,
@@ -109,6 +127,12 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
       strategic_relevance: incident.organizational_relevance,
       plausibility: incident.plausibility,
       source_quality: incident.source_quality,
+      credibility_summary: incident.credibility_summary,
+      timeline: incident.timeline,
+      investigation_leads: incident.investigation_leads,
+      first_seen: incident.first_seen,
+      last_seen: incident.last_seen,
+      articles: articles.length > 0 ? articles : undefined,
     });
     setShowShareModal(true);
   };
@@ -119,16 +143,36 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
     setShareData({
       type: 'incidents',
       topic: currentTopic,
-      incidents: incidents.map(incident => ({
-        incident_name: incident.name || incident.title || 'Unnamed Incident',
-        incident_type: incident.type,
-        significance: incident.significance,
-        description: incident.description || incident.summary,
-        entities: incident.entities,
-        strategic_relevance: incident.organizational_relevance,
-        plausibility: incident.plausibility,
-        source_quality: incident.source_quality,
-      })),
+      incidents: incidents.map(incident => {
+        // Build articles array from incident data - use article_metadata as primary source
+        const articleMetadata = incident.article_metadata || [];
+        const articleUris = incident.article_uris || [];
+        const legacyArticles = incident.articles || [];
+
+        const articles = articleMetadata.length > 0
+          ? articleMetadata.slice(0, 3).map((meta, i) => ({
+              title: meta.title,
+              source: meta.news_source,
+              url: meta.uri || articleUris[i],
+            }))
+          : legacyArticles.slice(0, 3).map((article, i) => ({
+              title: article.title,
+              source: article.source,
+              url: article.uri || articleUris[i],
+            }));
+
+        return {
+          incident_name: incident.name || incident.title || 'Unnamed Incident',
+          incident_type: incident.type,
+          significance: incident.significance,
+          description: incident.description || incident.summary,
+          entities: incident.entities,
+          strategic_relevance: incident.organizational_relevance,
+          plausibility: incident.plausibility,
+          source_quality: incident.source_quality,
+          articles: articles.length > 0 ? articles : undefined,
+        };
+      }),
     });
     setShowShareModal(true);
   };

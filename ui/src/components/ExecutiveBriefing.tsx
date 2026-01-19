@@ -28,6 +28,7 @@ import {
   BarChart3,
   Volume2,
 } from 'lucide-react';
+import { extractErrorMessage } from '../services/api';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
 import { Alert, AlertDescription, AlertTitle } from './ui/alert';
@@ -772,7 +773,7 @@ export function ExecutiveBriefing({
                 if (onPodcastModalChange) onPodcastModalChange(false);
               } else if (statusData.status === 'failed') {
                 clearInterval(pollInterval);
-                setPodcastError(statusData.error || 'Audio generation failed');
+                setPodcastError(extractErrorMessage(statusData.error, 'Audio generation failed'));
                 setIsGeneratingAudio(false);
               }
             }

@@ -4,7 +4,7 @@
  * Features: filters, compact mode, multi-select, bulk actions, time grouping
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Loader2,
   ChevronLeft,
@@ -28,11 +28,17 @@ import {
   Download,
   Sparkles,
   X,
+  MoreVertical,
+  ThumbsUp,
+  ThumbsDown,
+  Mail,
+  RefreshCw,
 } from 'lucide-react';
-import { type NewsArticle, getArticlesList, getArticleFilterOptions, getTopics, getTopicCategories, type DateRange, type ArticleFilterOptions } from '../../services/newsFeedApi';
+import { type NewsArticle, getArticlesList, getArticleFilterOptions, getTopics, getTopicCategories, type DateRange, type ArticleFilterOptions, recordArticlePreference } from '../../services/newsFeedApi';
 import { getCategoryBadgeColor, formatRelativeTime, getTimePeriodLabel } from './cardUtils';
 import { ArticleBiasIndicator } from './ArticleBiasIndicator';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
+import { ShareModal, type ShareArticleData } from '../ShareModal';
 
 interface ArticleListViewProps {
   dateRange: DateRange;
@@ -42,6 +48,8 @@ interface ArticleListViewProps {
   onStar: (uri: string) => void;
   onUnstar: (uri: string) => void;
   onArticleClick: (article: NewsArticle) => void;
+  excludedArticles?: string[];
+  onExcludeArticle?: (uri: string) => void;
 }
 
 type SortOption = 'date_desc' | 'date_asc' | 'source' | 'category';
@@ -72,6 +80,8 @@ export function ArticleListView({
   onStar,
   onUnstar,
   onArticleClick,
+  excludedArticles = [],
+  onExcludeArticle,
 }: ArticleListViewProps) {
   const [allArticles, setAllArticles] = useState<NewsArticle[]>([]);
   const [filteredArticles, setFilteredArticles] = useState<NewsArticle[]>([]);
@@ -104,6 +114,10 @@ export function ArticleListView({
   const [availableTopics, setAvailableTopics] = useState<Array<{ name: string; description?: string }>>([]);
   const [selectedTopic, setSelectedTopic] = useState<string | undefined>(topic);
   const [topicCategories, setTopicCategories] = useState<string[]>([]);
+
+  // Share modal state
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareData, setShareData] = useState<ShareArticleData | null>(null);
 
   const perPage = 25;
 
@@ -468,6 +482,29 @@ Please provide:
 
     openAuspexWithQuery(prompt);
     clearSelection();
+  };
+
+  // Share handler
+  const handleShareArticle = (article: NewsArticle) => {
+    setShareData({
+      type: 'article',
+      title: article.title,
+      url: article.url || article.uri,
+      source: article.source?.name,
+      summary: article.summary,
+      category: article.category,
+      topic: article.topic,
+      sentiment: article.sentiment,
+      publication_date: article.publication_date,
+    });
+    setShowShareModal(true);
+  };
+
+  // Replace/exclude article handler
+  const handleExcludeArticle = (uri: string) => {
+    if (onExcludeArticle) {
+      onExcludeArticle(uri);
+    }
   };
 
   // Check if any filters are active
@@ -893,6 +930,8 @@ Please provide:
                       onUnstar={onUnstar}
                       onClick={handleArticleClick}
                       onToggleSelect={() => toggleSelection(article.uri)}
+                      onShare={handleShareArticle}
+                      onExclude={onExcludeArticle ? handleExcludeArticle : undefined}
                     />
                   ))}
                 </div>
@@ -932,6 +971,15 @@ Please provide:
           </button>
         </div>
       )}
+
+      {/* Share Modal */}
+      {shareData && (
+        <ShareModal
+          open={showShareModal}
+          onOpenChange={setShowShareModal}
+          data={shareData}
+        />
+      )}
     </div>
   );
 }
@@ -948,6 +996,8 @@ interface ArticleListItemProps {
   onUnstar: (uri: string) => void;
   onClick: (article: NewsArticle) => void;
   onToggleSelect: () => void;
+  onShare: (article: NewsArticle) => void;
+  onExclude?: (uri: string) => void;
 }
 
 function ArticleListItem({
@@ -961,7 +1011,26 @@ function ArticleListItem({
   onUnstar,
   onClick,
   onToggleSelect,
+  onShare,
+  onExclude,
 }: ArticleListItemProps) {
+  const [showMenu, setShowMenu] = useState(false);
+  const [preferenceLoading, setPreferenceLoading] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenu(false);
+      }
+    };
+    if (showMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showMenu]);
+
   const handleStarClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (isStarred) {
@@ -981,6 +1050,29 @@ function ArticleListItem({
   const handleCheckboxClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     onToggleSelect();
+  };
+
+  const handleMenuClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowMenu(!showMenu);
+  };
+
+  const handleMenuAction = async (action: string) => {
+    setShowMenu(false);
+    if (action === 'more' || action === 'less') {
+      try {
+        setPreferenceLoading(true);
+        await recordArticlePreference(article.uri, action);
+      } catch (err) {
+        console.error(`Failed to record preference: ${err}`);
+      } finally {
+        setPreferenceLoading(false);
+      }
+    } else if (action === 'share') {
+      onShare(article);
+    } else if (action === 'exclude' && onExclude) {
+      onExclude(article.uri);
+    }
   };
 
   return (
@@ -1025,6 +1117,56 @@ function ArticleListItem({
             <ExternalLink className="w-3.5 h-3.5 text-gray-500" />
           </a>
         )}
+
+        {/* Menu Button */}
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={handleMenuClick}
+            className={`p-1 rounded hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors ${
+              preferenceLoading ? 'opacity-50' : ''
+            }`}
+            title="More options"
+            disabled={preferenceLoading}
+          >
+            <MoreVertical className="w-3.5 h-3.5 text-gray-500" />
+          </button>
+
+          {/* Dropdown Menu */}
+          {showMenu && (
+            <div className="absolute right-0 top-full mt-1 w-40 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-50">
+              <button
+                onClick={() => handleMenuAction('more')}
+                className="w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2"
+              >
+                <ThumbsUp className="w-3.5 h-3.5 text-green-500" />
+                More like this
+              </button>
+              <button
+                onClick={() => handleMenuAction('less')}
+                className="w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2"
+              >
+                <ThumbsDown className="w-3.5 h-3.5 text-red-500" />
+                Less like this
+              </button>
+              <button
+                onClick={() => handleMenuAction('share')}
+                className="w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2"
+              >
+                <Mail className="w-3.5 h-3.5 text-blue-500" />
+                Share via email
+              </button>
+              {onExclude && (
+                <button
+                  onClick={() => handleMenuAction('exclude')}
+                  className="w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-orange-500" />
+                  Replace
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Star button in top-right corner */}

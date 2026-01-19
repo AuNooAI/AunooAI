@@ -4,6 +4,7 @@
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
+import { extractErrorMessage } from '../services/api';
 
 // Types
 export interface Persona {
@@ -382,7 +383,7 @@ export function useFocusGroup(): UseFocusGroupReturn {
                 // Handle error
                 if (data.stage === 'error' || data.status === 'error') {
                   setIsGenerating(false);
-                  setError(data.error || 'Generation failed');
+                  setError(extractErrorMessage(data.error, 'Generation failed'));
                 }
               } catch (parseError) {
                 console.error('Error parsing SSE data:', parseError);

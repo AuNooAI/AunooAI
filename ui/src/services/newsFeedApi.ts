@@ -3,6 +3,8 @@
  * Handles all API calls for the news feed functionality
  */
 
+import { extractErrorMessage } from './api';
+
 // Types matching backend schemas
 export type BiasRating = 'left' | 'left-center' | 'center' | 'right-center' | 'right' | 'mixed';
 export type FactualityRating = 'very-high' | 'high' | 'mostly-factual' | 'mixed' | 'low' | 'very-low';
@@ -769,8 +771,8 @@ export async function recordArticlePreference(
   });
 
   if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-    throw new Error(error.detail || `Failed to record preference: ${response.status}`);
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to record preference: ${response.status}`));
   }
 
   return response.json();

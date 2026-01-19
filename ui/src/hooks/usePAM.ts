@@ -10,6 +10,7 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
+import { extractErrorMessage } from '../services/api';
 
 // Utility function to convert snake_case to camelCase recursively
 function snakeToCamelCase(str: string): string {
@@ -564,7 +565,7 @@ export function usePAM(): UsePAMReturn {
       }
     } else if (stage === 'error') {
       setCurrentStage('error');
-      setError(eventData.message || 'Analysis failed');
+      setError(extractErrorMessage(eventData.message || eventData.error, 'Analysis failed'));
     }
   }, []);
 

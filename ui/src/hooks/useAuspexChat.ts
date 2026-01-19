@@ -168,6 +168,9 @@ export function useAuspexChat(): UseAuspexChatReturn {
 
         if (savedTopic && topicsData.some(t => t.name === savedTopic)) {
           setSelectedTopicState(savedTopic);
+        } else {
+          // Default to "All Topics" for better UX
+          setSelectedTopicState('__all__');
         }
         if (savedModel && modelsData.some(m => m.id === savedModel)) {
           setSelectedModelState(savedModel);

@@ -4,6 +4,7 @@
  */
 
 import { useState, useCallback, useRef } from 'react';
+import { extractErrorMessage } from '../services/api';
 
 export interface NewsletterArticle {
   id: string;
@@ -210,7 +211,7 @@ export function useNewsletter() {
         articles: data.articles,
       });
     } else if (status === 'error') {
-      setError(data.error || 'Generation failed');
+      setError(extractErrorMessage(data.error, 'Generation failed'));
       setCurrentStage('error');
     }
   }, []);
