@@ -2,7 +2,7 @@
  * Custom React hook for news feed functionality
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   getNewsFeedArticles,
   getSixArticles,
@@ -398,10 +398,36 @@ export function useNewsFeed(): UseNewsFeedReturn {
     }
   }, [config.dateRange, config.topic, config.profileId, config.persona, config.articleCount, starredArticles, config.model]);
 
+  // Track if this is the initial mount to avoid refetching cached data
+  const isInitialMount = useRef(true);
+  const prevConfigKey = useRef<string | null>(null);
+
   // Fetch six articles briefing when relevant config changes
+  // Skip initial fetch if we already have cached data to preserve user's briefing
   useEffect(() => {
-    fetchSixArticles();
-  }, [fetchSixArticles]);
+    const currentKey = generateSixArticlesCacheKey(config);
+
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      prevConfigKey.current = currentKey;
+
+      // On initial mount, only fetch if we don't have cached data
+      if (!sixArticles) {
+        console.log('[useNewsFeed] Initial mount - no cached briefing, fetching...');
+        fetchSixArticles();
+      } else {
+        console.log('[useNewsFeed] Initial mount - using cached briefing, skipping fetch');
+      }
+      return;
+    }
+
+    // After initial mount, only fetch if config has changed
+    if (prevConfigKey.current !== currentKey) {
+      console.log('[useNewsFeed] Config changed, fetching new briefing');
+      prevConfigKey.current = currentKey;
+      fetchSixArticles();
+    }
+  }, [fetchSixArticles, config, sixArticles]);
 
   // Update config
   const updateConfig = useCallback((updates: Partial<NewsFeedConfig>) => {

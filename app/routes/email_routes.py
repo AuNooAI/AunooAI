@@ -104,6 +104,25 @@ class ShareBriefingRequest(BaseModel):
     key_themes: Optional[List[str]] = None
 
 
+class ShareBriefingCardRequest(BaseModel):
+    """Request to share a single briefing card via email."""
+    to_email: str
+    title: str
+    headline: Optional[str] = None
+    executive_takeaway: Optional[str] = None
+    strategic_relevance: Optional[str] = None
+    category: Optional[str] = None
+    signal_strength: Optional[str] = None
+    risk_opportunity: Optional[str] = None
+    time_horizon: Optional[str] = None
+    source: Optional[str] = None
+    date: Optional[str] = None
+    url: Optional[str] = None
+    summary: Optional[str] = None
+    executive_actions: Optional[List[str]] = None
+    scores: Optional[dict] = None  # relevance, impact, actionability, timeliness, credibility, overall
+
+
 class ShareEmergingTopicRequest(BaseModel):
     """Request to share an emerging topic via email."""
     to_email: str
@@ -893,6 +912,239 @@ Shared from AuNoo AI
 
     except Exception as e:
         logger.error(f"Error sharing briefing: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/share/briefing-card", response_model=ShareResponse)
+async def share_briefing_card(
+    request: ShareBriefingCardRequest,
+    session=Depends(verify_session)
+):
+    """Share a single briefing card via email with all rich data."""
+    email_service = get_email_service()
+
+    if not email_service.is_available():
+        raise HTTPException(
+            status_code=503,
+            detail="Email service not configured. Set RESEND_API_KEY environment variable."
+        )
+
+    subject = f"[AuNoo AI] Briefing: {request.title[:60]}{'...' if len(request.title) > 60 else ''}"
+
+    # Build HTML email with all the rich briefing data
+    html_parts = [
+        f'<div style="font-family: -apple-system, BlinkMacSystemFont, \'Segoe UI\', Roboto, sans-serif; max-width: 600px; margin: 0 auto;">',
+        f'<div style="background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); padding: 20px; border-radius: 8px 8px 0 0;">',
+        f'<h1 style="color: white; margin: 0; font-size: 24px;">Intelligence Briefing</h1>',
+        f'</div>',
+        f'<div style="background: #f8f9fa; padding: 20px; border: 1px solid #e9ecef; border-top: none;">',
+    ]
+
+    # Category badge
+    if request.category:
+        category_colors = {
+            'policy': '#9333ea',
+            'market': '#10b981',
+            'tech': '#3b82f6',
+            'workforce': '#f97316',
+            'security': '#64748b',
+            'society': '#14b8a6',
+        }
+        cat_color = category_colors.get(request.category.lower(), '#6b7280')
+        html_parts.append(f'<span style="background: {cat_color}; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; text-transform: uppercase; font-weight: 600;">{request.category}</span>')
+
+    # Title
+    html_parts.append(f'<h2 style="color: #333; margin: 12px 0 8px 0; line-height: 1.4;">{request.title}</h2>')
+
+    # Source and date
+    source_info = []
+    if request.source:
+        source_info.append(request.source)
+    if request.date:
+        try:
+            from datetime import datetime
+            date_obj = datetime.fromisoformat(request.date.replace('Z', '+00:00'))
+            source_info.append(date_obj.strftime('%B %d, %Y'))
+        except:
+            source_info.append(request.date)
+    if source_info:
+        html_parts.append(f'<p style="color: #666; margin: 0 0 15px 0; font-size: 14px;">{" · ".join(source_info)}</p>')
+
+    # Rating badges row
+    badges_html = []
+    if request.risk_opportunity:
+        risk_colors = {'opportunity': '#10b981', 'risk': '#ef4444', 'mixed': '#f59e0b'}
+        risk_color = risk_colors.get(request.risk_opportunity.lower(), '#6b7280')
+        risk_icon = {'opportunity': '↑', 'risk': '↓', 'mixed': '⚡'}.get(request.risk_opportunity.lower(), '')
+        badges_html.append(f'<span style="background: {risk_color}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-right: 4px;">{risk_icon} {request.risk_opportunity}</span>')
+    if request.time_horizon:
+        time_colors = {'immediate': '#f97316', 'short-term': '#eab308', 'short': '#eab308', 'medium': '#eab308', 'long-term': '#14b8a6', 'long': '#14b8a6'}
+        time_color = time_colors.get(request.time_horizon.lower(), '#6b7280')
+        badges_html.append(f'<span style="background: {time_color}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; margin-right: 4px;">{request.time_horizon}</span>')
+    if request.signal_strength:
+        signal_colors = {'strong': '#ec4899', 'moderate': '#3b82f6', 'weak': '#9ca3af'}
+        signal_color = signal_colors.get(request.signal_strength.lower(), '#6b7280')
+        badges_html.append(f'<span style="background: {signal_color}; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">{request.signal_strength}</span>')
+    if request.scores and request.scores.get('overall'):
+        badges_html.append(f'<span style="background: #ec4899; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: bold;">Score: {request.scores["overall"]}/5</span>')
+
+    if badges_html:
+        html_parts.append(f'<p style="margin: 0 0 15px 0;">{"".join(badges_html)}</p>')
+
+    # Executive Takeaway - "Why This Matters"
+    if request.executive_takeaway:
+        html_parts.append(f'<div style="background: linear-gradient(135deg, #fdf2f8 0%, #faf5ff 100%); padding: 15px; border-radius: 4px; margin: 15px 0; border-left: 4px solid #ec4899;">')
+        html_parts.append(f'<h4 style="color: #be185d; margin: 0 0 8px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Why This Matters</h4>')
+        html_parts.append(f'<p style="margin: 0; color: #333; line-height: 1.6;">{request.executive_takeaway}</p>')
+        html_parts.append('</div>')
+
+    # Summary
+    if request.summary:
+        html_parts.append(f'<div style="margin: 15px 0;">')
+        html_parts.append(f'<h4 style="color: #666; margin: 0 0 8px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Summary</h4>')
+        html_parts.append(f'<p style="margin: 0; color: #333; line-height: 1.6;">{request.summary}</p>')
+        html_parts.append('</div>')
+
+    # Strategic Relevance
+    if request.strategic_relevance:
+        html_parts.append(f'<div style="background: #e3f2fd; padding: 15px; border-radius: 4px; margin: 15px 0; border-left: 4px solid #2196f3;">')
+        html_parts.append(f'<h4 style="color: #1565c0; margin: 0 0 8px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Strategic Relevance</h4>')
+        html_parts.append(f'<p style="margin: 0; color: #333; line-height: 1.6;">{request.strategic_relevance}</p>')
+        html_parts.append('</div>')
+
+    # Executive Actions
+    if request.executive_actions and len(request.executive_actions) > 0:
+        html_parts.append(f'<div style="margin: 15px 0;">')
+        html_parts.append(f'<h4 style="color: #666; margin: 0 0 12px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Recommended Actions</h4>')
+        html_parts.append('<ul style="margin: 0; padding-left: 0; list-style: none;">')
+        for action in request.executive_actions:
+            html_parts.append(f'<li style="margin: 8px 0; color: #333; display: flex; align-items: flex-start;"><span style="color: #ec4899; margin-right: 8px;">→</span><span>{action}</span></li>')
+        html_parts.append('</ul>')
+        html_parts.append('</div>')
+
+    # Scores breakdown
+    if request.scores and len(request.scores) > 1:
+        html_parts.append(f'<div style="background: white; padding: 15px; border-radius: 4px; margin: 15px 0; border: 1px solid #e9ecef;">')
+        html_parts.append(f'<h4 style="color: #666; margin: 0 0 12px 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;">Score Breakdown</h4>')
+        html_parts.append('<table style="width: 100%; border-collapse: collapse;"><tr>')
+        score_labels = [('relevance', 'Relevance'), ('impact', 'Impact'), ('actionability', 'Actionability'), ('timeliness', 'Timeliness'), ('credibility', 'Credibility')]
+        for key, label in score_labels:
+            if request.scores.get(key) is not None:
+                html_parts.append(f'<td style="text-align: center; padding: 8px;"><div style="font-size: 20px; font-weight: bold; color: #333;">{request.scores[key]}</div><div style="font-size: 11px; color: #666;">{label}</div></td>')
+        html_parts.append('</tr></table>')
+        html_parts.append('</div>')
+
+    # Read article button
+    if request.url:
+        html_parts.append(f'<div style="margin: 20px 0; text-align: center;">')
+        html_parts.append(f'<a href="{request.url}" style="display: inline-block; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 500;">Read Full Article</a>')
+        html_parts.append('</div>')
+
+    # Action buttons - View in App and Ask Auspex
+    auspex_context = f"Analyze this briefing: {request.title}"
+    if request.executive_takeaway:
+        auspex_context += f"\n\nKey takeaway: {request.executive_takeaway[:200]}"
+    if request.strategic_relevance:
+        auspex_context += f"\n\nStrategic relevance: {request.strategic_relevance[:200]}"
+    auspex_context += "\n\nProvide deeper analysis and additional strategic recommendations."
+    auspex_query = urllib.parse.quote(auspex_context)
+
+    html_parts.append('<div style="margin: 20px 0; padding: 15px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px; text-align: center;">')
+    html_parts.append('<p style="color: #666; font-size: 12px; margin: 0 0 12px 0;">Continue exploring in AuNoo AI</p>')
+    html_parts.append('<div style="display: inline-block;">')
+    html_parts.append('<a href="https://bugfixing.aunoo.ai/explore" style="display: inline-block; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">View Your Briefing</a>')
+    html_parts.append(f'<a href="https://bugfixing.aunoo.ai/explore?auspex_query={auspex_query}" style="display: inline-block; background: #1976d2; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">Ask Auspex</a>')
+    html_parts.append('</div>')
+    html_parts.append('</div>')
+
+    html_parts.extend([
+        '</div>',
+        '<div style="background: #f1f3f4; padding: 15px; text-align: center; border-radius: 0 0 8px 8px; border: 1px solid #e9ecef; border-top: none;">',
+        '<p style="color: #666; font-size: 12px; margin: 0;">Shared from <strong>AuNoo AI</strong></p>',
+        '</div>',
+        '</div>'
+    ])
+
+    body_html = '\n'.join(html_parts)
+
+    # Plain text version
+    text_parts = [f"Intelligence Briefing: {request.title}", ""]
+    if request.category:
+        text_parts.append(f"Category: {request.category}")
+    if request.source or request.date:
+        text_parts.append(f"{request.source or ''} · {request.date or ''}")
+    text_parts.append("")
+
+    # Rating badges
+    ratings = []
+    if request.risk_opportunity:
+        ratings.append(f"Risk/Opportunity: {request.risk_opportunity}")
+    if request.time_horizon:
+        ratings.append(f"Time Horizon: {request.time_horizon}")
+    if request.signal_strength:
+        ratings.append(f"Signal: {request.signal_strength}")
+    if request.scores and request.scores.get('overall'):
+        ratings.append(f"Score: {request.scores['overall']}/5")
+    if ratings:
+        text_parts.append(" | ".join(ratings))
+        text_parts.append("")
+
+    if request.executive_takeaway:
+        text_parts.append("WHY THIS MATTERS:")
+        text_parts.append(request.executive_takeaway)
+        text_parts.append("")
+
+    if request.summary:
+        text_parts.append("SUMMARY:")
+        text_parts.append(request.summary)
+        text_parts.append("")
+
+    if request.strategic_relevance:
+        text_parts.append("STRATEGIC RELEVANCE:")
+        text_parts.append(request.strategic_relevance)
+        text_parts.append("")
+
+    if request.executive_actions:
+        text_parts.append("RECOMMENDED ACTIONS:")
+        for action in request.executive_actions:
+            text_parts.append(f"  → {action}")
+        text_parts.append("")
+
+    if request.scores and len(request.scores) > 1:
+        scores_text = ", ".join([f"{k.capitalize()}: {v}" for k, v in request.scores.items() if v is not None and k != 'overall'])
+        if scores_text:
+            text_parts.append(f"Scores: {scores_text}")
+            text_parts.append("")
+
+    if request.url:
+        text_parts.append(f"Read full article: {request.url}")
+        text_parts.append("")
+
+    text_parts.append("---")
+    text_parts.append("Continue exploring in AuNoo AI:")
+    text_parts.append("  View Your Briefing: https://bugfixing.aunoo.ai/explore")
+    text_parts.append(f"  Ask Auspex: https://bugfixing.aunoo.ai/explore?auspex_query={auspex_query}")
+    text_parts.append("")
+    text_parts.append("Shared from AuNoo AI")
+
+    body_text = "\n".join(text_parts)
+
+    try:
+        success = email_service.send_email(
+            to_addresses=[request.to_email],
+            subject=subject,
+            body_html=body_html,
+            body_text=body_text
+        )
+
+        if success:
+            logger.info(f"Briefing card shared via email to {request.to_email}")
+            return ShareResponse(success=True, message="Briefing shared successfully")
+        else:
+            raise HTTPException(status_code=500, detail="Failed to send email")
+
+    except Exception as e:
+        logger.error(f"Error sharing briefing card: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
