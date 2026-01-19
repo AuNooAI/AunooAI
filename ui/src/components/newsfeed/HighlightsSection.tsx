@@ -38,6 +38,7 @@ import {
   type Incident,
   type IncidentArticle,
   type IncidentType,
+  type IncidentPreferenceData,
   getTypeBadgeColor,
   getSignificanceBadgeColor,
   getPlausibilityBadgeColor,
@@ -52,6 +53,8 @@ import {
   saveIncident as apiSaveIncident,
   unsaveIncident as apiUnsaveIncident,
   recordIncidentPreference,
+  clearIncidentPreference,
+  getIncidentPreferences,
 } from '../../services/narrativeExplorerApi';
 import { Card, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
@@ -94,6 +97,50 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
   // Share modal state
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareData, setShareData] = useState<ShareData | null>(null);
+
+  // Preferences state - map of incident name to 'more' | 'less'
+  const [incidentPreferences, setIncidentPreferences] = useState<Map<string, 'more' | 'less'>>(new Map());
+
+  // Load preferences on mount
+  useEffect(() => {
+    const loadPreferences = async () => {
+      try {
+        const prefs = await getIncidentPreferences();
+        console.log('[HighlightsSection] Loaded preferences from API:', prefs);
+        const prefMap = new Map<string, 'more' | 'less'>();
+        for (const entry of prefs.more_like || []) {
+          if (entry.incident_name) {
+            prefMap.set(entry.incident_name, 'more');
+            console.log('[HighlightsSection] Added more preference:', entry.incident_name);
+          }
+        }
+        for (const entry of prefs.less_like || []) {
+          if (entry.incident_name) {
+            prefMap.set(entry.incident_name, 'less');
+            console.log('[HighlightsSection] Added less preference:', entry.incident_name);
+          }
+        }
+        console.log('[HighlightsSection] Final preference map size:', prefMap.size);
+        setIncidentPreferences(prefMap);
+      } catch (err) {
+        console.error('Failed to load incident preferences:', err);
+      }
+    };
+    loadPreferences();
+  }, []);
+
+  // Handler for preference changes from child cards
+  const handlePreferenceChange = (incidentName: string, preference: 'more' | 'less' | null) => {
+    setIncidentPreferences(prev => {
+      const next = new Map(prev);
+      if (preference === null) {
+        next.delete(incidentName);
+      } else {
+        next.set(incidentName, preference);
+      }
+      return next;
+    });
+  };
 
   // Share handler - opens modal with single incident data including articles
   const handleShare = (incident: Incident) => {
@@ -357,6 +404,10 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
               {incidents.map((incident, index) => {
                 const incidentKey = incident.id || incident.name || `incident-${index}`;
                 const incidentName = incident.name || incident.title || 'Unnamed Incident';
+                const pref = incidentPreferences.get(incidentName) || null;
+                if (pref) {
+                  console.log('[HighlightsSection] Incident has preference:', incidentName, pref);
+                }
                 return (
                   <CompactIncidentCard
                     key={incidentKey}
@@ -367,6 +418,9 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
                     onSave={onSaveIncident}
                     onUnsave={onUnsaveIncident}
                     onShare={handleShare}
+                    preference={pref}
+                    onPreferenceChange={handlePreferenceChange}
+                    onIncidentUpdate={onIncidentUpdate}
                   />
                 );
               })}
@@ -422,6 +476,9 @@ interface CompactIncidentCardProps {
   onSave?: (incidentName: string) => void;
   onUnsave?: (incidentName: string) => void;
   onShare?: (incident: Incident) => void;
+  preference?: 'more' | 'less' | null;
+  onPreferenceChange?: (incidentName: string, preference: 'more' | 'less' | null) => void;
+  onIncidentUpdate?: () => void;
 }
 
 // Badge tooltip explanations for incidents
@@ -458,7 +515,7 @@ function getSourceQualityTooltip(quality: string): string {
   return `Source quality: ${quality}`;
 }
 
-function CompactIncidentCard({ incident, onClick, isSaved, currentTopic, onSave, onUnsave, onShare }: CompactIncidentCardProps) {
+function CompactIncidentCard({ incident, onClick, isSaved, currentTopic, onSave, onUnsave, onShare, preference, onPreferenceChange, onIncidentUpdate }: CompactIncidentCardProps) {
   const [hoveredBadge, setHoveredBadge] = useState<string | null>(null);
   const [badgeTooltipPos, setBadgeTooltipPos] = useState({ top: 0, left: 0 });
   const [showMenu, setShowMenu] = useState(false);
@@ -469,6 +526,31 @@ function CompactIncidentCard({ incident, onClick, isSaved, currentTopic, onSave,
   const significance = incident.significance || 'medium';
   const displaySummary = incident.description || incident.summary || '';
   const signalTags = getIncidentSignalTags(incident);
+
+  // Build article data for fine-tuning
+  const getArticleData = () => {
+    const articleMetadata = incident.article_metadata || [];
+    const articleUris = incident.article_uris || [];
+    const legacyArticles = incident.articles || [];
+
+    const urls: string[] = [];
+    const titles: string[] = [];
+
+    if (articleMetadata.length > 0) {
+      for (let i = 0; i < Math.min(10, articleMetadata.length); i++) {
+        const meta = articleMetadata[i];
+        if (meta.uri || articleUris[i]) urls.push(meta.uri || articleUris[i]);
+        if (meta.title) titles.push(meta.title);
+      }
+    } else {
+      for (let i = 0; i < Math.min(10, articleUris.length); i++) {
+        urls.push(articleUris[i]);
+        if (legacyArticles[i]?.title) titles.push(legacyArticles[i].title);
+      }
+    }
+
+    return { urls, titles };
+  };
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -500,15 +582,47 @@ function CompactIncidentCard({ incident, onClick, isSaved, currentTopic, onSave,
     } else if (action === 'more' || action === 'less') {
       try {
         setActionInProgress(true);
-        await recordIncidentPreference(name, action, {
-          type: incident.type,
-          topic: currentTopic,
-          entities: incident.entities?.slice(0, 3),
-        });
-        // Show a brief visual confirmation (could add a toast here)
-        console.log(`Preference "${action}" recorded for: ${name}`);
+        const prefAction = action as 'more' | 'less';
+
+        // Toggle behavior: if clicking the same preference, clear it
+        if (preference === prefAction) {
+          await clearIncidentPreference(name);
+          onPreferenceChange?.(name, null);
+          console.log(`Preference cleared for: ${name}`);
+        } else {
+          // Get article data for fine-tuning
+          const { urls, titles } = getArticleData();
+
+          // Record new preference with expanded data for fine-tuning
+          const incidentData: IncidentPreferenceData = {
+            type: incident.type,
+            topic: incident.topic,
+            entities: incident.entities?.slice(0, 10),
+            // Enhanced fields for fine-tuning
+            summary: displaySummary,
+            article_urls: urls,
+            article_titles: titles,
+            significance: incident.significance,
+            browsing_topic: currentTopic,
+          };
+
+          await recordIncidentPreference(name, prefAction, incidentData);
+          onPreferenceChange?.(name, prefAction);
+          console.log(`Preference "${prefAction}" recorded for: ${name}`);
+        }
       } catch (err) {
         console.error(`Failed to record preference: ${err}`);
+      } finally {
+        setActionInProgress(false);
+      }
+    } else if (action === 'hide') {
+      if (!confirm(`Hide "${name}"? It won't appear in future results.`)) return;
+      try {
+        setActionInProgress(true);
+        await updateIncidentStatus(name, 'deleted');
+        onIncidentUpdate?.();
+      } catch (err) {
+        console.error(`Failed to hide incident: ${err}`);
       } finally {
         setActionInProgress(false);
       }
@@ -606,18 +720,42 @@ function CompactIncidentCard({ incident, onClick, isSaved, currentTopic, onSave,
                   <button
                     onClick={(e) => handleMenuAction('more', e)}
                     disabled={actionInProgress}
-                    className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 disabled:opacity-50"
+                    className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 disabled:opacity-50 ${
+                      preference === 'more'
+                        ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                        : 'text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
                   >
-                    <ThumbsUp className="w-4 h-4 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
-                    More like this
+                    <ThumbsUp className={`w-4 h-4 ${
+                      preference === 'more'
+                        ? 'text-green-600 dark:text-green-400 fill-green-600 dark:fill-green-400'
+                        : 'text-gray-700 dark:text-gray-400'
+                    }`} />
+                    {preference === 'more' ? 'More like this ✓' : 'More like this'}
                   </button>
                   <button
                     onClick={(e) => handleMenuAction('less', e)}
                     disabled={actionInProgress}
+                    className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 disabled:opacity-50 ${
+                      preference === 'less'
+                        ? 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                        : 'text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    <ThumbsDown className={`w-4 h-4 ${
+                      preference === 'less'
+                        ? 'text-red-600 dark:text-red-400 fill-red-600 dark:fill-red-400'
+                        : 'text-gray-700 dark:text-gray-400'
+                    }`} />
+                    {preference === 'less' ? 'Less like this ✓' : 'Less like this'}
+                  </button>
+                  <button
+                    onClick={(e) => handleMenuAction('hide', e)}
+                    disabled={actionInProgress}
                     className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 disabled:opacity-50"
                   >
-                    <ThumbsDown className="w-4 h-4 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
-                    Less like this
+                    <EyeOff className="w-4 h-4 text-gray-700 dark:text-gray-400" />
+                    Hide
                   </button>
                   <div className="h-px bg-gray-200 dark:bg-gray-700 my-1" />
                   <button
@@ -640,11 +778,23 @@ function CompactIncidentCard({ incident, onClick, isSaved, currentTopic, onSave,
           </div>
         </div>
 
-        {/* Title with Saved badge */}
+        {/* Title with Saved/Preference badges */}
         <div className="flex items-start gap-2 mb-2">
           <h4 className="font-semibold text-gray-900 dark:text-gray-100 text-sm flex-1">
             {name}
           </h4>
+          {preference === 'more' && (
+            <span className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300 px-1.5 py-0.5 rounded">
+              <ThumbsUp className="w-3 h-3 fill-current" />
+              More
+            </span>
+          )}
+          {preference === 'less' && (
+            <span className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300 px-1.5 py-0.5 rounded">
+              <ThumbsDown className="w-3 h-3 fill-current" />
+              Less
+            </span>
+          )}
           {isSaved && (
             <span className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded">
               <Bookmark className="w-3 h-3 fill-current" />

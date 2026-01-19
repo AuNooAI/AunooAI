@@ -396,6 +396,7 @@ async def get_six_articles_report(
     try:
         # Get user_id from session for loading custom config
         user_id = session.get("user_id")
+        username = session.get('user', {}).get('username')
 
         # Parse date if provided
         target_date = None
@@ -411,6 +412,20 @@ async def get_six_articles_report(
             starred_uris = [uri.strip() for uri in starred_articles.split(',') if uri.strip()]
             logger.info(f"Received {len(starred_uris)} starred articles for six articles generation")
 
+        # Get user's hidden briefings to exclude from generation
+        hidden_headlines = []
+        if username:
+            try:
+                from app.database_query_facade import DatabaseQueryFacade
+                facade = DatabaseQueryFacade(db, logger)
+                hidden_list = facade.get_user_preference(username, 'hidden_briefings') or []
+                if isinstance(hidden_list, list):
+                    hidden_headlines = [h.lower().strip() for h in hidden_list if isinstance(h, str)]
+                    if hidden_headlines:
+                        logger.info(f"Excluding {len(hidden_headlines)} hidden briefing headlines from generation")
+            except Exception as e:
+                logger.warning(f"Could not load hidden briefings: {e}")
+
         # Create request with user_id
         request = NewsFeedRequest(
             date=target_date,
@@ -424,7 +439,7 @@ async def get_six_articles_report(
             starred_articles=starred_uris,
             user_id=user_id
         )
-        
+
         # Generate only six articles report
         news_feed_service = get_news_feed_service(db)
         articles_data = await news_feed_service._get_articles_for_date_range(
@@ -433,10 +448,24 @@ async def get_six_articles_report(
             topic,
             target_date
         )
-        
+
         if not articles_data:
             # Return empty result instead of 404
             return {"six_articles": []}
+
+        # Filter out articles matching hidden headlines (case-insensitive partial match)
+        if hidden_headlines:
+            original_count = len(articles_data)
+            articles_data = [
+                article for article in articles_data
+                if not any(
+                    hidden in (article.get('title') or '').lower()
+                    for hidden in hidden_headlines
+                )
+            ]
+            filtered_count = original_count - len(articles_data)
+            if filtered_count > 0:
+                logger.info(f"Filtered out {filtered_count} articles matching hidden briefing headlines")
         
         if force_regenerate:
             # Generate fresh and update caches implicitly via cached method write path

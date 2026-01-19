@@ -4,7 +4,7 @@
  * indicators, and action items
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Sparkles,
@@ -31,9 +31,22 @@ import {
   Share2,
   Volume2,
   Loader2,
+  MoreVertical,
+  Bookmark,
+  ThumbsUp,
+  ThumbsDown,
+  EyeOff,
 } from 'lucide-react';
 import { extractErrorMessage } from '../../services/api';
 import { type NewsArticle, type SixArticlesReport, type TopStory, type Persona, type SixArticlesConfig } from '../../services/newsFeedApi';
+import {
+  type BriefingPreferenceData,
+  recordBriefingPreference,
+  clearBriefingPreference,
+  getBriefingPreferences,
+  hideBriefing,
+  getHiddenBriefings,
+} from '../../services/narrativeExplorerApi';
 import { Skeleton } from '../ui/skeleton';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import { AgentSignalBadge, extractSignalTags } from './AgentSignalBadge';
@@ -205,6 +218,63 @@ export function BriefingSection({
   // Share modal state
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareData, setShareData] = useState<ShareBriefingData | null>(null);
+  // Briefing preferences and hidden state
+  const [briefingPreferences, setBriefingPreferences] = useState<Map<string, 'more' | 'less'>>(new Map());
+  const [hiddenBriefings, setHiddenBriefings] = useState<Set<string>>(new Set());
+
+  // Load preferences and hidden briefings on mount
+  useEffect(() => {
+    const loadPreferencesAndHidden = async () => {
+      try {
+        const [prefs, hidden] = await Promise.all([
+          getBriefingPreferences(),
+          getHiddenBriefings(),
+        ]);
+
+        // Build preferences map
+        const prefMap = new Map<string, 'more' | 'less'>();
+        for (const entry of prefs.more_like || []) {
+          if (entry.headline) {
+            prefMap.set(entry.headline, 'more');
+          }
+        }
+        for (const entry of prefs.less_like || []) {
+          if (entry.headline) {
+            prefMap.set(entry.headline, 'less');
+          }
+        }
+        setBriefingPreferences(prefMap);
+
+        // Build hidden set
+        setHiddenBriefings(new Set(hidden));
+      } catch (err) {
+        console.error('Failed to load briefing preferences/hidden:', err);
+      }
+    };
+    loadPreferencesAndHidden();
+  }, []);
+
+  // Handler for preference changes from child cards
+  const handlePreferenceChange = (headline: string, preference: 'more' | 'less' | null) => {
+    setBriefingPreferences(prev => {
+      const next = new Map(prev);
+      if (preference === null) {
+        next.delete(headline);
+      } else {
+        next.set(headline, preference);
+      }
+      return next;
+    });
+  };
+
+  // Handler for hiding a briefing
+  const handleHideBriefing = (headline: string) => {
+    setHiddenBriefings(prev => {
+      const next = new Set(prev);
+      next.add(headline);
+      return next;
+    });
+  };
 
   // Build personas list from config (includes custom personas)
   const personas = useMemo(() => {
@@ -219,8 +289,18 @@ export function BriefingSection({
     }));
   }, [sixArticlesConfig]);
 
-  // Get top stories from six articles report
-  const topStories = sixArticles?.articles || [];
+  // Get top stories from six articles report, filtering out hidden ones for immediate UI feedback
+  // Note: Backend also excludes hidden headlines during generation for fresh briefings
+  const allStories = sixArticles?.articles || [];
+  const topStories = useMemo(() => {
+    return allStories.filter(story => {
+      const storyData = story as any;
+      const rawHeadline = storyData.title || storyData.headline || storyData.primary_article?.title || '';
+      // Use cleanTitle to match how displayTitle is derived in CompactBriefingCard
+      const headline = cleanTitle(rawHeadline);
+      return !hiddenBriefings.has(headline);
+    });
+  }, [allStories, hiddenBriefings]);
   // Check for executive data - handle flat structure where fields are directly on story
   const hasExecutiveData = topStories.length > 0 && topStories.some(s => {
     const story = s as any;
@@ -640,7 +720,11 @@ export function BriefingSection({
           {topStories.slice(0, 8).map((story, index) => {
             const storyAny = story as any;
             const storyUri = storyAny.url || storyAny.uri || storyAny.primary_article?.uri || `story-${index}`;
+            const rawHeadline = storyAny.title || storyAny.headline || storyAny.primary_article?.title || '';
+            // Use cleanTitle to match how preferences are stored
+            const storyHeadline = cleanTitle(rawHeadline);
             const isExpanded = expandedIndex === index;
+            const pref = briefingPreferences.get(storyHeadline) || null;
             return (
               <React.Fragment key={storyUri}>
                 <div
@@ -650,6 +734,9 @@ export function BriefingSection({
                     story={story}
                     onClick={() => setExpandedIndex(isExpanded ? null : index)}
                     isExpanded={isExpanded}
+                    preference={pref}
+                    onPreferenceChange={handlePreferenceChange}
+                    onHide={handleHideBriefing}
                   />
                 </div>
                 {/* Expanded detail appears right after the clicked card, spanning full width */}
@@ -792,11 +879,17 @@ interface CompactBriefingCardProps {
   story: TopStory;
   onClick?: () => void;
   isExpanded?: boolean;
+  preference?: 'more' | 'less' | null;
+  onPreferenceChange?: (headline: string, preference: 'more' | 'less' | null) => void;
+  onHide?: (headline: string) => void;
 }
 
-function CompactBriefingCard({ story, onClick, isExpanded }: CompactBriefingCardProps) {
+function CompactBriefingCard({ story, onClick, isExpanded, preference, onPreferenceChange, onHide }: CompactBriefingCardProps) {
   const [hoveredBadge, setHoveredBadge] = useState<string | null>(null);
   const [badgeTooltipPos, setBadgeTooltipPos] = useState({ top: 0, left: 0 });
+  const [showMenu, setShowMenu] = useState(false);
+  const [actionInProgress, setActionInProgress] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const storyData = story as any;
 
   const riskStyle = getRiskOpportunityStyle(storyData.risk_opportunity);
@@ -849,31 +942,146 @@ function CompactBriefingCard({ story, onClick, isExpanded }: CompactBriefingCard
     }
   };
 
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowMenu(false);
+      }
+    };
+    if (showMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showMenu]);
+
+  // Menu action handlers
+  const handleMenuAction = async (action: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowMenu(false);
+
+    if (action === 'more' || action === 'less') {
+      try {
+        setActionInProgress(true);
+        const prefAction = action as 'more' | 'less';
+
+        // Toggle behavior: if clicking the same preference, clear it
+        if (preference === prefAction) {
+          await clearBriefingPreference(displayTitle);
+          onPreferenceChange?.(displayTitle, null);
+        } else {
+          // Build briefing data for fine-tuning
+          const briefingData: BriefingPreferenceData = {
+            summary: storyData.summary || storyData.executive_takeaway,
+            category: storyData.category,
+            executive_takeaway: storyData.executive_takeaway,
+            strategic_relevance: storyData.strategic_relevance,
+            signal_strength: storyData.signal_strength,
+            risk_opportunity: storyData.risk_opportunity,
+            time_horizon: storyData.time_horizon,
+            source: displaySource,
+            url: articleUrl,
+          };
+
+          await recordBriefingPreference(displayTitle, prefAction, briefingData);
+          onPreferenceChange?.(displayTitle, prefAction);
+        }
+      } catch (err) {
+        console.error('Failed to record preference:', err);
+      } finally {
+        setActionInProgress(false);
+      }
+    } else if (action === 'hide') {
+      if (!confirm(`Hide "${displayTitle}"? It won't appear in future briefings.`)) return;
+      try {
+        await hideBriefing(displayTitle);
+        onHide?.(displayTitle);
+      } catch (err) {
+        console.error('Failed to hide briefing:', err);
+      }
+    }
+  };
+
   return (
     <div className="relative">
       <div
         onClick={onClick}
         className={`cursor-pointer transition-all ${isExpanded ? 'bg-gray-50 dark:bg-gray-800/50' : 'hover:bg-gray-50 dark:hover:bg-gray-800/30'}`}
       >
-        {/* Top row: Date + See More */}
+        {/* Top row: Date + See More + Menu */}
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
             <Calendar className="w-3.5 h-3.5" />
             <span>{formatDisplayDate(displayDate)}</span>
           </div>
-          <span className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-0.5 font-medium">
-            {isExpanded ? (
-              <>
-                <ChevronUp className="w-3.5 h-3.5" />
-                See Less
-              </>
-            ) : (
-              <>
-                <ChevronDown className="w-3.5 h-3.5" />
-                See More
-              </>
-            )}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-blue-600 dark:text-blue-400 flex items-center gap-0.5 font-medium">
+              {isExpanded ? (
+                <>
+                  <ChevronUp className="w-3.5 h-3.5" />
+                  See Less
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="w-3.5 h-3.5" />
+                  See More
+                </>
+              )}
+            </span>
+            {/* Kebab menu */}
+            <div ref={menuRef} className="relative">
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
+                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+              >
+                <MoreVertical className="w-4 h-4 text-gray-700 dark:text-gray-300 dark:text-gray-400" />
+              </button>
+              {showMenu && (
+                <div className="absolute right-0 top-full mt-1 w-40 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
+                  <button
+                    onClick={(e) => handleMenuAction('more', e)}
+                    disabled={actionInProgress}
+                    className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 disabled:opacity-50 ${
+                      preference === 'more'
+                        ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                        : 'text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    <ThumbsUp className={`w-4 h-4 ${
+                      preference === 'more'
+                        ? 'text-green-600 dark:text-green-400 fill-green-600 dark:fill-green-400'
+                        : 'text-gray-700 dark:text-gray-400'
+                    }`} />
+                    {preference === 'more' ? 'More like this ✓' : 'More like this'}
+                  </button>
+                  <button
+                    onClick={(e) => handleMenuAction('less', e)}
+                    disabled={actionInProgress}
+                    className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 disabled:opacity-50 ${
+                      preference === 'less'
+                        ? 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                        : 'text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    <ThumbsDown className={`w-4 h-4 ${
+                      preference === 'less'
+                        ? 'text-red-600 dark:text-red-400 fill-red-600 dark:fill-red-400'
+                        : 'text-gray-700 dark:text-gray-400'
+                    }`} />
+                    {preference === 'less' ? 'Less like this ✓' : 'Less like this'}
+                  </button>
+                  <div className="h-px bg-gray-200 dark:bg-gray-700 my-1" />
+                  <button
+                    onClick={(e) => handleMenuAction('hide', e)}
+                    className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                  >
+                    <EyeOff className="w-4 h-4 text-gray-700 dark:text-gray-400" />
+                    Hide
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Category badge */}
@@ -883,11 +1091,23 @@ function CompactBriefingCard({ story, onClick, isExpanded }: CompactBriefingCard
           </span>
         )}
 
-        {/* Title with Agent Signal Badge */}
+        {/* Title with Agent Signal Badge and Preference badges */}
         <div className="flex items-start gap-2 mb-2">
           <h4 className="font-bold text-gray-900 dark:text-gray-100 text-base flex-1">
             {displayTitle}
           </h4>
+          {preference === 'more' && (
+            <span className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300 px-1.5 py-0.5 rounded">
+              <ThumbsUp className="w-3 h-3 fill-current" />
+              More
+            </span>
+          )}
+          {preference === 'less' && (
+            <span className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300 px-1.5 py-0.5 rounded">
+              <ThumbsDown className="w-3 h-3 fill-current" />
+              Less
+            </span>
+          )}
           {extractSignalTags(storyData.tags || storyData.primary_article?.tags).length > 0 && (
             <AgentSignalBadge
               agentNames={extractSignalTags(storyData.tags || storyData.primary_article?.tags)}
