@@ -52,7 +52,7 @@ import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import { AgentSignalBadge, extractSignalTags } from './AgentSignalBadge';
 import { ExportService } from '../../services/exportService';
 import { PodcastScriptModal } from '../PodcastScriptModal';
-import { ShareModal, type ShareBriefingData } from '../ShareModal';
+import { ShareModal, type ShareBriefingData, type ShareBriefingCardData } from '../ShareModal';
 
 // Default personas (fallback if config not loaded)
 const DEFAULT_PERSONAS: { value: string; label: string; description: string }[] = [
@@ -218,6 +218,9 @@ export function BriefingSection({
   // Share modal state
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareData, setShareData] = useState<ShareBriefingData | null>(null);
+  // Individual card share modal state
+  const [showCardShareModal, setShowCardShareModal] = useState(false);
+  const [cardShareData, setCardShareData] = useState<ShareBriefingCardData | null>(null);
   // Briefing preferences and hidden state
   const [briefingPreferences, setBriefingPreferences] = useState<Map<string, 'more' | 'less'>>(new Map());
   const [hiddenBriefings, setHiddenBriefings] = useState<Set<string>>(new Set());
@@ -274,6 +277,36 @@ export function BriefingSection({
       next.add(headline);
       return next;
     });
+  };
+
+  // Handler for sharing individual briefing card via email
+  const handleShareCard = (story: TopStory) => {
+    const storyData = story as any;
+    const rawTitle = storyData.title || storyData.headline || storyData.primary_article?.title || 'Untitled';
+    const displayTitle = cleanTitle(rawTitle);
+
+    const cardData: ShareBriefingCardData = {
+      type: 'briefing_card',
+      title: displayTitle,
+      headline: storyData.headline,
+      executive_takeaway: storyData.executive_takeaway,
+      strategic_relevance: storyData.strategic_relevance,
+      category: storyData.category,
+      signal_strength: storyData.signal_strength,
+      risk_opportunity: storyData.risk_opportunity,
+      time_horizon: storyData.time_horizon,
+      source: storyData.source || storyData.primary_article?.source?.name || '',
+      date: storyData.date || storyData.primary_article?.publication_date || '',
+      url: storyData.url || storyData.primary_article?.url || '',
+      summary: storyData.summary || storyData.primary_article?.summary || '',
+      executive_actions: Array.isArray(storyData.executive_action)
+        ? storyData.executive_action
+        : (storyData.executive_action ? [storyData.executive_action] : []),
+      scores: storyData.scores,
+    };
+
+    setCardShareData(cardData);
+    setShowCardShareModal(true);
   };
 
   // Build personas list from config (includes custom personas)
@@ -737,6 +770,7 @@ export function BriefingSection({
                     preference={pref}
                     onPreferenceChange={handlePreferenceChange}
                     onHide={handleHideBriefing}
+                    onShare={handleShareCard}
                   />
                 </div>
                 {/* Expanded detail appears right after the clicked card, spanning full width */}
@@ -859,12 +893,21 @@ export function BriefingSection({
         episodeTitle={`Executive Briefing - ${persona}`}
       />
 
-      {/* Share Modal */}
+      {/* Share Modal for full briefing */}
       {shareData && (
         <ShareModal
           open={showShareModal}
           onOpenChange={setShowShareModal}
           data={shareData}
+        />
+      )}
+
+      {/* Share Modal for individual briefing card */}
+      {cardShareData && (
+        <ShareModal
+          open={showCardShareModal}
+          onOpenChange={setShowCardShareModal}
+          data={cardShareData}
         />
       )}
     </section>
@@ -882,9 +925,10 @@ interface CompactBriefingCardProps {
   preference?: 'more' | 'less' | null;
   onPreferenceChange?: (headline: string, preference: 'more' | 'less' | null) => void;
   onHide?: (headline: string) => void;
+  onShare?: (story: TopStory) => void;
 }
 
-function CompactBriefingCard({ story, onClick, isExpanded, preference, onPreferenceChange, onHide }: CompactBriefingCardProps) {
+function CompactBriefingCard({ story, onClick, isExpanded, preference, onPreferenceChange, onHide, onShare }: CompactBriefingCardProps) {
   const [hoveredBadge, setHoveredBadge] = useState<string | null>(null);
   const [badgeTooltipPos, setBadgeTooltipPos] = useState({ top: 0, left: 0 });
   const [showMenu, setShowMenu] = useState(false);
@@ -1077,6 +1121,14 @@ function CompactBriefingCard({ story, onClick, isExpanded, preference, onPrefere
                   >
                     <EyeOff className="w-4 h-4 text-gray-700 dark:text-gray-400" />
                     Hide
+                  </button>
+                  <div className="h-px bg-gray-200 dark:bg-gray-700 my-1" />
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowMenu(false); onShare?.(story); }}
+                    className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                  >
+                    <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-400" />
+                    Send via Email
                   </button>
                 </div>
               )}

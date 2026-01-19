@@ -31,6 +31,7 @@ import { NewsFeedHeader } from '../components/newsfeed/NewsFeedHeader';
 import { BriefingSection } from '../components/newsfeed/BriefingSection';
 import { HighlightsSection } from '../components/newsfeed/HighlightsSection';
 import { SavedIncidentsSection } from '../components/newsfeed/SavedIncidentsSection';
+import { SavedArticlesSection } from '../components/newsfeed/SavedArticlesSection';
 import { SavedPodcastsSection } from '../components/newsfeed/SavedPodcastsSection';
 import { SavedEmergingTopicsSection } from '../components/newsfeed/SavedEmergingTopicsSection';
 import { SavedNarrativesSection, saveNarrative, unsaveNarrative, getSavedNarrativeNames } from '../components/newsfeed/SavedNarrativesSection';
@@ -771,8 +772,8 @@ export function NewsFeedPage() {
           >
             <Bookmark className="w-4 h-4" />
             Saved
-            {savedIncidentNames.length > 0 && (
-              <span className="explore-tab-badge">{savedIncidentNames.length}</span>
+            {(starredArticles.length + savedIncidentNames.length) > 0 && (
+              <span className="explore-tab-badge">{starredArticles.length + savedIncidentNames.length}</span>
             )}
           </button>
         </div>
@@ -1037,9 +1038,21 @@ export function NewsFeedPage() {
               />
             )}
 
-            {/* Saved Tab Content - Incidents, Emerging Topics, and Podcasts */}
+            {/* Saved Tab Content - Articles, Incidents, Emerging Topics, and Podcasts */}
             {currentTab === 'saved' && (
               <div className="space-y-6">
+                {/* Starred Articles Section */}
+                <div className="px-6">
+                  <SavedArticlesSection
+                    starredArticles={starredArticles}
+                    onUnstar={unstarArticle}
+                    onArticleClick={handleArticleClick}
+                  />
+                </div>
+
+                {/* Divider */}
+                <hr className="border-gray-200 dark:border-gray-700 mx-6" />
+
                 {/* Saved Incidents Section */}
                 <SavedIncidentsSection
                   incidents={filteredIncidents}

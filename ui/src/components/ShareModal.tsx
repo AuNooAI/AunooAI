@@ -75,6 +75,31 @@ export interface ShareBriefingData {
   key_themes?: string[];
 }
 
+export interface ShareBriefingCardData {
+  type: 'briefing_card';
+  title: string;
+  headline?: string;
+  executive_takeaway?: string;
+  strategic_relevance?: string;
+  category?: string;
+  signal_strength?: string;
+  risk_opportunity?: string;
+  time_horizon?: string;
+  source?: string;
+  date?: string;
+  url?: string;
+  summary?: string;
+  executive_actions?: string[];
+  scores?: {
+    relevance?: number;
+    impact?: number;
+    actionability?: number;
+    timeliness?: number;
+    credibility?: number;
+    overall?: number;
+  };
+}
+
 export interface ShareIncidentsData {
   type: 'incidents';
   topic?: string;
@@ -146,7 +171,7 @@ export interface ShareEmergingTopicData {
   }>;
 }
 
-export type ShareData = ShareArticleData | ShareIncidentData | ShareNarrativeData | ShareBriefingData | ShareIncidentsData | ShareEmergingTopicData;
+export type ShareData = ShareArticleData | ShareIncidentData | ShareNarrativeData | ShareBriefingData | ShareBriefingCardData | ShareIncidentsData | ShareEmergingTopicData;
 
 interface ShareModalProps {
   open: boolean;
@@ -299,6 +324,25 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
           implications: data.implications,
           articles: data.articles,
         };
+      } else if (data.type === 'briefing_card') {
+        endpoint = '/api/share/briefing-card';
+        body = {
+          to_email: email,
+          title: data.title,
+          headline: data.headline,
+          executive_takeaway: data.executive_takeaway,
+          strategic_relevance: data.strategic_relevance,
+          category: data.category,
+          signal_strength: data.signal_strength,
+          risk_opportunity: data.risk_opportunity,
+          time_horizon: data.time_horizon,
+          source: data.source,
+          date: data.date,
+          url: data.url,
+          summary: data.summary,
+          executive_actions: data.executive_actions,
+          scores: data.scores,
+        };
       } else {
         endpoint = '/api/share/briefing';
         body = {
@@ -351,6 +395,8 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
         return `Share Narrative: ${data.narrative_name}`;
       case 'briefing':
         return `Share Briefing: ${data.persona}`;
+      case 'briefing_card':
+        return `Share: ${data.title.slice(0, 50)}${data.title.length > 50 ? '...' : ''}`;
       case 'emerging_topic':
         return `Share Emerging Topic: ${data.topic_label}`;
       default:
