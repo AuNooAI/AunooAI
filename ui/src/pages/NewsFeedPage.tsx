@@ -22,6 +22,7 @@ import {
   List,
   ChevronLeft,
   ChevronRight,
+  Scale,
 } from 'lucide-react';
 import { useNewsFeed } from '../hooks/useNewsFeed';
 import { useNarrativeExplorer } from '../hooks/useNarrativeExplorer';
@@ -39,6 +40,7 @@ import { NarrativeInsightsSection } from '../components/newsfeed/NarrativeInsigh
 import { ResearchAgentsSection } from '../components/newsfeed/ResearchAgentsSection';
 import { SignalReportsTab } from '../components/newsfeed/SignalReportsTab';
 import { EmergingTopicsTab } from '../components/newsfeed/EmergingTopicsTab';
+import { PolicyTrackerTab } from '../components/newsfeed/PolicyTrackerTab';
 import { TopicCluster, getCategoryIcon } from '../components/newsfeed/TopicCluster';
 import { ArticleListView } from '../components/newsfeed/ArticleListView';
 import { OnboardingWizard } from '../components/onboarding/OnboardingWizard';
@@ -179,7 +181,7 @@ export function NewsFeedPage() {
   };
 
   // UI State
-  const [currentTab, setCurrentTab] = useState<'feed' | 'emerging' | 'agents' | 'saved'>('feed');
+  const [currentTab, setCurrentTab] = useState<'feed' | 'emerging' | 'agents' | 'saved' | 'policy'>('feed');
   const [viewMode, setViewMode] = useState<'clustered' | 'list'>('list');
   const [emergingTopicsCount, setEmergingTopicsCount] = useState(0);
   const [reportsCount, setReportsCount] = useState(0);
@@ -697,7 +699,7 @@ export function NewsFeedPage() {
             <span className="gather-top-bar-title">Explore</span>
             <span className="gather-top-bar-separator">/</span>
             <span className="gather-top-bar-subtitle">
-              {currentTab === 'agents' ? 'Observer Agents' : currentTab === 'emerging' ? 'Emerging Topics' : currentTab === 'saved' ? 'Saved' : 'News Feed'}
+              {currentTab === 'agents' ? 'Observer Agents' : currentTab === 'emerging' ? 'Emerging Topics' : currentTab === 'saved' ? 'Saved' : currentTab === 'policy' ? 'Policy Tracker' : 'News Feed'}
             </span>
           </div>
           <div className="gather-top-bar-right">
@@ -775,6 +777,13 @@ export function NewsFeedPage() {
             {(starredArticles.length + savedIncidentNames.length) > 0 && (
               <span className="explore-tab-badge">{starredArticles.length + savedIncidentNames.length}</span>
             )}
+          </button>
+          <button
+            className={`explore-tab-btn ${currentTab === 'policy' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('policy')}
+          >
+            <Scale className="w-4 h-4" />
+            Policy Tracker
           </button>
         </div>
 
@@ -1034,6 +1043,13 @@ export function NewsFeedPage() {
             {currentTab === 'emerging' && (
               <EmergingTopicsTab
                 topic={config.topic || undefined}
+                onArticleClick={handleArticleClick}
+              />
+            )}
+
+            {/* Policy Tracker Tab Content */}
+            {currentTab === 'policy' && (
+              <PolicyTrackerTab
                 onArticleClick={handleArticleClick}
               />
             )}

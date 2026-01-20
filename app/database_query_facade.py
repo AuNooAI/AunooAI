@@ -4552,7 +4552,7 @@ class DatabaseQueryFacade:
                 'topic_alignment_score', 'keyword_relevance_score',
                 'confidence_score', 'overall_match_explanation',
                 'extracted_article_topics', 'extracted_article_keywords',
-                'ingest_status', 'auto_ingested'
+                'ingest_status', 'auto_ingested', 'article_origin'
             ]
 
             # Filter to only include fields that exist in article_data

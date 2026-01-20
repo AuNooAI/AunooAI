@@ -366,7 +366,9 @@ t_articles = Table(
     Column('auto_ingested', Boolean, default=text('FALSE')),
     Column('user_preference', Text),  # 'more', 'less', or null
     Column('preference_date', DateTime),  # when preference was set
+    Column('article_origin', Text, server_default=text("'unknown'")),  # 'aunoo', 'external', 'unknown'
     Index('idx_articles_auto_ingested', 'auto_ingested'),
+    Index('idx_articles_article_origin', 'article_origin'),
     Index('idx_articles_bias', 'bias'),
     Index('idx_articles_factual_reporting', 'factual_reporting'),
     Index('idx_articles_ingest_status', 'ingest_status'),

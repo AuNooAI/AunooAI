@@ -849,11 +849,12 @@ class AutomatedIngestService:
                     try:
                         enriched_article.update({
                             "ingest_status": "approved",
-                            "auto_ingested": True
+                            "auto_ingested": True,
+                            "article_origin": "aunoo"
                         })
                         
                         success = await self.async_db.update_article_with_enrichment(enriched_article)
-                        
+
                         if success:
                             # Step 7: Vector database upsert (kept async but with timeout)
                             try:
@@ -1219,36 +1220,94 @@ class AutomatedIngestService:
 
     def save_approved_articles(self, articles: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Save approved articles to the database
-        
+        Save approved articles to the database and enrich with policy categories
+
         Args:
             articles: List of processed and approved articles
-            
+
         Returns:
             Save operation results
         """
-        results = {"saved": 0, "errors": []}
-        
+        results = {"saved": 0, "categorized": 0, "errors": []}
+
         try:
             for article in articles:
                 try:
+                    # Ensure article_origin is set for automated ingest
+                    article["article_origin"] = "aunoo"
                     # Use existing database save_article method
                     self.db.save_article(article)
                     results["saved"] += 1
                     self.logger.debug(f"Saved article: {article.get('uri')}")
-                    
+
+                    # Enrich with policy categories if topic matches policy tracker
+                    try:
+                        self._enrich_with_policy_categories(article)
+                        results["categorized"] += 1
+                    except Exception as cat_error:
+                        self.logger.warning(f"Policy categorization failed for {article.get('uri')}: {cat_error}")
+
                 except Exception as e:
                     error_msg = f"Error saving article {article.get('uri', 'unknown')}: {str(e)}"
                     results["errors"].append(error_msg)
                     self.logger.error(error_msg)
-            
+
             self.logger.info(f"Article save completed: {results}")
-            
+
         except Exception as e:
             self.logger.error(f"Error in save_approved_articles: {e}")
             results["errors"].append(f"Save operation error: {str(e)}")
-        
+
         return results
+
+    def _enrich_with_policy_categories(self, article: Dict[str, Any]) -> None:
+        """
+        Enrich an article with policy categories using keyword-based classification.
+
+        Args:
+            article: Article data dictionary
+        """
+        from app.routes.policy_tracker_routes import (
+            categorize_article,
+            store_article_categories,
+            DEFAULT_TRACKER_TOPIC
+        )
+        from sqlalchemy import text
+
+        uri = article.get('uri')
+        title = article.get('title', '')
+        summary = article.get('summary', '')
+        topic = article.get('topic', '')
+
+        if not uri or not (title or summary):
+            return
+
+        # Categorize using keyword matching
+        categories = categorize_article(title, summary)
+
+        if not categories:
+            return
+
+        # Store categories in the policy tracker table
+        conn = self.db._temp_get_connection()
+        try:
+            for category in categories:
+                conn.execute(text("""
+                    INSERT INTO policy_article_categories
+                    (article_uri, category, topic, classification_method)
+                    VALUES (:uri, :category, :topic, 'auto_ingest')
+                    ON CONFLICT (article_uri, category) DO NOTHING
+                """), {
+                    "uri": uri,
+                    "category": category,
+                    "topic": topic or DEFAULT_TRACKER_TOPIC
+                })
+            conn.commit()
+            self.logger.debug(f"Added {len(categories)} policy categories for {uri}")
+        except Exception as e:
+            self.logger.warning(f"Failed to store policy categories: {e}")
+        finally:
+            conn.close()
     
     def get_relevance_threshold(self) -> float:
         """
