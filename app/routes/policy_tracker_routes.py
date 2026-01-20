@@ -861,7 +861,7 @@ async def get_classification_runs(
 @router.get("/trends", response_model=Dict[str, List[TrendDataResponse]])
 async def get_category_trends(
     topic: Optional[str] = Query(DEFAULT_TRACKER_TOPIC, description="Topic to filter by"),
-    days_back: int = Query(365, ge=7, le=730, description="Days to look back"),
+    days_back: int = Query(365, ge=0, le=730, description="Days to look back (0 = all time)"),
     session=Depends(verify_session)
 ):
     """
@@ -909,7 +909,7 @@ async def get_category_trends(
 @router.get("/stats", response_model=PolicyStatsResponse)
 async def get_policy_stats(
     topic: Optional[str] = Query(DEFAULT_TRACKER_TOPIC, description="Topic to filter by"),
-    days_back: int = Query(365, ge=1, le=730, description="Days to look back"),
+    days_back: int = Query(365, ge=0, le=730, description="Days to look back (0 = all time)"),
     session=Depends(verify_session)
 ):
     """
@@ -999,7 +999,7 @@ async def get_policy_stats(
 async def get_policy_articles(
     topic: Optional[str] = Query(DEFAULT_TRACKER_TOPIC, description="Topic to filter by"),
     categories: Optional[str] = Query(None, description="Comma-separated category filter"),
-    days_back: int = Query(365, ge=1, le=730, description="Days to look back"),
+    days_back: int = Query(365, ge=0, le=730, description="Days to look back (0 = all time)"),
     sort_by: str = Query("date", description="Sort by: date, relevance, category_count"),
     page: int = Query(1, ge=1),
     per_page: int = Query(25, ge=1, le=100),
@@ -1106,7 +1106,7 @@ async def get_policy_articles(
 @router.get("/categories", response_model=List[PolicyCategoryResponse])
 async def get_category_distribution(
     topic: Optional[str] = Query(DEFAULT_TRACKER_TOPIC, description="Topic to filter by"),
-    days_back: int = Query(365, ge=1, le=730, description="Days to look back"),
+    days_back: int = Query(365, ge=0, le=730, description="Days to look back (0 = all time)"),
     session=Depends(verify_session)
 ):
     """
@@ -1200,7 +1200,7 @@ async def get_category_distribution(
 @router.get("/temporal", response_model=List[TemporalDataResponse])
 async def get_temporal_data(
     topic: Optional[str] = Query(DEFAULT_TRACKER_TOPIC, description="Topic to filter by"),
-    days_back: int = Query(365, ge=30, le=730, description="Days to look back"),
+    days_back: int = Query(365, ge=0, le=730, description="Days to look back (0 = all time)"),
     session=Depends(verify_session)
 ):
     """
@@ -1586,7 +1586,7 @@ class CooccurrenceResponse(BaseModel):
 @router.get("/cooccurrence", response_model=List[CooccurrenceResponse])
 async def get_category_cooccurrence(
     topic: Optional[str] = Query(DEFAULT_TRACKER_TOPIC, description="Topic to filter by"),
-    days_back: int = Query(365, ge=1, le=730, description="Days to look back"),
+    days_back: int = Query(365, ge=0, le=730, description="Days to look back (0 = all time)"),
     limit: int = Query(20, ge=1, le=50, description="Number of top pairs to return"),
     session=Depends(verify_session)
 ):
@@ -1660,7 +1660,7 @@ class EscalationDataPoint(BaseModel):
 @router.get("/escalation", response_model=List[EscalationDataPoint])
 async def get_escalation_analysis(
     topic: Optional[str] = Query(DEFAULT_TRACKER_TOPIC, description="Topic to filter by"),
-    days_back: int = Query(365, ge=1, le=730, description="Days to look back"),
+    days_back: int = Query(365, ge=0, le=730, description="Days to look back (0 = all time)"),
     period: str = Query("month", description="Aggregation period: week, month, quarter"),
     session=Depends(verify_session)
 ):
@@ -1880,7 +1880,7 @@ def extract_escalation_markers_from_text(title: str, summary: str) -> Dict[str, 
 @router.get("/themes", response_model=List[ThemeDataResponse])
 async def get_themes(
     topic: Optional[str] = Query(DEFAULT_TRACKER_TOPIC, description="Topic to filter by"),
-    days_back: int = Query(365, ge=1, le=730, description="Days to look back"),
+    days_back: int = Query(365, ge=0, le=730, description="Days to look back (0 = all time)"),
     session=Depends(verify_session)
 ):
     """Get theme frequency analysis."""
@@ -1928,7 +1928,7 @@ async def get_themes(
 @router.get("/themes/evolution", response_model=List[ThemeEvolutionResponse])
 async def get_themes_evolution(
     topic: Optional[str] = Query(DEFAULT_TRACKER_TOPIC, description="Topic to filter by"),
-    days_back: int = Query(365, ge=30, le=730, description="Days to look back"),
+    days_back: int = Query(365, ge=0, le=730, description="Days to look back (0 = all time)"),
     session=Depends(verify_session)
 ):
     """Get monthly theme evolution data."""
@@ -1987,7 +1987,7 @@ async def get_themes_evolution(
 @router.get("/entities", response_model=List[EntityDataResponse])
 async def get_entities(
     topic: Optional[str] = Query(DEFAULT_TRACKER_TOPIC, description="Topic to filter by"),
-    days_back: int = Query(365, ge=1, le=730, description="Days to look back"),
+    days_back: int = Query(365, ge=0, le=730, description="Days to look back (0 = all time)"),
     session=Depends(verify_session)
 ):
     """Get entity mention counts."""
@@ -2035,7 +2035,7 @@ async def get_entities(
 @router.get("/geography", response_model=List[GeographyDataResponse])
 async def get_geography(
     topic: Optional[str] = Query(DEFAULT_TRACKER_TOPIC, description="Topic to filter by"),
-    days_back: int = Query(365, ge=1, le=730, description="Days to look back"),
+    days_back: int = Query(365, ge=0, le=730, description="Days to look back (0 = all time)"),
     session=Depends(verify_session)
 ):
     """Get geographic focus analysis."""
@@ -2095,7 +2095,7 @@ async def get_geography(
 @router.get("/escalation-markers", response_model=List[EscalationMarkerResponse])
 async def get_escalation_markers(
     topic: Optional[str] = Query(DEFAULT_TRACKER_TOPIC, description="Topic to filter by"),
-    days_back: int = Query(365, ge=1, le=730, description="Days to look back"),
+    days_back: int = Query(365, ge=0, le=730, description="Days to look back (0 = all time)"),
     session=Depends(verify_session)
 ):
     """Get escalation marker analysis."""
@@ -2143,7 +2143,7 @@ async def get_escalation_markers(
 @router.get("/escalation-markers/trends", response_model=List[EscalationTrendResponse])
 async def get_escalation_marker_trends(
     topic: Optional[str] = Query(DEFAULT_TRACKER_TOPIC, description="Topic to filter by"),
-    days_back: int = Query(365, ge=30, le=730, description="Days to look back"),
+    days_back: int = Query(365, ge=0, le=730, description="Days to look back (0 = all time)"),
     session=Depends(verify_session)
 ):
     """Get escalation marker trends over time."""
@@ -2208,7 +2208,7 @@ async def get_escalation_marker_trends(
 @router.get("/day-of-week", response_model=List[DayOfWeekResponse])
 async def get_day_of_week_distribution(
     topic: Optional[str] = Query(DEFAULT_TRACKER_TOPIC, description="Topic to filter by"),
-    days_back: int = Query(365, ge=1, le=730, description="Days to look back"),
+    days_back: int = Query(365, ge=0, le=730, description="Days to look back (0 = all time)"),
     session=Depends(verify_session)
 ):
     """Get day of week distribution for articles."""
@@ -2265,7 +2265,7 @@ async def get_day_of_week_distribution(
 @router.get("/daily-intensity", response_model=List[DailyIntensityResponse])
 async def get_daily_intensity(
     topic: Optional[str] = Query(DEFAULT_TRACKER_TOPIC, description="Topic to filter by"),
-    days_back: int = Query(365, ge=7, le=730, description="Days to look back"),
+    days_back: int = Query(365, ge=0, le=730, description="Days to look back (0 = all time)"),
     session=Depends(verify_session)
 ):
     """Get daily article counts with 7-day rolling average."""
@@ -2326,7 +2326,7 @@ async def get_daily_intensity(
 @router.get("/cooccurrence-matrix", response_model=CooccurrenceMatrixResponse)
 async def get_cooccurrence_matrix(
     topic: Optional[str] = Query(DEFAULT_TRACKER_TOPIC, description="Topic to filter by"),
-    days_back: int = Query(365, ge=1, le=730, description="Days to look back"),
+    days_back: int = Query(365, ge=0, le=730, description="Days to look back (0 = all time)"),
     session=Depends(verify_session)
 ):
     """Get full 10x10 co-occurrence matrix for heatmap visualization."""

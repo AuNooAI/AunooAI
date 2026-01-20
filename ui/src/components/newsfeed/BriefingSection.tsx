@@ -297,7 +297,7 @@ export function BriefingSection({
       time_horizon: storyData.time_horizon,
       source: storyData.source || storyData.primary_article?.source?.name || '',
       date: storyData.date || storyData.primary_article?.publication_date || '',
-      url: storyData.url || storyData.primary_article?.url || '',
+      url: storyData.url || storyData.uri || storyData.primary_article?.url || storyData.primary_article?.uri || '',
       summary: storyData.summary || storyData.primary_article?.summary || '',
       executive_actions: Array.isArray(storyData.executive_action)
         ? storyData.executive_action
@@ -363,10 +363,19 @@ export function BriefingSection({
           title: storyData.title || storyData.headline,
           headline: storyData.headline,
           executive_takeaway: storyData.executive_takeaway,
+          strategic_relevance: storyData.strategic_relevance,
           category: storyData.category,
           source: storyData.source || storyData.primary_article?.source?.name || '',
           date: storyData.date || storyData.publication_date || storyData.primary_article?.publication_date || '',
           url: storyData.url || storyData.uri || storyData.primary_article?.url || '',
+          summary: storyData.summary || storyData.primary_article?.summary || '',
+          signal_strength: storyData.signal_strength,
+          risk_opportunity: storyData.risk_opportunity,
+          time_horizon: storyData.time_horizon,
+          executive_actions: Array.isArray(storyData.executive_action)
+            ? storyData.executive_action
+            : (storyData.executive_action ? [storyData.executive_action] : []),
+          scores: storyData.scores,
         };
       }),
       key_themes: sixArticles.key_themes,

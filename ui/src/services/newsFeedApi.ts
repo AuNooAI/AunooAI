@@ -103,6 +103,7 @@ export interface TopStory {
   category?: string;
   date?: string;
   url?: string;
+  uri?: string;  // Article URL (may be returned as uri from API)
   source?: string;
   scores?: {
     overall?: number;

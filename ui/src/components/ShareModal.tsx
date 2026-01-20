@@ -71,7 +71,20 @@ export interface ShareBriefingData {
   type: 'briefing';
   persona: string;
   executive_summary?: string;
-  articles?: Array<{ title?: string; headline?: string; executive_takeaway?: string; category?: string; source?: string; date?: string; url?: string }>;
+  articles?: Array<{
+    title?: string;
+    headline?: string;
+    executive_takeaway?: string;
+    strategic_relevance?: string;
+    category?: string;
+    source?: string;
+    date?: string;
+    url?: string;
+    summary?: string;
+    signal_strength?: string;
+    risk_opportunity?: string;
+    time_horizon?: string;
+  }>;
   key_themes?: string[];
 }
 

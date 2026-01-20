@@ -105,7 +105,7 @@ export function SavedArticlesSection({
     setShareData({
       type: 'article',
       title: article.title,
-      url: article.uri,
+      url: article.url || article.uri,
       source: article.source?.name,
       summary: article.summary,
       category: article.category,
