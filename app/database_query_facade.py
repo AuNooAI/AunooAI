@@ -166,18 +166,17 @@ class DatabaseQueryFacade:
     def get_keyword_monitoring_provider(self):
         """Get single provider (legacy method - use get_keyword_monitoring_providers for multi-collector)"""
         row = self.get_keyword_monitor_settings_by_id(1)
-        # TODO: Make this default configurable?
-        provider = row['provider'] if row else 'newsapi'
+        provider = row['provider'] if row else None
         return provider
 
     def get_keyword_monitoring_providers(self):
         """Get selected providers as JSON array string"""
+        import json
         row = self.get_keyword_monitor_settings_by_id(1)
-        if row and row.get('providers'):
+        if row and row.get('providers') and json.loads(row['providers']) != []:
             return row['providers']
         # Fallback to single provider for backward compatibility
         elif row and row.get('provider'):
-            import json
             return json.dumps([row['provider']])
         # Ultimate fallback
         return '["newsapi"]'

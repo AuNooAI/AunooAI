@@ -99,7 +99,7 @@ class KeywordMonitorSettings(BaseModel):
     sort_by: str
     page_size: int
     daily_request_limit: int = 100
-    provider: str = "newsapi"  # Legacy single provider (deprecated)
+    provider: Optional[str] = None  # Legacy single provider (deprecated)
     providers: Optional[str] = None  # JSON array of selected providers
     # Auto-ingest settings
     auto_ingest_enabled: bool = False
@@ -1408,8 +1408,8 @@ async def get_settings(db=Depends(get_database_instance), session=Depends(verify
                 "page_size": 10,
                 "daily_request_limit": 100,
                 "is_enabled": True,
-                "provider": "newsapi",
-                "providers": '["newsapi"]',  # Default to newsapi
+                "provider": None,  # No default - must be configured
+                "providers": None,  # No default - must be configured
                 "auto_ingest_enabled": True,  # Auto-processing ON by default
                 "min_relevance_threshold": 0.0,
                 "quality_control_enabled": True,

@@ -16,17 +16,17 @@ depends_on = None
 
 
 def upgrade():
-    # Add providers column with default JSON array
+    # Add providers column (no default value)
     op.execute("""
         ALTER TABLE keyword_monitor_settings
-        ADD COLUMN IF NOT EXISTS providers TEXT DEFAULT '["newsapi"]'
+        ADD COLUMN IF NOT EXISTS providers TEXT
     """)
 
     # Migrate existing provider value to providers array (PostgreSQL syntax)
     op.execute("""
         UPDATE keyword_monitor_settings
         SET providers = json_build_array(provider)::text
-        WHERE provider IS NOT NULL AND (providers IS NULL OR providers = '["newsapi"]')
+        WHERE provider IS NOT NULL AND providers IS NULL
     """)
 
 

@@ -2,9 +2,9 @@
 -- Date: 2025-10-21
 -- Description: Adds providers JSON array column to support multiple news collectors
 
--- Add new providers column with default JSON array
+-- Add new providers column (no default value)
 ALTER TABLE keyword_monitor_settings
-ADD COLUMN providers TEXT DEFAULT '["newsapi"]';
+ADD COLUMN providers TEXT;
 
 -- Migrate existing provider value to providers array
 -- This ensures backward compatibility

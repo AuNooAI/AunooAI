@@ -40,7 +40,7 @@ def migrate_multi_collector():
             logger.info("Adding 'providers' column to keyword_monitor_settings...")
             cursor.execute("""
                 ALTER TABLE keyword_monitor_settings
-                ADD COLUMN providers TEXT DEFAULT '["newsapi"]'
+                ADD COLUMN providers TEXT
             """)
             conn.commit()
             logger.info("Column added successfully")
@@ -72,7 +72,7 @@ def migrate_multi_collector():
             logger.info("Adding 'providers' column to keyword_monitor_settings...")
             cursor.execute("""
                 ALTER TABLE keyword_monitor_settings
-                ADD COLUMN providers TEXT DEFAULT '["newsapi"]'
+                ADD COLUMN providers TEXT
             """)
             conn.commit()
             logger.info("Column added successfully")
