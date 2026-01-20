@@ -58,6 +58,7 @@ from app.routes.auto_ingest import router as auto_ingest_router
 from app.routes.chat_routes import router as chat_router
 from app.routes.database import router as database_router
 from app.routes.dashboard_routes import router as dashboard_router
+import aiohttp
 from app.routes.dashboard_cache_routes import router as dashboard_cache_router
 import shutil
 from app.utils.app_info import get_app_info
@@ -1454,6 +1455,22 @@ async def collect_page(request: Request, session=Depends(verify_session)):
 async def save_newsapi_config(config: NewsAPIConfig):
     """Save NewsAPI configuration."""
     try:
+        # Validate API key with a lightweight request before saving
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                async with session.get(
+                    "https://newsapi.org/v2/top-headlines",
+                    params={"country": "us", "pageSize": "1", "apiKey": config.api_key}
+                ) as resp:
+                    data = await resp.json(content_type=None)
+                    if resp.status != 200 or (isinstance(data, dict) and data.get("status") != "ok"):
+                        raise HTTPException(status_code=400, detail="Invalid NewsAPI API key")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"NewsAPI validation error: {e}")
+            raise HTTPException(status_code=400, detail="Invalid NewsAPI API key")
+
         env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
         env_var_name = 'PROVIDER_NEWSAPI_KEY'
 
@@ -2129,6 +2146,22 @@ async def reset_database():
 async def save_firecrawl_config(config: NewsAPIConfig):  # Reusing the same model since structure is identical
     """Save Firecrawl configuration."""
     try:
+        # Validate API key using Firecrawl SDK by performing a minimal scrape.
+        # This endpoint enforces auth and will raise on invalid keys.
+        try:
+            from firecrawl import Firecrawl  # type: ignore
+            firecrawl = Firecrawl(api_key=config.api_key)
+            # Minimal request; if invalid, SDK should raise (commonly 401)
+            firecrawl.scrape("https://example.com", formats=["markdown"])
+        except Exception as e:
+            error_msg = str(e)
+            # Normalize common invalid-key signals
+            if "401" in error_msg or "invalid" in error_msg.lower():
+                raise HTTPException(status_code=400, detail="Invalid Firecrawl API key")
+            # Treat any SDK error as failure to avoid storing bad keys
+            logger.error(f"Firecrawl validation error: {error_msg}")
+            raise HTTPException(status_code=400, detail="Invalid Firecrawl API key")
+
         env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
         env_var_name = 'PROVIDER_FIRECRAWL_KEY'
 
@@ -2255,6 +2288,21 @@ async def get_newsdata_config():
 async def save_thenewsapi_config(config: NewsAPIConfig):  # Reusing the same model since structure is identical
     """Save TheNewsAPI configuration."""
     try:
+        # Validate API key with a lightweight request before saving
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                async with session.get(
+                    "https://api.thenewsapi.com/v1/news/top",
+                    params={"locale": "us", "limit": "1", "api_token": config.api_key}
+                ) as resp:
+                    if resp.status != 200:
+                        raise HTTPException(status_code=400, detail="Invalid TheNewsAPI API key")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"TheNewsAPI validation error: {e}")
+            raise HTTPException(status_code=400, detail="Invalid TheNewsAPI API key")
+
         env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
         primary_env_var = 'PROVIDER_THENEWSAPI_KEY'
         secondary_env_var = 'THENEWSAPI_KEY'  # For backward compatibility
@@ -2310,6 +2358,39 @@ async def save_thenewsapi_config(config: NewsAPIConfig):  # Reusing the same mod
 async def save_newsdata_config(config: NewsAPIConfig):  # Reusing the same model since structure is identical
     """Save NewsData.io configuration."""
     try:
+        # Validate API key with a lightweight request before saving (best-effort, permissive)
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                async with session.get(
+                    "https://newsdata.io/api/1/news",
+                    params={
+                        "apikey": config.api_key,
+                        "q": "news",
+                        "language": "en",
+                        "page": "1"
+                    }
+                ) as resp:
+                    # Treat only explicit auth failures as invalid
+                    if resp.status in (401, 403):
+                        raise HTTPException(status_code=400, detail="Invalid NewsData.io API key")
+                    if resp.status == 200:
+                        # Inspect payload for explicit invalid indicator
+                        try:
+                            data = await resp.json(content_type=None)
+                            if isinstance(data, dict):
+                                status_val = (data.get("status") or "").lower()
+                                message_val = (data.get("message") or "").lower()
+                                if status_val == "error" and ("invalid" in message_val or "api key" in message_val):
+                                    raise HTTPException(status_code=400, detail="Invalid NewsData.io API key")
+                        except Exception as parse_err:
+                            logger.debug(f"NewsData.io validation parse issue (ignoring): {parse_err}")
+                    # Other statuses (e.g., 400 due to params, 5xx) are inconclusive; allow saving
+        except HTTPException:
+            raise
+        except Exception as e:
+            # Network or transient errors → don't block saving the key
+            logger.warning(f"NewsData.io validation inconclusive: {e}")
+
         env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
         primary_env_var = 'PROVIDER_NEWSDATA_API_KEY'
         secondary_env_var = 'NEWSDATA_API_KEY'  # For backward compatibility
@@ -2972,6 +3053,29 @@ ELEVEN_ENV_VAR = "ELEVENLABS_API_KEY"
 async def save_elevenlabs_config(config: NewsAPIConfig):
     """Save ElevenLabs API key to .env and environment."""
     try:
+        # Validate API key using the ElevenLabs SDK text-to-speech endpoint
+        try:
+            api_key_trimmed = (config.api_key or "").strip()
+            client = ElevenLabs(api_key=api_key_trimmed)
+            # Perform a minimal TTS request to validate the key
+            # Using a very short text to minimize API usage
+            audio = client.text_to_speech.convert(
+                voice_id="EXAVITQu4vr4xnSDxMaL",  # Rachel (default voice)
+                model_id="eleven_turbo_v2",
+                text="Test"
+            )
+            next(audio)
+            # If we get here without exception, the key is valid
+            logger.info("ElevenLabs API key validated successfully via TTS")
+        except Exception as e:
+            error_msg = str(e).lower()
+            # Check for authentication-related errors
+            if "401" in error_msg or "unauthorized" in error_msg or "invalid" in error_msg or "api_key" in error_msg:
+                logger.error(f"ElevenLabs API key validation failed: {e}")
+                raise HTTPException(status_code=400, detail="Invalid ElevenLabs API key")
+            # For other errors (network issues, rate limits, etc.), log but allow saving
+            logger.warning("ElevenLabs validation inconclusive: %s", e)
+
         env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
 
         # Read existing .env lines (if any)
@@ -3079,6 +3183,21 @@ class BlueskyConfig(BaseModel):
 async def save_bluesky_config(config: BlueskyConfig):
     """Save Bluesky configuration."""
     try:
+        # Validate Bluesky credentials by attempting to login
+        try:
+            from atproto import Client
+            client = Client()
+            client.login(config.username, config.password)
+            logger.info(f"Bluesky credentials validated successfully for user: {config.username}")
+        except Exception as e:
+            error_msg = str(e).lower()
+            # Check for authentication-related errors
+            if "invalid" in error_msg or "authentication" in error_msg or "unauthorized" in error_msg or "password" in error_msg or "credentials" in error_msg:
+                logger.error(f"Bluesky credentials validation failed: {e}")
+                raise HTTPException(status_code=400, detail="Invalid Bluesky credentials")
+            # For other errors (network issues, etc.), log but allow saving
+            logger.warning(f"Bluesky validation inconclusive: {e}")
+
         env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
         username_var = 'PROVIDER_BLUESKY_USERNAME'
         password_var = 'PROVIDER_BLUESKY_PASSWORD'
@@ -3213,6 +3332,27 @@ async def save_google_pse_config(config: GooglePSEConfig):
 
         if not cse_id:
             raise HTTPException(status_code=400, detail="Search Engine ID (CSE ID) is required")
+
+        # Validate API key + CSE ID with a lightweight request before saving
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=10)) as session:
+                async with session.get(
+                    "https://www.googleapis.com/customsearch/v1",
+                    params={"key": config.api_key, "cx": cse_id, "q": "test", "num": "1"}
+                ) as resp:
+                    if resp.status != 200:
+                        # Try to extract error message
+                        try:
+                            data = await resp.json()
+                            msg = data.get("error", {}).get("message", "Invalid Google PSE credentials")
+                        except Exception:
+                            msg = "Invalid Google PSE credentials"
+                        raise HTTPException(status_code=400, detail=msg)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Google PSE validation error: {e}")
+            raise HTTPException(status_code=400, detail="Invalid Google PSE credentials")
 
         # Read existing content
         try:

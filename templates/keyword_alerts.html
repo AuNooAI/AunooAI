@@ -4668,7 +4668,7 @@ async function checkKeywords(event) {
                         // Refresh page after short delay
                         setTimeout(() => window.location.reload(), 1500);
                     } else {
-                        showAlert(`Keyword check completed with issues: ${finalResult?.message || 'Unknown error'}`, 'warning');
+                        showAlert(`Keyword check completed with issues: ${finalResult?.error || 'Unknown error'}`, 'warning');
                     }
                 },
                 (error) => {
