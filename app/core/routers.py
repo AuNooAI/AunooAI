@@ -52,6 +52,7 @@ def register_routers(app: FastAPI):
     from app.routes.email_routes import router as email_router
     from app.routes.emerging_topics_routes import router as emerging_topics_router
     from app.routes.rss_feeds_routes import router as rss_feeds_router
+    from app.routes.policy_tracker_routes import router as policy_tracker_router
 
     # Register database routes
     app.include_router(database.router)
@@ -175,5 +176,8 @@ def register_routers(app: FastAPI):
 
     # RSS Feed management routes
     app.include_router(rss_feeds_router)
+
+    # Policy Tracker dashboard routes
+    app.include_router(policy_tracker_router)
 
     logger.info("All routers registered successfully")
