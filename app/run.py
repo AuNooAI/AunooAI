@@ -20,10 +20,11 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-# Get port from environment variable, default to 10000 if not set
+# Get port from environment variable, default to 10001 if not set
+# Canonical default port is 10001 (matches docker-compose defaults)
 # Handle empty string case (common in Docker environment variables)
-port_value = os.getenv('PORT', '10000').strip()
-PORT = int(port_value) if port_value else 10000
+port_value = os.getenv('PORT', '10001').strip()
+PORT = int(port_value) if port_value else 10001
 CERT_PATH = os.getenv('CERT_PATH', 'cert.pem')
 KEY_PATH = os.getenv('KEY_PATH', 'key.pem')
 ENVIRONMENT = os.getenv('ENVIRONMENT', 'development')

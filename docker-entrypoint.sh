@@ -4,7 +4,7 @@ set -e
 echo "Starting Aunoo AI application..."
 echo "Instance: ${INSTANCE:-unknown}"
 echo "Environment: ${ENVIRONMENT:-unknown}"
-echo "Port: ${PORT:-5000}"
+echo "Port: ${PORT:-10001}"
 echo "Database Type: ${DB_TYPE:-postgresql}"
 
 # Set up persistent .env file using volume

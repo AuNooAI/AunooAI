@@ -1,7 +1,10 @@
 import httpx
 import os
 
-BASE_URL = "http://localhost:10001"
+# Build BASE_URL dynamically from environment variables
+# Priority: PORT -> APP_PORT -> fallback to 10001 (canonical default)
+_port = os.environ.get('PORT') or os.environ.get('APP_PORT') or '10001'
+BASE_URL = f"http://localhost:{_port}"
 
 def test_resend_key_is_configured():
     payload = {
