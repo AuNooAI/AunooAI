@@ -416,6 +416,15 @@ async def share_article(
     session=Depends(verify_session)
 ):
     """Share an article via email."""
+    # Debug logging - show all fields
+    logger.info(f"Article share request received:")
+    logger.info(f"  - to_email: {request.to_email}")
+    logger.info(f"  - title: '{request.title[:50] if request.title else 'None'}'")
+    logger.info(f"  - url: '{request.url}'")
+    logger.info(f"  - source: '{request.source}'")
+    logger.info(f"  - category: '{request.category}'")
+    logger.info(f"  - topic: '{request.topic}'")
+
     email_service = get_email_service()
 
     if not email_service.is_available():
@@ -434,8 +443,13 @@ async def share_article(
         f'<h1 style="color: white; margin: 0; font-size: 24px;">Shared Article</h1>',
         f'</div>',
         f'<div style="background: #f8f9fa; padding: 20px; border: 1px solid #e9ecef; border-top: none;">',
-        f'<h2 style="color: #333; margin-top: 0; line-height: 1.4;">{request.title}</h2>',
     ]
+
+    # Title (clickable if URL available)
+    if request.url:
+        html_parts.append(f'<h2 style="margin-top: 0; line-height: 1.4;"><a href="{request.url}" style="color: #333; text-decoration: none;">{request.title}</a></h2>')
+    else:
+        html_parts.append(f'<h2 style="color: #333; margin-top: 0; line-height: 1.4;">{request.title}</h2>')
 
     # Source and date
     source_info = []
@@ -471,10 +485,12 @@ async def share_article(
         html_parts.append(f'<p style="margin: 0; color: #333; line-height: 1.6;">{request.summary}</p>')
         html_parts.append('</div>')
 
-    # Read full article button
+    # Read full article button and visible link
     if request.url:
-        html_parts.append(f'<div style="margin: 20px 0; text-align: center;">')
-        html_parts.append(f'<a href="{request.url}" style="display: inline-block; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 500;">Read Full Article</a>')
+        html_parts.append(f'<p style="margin: 15px 0 8px 0;"><a href="{request.url}" style="color: #ec4899; font-size: 13px; text-decoration: underline;">🔗 Read full article →</a></p>')
+        html_parts.append(f'<p style="margin: 0 0 15px 0; font-size: 11px; color: #888; word-break: break-all;">{request.url}</p>')
+        html_parts.append(f'<div style="margin: 10px 0; text-align: center;">')
+        html_parts.append(f'<a href="{request.url}" style="display: inline-block; background-color: #ec4899; color: white; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 500;">Read Full Article</a>')
         html_parts.append('</div>')
 
     html_parts.extend([
@@ -834,13 +850,22 @@ async def share_briefing(
 
     if request.articles:
         html_parts.append('<h4 style="color: #333;">Top Stories:</h4>')
+        # Debug: log article data to see what's being received
+        logger.info(f"Briefing share - received {len(request.articles)} articles")
+        for idx, art in enumerate(request.articles[:3]):
+            logger.info(f"Article {idx}: url={art.get('url')}, uri={art.get('uri')}, title={art.get('title', '')[:50]}")
         for i, article in enumerate(request.articles[:6], 1):
             title = article.get('title') or article.get('headline', 'Untitled')
             takeaway = article.get('executive_takeaway', '')
+            strategic_relevance = article.get('strategic_relevance', '')
+            summary = article.get('summary', '')
             category = article.get('category', '')
             source = article.get('source', '')
             date = article.get('date', '')
-            url = article.get('url', '')
+            url = article.get('url', '') or article.get('uri', '')
+            time_horizon = article.get('time_horizon', '')
+            signal_strength = article.get('signal_strength', '')
+            risk_opportunity = article.get('risk_opportunity', '')
 
             # Build source/date line
             source_info = []
@@ -852,19 +877,73 @@ async def share_briefing(
 
             html_parts.append(f'<div style="background: white; padding: 12px; border-radius: 4px; margin: 8px 0; border: 1px solid #e9ecef;">')
             # Title with optional link
+            logger.info(f"Article {i} in HTML: url='{url}', truthy={bool(url)}")
             if url:
-                html_parts.append(f'<p style="margin: 0; font-weight: 600; color: #333;">{i}. <a href="{url}" style="color: #333; text-decoration: none;">{title}</a></p>')
+                html_parts.append(f'<p style="margin: 0; font-weight: 600; color: #333;">{i}. <a href="{url}" style="color: #ec4899; text-decoration: none;">{title}</a></p>')
             else:
                 html_parts.append(f'<p style="margin: 0; font-weight: 600; color: #333;">{i}. {title}</p>')
             # Source and date
             if source_line:
                 html_parts.append(f'<p style="margin: 4px 0 0 0; color: #888; font-size: 12px;">{source_line}</p>')
-            # Category badge
+            # Badges row
+            badges = []
             if category:
-                html_parts.append(f'<span style="background: #e2e8f0; color: #475569; padding: 2px 6px; border-radius: 3px; font-size: 11px; margin-top: 6px; display: inline-block;">{category}</span>')
-            # Takeaway
+                badges.append(f'<span style="background: #e2e8f0; color: #475569; padding: 2px 6px; border-radius: 3px; font-size: 11px;">{category}</span>')
+            if time_horizon:
+                badges.append(f'<span style="background: #dbeafe; color: #1e40af; padding: 2px 6px; border-radius: 3px; font-size: 11px;">{time_horizon}</span>')
+            if signal_strength:
+                badges.append(f'<span style="background: #fef3c7; color: #92400e; padding: 2px 6px; border-radius: 3px; font-size: 11px;">{signal_strength}</span>')
+            if risk_opportunity:
+                color = '#dcfce7' if 'opportunity' in risk_opportunity.lower() else '#fee2e2'
+                text_color = '#166534' if 'opportunity' in risk_opportunity.lower() else '#991b1b'
+                badges.append(f'<span style="background: {color}; color: {text_color}; padding: 2px 6px; border-radius: 3px; font-size: 11px;">{risk_opportunity}</span>')
+            if badges:
+                html_parts.append(f'<p style="margin: 6px 0; display: flex; flex-wrap: wrap; gap: 4px;">{" ".join(badges)}</p>')
+            # Why This Matters (Executive Takeaway)
             if takeaway:
-                html_parts.append(f'<p style="margin: 8px 0 0 0; color: #666; font-size: 14px;">{takeaway}</p>')
+                html_parts.append(f'<div style="background: linear-gradient(135deg, #fdf2f8 0%, #faf5ff 100%); padding: 10px; border-radius: 4px; margin: 10px 0; border-left: 3px solid #ec4899;">')
+                html_parts.append(f'<p style="color: #be185d; margin: 0 0 4px 0; font-size: 11px; text-transform: uppercase; font-weight: 600;">Why This Matters</p>')
+                html_parts.append(f'<p style="margin: 0; color: #333; font-size: 13px; line-height: 1.5;">{takeaway}</p>')
+                html_parts.append('</div>')
+
+            # Strategic Relevance
+            if strategic_relevance:
+                html_parts.append(f'<div style="background: #e3f2fd; padding: 10px; border-radius: 4px; margin: 8px 0; border-left: 3px solid #2196f3;">')
+                html_parts.append(f'<p style="color: #1565c0; margin: 0 0 4px 0; font-size: 11px; text-transform: uppercase; font-weight: 600;">Strategic Relevance</p>')
+                html_parts.append(f'<p style="margin: 0; color: #333; font-size: 13px; line-height: 1.5;">{strategic_relevance}</p>')
+                html_parts.append('</div>')
+
+            # Summary (if no takeaway)
+            if summary and not takeaway:
+                html_parts.append(f'<p style="margin: 8px 0; color: #666; font-size: 13px; line-height: 1.5;">{summary[:300]}{"..." if len(summary) > 300 else ""}</p>')
+
+            # Executive Actions
+            executive_actions = article.get('executive_actions') or article.get('executive_action', [])
+            if executive_actions:
+                if isinstance(executive_actions, str):
+                    executive_actions = [executive_actions]
+                if executive_actions:
+                    html_parts.append(f'<div style="margin: 8px 0;">')
+                    html_parts.append(f'<p style="color: #666; margin: 0 0 6px 0; font-size: 11px; text-transform: uppercase; font-weight: 600;">Recommended Actions</p>')
+                    for action in executive_actions[:3]:
+                        html_parts.append(f'<p style="margin: 2px 0; color: #333; font-size: 12px;">→ {action}</p>')
+                    html_parts.append('</div>')
+
+            # Scores
+            scores = article.get('scores', {})
+            if scores and isinstance(scores, dict) and len(scores) > 0:
+                score_items = []
+                for key in ['relevance', 'impact', 'actionability', 'credibility', 'overall']:
+                    if scores.get(key) is not None:
+                        label = key.capitalize()
+                        score_items.append(f'<span style="margin-right: 12px; font-size: 11px;"><strong>{scores[key]}</strong> {label}</span>')
+                if score_items:
+                    html_parts.append(f'<p style="margin: 8px 0 0 0; color: #666;">{" ".join(score_items)}</p>')
+
+            # Read more link - make it very visible
+            if url:
+                html_parts.append(f'<p style="margin: 10px 0 0 0;"><a href="{url}" style="color: #ec4899; font-size: 12px; text-decoration: underline;">🔗 Read full article →</a></p>')
+                html_parts.append(f'<p style="margin: 2px 0 0 0; font-size: 10px; color: #999; word-break: break-all;">{url}</p>')
             html_parts.append('</div>')
 
     if request.key_themes:
@@ -884,12 +963,27 @@ async def share_briefing(
 
     body_html = '\n'.join(html_parts)
 
+    # Build detailed plain text for articles
+    article_texts = []
+    for i, a in enumerate((request.articles or [])[:6], 1):
+        article_text = f"{i}. {a.get('title', 'Untitled')}"
+        if a.get('source') or a.get('date'):
+            article_text += f"\n   Source: {a.get('source', '')} {a.get('date', '')}"
+        if a.get('executive_takeaway'):
+            article_text += f"\n   Key Takeaway: {a.get('executive_takeaway')}"
+        if a.get('strategic_relevance'):
+            article_text += f"\n   Strategic Relevance: {a.get('strategic_relevance')}"
+        if a.get('url') or a.get('uri'):
+            link = a.get('url') or a.get('uri')
+            article_text += f"\n   Read more: {link}"
+        article_texts.append(article_text)
+
     body_text = f"""Executive Briefing - {request.persona}
 
 {request.executive_summary or ''}
 
 Top Stories:
-{chr(10).join(f'{i+1}. {a.get("title", "Untitled")}' for i, a in enumerate((request.articles or [])[:6]))}
+{chr(10).join(article_texts)}
 
 {f'Key Themes: {", ".join(request.key_themes)}' if request.key_themes else ''}
 
@@ -921,6 +1015,16 @@ async def share_briefing_card(
     session=Depends(verify_session)
 ):
     """Share a single briefing card via email with all rich data."""
+    # Debug: log all fields for troubleshooting
+    logger.info(f"Briefing card share request received:")
+    logger.info(f"  - to_email: {request.to_email}")
+    logger.info(f"  - title: '{request.title[:50] if request.title else 'None'}'")
+    logger.info(f"  - url: '{request.url}'")
+    logger.info(f"  - source: '{request.source}'")
+    logger.info(f"  - category: '{request.category}'")
+    logger.info(f"  - executive_actions: {request.executive_actions}")
+    logger.info(f"  - scores: {request.scores}")
+
     email_service = get_email_service()
 
     if not email_service.is_available():
@@ -953,8 +1057,11 @@ async def share_briefing_card(
         cat_color = category_colors.get(request.category.lower(), '#6b7280')
         html_parts.append(f'<span style="background: {cat_color}; color: white; padding: 4px 10px; border-radius: 4px; font-size: 12px; text-transform: uppercase; font-weight: 600;">{request.category}</span>')
 
-    # Title
-    html_parts.append(f'<h2 style="color: #333; margin: 12px 0 8px 0; line-height: 1.4;">{request.title}</h2>')
+    # Title (clickable if URL available)
+    if request.url:
+        html_parts.append(f'<h2 style="margin: 12px 0 8px 0; line-height: 1.4;"><a href="{request.url}" style="color: #333; text-decoration: none;">{request.title}</a></h2>')
+    else:
+        html_parts.append(f'<h2 style="color: #333; margin: 12px 0 8px 0; line-height: 1.4;">{request.title}</h2>')
 
     # Source and date
     source_info = []
@@ -968,7 +1075,10 @@ async def share_briefing_card(
         except:
             source_info.append(request.date)
     if source_info:
-        html_parts.append(f'<p style="color: #666; margin: 0 0 15px 0; font-size: 14px;">{" · ".join(source_info)}</p>')
+        html_parts.append(f'<p style="color: #666; margin: 0 0 8px 0; font-size: 14px;">{" · ".join(source_info)}</p>')
+    # Add visible article link
+    if request.url:
+        html_parts.append(f'<p style="margin: 0 0 15px 0;"><a href="{request.url}" style="color: #ec4899; font-size: 13px; text-decoration: none;">🔗 Read original article →</a></p>')
 
     # Rating badges row
     badges_html = []
@@ -1049,11 +1159,11 @@ async def share_briefing_card(
     auspex_context += "\n\nProvide deeper analysis and additional strategic recommendations."
     auspex_query = urllib.parse.quote(auspex_context)
 
-    html_parts.append('<div style="margin: 20px 0; padding: 15px; background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); border-radius: 8px; text-align: center;">')
+    html_parts.append('<div style="margin: 20px 0; padding: 15px; background-color: #f3f4f6; border-radius: 8px; text-align: center;">')
     html_parts.append('<p style="color: #666; font-size: 12px; margin: 0 0 12px 0;">Continue exploring in AuNoo AI</p>')
     html_parts.append('<div style="display: inline-block;">')
-    html_parts.append('<a href="https://bugfixing.aunoo.ai/explore" style="display: inline-block; background: linear-gradient(135deg, #ec4899 0%, #8b5cf6 100%); color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">View Your Briefing</a>')
-    html_parts.append(f'<a href="https://bugfixing.aunoo.ai/explore?auspex_query={auspex_query}" style="display: inline-block; background: #1976d2; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">Ask Auspex</a>')
+    html_parts.append('<a href="https://bugfixing.aunoo.ai/explore" style="display: inline-block; background-color: #ec4899; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">View Your Briefing</a>')
+    html_parts.append(f'<a href="https://bugfixing.aunoo.ai/explore?auspex_query={auspex_query}" style="display: inline-block; background-color: #1976d2; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">Ask Auspex</a>')
     html_parts.append('</div>')
     html_parts.append('</div>')
 
