@@ -17,6 +17,7 @@ import { Badge } from '../ui/badge';
 import type { ScenarioAnalysis } from '../../hooks/usePAM';
 
 // Scenario definitions with positions in the matrix
+// Using explicit light backgrounds that persist in dark mode for visibility
 const SCENARIO_CONFIG = [
   // Top row: High Regulation
   {
@@ -25,8 +26,8 @@ const SCENARIO_CONFIG = [
     shortName: 'TE',
     icon: '🛡️',
     position: 'top-left',
-    color: 'bg-green-50 border-green-300 hover:bg-green-100',
-    activeColor: 'ring-2 ring-green-500 bg-green-100',
+    color: 'bg-green-200 border-green-400 hover:bg-green-300',
+    activeColor: 'ring-2 ring-green-500 bg-green-300',
   },
   {
     id: 'fragmentedCompliance',
@@ -34,8 +35,8 @@ const SCENARIO_CONFIG = [
     shortName: 'FC',
     icon: '🧩',
     position: 'top-right',
-    color: 'bg-yellow-50 border-yellow-300 hover:bg-yellow-100',
-    activeColor: 'ring-2 ring-yellow-500 bg-yellow-100',
+    color: 'bg-yellow-200 border-yellow-400 hover:bg-yellow-300',
+    activeColor: 'ring-2 ring-yellow-500 bg-yellow-300',
   },
   // Bottom row: Low Regulation
   {
@@ -44,8 +45,8 @@ const SCENARIO_CONFIG = [
     shortName: 'OC',
     icon: '🌪️',
     position: 'bottom-left',
-    color: 'bg-gray-50 border-gray-300 hover:bg-gray-100',
-    activeColor: 'ring-2 ring-gray-500 bg-gray-100',
+    color: 'bg-gray-300 border-gray-400 hover:bg-gray-400',
+    activeColor: 'ring-2 ring-gray-500 bg-gray-400',
   },
   {
     id: 'behemothControl',
@@ -53,8 +54,8 @@ const SCENARIO_CONFIG = [
     shortName: 'BC',
     icon: '🏢',
     position: 'bottom-right',
-    color: 'bg-red-50 border-red-300 hover:bg-red-100',
-    activeColor: 'ring-2 ring-red-500 bg-red-100',
+    color: 'bg-red-200 border-red-400 hover:bg-red-300',
+    activeColor: 'ring-2 ring-red-500 bg-red-300',
   },
 ];
 
@@ -114,7 +115,7 @@ const ScenarioMiniMatrix: React.FC<ScenarioMiniMatrixProps> = ({
         </span>
       );
     }
-    return <span className="text-gray-500">{probabilityShift}</span>;
+    return <span className="text-black">{probabilityShift}</span>;
   };
 
   return (
@@ -125,13 +126,13 @@ const ScenarioMiniMatrix: React.FC<ScenarioMiniMatrixProps> = ({
       <CardHeader className="pb-2">
         <CardTitle className="text-lg flex items-center justify-between">
           <span>2030 Scenarios</span>
-          <ChevronRight className="w-4 h-4 text-gray-400" />
+          <ChevronRight className="w-4 h-4 text-black" />
         </CardTitle>
       </CardHeader>
       <CardContent>
         {/* Axis Labels */}
         <div className="relative mb-1">
-          <div className="text-xs text-gray-500 text-center">
+          <div className="text-xs text-black text-center">
             ← Distributed | Concentrated →
           </div>
         </div>
@@ -139,7 +140,7 @@ const ScenarioMiniMatrix: React.FC<ScenarioMiniMatrixProps> = ({
         {/* 2x2 Matrix */}
         <div className="relative">
           {/* Left axis label */}
-          <div className="absolute -left-4 top-1/2 -translate-y-1/2 -rotate-90 text-xs text-gray-500 whitespace-nowrap w-0">
+          <div className="absolute -left-4 top-1/2 -translate-y-1/2 -rotate-90 text-xs text-black whitespace-nowrap w-0">
             High Reg ↑
           </div>
 
@@ -162,10 +163,10 @@ const ScenarioMiniMatrix: React.FC<ScenarioMiniMatrixProps> = ({
                       </Badge>
                     )}
                   </div>
-                  <div className="text-xs font-medium truncate">
+                  <div className="text-xs font-medium truncate text-black">
                     {scenario.shortName}
                   </div>
-                  <div className="text-lg font-bold">
+                  <div className="text-lg font-bold text-black">
                     {getProbabilityDisplay(scenario.id)}
                   </div>
                 </div>
@@ -190,10 +191,10 @@ const ScenarioMiniMatrix: React.FC<ScenarioMiniMatrixProps> = ({
                       </Badge>
                     )}
                   </div>
-                  <div className="text-xs font-medium truncate">
+                  <div className="text-xs font-medium truncate text-black">
                     {scenario.shortName}
                   </div>
-                  <div className="text-lg font-bold">
+                  <div className="text-lg font-bold text-black">
                     {getProbabilityDisplay(scenario.id)}
                   </div>
                 </div>
@@ -202,7 +203,7 @@ const ScenarioMiniMatrix: React.FC<ScenarioMiniMatrixProps> = ({
           </div>
 
           {/* Right axis label */}
-          <div className="absolute -right-2 top-1/2 -translate-y-1/2 rotate-90 text-xs text-gray-500 whitespace-nowrap w-0">
+          <div className="absolute -right-2 top-1/2 -translate-y-1/2 rotate-90 text-xs text-black whitespace-nowrap w-0">
             ↓ Low Reg
           </div>
         </div>
@@ -215,7 +216,7 @@ const ScenarioMiniMatrix: React.FC<ScenarioMiniMatrixProps> = ({
         )}
 
         {/* Legend */}
-        <div className="mt-2 pt-2 border-t text-xs text-gray-500">
+        <div className="mt-2 pt-2 border-t text-xs text-black">
           <div className="grid grid-cols-2 gap-1">
             <span>🛡️ TE: Trust Ecosystem</span>
             <span>🧩 FC: Fragmented</span>
