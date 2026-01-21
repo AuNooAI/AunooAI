@@ -40,6 +40,7 @@ class MoneyAgent(BasePillarAgent):
     ]
 
     # Default keywords for cost dynamics article search (fallback)
+    # These are paired with sector context in the search query
     DEFAULT_COST_KEYWORDS = [
         'cost cutting', 'cost-cutting', 'layoffs', 'layoff', 'job cuts',
         'budget cuts', 'budget reduction', 'restructuring', 'downsizing',
@@ -47,6 +48,15 @@ class MoneyAgent(BasePillarAgent):
         'training costs', 'ai costs', 'operating costs', 'publishing costs',
         'price increase', 'price cut', 'pricing', 'subscription costs',
         'revenue decline', 'losses', 'profitability', 'margins', 'burn rate'
+    ]
+
+    # Sector keywords to filter cost articles to relevant domain
+    SECTOR_KEYWORDS = [
+        'ai', 'artificial intelligence', 'machine learning', 'llm',
+        'publisher', 'publishing', 'scholarly', 'academic', 'journal',
+        'tech', 'technology', 'software', 'platform', 'startup',
+        'openai', 'anthropic', 'google', 'microsoft', 'meta',
+        'content', 'media', 'research'
     ]
 
     def __init__(
@@ -118,7 +128,8 @@ class MoneyAgent(BasePillarAgent):
 
     async def _search_cost_articles(self, context: AnalysisContext) -> List[Dict]:
         """
-        Search for articles about cost dynamics using keyword matching.
+        Search for articles about cost dynamics in AI/publishing/tech sector.
+        Uses keyword matching with sector filter for relevance.
         """
         from app.database import get_database_instance
         from sqlalchemy import text
@@ -126,16 +137,24 @@ class MoneyAgent(BasePillarAgent):
         db = get_database_instance()
         conn = db._temp_get_connection()
 
-        # Build OR conditions for keyword matching
+        # Build OR conditions for cost keyword matching
         keyword_conditions = " OR ".join([
             f"(LOWER(title) LIKE '%{kw}%' OR LOWER(summary) LIKE '%{kw}%')"
             for kw in self.cost_keywords
         ])
 
+        # Build OR conditions for sector relevance
+        sector_conditions = " OR ".join([
+            f"(LOWER(title) LIKE '%{kw}%' OR LOWER(summary) LIKE '%{kw}%')"
+            for kw in self.SECTOR_KEYWORDS
+        ])
+
+        # Articles must have cost keyword AND be in relevant sector
         query = text(f"""
             SELECT uri, title, summary, news_source, publication_date, topic
             FROM articles
             WHERE ({keyword_conditions})
+            AND ({sector_conditions})
             AND publication_date IS NOT NULL
             AND publication_date != ''
             AND publication_date::date >= CURRENT_DATE - INTERVAL '{context.days_back} days'
@@ -255,7 +274,10 @@ Look for articles that mention:
 ## FUNDING FLOWS
 Evidence of where investment capital is going.
 
-Look for articles about:
+IMPORTANT: Include funding rounds from the PRE-EXTRACTED FINANCIAL EVENTS section above (marked [FIN-X]).
+These are verified funding events - incorporate them into your signals.
+
+Also look for additional funding evidence in articles:
 - Venture capital investments (amounts, recipients)
 - Government grants and funding programs
 - Corporate R&D spending
@@ -264,7 +286,10 @@ Look for articles about:
 ## M&A ACTIVITY
 Evidence of who is acquiring whom.
 
-Look for articles about:
+IMPORTANT: Include deals from the PRE-EXTRACTED FINANCIAL EVENTS section above (marked [FIN-X]).
+These are verified M&A events - incorporate them into your deals list.
+
+Also look for additional deals in articles:
 - Completed or announced acquisitions
 - Merger discussions
 - Strategic partnerships with equity stakes
@@ -313,13 +338,13 @@ Respond with JSON (cite specific article numbers):
     }},
 
     "ma_activity": {{
-        "evidence_count": <number of articles mentioning M&A>,
-        "activity_level": "Based on article frequency: high|moderate|low",
+        "evidence_count": <total count: pre-extracted events + articles mentioning M&A>,
+        "activity_level": "Based on volume: high|moderate|low",
         "deals": [
-            {{"acquirer": "Company A", "target": "Company B", "value": "$X million or undisclosed", "type": "horizontal|vertical|conglomerate", "source": "Source name [7]"}}
+            {{"acquirer": "Company A", "target": "Company B", "value": "$X million or undisclosed", "type": "acquisition|merger|funding|partnership|ipo", "source": "[FIN-1] or Source name [7]"}}
         ],
         "consolidation_pattern": "Based on evidence: compute giants buying content|publishers merging|vertical integration|other",
-        "summary": "Summary of M&A evidence from articles"
+        "summary": "Summary of M&A evidence from pre-extracted events and articles"
     }},
 
     "revenue_dynamics": {{
@@ -396,6 +421,25 @@ Respond with JSON (cite specific article numbers):
         revenue_dynamics = llm_analysis.get("revenue_dynamics", {})
         cost_dynamics = llm_analysis.get("cost_dynamics", {})
 
+        # Fallback: If LLM returned no M&A deals, use pre-extracted financial events
+        llm_deals = ma_activity.get("deals", [])
+        if not llm_deals and context.financial_events:
+            logger.info(f"Money: Using {len(context.financial_events)} pre-extracted financial events as fallback")
+            # Convert pre-extracted events to the expected deal format
+            ma_activity["deals"] = [
+                {
+                    "acquirer": evt.get("acquirer", "Unknown"),
+                    "target": evt.get("target", "Unknown"),
+                    "value": f"${evt.get('deal_value_usd', 0):,}" if evt.get('deal_value_usd') else "undisclosed",
+                    "type": evt.get("event_type", "deal"),
+                    "source": f"[FIN] {evt.get('headline', '')[:50]}"
+                }
+                for evt in context.financial_events[:10]
+            ]
+            ma_activity["evidence_count"] = len(context.financial_events)
+            ma_activity["activity_level"] = "high" if len(context.financial_events) >= 10 else "moderate" if len(context.financial_events) >= 5 else "low"
+            ma_activity["summary"] = f"Based on {len(context.financial_events)} pre-extracted M&A and funding events"
+
         return {
             "pillar": "money",
             "money_score": round(composite_score, 1),
@@ -451,6 +495,7 @@ Respond with JSON (cite specific article numbers):
             "ma_activity": {
                 "evidence_count": ma_activity.get("evidence_count", 0),
                 "activity_level": ma_activity.get("activity_level", "moderate"),
+                "level": ma_activity.get("activity_level", "moderate"),  # UI expects 'level'
                 "deals": ma_activity.get("deals", []),
                 "consolidation_pattern": ma_activity.get("consolidation_pattern", ""),
                 "summary": ma_activity.get("summary", "No M&A evidence found in articles"),
@@ -460,16 +505,24 @@ Respond with JSON (cite specific article numbers):
                     {"acquirer": d.get("acquirer", ""), "target": d.get("target", ""), "value": d.get("value", "N/A"), "type": d.get("type", "")}
                     for d in ma_activity.get("deals", [])[:3]
                 ],
+                # UI expects key_deals as formatted strings for display
+                "key_deals": [
+                    f"{d.get('acquirer', 'Unknown')} → {d.get('target', 'Unknown')}: {d.get('value', 'undisclosed')} ({d.get('type', 'deal')})"
+                    for d in ma_activity.get("deals", [])[:5]
+                ],
+                "key_acquirers": list(set(d.get("acquirer", "") for d in ma_activity.get("deals", []) if d.get("acquirer")))[:5],
                 "score": self._calculate_ma_score(ma_activity, t5_evidence)
             },
 
             # Revenue Concentration (derived from evidence)
+            # Only set level/trend if we have actual evidence
             "revenue_concentration": {
                 "evidence_count": revenue_dynamics.get("evidence_count", 0),
-                "concentration_level": self._assess_concentration_level(t5_evidence),
+                "concentration_level": self._assess_concentration_level(t5_evidence) if (revenue_dynamics.get("evidence_count", 0) > 0 or t5_evidence.get("evidence_count", 0) > 0) else None,
                 "top_players_share": 0,  # Cannot measure directly
-                "trend": t5_evidence.get("trend_direction", "stable"),
+                "trend": self._assess_consolidation_trend(t5_evidence) if (revenue_dynamics.get("evidence_count", 0) > 0 or t5_evidence.get("evidence_count", 0) > 0) else None,
                 "key_metrics": [s.get("finding", "") for s in revenue_dynamics.get("signals", [])[:3]],
+                "licensing_trends": [s.get("finding", "") for s in revenue_dynamics.get("signals", []) if "licens" in s.get("finding", "").lower()][:3],
                 "score": self._calculate_revenue_score(revenue_dynamics, t5_evidence)
             },
 
@@ -483,16 +536,18 @@ Respond with JSON (cite specific article numbers):
             },
 
             # Cost Dynamics (from article evidence + dedicated search)
+            # Only set trends if we have actual evidence
             "cost_dynamics": {
                 "compute_cost_mentions": cost_dynamics.get("compute_cost_mentions", 0),
                 "cost_articles_found": len(external_data.get("cost_articles", [])),
                 "signals": cost_dynamics.get("signals", []),
-                "trend": cost_dynamics.get("trend", "stable"),
-                # Legacy fields
-                "compute_cost_trend": cost_dynamics.get("trend", "stable"),
-                "publishing_costs": "; ".join([s.get("finding", "") for s in cost_dynamics.get("signals", [])[:2]]) if cost_dynamics.get("signals") else ("See cost articles below" if external_data.get("cost_articles") else "No cost data in articles"),
+                "trend": cost_dynamics.get("trend") if (cost_dynamics.get("compute_cost_mentions", 0) > 0 or len(cost_dynamics.get("signals", [])) > 0) else None,
+                # Legacy fields - only set if evidence exists
+                "compute_cost_trend": cost_dynamics.get("trend") if (cost_dynamics.get("compute_cost_mentions", 0) > 0 or len(cost_dynamics.get("signals", [])) > 0) else None,
+                "publishing_costs": "; ".join([s.get("finding", "") for s in cost_dynamics.get("signals", [])[:2]]) if cost_dynamics.get("signals") else ("See cost articles below" if external_data.get("cost_articles") else None),
                 "key_factors": [s.get("finding", "") for s in cost_dynamics.get("signals", [])[:3]],
-                "score": None if cost_dynamics.get("compute_cost_mentions", 0) == 0 else 50 + (cost_dynamics.get("compute_cost_mentions", 0) * 5)
+                "key_findings": [s.get("finding", "") for s in cost_dynamics.get("signals", [])[:5]],  # More findings for display
+                "score": None if cost_dynamics.get("compute_cost_mentions", 0) == 0 and len(cost_dynamics.get("signals", [])) == 0 else 50 + (cost_dynamics.get("compute_cost_mentions", 0) * 5)
             },
 
             # Cost Articles Search Results (from dedicated SQL search)
@@ -614,10 +669,17 @@ Respond with JSON (cite specific article numbers):
 
         return min(100, max(0, base))
 
-    def _assess_consolidation_trend(self, t5_evidence: Dict) -> str:
-        """Assess consolidation trend from evidence."""
-        direction = t5_evidence.get("trend_direction", "stable")
+    def _assess_consolidation_trend(self, t5_evidence: Dict) -> str | None:
+        """Assess consolidation trend from evidence. Returns None if no evidence."""
+        evidence_count = t5_evidence.get("evidence_count", 0)
         deals = len(t5_evidence.get("deal_evidence", []))
+        signals = len(t5_evidence.get("signals", []))
+
+        # Return None if no actual evidence - don't make up trends
+        if evidence_count == 0 and deals == 0 and signals == 0:
+            return None
+
+        direction = t5_evidence.get("trend_direction", "stable")
 
         if direction == "accelerating" or deals > 3:
             return "accelerating"
@@ -625,13 +687,24 @@ Respond with JSON (cite specific article numbers):
             return "slowing"
         return "stable"
 
-    def _assess_concentration_level(self, t5_evidence: Dict) -> str:
-        """Assess concentration level from evidence."""
-        direction = t5_evidence.get("trend_direction", "stable")
+    def _assess_concentration_level(self, t5_evidence: Dict) -> str | None:
+        """Assess concentration level from evidence. Returns None if no evidence."""
+        evidence_count = t5_evidence.get("evidence_count", 0)
         acquirers = t5_evidence.get("key_acquirers", [])
+        deals = len(t5_evidence.get("deal_evidence", []))
+        signals = len(t5_evidence.get("signals", []))
 
-        if direction == "accelerating" or len(acquirers) <= 3:
+        # Return None if no actual evidence - don't make up levels
+        if evidence_count == 0 and len(acquirers) == 0 and deals == 0 and signals == 0:
+            return None
+
+        direction = t5_evidence.get("trend_direction", "stable")
+
+        # Only assess based on actual evidence
+        if direction == "accelerating" or deals > 3:
             return "high"
         elif len(acquirers) > 5:
             return "moderate"
-        return "moderate"
+        elif deals > 0 or len(acquirers) > 0:
+            return "moderate"
+        return None
