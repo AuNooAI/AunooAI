@@ -138,6 +138,7 @@ interface FinancialEvent {
   headline: string;
   summary: string;
   strategic_significance: string;
+  source_articles?: string[];
 }
 
 interface RegulatoryEvent {
@@ -150,6 +151,7 @@ interface RegulatoryEvent {
   summary: string;
   publisher_implications: string;
   tech_implications: string;
+  source_articles?: string[];
   t4_impact_score: number | null;
 }
 
@@ -268,6 +270,23 @@ const DATA_SOURCE_CONFIG: Record<DataSourceType, { label: string; icon: React.Re
   }
 };
 
+// Map backend data source strings to frontend types
+const mapBackendSource = (source: string): DataSourceType | null => {
+  const mapping: Record<string, DataSourceType> = {
+    'article_database': 'measured',
+    'evidence_extraction': 'llm_analysis',
+    'llm_analysis': 'llm_analysis',
+    'google_search': 'external_api',
+    'google_search_funding': 'external_api',
+    'google_search_ma': 'external_api',
+    'semantic_scholar': 'external_api',
+    'external_api': 'external_api',
+    'measured': 'measured',
+    'calculated': 'calculated',
+  };
+  return mapping[source] || null;
+};
+
 const DataSourceBadge: React.FC<{ source: DataSourceType; className?: string }> = ({ source, className = '' }) => {
   const config = DATA_SOURCE_CONFIG[source];
   if (!config) return null;
@@ -310,7 +329,7 @@ const ConfigUsedIndicator: React.FC<ConfigUsedProps> = ({ config, architectureVe
   const isV2 = architectureVersion === '2.0';
 
   return (
-    <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+    <div className="mt-4 p-3 bg-gray-100 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
       <div className="flex items-center gap-2 mb-2">
         <Badge variant={isV2 ? 'default' : 'outline'} className={isV2 ? 'bg-pink-500' : ''}>
           {isV2 ? 'v2.0 Agent Architecture' : 'v1.0 Legacy'}
@@ -328,18 +347,12 @@ const ConfigUsedIndicator: React.FC<ConfigUsedProps> = ({ config, architectureVe
         )}
       </div>
       {config && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-gray-600 dark:text-gray-300">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-gray-700 dark:text-gray-300">
           {config.relevanceThreshold && (
             <span>Relevance: {config.relevanceThreshold}</span>
           )}
           {config.articlesPerTopic && (
             <span>Articles/Topic: {config.articlesPerTopic}</span>
-          )}
-          {config.models?.power && (
-            <span>Power: {config.models.power.split('/').pop()}</span>
-          )}
-          {config.models?.attention && (
-            <span>Attention: {config.models.attention.split('/').pop()}</span>
           )}
         </div>
       )}
@@ -934,7 +947,7 @@ const PowerView: React.FC<{ data: PAMData; articles: Article[]; regulatoryEvents
               <span className="ml-2 text-sm text-gray-500 dark:text-gray-300">Loading events...</span>
             </div>
           ) : regulatoryEvents.length === 0 ? (
-            <p className="text-sm text-gray-400 dark:text-gray-400 italic py-2">No regulatory events extracted yet. Run event extraction from Tune modal.</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 italic py-2">No regulatory events extracted yet. Run event extraction from Tune modal.</p>
           ) : (
             <div className="space-y-3">
               {regulatoryEvents.slice(0, 8).map((event) => (
@@ -959,6 +972,24 @@ const PowerView: React.FC<{ data: PAMData; articles: Article[]; regulatoryEvents
                         <p className="text-xs text-purple-800 mt-1">
                           <strong>Publisher impact:</strong> {event.publisher_implications}
                         </p>
+                      )}
+                      {/* Source article links */}
+                      {event.source_articles && event.source_articles.length > 0 && (
+                        <div className="flex items-center gap-2 mt-2">
+                          <span className="text-xs text-gray-500">Sources:</span>
+                          {event.source_articles.map((uri, idx) => (
+                            <a
+                              key={idx}
+                              href={uri}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-0.5"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              Article {idx + 1}
+                            </a>
+                          ))}
+                        </div>
                       )}
                     </div>
                     {event.t4_impact_score && (
@@ -1130,6 +1161,15 @@ const AttentionView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
             </div>
           )}
           {/* Entity Mentions (from monitored brands) */}
+          {(() => {
+            // Debug logging for entity data
+            console.log('Entity data:', {
+              entitySearchResults: attention.entitySearchResults,
+              entityArticles: attention.entityArticles,
+              entityMentions: attention.entityMentions
+            });
+            return null;
+          })()}
           {(attention.entityMentions && attention.entityMentions.length > 0) || attention.entitySearchResults ? (
             <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
               <h4 className="font-medium mb-3 flex items-center gap-2 text-black">
@@ -1137,16 +1177,41 @@ const AttentionView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
                 <span className="text-blue-700">Monitored Entity Tracking</span>
               </h4>
 
-              {/* Show entity search results (SQL ground truth) */}
+              {/* Show entity search results (SQL ground truth) with expandable article links */}
               {attention.entitySearchResults && Object.keys(attention.entitySearchResults).length > 0 && (
                 <div className="mb-3 p-2 bg-white rounded border border-blue-100">
                   <p className="text-xs text-black mb-2 font-semibold">Database Search Results:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {Object.entries(attention.entitySearchResults).map(([entity, count]: [string, any]) => (
-                      <Badge key={entity} variant="outline" className={`text-xs text-black ${count > 0 ? 'border-blue-300 bg-blue-50' : 'border-gray-200'}`}>
-                        {entity}: {count} article{count !== 1 ? 's' : ''}
-                      </Badge>
-                    ))}
+                  <div className="space-y-2">
+                    {Object.entries(attention.entitySearchResults).map(([entity, count]: [string, any]) => {
+                      const entityArts = attention.entityArticles?.[entity] || [];
+                      return (
+                        <div key={entity}>
+                          <Badge variant="outline" className={`text-xs text-black ${count > 0 ? 'border-blue-300 bg-blue-50' : 'border-gray-200'}`}>
+                            {entity}: {count} article{count !== 1 ? 's' : ''}
+                          </Badge>
+                          {entityArts.length > 0 && (
+                            <div className="mt-1 ml-2 space-y-0.5">
+                              {entityArts.slice(0, 5).map((art: any, idx: number) => (
+                                <a
+                                  key={idx}
+                                  href={art.uri}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="block text-xs text-blue-600 hover:text-blue-800 hover:underline truncate"
+                                  title={art.title}
+                                >
+                                  <ExternalLink className="w-3 h-3 inline mr-1" />
+                                  {art.title}
+                                </a>
+                              ))}
+                              {entityArts.length > 5 && (
+                                <span className="text-xs text-gray-500">...and {entityArts.length - 5} more</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -1179,9 +1244,10 @@ const AttentionView: React.FC<{ data: PAMData; articles: Article[] }> = ({ data,
                           <p className="text-sm text-black mt-2">{mention.context}</p>
                         )}
                         {mention.articles && mention.articles.length > 0 && (
-                          <p className="text-xs text-gray-700 mt-1">
-                            Found in: {mention.articles.join(', ')}
-                          </p>
+                          <EntityArticleLinks
+                            articleRefs={mention.articles}
+                            entityArticles={attention.entityArticles || {}}
+                          />
                         )}
                       </div>
                     </div>
@@ -1360,7 +1426,7 @@ const MoneyView: React.FC<{ data: PAMData; articles: Article[]; financialEvents:
               <span className="ml-2 text-sm text-gray-500 dark:text-gray-300">Loading events...</span>
             </div>
           ) : financialEvents.length === 0 ? (
-            <p className="text-sm text-gray-400 dark:text-gray-400 italic py-2">No financial events extracted yet. Run event extraction from Tune modal.</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 italic py-2">No financial events extracted yet. Run event extraction from Tune modal.</p>
           ) : (
             <div className="space-y-3">
               {financialEvents.slice(0, 10).map((event) => (
@@ -1399,6 +1465,24 @@ const MoneyView: React.FC<{ data: PAMData; articles: Article[]; financialEvents:
                         <p className="text-xs text-emerald-800 mt-1">
                           <strong>Significance:</strong> {event.strategic_significance}
                         </p>
+                      )}
+                      {/* Source article links */}
+                      {event.source_articles && event.source_articles.length > 0 && (
+                        <div className="flex items-center gap-2 mt-2">
+                          <span className="text-xs text-gray-500">Sources:</span>
+                          {event.source_articles.map((uri, idx) => (
+                            <a
+                              key={idx}
+                              href={uri}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-0.5"
+                            >
+                              <ExternalLink className="w-3 h-3" />
+                              Article {idx + 1}
+                            </a>
+                          ))}
+                        </div>
                       )}
                     </div>
                     {event.deal_value_usd && (
@@ -1702,18 +1786,22 @@ const CitationText: React.FC<{
 const AnalysisSection: React.FC<{
   title: string;
   score?: number;
-  level?: string;  // New: qualitative level (none, low, medium, high, very_high)
+  level?: string | null;  // New: qualitative level (none, low, medium, high, very_high) - null means no data
   items?: string[];
   description?: string;
-  badge?: string;
+  badge?: string | null;
   articles?: Article[];
 }> = ({ title, score, level, items, description, badge, articles = [] }) => {
   const hasContent = description || (items && items.length > 0);
 
+  // Only show level/badge if we have actual evidence (hasContent) AND a non-null level
+  // This prevents showing "High" assessments with "No specific data found"
+  const shouldShowAssessment = hasContent && level != null;
+
   // Prefer qualitative level if provided, otherwise fall back to numeric
-  const effectiveLevel: QualitativeLevel | null = level
+  const effectiveLevel: QualitativeLevel | null = shouldShowAssessment && level
     ? (level as QualitativeLevel)
-    : (score != null ? numericToLevel(score) : null);
+    : (score != null && hasContent ? numericToLevel(score) : null);
 
   const levelConfig = effectiveLevel ? LEVEL_CONFIG[effectiveLevel] : null;
 
@@ -1742,7 +1830,8 @@ const AnalysisSection: React.FC<{
           })}
         </div>
       )}
-      {badge && (
+      {/* Only show badge if we have content to support it */}
+      {badge && hasContent && (
         <Badge variant="outline" className="mb-2 capitalize">{badge}</Badge>
       )}
       {description && (
@@ -1760,7 +1849,7 @@ const AnalysisSection: React.FC<{
         </ul>
       )}
       {!hasContent && (
-        <p className="text-sm text-gray-400 dark:text-gray-400 italic mt-2">No specific data found in analyzed articles</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400 italic mt-2">No specific data found in analyzed articles</p>
       )}
     </div>
   );
@@ -1772,6 +1861,81 @@ const EmptyState: React.FC<{ message: string }> = ({ message }) => (
     <p>{message}</p>
   </div>
 );
+
+// Helper component to render entity article links
+// Parses references like "Wiley-1", "Reuters-3" and maps to actual URIs
+const EntityArticleLinks: React.FC<{
+  articleRefs: string[];
+  entityArticles: Record<string, Array<{ uri: string; title: string; source: string }>>;
+}> = ({ articleRefs, entityArticles }) => {
+  if (!articleRefs || articleRefs.length === 0 || !entityArticles) {
+    return null;
+  }
+
+  // Helper: Find entity articles with fuzzy name matching
+  // Handles cases where LLM abbreviates entity names (e.g., "Springer" instead of "Springer Nature")
+  const findEntityArticles = (entityName: string): Array<{ uri: string; title: string; source: string }> | null => {
+    // 1. Exact match
+    if (entityArticles[entityName]) {
+      return entityArticles[entityName];
+    }
+
+    // 2. Case-insensitive match
+    const lowerName = entityName.toLowerCase();
+    for (const key of Object.keys(entityArticles)) {
+      if (key.toLowerCase() === lowerName) {
+        return entityArticles[key];
+      }
+    }
+
+    // 3. Partial match - entity name is prefix or contained in key
+    for (const key of Object.keys(entityArticles)) {
+      if (key.toLowerCase().startsWith(lowerName) ||
+          key.toLowerCase().includes(lowerName) ||
+          lowerName.includes(key.toLowerCase())) {
+        return entityArticles[key];
+      }
+    }
+
+    return null;
+  };
+
+  // Parse each reference (e.g., "Wiley-1") and look up the URI
+  const links = articleRefs.map((ref, idx) => {
+    // Parse "EntityName-Number" format
+    const match = ref.match(/^(.+)-(\d+)$/);
+    if (match) {
+      const [, entityName, numStr] = match;
+      const articleIndex = parseInt(numStr, 10) - 1; // Convert to 0-based index
+      const entityArts = findEntityArticles(entityName); // Use fuzzy matching
+      if (entityArts && entityArts[articleIndex]) {
+        const article = entityArts[articleIndex];
+        return (
+          <a
+            key={idx}
+            href={article.uri}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-600 hover:text-blue-800 hover:underline"
+            title={article.title}
+          >
+            {ref}
+          </a>
+        );
+      }
+    }
+    // Fallback: just display as text if can't parse or find
+    return <span key={idx}>{ref}</span>;
+  });
+
+  return (
+    <p className="text-xs text-gray-700 mt-1">
+      Found in: {links.reduce((prev, curr, i) => (
+        i === 0 ? [curr] : [...prev, ', ', curr]
+      ), [] as React.ReactNode[])}
+    </p>
+  );
+};
 
 // References Section component - collapsed shows just title, expanded shows all articles
 const ReferencesSection: React.FC<{ articles: ReferenceArticle[] }> = ({ articles }) => {
@@ -2057,7 +2221,7 @@ export const PAMDashboard: React.FC<PAMDashboardProps> = ({
       {activeView === 'scenarios' && <ScenariosView data={data} articles={citationArticles} />}
 
       {/* Footer with metadata */}
-      <div className="mt-6 pt-4 border-t flex items-center justify-between text-sm text-gray-500 dark:text-gray-300">
+      <div className="mt-6 pt-4 border-t flex items-center justify-between text-sm text-gray-700 dark:text-gray-300">
         <span>Analyzed {data.articlesAnalyzed} articles</span>
         <span>Model: {data.modelUsed}</span>
         <span>Generated: {new Date(data.createdAt).toLocaleString()}</span>
@@ -2069,59 +2233,74 @@ export const PAMDashboard: React.FC<PAMDashboardProps> = ({
         architectureVersion={data.architectureVersion}
       />
 
-      {/* Data Sources Summary for v2 */}
-      {data.scores?.dataSources && (
-        <div className="mt-4 p-3 bg-gray-100 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-          <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
-            <Database className="w-4 h-4 text-gray-600 dark:text-gray-300" />
-            Data Sources Used
-          </h4>
-          <div className="grid grid-cols-3 gap-4 text-xs">
-            <div>
-              <span className="text-gray-700 dark:text-gray-300 flex items-center gap-1 font-medium">
-                <Zap className="w-3 h-3" /> Power:
-              </span>
-              <div className="flex flex-wrap gap-1 mt-1">
-                {data.scores.dataSources.power && data.scores.dataSources.power.length > 0 ? (
-                  data.scores.dataSources.power.map((s: string, i: number) => (
-                    <DataSourceBadge key={i} source={s as DataSourceType} />
-                  ))
-                ) : (
-                  <span className="text-gray-600 dark:text-gray-400 italic">Article database</span>
-                )}
-              </div>
+      {/* Data Sources Summary for v2 - always show with fallbacks */}
+      {(() => {
+        // Debug logging for data sources
+        console.log('PAM dataSources:', data.scores?.dataSources);
+        return null;
+      })()}
+      <div className="mt-4 p-3 bg-gray-100 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+        <h4 className="text-sm font-medium mb-2 flex items-center gap-2 text-gray-900 dark:text-gray-100">
+          <Database className="w-4 h-4" />
+          Data Sources Used
+        </h4>
+        <div className="grid grid-cols-3 gap-4 text-xs">
+          <div>
+            <span className="text-gray-900 dark:text-gray-100 flex items-center gap-1 font-medium">
+              <Zap className="w-3 h-3" /> Power:
+            </span>
+            <div className="flex flex-wrap gap-1 mt-1">
+              {(() => {
+                const sources = data.scores?.dataSources?.power;
+                if (!sources || sources.length === 0) {
+                  return <span className="text-gray-700 dark:text-gray-300 italic">Article database</span>;
+                }
+                const badges = sources.map((s: string, i: number) => {
+                  const mappedSource = mapBackendSource(s);
+                  return mappedSource ? <DataSourceBadge key={i} source={mappedSource} /> : null;
+                }).filter(Boolean);
+                return badges.length > 0 ? badges : <span className="text-gray-700 dark:text-gray-300 italic">Article database</span>;
+              })()}
             </div>
-            <div>
-              <span className="text-gray-700 dark:text-gray-300 flex items-center gap-1 font-medium">
-                <Eye className="w-3 h-3" /> Attention:
-              </span>
-              <div className="flex flex-wrap gap-1 mt-1">
-                {data.scores.dataSources.attention && data.scores.dataSources.attention.length > 0 ? (
-                  data.scores.dataSources.attention.map((s: string, i: number) => (
-                    <DataSourceBadge key={i} source={s as DataSourceType} />
-                  ))
-                ) : (
-                  <span className="text-gray-600 dark:text-gray-400 italic">Article database</span>
-                )}
-              </div>
+          </div>
+          <div>
+            <span className="text-gray-900 dark:text-gray-100 flex items-center gap-1 font-medium">
+              <Eye className="w-3 h-3" /> Attention:
+            </span>
+            <div className="flex flex-wrap gap-1 mt-1">
+              {(() => {
+                const sources = data.scores?.dataSources?.attention;
+                if (!sources || sources.length === 0) {
+                  return <span className="text-gray-700 dark:text-gray-300 italic">Article database</span>;
+                }
+                const badges = sources.map((s: string, i: number) => {
+                  const mappedSource = mapBackendSource(s);
+                  return mappedSource ? <DataSourceBadge key={i} source={mappedSource} /> : null;
+                }).filter(Boolean);
+                return badges.length > 0 ? badges : <span className="text-gray-700 dark:text-gray-300 italic">Article database</span>;
+              })()}
             </div>
-            <div>
-              <span className="text-gray-700 dark:text-gray-300 flex items-center gap-1 font-medium">
-                <DollarSign className="w-3 h-3" /> Money:
-              </span>
-              <div className="flex flex-wrap gap-1 mt-1">
-                {data.scores.dataSources.money && data.scores.dataSources.money.length > 0 ? (
-                  data.scores.dataSources.money.map((s: string, i: number) => (
-                    <DataSourceBadge key={i} source={s as DataSourceType} />
-                  ))
-                ) : (
-                  <span className="text-gray-600 dark:text-gray-400 italic">Article database</span>
-                )}
-              </div>
+          </div>
+          <div>
+            <span className="text-gray-900 dark:text-gray-100 flex items-center gap-1 font-medium">
+              <DollarSign className="w-3 h-3" /> Money:
+            </span>
+            <div className="flex flex-wrap gap-1 mt-1">
+              {(() => {
+                const sources = data.scores?.dataSources?.money;
+                if (!sources || sources.length === 0) {
+                  return <span className="text-gray-700 dark:text-gray-300 italic">Article database</span>;
+                }
+                const badges = sources.map((s: string, i: number) => {
+                  const mappedSource = mapBackendSource(s);
+                  return mappedSource ? <DataSourceBadge key={i} source={mappedSource} /> : null;
+                }).filter(Boolean);
+                return badges.length > 0 ? badges : <span className="text-gray-700 dark:text-gray-300 italic">Article database</span>;
+              })()}
             </div>
           </div>
         </div>
-      )}
+      </div>
 
       {/* AI Disclaimer */}
       <AIDisclaimer modelUsed={data.modelUsed} />
