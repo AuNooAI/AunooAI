@@ -55,7 +55,7 @@ const RecommendationCard: React.FC<RecommendationCardProps> = ({
       case 'medium':
         return 'text-yellow-600';
       default:
-        return 'text-gray-500';
+        return 'text-gray-600';
     }
   };
 
@@ -116,7 +116,7 @@ const RecommendationCard: React.FC<RecommendationCardProps> = ({
           {/* Trend links */}
           {trendIds.length > 0 && (
             <div className="flex items-center gap-1 mt-1">
-              <span className="text-xs text-gray-500">Addresses:</span>
+              <span className="text-xs text-gray-600">Addresses:</span>
               {trendIds.map((t) => (
                 <Badge
                   key={t}
@@ -171,7 +171,7 @@ const RecommendationCard: React.FC<RecommendationCardProps> = ({
         {/* Trend links */}
         {trendIds.length > 0 && (
           <div className="flex items-center gap-2">
-            <span className="text-xs text-gray-500">Addresses:</span>
+            <span className="text-xs text-gray-600">Addresses:</span>
             {trendIds.map((t) => (
               <Badge
                 key={t}
@@ -204,7 +204,7 @@ const RecommendationCard: React.FC<RecommendationCardProps> = ({
 
       {/* Rationale (if available) */}
       {recommendation.rationale && (
-        <div className="mt-3 pt-3 border-t text-xs text-gray-500">
+        <div className="mt-3 pt-3 border-t text-xs text-gray-600">
           <strong>Rationale:</strong> {recommendation.rationale}
         </div>
       )}

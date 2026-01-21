@@ -52,7 +52,7 @@ const TrendsRadarCompact: React.FC<TrendsRadarCompactProps> = ({
       case 'decelerating':
         return <TrendingDown className="w-4 h-4 text-amber-500" />;
       default:
-        return <Minus className="w-4 h-4 text-gray-400" />;
+        return <Minus className="w-4 h-4 text-gray-600" />;
     }
   };
 
@@ -96,7 +96,7 @@ const TrendsRadarCompact: React.FC<TrendsRadarCompactProps> = ({
   if (!sortedTrends || sortedTrends.length === 0) {
     return (
       <Card>
-        <CardContent className="py-8 text-center text-gray-500">
+        <CardContent className="py-8 text-center text-gray-600">
           No trend data available
         </CardContent>
       </Card>
@@ -108,7 +108,7 @@ const TrendsRadarCompact: React.FC<TrendsRadarCompactProps> = ({
       <CardHeader className="pb-2">
         <CardTitle className="text-lg flex items-center gap-2">
           2030 Trends Radar
-          <span className="text-sm font-normal text-gray-500">
+          <span className="text-sm font-normal text-gray-600">
             (click any trend for details)
           </span>
         </CardTitle>
@@ -157,18 +157,18 @@ const TrendsRadarCompact: React.FC<TrendsRadarCompactProps> = ({
             </div>
 
             {/* Drill-down arrow */}
-            <ChevronRight className="w-4 h-4 text-gray-400" />
+            <ChevronRight className="w-4 h-4 text-gray-600" />
           </div>
         ))}
 
         {/* Legend */}
-        <div className="flex items-center justify-between pt-2 border-t text-xs text-gray-500">
+        <div className="flex items-center justify-between pt-2 border-t text-xs text-gray-600">
           <div className="flex items-center gap-4">
             <span className="flex items-center gap-1">
               <TrendingUp className="w-3 h-3 text-green-500" /> Accelerating
             </span>
             <span className="flex items-center gap-1">
-              <Minus className="w-3 h-3 text-gray-400" /> Stable
+              <Minus className="w-3 h-3 text-gray-600" /> Stable
             </span>
             <span className="flex items-center gap-1">
               <TrendingDown className="w-3 h-3 text-amber-500" /> Decelerating
