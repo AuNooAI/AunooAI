@@ -38,7 +38,7 @@ import {
   EyeOff,
 } from 'lucide-react';
 import { extractErrorMessage } from '../../services/api';
-import { type NewsArticle, type SixArticlesReport, type TopStory, type Persona, type SixArticlesConfig } from '../../services/newsFeedApi';
+import { type NewsArticle, type SixArticlesReport, type TopStory, type Persona, type SixArticlesConfig, extractArticleUrl, toArray } from '../../services/newsFeedApi';
 import {
   type BriefingPreferenceData,
   recordBriefingPreference,
@@ -53,6 +53,7 @@ import { AgentSignalBadge, extractSignalTags } from './AgentSignalBadge';
 import { ExportService } from '../../services/exportService';
 import { PodcastScriptModal } from '../PodcastScriptModal';
 import { ShareModal, type ShareBriefingData, type ShareBriefingCardData } from '../ShareModal';
+import { DetailedReportModal } from './DetailedReportModal';
 
 // Default personas (fallback if config not loaded)
 const DEFAULT_PERSONAS: { value: string; label: string; description: string }[] = [
@@ -79,7 +80,7 @@ interface BriefingSectionProps {
 
 // Get color for risk/opportunity indicator - with dark mode support
 function getRiskOpportunityStyle(value?: string): { bg: string; text: string; icon: React.ReactNode } {
-  if (!value) return { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400', icon: null };
+  if (!value) return { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-600 dark:text-gray-300', icon: null };
   const lower = value.toLowerCase();
   if (lower === 'opportunity') return { bg: 'bg-green-100 dark:bg-green-900/50', text: 'text-green-700 dark:text-green-300', icon: <TrendingUp className="w-3 h-3" /> };
   if (lower === 'risk') return { bg: 'bg-red-100 dark:bg-red-900/50', text: 'text-red-700 dark:text-red-300', icon: <TrendingDown className="w-3 h-3" /> };
@@ -88,16 +89,16 @@ function getRiskOpportunityStyle(value?: string): { bg: string; text: string; ic
 
 // Get color for signal strength - with dark mode support
 function getSignalStrengthStyle(value?: string): { bg: string; text: string } {
-  if (!value) return { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400' };
+  if (!value) return { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-600 dark:text-gray-300' };
   const lower = value.toLowerCase();
   if (lower === 'strong') return { bg: 'bg-pink-100 dark:bg-pink-900/50', text: 'text-pink-700 dark:text-pink-300' };
   if (lower === 'moderate') return { bg: 'bg-blue-100 dark:bg-blue-900/50', text: 'text-blue-700 dark:text-blue-300' };
-  return { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400' };
+  return { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-600 dark:text-gray-300' };
 }
 
 // Get time horizon style - with dark mode support
 function getTimeHorizonStyle(value?: string): { bg: string; text: string } {
-  if (!value) return { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400' };
+  if (!value) return { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-600 dark:text-gray-300' };
   const lower = value.toLowerCase();
   if (lower === 'immediate') return { bg: 'bg-orange-100 dark:bg-orange-900/50', text: 'text-orange-700 dark:text-orange-300' };
   if (lower === 'medium' || lower === 'short-term' || lower === 'short') return { bg: 'bg-yellow-100 dark:bg-yellow-900/50', text: 'text-yellow-700 dark:text-yellow-300' };
@@ -121,7 +122,7 @@ function getCardGradient(riskOpp?: string): string {
 
 // Get category badge style - with dark mode support
 function getCategoryStyle(category?: string): { bg: string; text: string } {
-  if (!category) return { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400' };
+  if (!category) return { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-600 dark:text-gray-300' };
   const lower = category.toLowerCase();
   const styles: Record<string, { bg: string; text: string }> = {
     'policy': { bg: 'bg-purple-100 dark:bg-purple-900/50', text: 'text-purple-700 dark:text-purple-300' },
@@ -131,7 +132,7 @@ function getCategoryStyle(category?: string): { bg: string; text: string } {
     'security': { bg: 'bg-slate-100 dark:bg-slate-800', text: 'text-slate-700 dark:text-slate-300' },
     'society': { bg: 'bg-teal-100 dark:bg-teal-900/50', text: 'text-teal-700 dark:text-teal-300' },
   };
-  return styles[lower] || { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400' };
+  return styles[lower] || { bg: 'bg-gray-100 dark:bg-gray-700', text: 'text-gray-600 dark:text-gray-300' };
 }
 
 // Tooltip explanations for badges
@@ -224,6 +225,9 @@ export function BriefingSection({
   // Briefing preferences and hidden state
   const [briefingPreferences, setBriefingPreferences] = useState<Map<string, 'more' | 'less'>>(new Map());
   const [hiddenBriefings, setHiddenBriefings] = useState<Set<string>>(new Set());
+  // Detailed report modal state
+  const [showDetailedReportModal, setShowDetailedReportModal] = useState(false);
+  const [detailedReportStory, setDetailedReportStory] = useState<TopStory | null>(null);
 
   // Load preferences and hidden briefings on mount
   useEffect(() => {
@@ -297,16 +301,20 @@ export function BriefingSection({
       time_horizon: storyData.time_horizon,
       source: storyData.source || storyData.primary_article?.source?.name || '',
       date: storyData.date || storyData.primary_article?.publication_date || '',
-      url: storyData.url || storyData.uri || storyData.primary_article?.url || storyData.primary_article?.uri || '',
+      url: extractArticleUrl(storyData),
       summary: storyData.summary || storyData.primary_article?.summary || '',
-      executive_actions: Array.isArray(storyData.executive_action)
-        ? storyData.executive_action
-        : (storyData.executive_action ? [storyData.executive_action] : []),
+      executive_actions: toArray(storyData.executive_action),
       scores: storyData.scores,
     };
 
     setCardShareData(cardData);
     setShowCardShareModal(true);
+  };
+
+  // Handler for viewing detailed report modal
+  const handleViewDetailedReport = (story: TopStory) => {
+    setDetailedReportStory(story);
+    setShowDetailedReportModal(true);
   };
 
   // Build personas list from config (includes custom personas)
@@ -367,14 +375,12 @@ export function BriefingSection({
           category: storyData.category,
           source: storyData.source || storyData.primary_article?.source?.name || '',
           date: storyData.date || storyData.publication_date || storyData.primary_article?.publication_date || '',
-          url: storyData.url || storyData.uri || storyData.primary_article?.url || '',
+          url: extractArticleUrl(storyData),
           summary: storyData.summary || storyData.primary_article?.summary || '',
           signal_strength: storyData.signal_strength,
           risk_opportunity: storyData.risk_opportunity,
           time_horizon: storyData.time_horizon,
-          executive_actions: Array.isArray(storyData.executive_action)
-            ? storyData.executive_action
-            : (storyData.executive_action ? [storyData.executive_action] : []),
+          executive_actions: toArray(storyData.executive_action),
           scores: storyData.scores,
         };
       }),
@@ -398,6 +404,7 @@ export function BriefingSection({
       const signal = article.signal_strength || 'N/A';
       const risk = article.risk_opportunity || 'N/A';
       const horizon = article.time_horizon || 'N/A';
+      const detailedReport = (article as any).detailed_report;
 
       prompt += `## Story ${i + 1}: ${title}\n`;
       prompt += `- **Category:** ${category}\n`;
@@ -406,6 +413,22 @@ export function BriefingSection({
       prompt += `- **Time Horizon:** ${horizon}\n`;
       if (takeaway) {
         prompt += `- **Key Takeaway:** ${takeaway}\n`;
+      }
+
+      // Include detailed report data if available
+      if (detailedReport && !detailedReport.error) {
+        if (detailedReport.key_facts?.length) {
+          prompt += `- **Key Facts:** ${detailedReport.key_facts.slice(0, 3).join('; ')}\n`;
+        }
+        if (detailedReport.notable_quotes?.length) {
+          prompt += `- **Notable Quotes:** ${detailedReport.notable_quotes.slice(0, 2).join('; ')}\n`;
+        }
+        if (detailedReport.background_context) {
+          prompt += `- **Context:** ${detailedReport.background_context.slice(0, 200)}...\n`;
+        }
+        if (detailedReport.talking_points?.length) {
+          prompt += `- **Talking Points:** ${detailedReport.talking_points.slice(0, 3).join('; ')}\n`;
+        }
       }
       prompt += '\n';
     });
@@ -440,10 +463,18 @@ export function BriefingSection({
     const articlesData = sixArticles.articles.map(article => ({
       title: article.title || article.headline || 'Untitled',
       summary: article.executive_takeaway || article.summary || '',
+      source: (article as any).source || '',
       category: article.category || 'General',
       future_signal: article.signal_strength || 'N/A',
       sentiment: article.risk_opportunity || 'N/A',
       time_to_impact: article.time_horizon || 'N/A',
+      executive_takeaway: article.executive_takeaway || '',
+      strategic_relevance: (article as any).strategic_relevance || '',
+      time_horizon: article.time_horizon || 'N/A',
+      risk_opportunity: article.risk_opportunity || 'N/A',
+      signal_strength: article.signal_strength || 'N/A',
+      // Include detailed report for richer podcast content
+      detailed_report: (article as any).detailed_report || null,
     }));
 
     const res = await fetch('/api/generate_podcast_script', {
@@ -601,7 +632,7 @@ export function BriefingSection({
             <div className="relative">
               <button
                 onClick={() => setShowDownloadDropdown(!showDownloadDropdown)}
-                className="p-1.5 text-gray-600 dark:text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                className="p-1.5 text-gray-600 dark:text-gray-300 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
                 title="Download briefing"
               >
                 <Download className="w-5 h-5" />
@@ -646,7 +677,7 @@ export function BriefingSection({
           {sixArticles && sixArticles.articles?.length > 0 && (
             <button
               onClick={handleShareBriefing}
-              className="p-1.5 text-gray-600 dark:text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-1.5 text-gray-600 dark:text-gray-300 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
               title="Share briefing via email"
             >
               <Share2 className="w-5 h-5" />
@@ -664,7 +695,7 @@ export function BriefingSection({
                 }
               }}
               disabled={isGeneratingScript || isGeneratingAudio}
-              className="p-1.5 text-gray-600 dark:text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
+              className="p-1.5 text-gray-600 dark:text-gray-300 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors disabled:opacity-50"
               title={isGeneratingScript || isGeneratingAudio ? 'Generating...' : podcastAudioUrl ? 'Play podcast' : 'Generate podcast'}
             >
               {isGeneratingScript || isGeneratingAudio ? (
@@ -679,7 +710,7 @@ export function BriefingSection({
           {onOpenConfig && (
             <button
               onClick={onOpenConfig}
-              className="p-1.5 text-gray-600 dark:text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-1.5 text-gray-600 dark:text-gray-300 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
               title="Configure briefing settings"
             >
               <Settings2 className="w-5 h-5" />
@@ -695,10 +726,10 @@ export function BriefingSection({
                 className="flex items-center gap-2 px-3 py-1.5 text-sm bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
                 title={loadingSixArticles ? 'Generating briefing...' : 'Change persona to regenerate'}
               >
-                <RefreshCw className={`w-4 h-4 ${loadingSixArticles ? 'text-pink-500 animate-spin' : 'text-gray-600 dark:text-gray-400'}`} />
+                <RefreshCw className={`w-4 h-4 ${loadingSixArticles ? 'text-pink-500 animate-spin' : 'text-gray-600 dark:text-gray-300'}`} />
                 <User className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                 <span className="font-medium text-gray-700">{currentPersona.label}</span>
-                <ChevronDown className={`w-4 h-4 text-gray-600 dark:text-gray-400 transition-transform ${showPersonaDropdown ? 'rotate-180' : ''}`} />
+                <ChevronDown className={`w-4 h-4 text-gray-600 dark:text-gray-300 transition-transform ${showPersonaDropdown ? 'rotate-180' : ''}`} />
               </button>
 
               {showPersonaDropdown && (
@@ -793,6 +824,7 @@ export function BriefingSection({
                       isStarred={starredArticles.includes(storyUri)}
                       onStar={onStar}
                       onUnstar={onUnstar}
+                      onViewDetailedReport={handleViewDetailedReport}
                     />
                   </div>
                 )}
@@ -810,7 +842,7 @@ export function BriefingSection({
               onClick={() => onArticleClick?.(article)}
             >
               <h4 className="font-medium text-gray-900 dark:text-gray-100 text-sm">{article.title}</h4>
-              <p className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400 mt-1">{article.source?.name}</p>
+              <p className="text-xs text-gray-600 dark:text-gray-300 mt-1">{article.source?.name}</p>
             </div>
           ))}
         </div>
@@ -847,7 +879,7 @@ export function BriefingSection({
               </h3>
               <button
                 onClick={() => setShowAudioPlayer(false)}
-                className="p-1 text-gray-600 dark:text-gray-400 hover:text-gray-600 dark:hover:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400"
+                className="p-1 text-gray-600 dark:text-gray-300 hover:text-gray-600 dark:hover:text-gray-600 dark:text-gray-300"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -860,7 +892,7 @@ export function BriefingSection({
             >
               Your browser does not support the audio element.
             </audio>
-            <p className="text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 mt-3">
+            <p className="text-xs text-gray-700 dark:text-gray-300 dark:text-gray-300 mt-3">
               Generated for {persona} on {new Date().toLocaleDateString()}
             </p>
           </div>
@@ -919,6 +951,16 @@ export function BriefingSection({
           data={cardShareData}
         />
       )}
+
+      {/* Detailed Report Modal */}
+      <DetailedReportModal
+        open={showDetailedReportModal}
+        onClose={() => {
+          setShowDetailedReportModal(false);
+          setDetailedReportStory(null);
+        }}
+        story={detailedReportStory}
+      />
     </section>
   );
 }
@@ -954,7 +996,7 @@ function CompactBriefingCard({ story, onClick, isExpanded, preference, onPrefere
   const displayTitle = cleanTitle(rawTitle);
   const displayDate = storyData.date || storyData.primary_article?.publication_date || '';
   const displaySource = storyData.source || storyData.primary_article?.source?.name || '';
-  const articleUrl = storyData.url || storyData.primary_article?.url || '';
+  const articleUrl = extractArticleUrl(storyData);
 
   // Format date for display
   const formatDisplayDate = (dateStr?: string) => {
@@ -1063,7 +1105,7 @@ function CompactBriefingCard({ story, onClick, isExpanded, preference, onPrefere
       >
         {/* Top row: Date + See More + Menu */}
         <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+          <div className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
             <Calendar className="w-3.5 h-3.5" />
             <span>{formatDisplayDate(displayDate)}</span>
           </div>
@@ -1087,7 +1129,7 @@ function CompactBriefingCard({ story, onClick, isExpanded, preference, onPrefere
                 onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
                 className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
               >
-                <MoreVertical className="w-4 h-4 text-gray-700 dark:text-gray-300 dark:text-gray-400" />
+                <MoreVertical className="w-4 h-4 text-gray-700 dark:text-gray-300" />
               </button>
               {showMenu && (
                 <div className="absolute right-0 top-full mt-1 w-40 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
@@ -1103,7 +1145,7 @@ function CompactBriefingCard({ story, onClick, isExpanded, preference, onPrefere
                     <ThumbsUp className={`w-4 h-4 ${
                       preference === 'more'
                         ? 'text-green-600 dark:text-green-400 fill-green-600 dark:fill-green-400'
-                        : 'text-gray-700 dark:text-gray-400'
+                        : 'text-gray-700 dark:text-gray-300'
                     }`} />
                     {preference === 'more' ? 'More like this ✓' : 'More like this'}
                   </button>
@@ -1119,7 +1161,7 @@ function CompactBriefingCard({ story, onClick, isExpanded, preference, onPrefere
                     <ThumbsDown className={`w-4 h-4 ${
                       preference === 'less'
                         ? 'text-red-600 dark:text-red-400 fill-red-600 dark:fill-red-400'
-                        : 'text-gray-700 dark:text-gray-400'
+                        : 'text-gray-700 dark:text-gray-300'
                     }`} />
                     {preference === 'less' ? 'Less like this ✓' : 'Less like this'}
                   </button>
@@ -1128,7 +1170,7 @@ function CompactBriefingCard({ story, onClick, isExpanded, preference, onPrefere
                     onClick={(e) => handleMenuAction('hide', e)}
                     className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                   >
-                    <EyeOff className="w-4 h-4 text-gray-700 dark:text-gray-400" />
+                    <EyeOff className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                     Hide
                   </button>
                   <div className="h-px bg-gray-200 dark:bg-gray-700 my-1" />
@@ -1136,7 +1178,7 @@ function CompactBriefingCard({ story, onClick, isExpanded, preference, onPrefere
                     onClick={(e) => { e.stopPropagation(); setShowMenu(false); onShare?.(story); }}
                     className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                   >
-                    <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-400" />
+                    <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                     Send via Email
                   </button>
                 </div>
@@ -1253,11 +1295,13 @@ interface BriefingCardProps {
   isStarred: boolean;
   onStar: (uri: string) => void;
   onUnstar: (uri: string) => void;
+  onViewDetailedReport?: (story: TopStory) => void;
 }
 
-function BriefingCard({ story, index, isExpanded, onToggle, isStarred, onStar, onUnstar }: BriefingCardProps) {
+function BriefingCard({ story, index, isExpanded, onToggle, isStarred, onStar, onUnstar, onViewDetailedReport }: BriefingCardProps) {
   // Handle both nested (primary_article) and flat data structures
   const storyData = story as any; // Allow flexible access
+  const detailedReport = storyData.detailed_report;
 
   const riskStyle = getRiskOpportunityStyle(storyData.risk_opportunity);
   const signalStyle = getSignalStrengthStyle(storyData.signal_strength);
@@ -1265,8 +1309,8 @@ function BriefingCard({ story, index, isExpanded, onToggle, isStarred, onStar, o
   const categoryStyle = getCategoryStyle(storyData.category);
 
   // Get URL - handle both flat and nested structures
-  const articleUrl = storyData.url || storyData.primary_article?.url || storyData.primary_article?.uri || '';
-  const articleUri = storyData.url || storyData.primary_article?.uri || '';
+  const articleUrl = extractArticleUrl(storyData);
+  const articleUri = articleUrl; // Same as URL for consistency
 
   // Get display values - handle both structures
   const rawTitle = storyData.title || storyData.headline || storyData.primary_article?.title || 'Untitled';
@@ -1275,9 +1319,7 @@ function BriefingCard({ story, index, isExpanded, onToggle, isStarred, onStar, o
   const displayDate = storyData.date || storyData.primary_article?.publication_date || '';
   const displaySummary = storyData.summary || storyData.primary_article?.summary || '';
   const displayScores = storyData.scores || {};
-  const executiveActions = Array.isArray(storyData.executive_action)
-    ? storyData.executive_action
-    : (storyData.executive_action ? [storyData.executive_action] : []);
+  const executiveActions = toArray(storyData.executive_action);
 
   const handleStarClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -1354,7 +1396,7 @@ Please provide:
       >
         {/* Top row: Date + See More/Less */}
         <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+          <div className="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300 dark:text-gray-300">
             <Calendar className="w-3.5 h-3.5" />
             <span>{formatDisplayDate(displayDate)}</span>
           </div>
@@ -1441,7 +1483,7 @@ Please provide:
             <h4 className="text-xs font-semibold text-pink-700 dark:text-pink-400 uppercase tracking-wide mb-1">
               Why This Matters
             </h4>
-            <p className="text-sm text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+            <p className="text-sm text-gray-700 dark:text-gray-300">
               {storyData.executive_takeaway}
             </p>
           </div>
@@ -1454,10 +1496,10 @@ Please provide:
           {/* Summary */}
           {displaySummary && (
             <div className="pb-4 border-b border-gray-300 dark:border-gray-600">
-              <h4 className="text-sm font-semibold text-gray-600 dark:text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-2">
+              <h4 className="text-sm font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide mb-2">
                 Summary
               </h4>
-              <p className="text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 leading-relaxed">
+              <p className="text-gray-700 dark:text-gray-300 leading-relaxed">
                 {displaySummary}
               </p>
             </div>
@@ -1471,7 +1513,7 @@ Please provide:
                   <Target className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                   Strategic Relevance
                 </h4>
-                <p className="text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 leading-relaxed">
+                <p className="text-gray-700 dark:text-gray-300 leading-relaxed">
                   {storyData.strategic_relevance}
                 </p>
               </div>
@@ -1481,12 +1523,12 @@ Please provide:
           {/* Executive Actions */}
           {executiveActions.length > 0 && (
             <div className="py-4 border-b border-gray-300 dark:border-gray-600">
-              <h4 className="text-sm font-semibold text-gray-600 dark:text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-2">
+              <h4 className="text-sm font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide mb-2">
                 Executive Actions
               </h4>
               <ul className="space-y-2">
                 {executiveActions.map((action: string, i: number) => (
-                  <li key={i} className="flex items-start gap-2 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                  <li key={i} className="flex items-start gap-2 text-gray-700 dark:text-gray-300">
                     <span className="text-pink-500 mt-0.5">→</span>
                     <span>{action}</span>
                   </li>
@@ -1498,7 +1540,7 @@ Please provide:
           {/* Scores breakdown (if available) */}
           {displayScores && Object.keys(displayScores).length > 1 && (
             <div className="py-4 border-b border-gray-300 dark:border-gray-600">
-              <h4 className="text-sm font-semibold text-gray-600 dark:text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-2">
+              <h4 className="text-sm font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide mb-2">
                 Score Breakdown
               </h4>
               <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
@@ -1522,7 +1564,7 @@ Please provide:
           )}
 
           {/* Action Links */}
-          <div className="flex items-center gap-4 pt-4">
+          <div className="flex items-center gap-4 pt-4 flex-wrap">
             {articleUrl && (
               <a
                 href={articleUrl}
@@ -1533,6 +1575,18 @@ Please provide:
                 <ExternalLink className="w-3.5 h-3.5" />
                 Read Original Article
               </a>
+            )}
+            {onViewDetailedReport && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onViewDetailedReport(story);
+                }}
+                className="inline-flex items-center gap-1.5 text-sm text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 font-medium transition-colors"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                Detailed Report
+              </button>
             )}
             <button
               onClick={handleAskAuspex}
@@ -1555,7 +1609,7 @@ function ScorePill({ label, value }: { label: string; value: number }) {
   return (
     <div className="text-center p-2 bg-gray-50 dark:bg-gray-900 rounded">
       <div className="text-lg font-bold text-gray-900 dark:text-gray-100">{value}</div>
-      <div className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">{label}</div>
+      <div className="text-xs text-gray-600 dark:text-gray-300">{label}</div>
     </div>
   );
 }

@@ -243,6 +243,31 @@ export interface SixArticlesParams {
   model?: string;
 }
 
+// Utility Functions
+
+/**
+ * Extract URL from article data, checking multiple possible field names
+ * API may return url or uri depending on the endpoint
+ */
+export function extractArticleUrl(data: Record<string, unknown> | null | undefined): string {
+  if (!data) return '';
+  return (
+    (data.url as string) ||
+    (data.uri as string) ||
+    ((data.primary_article as Record<string, unknown>)?.url as string) ||
+    ((data.primary_article as Record<string, unknown>)?.uri as string) ||
+    ''
+  );
+}
+
+/**
+ * Convert a value to an array, handling undefined/null and single values
+ */
+export function toArray<T>(value: T | T[] | undefined | null): T[] {
+  if (!value) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
 // API Functions
 
 /**
