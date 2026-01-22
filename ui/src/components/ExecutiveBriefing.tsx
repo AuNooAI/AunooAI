@@ -231,7 +231,7 @@ function ArticleCard({
             <CardTitle className="text-base">{article.title}</CardTitle>
             <CardDescription className="text-sm flex items-center gap-2 mt-1">
               <span>{article.source}</span>
-              <span className="text-gray-300">|</span>
+              <span className="text-gray-400">|</span>
               <span>{article.date}</span>
               {article.url && (
                 <a href={article.url} target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
@@ -376,7 +376,7 @@ function ArticleCard({
               ) : article.user_notes ? (
                 <p className="text-sm text-gray-600 bg-yellow-50 p-2 rounded italic">{article.user_notes}</p>
               ) : (
-                <p className="text-sm text-gray-400 italic">No notes added</p>
+                <p className="text-sm text-gray-500 italic">No notes added</p>
               )}
             </div>
           </>
@@ -823,7 +823,7 @@ export function ExecutiveBriefing({
           {showConfig ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           Settings
         </button>
-        <span className="text-gray-400">|</span>
+        <span className="text-gray-500">|</span>
         <span className="text-gray-500">
           Persona: <Badge variant="outline">{persona}</Badge>
         </span>
@@ -832,7 +832,7 @@ export function ExecutiveBriefing({
         </span>
         {topic && (
           <>
-            <span className="text-gray-400">|</span>
+            <span className="text-gray-500">|</span>
             <Badge variant="outline">{topic}</Badge>
           </>
         )}

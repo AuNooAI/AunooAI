@@ -7637,6 +7637,87 @@ class DatabaseQueryFacade:
             self.logger.error(f"Error getting recent future horizons analyses: {e}")
             return []
 
+    # Future Horizons Executive Summary Storage Methods
+    def save_horizons_executive_summary(
+        self,
+        analysis_id: str,
+        topic: str,
+        summary_data: dict
+    ) -> bool:
+        """Save an executive summary for a Future Horizons analysis.
+
+        Uses the analysis_versions_v2 cache table with a specific key format.
+        """
+        try:
+            import json
+            from datetime import datetime
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+            cache_key = f"horizons_exec_summary_{analysis_id}"
+
+            statement = pg_insert(analysis_versions_v2).values(
+                cache_key=cache_key,
+                topic=topic,
+                version_data=json.dumps(summary_data),
+                cache_metadata=json.dumps({
+                    "analysis_id": analysis_id,
+                    "type": "executive_summary"
+                }),
+                created_at=datetime.now().isoformat()
+            ).on_conflict_do_update(
+                index_elements=['cache_key'],
+                set_={
+                    'topic': topic,
+                    'version_data': json.dumps(summary_data),
+                    'cache_metadata': json.dumps({
+                        "analysis_id": analysis_id,
+                        "type": "executive_summary"
+                    }),
+                    'created_at': datetime.now().isoformat()
+                }
+            )
+
+            self._execute_with_rollback(statement)
+            self.connection.commit()
+            self.logger.info(f"Saved executive summary for horizons analysis {analysis_id}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Error saving horizons executive summary: {e}")
+            self.connection.rollback()
+            return False
+
+    def get_horizons_executive_summary(self, analysis_id: str) -> dict:
+        """Retrieve an executive summary for a Future Horizons analysis.
+
+        Returns None if no summary exists.
+        """
+        try:
+            import json
+
+            cache_key = f"horizons_exec_summary_{analysis_id}"
+
+            statement = select(
+                analysis_versions_v2.c.version_data,
+                analysis_versions_v2.c.created_at
+            ).where(
+                analysis_versions_v2.c.cache_key == cache_key
+            ).order_by(
+                analysis_versions_v2.c.created_at.desc()
+            ).limit(1)
+
+            result = self._execute_with_rollback(statement).mappings().fetchone()
+
+            if result and result.get('version_data'):
+                data = result['version_data']
+                return json.loads(data) if isinstance(data, str) else data
+
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Error retrieving horizons executive summary for {analysis_id}: {e}")
+            return None
+
     # ==================== Notifications ====================
 
     def create_notification(self, username: str | None, type: str, title: str, message: str, link: str | None = None) -> int:

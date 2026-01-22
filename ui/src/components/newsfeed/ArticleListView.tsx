@@ -516,7 +516,7 @@ Please provide:
       <div className="flex items-center justify-center h-64">
         <div className="flex flex-col items-center gap-4">
           <Loader2 className="w-8 h-8 animate-spin text-pink-500" />
-          <p className="text-gray-500 dark:text-gray-400">Loading articles...</p>
+          <p className="text-gray-500 dark:text-gray-300">Loading articles...</p>
         </div>
       </div>
     );
@@ -544,14 +544,14 @@ Please provide:
         {/* Topic Filter - always show so user can change selection */}
         {availableTopics.length > 0 && (
           <div className="flex items-center gap-2 mb-3 flex-wrap pb-2 border-b border-gray-200 dark:border-gray-700">
-            <TrendingUp className="w-3.5 h-3.5 text-gray-600 dark:text-gray-400" />
-            <span className="text-xs font-medium text-gray-700 dark:text-gray-400">Topic:</span>
+            <TrendingUp className="w-3.5 h-3.5 text-gray-600 dark:text-gray-300" />
+            <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Topic:</span>
             <button
               onClick={() => setSelectedTopic(undefined)}
               className={`px-2.5 py-1 text-xs rounded-full transition-colors ${
                 !selectedTopic
                   ? 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
               }`}
             >
               All Topics
@@ -564,7 +564,7 @@ Please provide:
                 className={`px-2.5 py-1 text-xs rounded-full transition-colors ${
                   selectedTopic === t.name
                     ? 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300'
-                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
                 }`}
               >
                 {t.name}
@@ -573,9 +573,9 @@ Please provide:
           </div>
         )}
         <div className="flex flex-col items-center justify-center h-64 text-center">
-          <Newspaper className="w-12 h-12 text-gray-300 dark:text-gray-600 mb-4" />
+          <Newspaper className="w-12 h-12 text-gray-500 dark:text-gray-600 mb-4" />
           <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">No articles found</h3>
-          <p className="text-gray-500 dark:text-gray-400 mt-1">
+          <p className="text-gray-500 dark:text-gray-300 mt-1">
             {selectedTopic ? `No articles for "${selectedTopic}"` : 'Try adjusting your date range or topic'}
           </p>
           {selectedTopic && (
@@ -596,14 +596,14 @@ Please provide:
       {/* Topic Filter - at very top */}
       {availableTopics.length > 0 && (
         <div className="flex items-center gap-2 mb-3 flex-wrap pb-2 border-b border-gray-200 dark:border-gray-700">
-          <TrendingUp className="w-3.5 h-3.5 text-gray-600 dark:text-gray-400" />
-          <span className="text-xs font-medium text-gray-700 dark:text-gray-400">Topic:</span>
+          <TrendingUp className="w-3.5 h-3.5 text-gray-600 dark:text-gray-300" />
+          <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Topic:</span>
           <button
             onClick={() => setSelectedTopic(undefined)}
             className={`px-2.5 py-1 text-xs rounded-full transition-colors ${
               !selectedTopic
                 ? 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
             }`}
           >
             All Topics
@@ -616,7 +616,7 @@ Please provide:
               className={`px-2.5 py-1 text-xs rounded-full transition-colors ${
                 selectedTopic === t.name
                   ? 'bg-purple-100 dark:bg-purple-900 text-purple-700 dark:text-purple-300'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
               }`}
             >
               {t.name}
@@ -628,14 +628,14 @@ Please provide:
       {/* Category Filter Chips (multiselect) */}
       {availableCategories.length > 0 && (
         <div className="flex items-center gap-2 mb-2 flex-wrap">
-          <Filter className="w-3.5 h-3.5 text-gray-600 dark:text-gray-400" />
-          <span className="text-xs text-gray-700 dark:text-gray-400">Categories:</span>
+          <Filter className="w-3.5 h-3.5 text-gray-600 dark:text-gray-300" />
+          <span className="text-xs text-gray-700 dark:text-gray-300">Categories:</span>
           <button
             onClick={clearAllFilters}
             className={`px-2.5 py-1 text-xs rounded-full transition-colors ${
               !hasActiveFilters
                 ? 'bg-pink-100 dark:bg-pink-900 text-pink-700 dark:text-pink-300'
-                : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
             }`}
           >
             All
@@ -647,7 +647,7 @@ Please provide:
               className={`px-2.5 py-1 text-xs rounded-full transition-colors ${
                 selectedCategories.includes(cat)
                   ? 'bg-pink-100 dark:bg-pink-900 text-pink-700 dark:text-pink-300'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
               }`}
             >
               {cat}
@@ -671,8 +671,8 @@ Please provide:
       {/* Source Filter Chips */}
       {availableSources.length > 0 && (
         <div className="flex items-center gap-2 mb-2 flex-wrap">
-          <Building2 className="w-3.5 h-3.5 text-gray-600 dark:text-gray-400" />
-          <span className="text-xs text-gray-700 dark:text-gray-400">Sources ({availableSources.length}):</span>
+          <Building2 className="w-3.5 h-3.5 text-gray-600 dark:text-gray-300" />
+          <span className="text-xs text-gray-700 dark:text-gray-300">Sources ({availableSources.length}):</span>
           {(showAllSources ? availableSources : availableSources.slice(0, 10)).map((source) => (
             <button
               key={source}
@@ -680,7 +680,7 @@ Please provide:
               className={`px-2 py-0.5 text-xs rounded-full transition-colors ${
                 selectedSources.includes(source)
                   ? 'bg-blue-100 dark:bg-blue-900 text-blue-700 dark:text-blue-300'
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
               }`}
             >
               {source}
@@ -704,7 +704,7 @@ Please provide:
       {/* Factuality Filter Chips */}
       {availableFactuality.length > 0 && (
         <div className="flex items-center gap-2 mb-2 flex-wrap">
-          <span className="text-xs text-gray-700 dark:text-gray-400 ml-5">Factuality:</span>
+          <span className="text-xs text-gray-700 dark:text-gray-300 ml-5">Factuality:</span>
           {FACTUALITY_LEVELS.filter((f) => availableFactuality.includes(f.key)).map((level) => (
             <button
               key={level.key}
@@ -712,7 +712,7 @@ Please provide:
               className={`px-2 py-0.5 text-xs rounded-full transition-colors ${
                 selectedFactuality.includes(level.key)
                   ? level.color
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
               }`}
             >
               {level.label}
@@ -724,7 +724,7 @@ Please provide:
       {/* Bias Filter Chips */}
       {availableBias.length > 0 && (
         <div className="flex items-center gap-2 mb-3 flex-wrap">
-          <span className="text-xs text-gray-700 dark:text-gray-400 ml-5">Bias:</span>
+          <span className="text-xs text-gray-700 dark:text-gray-300 ml-5">Bias:</span>
           {BIAS_LEVELS.filter((b) => availableBias.includes(b.key)).map((level) => (
             <button
               key={level.key}
@@ -732,7 +732,7 @@ Please provide:
               className={`px-2 py-0.5 text-xs rounded-full transition-colors ${
                 selectedBias.includes(level.key)
                   ? level.color
-                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700'
+                  : 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700'
               }`}
             >
               {level.label}
@@ -777,7 +777,7 @@ Please provide:
           </button>
           <button
             onClick={clearSelection}
-            className="p-1 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+            className="p-1 text-gray-500 hover:text-gray-700 dark:hover:text-gray-500 transition-colors"
           >
             <X className="w-4 h-4" />
           </button>
@@ -793,14 +793,14 @@ Please provide:
             disabled={page <= 1 || loading}
             className={`p-1.5 rounded-md transition-colors ${
               page <= 1 || loading
-                ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
-                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                ? 'text-gray-500 dark:text-gray-600 cursor-not-allowed'
+                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
             }`}
             title="Previous page"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
-          <span className="text-sm text-gray-500 dark:text-gray-400 min-w-[60px] text-center">
+          <span className="text-sm text-gray-500 dark:text-gray-300 min-w-[60px] text-center">
             {page} / {totalPages}
           </span>
           <button
@@ -808,8 +808,8 @@ Please provide:
             disabled={page >= totalPages || loading}
             className={`p-1.5 rounded-md transition-colors ${
               page >= totalPages || loading
-                ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
-                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                ? 'text-gray-500 dark:text-gray-600 cursor-not-allowed'
+                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
             }`}
             title="Next page"
           >
@@ -863,7 +863,7 @@ Please provide:
 
           {/* Sort Options */}
           <div className="relative">
-            <ArrowUpDown className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+            <ArrowUpDown className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-gray-500" />
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as SortOption)}
@@ -877,7 +877,7 @@ Please provide:
           </div>
 
           {/* Article Count */}
-          <span className="text-xs text-gray-500 dark:text-gray-400">
+          <span className="text-xs text-gray-500 dark:text-gray-300">
             {filteredArticles.length} / {totalCount.toLocaleString()}
           </span>
         </div>
@@ -886,8 +886,8 @@ Please provide:
       {/* Filtered empty state */}
       {filteredArticles.length === 0 && hasActiveFilters && (
         <div className="flex flex-col items-center justify-center h-48 text-center bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-          <Newspaper className="w-10 h-10 text-gray-300 dark:text-gray-600 mb-3" />
-          <p className="text-sm text-gray-500 dark:text-gray-400">No articles match selected filters</p>
+          <Newspaper className="w-10 h-10 text-gray-500 dark:text-gray-600 mb-3" />
+          <p className="text-sm text-gray-500 dark:text-gray-300">No articles match selected filters</p>
           <button
             onClick={clearAllFilters}
             className="mt-2 text-xs text-pink-600 dark:text-pink-400 hover:underline"
@@ -949,13 +949,13 @@ Please provide:
             disabled={page <= 1 || loading}
             className={`p-1.5 rounded-md transition-colors ${
               page <= 1 || loading
-                ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
-                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                ? 'text-gray-500 dark:text-gray-600 cursor-not-allowed'
+                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
             }`}
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
-          <span className="text-sm text-gray-500 dark:text-gray-400">
+          <span className="text-sm text-gray-500 dark:text-gray-300">
             Page {page} of {totalPages}
           </span>
           <button
@@ -963,8 +963,8 @@ Please provide:
             disabled={page >= totalPages || loading}
             className={`p-1.5 rounded-md transition-colors ${
               page >= totalPages || loading
-                ? 'text-gray-300 dark:text-gray-600 cursor-not-allowed'
-                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'
+                ? 'text-gray-500 dark:text-gray-600 cursor-not-allowed'
+                : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
             }`}
           >
             <ChevronRight className="w-5 h-5" />
@@ -1091,7 +1091,7 @@ function ArticleListItem({
           {isSelected ? (
             <Check className="w-4 h-4 text-pink-600" />
           ) : (
-            <Square className="w-4 h-4 text-gray-400" />
+            <Square className="w-4 h-4 text-gray-500" />
           )}
         </button>
       )}
@@ -1175,7 +1175,7 @@ function ArticleListItem({
         className={`absolute top-3 right-3 p-1 rounded transition-colors ${
           isStarred
             ? 'text-yellow-500'
-            : 'text-gray-300 dark:text-gray-600 opacity-0 group-hover:opacity-100 hover:text-yellow-500'
+            : 'text-gray-500 dark:text-gray-600 opacity-0 group-hover:opacity-100 hover:text-yellow-500'
         }`}
         title={isStarred ? 'Remove from briefing' : 'Add to briefing'}
       >
@@ -1196,7 +1196,7 @@ function ArticleListItem({
             </span>
           )}
           {article.topic && (
-            <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+            <span className="text-xs text-gray-500 dark:text-gray-300 flex items-center gap-1">
               <TrendingUp className="w-3 h-3" />
               {article.topic}
             </span>
@@ -1210,13 +1210,13 @@ function ArticleListItem({
 
         {/* Summary (truncated) - hidden in compact mode */}
         {!compactMode && article.summary && (
-          <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 mb-2">
+          <p className="text-xs text-gray-600 dark:text-gray-300 line-clamp-2 mb-2">
             {article.summary}
           </p>
         )}
 
         {/* Bottom row: Source + Credibility Badge + Date */}
-        <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+        <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-300">
           {article.source?.name && (
             <span className="flex items-center gap-1">
               <Building2 className="w-3 h-3" />

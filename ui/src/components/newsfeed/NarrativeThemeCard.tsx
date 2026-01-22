@@ -39,7 +39,7 @@ export function NarrativeThemeCard({
       <CardContent className="p-4">
         {/* Header: Articles label + See More/Less */}
         <div className="flex items-center justify-between mb-3">
-          <span className="text-xs font-medium text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 uppercase tracking-wide">
+          <span className="text-xs font-medium text-gray-700 dark:text-gray-300 dark:text-gray-300 uppercase tracking-wide">
             Articles
           </span>
           <button
@@ -66,14 +66,14 @@ export function NarrativeThemeCard({
         </h3>
 
         {/* Theme Description */}
-        <p className={`text-sm text-gray-600 dark:text-gray-600 dark:text-gray-400 ${isExpanded ? '' : 'line-clamp-3'}`}>
+        <p className={`text-sm text-gray-600 dark:text-gray-300 ${isExpanded ? '' : 'line-clamp-3'}`}>
           {story.summary}
         </p>
 
         {/* Expanded Content: Articles in Theme */}
         {isExpanded && (
           <div className="mt-4 pt-4 border-t border-gray-300 dark:border-gray-700 dark:border-gray-700">
-            <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-3">
+            <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300 dark:text-gray-300 uppercase tracking-wide mb-3">
               Articles in Theme
             </h4>
 
@@ -103,8 +103,8 @@ export function NarrativeThemeCard({
         {/* Factuality Assessment (if available, shown when expanded) */}
         {isExpanded && story.factuality_assessment && (
           <div className="mt-4 p-3 bg-gray-50 dark:bg-gray-900 rounded-lg border-l-4 border-blue-500">
-            <p className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
-              <span className="font-medium text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">Assessment: </span>
+            <p className="text-sm text-gray-600 dark:text-gray-300">
+              <span className="font-medium text-gray-700 dark:text-gray-300">Assessment: </span>
               {story.factuality_assessment}
             </p>
           </div>
@@ -125,7 +125,7 @@ function ArticleListItem({ title, url, source, date }: ArticleListItemProps) {
   return (
     <div className="group flex items-start gap-3">
       {/* Date */}
-      <div className="flex items-center gap-1 text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 shrink-0 w-24">
+      <div className="flex items-center gap-1 text-xs text-gray-700 dark:text-gray-300 dark:text-gray-300 shrink-0 w-24">
         <Calendar className="w-3.5 h-3.5" />
         <span>{formatDate(date)}</span>
       </div>

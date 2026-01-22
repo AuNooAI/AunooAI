@@ -746,13 +746,13 @@ Sample size: ${stats.articles} articles`}
                   {!isMinimized && (
                   <>
                     <button onClick={onNewChat} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded" title="New chat">
-                      <Plus className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+                      <Plus className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                     </button>
                     <button onClick={handleExport} disabled={messages.length === 0} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded" title="Export">
-                      <Download className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+                      <Download className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                     </button>
                     <button onClick={() => setIsToolsConfigOpen(true)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded" title="Tools config">
-                      <Wrench className="w-5 h-5 text-gray-600 dark:text-gray-300" />
+                      <Wrench className="w-5 h-5 text-gray-600 dark:text-gray-400" />
                     </button>
                   </>
                   )}
@@ -761,10 +761,10 @@ Sample size: ${stats.articles} articles`}
                     className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
                     title={isMinimized ? "Maximize" : "Minimize"}
                   >
-                    {isMinimized ? <Maximize2 className="w-4 h-4 text-gray-600 dark:text-gray-300" /> : <Minimize2 className="w-5 h-5 text-gray-600 dark:text-gray-300" />}
+                    {isMinimized ? <Maximize2 className="w-4 h-4 text-gray-600 dark:text-gray-400" /> : <Minimize2 className="w-5 h-5 text-gray-600 dark:text-gray-400" />}
                   </button>
                   <button onClick={onClose} className="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded" title="Close">
-                    <X className={cn(isMinimized ? "w-4 h-4" : "w-5 h-5", "text-gray-600 dark:text-gray-300")} />
+                    <X className={cn(isMinimized ? "w-4 h-4" : "w-5 h-5", "text-gray-600 dark:text-gray-400")} />
                   </button>
                 </div>
               </div>
@@ -781,7 +781,7 @@ Sample size: ${stats.articles} articles`}
               )}>
                 {/* Sidebar Header */}
                 <div className="flex items-center justify-between p-3 border-b border-gray-200 dark:border-gray-700">
-                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-400 flex items-center gap-2">
                     <History className="w-4 h-4" />
                     Chat History
                   </h3>
@@ -789,7 +789,7 @@ Sample size: ${stats.articles} articles`}
                     {sessions.length > 0 && (
                       <button
                         onClick={handleClearAllSessions}
-                        className="p-1 hover:bg-red-100 dark:hover:bg-red-900/30 rounded text-gray-400 hover:text-red-500"
+                        className="p-1 hover:bg-red-100 dark:hover:bg-red-900/30 rounded text-gray-500 hover:text-red-500"
                         title="Clear all chat history"
                       >
                         <Trash2 className="w-4 h-4" />
@@ -807,7 +807,7 @@ Sample size: ${stats.articles} articles`}
                 {/* Sessions */}
                 <div className="flex-1 overflow-y-auto p-2">
                   {sessions.length === 0 ? (
-                    <div className="text-center py-8 text-gray-400">
+                    <div className="text-center py-8 text-gray-500">
                       <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
                       <p className="text-sm">No chat history</p>
                       <p className="text-xs mt-1">Select a topic to see chats</p>
@@ -827,11 +827,11 @@ Sample size: ${stats.articles} articles`}
                         >
                           <p className={cn(
                             'text-sm font-medium truncate pr-5',
-                            session.id === currentChatId ? 'text-pink-700 dark:text-pink-300' : 'text-gray-700 dark:text-gray-300'
+                            session.id === currentChatId ? 'text-pink-700 dark:text-pink-300' : 'text-gray-700 dark:text-gray-400'
                           )}>
                             {session.title || `Chat ${session.id}`}
                           </p>
-                          <div className="flex items-center gap-1.5 text-xs text-gray-400 mt-0.5">
+                          <div className="flex items-center gap-1.5 text-xs text-gray-500 mt-0.5">
                             <span>{new Date(session.updated_at || session.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
                             {session.message_count && (
                               <>
@@ -842,7 +842,7 @@ Sample size: ${stats.articles} articles`}
                           </div>
                           <button
                             onClick={(e) => { e.stopPropagation(); handleDeleteSession(session.id); }}
-                            className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30"
+                            className="absolute right-1 top-1/2 -translate-y-1/2 p-1 rounded text-gray-500 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30"
                             title="Delete this chat"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -876,7 +876,7 @@ Sample size: ${stats.articles} articles`}
                   <div className="px-4 py-2 bg-gray-50 dark:bg-gray-900 flex items-center gap-4">
                     {/* Deep Research */}
                     <div className="flex items-center gap-2">
-                      <span className="text-sm text-gray-600 dark:text-gray-400">Deep Research:</span>
+                      <span className="text-sm text-gray-600 dark:text-gray-300">Deep Research:</span>
                       <Select value={researchMode} onValueChange={(v) => onResearchModeChange(v as ResearchMode)}>
                         <SelectTrigger className={cn(
                           "w-[100px] h-8 text-sm border-gray-300 dark:border-gray-600",
@@ -907,7 +907,7 @@ Sample size: ${stats.articles} articles`}
                         'flex items-center gap-1.5 px-3 py-1.5 text-sm rounded border transition-colors disabled:opacity-50',
                         includeCharts
                           ? 'bg-pink-50 dark:bg-pink-900/30 text-pink-600 dark:text-pink-400 border-pink-300 dark:border-pink-700'
-                          : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                          : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700'
                       )}
                       title={includeCharts ? 'Charts enabled - click to disable' : 'Click to enable automatic chart generation'}
                     >
@@ -920,11 +920,11 @@ Sample size: ${stats.articles} articles`}
 
                     {/* Analysis Tools Label with Settings */}
                     <div className="flex items-center gap-1">
-                      <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Analysis Tools:</span>
+                      <span className="text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Analysis Tools:</span>
                       <div className="relative">
                         <button
                           onClick={() => setIsToolSettingsOpen(!isToolSettingsOpen)}
-                          className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                          className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-500 hover:text-gray-600 dark:hover:text-gray-400"
                           title="Configure visible tools"
                         >
                           <Settings2 className="w-4 h-4" />
@@ -933,7 +933,7 @@ Sample size: ${stats.articles} articles`}
                         {isToolSettingsOpen && (
                           <div className="absolute top-full left-0 mt-1 w-64 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 z-50 max-h-80 overflow-y-auto">
                             <div className="p-2 border-b border-gray-200 dark:border-gray-700">
-                              <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase">Tool Visibility & Order</span>
+                              <span className="text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase">Tool Visibility & Order</span>
                             </div>
                             <div className="p-2 space-y-1">
                               {toolOrder.map((toolName, idx) => {
@@ -946,7 +946,7 @@ Sample size: ${stats.articles} articles`}
                                       onClick={() => toggleToolVisibility(toolName)}
                                       className={cn(
                                         'p-1 rounded',
-                                        isVisible ? 'text-green-500' : 'text-gray-400'
+                                        isVisible ? 'text-green-500' : 'text-gray-500'
                                       )}
                                       title={isVisible ? 'Hide tool' : 'Show tool'}
                                     >
@@ -954,7 +954,7 @@ Sample size: ${stats.articles} articles`}
                                     </button>
                                     <span className={cn(
                                       'flex-1 text-sm truncate',
-                                      isVisible ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400'
+                                      isVisible ? 'text-gray-700 dark:text-gray-400' : 'text-gray-500'
                                     )}>
                                       {formatToolName(toolName)}
                                     </span>
@@ -983,13 +983,13 @@ Sample size: ${stats.articles} articles`}
                             <div className="p-2 border-t border-gray-200 dark:border-gray-700 flex gap-2">
                               <button
                                 onClick={() => onVisibleToolsChange(pluginTools.map(t => t.name))}
-                                className="flex-1 px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-gray-600 dark:text-gray-300"
+                                className="flex-1 px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-gray-600 dark:text-gray-400"
                               >
                                 Show All
                               </button>
                               <button
                                 onClick={() => onVisibleToolsChange([])}
-                                className="flex-1 px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-gray-600 dark:text-gray-300"
+                                className="flex-1 px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-gray-600 dark:text-gray-400"
                               >
                                 Hide All
                               </button>
@@ -1009,8 +1009,8 @@ Sample size: ${stats.articles} articles`}
                           className={cn(
                             'px-3 py-1.5 text-sm rounded border transition-colors',
                             isDisabled || isStreaming
-                              ? 'bg-gray-100 dark:bg-gray-800 text-gray-400 border-gray-200 dark:border-gray-700 cursor-not-allowed'
-                              : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-gray-600 hover:bg-pink-50 dark:hover:bg-pink-900/20 hover:text-pink-600 hover:border-pink-300'
+                              ? 'bg-gray-100 dark:bg-gray-800 text-gray-500 border-gray-200 dark:border-gray-700 cursor-not-allowed'
+                              : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-400 border-gray-300 dark:border-gray-600 hover:bg-pink-50 dark:hover:bg-pink-900/20 hover:text-pink-600 hover:border-pink-300'
                           )}
                           title={tool.description}
                         >
@@ -1053,7 +1053,7 @@ Sample size: ${stats.articles} articles`}
                           'px-3 py-2 text-xs font-medium transition-colors rounded-t',
                           rightPanelTab === 'insights'
                             ? 'bg-white dark:bg-gray-700 text-pink-600 dark:text-pink-400'
-                            : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                            : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-400'
                         )}
                       >
                         <Sparkles className="w-4 h-4 mx-auto mb-0.5" />
@@ -1065,7 +1065,7 @@ Sample size: ${stats.articles} articles`}
                           'px-3 py-2 text-xs font-medium transition-colors rounded-t',
                           rightPanelTab === 'charts'
                             ? 'bg-white dark:bg-gray-700 text-pink-600 dark:text-pink-400'
-                            : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                            : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-400'
                         )}
                       >
                         <BarChart3 className="w-4 h-4 mx-auto mb-0.5" />
@@ -1094,12 +1094,12 @@ Sample size: ${stats.articles} articles`}
                   {rightPanelTab === 'charts' && (
                     <div className="space-y-4">
                       {allCharts.length === 0 ? (
-                        <div className="text-center py-8 text-gray-400">
+                        <div className="text-center py-8 text-gray-500">
                           <BarChart3 className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                          <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
+                          <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
                             Visualizations
                           </h3>
-                          <p className="text-xs text-gray-400">
+                          <p className="text-xs text-gray-500">
                             Charts and graphs from your analysis will appear here
                           </p>
                         </div>

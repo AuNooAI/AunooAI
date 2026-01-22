@@ -109,13 +109,19 @@ class TrendAgent(BasePillarAgent):
     async def analyze_trends(
         self,
         articles_by_trend: Dict[str, List[Dict]],
-        context: AnalysisContext
+        context: AnalysisContext,
+        previous_scores: Optional[Dict[str, float]] = None
     ):
         """
         Analyze all trends with streaming progress.
 
         This is the main entry point for trend analysis, different
         from the base analyze() method.
+
+        Args:
+            articles_by_trend: Dict mapping trend_id to list of articles
+            context: Analysis context with topic, days_back, etc.
+            previous_scores: Optional dict of {T1: score, T2: score, ...} for EMA smoothing
         """
         self.state = AgentState(started_at=__import__('datetime').datetime.now())
 
@@ -126,11 +132,12 @@ class TrendAgent(BasePillarAgent):
             yield self.state.update(AgentStage.FETCHING_EXTERNAL, 0.1, "Fetching external data")
             external_data = await self._fetch_trend_external_data(context)
 
-            # Stage 2: Calculate measurable scores
+            # Stage 2: Calculate measurable scores with EMA smoothing
             yield self.state.update(AgentStage.ANALYZING, 0.3, "Calculating trend scores")
             trend_scores = await self._calculate_trend_scores(
                 articles_by_trend,
-                external_data
+                external_data,
+                previous_scores=previous_scores
             )
 
             # Stage 3: Get LLM interpretations
@@ -238,22 +245,25 @@ class TrendAgent(BasePillarAgent):
     async def _calculate_trend_scores(
         self,
         articles_by_trend: Dict[str, List[Dict]],
-        external_data: Dict[str, Dict]
+        external_data: Dict[str, Dict],
+        previous_scores: Optional[Dict[str, float]] = None
     ) -> Dict[str, TrendScore]:
         """
-        Calculate trend scores using TrendCalculator.
+        Calculate trend scores using TrendCalculator with optional EMA smoothing.
 
         This produces REPEATABLE, MEASURABLE scores based on:
         - Article counts
         - Recency distribution
         - Source diversity
-        - Velocity (month-over-month change)
+        - Velocity (month-over-month change using 3-month rolling average)
         - External signals
+        - EMA smoothing with previous scores (if available)
         """
         return self.trend_calculator.calculate_all_trends(
             articles_by_trend=articles_by_trend,
             trend_definitions=TREND_DEFINITIONS,
-            external_data=external_data
+            external_data=external_data,
+            previous_scores=previous_scores
         )
 
     async def _get_trend_interpretations(

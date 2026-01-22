@@ -211,11 +211,11 @@ export function SavedPodcastsSection({ className }: SavedPodcastsSectionProps) {
       {/* Empty State */}
       {!loading && !error && completedPodcasts.length === 0 && processingPodcasts.length === 0 && (
         <div className="flex flex-col items-center justify-center py-12 text-center">
-          <Volume2 className="w-12 h-12 text-gray-600 dark:text-gray-600 dark:text-gray-400 dark:text-gray-600 mb-3" />
-          <h3 className="text-lg font-medium text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 mb-1">
+          <Volume2 className="w-12 h-12 text-gray-600 dark:text-gray-300 dark:text-gray-600 mb-3" />
+          <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-1">
             No Podcasts Yet
           </h3>
-          <p className="text-sm text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 max-w-xs">
+          <p className="text-sm text-gray-700 dark:text-gray-300 dark:text-gray-300 max-w-xs">
             Generate podcasts from your briefings by clicking the speaker icon in the Your Briefing section.
           </p>
         </div>
@@ -281,13 +281,13 @@ function PodcastCard({
     <div className="bg-pink-50 dark:bg-pink-900/20 border border-pink-200 dark:border-pink-700 rounded-lg p-4 hover:shadow-md transition-shadow">
       {/* Header */}
       <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+        <div className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
           <Calendar className="w-3.5 h-3.5" />
           <span>{formatDate(podcast.created_at)}</span>
         </div>
         <div className="flex items-center gap-1">
           {podcast.metadata?.duration && (
-            <span className="flex items-center gap-1 text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+            <span className="flex items-center gap-1 text-xs text-gray-700 dark:text-gray-300 dark:text-gray-300">
               <Clock className="w-3.5 h-3.5" />
               {formatDuration(podcast.metadata.duration)}
             </span>
@@ -298,7 +298,7 @@ function PodcastCard({
               onClick={() => setShowMenu(!showMenu)}
               className="p-1 hover:bg-pink-100 dark:hover:bg-pink-800/50 rounded transition-colors"
             >
-              <MoreVertical className="w-4 h-4 text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+              <MoreVertical className="w-4 h-4 text-gray-700 dark:text-gray-300 dark:text-gray-300" />
             </button>
             {showMenu && (
               <div className="absolute right-0 top-full mt-1 w-32 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 py-1">
@@ -309,7 +309,7 @@ function PodcastCard({
                   }}
                   className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                 >
-                  <Download className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+                  <Download className="w-4 h-4 text-gray-600 dark:text-gray-300" />
                   Download
                 </button>
                 <button

@@ -58,7 +58,7 @@
 }
 
 .gather-top-bar-separator {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .gather-top-bar-subtitle {
@@ -176,7 +176,7 @@
 }
 
 .gather-status-label {
-  color: #9ca3af;
+  color: #6b7280;
   text-transform: uppercase;
   font-weight: 500;
   letter-spacing: 0.05em;
@@ -213,7 +213,7 @@
 /* Switch styling - global for all switches when gather CSS is loaded */
 [data-slot="switch"] {
   background-color: #d1d5db !important;
-  border: 1px solid #9ca3af !important;
+  border: 1px solid #6b7280 !important;
 }
 
 [data-slot="switch"][data-state="checked"] {
@@ -229,7 +229,7 @@
 /* Slider styling - global for all sliders when gather CSS is loaded */
 [data-slot="slider-track"] {
   background-color: #e5e7eb !important;
-  border: 1px solid #9ca3af !important;
+  border: 1px solid #6b7280 !important;
 }
 
 [data-slot="slider-range"] {
@@ -238,7 +238,7 @@
 
 [data-slot="slider-thumb"] {
   background-color: white !important;
-  border: 2px solid #9ca3af !important;
+  border: 2px solid #6b7280 !important;
   box-shadow: 0 1px 3px rgba(0,0,0,0.2);
 }
 
@@ -256,7 +256,7 @@
 .gather-toggle-status {
   font-size: 12px;
   font-weight: 600;
-  color: #9ca3af;
+  color: #6b7280;
   padding: 2px 8px;
   border-radius: 4px;
   background: #f3f4f6;
@@ -277,7 +277,7 @@
   background: transparent;
   border: 1px solid #e5e7eb;
   border-radius: 4px;
-  color: #9ca3af;
+  color: #6b7280;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -381,7 +381,7 @@
   background: #f3f4f6;
   border-radius: 50%;
   margin-bottom: 16px;
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .gather-empty-state h3 {
@@ -533,7 +533,7 @@
 }
 
 .gather-metric-value-muted {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 /* Unscored metric with delete button */
@@ -553,7 +553,7 @@
   background: transparent;
   border: none;
   border-radius: 50%;
-  color: #9ca3af;
+  color: #6b7280;
   cursor: pointer;
   transition: all 0.15s;
   opacity: 0.6;
@@ -571,7 +571,7 @@
   gap: 4px;
   font-size: 10px;
   font-weight: 500;
-  color: #9ca3af;
+  color: #6b7280;
   text-transform: uppercase;
   letter-spacing: 0.03em;
   margin-top: 4px;
@@ -617,7 +617,7 @@
 }
 
 .gather-status-neutral {
-  color: #9ca3af;
+  color: #6b7280;
   background: #f3f4f6;
 }
 
@@ -631,7 +631,7 @@
 
 .gather-card-last-checked {
   font-size: 12px;
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .gather-card-view-details {
@@ -940,7 +940,7 @@
 
 .gather-keyword-no-stats {
   font-size: 12px;
-  color: #9ca3af;
+  color: #6b7280;
   font-style: italic;
 }
 
@@ -983,7 +983,7 @@
 }
 
 .gather-article-date {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .gather-article-relevance {
@@ -1004,7 +1004,7 @@
 }
 
 .gather-relevance-unscored {
-  color: #9ca3af;
+  color: #6b7280;
   background: #f3f4f6;
 }
 
@@ -1079,7 +1079,7 @@
   background: transparent;
   border: 1px solid #e5e7eb;
   border-radius: 4px;
-  color: #9ca3af;
+  color: #6b7280;
   cursor: pointer;
   transition: all 0.2s;
   vertical-align: middle;
@@ -1187,7 +1187,7 @@
 }
 
 .gather-stat-muted {
-  color: #9ca3af !important;
+  color: #6b7280 !important;
 }
 
 /* Loading & Empty States */
@@ -1198,7 +1198,7 @@
   align-items: center;
   justify-content: center;
   padding: 40px 20px;
-  color: #9ca3af;
+  color: #6b7280;
   text-align: center;
   gap: 12px;
 }
@@ -1291,7 +1291,7 @@
 
 .gather-form-hint {
   font-size: 12px;
-  color: #9ca3af;
+  color: #6b7280;
   margin-top: 4px;
 }
 
@@ -1396,7 +1396,7 @@
 .gather-empty-groups {
   padding: 40px 20px;
   text-align: center;
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .gather-group-item {
@@ -1420,7 +1420,7 @@
 }
 
 .gather-group-toggle {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .gather-group-info {
@@ -1443,7 +1443,7 @@
 
 .gather-group-count {
   font-size: 12px;
-  color: #9ca3af;
+  color: #6b7280;
   margin-left: auto;
 }
 
@@ -1504,7 +1504,7 @@
   align-items: center;
   gap: 12px;
   padding: 20px;
-  color: #9ca3af;
+  color: #6b7280;
   font-size: 13px;
 }
 
@@ -1888,7 +1888,7 @@
 .gather-suggestion-samples ul {
   margin: 8px 0 0 0;
   padding-left: 20px;
-  color: #9ca3af;
+  color: #6b7280;
   line-height: 1.6;
 }
 
@@ -1992,7 +1992,7 @@
 .gather-notification-empty {
   padding: 48px 24px;
   text-align: center;
-  color: #9ca3af;
+  color: #6b7280;
   font-size: 14px;
   display: flex;
   flex-direction: column;
@@ -2072,11 +2072,11 @@
 
 .gather-notification-sheet-item-time {
   font-size: 12px;
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .gather-notification-sheet-item-link {
-  color: #9ca3af;
+  color: #6b7280;
   flex-shrink: 0;
   margin-top: 4px;
 }
@@ -2322,11 +2322,11 @@
 }
 
 .dark .gather-top-bar-subtitle {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .dark .gather-top-bar-icon-btn {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .dark .gather-top-bar-icon-btn:hover {
@@ -2349,7 +2349,7 @@
 }
 
 .dark .gather-loading {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 /* Header - Dark Mode */
@@ -2363,7 +2363,7 @@
 }
 
 .dark .gather-header-subtitle {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .dark .gather-status-label {
@@ -2408,7 +2408,7 @@
 }
 
 .dark .gather-card-subtitle {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .dark .gather-card-topic-badge {
@@ -2453,7 +2453,7 @@
 }
 
 .dark .gather-empty-state p {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 /* Detail Panel - Dark Mode */
@@ -2467,7 +2467,7 @@
 }
 
 .dark [data-slot="sheet-description"] {
-  color: #9ca3af !important;
+  color: #6b7280 !important;
 }
 
 .dark .gather-detail-panel {
@@ -2479,7 +2479,7 @@
 }
 
 .dark .gather-detail-meta {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .dark .gather-detail-section {
@@ -2487,7 +2487,7 @@
 }
 
 .dark .gather-detail-section-title {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .dark .gather-detail-stat {
@@ -2499,7 +2499,7 @@
 }
 
 .dark .gather-detail-stat-label {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 /* Keywords - Dark Mode */
@@ -2518,7 +2518,7 @@
 }
 
 .dark .gather-keyword-stats {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 /* Articles - Dark Mode */
@@ -2535,7 +2535,7 @@
 }
 
 .dark .gather-article-meta {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .dark .gather-article-date {
@@ -2556,7 +2556,7 @@
 }
 
 .dark .gather-toggle-desc {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .dark .gather-provider-name {
@@ -2564,7 +2564,7 @@
 }
 
 .dark .gather-provider-desc {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 /* New Group Form - Dark Mode */
@@ -2595,7 +2595,7 @@
 }
 
 .dark .gather-test-step-key {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 /* Notification Sheet - Dark Mode */
@@ -2624,7 +2624,7 @@
 }
 
 .dark .gather-notification-sheet-item-message {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .dark .gather-notification-sheet-item-time {
@@ -2646,7 +2646,7 @@
 }
 
 .dark .explore-tab-btn {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .dark .explore-tab-btn:hover {
@@ -2723,7 +2723,7 @@
 }
 
 .dark .gather-suggestion-reason {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 /* Hover Card - Dark Mode */
@@ -2737,11 +2737,11 @@
 }
 
 .dark .gather-hover-section-title {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .dark .gather-hover-score-label {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .dark .gather-hover-score-value {
@@ -2749,7 +2749,7 @@
 }
 
 .dark .gather-hover-explanation {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .dark .gather-hover-summary {
@@ -2758,7 +2758,7 @@
 
 /* Link Button - Dark Mode */
 .dark .gather-link-button {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .dark .gather-link-button:hover {
@@ -2780,7 +2780,7 @@
 
 /* Icon Button - Dark Mode */
 .dark .gather-icon-button {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .dark .gather-icon-button:hover {
@@ -2830,7 +2830,7 @@
 }
 
 .dark .gather-tab-btn {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .dark .gather-tab-btn:hover {
@@ -2885,7 +2885,7 @@
 }
 
 .dark .rss-feeds-timing {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .rss-feeds-timing-item {
@@ -2918,7 +2918,7 @@
 
 .dark .rss-feeds-status-badge {
   background: #374151;
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .rss-feeds-add-btn {
@@ -3011,7 +3011,7 @@
 }
 
 .dark .rss-feeds-empty p {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 /* RSS Feeds Grid */
@@ -3170,7 +3170,7 @@
 
 .rss-feed-stat-label {
   font-size: 10px;
-  color: #9ca3af;
+  color: #6b7280;
   text-transform: uppercase;
   margin-top: 2px;
 }
@@ -3193,7 +3193,7 @@
 }
 
 .dark .rss-feed-interval-info {
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .rss-feed-error-text {
@@ -3338,7 +3338,7 @@
 
 .rss-feed-switch-hint {
   font-size: 12px;
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .rss-feed-relevance-slider {
@@ -3451,7 +3451,7 @@
 
 .dark .rss-feed-modal-cancel {
   border-color: #4b5563;
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 .dark .rss-feed-modal-cancel:hover {

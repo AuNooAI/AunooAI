@@ -289,7 +289,7 @@ export function SixArticlesTuneModal({
                 <div className="flex items-center justify-center py-12">
                   <div className="text-center">
                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-pink-500 mx-auto mb-4"></div>
-                    <p className="text-gray-500 dark:text-gray-400">Loading configuration...</p>
+                    <p className="text-gray-500 dark:text-gray-300">Loading configuration...</p>
                   </div>
                 </div>
               )}
@@ -313,7 +313,7 @@ export function SixArticlesTuneModal({
                     <Newspaper className="w-5 h-5 text-pink-500" />
                     <h4 className="font-semibold text-gray-900 dark:text-gray-100">Number of Articles</h4>
                   </div>
-                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
                     Choose how many articles to include in your daily briefing (3-12).
                   </p>
                   <div className="flex items-center gap-4">
@@ -336,10 +336,10 @@ export function SixArticlesTuneModal({
                     <Users className="w-5 h-5 text-pink-500" />
                     <h4 className="font-semibold text-gray-900 dark:text-gray-100">Personas</h4>
                   </div>
-                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
                     Define executive perspectives (CEO, CMO, CTO, CISO) with specific priorities and focus areas.
                   </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                  <p className="text-xs text-gray-500 dark:text-gray-300">
                     <span className="font-medium">Use this when:</span> You want articles selected for specific leadership roles.
                   </p>
                 </div>
@@ -349,10 +349,10 @@ export function SixArticlesTuneModal({
                     <FileText className="w-5 h-5 text-pink-500" />
                     <h4 className="font-semibold text-gray-900 dark:text-gray-100">Prompt Template</h4>
                   </div>
-                  <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">
+                  <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
                     The core instructions that guide how articles are selected and analyzed.
                   </p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                  <p className="text-xs text-gray-500 dark:text-gray-300">
                     <span className="font-medium">Use this when:</span> You want to change selection criteria or output format.
                   </p>
                 </div>
@@ -373,7 +373,7 @@ export function SixArticlesTuneModal({
                 <div className="flex items-center justify-between">
                   <div>
                     <Label className="font-semibold">Executive Personas</Label>
-                    <p className="text-sm text-gray-500 dark:text-gray-400">
+                    <p className="text-sm text-gray-500 dark:text-gray-300">
                       Define perspectives for article selection and analysis
                     </p>
                   </div>
@@ -401,7 +401,7 @@ export function SixArticlesTuneModal({
                           <div className="flex items-center gap-2">
                             <span className={`px-2 py-0.5 rounded text-xs font-medium ${
                               isBuiltIn
-                                ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-300'
+                                ? 'bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-400'
                                 : 'bg-pink-100 dark:bg-pink-900 text-pink-700 dark:text-pink-300'
                             }`}>
                               {isBuiltIn ? personaId : 'Custom'}
@@ -415,7 +415,7 @@ export function SixArticlesTuneModal({
                               onClick={() => setEditingPersona(isExpanded ? null : personaId)}
                               className="p-1 hover:bg-gray-200 dark:hover:bg-gray-700 rounded"
                             >
-                              <Settings2 className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                              <Settings2 className="w-4 h-4 text-gray-500 dark:text-gray-300" />
                             </button>
                             {!isBuiltIn && (
                               <button
@@ -470,7 +470,7 @@ export function SixArticlesTuneModal({
                             </div>
                           </div>
                         ) : (
-                          <div className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
+                          <div className="text-sm text-gray-600 dark:text-gray-300 space-y-1">
                             <p><span className="font-medium">Risk:</span> {personaDef.riskAppetite}</p>
                             <p className="truncate"><span className="font-medium">Focus:</span> {personaDef.focus}</p>
                           </div>
@@ -487,7 +487,7 @@ export function SixArticlesTuneModal({
                   <div className="lg:col-span-2 space-y-4">
                     <div>
                       <Label className="font-semibold">System Prompt Template</Label>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                      <p className="text-sm text-gray-500 dark:text-gray-300 mb-2">
                         The prompt template used to generate the Six Articles briefing.
                       </p>
                       <Textarea
@@ -518,7 +518,7 @@ export function SixArticlesTuneModal({
                         ].map(({ name, desc }) => (
                           <div key={name}>
                             <code className="text-pink-600 dark:text-pink-400 bg-pink-50 dark:bg-pink-950 px-1 py-0.5 rounded text-xs">{name}</code>
-                            <p className="text-gray-500 dark:text-gray-400 text-xs mt-0.5">{desc}</p>
+                            <p className="text-gray-500 dark:text-gray-300 text-xs mt-0.5">{desc}</p>
                           </div>
                         ))}
                       </div>
@@ -526,7 +526,7 @@ export function SixArticlesTuneModal({
 
                     <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
                       <h4 className="font-semibold text-gray-900 dark:text-gray-100 mb-2">Tips</h4>
-                      <ul className="text-xs text-gray-600 dark:text-gray-300 space-y-1.5 list-disc list-inside">
+                      <ul className="text-xs text-gray-600 dark:text-gray-400 space-y-1.5 list-disc list-inside">
                         <li>Adjust article_count to change briefing size</li>
                         <li>Modify selection rules to change criteria</li>
                         <li>Customize output fields as needed</li>

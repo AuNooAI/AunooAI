@@ -177,7 +177,7 @@ export function PodcastScriptModal({
                     <div className="flex items-center gap-2">
                       <span>{voice.name}</span>
                       {voice.category && (
-                        <span className="text-xs text-gray-400">({voice.category})</span>
+                        <span className="text-xs text-gray-500">({voice.category})</span>
                       )}
                     </div>
                   </SelectItem>

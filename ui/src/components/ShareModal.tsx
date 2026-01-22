@@ -184,7 +184,37 @@ export interface ShareEmergingTopicData {
   }>;
 }
 
-export type ShareData = ShareArticleData | ShareIncidentData | ShareNarrativeData | ShareBriefingData | ShareBriefingCardData | ShareIncidentsData | ShareEmergingTopicData;
+export interface ShareExecutiveSummaryData {
+  type: 'executive_summary';
+  topic_title: string;
+  research_topic?: string;
+  primary_horizon?: string;
+  horizon_label?: string;
+  opening_statement?: string;
+  consensus_percentage?: number;
+  minority_view?: {
+    percentage_range: string;
+    statement: string;
+  };
+  primary_signal?: string;
+  decision_fork?: {
+    condition_a?: {
+      condition: string;
+      outcome: string;
+    };
+    condition_b?: {
+      condition: string;
+      outcome: string;
+    };
+  };
+  action_window?: {
+    assessment?: { timeframe: string; action: string };
+    positioning?: { timeframe: string; action: string };
+  };
+  source_scenarios?: string[];
+}
+
+export type ShareData = ShareArticleData | ShareIncidentData | ShareNarrativeData | ShareBriefingData | ShareBriefingCardData | ShareIncidentsData | ShareEmergingTopicData | ShareExecutiveSummaryData;
 
 interface ShareModalProps {
   open: boolean;
@@ -356,6 +386,22 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
           executive_actions: data.executive_actions,
           scores: data.scores,
         };
+      } else if (data.type === 'executive_summary') {
+        endpoint = '/api/share/executive-summary';
+        body = {
+          to_email: email,
+          topic_title: data.topic_title,
+          research_topic: data.research_topic,
+          primary_horizon: data.primary_horizon,
+          horizon_label: data.horizon_label,
+          opening_statement: data.opening_statement,
+          consensus_percentage: data.consensus_percentage,
+          minority_view: data.minority_view,
+          primary_signal: data.primary_signal,
+          decision_fork: data.decision_fork,
+          action_window: data.action_window,
+          source_scenarios: data.source_scenarios,
+        };
       } else {
         endpoint = '/api/share/briefing';
         body = {
@@ -412,6 +458,8 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
         return `Share: ${data.title.slice(0, 50)}${data.title.length > 50 ? '...' : ''}`;
       case 'emerging_topic':
         return `Share Emerging Topic: ${data.topic_label}`;
+      case 'executive_summary':
+        return `Share Executive Summary: ${data.topic_title}`;
       default:
         return 'Share via Email';
     }
@@ -441,7 +489,7 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
         {/* Close button */}
         <button
           onClick={() => onOpenChange(false)}
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+          className="absolute top-4 right-4 text-gray-500 hover:text-gray-600 dark:hover:text-gray-400"
         >
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -454,7 +502,7 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
             <Mail className="w-5 h-5 text-pink-500" />
             Share via Email
           </h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 truncate mt-1">
+          <p className="text-sm text-gray-500 dark:text-gray-300 truncate mt-1">
             {getTitle()}
           </p>
         </div>
@@ -463,7 +511,7 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
         <div className="py-2">
           {isConfigured === null ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+              <Loader2 className="w-6 h-6 animate-spin text-gray-500" />
             </div>
           ) : !isConfigured ? (
             <div className="flex flex-col items-center justify-center py-6 text-center">
@@ -471,7 +519,7 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
               <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1">
                 Email Not Configured
               </h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <p className="text-sm text-gray-500 dark:text-gray-300">
                 Email sharing requires the RESEND_API_KEY environment variable to be set.
                 Contact your administrator to enable this feature.
               </p>
@@ -482,14 +530,14 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
               <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1">
                 Email Sent!
               </h3>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
+              <p className="text-sm text-gray-500 dark:text-gray-300">
                 Successfully shared to {email}
               </p>
             </div>
           ) : (
             <div className="space-y-4">
               <div>
-                <Label htmlFor="share-email" className="text-sm font-medium block text-gray-700 dark:text-gray-300">
+                <Label htmlFor="share-email" className="text-sm font-medium block text-gray-700 dark:text-gray-400">
                   Recipient Email
                 </Label>
                 <input
@@ -517,7 +565,7 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
                   </p>
                 )}
               </div>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-gray-500 dark:text-gray-300">
                 Your email address will be saved for future shares.
               </p>
             </div>

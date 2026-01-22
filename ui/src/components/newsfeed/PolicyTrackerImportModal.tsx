@@ -293,7 +293,7 @@ export function PolicyTrackerImportModal({
           <button
             onClick={handleClose}
             disabled={isImporting && !isComplete && !isFailed}
-            className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-50"
+            className="text-gray-500 hover:text-gray-600 dark:hover:text-gray-500 disabled:opacity-50"
           >
             <X className="w-5 h-5" />
           </button>
@@ -371,36 +371,36 @@ export function PolicyTrackerImportModal({
               <div className="grid grid-cols-2 gap-2 text-sm">
                 {importStatus.import_type === 'keyword_group_process' ? (
                   <>
-                    <div className="text-gray-600 dark:text-gray-400">Articles Categorized:</div>
+                    <div className="text-gray-600 dark:text-gray-300">Articles Categorized:</div>
                     <div className="text-gray-900 dark:text-gray-100">{importStatus.articles_created}</div>
 
-                    <div className="text-gray-600 dark:text-gray-400">No Keyword Match:</div>
+                    <div className="text-gray-600 dark:text-gray-300">No Keyword Match:</div>
                     <div className="text-gray-900 dark:text-gray-100">{importStatus.articles_updated}</div>
 
                     {importStatus.errors > 0 && (
                       <>
-                        <div className="text-gray-600 dark:text-gray-400">Errors:</div>
+                        <div className="text-gray-600 dark:text-gray-300">Errors:</div>
                         <div className="text-red-600 dark:text-red-400">{importStatus.errors}</div>
                       </>
                     )}
                   </>
                 ) : (
                   <>
-                    <div className="text-gray-600 dark:text-gray-400">Rows Processed:</div>
+                    <div className="text-gray-600 dark:text-gray-300">Rows Processed:</div>
                     <div className="text-gray-900 dark:text-gray-100">{importStatus.rows_processed}</div>
 
-                    <div className="text-gray-600 dark:text-gray-400">Articles Created:</div>
+                    <div className="text-gray-600 dark:text-gray-300">Articles Created:</div>
                     <div className="text-gray-900 dark:text-gray-100">{importStatus.articles_created}</div>
 
-                    <div className="text-gray-600 dark:text-gray-400">Articles Updated:</div>
+                    <div className="text-gray-600 dark:text-gray-300">Articles Updated:</div>
                     <div className="text-gray-900 dark:text-gray-100">{importStatus.articles_updated}</div>
 
-                    <div className="text-gray-600 dark:text-gray-400">Categories Added:</div>
+                    <div className="text-gray-600 dark:text-gray-300">Categories Added:</div>
                     <div className="text-gray-900 dark:text-gray-100">{importStatus.categories_added}</div>
 
                     {importStatus.errors > 0 && (
                       <>
-                        <div className="text-gray-600 dark:text-gray-400">Errors:</div>
+                        <div className="text-gray-600 dark:text-gray-300">Errors:</div>
                         <div className="text-red-600 dark:text-red-400">{importStatus.errors}</div>
                       </>
                     )}
@@ -440,7 +440,7 @@ export function PolicyTrackerImportModal({
                   <span className="text-sm font-medium text-gray-900 dark:text-gray-100">
                     Fetch from Trump Action Tracker
                   </span>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  <p className="text-xs text-gray-500 dark:text-gray-300 mt-0.5">
                     Automatically download CSV from trumpactiontracker.info
                   </p>
                 </div>
@@ -450,7 +450,7 @@ export function PolicyTrackerImportModal({
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      <label className="block text-xs text-gray-500 dark:text-gray-300 mb-1">
                         Start Date
                       </label>
                       <input
@@ -461,7 +461,7 @@ export function PolicyTrackerImportModal({
                       />
                     </div>
                     <div>
-                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                      <label className="block text-xs text-gray-500 dark:text-gray-300 mb-1">
                         End Date
                       </label>
                       <input
@@ -472,13 +472,13 @@ export function PolicyTrackerImportModal({
                       />
                     </div>
                   </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                  <p className="text-xs text-gray-500 dark:text-gray-300">
                     Data will be fetched from: trumpactiontracker.info/?start={startDate}&end={endDate}
                   </p>
                 </div>
               ) : (
                 <div>
-                  <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                  <label className="block text-xs text-gray-500 dark:text-gray-300 mb-1">
                     Custom CSV URL
                   </label>
                   <input
@@ -523,18 +523,18 @@ export function PolicyTrackerImportModal({
                       <p className="text-sm font-medium text-gray-900 dark:text-gray-100">
                         {file.name}
                       </p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                      <p className="text-xs text-gray-500 dark:text-gray-300">
                         {(file.size / 1024).toFixed(1)} KB
                       </p>
                     </div>
                   </div>
                 ) : (
                   <>
-                    <Upload className="w-10 h-10 mx-auto text-gray-400 dark:text-gray-500 mb-2" />
-                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                    <Upload className="w-10 h-10 mx-auto text-gray-500 dark:text-gray-300 mb-2" />
+                    <p className="text-sm text-gray-600 dark:text-gray-300">
                       Drag and drop a CSV file here, or click to browse
                     </p>
-                    <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+                    <p className="text-xs text-gray-500 dark:text-gray-300 mt-1">
                       CSV format from Trump Action Tracker
                     </p>
                   </>
@@ -546,22 +546,22 @@ export function PolicyTrackerImportModal({
           {/* Database Import Tab */}
           {!importId && !importStatus && activeTab === 'database' && (
             <div className="space-y-4">
-              <p className="text-sm text-gray-600 dark:text-gray-400">
+              <p className="text-sm text-gray-600 dark:text-gray-300">
                 Run policy categorization on articles from a keyword group. This will classify uncategorized articles into policy categories.
               </p>
 
               {/* Keyword Group Selector */}
               <div>
-                <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                <label className="block text-xs text-gray-500 dark:text-gray-300 mb-1">
                   Keyword Group
                 </label>
                 {loadingGroups ? (
-                  <div className="flex items-center gap-2 px-3 py-2 text-sm text-gray-500 dark:text-gray-400">
+                  <div className="flex items-center gap-2 px-3 py-2 text-sm text-gray-500 dark:text-gray-300">
                     <Loader2 className="w-4 h-4 animate-spin" />
                     Loading keyword groups...
                   </div>
                 ) : feedKeywordGroups.length === 0 ? (
-                  <p className="text-sm text-gray-500 dark:text-gray-400 px-3 py-2">
+                  <p className="text-sm text-gray-500 dark:text-gray-300 px-3 py-2">
                     No keyword groups found. Create one in the Gather section first.
                   </p>
                 ) : (
@@ -620,7 +620,7 @@ export function PolicyTrackerImportModal({
                   <span className="text-sm text-gray-700 dark:text-gray-300">
                     Run LLM classification
                   </span>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                  <p className="text-xs text-gray-500 dark:text-gray-300">
                     Use AI to classify new/uncategorized articles
                   </p>
                 </div>
@@ -637,7 +637,7 @@ export function PolicyTrackerImportModal({
                   <span className="text-sm text-gray-700 dark:text-gray-300">
                     Regenerate narrative
                   </span>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                  <p className="text-xs text-gray-500 dark:text-gray-300">
                     Create a new narrative analysis after import
                   </p>
                 </div>

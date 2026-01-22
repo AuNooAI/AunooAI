@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query, Depends, Request
+from fastapi import APIRouter, HTTPException, Query, Depends, Request, status
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from app.security.session import verify_session
@@ -3362,3 +3362,204 @@ async def restore_default_tune_prompt(
     except Exception as e:
         logger.error(f"Unexpected error restoring prompt: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to restore prompt: {str(e)}")
+
+
+# ============================================================================
+# Future Horizons Executive Summary Endpoints
+# ============================================================================
+
+class HorizonsExecutiveSummaryRequest(BaseModel):
+    """Request model for generating executive summary from horizons scenarios"""
+    scenarios: List[Dict[str, Any]]
+    topic: str
+    model: str = "gpt-4o"
+    profile_id: Optional[int] = None
+
+
+@router.post("/api/trend-convergence/horizons/{analysis_id}/executive-summary")
+async def generate_horizons_executive_summary(
+    analysis_id: str,
+    request: HorizonsExecutiveSummaryRequest,
+    session: dict = Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """
+    Generate horizon-anchored executive summary from Future Horizons scenarios.
+
+    Each summary is explicitly tied to a horizon position (H1/H2/H3),
+    with counter-signals from other horizons and decision forks framed
+    as horizon transitions.
+    """
+    try:
+        logger.info(f"Generating executive summary for horizons analysis {analysis_id}, topic: {request.topic}")
+
+        # Validate scenarios
+        if not request.scenarios:
+            raise HTTPException(
+                status_code=400,
+                detail="No scenarios provided. Please generate Future Horizons analysis first."
+            )
+
+        # Load the executive summary prompt
+        prompt_data = PromptLoader.load_prompt("future_horizons", "executive_summary")
+
+        # Prepare scenarios JSON
+        scenarios_json = json.dumps(request.scenarios, indent=2)
+
+        # Get organizational profile if profile_id provided
+        organizational_profile = "No specific organizational context provided."
+        if request.profile_id:
+            facade = DatabaseQueryFacade(db, logger)
+            profile = facade.get_organisational_profile(request.profile_id)
+            if profile:
+                profile_parts = []
+                if profile.get('name'):
+                    profile_parts.append(f"Organization: {profile['name']}")
+                if profile.get('industry'):
+                    profile_parts.append(f"Industry: {profile['industry']}")
+                if profile.get('organization_type'):
+                    profile_parts.append(f"Organization Type: {profile['organization_type']}")
+                if profile.get('region'):
+                    profile_parts.append(f"Region: {profile['region']}")
+                if profile.get('key_concerns'):
+                    profile_parts.append(f"Key Concerns: {profile['key_concerns']}")
+                if profile.get('strategic_priorities'):
+                    profile_parts.append(f"Strategic Priorities: {profile['strategic_priorities']}")
+                if profile.get('competitive_landscape'):
+                    profile_parts.append(f"Competitive Landscape: {profile['competitive_landscape']}")
+                if profile.get('regulatory_environment'):
+                    profile_parts.append(f"Regulatory Environment: {profile['regulatory_environment']}")
+                if profile.get('custom_context'):
+                    profile_parts.append(f"Additional Context: {profile['custom_context']}")
+                organizational_profile = "\n".join(profile_parts)
+
+        # Fill prompt template variables
+        system_prompt, user_prompt = PromptLoader.get_prompt_template(
+            prompt_data,
+            {
+                "topic": request.topic,
+                "scenarios_json": scenarios_json,
+                "organizational_profile": organizational_profile
+            }
+        )
+
+        full_prompt = f"{system_prompt}\n\n{user_prompt}"
+
+        # Get Auspex service for AI generation
+        auspex = get_auspex_service()
+
+        # Create a temporary chat session
+        user_from_session = session.get('user')
+        user_id = None
+        if user_from_session and not isinstance(user_from_session, dict):
+            user_id = user_from_session
+
+        chat_id = await auspex.create_chat_session(
+            topic=request.topic,
+            user_id=user_id,
+            title=f"Executive Summary: {request.topic}"
+        )
+
+        try:
+            # Generate the executive summary
+            response_chunks = []
+            async for chunk in auspex.chat_with_tools(
+                chat_id=chat_id,
+                message=full_prompt,
+                model=request.model,
+                limit=10,
+                tools_config={"search_articles": False, "get_sentiment_analysis": False}
+            ):
+                response_chunks.append(chunk)
+
+            full_response = "".join(response_chunks)
+
+            # Parse JSON from response
+            json_match = re.search(r'```json\s*(\{.*?\})\s*```', full_response, re.DOTALL)
+            if json_match:
+                summary_data = json.loads(json_match.group(1))
+            else:
+                # Try to find JSON without code blocks
+                json_start = full_response.find('{')
+                json_end = full_response.rfind('}') + 1
+                if json_start >= 0 and json_end > json_start:
+                    summary_data = json.loads(full_response[json_start:json_end])
+                else:
+                    raise HTTPException(
+                        status_code=500,
+                        detail="No valid JSON found in AI response"
+                    )
+
+            # Add metadata
+            summary_data['generated_at'] = datetime.now().isoformat()
+            summary_data['topic'] = request.topic
+            summary_data['analysis_id'] = analysis_id
+
+            # Cache the executive summary in the database
+            facade = DatabaseQueryFacade(db, logger)
+            facade.save_horizons_executive_summary(
+                analysis_id=analysis_id,
+                topic=request.topic,
+                summary_data=summary_data
+            )
+
+            return {
+                "success": True,
+                "analysis_id": analysis_id,
+                "executive_summary": summary_data
+            }
+
+        finally:
+            # Clean up the temporary chat session
+            auspex.delete_chat_session(chat_id)
+
+    except HTTPException:
+        raise
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON decode error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to parse AI response as JSON: {str(e)}"
+        )
+    except Exception as e:
+        logger.error(f"Error generating executive summary: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate executive summary: {str(e)}"
+        )
+
+
+@router.get("/api/trend-convergence/horizons/{analysis_id}/executive-summary")
+async def get_horizons_executive_summary(
+    analysis_id: str,
+    session: dict = Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """
+    Retrieve a cached executive summary for a Future Horizons analysis.
+    Returns null if no summary has been generated yet.
+    """
+    try:
+        facade = DatabaseQueryFacade(db, logger)
+        summary_data = facade.get_horizons_executive_summary(analysis_id)
+
+        if not summary_data:
+            return {
+                "success": True,
+                "analysis_id": analysis_id,
+                "executive_summary": None,
+                "message": "No executive summary found. Generate one first."
+            }
+
+        return {
+            "success": True,
+            "analysis_id": analysis_id,
+            "executive_summary": summary_data
+        }
+
+    except Exception as e:
+        logger.error(f"Error retrieving executive summary for {analysis_id}: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to retrieve executive summary: {str(e)}"
+        )

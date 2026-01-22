@@ -219,11 +219,11 @@ export function SavedIncidentsSection({
         ) : savedIncidents.length === 0 ? (
           /* Empty State */
           <div className="flex flex-col items-center justify-center py-16 text-center">
-            <BookmarkX className="w-16 h-16 text-gray-600 dark:text-gray-600 dark:text-gray-400 dark:text-gray-600 mb-4" />
-            <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 mb-2">
+            <BookmarkX className="w-16 h-16 text-gray-600 dark:text-gray-300 dark:text-gray-600 mb-4" />
+            <h2 className="text-xl font-semibold text-gray-700 dark:text-gray-300 mb-2">
               No Saved Incidents
             </h2>
-            <p className="text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 max-w-md">
+            <p className="text-gray-700 dark:text-gray-300 dark:text-gray-300 max-w-md">
               Save incidents from the News Feed tab by clicking the menu (⋮) on any incident card
               and selecting "Save". Your saved incidents will appear here.
             </p>
@@ -352,7 +352,7 @@ export function SavedIncidentsSection({
 
       {/* Collapsed state */}
       {isCollapsed && (
-        <p className="text-sm text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+        <p className="text-sm text-gray-700 dark:text-gray-300 dark:text-gray-300">
           {savedIncidents.length} incident{savedIncidents.length !== 1 ? 's' : ''} saved
         </p>
       )}
@@ -368,7 +368,7 @@ export function SavedIncidentsSection({
               ))}
             </div>
           ) : savedIncidents.length === 0 ? (
-            <p className="text-sm text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+            <p className="text-sm text-gray-700 dark:text-gray-300 dark:text-gray-300">
               No saved incidents yet. Use the menu on any incident card to save it.
             </p>
           ) : (
@@ -380,7 +380,7 @@ export function SavedIncidentsSection({
                   onClick={() => scroll('left')}
                   className="absolute left-1 top-1/2 -translate-y-1/2 z-10 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full p-2 shadow-lg border border-gray-200 dark:border-gray-600"
                 >
-                  <ChevronLeft className="w-5 h-5 text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+                  <ChevronLeft className="w-5 h-5 text-gray-600 dark:text-gray-300" />
                 </button>
               )}
 
@@ -409,7 +409,7 @@ export function SavedIncidentsSection({
                   onClick={() => scroll('right')}
                   className="absolute right-1 top-1/2 -translate-y-1/2 z-10 bg-white dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full p-2 shadow-lg border border-gray-200 dark:border-gray-600"
                 >
-                  <ChevronRight className="w-5 h-5 text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+                  <ChevronRight className="w-5 h-5 text-gray-600 dark:text-gray-300" />
                 </button>
               )}
             </div>
@@ -510,7 +510,7 @@ function SavedIncidentCard({ incident, onUnsave, onArticleClick, onShare, onClic
       <div onClick={handleCardClick} className={cardClasses}>
         {/* Top row: Date + See More + Saved badge + Menu */}
         <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-1 text-[11px] text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+          <div className="flex items-center gap-1 text-[11px] text-gray-600 dark:text-gray-300">
             <Calendar className="w-3 h-3" />
             <span>{formatDisplayDate(incident.timeline)}</span>
           </div>
@@ -532,7 +532,7 @@ function SavedIncidentCard({ incident, onUnsave, onArticleClick, onShare, onClic
                 }}
                 className="p-1 hover:bg-amber-100 dark:hover:bg-amber-800/50 rounded transition-colors"
               >
-                <MoreVertical className="w-4 h-4 text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+                <MoreVertical className="w-4 h-4 text-gray-700 dark:text-gray-300 dark:text-gray-300" />
               </button>
               {showMenu && (
                 <div className="absolute right-0 top-full mt-1 w-32 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
@@ -540,7 +540,7 @@ function SavedIncidentCard({ incident, onUnsave, onArticleClick, onShare, onClic
                     onClick={handleShareClick}
                     className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                   >
-                    <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+                    <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                     Share
                   </button>
                   <button
@@ -561,7 +561,7 @@ function SavedIncidentCard({ incident, onUnsave, onArticleClick, onShare, onClic
 
         {/* Summary */}
         {displaySummary && (
-          <p className={`text-[11px] text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 mb-2 ${isFullWidth ? 'line-clamp-4' : 'line-clamp-3'}`}>
+          <p className={`text-[11px] text-gray-700 dark:text-gray-300 mb-2 ${isFullWidth ? 'line-clamp-4' : 'line-clamp-3'}`}>
             {displaySummary}
           </p>
         )}
@@ -750,7 +750,7 @@ Provide comprehensive analysis with citations to the source articles.`;
         <div className="p-4">
           {/* Top row: Date + Close button */}
           <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+            <div className="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300 dark:text-gray-300">
               <Calendar className="w-3.5 h-3.5" />
               <span>{formatDisplayDate(incident.timeline)}</span>
               <span className="flex items-center gap-1 ml-2 text-[10px] bg-amber-100 dark:bg-amber-800/50 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded">
@@ -810,17 +810,17 @@ Provide comprehensive analysis with citations to the source articles.`;
           )}
 
           {/* Description */}
-          <p className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-400 mb-3">
+          <p className="text-sm text-gray-600 dark:text-gray-300 mb-3">
             {description}
           </p>
 
           {/* Strategic Relevance / Why This Matters */}
           {incident.organizational_relevance && (
             <div className="bg-white dark:bg-gray-800 rounded-lg p-3 mb-3 border-l-4 border-blue-500">
-              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 mb-1">
+              <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">
                 Strategic Relevance
               </h4>
-              <p className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+              <p className="text-sm text-gray-600 dark:text-gray-300">
                 {incident.organizational_relevance}
               </p>
             </div>
@@ -829,10 +829,10 @@ Provide comprehensive analysis with citations to the source articles.`;
           {/* Credibility Assessment */}
           {incident.credibility_summary && (
             <div className="mb-3">
-              <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-1">
+              <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 dark:text-gray-300 uppercase tracking-wide mb-1">
                 Credibility Assessment
               </h4>
-              <p className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+              <p className="text-sm text-gray-600 dark:text-gray-300">
                 {incident.credibility_summary}
               </p>
             </div>
@@ -887,7 +887,7 @@ Provide comprehensive analysis with citations to the source articles.`;
           {/* Source Articles */}
           {articleUris.length > 0 && (
             <div className="mt-3 pt-3 border-t border-amber-200 dark:border-amber-700">
-              <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 uppercase tracking-wide mb-2">
+              <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 dark:text-gray-300 uppercase tracking-wide mb-2">
                 Source Articles ({articleUris.length})
               </h4>
               <div className="space-y-2">
@@ -905,7 +905,7 @@ Provide comprehensive analysis with citations to the source articles.`;
                   );
                 })}
                 {articleUris.length > 5 && (
-                  <p className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">+{articleUris.length - 5} more articles</p>
+                  <p className="text-xs text-gray-600 dark:text-gray-300">+{articleUris.length - 5} more articles</p>
                 )}
               </div>
             </div>
@@ -914,7 +914,7 @@ Provide comprehensive analysis with citations to the source articles.`;
           {/* Investigation Leads */}
           {investigationLeads.length > 0 && (
             <div className="mt-3 pt-3 border-t border-amber-200 dark:border-amber-700">
-              <p className="text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 font-medium mb-2">Investigation Leads:</p>
+              <p className="text-xs text-gray-700 dark:text-gray-300 dark:text-gray-300 font-medium mb-2">Investigation Leads:</p>
               <div className="flex flex-wrap gap-1">
                 {investigationLeads.map((lead, i) => (
                   <button
@@ -933,7 +933,7 @@ Provide comprehensive analysis with citations to the source articles.`;
 
           {/* Analysis buttons */}
           <div className="mt-3 pt-3 border-t border-amber-200 dark:border-amber-700">
-            <p className="text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 font-medium mb-2">Analysis</p>
+            <p className="text-xs text-gray-700 dark:text-gray-300 dark:text-gray-300 font-medium mb-2">Analysis</p>
             <div className="flex flex-wrap items-center gap-4">
               <button
                 onClick={() => launchResearch(name)}
@@ -1026,10 +1026,10 @@ function TimelineRuler({ dates }: { dates: number[] }) {
         })}
       </div>
       <div className="flex justify-between mt-1">
-        <span className="text-[10px] text-gray-600 dark:text-gray-600 dark:text-gray-400">
+        <span className="text-[10px] text-gray-600 dark:text-gray-300">
           {new Date(dates[0]).toLocaleDateString()}
         </span>
-        <span className="text-[10px] text-gray-600 dark:text-gray-600 dark:text-gray-400">
+        <span className="text-[10px] text-gray-600 dark:text-gray-300">
           {new Date(dates[dates.length - 1]).toLocaleDateString()}
         </span>
       </div>
@@ -1079,7 +1079,7 @@ function ArticleLink({
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium text-gray-900 dark:text-gray-100 line-clamp-1">{title}</p>
-          <p className="text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 mt-0.5">{source}</p>
+          <p className="text-xs text-gray-700 dark:text-gray-300 dark:text-gray-300 mt-0.5">{source}</p>
           {hasMBFC ? (
             <div className="flex flex-wrap gap-1 mt-1">
               {factual && (
@@ -1112,7 +1112,7 @@ function ArticleLink({
             </div>
           )}
         </div>
-        <ExternalLink className="w-3 h-3 text-gray-600 dark:text-gray-400 shrink-0" />
+        <ExternalLink className="w-3 h-3 text-gray-600 dark:text-gray-300 shrink-0" />
       </div>
     </a>
   );

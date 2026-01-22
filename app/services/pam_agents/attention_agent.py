@@ -450,6 +450,15 @@ Respond with JSON (cite specific article numbers):
                 for entity_name, arts in external_data.get('entity_articles', {}).items()
             } if external_data.get('entity_articles') else {},
 
+            # Full entity articles data with URIs for link rendering
+            "entity_articles": {
+                entity_name: [
+                    {"uri": art.get("uri"), "title": art.get("title"), "source": art.get("source")}
+                    for art in arts
+                ]
+                for entity_name, arts in external_data.get('entity_articles', {}).items()
+            } if external_data.get('entity_articles') else {},
+
             # Visibility metrics derived from article evidence
             "ai_visibility": {
                 "score": self._calculate_t1_score(t1_evidence),

@@ -113,7 +113,7 @@ export function TopicWordCloud({
         ))}
       </div>
       {/* Legend */}
-      <div className="flex items-center justify-center gap-4 mt-2 text-xs text-gray-700 dark:text-gray-300">
+      <div className="flex items-center justify-center gap-4 mt-2 text-xs text-gray-700 dark:text-gray-400">
         <span className="flex items-center gap-1">
           <span className="w-2 h-2 rounded-full bg-blue-500"></span>
           Keywords

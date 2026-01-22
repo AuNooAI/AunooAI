@@ -188,7 +188,7 @@ export function ImpactTimelineCard({
                 onMouseEnter={() => setShowCitations(true)}
                 onMouseLeave={() => setShowCitations(false)}
               >
-                <div className="text-xs font-semibold mb-2 text-gray-700 dark:text-gray-300">Sources:</div>
+                <div className="text-xs font-semibold mb-2 text-gray-700 dark:text-gray-400">Sources:</div>
                 <div className="space-y-1.5">
                   {citations.slice(0, 5).map((citation, idx) => (
                     <div key={idx} className="text-xs">
@@ -225,7 +225,7 @@ export function ImpactTimelineCard({
       <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-5 flex items-center">
         <div className="flex-1" ref={timelineContainerRef}>
           {/* Year labels - FIXED 2025-2040 */}
-          <div className="flex justify-between text-xs text-gray-700 dark:text-gray-300 mb-2 px-1">
+          <div className="flex justify-between text-xs text-gray-700 dark:text-gray-400 mb-2 px-1">
             <span>2025</span>
             <span>2040</span>
           </div>
@@ -293,7 +293,7 @@ export function ImpactTimelineCard({
                     className="absolute left-1/2 transform -translate-x-1/2 -top-24 bg-gray-900 text-white text-xs px-3 py-2 rounded-lg shadow-lg whitespace-normal w-48 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-20"
                   >
                     <div className="font-semibold mb-1">{tooltip.label}</div>
-                    <div className="text-gray-300">{tooltip.year}</div>
+                    <div className="text-gray-400">{tooltip.year}</div>
                   </div>
 
                   {/* Dot marker - colored to match category */}

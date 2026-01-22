@@ -118,7 +118,7 @@ export function PolicyThemesTab({
               className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
                 activeView === 'themes'
                   ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                  : 'text-gray-600 dark:text-gray-400'
+                  : 'text-gray-600 dark:text-gray-300'
               }`}
             >
               Themes
@@ -128,7 +128,7 @@ export function PolicyThemesTab({
               className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
                 activeView === 'evolution'
                   ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                  : 'text-gray-600 dark:text-gray-400'
+                  : 'text-gray-600 dark:text-gray-300'
               }`}
             >
               Evolution
@@ -138,7 +138,7 @@ export function PolicyThemesTab({
               className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
                 activeView === 'entities'
                   ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                  : 'text-gray-600 dark:text-gray-400'
+                  : 'text-gray-600 dark:text-gray-300'
               }`}
             >
               Entities
@@ -148,7 +148,7 @@ export function PolicyThemesTab({
               className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
                 activeView === 'geography'
                   ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                  : 'text-gray-600 dark:text-gray-400'
+                  : 'text-gray-600 dark:text-gray-300'
               }`}
             >
               Geography
@@ -158,7 +158,7 @@ export function PolicyThemesTab({
               className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
                 activeView === 'escalation'
                   ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                  : 'text-gray-600 dark:text-gray-400'
+                  : 'text-gray-600 dark:text-gray-300'
               }`}
             >
               Escalation
@@ -169,14 +169,14 @@ export function PolicyThemesTab({
         {isLoading ? (
           <div className="flex items-center justify-center py-16">
             <Loader2 className="w-6 h-6 animate-spin text-pink-500" />
-            <span className="ml-2 text-gray-500 dark:text-gray-400">Loading...</span>
+            <span className="ml-2 text-gray-500 dark:text-gray-300">Loading...</span>
           </div>
         ) : (
           <>
             {/* Theme Frequency */}
             {activeView === 'themes' && (
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                <p className="text-xs text-gray-500 dark:text-gray-300 mb-4">
                   Article counts by theme (keyword-based detection)
                 </p>
                 <ResponsiveContainer width="100%" height={350}>
@@ -226,7 +226,7 @@ export function PolicyThemesTab({
             {/* Theme Evolution */}
             {activeView === 'evolution' && (
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                <p className="text-xs text-gray-500 dark:text-gray-300 mb-4">
                   Theme evolution over time (top 6 themes)
                 </p>
                 <ResponsiveContainer width="100%" height={350}>
@@ -265,7 +265,7 @@ export function PolicyThemesTab({
             {/* Entities */}
             {activeView === 'entities' && (
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                <p className="text-xs text-gray-500 dark:text-gray-300 mb-4">
                   Government entities and institutions mentioned
                 </p>
                 <ResponsiveContainer width="100%" height={350}>
@@ -297,7 +297,7 @@ export function PolicyThemesTab({
             {/* Geography */}
             {activeView === 'geography' && (
               <div>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                <p className="text-xs text-gray-500 dark:text-gray-300 mb-4">
                   Geographic focus: domestic vs international locations
                 </p>
                 <div className="grid grid-cols-2 gap-4">
@@ -361,7 +361,7 @@ export function PolicyThemesTab({
             {activeView === 'escalation' && (
               <div className="space-y-6">
                 <div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                  <p className="text-xs text-gray-500 dark:text-gray-300 mb-4">
                     Escalation markers: language indicating intensification
                   </p>
                   <ResponsiveContainer width="100%" height={250}>
@@ -399,7 +399,7 @@ export function PolicyThemesTab({
                 {/* Escalation Trends */}
                 {escalationTrends.length > 0 && (
                   <div>
-                    <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                    <p className="text-xs text-gray-500 dark:text-gray-300 mb-4">
                       Escalation marker trends over time
                     </p>
                     <ResponsiveContainer width="100%" height={250}>

@@ -37,7 +37,7 @@ export function AuspexQuickQueries({
     <div className="border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50 px-4 py-3">
       <div className="flex items-center gap-2 mb-2">
         <Sparkles className="w-4 h-4 text-pink-500" />
-        <span className="text-xs font-medium text-gray-500 dark:text-gray-400">
+        <span className="text-xs font-medium text-gray-500 dark:text-gray-300">
           Analysis Tools
         </span>
       </div>
@@ -52,7 +52,7 @@ export function AuspexQuickQueries({
               'px-3 py-1.5 rounded-full text-xs font-medium',
               'bg-white dark:bg-gray-700',
               'border border-gray-200 dark:border-gray-600',
-              'text-gray-600 dark:text-gray-300',
+              'text-gray-600 dark:text-gray-400',
               'hover:border-pink-300 hover:text-pink-600 dark:hover:border-pink-700 dark:hover:text-pink-400',
               'hover:bg-pink-50 dark:hover:bg-pink-900/20',
               'transition-colors',

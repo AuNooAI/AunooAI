@@ -736,6 +736,44 @@ export async function getFutureHorizonsRaw(analysisId: string): Promise<any> {
 }
 
 /**
+ * Generate an executive summary for a Future Horizons analysis
+ * @param analysisId - The ID of the horizons analysis
+ * @param scenarios - Array of scenarios (h1, h2, h3) from the horizons analysis
+ * @param topic - The research topic
+ * @param model - Optional AI model to use (default: gpt-4o)
+ * @param profileId - Optional organizational profile ID
+ */
+export async function generateHorizonsExecutiveSummary(
+  analysisId: string,
+  scenarios: any[],
+  topic: string,
+  model: string = 'gpt-4o',
+  profileId?: number
+): Promise<any> {
+  const url = `${API_BASE_URL}/api/trend-convergence/horizons/${analysisId}/executive-summary`;
+  return fetchWithAuth(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      scenarios,
+      topic,
+      model,
+      profile_id: profileId
+    }),
+  });
+}
+
+/**
+ * Retrieve a cached executive summary for a Future Horizons analysis
+ * @param analysisId - The ID of the horizons analysis
+ * @returns The executive summary data or null if not generated yet
+ */
+export async function getHorizonsExecutiveSummary(analysisId: string): Promise<any> {
+  const url = `${API_BASE_URL}/api/trend-convergence/horizons/${analysisId}/executive-summary`;
+  return fetchWithAuth(url);
+}
+
+/**
  * Retrieve stored consensus analysis by ID with article list
  */
 export async function getConsensusAnalysisRaw(analysisId: string): Promise<any> {

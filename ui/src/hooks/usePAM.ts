@@ -164,6 +164,17 @@ export interface AttentionAnalysis {
   };
   keyEvents: Array<{ event: string; impact: string; source: string }>;
   summary: string;
+  // Entity tracking fields from attention agent
+  entityMentions?: Array<{
+    entity: string;
+    mentionCount?: number;
+    mention_count?: number;
+    sentiment?: string;
+    context?: string;
+    articles?: string[];
+  }>;
+  entitySearchResults?: Record<string, number>;
+  entityArticles?: Record<string, Array<{ uri: string; title: string; source: string }>>;
 }
 
 export interface MoneyAnalysis {

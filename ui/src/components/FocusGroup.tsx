@@ -291,9 +291,9 @@ function PersonaCard({
             <Briefcase className="w-4 h-4" />
             {persona.role_title}
           </span>
-          <span className="text-gray-300">|</span>
+          <span className="text-gray-400">|</span>
           <span>{persona.sector}</span>
-          <span className="text-gray-300">|</span>
+          <span className="text-gray-400">|</span>
           <span className="capitalize">{persona.experience_level}</span>
         </div>
 
@@ -478,7 +478,7 @@ function PersonaCard({
                     </a>
                   ))}
                   {(persona.source_articles?.length || 0) > 3 && (
-                    <span className="text-gray-400">
+                    <span className="text-gray-500">
                       +{(persona.source_articles?.length || 0) - 3} more articles
                     </span>
                   )}
@@ -535,7 +535,7 @@ function PersonaCard({
                   {persona.user_notes}
                 </p>
               ) : (
-                <p className="text-sm text-gray-400 italic">No notes added</p>
+                <p className="text-sm text-gray-500 italic">No notes added</p>
               )}
             </div>
           </>
@@ -628,7 +628,7 @@ function InteractionDynamicsSection({ dynamics }: { dynamics: InteractionDynamic
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm text-gray-400 italic">No consensus areas identified</p>
+                <p className="text-sm text-gray-500 italic">No consensus areas identified</p>
               )}
             </div>
 
@@ -648,7 +648,7 @@ function InteractionDynamicsSection({ dynamics }: { dynamics: InteractionDynamic
                   ))}
                 </ul>
               ) : (
-                <p className="text-sm text-gray-400 italic">No significant tensions identified</p>
+                <p className="text-sm text-gray-500 italic">No significant tensions identified</p>
               )}
             </div>
           </div>
@@ -954,13 +954,13 @@ export function FocusGroup({
           {showConfig ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           Generation Settings
         </button>
-        <span className="text-gray-400">|</span>
+        <span className="text-gray-500">|</span>
         <span className="text-gray-500">
           Max Personas: {maxPersonas} · Min Evidence: {minEvidenceThreshold}
         </span>
         {topic && (
           <>
-            <span className="text-gray-400">|</span>
+            <span className="text-gray-500">|</span>
             <Badge variant="outline">{topic}</Badge>
           </>
         )}
@@ -973,7 +973,7 @@ export function FocusGroup({
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div>
                 <label className="text-sm font-medium text-gray-700">Max Personas</label>
-                <p className="text-xs text-gray-400 mb-1">Upper limit (1-6)</p>
+                <p className="text-xs text-gray-500 mb-1">Upper limit (1-6)</p>
                 <input
                   type="number"
                   value={maxPersonas}
@@ -985,7 +985,7 @@ export function FocusGroup({
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700">Evidence Threshold</label>
-                <p className="text-xs text-gray-400 mb-1">Min article mentions</p>
+                <p className="text-xs text-gray-500 mb-1">Min article mentions</p>
                 <input
                   type="number"
                   value={minEvidenceThreshold}
@@ -997,7 +997,7 @@ export function FocusGroup({
               </div>
               <div className="col-span-2">
                 <label className="text-sm font-medium text-gray-700">Profile Depth</label>
-                <p className="text-xs text-gray-400 mb-2">Include these attribute sets</p>
+                <p className="text-xs text-gray-500 mb-2">Include these attribute sets</p>
                 <div className="flex gap-4">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
@@ -1144,7 +1144,7 @@ export function FocusGroup({
                             setFgToDelete(fg);
                             setShowDeleteConfirm(true);
                           }}
-                          className="ml-2 text-gray-400 hover:text-red-500"
+                          className="ml-2 text-gray-500 hover:text-red-500"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>
