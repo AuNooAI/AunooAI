@@ -181,7 +181,7 @@ Please provide:
               {isStarred ? (
                 <Star className="w-5 h-5 text-yellow-500 fill-yellow-500" />
               ) : (
-                <Star className="w-5 h-5 text-gray-600 dark:text-gray-400 hover:text-yellow-500" />
+                <Star className="w-5 h-5 text-gray-600 dark:text-gray-300 hover:text-yellow-500" />
               )}
             </button>
 
@@ -291,7 +291,7 @@ Please provide:
           <div className="flex items-center gap-2 mt-3 text-sm text-gray-700 dark:text-gray-300">
             <Building2 className="w-4 h-4" />
             <span className="font-medium">{article.source?.name || 'Unknown source'}</span>
-            <span className="text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">•</span>
+            <span className="text-gray-600 dark:text-gray-300">•</span>
             <Clock className="w-4 h-4" />
             <span>{formatDate(article.publication_date)}</span>
           </div>
@@ -442,19 +442,19 @@ Please provide:
                       <span className="font-medium text-gray-700">{related.news_source}</span>
                       {related.publication_date && (
                         <>
-                          <span className="text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">•</span>
+                          <span className="text-gray-600 dark:text-gray-300">•</span>
                           <span className="text-gray-700 dark:text-gray-300">{formatRelativeTime(related.publication_date)}</span>
                         </>
                       )}
                     </div>
-                    <ChevronRight className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+                    <ChevronRight className="w-4 h-4 text-gray-600 dark:text-gray-300" />
                   </div>
                   <h4 className="font-medium text-gray-900 mb-2 line-clamp-2">{related.title}</h4>
                   {related.summary && (
                     <p className="text-sm text-gray-600 line-clamp-2">{related.summary}</p>
                   )}
                   {related.similarity_score && (
-                    <div className="mt-2 flex items-center gap-1 text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                    <div className="mt-2 flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300">
                       <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400"></span>
                       <span>{Math.round(related.similarity_score * 100)}% similar</span>
                     </div>

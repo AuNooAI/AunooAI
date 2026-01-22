@@ -156,7 +156,7 @@ export function AgentStatsTable({
         );
       case 'paused':
         return (
-          <Badge variant="outline" className="bg-gray-50 text-gray-600 dark:bg-gray-800 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+          <Badge variant="outline" className="bg-gray-50 text-gray-600 dark:bg-gray-800 dark:text-gray-300">
             <XCircle className="w-3 h-3 mr-1" />
             Paused
           </Badge>

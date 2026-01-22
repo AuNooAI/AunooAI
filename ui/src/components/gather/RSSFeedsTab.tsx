@@ -194,7 +194,7 @@ export function RSSFeedsTab({ topics }: RSSFeedsTabProps) {
     if (feed.last_checked_at) {
       return <CheckCircle className="w-4 h-4 text-green-500" />;
     }
-    return <Clock className="w-4 h-4 text-gray-400" />;
+    return <Clock className="w-4 h-4 text-gray-500" />;
   };
 
   if (loading) {
@@ -255,7 +255,7 @@ export function RSSFeedsTab({ topics }: RSSFeedsTabProps) {
       {/* Feeds grid */}
       {feeds.length === 0 ? (
         <div className="rss-feeds-empty">
-          <Rss className="w-12 h-12 text-gray-300" />
+          <Rss className="w-12 h-12 text-gray-400" />
           <h3>No RSS feeds configured</h3>
           <p>Add RSS feeds to automatically collect articles from your favorite sources.</p>
           <button

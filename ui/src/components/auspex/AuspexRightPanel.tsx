@@ -44,7 +44,7 @@ export function AuspexRightPanel({
               'border-b-2',
               activeTab === 'insights'
                 ? 'border-pink-500 text-pink-600 dark:text-pink-400'
-                : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-400'
             )}
           >
             <Sparkles className="w-4 h-4 mx-auto mb-1" />
@@ -57,7 +57,7 @@ export function AuspexRightPanel({
               'border-b-2',
               activeTab === 'saved'
                 ? 'border-pink-500 text-pink-600 dark:text-pink-400'
-                : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-400'
             )}
           >
             <Bookmark className="w-4 h-4 mx-auto mb-1" />
@@ -70,7 +70,7 @@ export function AuspexRightPanel({
               'border-b-2',
               activeTab === 'charts'
                 ? 'border-pink-500 text-pink-600 dark:text-pink-400'
-                : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-400'
             )}
           >
             <BarChart3 className="w-4 h-4 mx-auto mb-1" />
@@ -98,12 +98,12 @@ export function AuspexRightPanel({
 function InsightsTab() {
   return (
     <div className="space-y-4">
-      <div className="text-center py-8 text-gray-400">
+      <div className="text-center py-8 text-gray-500">
         <Sparkles className="w-12 h-12 mx-auto mb-3 opacity-50" />
-        <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
+        <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
           AI Insights
         </h3>
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-gray-500">
           Insights from your conversation will appear here as you chat with Auspex
         </p>
       </div>
@@ -127,12 +127,12 @@ function InsightsTab() {
 
 function SavedTab() {
   return (
-    <div className="text-center py-8 text-gray-400">
+    <div className="text-center py-8 text-gray-500">
       <Bookmark className="w-12 h-12 mx-auto mb-3 opacity-50" />
-      <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
+      <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
         Saved Items
       </h3>
-      <p className="text-xs text-gray-400">
+      <p className="text-xs text-gray-500">
         Save important responses, quotes, or findings for later reference
       </p>
     </div>
@@ -142,12 +142,12 @@ function SavedTab() {
 function ChartsTab() {
   return (
     <div className="space-y-4">
-      <div className="text-center py-8 text-gray-400">
+      <div className="text-center py-8 text-gray-500">
         <BarChart3 className="w-12 h-12 mx-auto mb-3 opacity-50" />
-        <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
+        <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
           Visualizations
         </h3>
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-gray-500">
           Charts and graphs from your analysis will appear here
         </p>
       </div>
@@ -176,7 +176,7 @@ function InsightCard({
     <div className="p-3 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/50">
       <div className="flex items-center gap-2 mb-1">
         <span className="text-pink-500">{icon}</span>
-        <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300">{title}</h4>
+        <h4 className="text-xs font-medium text-gray-700 dark:text-gray-400">{title}</h4>
       </div>
       <p className="text-xs text-gray-500">{description}</p>
     </div>
@@ -192,8 +192,8 @@ function ChartPlaceholder({
 }) {
   return (
     <div className="p-4 rounded-lg border border-dashed border-gray-300 dark:border-gray-600 flex flex-col items-center justify-center">
-      <span className="text-gray-400 mb-1">{icon}</span>
-      <span className="text-xs text-gray-400">{label}</span>
+      <span className="text-gray-500 mb-1">{icon}</span>
+      <span className="text-xs text-gray-500">{label}</span>
     </div>
   );
 }

@@ -121,14 +121,14 @@ export function TopicComparisonDashboard({
           <span className="font-medium text-gray-900 dark:text-gray-100">
             Emerging Themes Overview
           </span>
-          <span className="text-sm text-gray-700 dark:text-gray-300">
+          <span className="text-sm text-gray-700 dark:text-gray-400">
             ({topics.length} themes)
           </span>
         </div>
         {isExpanded ? (
-          <ChevronUp className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+          <ChevronUp className="w-5 h-5 text-gray-600 dark:text-gray-300" />
         ) : (
-          <ChevronDown className="w-5 h-5 text-gray-600 dark:text-gray-400" />
+          <ChevronDown className="w-5 h-5 text-gray-600 dark:text-gray-300" />
         )}
       </button>
 
@@ -137,7 +137,7 @@ export function TopicComparisonDashboard({
         <div className="px-4 pb-4 border-t border-gray-100 dark:border-gray-800">
           {/* Row 1: Timeline Chart (full width) */}
           <div className="mt-4">
-            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+            <h4 className="text-sm font-medium text-gray-700 dark:text-gray-400 mb-2 flex items-center gap-2">
               <Calendar className="w-4 h-4" />
               Topics Timeline (7 Days)
             </h4>
@@ -154,7 +154,7 @@ export function TopicComparisonDashboard({
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-6 pt-4 border-t border-gray-100 dark:border-gray-800">
             {/* Category Radar */}
             <div>
-              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-400 mb-2 flex items-center gap-2">
                 <PieChart className="w-4 h-4" />
                 Category Distribution
               </h4>
@@ -168,11 +168,11 @@ export function TopicComparisonDashboard({
 
             {/* Score Distribution Histogram */}
             <div>
-              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 flex items-center gap-2">
+              <h4 className="text-sm font-medium text-gray-700 dark:text-gray-400 mb-2 flex items-center gap-2">
                 <BarChart3 className="w-4 h-4" />
                 Score Distribution
               </h4>
-              <div className="h-64 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-2 text-gray-700 dark:text-gray-300">
+              <div className="h-64 bg-gray-50 dark:bg-gray-800/50 rounded-lg p-2 text-gray-700 dark:text-gray-400">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={histogramData} margin={{ top: 10, right: 10, bottom: 30, left: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#9ca3af" strokeOpacity={0.5} />
@@ -199,7 +199,7 @@ export function TopicComparisonDashboard({
                               <div className="font-medium text-gray-900 dark:text-gray-100">
                                 Score {data.range}
                               </div>
-                              <div className="text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                              <div className="text-gray-600 dark:text-gray-300">
                                 {data.count} topic{data.count !== 1 ? 's' : ''}
                               </div>
                             </div>
@@ -222,7 +222,7 @@ export function TopicComparisonDashboard({
           {/* Velocity distribution mini-bar */}
           {velocityDist.length > 0 && (
             <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
-              <h4 className="text-xs font-medium text-gray-700 dark:text-gray-300 uppercase mb-2">
+              <h4 className="text-xs font-medium text-gray-700 dark:text-gray-400 uppercase mb-2">
                 Velocity Distribution
               </h4>
               <div className="flex items-center gap-4">
@@ -232,7 +232,7 @@ export function TopicComparisonDashboard({
                       className="w-3 h-3 rounded-full"
                       style={{ backgroundColor: d.color }}
                     />
-                    <span className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                    <span className="text-sm text-gray-600 dark:text-gray-300">
                       {d.name}: <span className="font-medium">{d.value}</span>
                     </span>
                   </div>

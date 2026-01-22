@@ -352,7 +352,7 @@ export function ResearchAgentsSection({
                           </span>
                         )}
                         {agent.last_run_at && (
-                          <span className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" title={`Last run: ${new Date(agent.last_run_at).toLocaleString()}`}>
+                          <span className="text-xs text-gray-600 dark:text-gray-300" title={`Last run: ${new Date(agent.last_run_at).toLocaleString()}`}>
                             {new Date(agent.last_run_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}, {new Date(agent.last_run_at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
                           </span>
                         )}
@@ -458,7 +458,7 @@ export function ResearchAgentsSection({
                                     </div>
                                   )}
 
-                                  <div className="flex items-center gap-3 mt-2 text-xs text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+                                  <div className="flex items-center gap-3 mt-2 text-xs text-gray-600 dark:text-gray-300">
                                     {alert.article_source && (
                                       <span>{alert.article_source}</span>
                                     )}
@@ -475,14 +475,14 @@ export function ResearchAgentsSection({
                                     className="p-1.5 hover:bg-gray-200 rounded"
                                     title="Open article"
                                   >
-                                    <ExternalLink className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+                                    <ExternalLink className="w-4 h-4 text-gray-600 dark:text-gray-300" />
                                   </a>
                                   <button
                                     onClick={() => onAcknowledgeAlert(alert.id)}
                                     className="p-1.5 hover:bg-green-100 rounded"
                                     title="Dismiss"
                                   >
-                                    <CheckCircle className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-400 hover:text-green-600" />
+                                    <CheckCircle className="w-4 h-4 text-gray-600 dark:text-gray-300 hover:text-green-600" />
                                   </button>
                                 </div>
                               </div>

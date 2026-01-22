@@ -81,7 +81,7 @@ export function PolicyTrackerCharts({
             className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
               activeView === 'categories'
                 ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+                : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
             }`}
           >
             Categories
@@ -91,7 +91,7 @@ export function PolicyTrackerCharts({
             className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
               activeView === 'trend'
                 ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+                : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
             }`}
           >
             Monthly Trend
@@ -101,7 +101,7 @@ export function PolicyTrackerCharts({
             className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
               activeView === 'stacked'
                 ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+                : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
             }`}
           >
             Category Trends
@@ -140,7 +140,7 @@ export function PolicyTrackerCharts({
                     <div className="p-2 bg-gray-800 rounded-lg border-none">
                       <p className="font-medium text-gray-100">{data.fullName}</p>
                       {data.description && (
-                        <p className="text-xs text-gray-400 mt-1 max-w-xs">{data.description}</p>
+                        <p className="text-xs text-gray-500 mt-1 max-w-xs">{data.description}</p>
                       )}
                       <p className="text-sm text-gray-200 mt-1">{data.count} articles</p>
                     </div>

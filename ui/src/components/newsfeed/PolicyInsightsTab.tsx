@@ -55,12 +55,12 @@ function AIDisclosureFooter({
     <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
       <div className="bg-gray-50 dark:bg-gray-750 border border-gray-200 dark:border-gray-600 rounded-lg p-4">
         <div className="flex items-center gap-2 mb-3">
-          <Bot className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+          <Bot className="w-4 h-4 text-gray-500 dark:text-gray-300" />
           <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
             AI Technology Disclosure
           </h4>
         </div>
-        <div className="text-xs text-gray-600 dark:text-gray-400 space-y-1.5">
+        <div className="text-xs text-gray-600 dark:text-gray-300 space-y-1.5">
           <p>
             <span className="font-semibold text-gray-700 dark:text-gray-300">Report:</span> Policy Intelligence Analysis
             <span className="mx-2">|</span>
@@ -76,7 +76,7 @@ function AIDisclosureFooter({
             <span className="mx-2">|</span>
             <span className="font-semibold text-gray-700 dark:text-gray-300">Framework:</span> Critical analysis of democratic backsliding and authoritarian consolidation patterns
           </p>
-          <p className="text-gray-500 dark:text-gray-500 italic">
+          <p className="text-gray-500 dark:text-gray-300 italic">
             All AI-generated content should be reviewed critically. This analysis operates under specific analytical assumptions and may not reflect all perspectives.
           </p>
         </div>
@@ -302,7 +302,7 @@ function getSectionConfig(title: string) {
   // Default config
   return {
     icon: Zap,
-    color: 'text-gray-600 dark:text-gray-400',
+    color: 'text-gray-600 dark:text-gray-300',
     bgColor: 'bg-gray-50 dark:bg-gray-800',
     borderColor: 'border-gray-200 dark:border-gray-700'
   };
@@ -340,12 +340,12 @@ function SectionCard({ title, content, index }: { title: string; content: string
         <div className="prose prose-sm dark:prose-invert max-w-none
           prose-headings:text-gray-900 dark:prose-headings:text-gray-100
           prose-h3:text-sm prose-h3:font-semibold prose-h3:text-gray-800 dark:prose-h3:text-gray-200 prose-h3:mt-4 prose-h3:mb-2
-          prose-h4:text-sm prose-h4:font-medium prose-h4:text-gray-700 dark:prose-h4:text-gray-300
-          prose-p:text-gray-600 dark:prose-p:text-gray-300 prose-p:leading-relaxed prose-p:mb-3
+          prose-h4:text-sm prose-h4:font-medium prose-h4:text-gray-700 dark:prose-h4:text-gray-500
+          prose-p:text-gray-600 dark:prose-p:text-gray-500 prose-p:leading-relaxed prose-p:mb-3
           prose-strong:text-gray-900 dark:prose-strong:text-gray-100 prose-strong:font-semibold
-          prose-ul:text-gray-600 dark:prose-ul:text-gray-300 prose-ul:my-2 prose-ul:list-disc prose-ul:pl-6
-          prose-ol:text-gray-600 dark:prose-ol:text-gray-300 prose-ol:my-2 prose-ol:list-decimal prose-ol:pl-6
-          prose-li:text-gray-600 dark:prose-li:text-gray-300 prose-li:my-1.5 prose-li:pl-1
+          prose-ul:text-gray-600 dark:prose-ul:text-gray-500 prose-ul:my-2 prose-ul:list-disc prose-ul:pl-6
+          prose-ol:text-gray-600 dark:prose-ol:text-gray-500 prose-ol:my-2 prose-ol:list-decimal prose-ol:pl-6
+          prose-li:text-gray-600 dark:prose-li:text-gray-500 prose-li:my-1.5 prose-li:pl-1
           prose-a:text-pink-600 dark:prose-a:text-pink-400 prose-a:no-underline hover:prose-a:underline
           prose-blockquote:border-l-4 prose-blockquote:border-pink-300 dark:prose-blockquote:border-pink-700 prose-blockquote:bg-pink-50/50 dark:prose-blockquote:bg-pink-900/20 prose-blockquote:py-2 prose-blockquote:px-4 prose-blockquote:rounded-r-lg prose-blockquote:not-italic">
           <ReactMarkdown
@@ -453,7 +453,7 @@ function KeyMetricsBar({ dataSummary }: { dataSummary: NarrativeResponse['data_s
               .slice(0, 2)
               .map(([marker, count]) => (
                 <div key={marker} className="flex items-center justify-between text-xs">
-                  <span className="text-gray-600 dark:text-gray-400 truncate max-w-[100px]">{marker}</span>
+                  <span className="text-gray-600 dark:text-gray-300 truncate max-w-[100px]">{marker}</span>
                   <span className="font-medium text-gray-900 dark:text-gray-100">{count}</span>
                 </div>
               ))}
@@ -595,7 +595,7 @@ ${Object.entries(narrative.data_summary.escalation || {})
               <h3 className="text-base font-bold text-gray-900 dark:text-gray-100">
                 Policy Intelligence Report
               </h3>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-gray-500 dark:text-gray-300">
                 AI-powered analysis of policy landscape trends
               </p>
             </div>
@@ -647,7 +647,7 @@ ${Object.entries(narrative.data_summary.escalation || {})
                   <Loader2 className="w-6 h-6 animate-spin text-pink-500" />
                 </div>
               </div>
-              <span className="text-sm text-gray-500 dark:text-gray-400">Loading saved report...</span>
+              <span className="text-sm text-gray-500 dark:text-gray-300">Loading saved report...</span>
             </div>
           )}
 
@@ -664,11 +664,11 @@ ${Object.entries(narrative.data_summary.escalation || {})
               <h4 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">
                 Generate Your Policy Intelligence Report
               </h4>
-              <p className="text-sm text-gray-500 dark:text-gray-400 max-w-lg mx-auto mb-6">
+              <p className="text-sm text-gray-500 dark:text-gray-300 max-w-lg mx-auto mb-6">
                 Our AI will analyze your policy data to generate a comprehensive report including
                 trend analysis, thematic insights, escalation assessment, and forward-looking recommendations.
               </p>
-              <div className="flex flex-wrap justify-center gap-2 text-xs text-gray-400 dark:text-gray-500">
+              <div className="flex flex-wrap justify-center gap-2 text-xs text-gray-500 dark:text-gray-300">
                 <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded">Trend Analysis</span>
                 <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded">Theme Detection</span>
                 <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded">Escalation Signals</span>
@@ -743,7 +743,7 @@ ${Object.entries(narrative.data_summary.escalation || {})
                         className={`flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-lg transition-all ${
                           activeSection === idx
                             ? `${config.bgColor} ${config.color} shadow-sm`
-                            : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700'
+                            : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
                         }`}
                       >
                         <Icon className="w-3.5 h-3.5" />

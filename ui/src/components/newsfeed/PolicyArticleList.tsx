@@ -112,7 +112,7 @@ export function PolicyArticleList({
           {/* Search */}
           <form onSubmit={handleSearch} className="flex-1">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
               <input
                 type="text"
                 value={localSearchQuery}
@@ -124,7 +124,7 @@ export function PolicyArticleList({
                 <button
                   type="button"
                   onClick={handleClearSearch}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-600 dark:hover:text-gray-500"
                 >
                   <X className="w-4 h-4" />
                 </button>
@@ -168,7 +168,7 @@ export function PolicyArticleList({
         {showFilters && (
           <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700">
             <div className="flex items-center justify-between mb-2">
-              <p className="text-xs text-gray-500 dark:text-gray-400">
+              <p className="text-xs text-gray-500 dark:text-gray-300">
                 Filter by policy category
               </p>
               {selectedCategories.length > 0 && (
@@ -211,7 +211,7 @@ export function PolicyArticleList({
 
       {/* Results Info */}
       <div className="px-4 py-2 bg-gray-50 dark:bg-gray-750 border-b border-gray-200 dark:border-gray-700">
-        <p className="text-xs text-gray-500 dark:text-gray-400">
+        <p className="text-xs text-gray-500 dark:text-gray-300">
           {isSearching ? (
             <>
               {loadingSearch ? (
@@ -239,11 +239,11 @@ export function PolicyArticleList({
         {loading ? (
           <div className="p-8 text-center">
             <Loader2 className="w-8 h-8 animate-spin text-pink-500 mx-auto mb-2" />
-            <p className="text-sm text-gray-500 dark:text-gray-400">Loading articles...</p>
+            <p className="text-sm text-gray-500 dark:text-gray-300">Loading articles...</p>
           </div>
         ) : displayArticles.length === 0 ? (
           <div className="p-8 text-center">
-            <p className="text-gray-500 dark:text-gray-400">No articles found</p>
+            <p className="text-gray-500 dark:text-gray-300">No articles found</p>
             {selectedCategories.length > 0 && (
               <button
                 onClick={clearAllFilters}
@@ -268,7 +268,7 @@ export function PolicyArticleList({
                   </h4>
 
                   {/* Meta info */}
-                  <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-400 mb-2">
+                  <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-gray-300 mb-2">
                     {article.news_source && (
                       <span className="font-medium">{article.news_source}</span>
                     )}
@@ -282,7 +282,7 @@ export function PolicyArticleList({
 
                   {/* Summary */}
                   {article.summary && (
-                    <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2 mb-2">
+                    <p className="text-xs text-gray-600 dark:text-gray-300 line-clamp-2 mb-2">
                       {article.summary}
                     </p>
                   )}
@@ -314,7 +314,7 @@ export function PolicyArticleList({
                       e.stopPropagation();
                       onFindRelated(article.uri);
                     }}
-                    className="p-1.5 text-gray-400 hover:text-pink-500 hover:bg-pink-50 dark:hover:bg-pink-900/20 rounded transition-colors"
+                    className="p-1.5 text-gray-500 hover:text-pink-500 hover:bg-pink-50 dark:hover:bg-pink-900/20 rounded transition-colors"
                     title="Find related articles"
                   >
                     <ExternalLink className="w-4 h-4" />
@@ -332,20 +332,20 @@ export function PolicyArticleList({
           <button
             onClick={() => onPageChange(page - 1)}
             disabled={page === 1}
-            className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <ChevronLeft className="w-4 h-4" />
             Previous
           </button>
 
-          <span className="text-sm text-gray-500 dark:text-gray-400">
+          <span className="text-sm text-gray-500 dark:text-gray-300">
             Page {page} of {totalPages}
           </span>
 
           <button
             onClick={() => onPageChange(page + 1)}
             disabled={page === totalPages}
-            className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex items-center gap-1 px-3 py-1.5 text-sm text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Next
             <ChevronRight className="w-4 h-4" />

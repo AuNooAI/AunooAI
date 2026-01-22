@@ -370,7 +370,7 @@ function ArticlePanel({
         <div className="border-t p-4">
           <div className="flex gap-2 mb-4">
             <div className="flex-1 relative">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
               <Input
                 placeholder="Search articles..."
                 value={searchTerm}
@@ -963,7 +963,7 @@ export function Newsletter({
                           setShowDeleteConfirm(true);
                         }}
                       >
-                        <Trash2 className="w-4 h-4 text-gray-400 hover:text-red-500" />
+                        <Trash2 className="w-4 h-4 text-gray-500 hover:text-red-500" />
                       </Button>
                     </div>
                   </div>
@@ -976,7 +976,7 @@ export function Newsletter({
         {/* Generate newsletter prompt - shown after saved newsletters */}
         <Card className="border-dashed border-2">
           <CardContent className="py-16 text-center">
-            <FileText className="w-16 h-16 mx-auto text-gray-300 mb-4" />
+            <FileText className="w-16 h-16 mx-auto text-gray-400 mb-4" />
             <h3 className="text-xl font-semibold text-gray-700 mb-2">
               Generate a Newsletter
             </h3>
@@ -984,7 +984,7 @@ export function Newsletter({
               Create a professional newsletter with curated headlines, deep analysis,
               market insights, and notable discoveries. Edit the output and add your own annotations.
             </p>
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-gray-500">
               Select a topic and click the refresh button to generate
             </p>
           </CardContent>
@@ -1128,7 +1128,7 @@ export function Newsletter({
                                 setNewsletterToDelete(n);
                                 setShowDeleteConfirm(true);
                               }}
-                              className="ml-2 text-gray-400 hover:text-red-500"
+                              className="ml-2 text-gray-500 hover:text-red-500"
                             >
                               <Trash2 className="w-3 h-3" />
                             </button>

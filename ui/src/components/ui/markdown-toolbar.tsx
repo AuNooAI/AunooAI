@@ -94,7 +94,7 @@ function ToolbarButton({ icon, label, shortcut, onClick, disabled, active }: Too
         </TooltipTrigger>
         <TooltipContent side="bottom" className="text-xs">
           <p>{label}</p>
-          {shortcut && <p className="text-gray-400">{shortcut}</p>}
+          {shortcut && <p className="text-gray-500">{shortcut}</p>}
         </TooltipContent>
       </Tooltip>
     </TooltipProvider>
@@ -193,7 +193,7 @@ function ArticleSearchDropdown({
         <div className="absolute top-full left-0 mt-1 w-96 bg-white border rounded-md shadow-lg z-[9999]">
         <div className="p-3 border-b">
           <div className="relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
             <Input
               placeholder="Search articles..."
               value={searchTerm}
@@ -208,7 +208,7 @@ function ArticleSearchDropdown({
         <ScrollArea className="h-80">
           {loading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="w-5 h-5 animate-spin text-gray-400" />
+              <Loader2 className="w-5 h-5 animate-spin text-gray-500" />
             </div>
           ) : error ? (
             <div className="py-8 text-center text-red-500 text-sm px-4">

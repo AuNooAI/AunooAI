@@ -28,7 +28,7 @@ export function TopicSparkline({
 }: TopicSparklineProps) {
   const { path, trend, trendColor, minScore, maxScore, latestScore } = useMemo(() => {
     if (!history || history.length < 2) {
-      return { path: '', trend: 'stable', trendColor: 'text-gray-600 dark:text-gray-400', minScore: 0, maxScore: 100, latestScore: 0 };
+      return { path: '', trend: 'stable', trendColor: 'text-gray-600 dark:text-gray-300', minScore: 0, maxScore: 100, latestScore: 0 };
     }
 
     // Sort by date
@@ -69,7 +69,7 @@ export function TopicSparkline({
       color = 'text-red-500';
     } else {
       trend = 'stable';
-      color = 'text-gray-600 dark:text-gray-400';
+      color = 'text-gray-600 dark:text-gray-300';
     }
 
     return {
@@ -85,7 +85,7 @@ export function TopicSparkline({
   // Not enough data
   if (!history || history.length < 2) {
     return (
-      <div className={`flex items-center gap-1 text-xs text-gray-600 dark:text-gray-400 ${className}`}>
+      <div className={`flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300 ${className}`}>
         <Minus className="w-3 h-3" />
         <span>No history</span>
       </div>

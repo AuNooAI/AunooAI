@@ -14,7 +14,7 @@ import {
   Trash2,
   Loader2,
 } from 'lucide-react';
-import { type NewsArticle, getArticleByUri } from '../../services/newsFeedApi';
+import { type NewsArticle, getArticleByUri, extractArticleUrl } from '../../services/newsFeedApi';
 import { Skeleton } from '../ui/skeleton';
 import { ShareModal, type ShareArticleData } from '../ShareModal';
 
@@ -105,7 +105,7 @@ export function SavedArticlesSection({
     setShareData({
       type: 'article',
       title: article.title,
-      url: article.url || article.uri,
+      url: extractArticleUrl(article as unknown as Record<string, unknown>),
       source: article.source?.name,
       summary: article.summary,
       category: article.category,
@@ -141,11 +141,11 @@ export function SavedArticlesSection({
       {/* Empty State */}
       {!loading && articles.length === 0 && (
         <div className="flex flex-col items-center justify-center py-12 text-center">
-          <Newspaper className="w-12 h-12 text-gray-400 mb-3" />
-          <h3 className="text-lg font-medium text-gray-700 dark:text-gray-400 mb-1">
+          <Newspaper className="w-12 h-12 text-gray-500 mb-3" />
+          <h3 className="text-lg font-medium text-gray-700 dark:text-gray-300 mb-1">
             No Starred Articles
           </h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400 max-w-xs">
+          <p className="text-sm text-gray-500 dark:text-gray-300 max-w-xs">
             Star articles by clicking the star icon on any article to save them here for easy access.
           </p>
         </div>
@@ -217,12 +217,12 @@ function ArticleCard({
     >
       {/* Header */}
       <div className="flex items-start justify-between mb-2">
-        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+        <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-300">
           <Calendar className="w-3.5 h-3.5" />
           <span>{formatDate(article.publication_date)}</span>
           {article.source?.name && (
             <>
-              <span className="text-gray-300 dark:text-gray-600">·</span>
+              <span className="text-gray-500 dark:text-gray-600">·</span>
               <span>{article.source.name}</span>
             </>
           )}
@@ -237,7 +237,7 @@ function ArticleCard({
             }}
             className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
           >
-            <MoreVertical className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+            <MoreVertical className="w-4 h-4 text-gray-500 dark:text-gray-300" />
           </button>
           {showMenu && (
             <div className="absolute right-0 top-full mt-1 w-40 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 py-1">
@@ -249,7 +249,7 @@ function ArticleCard({
                 }}
                 className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
               >
-                <Share2 className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                <Share2 className="w-4 h-4 text-gray-500 dark:text-gray-300" />
                 Send via Email
               </button>
               {article.uri && (
@@ -260,7 +260,7 @@ function ArticleCard({
                   onClick={(e) => e.stopPropagation()}
                   className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                 >
-                  <ExternalLink className="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                  <ExternalLink className="w-4 h-4 text-gray-500 dark:text-gray-300" />
                   Open Original
                 </a>
               )}
@@ -295,7 +295,7 @@ function ArticleCard({
 
       {/* Summary */}
       {article.summary && (
-        <p className="text-xs text-gray-600 dark:text-gray-400 line-clamp-2">
+        <p className="text-xs text-gray-600 dark:text-gray-300 line-clamp-2">
           {article.summary}
         </p>
       )}

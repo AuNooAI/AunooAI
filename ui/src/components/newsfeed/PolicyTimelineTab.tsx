@@ -55,7 +55,7 @@ export function PolicyTimelineTab({
       <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-8">
         <div className="flex items-center justify-center">
           <Loader2 className="w-6 h-6 animate-spin text-pink-500" />
-          <span className="ml-2 text-gray-500 dark:text-gray-400">Loading timeline data...</span>
+          <span className="ml-2 text-gray-500 dark:text-gray-300">Loading timeline data...</span>
         </div>
       </div>
     );
@@ -75,7 +75,7 @@ export function PolicyTimelineTab({
               className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                 activeView === 'daily'
                   ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                  : 'text-gray-600 dark:text-gray-400'
+                  : 'text-gray-600 dark:text-gray-300'
               }`}
             >
               Daily Intensity
@@ -85,7 +85,7 @@ export function PolicyTimelineTab({
               className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                 activeView === 'dayOfWeek'
                   ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                  : 'text-gray-600 dark:text-gray-400'
+                  : 'text-gray-600 dark:text-gray-300'
               }`}
             >
               Day of Week
@@ -95,7 +95,7 @@ export function PolicyTimelineTab({
               className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                 activeView === 'monthly'
                   ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                  : 'text-gray-600 dark:text-gray-400'
+                  : 'text-gray-600 dark:text-gray-300'
               }`}
             >
               Monthly Totals
@@ -106,7 +106,7 @@ export function PolicyTimelineTab({
         {/* Daily Intensity with Rolling Average */}
         {activeView === 'daily' && (
           <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+            <p className="text-xs text-gray-500 dark:text-gray-300 mb-4">
               Daily article count with 7-day rolling average (last 90 days)
             </p>
             <ResponsiveContainer width="100%" height={350}>
@@ -158,7 +158,7 @@ export function PolicyTimelineTab({
         {/* Day of Week Distribution */}
         {activeView === 'dayOfWeek' && (
           <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+            <p className="text-xs text-gray-500 dark:text-gray-300 mb-4">
               Article distribution by day of week
             </p>
             <ResponsiveContainer width="100%" height={350}>
@@ -190,7 +190,7 @@ export function PolicyTimelineTab({
         {/* Monthly Totals */}
         {activeView === 'monthly' && (
           <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+            <p className="text-xs text-gray-500 dark:text-gray-300 mb-4">
               Monthly article totals over time
             </p>
             <ResponsiveContainer width="100%" height={350}>
@@ -227,35 +227,35 @@ export function PolicyTimelineTab({
       {/* Stats Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Peak Day</p>
+          <p className="text-xs text-gray-500 dark:text-gray-300 mb-1">Peak Day</p>
           <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             {dayOfWeek.length > 0
               ? dayOfWeek.reduce((max, d) => d.article_count > max.article_count ? d : max).day
               : 'N/A'}
           </p>
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-xs text-gray-500 mt-1">
             {dayOfWeek.length > 0
               ? `${dayOfWeek.reduce((max, d) => d.article_count > max.article_count ? d : max).article_count} articles`
               : ''}
           </p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Avg Daily</p>
+          <p className="text-xs text-gray-500 dark:text-gray-300 mb-1">Avg Daily</p>
           <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             {dailyIntensity.length > 0
               ? (dailyIntensity.reduce((sum, d) => sum + d.count, 0) / dailyIntensity.length).toFixed(1)
               : 'N/A'}
           </p>
-          <p className="text-xs text-gray-400 mt-1">articles per day</p>
+          <p className="text-xs text-gray-500 mt-1">articles per day</p>
         </div>
         <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-          <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">Peak Daily</p>
+          <p className="text-xs text-gray-500 dark:text-gray-300 mb-1">Peak Daily</p>
           <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
             {dailyIntensity.length > 0
               ? Math.max(...dailyIntensity.map(d => d.count))
               : 'N/A'}
           </p>
-          <p className="text-xs text-gray-400 mt-1">
+          <p className="text-xs text-gray-500 mt-1">
             {dailyIntensity.length > 0
               ? new Date(dailyIntensity.reduce((max, d) => d.count > max.count ? d : max).date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
               : ''}

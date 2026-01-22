@@ -552,7 +552,7 @@ export function IncidentConfigModal({ open, onClose }: IncidentConfigModalProps)
 
                     <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-4">
                       <h4 className="font-semibold text-gray-900 dark:text-gray-100 mb-3">Required Fields</h4>
-                      <ul className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 space-y-1 list-disc list-inside">
+                      <ul className="text-sm text-gray-600 dark:text-gray-300 space-y-1 list-disc list-inside">
                         <li>name, type, subtype</li>
                         <li>description, timeline</li>
                         <li>significance, plausibility</li>
@@ -626,7 +626,7 @@ export function IncidentConfigModal({ open, onClose }: IncidentConfigModalProps)
                       <div className="space-y-3 text-sm">
                         <div>
                           <p className="font-medium text-gray-700 dark:text-gray-200">Analysis Quality:</p>
-                          <ul className="text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 list-disc list-inside mt-1 space-y-0.5">
+                          <ul className="text-gray-600 dark:text-gray-300 list-disc list-inside mt-1 space-y-0.5">
                             <li>Be specific about credibility assessment</li>
                             <li>Include source quality indicators</li>
                             <li>Flag extraordinary claims</li>
@@ -636,7 +636,7 @@ export function IncidentConfigModal({ open, onClose }: IncidentConfigModalProps)
                         </div>
                         <div>
                           <p className="font-medium text-gray-700 dark:text-gray-200">Profile Context:</p>
-                          <ul className="text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 list-disc list-inside mt-1 space-y-0.5">
+                          <ul className="text-gray-600 dark:text-gray-300 list-disc list-inside mt-1 space-y-0.5">
                             <li>Consider organizational priorities</li>
                             <li>Align with risk tolerance</li>
                             <li>Focus on relevant stakeholders</li>
@@ -689,8 +689,8 @@ function InfoCard({
         {icon}
         <h4 className="font-semibold text-gray-900 dark:text-gray-100">{title}</h4>
       </div>
-      <p className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 mb-2">{description}</p>
-      <p className="text-xs text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400">
+      <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">{description}</p>
+      <p className="text-xs text-gray-700 dark:text-gray-300 dark:text-gray-300">
         <span className="font-medium">Use this when:</span> {useCase}
       </p>
     </div>
@@ -701,7 +701,7 @@ function PlaceholderItem({ name, desc }: { name: string; desc: string }) {
   return (
     <div>
       <code className="text-pink-600 dark:text-pink-400 bg-pink-50 dark:bg-pink-950 px-1 py-0.5 rounded text-xs">{name}</code>
-      <p className="text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 text-xs mt-0.5">{desc}</p>
+      <p className="text-gray-700 dark:text-gray-300 dark:text-gray-300 text-xs mt-0.5">{desc}</p>
     </div>
   );
 }
@@ -710,7 +710,7 @@ function TypeItem({ type, desc }: { type: string; desc: string }) {
   return (
     <div>
       <code className="text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950 px-1 py-0.5 rounded text-xs">{type}</code>
-      <p className="text-gray-700 dark:text-gray-300 dark:text-gray-600 dark:text-gray-400 text-xs mt-0.5">{desc}</p>
+      <p className="text-gray-700 dark:text-gray-300 dark:text-gray-300 text-xs mt-0.5">{desc}</p>
     </div>
   );
 }

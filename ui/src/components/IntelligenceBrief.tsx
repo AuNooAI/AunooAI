@@ -809,7 +809,7 @@ function RecommendedActionsSection({ content }: { content: string }) {
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-gray-400 italic">No immediate actions</p>
+              <p className="text-sm text-gray-500 italic">No immediate actions</p>
             )}
           </div>
         </div>
@@ -836,7 +836,7 @@ function RecommendedActionsSection({ content }: { content: string }) {
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-gray-400 italic">No near-term actions</p>
+              <p className="text-sm text-gray-500 italic">No near-term actions</p>
             )}
           </div>
         </div>
@@ -863,7 +863,7 @@ function RecommendedActionsSection({ content }: { content: string }) {
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-gray-400 italic">No strategic actions</p>
+              <p className="text-sm text-gray-500 italic">No strategic actions</p>
             )}
           </div>
         </div>
@@ -1152,13 +1152,13 @@ export function IntelligenceBrief({
           {showConfig ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           Scan Settings
         </button>
-        <span className="text-gray-400">|</span>
+        <span className="text-gray-500">|</span>
         <span className="text-gray-500">
           Lookback: {hoursBack}h · Max events: {maxEvents} · Min credibility: {credibilityThreshold}%
         </span>
         {topic && (
           <>
-            <span className="text-gray-400">|</span>
+            <span className="text-gray-500">|</span>
             <Badge variant="outline">{topic}</Badge>
           </>
         )}
@@ -1171,7 +1171,7 @@ export function IntelligenceBrief({
             <div className="grid grid-cols-3 gap-4">
               <div>
                 <label className="text-sm font-medium text-gray-700">Lookback Period (hours)</label>
-                <p className="text-xs text-gray-400 mb-1">How far back to search for news</p>
+                <p className="text-xs text-gray-500 mb-1">How far back to search for news</p>
                 <input
                   type="number"
                   value={hoursBack}
@@ -1183,7 +1183,7 @@ export function IntelligenceBrief({
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700">Events to Analyze</label>
-                <p className="text-xs text-gray-400 mb-1">Top N events for deep analysis</p>
+                <p className="text-xs text-gray-500 mb-1">Top N events for deep analysis</p>
                 <input
                   type="number"
                   value={maxEvents}
@@ -1195,7 +1195,7 @@ export function IntelligenceBrief({
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700">Minimum Credibility (%)</label>
-                <p className="text-xs text-gray-400 mb-1">Filter out low-quality sources</p>
+                <p className="text-xs text-gray-500 mb-1">Filter out low-quality sources</p>
                 <input
                   type="number"
                   value={credibilityThreshold}

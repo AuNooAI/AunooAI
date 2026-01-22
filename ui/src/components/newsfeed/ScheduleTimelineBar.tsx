@@ -132,7 +132,7 @@ export function ScheduleTimelineBar({ agents, systemSchedules = [] }: ScheduleTi
 
   if (!hasAnySchedules) {
     return (
-      <div className="text-sm text-gray-600 dark:text-gray-600 dark:text-gray-400 text-center py-4">
+      <div className="text-sm text-gray-600 dark:text-gray-300 text-center py-4">
         No scheduled tasks. Enable scheduling in settings.
       </div>
     );
@@ -321,7 +321,7 @@ Next run: {time.toLocaleString()}
       </svg>
 
       {/* Legend */}
-      <div className="flex items-center justify-center gap-4 mt-2 text-xs text-gray-700 dark:text-gray-600 dark:text-gray-600 dark:text-gray-400 flex-wrap">
+      <div className="flex items-center justify-center gap-4 mt-2 text-xs text-gray-700 dark:text-gray-300 flex-wrap">
         <div className="flex items-center gap-1">
           <div className="w-2 h-2 bg-green-500 rounded-full" />
           <span>Active Agent</span>

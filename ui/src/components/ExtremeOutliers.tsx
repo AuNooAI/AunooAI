@@ -683,11 +683,11 @@ export function ExtremeOutliers({
           {showConfig ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
           Generation Settings
         </button>
-        <span className="text-gray-400">|</span>
+        <span className="text-gray-500">|</span>
         <span className="text-gray-500">
           Scenarios: {scenarioCount} · Horizon: {TIME_HORIZON_LABELS[timeHorizon]}
         </span>
-        <span className="text-gray-400">|</span>
+        <span className="text-gray-500">|</span>
         <div className="flex gap-1">
           {includeBlackSwans && <Badge variant="outline" className="text-xs text-purple-600">Black Swan</Badge>}
           {includeContrarian && <Badge variant="outline" className="text-xs text-amber-600">Contrarian</Badge>}
@@ -695,7 +695,7 @@ export function ExtremeOutliers({
         </div>
         {topic && (
           <>
-            <span className="text-gray-400">|</span>
+            <span className="text-gray-500">|</span>
             <Badge variant="outline">{topic}</Badge>
           </>
         )}
@@ -708,7 +708,7 @@ export function ExtremeOutliers({
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div>
                 <label className="text-sm font-medium text-gray-700">Number of Scenarios</label>
-                <p className="text-xs text-gray-400 mb-1">Total scenarios to generate</p>
+                <p className="text-xs text-gray-500 mb-1">Total scenarios to generate</p>
                 <input
                   type="number"
                   value={scenarioCount}
@@ -720,7 +720,7 @@ export function ExtremeOutliers({
               </div>
               <div>
                 <label className="text-sm font-medium text-gray-700">Time Horizon</label>
-                <p className="text-xs text-gray-400 mb-1">Scenario timeframe focus</p>
+                <p className="text-xs text-gray-500 mb-1">Scenario timeframe focus</p>
                 <select
                   value={timeHorizon}
                   onChange={(e) => onTimeHorizonChange(e.target.value as 'near' | 'mid' | 'long')}
@@ -733,7 +733,7 @@ export function ExtremeOutliers({
               </div>
               <div className="col-span-2">
                 <label className="text-sm font-medium text-gray-700">Scenario Types</label>
-                <p className="text-xs text-gray-400 mb-2">Select which types to include</p>
+                <p className="text-xs text-gray-500 mb-2">Select which types to include</p>
                 <div className="flex gap-4">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
@@ -920,7 +920,7 @@ export function ExtremeOutliers({
                             setEosToDelete(e);
                             setShowDeleteConfirm(true);
                           }}
-                          className="ml-2 text-gray-400 hover:text-red-500"
+                          className="ml-2 text-gray-500 hover:text-red-500"
                         >
                           <Trash2 className="w-3 h-3" />
                         </button>

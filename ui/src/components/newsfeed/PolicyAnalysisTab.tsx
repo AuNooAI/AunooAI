@@ -84,7 +84,7 @@ export function PolicyAnalysisTab({
               className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                 activeView === 'heatmap'
                   ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                  : 'text-gray-600 dark:text-gray-400'
+                  : 'text-gray-600 dark:text-gray-300'
               }`}
             >
               Heatmap
@@ -94,7 +94,7 @@ export function PolicyAnalysisTab({
               className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                 activeView === 'pairs'
                   ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                  : 'text-gray-600 dark:text-gray-400'
+                  : 'text-gray-600 dark:text-gray-300'
               }`}
             >
               Top Pairs
@@ -104,7 +104,7 @@ export function PolicyAnalysisTab({
               className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
                 activeView === 'breakdown'
                   ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-gray-100 shadow-sm'
-                  : 'text-gray-600 dark:text-gray-400'
+                  : 'text-gray-600 dark:text-gray-300'
               }`}
             >
               Breakdown
@@ -115,13 +115,13 @@ export function PolicyAnalysisTab({
         {/* Co-occurrence Heatmap */}
         {activeView === 'heatmap' && (
           <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+            <p className="text-xs text-gray-500 dark:text-gray-300 mb-4">
               Category co-occurrence matrix (diagonal shows category count, off-diagonal shows co-occurrence)
             </p>
             {loading && !cooccurrenceMatrix ? (
               <div className="flex items-center justify-center py-16">
                 <Loader2 className="w-6 h-6 animate-spin text-pink-500" />
-                <span className="ml-2 text-gray-500 dark:text-gray-400">Loading heatmap...</span>
+                <span className="ml-2 text-gray-500 dark:text-gray-300">Loading heatmap...</span>
               </div>
             ) : cooccurrenceMatrix ? (
               <div className="overflow-x-auto">
@@ -131,7 +131,7 @@ export function PolicyAnalysisTab({
                     {cooccurrenceMatrix.categories.map((cat, i) => (
                       <div
                         key={`header-${i}`}
-                        className="w-[60px] text-[9px] text-gray-600 dark:text-gray-400 transform -rotate-45 origin-left whitespace-nowrap h-[60px] flex items-end"
+                        className="w-[60px] text-[9px] text-gray-600 dark:text-gray-300 transform -rotate-45 origin-left whitespace-nowrap h-[60px] flex items-end"
                         title={cat}
                       >
                         {CATEGORY_SHORT_NAMES[cat] || cat.slice(0, 12)}
@@ -143,7 +143,7 @@ export function PolicyAnalysisTab({
                     <div key={`row-${i}`} className="flex items-center">
                       {/* Row label */}
                       <div
-                        className="w-[120px] text-[10px] text-gray-600 dark:text-gray-400 text-right pr-2 truncate"
+                        className="w-[120px] text-[10px] text-gray-600 dark:text-gray-300 text-right pr-2 truncate"
                         title={cooccurrenceMatrix.categories[i]}
                       >
                         {CATEGORY_SHORT_NAMES[cooccurrenceMatrix.categories[i]] || cooccurrenceMatrix.categories[i]}
@@ -166,7 +166,7 @@ export function PolicyAnalysisTab({
                   ))}
                 </div>
                 {/* Legend */}
-                <div className="flex items-center gap-4 mt-4 text-xs text-gray-500 dark:text-gray-400">
+                <div className="flex items-center gap-4 mt-4 text-xs text-gray-500 dark:text-gray-300">
                   <div className="flex items-center gap-1">
                     <div className="w-4 h-4 rounded" style={{ backgroundColor: 'rgba(236, 72, 153, 0.6)' }} />
                     <span>Category count (diagonal)</span>
@@ -178,7 +178,7 @@ export function PolicyAnalysisTab({
                 </div>
               </div>
             ) : (
-              <p className="text-center py-8 text-gray-500 dark:text-gray-400">No data available</p>
+              <p className="text-center py-8 text-gray-500 dark:text-gray-300">No data available</p>
             )}
           </div>
         )}
@@ -186,13 +186,13 @@ export function PolicyAnalysisTab({
         {/* Top Co-occurrence Pairs */}
         {activeView === 'pairs' && (
           <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+            <p className="text-xs text-gray-500 dark:text-gray-300 mb-4">
               Top category pairs that frequently appear together
             </p>
             {loadingPairs ? (
               <div className="flex items-center justify-center py-16">
                 <Loader2 className="w-6 h-6 animate-spin text-pink-500" />
-                <span className="ml-2 text-gray-500 dark:text-gray-400">Loading pairs...</span>
+                <span className="ml-2 text-gray-500 dark:text-gray-300">Loading pairs...</span>
               </div>
             ) : cooccurrencePairs.length > 0 ? (
               <div className="space-y-2">
@@ -202,7 +202,7 @@ export function PolicyAnalysisTab({
                     className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-750 rounded-lg"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="text-xs text-gray-400 w-6">{i + 1}.</span>
+                      <span className="text-xs text-gray-500 w-6">{i + 1}.</span>
                       <div className="flex items-center gap-1">
                         <span
                           className="w-2 h-2 rounded-full"
@@ -212,7 +212,7 @@ export function PolicyAnalysisTab({
                           {CATEGORY_SHORT_NAMES[pair.category1] || pair.category1}
                         </span>
                       </div>
-                      <span className="text-gray-400">+</span>
+                      <span className="text-gray-500">+</span>
                       <div className="flex items-center gap-1">
                         <span
                           className="w-2 h-2 rounded-full"
@@ -233,7 +233,7 @@ export function PolicyAnalysisTab({
                 ))}
               </div>
             ) : (
-              <p className="text-center py-8 text-gray-500 dark:text-gray-400">No pairs data available</p>
+              <p className="text-center py-8 text-gray-500 dark:text-gray-300">No pairs data available</p>
             )}
           </div>
         )}
@@ -241,7 +241,7 @@ export function PolicyAnalysisTab({
         {/* Category Breakdown */}
         {activeView === 'breakdown' && (
           <div>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+            <p className="text-xs text-gray-500 dark:text-gray-300 mb-4">
               Detailed category distribution with trends
             </p>
             <div className="space-y-3">
@@ -269,7 +269,7 @@ export function PolicyAnalysisTab({
                           ? 'bg-green-100 text-green-700 dark:bg-green-900/20 dark:text-green-400'
                           : cat.recent_trend === 'down'
                           ? 'bg-red-100 text-red-700 dark:bg-red-900/20 dark:text-red-400'
-                          : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+                          : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
                       }`}>
                         {cat.recent_trend === 'up' ? '↑' : cat.recent_trend === 'down' ? '↓' : '→'}
                       </span>
@@ -285,7 +285,7 @@ export function PolicyAnalysisTab({
                       }}
                     />
                   </div>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  <p className="text-xs text-gray-500 dark:text-gray-300 mt-1">
                     {cat.percentage}% of total articles
                   </p>
                 </div>

@@ -65,12 +65,12 @@ function MessageContent({ content }: { content: string }) {
         ),
         // Style lists - use standard browser list styling (matching marked.parse output)
         ul: ({ children }) => (
-          <ul className="list-disc ml-6 my-2 space-y-0.5 text-gray-700 dark:text-gray-300">
+          <ul className="list-disc ml-6 my-2 space-y-0.5 text-gray-700 dark:text-gray-400">
             {children}
           </ul>
         ),
         ol: ({ children }) => (
-          <ol className="list-decimal ml-6 my-2 space-y-0.5 text-gray-700 dark:text-gray-300">
+          <ol className="list-decimal ml-6 my-2 space-y-0.5 text-gray-700 dark:text-gray-400">
             {children}
           </ol>
         ),
@@ -89,7 +89,7 @@ function MessageContent({ content }: { content: string }) {
         p: ({ children }) => <p className="my-2">{children}</p>,
         // Style blockquotes
         blockquote: ({ children }) => (
-          <blockquote className="border-l-4 border-pink-300 dark:border-pink-700 pl-4 my-2 italic text-gray-600 dark:text-gray-400">
+          <blockquote className="border-l-4 border-pink-300 dark:border-pink-700 pl-4 my-2 italic text-gray-600 dark:text-gray-300">
             {children}
           </blockquote>
         ),
@@ -137,7 +137,7 @@ function CopyButton({ text }: { text: string }) {
       className={cn(
         'absolute top-2 right-2 p-1.5 rounded',
         'opacity-0 group-hover:opacity-100 transition-opacity',
-        'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300',
+        'text-gray-500 hover:text-gray-600 dark:hover:text-gray-400',
         'bg-white/80 dark:bg-gray-800/80'
       )}
       title="Copy message"
@@ -157,7 +157,7 @@ function MessageBubble({ message }: MessageBubbleProps) {
   const messageContent = message.content ? (
     <MessageContent content={message.content} />
   ) : message.isStreaming ? (
-    <span className="text-gray-400">...</span>
+    <span className="text-gray-500">...</span>
   ) : null;
 
   return (
@@ -172,7 +172,7 @@ function MessageBubble({ message }: MessageBubbleProps) {
         className={cn(
           'flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center',
           isUser
-            ? 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+            ? 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400'
             : 'bg-pink-100 dark:bg-pink-900/30 text-pink-600 dark:text-pink-400'
         )}
       >
@@ -185,7 +185,7 @@ function MessageBubble({ message }: MessageBubbleProps) {
           <span className="font-medium text-sm text-gray-900 dark:text-gray-100">
             {isUser ? 'You' : 'Auspex'}
           </span>
-          <span className="text-xs text-gray-400">
+          <span className="text-xs text-gray-500">
             {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </span>
           {message.isStreaming && (
@@ -195,7 +195,7 @@ function MessageBubble({ message }: MessageBubbleProps) {
             </span>
           )}
         </div>
-        <div className="text-gray-700 dark:text-gray-300 text-sm leading-relaxed">
+        <div className="text-gray-700 dark:text-gray-400 text-sm leading-relaxed">
           {messageContent}
         </div>
       </div>
@@ -216,7 +216,7 @@ function WelcomeMessage() {
         <div className="font-medium text-sm text-gray-900 dark:text-gray-100 mb-1">
           Auspex
         </div>
-        <div className="text-gray-700 dark:text-gray-300 text-sm">
+        <div className="text-gray-700 dark:text-gray-400 text-sm">
           <strong>Welcome to Auspex!</strong>
           <br />
           I'm your AI research assistant. Select a topic and model above, then ask me anything about your data.
@@ -260,7 +260,7 @@ export function AuspexChatMessages({ messages, isLoading }: AuspexChatMessagesPr
           <div className="flex-shrink-0 w-8 h-8 rounded-full bg-pink-100 dark:bg-pink-900/30 flex items-center justify-center">
             <Loader2 className="w-4 h-4 animate-spin text-pink-600 dark:text-pink-400" />
           </div>
-          <div className="text-sm text-gray-500 dark:text-gray-400">
+          <div className="text-sm text-gray-500 dark:text-gray-300">
             Auspex is thinking...
           </div>
         </div>

@@ -149,12 +149,12 @@ export function InsightsPanel({ messages, chatId, backendArticleStats }: Insight
   // Empty state
   if (!hasContent) {
     return (
-      <div className="text-center py-8 text-gray-400">
+      <div className="text-center py-8 text-gray-500">
         <Sparkles className="w-12 h-12 mx-auto mb-3 opacity-50" />
-        <h3 className="text-sm font-medium text-gray-600 dark:text-gray-400 mb-1">
+        <h3 className="text-sm font-medium text-gray-600 dark:text-gray-300 mb-1">
           AI Insights
         </h3>
-        <p className="text-xs text-gray-400">
+        <p className="text-xs text-gray-500">
           Insights will appear as you chat with Auspex
         </p>
       </div>
@@ -174,13 +174,13 @@ export function InsightsPanel({ messages, chatId, backendArticleStats }: Insight
       {hasArticleLinks && (
         <div className="bg-white dark:bg-gray-700 rounded-lg p-3 border border-gray-200 dark:border-gray-600">
           <div className="flex items-center justify-between mb-2">
-            <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase flex items-center gap-1">
+            <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase flex items-center gap-1">
               <ExternalLink className="w-3 h-3" />
               Article Sources ({stats.sourceLinks.length})
             </h4>
             <button
               onClick={handleCopyLinks}
-              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+              className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-gray-200 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
               title="Copy all links"
             >
               {copiedLinks ? <Check className="w-3 h-3 text-green-500" /> : <Copy className="w-3 h-3" />}
@@ -197,10 +197,10 @@ export function InsightsPanel({ messages, chatId, backendArticleStats }: Insight
                 className="block text-xs p-2 bg-gray-50 dark:bg-gray-800 rounded hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors group"
                 title={source.url}
               >
-                <div className="text-gray-700 dark:text-gray-300 truncate group-hover:text-pink-600 dark:group-hover:text-pink-400">
+                <div className="text-gray-700 dark:text-gray-400 truncate group-hover:text-pink-600 dark:group-hover:text-pink-400">
                   {source.name}
                 </div>
-                <div className="text-[10px] text-gray-400 truncate mt-0.5">
+                <div className="text-[10px] text-gray-500 truncate mt-0.5">
                   {source.url}
                 </div>
               </a>
@@ -212,7 +212,7 @@ export function InsightsPanel({ messages, chatId, backendArticleStats }: Insight
       {/* Parsed Stats Section - Only shown if we found stats */}
       {hasParsedStats && (
         <div className="bg-white dark:bg-gray-700 rounded-lg p-3 border border-gray-200 dark:border-gray-600">
-          <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase mb-3 flex items-center gap-1">
+          <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase mb-3 flex items-center gap-1">
             <BarChart2 className="w-3 h-3" />
             Analysis Stats
           </h4>
@@ -269,7 +269,7 @@ export function InsightsPanel({ messages, chatId, backendArticleStats }: Insight
                   </div>
                 )}
               </div>
-              <div className="flex justify-between mt-1 text-[10px] text-gray-400">
+              <div className="flex justify-between mt-1 text-[10px] text-gray-500">
                 <span>Positive</span>
                 <span>Neutral</span>
                 <span>Negative</span>
@@ -283,7 +283,7 @@ export function InsightsPanel({ messages, chatId, backendArticleStats }: Insight
       {/* AI Summary Section */}
       <div className="bg-white dark:bg-gray-700 rounded-lg p-3 border border-gray-200 dark:border-gray-600">
         <div className="flex items-center justify-between mb-2">
-          <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase flex items-center gap-1">
+          <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-300 uppercase flex items-center gap-1">
             <Lightbulb className="w-3 h-3" />
             AI Summary
           </h4>
@@ -291,7 +291,7 @@ export function InsightsPanel({ messages, chatId, backendArticleStats }: Insight
             {aiInsights && (
               <button
                 onClick={handleExportMarkdown}
-                className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
+                className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500 hover:text-gray-700 dark:text-gray-300 dark:hover:text-gray-200 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors"
                 title="Export as Markdown"
               >
                 <Download className="w-3 h-3" />
@@ -321,7 +321,7 @@ export function InsightsPanel({ messages, chatId, backendArticleStats }: Insight
             {/* Key Themes */}
             {aiInsights.key_themes && aiInsights.key_themes.length > 0 && (
               <div>
-                <h5 className="text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Key Themes</h5>
+                <h5 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Key Themes</h5>
                 <div className="flex flex-wrap gap-1">
                   {aiInsights.key_themes.map((theme, i) => (
                     <span
@@ -338,8 +338,8 @@ export function InsightsPanel({ messages, chatId, backendArticleStats }: Insight
             {/* Main Findings */}
             {aiInsights.main_findings && aiInsights.main_findings.length > 0 && (
               <div>
-                <h5 className="text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Main Findings</h5>
-                <ul className="list-disc list-inside text-gray-600 dark:text-gray-400 text-xs space-y-0.5">
+                <h5 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Main Findings</h5>
+                <ul className="list-disc list-inside text-gray-600 dark:text-gray-300 text-xs space-y-0.5">
                   {aiInsights.main_findings.slice(0, 4).map((finding, i) => (
                     <li key={i} className="leading-tight">{finding}</li>
                   ))}
@@ -350,8 +350,8 @@ export function InsightsPanel({ messages, chatId, backendArticleStats }: Insight
             {/* Sentiment Overview */}
             {aiInsights.sentiment_overview && (
               <div>
-                <h5 className="text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Sentiment</h5>
-                <p className="text-xs text-gray-600 dark:text-gray-400 leading-relaxed">
+                <h5 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Sentiment</h5>
+                <p className="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
                   {aiInsights.sentiment_overview}
                 </p>
               </div>
@@ -360,8 +360,8 @@ export function InsightsPanel({ messages, chatId, backendArticleStats }: Insight
             {/* Notable Quotes */}
             {aiInsights.notable_quotes && aiInsights.notable_quotes.length > 0 && (
               <div>
-                <h5 className="text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Notable Datapoints</h5>
-                <ul className="text-gray-600 dark:text-gray-400 text-xs space-y-1">
+                <h5 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Notable Datapoints</h5>
+                <ul className="text-gray-600 dark:text-gray-300 text-xs space-y-1">
                   {aiInsights.notable_quotes.slice(0, 3).map((quote, i) => (
                     <li key={i} className="leading-tight italic border-l-2 border-pink-300 pl-2">"{quote}"</li>
                   ))}
@@ -372,27 +372,27 @@ export function InsightsPanel({ messages, chatId, backendArticleStats }: Insight
             {/* Data Coverage */}
             {aiInsights.data_coverage && (
               <div className="pt-2 border-t border-gray-200 dark:border-gray-600">
-                <h5 className="text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Data Coverage</h5>
+                <h5 className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">Data Coverage</h5>
                 <div className="grid grid-cols-3 gap-1 text-center">
                   {aiInsights.data_coverage.articles_discussed > 0 && (
                     <div className="p-1 bg-gray-50 dark:bg-gray-800 rounded">
-                      <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                      <div className="text-sm font-semibold text-gray-700 dark:text-gray-400">
                         {aiInsights.data_coverage.articles_discussed}
                       </div>
-                      <div className="text-[10px] text-gray-400">Articles</div>
+                      <div className="text-[10px] text-gray-500">Articles</div>
                     </div>
                   )}
                   {aiInsights.data_coverage.sources_mentioned > 0 && (
                     <div className="p-1 bg-gray-50 dark:bg-gray-800 rounded">
-                      <div className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                      <div className="text-sm font-semibold text-gray-700 dark:text-gray-400">
                         {aiInsights.data_coverage.sources_mentioned}
                       </div>
-                      <div className="text-[10px] text-gray-400">Sources</div>
+                      <div className="text-[10px] text-gray-500">Sources</div>
                     </div>
                   )}
                   {aiInsights.data_coverage.time_period && aiInsights.data_coverage.time_period !== 'not specified' && (
                     <div className="p-1 bg-gray-50 dark:bg-gray-800 rounded col-span-full">
-                      <div className="text-xs text-gray-600 dark:text-gray-400">
+                      <div className="text-xs text-gray-600 dark:text-gray-300">
                         {aiInsights.data_coverage.time_period}
                       </div>
                     </div>
@@ -402,7 +402,7 @@ export function InsightsPanel({ messages, chatId, backendArticleStats }: Insight
             )}
           </div>
         ) : (
-          <p className="text-xs text-gray-400 text-center py-4">
+          <p className="text-xs text-gray-500 text-center py-4">
             Click "Summarize" to create an AI summary of your conversation
           </p>
         )}

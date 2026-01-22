@@ -192,7 +192,7 @@ export function CategoryRadarChart({
 
   if (topics.length === 0 || activeCategories.length === 0) {
     return (
-      <div className={`flex items-center justify-center p-4 text-gray-700 dark:text-gray-300 ${className}`}>
+      <div className={`flex items-center justify-center p-4 text-gray-700 dark:text-gray-400 ${className}`}>
         No category data available
       </div>
     );
@@ -242,7 +242,7 @@ export function CategoryRadarChart({
                   fill="none"
                   stroke="currentColor"
                   strokeOpacity={0.3}
-                  className="text-gray-500 dark:text-gray-500"
+                  className="text-gray-500 dark:text-gray-300"
                 />
                 {/* Score label on the ring (positioned at top) */}
                 <text
@@ -273,7 +273,7 @@ export function CategoryRadarChart({
                 y2={y2}
                 stroke="currentColor"
                 strokeOpacity={0.4}
-                className="text-gray-500 dark:text-gray-500"
+                className="text-gray-500 dark:text-gray-300"
               />
             );
           })}
@@ -284,7 +284,7 @@ export function CategoryRadarChart({
             cy={center}
             r={4}
             fill="currentColor"
-            className="text-gray-600 dark:text-gray-400"
+            className="text-gray-600 dark:text-gray-300"
           />
         </svg>
 
@@ -373,8 +373,8 @@ export function CategoryRadarChart({
                 className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-gray-50 dark:bg-gray-800 text-xs"
               >
                 <Icon className="w-3 h-3" style={{ color: config.color }} />
-                <span className="text-gray-700 dark:text-gray-300">{config.label}</span>
-                <span className="text-gray-600 dark:text-gray-400">({count})</span>
+                <span className="text-gray-700 dark:text-gray-400">{config.label}</span>
+                <span className="text-gray-600 dark:text-gray-300">({count})</span>
               </div>
             );
           })}
@@ -393,7 +393,7 @@ export function CategoryRadarChart({
         >
           <div className="bg-gray-900 text-white text-xs rounded px-2 py-1 whitespace-nowrap shadow-lg">
             <div className="font-medium">{hoveredTopic.topic_label}</div>
-            <div className="text-gray-300 text-[10px]">
+            <div className="text-gray-400 text-[10px]">
               Score: {Math.round(hoveredTopic.score)} | {hoveredTopic.urgency} urgency | {hoveredTopic.velocityType} | {hoveredTopic.article_count || 1} signals
             </div>
           </div>

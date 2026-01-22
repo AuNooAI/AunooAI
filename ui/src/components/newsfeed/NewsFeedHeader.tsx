@@ -154,7 +154,7 @@ export function NewsFeedHeader({
                   {selectedTopics.length}
                 </span>
               )}
-              <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-400 shrink-0" />
+              <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-300 shrink-0" />
             </button>
 
             {topicDropdownOpen && (
@@ -164,14 +164,14 @@ export function NewsFeedHeader({
                     onClick={selectAllTopics}
                     className="w-full px-3 py-2 text-sm text-left hover:bg-gray-50 flex items-center gap-2"
                   >
-                    <Check className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+                    <Check className="w-4 h-4 text-gray-600 dark:text-gray-300" />
                     Select All
                   </button>
                   <button
                     onClick={clearAllTopics}
                     className="w-full px-3 py-2 text-sm text-left hover:bg-gray-50 flex items-center gap-2"
                   >
-                    <X className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+                    <X className="w-4 h-4 text-gray-600 dark:text-gray-300" />
                     Clear All
                   </button>
                   <div className="border-t border-gray-300 dark:border-gray-700 my-1" />
@@ -209,7 +209,7 @@ export function NewsFeedHeader({
                     'Date Range'}
                 </span>
               </div>
-              <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+              <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-300" />
             </button>
 
             {dateDropdownOpen && (
@@ -269,7 +269,7 @@ export function NewsFeedHeader({
                 <Building2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                 <span className="truncate">{getProfileLabel()}</span>
               </div>
-              <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-600 dark:text-gray-400" />
+              <ChevronDown className="w-4 h-4 text-gray-600 dark:text-gray-300" />
             </button>
 
             {profileDropdownOpen && (
@@ -301,7 +301,7 @@ export function NewsFeedHeader({
                       />
                       {profile.name}
                       {profile.is_default && (
-                        <span className="text-xs text-gray-600 dark:text-gray-600 dark:text-gray-400">(Default)</span>
+                        <span className="text-xs text-gray-600 dark:text-gray-300">(Default)</span>
                       )}
                     </button>
                   ))}

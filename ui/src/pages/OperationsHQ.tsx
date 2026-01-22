@@ -449,7 +449,7 @@ export function OperationsHQ() {
         {/* Top Header */}
         <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-6 py-3 flex items-center justify-between">
           {/* Breadcrumb */}
-          <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+          <div className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-400">
             <span>Operations</span>
             <span>/</span>
             <span className="font-medium text-gray-950 dark:text-gray-100">System Health</span>
@@ -486,7 +486,7 @@ export function OperationsHQ() {
                         className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
                           manageSettingsTab === 'sections'
                             ? 'text-pink-600 border-b-2 border-pink-500'
-                            : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+                            : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
                         }`}
                       >
                         Sections
@@ -496,7 +496,7 @@ export function OperationsHQ() {
                         className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
                           manageSettingsTab === 'metrics'
                             ? 'text-pink-600 border-b-2 border-pink-500'
-                            : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-100'
+                            : 'text-gray-600 dark:text-gray-300 hover:text-gray-900 dark:hover:text-gray-100'
                         }`}
                       >
                         Metrics
@@ -506,7 +506,7 @@ export function OperationsHQ() {
                     {/* Sections Tab */}
                     {manageSettingsTab === 'sections' && (
                       <div className="p-2">
-                        <p className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1 mb-1">
+                        <p className="text-xs text-gray-500 dark:text-gray-300 px-2 py-1 mb-1">
                           Show or hide page sections
                         </p>
                         {(Object.keys(SECTION_LABELS) as Array<keyof VisibleSections>).map((section) => (
@@ -515,7 +515,7 @@ export function OperationsHQ() {
                             onClick={() => toggleSection(section)}
                             className="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
                           >
-                            <span className="text-sm text-gray-700 dark:text-gray-300">{SECTION_LABELS[section]}</span>
+                            <span className="text-sm text-gray-700 dark:text-gray-400">{SECTION_LABELS[section]}</span>
                             {visibleSections[section] ? (
                               <Check className="w-4 h-4 text-pink-500" />
                             ) : (
@@ -529,7 +529,7 @@ export function OperationsHQ() {
                     {/* Metrics Tab */}
                     {manageSettingsTab === 'metrics' && (
                       <div className="p-2">
-                        <p className="text-xs text-gray-500 dark:text-gray-400 px-2 py-1 mb-1">
+                        <p className="text-xs text-gray-500 dark:text-gray-300 px-2 py-1 mb-1">
                           Drag to reorder, click to show/hide
                         </p>
                         <div className="max-h-64 overflow-y-auto">
@@ -547,14 +547,14 @@ export function OperationsHQ() {
                                 dropIndex === index && dragIndex !== index ? 'border-t-2 border-pink-500' : ''
                               } hover:bg-gray-50 dark:hover:bg-gray-700`}
                             >
-                              <GripVertical className="w-4 h-4 text-gray-400 shrink-0" />
+                              <GripVertical className="w-4 h-4 text-gray-500 shrink-0" />
                               <input
                                 type="checkbox"
                                 checked={visibleMetrics[metricKey as keyof VisibleMetrics]}
                                 onChange={() => toggleMetric(metricKey as keyof VisibleMetrics)}
                                 className="rounded border-gray-300 dark:border-gray-600 text-pink-500 focus:ring-pink-500"
                               />
-                              <span className="text-sm text-gray-700 dark:text-gray-300 flex-1 truncate">
+                              <span className="text-sm text-gray-700 dark:text-gray-400 flex-1 truncate">
                                 {METRICS_LABELS[metricKey as keyof VisibleMetrics]}
                               </span>
                             </div>
@@ -605,22 +605,22 @@ export function OperationsHQ() {
                       href={article.uri}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center px-4 text-sm text-gray-700 dark:text-gray-300 hover:text-blue-600 transition-colors"
+                      className="inline-flex items-center px-4 text-sm text-gray-700 dark:text-gray-400 hover:text-blue-600 transition-colors"
                     >
                       {tickerConfig.showTime && article.published_at && (
-                        <span className="text-gray-400 text-xs mr-2">
+                        <span className="text-gray-500 text-xs mr-2">
                           {new Date(article.published_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                       )}
                       <span className="truncate max-w-md">{article.title}</span>
                       {tickerConfig.showSource && article.source && (
-                        <span className="text-gray-400 text-xs ml-2">— {article.source}</span>
+                        <span className="text-gray-500 text-xs ml-2">— {article.source}</span>
                       )}
                     </a>
                   ))}
                 </div>
               ) : (
-                <div className="flex items-center h-full px-4 text-sm text-gray-500 dark:text-gray-400">
+                <div className="flex items-center h-full px-4 text-sm text-gray-500 dark:text-gray-300">
                   No recent articles available
                 </div>
               )}
@@ -628,28 +628,28 @@ export function OperationsHQ() {
             <div className="flex items-center gap-1 px-2 border-l border-gray-200 dark:border-gray-700">
               <button
                 onClick={() => setTickerPaused(!tickerPaused)}
-                className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200"
                 title={tickerPaused ? 'Play' : 'Pause'}
               >
                 {tickerPaused ? <Play className="w-4 h-4" /> : <Pause className="w-4 h-4" />}
               </button>
               <button
                 onClick={() => setTickerSettingsOpen(true)}
-                className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200"
                 title="Ticker settings"
               >
                 <Settings className="w-4 h-4" />
               </button>
               <button
                 onClick={fetchTickerArticles}
-                className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200"
                 title="Refresh"
               >
                 <RotateCw className="w-4 h-4" />
               </button>
               <button
                 onClick={toggleTicker}
-                className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-700 rounded text-gray-500 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200"
                 title="Hide ticker"
               >
                 <X className="w-4 h-4" />
@@ -662,7 +662,7 @@ export function OperationsHQ() {
         {visibleSections.ticker && !tickerVisible && (
           <button
             onClick={toggleTicker}
-            className="w-full bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 border-b border-gray-200 dark:border-gray-700 py-1 text-xs text-gray-500 dark:text-gray-400 flex items-center justify-center gap-1 transition-colors"
+            className="w-full bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 border-b border-gray-200 dark:border-gray-700 py-1 text-xs text-gray-500 dark:text-gray-300 flex items-center justify-center gap-1 transition-colors"
           >
             <ChevronDown className="w-3 h-3" />
             Show news ticker
@@ -681,7 +681,7 @@ export function OperationsHQ() {
                 <div className={`inline-block px-6 py-2 rounded-full text-white font-bold text-lg ${getStatusColor(healthData.status)}`}>
                   {healthData.status.toUpperCase()}
                 </div>
-                <p className="text-gray-700 dark:text-gray-300 mt-2">
+                <p className="text-gray-700 dark:text-gray-400 mt-2">
                   Uptime: {Math.floor(healthData.uptime.days)}d {Math.floor(healthData.uptime.hours % 24)}h {Math.floor(healthData.uptime.minutes % 60)}m
                 </p>
 
@@ -725,7 +725,7 @@ export function OperationsHQ() {
               >
                 <div className="text-xs font-semibold text-gray-800 dark:text-gray-200 mb-1">{clock.city}</div>
                 <div className="text-lg font-mono text-pink-500">{clock.time}</div>
-                <div className="text-xs text-gray-600 dark:text-gray-400">{clock.date}</div>
+                <div className="text-xs text-gray-600 dark:text-gray-300">{clock.date}</div>
               </div>
             ))}
           </div>
@@ -739,7 +739,7 @@ export function OperationsHQ() {
                onClick={() => window.location.href = '/database-editor'}>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-700 dark:text-gray-300 text-sm">Total Articles</p>
+                <p className="text-gray-700 dark:text-gray-400 text-sm">Total Articles</p>
                 <p className="text-3xl font-bold text-pink-500">{stats?.total_articles || 0}</p>
               </div>
               <Newspaper className="w-12 h-12 text-pink-200 dark:text-pink-800" />
@@ -750,7 +750,7 @@ export function OperationsHQ() {
                onClick={() => window.location.href = '/gather'}>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-700 dark:text-gray-300 text-sm">Articles Today</p>
+                <p className="text-gray-700 dark:text-gray-400 text-sm">Articles Today</p>
                 <p className="text-3xl font-bold text-pink-500">{stats?.articles_today || 0}</p>
               </div>
               <TrendingUp className="w-12 h-12 text-pink-200 dark:text-pink-800" />
@@ -761,7 +761,7 @@ export function OperationsHQ() {
                onClick={() => window.location.href = '/gather?tab=keywords'}>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-700 dark:text-gray-300 text-sm">Keyword Groups</p>
+                <p className="text-gray-700 dark:text-gray-400 text-sm">Keyword Groups</p>
                 <p className="text-3xl font-bold text-pink-500">{stats?.keyword_groups || 0}</p>
               </div>
               <Tags className="w-12 h-12 text-pink-200 dark:text-pink-800" />
@@ -772,7 +772,7 @@ export function OperationsHQ() {
                onClick={() => window.location.href = '/explore'}>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-gray-700 dark:text-gray-300 text-sm">Topics</p>
+                <p className="text-gray-700 dark:text-gray-400 text-sm">Topics</p>
                 <p className="text-3xl font-bold text-pink-500">{stats?.topics || 0}</p>
               </div>
               <Folder className="w-12 h-12 text-pink-200 dark:text-pink-800" />
@@ -800,20 +800,20 @@ export function OperationsHQ() {
                         </div>
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
-                            <span className="text-gray-700 dark:text-gray-300">Process:</span>
+                            <span className="text-gray-700 dark:text-gray-400">Process:</span>
                             <span className="font-semibold dark:text-gray-100">{healthData.cpu.process_percent}%</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-700 dark:text-gray-300">System:</span>
+                            <span className="text-gray-700 dark:text-gray-400">System:</span>
                             <span className="font-semibold dark:text-gray-100">{healthData.cpu.system_percent}%</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-700 dark:text-gray-300">Cores:</span>
+                            <span className="text-gray-700 dark:text-gray-400">Cores:</span>
                             <span className="font-semibold dark:text-gray-100">{healthData.cpu.core_count}</span>
                           </div>
                           {healthData.cpu.load_average && (
                             <div className="flex justify-between">
-                              <span className="text-gray-700 dark:text-gray-300">Load (1/5/15m):</span>
+                              <span className="text-gray-700 dark:text-gray-400">Load (1/5/15m):</span>
                               <span className="font-semibold dark:text-gray-100 text-xs">
                                 {healthData.cpu.load_average.map(l => l.toFixed(2)).join(' / ')}
                               </span>
@@ -832,19 +832,19 @@ export function OperationsHQ() {
                         </div>
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
-                            <span className="text-gray-700 dark:text-gray-300">Process RSS:</span>
+                            <span className="text-gray-700 dark:text-gray-400">Process RSS:</span>
                             <span className="font-semibold dark:text-gray-100">{healthData.memory.process.rss_mb} MB</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-700 dark:text-gray-300">Process %:</span>
+                            <span className="text-gray-700 dark:text-gray-400">Process %:</span>
                             <span className="font-semibold dark:text-gray-100">{healthData.memory.process.percent}%</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-700 dark:text-gray-300">Threads:</span>
+                            <span className="text-gray-700 dark:text-gray-400">Threads:</span>
                             <span className="font-semibold dark:text-gray-100">{healthData.memory.process.num_threads}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-700 dark:text-gray-300">System:</span>
+                            <span className="text-gray-700 dark:text-gray-400">System:</span>
                             <span className="font-semibold dark:text-gray-100">{healthData.memory.system.used_gb} / {healthData.memory.system.total_gb} GB</span>
                           </div>
                           <div className="mt-3">
@@ -870,11 +870,11 @@ export function OperationsHQ() {
                         </div>
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
-                            <span className="text-gray-700 dark:text-gray-300">Used:</span>
+                            <span className="text-gray-700 dark:text-gray-400">Used:</span>
                             <span className="font-semibold dark:text-gray-100">{healthData.disk.root.used_gb} / {healthData.disk.root.total_gb} GB</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-700 dark:text-gray-300">Free:</span>
+                            <span className="text-gray-700 dark:text-gray-400">Free:</span>
                             <span className="font-semibold dark:text-gray-100">{healthData.disk.root.free_gb} GB</span>
                           </div>
                           <div className="mt-3">
@@ -900,7 +900,7 @@ export function OperationsHQ() {
                         </div>
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
-                            <span className="text-gray-700 dark:text-gray-300">Status:</span>
+                            <span className="text-gray-700 dark:text-gray-400">Status:</span>
                             <span className={`font-semibold ${
                               healthData.api_health?.status === 'healthy' ? 'text-green-600' :
                               healthData.api_health?.status === 'degraded' ? 'text-yellow-600' : 'text-red-600'
@@ -910,23 +910,23 @@ export function OperationsHQ() {
                             </span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-700 dark:text-gray-300">Configured:</span>
+                            <span className="text-gray-700 dark:text-gray-400">Configured:</span>
                             <span className="font-semibold dark:text-gray-100">{healthData.api_health?.configured_count || 0} / {healthData.api_health?.total_checked || 3}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-700 dark:text-gray-300">News Collector:</span>
+                            <span className="text-gray-700 dark:text-gray-400">News Collector:</span>
                             <span className={`font-semibold ${healthData.api_health?.apis?.collector === 'configured' ? 'text-green-600' : 'text-red-600'}`}>
                               {healthData.api_health?.apis?.collector === 'configured' ? '✓' : '✗'}
                             </span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-700 dark:text-gray-300">AI Provider:</span>
+                            <span className="text-gray-700 dark:text-gray-400">AI Provider:</span>
                             <span className={`font-semibold ${healthData.api_health?.apis?.ai_provider === 'configured' ? 'text-green-600' : 'text-red-600'}`}>
                               {healthData.api_health?.apis?.ai_provider === 'configured' ? '✓' : '✗'}
                             </span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-700 dark:text-gray-300">Firecrawl:</span>
+                            <span className="text-gray-700 dark:text-gray-400">Firecrawl:</span>
                             <span className={`font-semibold ${healthData.api_health?.apis?.firecrawl === 'configured' ? 'text-green-600' : 'text-red-600'}`}>
                               {healthData.api_health?.apis?.firecrawl === 'configured' ? '✓' : '✗'}
                             </span>
@@ -944,22 +944,22 @@ export function OperationsHQ() {
                         </div>
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
-                            <span className="text-gray-700 dark:text-gray-300">Status:</span>
+                            <span className="text-gray-700 dark:text-gray-400">Status:</span>
                             <span className={`font-semibold ${
-                              healthData.autopolling?.is_enabled ? 'text-green-600' : 'text-gray-500 dark:text-gray-400'
+                              healthData.autopolling?.is_enabled ? 'text-green-600' : 'text-gray-500 dark:text-gray-300'
                             }`}>
                               {healthData.autopolling?.is_enabled ? 'Enabled' :
                                healthData.autopolling?.status === 'unknown' ? 'Not Configured' : 'Disabled'}
                             </span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-700 dark:text-gray-300">Requests Today:</span>
+                            <span className="text-gray-700 dark:text-gray-400">Requests Today:</span>
                             <span className="font-semibold dark:text-gray-100">
                               {healthData.autopolling?.requests_today ?? '--'} / {healthData.autopolling?.daily_limit ?? '--'}
                             </span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-700 dark:text-gray-300">Last Run:</span>
+                            <span className="text-gray-700 dark:text-gray-400">Last Run:</span>
                             <span className="font-semibold dark:text-gray-100 text-xs">
                               {healthData.autopolling?.last_run ?
                                 new Date(healthData.autopolling.last_run).toLocaleString() : '--'}
@@ -992,7 +992,7 @@ export function OperationsHQ() {
                         </div>
                         <div className="space-y-2 text-sm">
                           <div className="flex justify-between">
-                            <span className="text-gray-700 dark:text-gray-300">Status:</span>
+                            <span className="text-gray-700 dark:text-gray-400">Status:</span>
                             <span className={`font-semibold ${
                               healthData.database?.status === 'healthy' ? 'text-green-600' : 'text-red-600'
                             }`}>
@@ -1000,15 +1000,15 @@ export function OperationsHQ() {
                             </span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-700 dark:text-gray-300">Articles:</span>
+                            <span className="text-gray-700 dark:text-gray-400">Articles:</span>
                             <span className="font-semibold dark:text-gray-100">{healthData.database?.article_count?.toLocaleString() ?? '--'}</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-700 dark:text-gray-300">Size:</span>
+                            <span className="text-gray-700 dark:text-gray-400">Size:</span>
                             <span className="font-semibold dark:text-gray-100">{healthData.database?.size_mb ?? '--'} MB</span>
                           </div>
                           <div className="flex justify-between">
-                            <span className="text-gray-700 dark:text-gray-300">Locked:</span>
+                            <span className="text-gray-700 dark:text-gray-400">Locked:</span>
                             <span className={`font-semibold ${healthData.database?.locked ? 'text-red-600' : 'text-green-600'}`}>
                               {healthData.database?.locked ? 'Yes' : 'No'}
                             </span>
@@ -1033,7 +1033,7 @@ export function OperationsHQ() {
           {loading && !healthData && (
             <div className="text-center py-12">
               <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-500 mx-auto"></div>
-              <p className="text-gray-700 dark:text-gray-300 mt-4">Loading system metrics...</p>
+              <p className="text-gray-700 dark:text-gray-400 mt-4">Loading system metrics...</p>
             </div>
           )}
           </div>
@@ -1082,7 +1082,7 @@ export function OperationsHQ() {
                   <SelectItem value="25">25 articles</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-gray-500 dark:text-gray-400">More articles = longer scroll cycle</p>
+              <p className="text-xs text-gray-500 dark:text-gray-300">More articles = longer scroll cycle</p>
             </div>
 
             {/* Time Range */}
@@ -1122,7 +1122,7 @@ export function OperationsHQ() {
                   <SelectItem value="fast">Fast (30 seconds)</SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-gray-500 dark:text-gray-400">Slower speeds are easier to read</p>
+              <p className="text-xs text-gray-500 dark:text-gray-300">Slower speeds are easier to read</p>
             </div>
 
             {/* Auto-Refresh */}
@@ -1149,7 +1149,7 @@ export function OperationsHQ() {
             <div className="space-y-3">
               <Label>Display Options</Label>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-700 dark:text-gray-300">Show article source</span>
+                <span className="text-sm text-gray-700 dark:text-gray-400">Show article source</span>
                 <button
                   type="button"
                   role="switch"
@@ -1167,7 +1167,7 @@ export function OperationsHQ() {
                 </button>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-700 dark:text-gray-300">Show publish time</span>
+                <span className="text-sm text-gray-700 dark:text-gray-400">Show publish time</span>
                 <button
                   type="button"
                   role="switch"
@@ -1188,7 +1188,7 @@ export function OperationsHQ() {
 
             {/* Enable Ticker */}
             <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-700">
-              <span className="font-medium text-gray-700 dark:text-gray-300">Enable ticker on page load</span>
+              <span className="font-medium text-gray-700 dark:text-gray-400">Enable ticker on page load</span>
               <button
                 type="button"
                 role="switch"

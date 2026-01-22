@@ -82,7 +82,7 @@ const velocityStyles: Record<string, { label: string; className: string }> = {
   },
   stable: {
     label: 'Stable',
-    className: 'text-gray-600 dark:text-gray-400',
+    className: 'text-gray-600 dark:text-gray-300',
   },
   decelerating: {
     label: 'Slowing',

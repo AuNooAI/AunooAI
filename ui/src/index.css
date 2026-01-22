@@ -52,7 +52,7 @@ html.dark .text-gray-950,
 }
 html.dark .text-gray-600,
 .dark .text-gray-600 {
-  color: #9ca3af !important; /* Tailwind gray-400 */
+  color: #6b7280 !important; /* Tailwind gray-400 */
 }
 html.dark .text-gray-500,
 .dark .text-gray-500 {
@@ -83,7 +83,7 @@ html.dark [data-slot="card-title"],
 }
 html.dark [data-slot="card-description"],
 .dark [data-slot="card-description"] {
-  color: #9ca3af !important; /* Tailwind gray-400 */
+  color: #6b7280 !important; /* Tailwind gray-400 */
 }
 html.dark [data-slot="card-content"],
 .dark [data-slot="card-content"] {
@@ -175,7 +175,7 @@ html.dark .text-blue-700,
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background-color: #9ca3af;
+  background-color: #6b7280;
 }
 
 /* Hidden scrollbar - scroll without visible bar (like HUD view) */

@@ -90,7 +90,7 @@ export function PolicyTrackerStats({ stats, loading }: PolicyTrackerStatsProps) 
               <card.icon className={`w-5 h-5 ${card.color}`} />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+              <p className="text-xs text-gray-500 dark:text-gray-300 mb-1">
                 {card.label}
               </p>
               <p
@@ -102,7 +102,7 @@ export function PolicyTrackerStats({ stats, loading }: PolicyTrackerStatsProps) 
                 {card.value}
               </p>
               {card.subLabel && (
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
+                <p className="text-xs text-gray-500 dark:text-gray-300 mt-0.5">
                   {card.subLabel}
                 </p>
               )}

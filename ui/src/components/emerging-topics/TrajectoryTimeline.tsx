@@ -131,7 +131,7 @@ export function TrajectoryTimeline({
       {/* Timeline bar */}
       <div className="flex-1">
         {/* Date range label */}
-        <div className="flex justify-between text-[10px] text-gray-600 dark:text-gray-400 mb-1">
+        <div className="flex justify-between text-[10px] text-gray-600 dark:text-gray-300 mb-1">
           <span>{formatDate(firstDetection)}</span>
           <span>{formatDate(lastDetection)}</span>
         </div>
@@ -158,7 +158,7 @@ export function TrajectoryTimeline({
         </div>
 
         {/* Stats row */}
-        <div className="flex items-center gap-2 mt-1 text-[10px] text-gray-500 dark:text-gray-400">
+        <div className="flex items-center gap-2 mt-1 text-[10px] text-gray-500 dark:text-gray-300">
           <span>{detectionCount} detections</span>
           {consecutiveDetections > 1 && (
             <span className="text-green-600 dark:text-green-400 font-medium">
@@ -166,7 +166,7 @@ export function TrajectoryTimeline({
             </span>
           )}
           {missedRuns > 0 && (
-            <span className="text-gray-600 dark:text-gray-400">
+            <span className="text-gray-600 dark:text-gray-300">
               {missedRuns} gaps
             </span>
           )}
@@ -219,7 +219,7 @@ export function TrajectoryTimelineCompact({
 
   return (
     <div className={`flex items-center gap-2 text-xs ${className}`}>
-      <span className="text-gray-500 dark:text-gray-400">
+      <span className="text-gray-500 dark:text-gray-300">
         {detectionCount}x
       </span>
       {consecutiveDetections > 1 && (

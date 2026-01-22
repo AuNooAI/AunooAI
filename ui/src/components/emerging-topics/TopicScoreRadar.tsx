@@ -63,14 +63,14 @@ export function TopicScoreRadar({
           <PolarGrid
             stroke="currentColor"
             strokeOpacity={0.2}
-            className="text-gray-600 dark:text-gray-400"
+            className="text-gray-600 dark:text-gray-300"
           />
           <PolarAngleAxis
             dataKey="metric"
             tick={showLabels ? {
               fill: 'currentColor',
               fontSize: 10,
-              className: 'text-gray-600 dark:text-gray-400',
+              className: 'text-gray-600 dark:text-gray-300',
             } : false}
             tickLine={false}
           />
@@ -107,7 +107,7 @@ export function TopicScoreRadar({
                     <div className="font-medium text-gray-900 dark:text-gray-100">
                       {data.metric}
                     </div>
-                    <div className="text-gray-600 dark:text-gray-400">
+                    <div className="text-gray-600 dark:text-gray-300">
                       Score: <span className="font-semibold">{data.value}</span>/100
                     </div>
                   </div>

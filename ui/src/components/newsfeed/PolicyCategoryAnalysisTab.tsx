@@ -59,7 +59,7 @@ export function PolicyCategoryAnalysisTab({ categories, topic, daysBack }: Polic
       case 'down':
         return <TrendingDown className="w-4 h-4 text-red-500" />;
       default:
-        return <Minus className="w-4 h-4 text-gray-400" />;
+        return <Minus className="w-4 h-4 text-gray-500" />;
     }
   };
 
@@ -75,7 +75,7 @@ export function PolicyCategoryAnalysisTab({ categories, topic, daysBack }: Polic
             </h3>
           </div>
 
-          <p className="text-xs text-gray-600 dark:text-gray-400 mb-4">
+          <p className="text-xs text-gray-600 dark:text-gray-300 mb-4">
             Select a policy category to generate AI-powered analysis and insights. Each analysis examines trends,
             key themes, and connections to other policy areas.
           </p>
@@ -158,7 +158,7 @@ export function PolicyCategoryAnalysisTab({ categories, topic, daysBack }: Polic
                           ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
                           : categoryInsights[selectedInsightCategory].trend === 'down'
                           ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                          : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-400'
+                          : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
                       }`}
                     >
                       {categoryInsights[selectedInsightCategory].trend === 'up'
@@ -180,11 +180,11 @@ export function PolicyCategoryAnalysisTab({ categories, topic, daysBack }: Polic
             {/* Hint when no category selected */}
             {!selectedInsightCategory && !loadingCategoryInsight && (
               <div className="p-6 bg-gray-50 dark:bg-gray-750 rounded-lg border border-dashed border-gray-300 dark:border-gray-600 text-center">
-                <Sparkles className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-3" />
-                <p className="text-sm text-gray-500 dark:text-gray-400">
+                <Sparkles className="w-8 h-8 text-gray-500 dark:text-gray-600 mx-auto mb-3" />
+                <p className="text-sm text-gray-500 dark:text-gray-300">
                   Select a category from the dropdown above to generate insights
                 </p>
-                <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+                <p className="text-xs text-gray-500 dark:text-gray-300 mt-2">
                   Analysis includes trend data, key themes, and cross-category connections
                 </p>
               </div>
@@ -226,7 +226,7 @@ export function PolicyCategoryAnalysisTab({ categories, topic, daysBack }: Polic
                     <span className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                       {cat.article_count}
                     </span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
+                    <span className="text-xs text-gray-500 dark:text-gray-300">
                       {cat.percentage}%
                     </span>
                   </div>

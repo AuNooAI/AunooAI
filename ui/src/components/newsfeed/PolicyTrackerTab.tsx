@@ -152,7 +152,7 @@ export function PolicyTrackerTab({ onArticleClick }: PolicyTrackerTabProps) {
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
             Policy Tracker
           </h2>
-          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+          <p className="text-sm text-gray-500 dark:text-gray-300 mt-1">
             Analyzing policy categories from "{config.topic}"
           </p>
         </div>
@@ -327,7 +327,7 @@ export function PolicyTrackerTab({ onArticleClick }: PolicyTrackerTabProps) {
               </h3>
               <button
                 onClick={() => setShowRelatedModal(false)}
-                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+                className="text-gray-500 hover:text-gray-600 dark:hover:text-gray-500"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -337,17 +337,17 @@ export function PolicyTrackerTab({ onArticleClick }: PolicyTrackerTabProps) {
               {loadingRelated ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="w-6 h-6 animate-spin text-pink-500" />
-                  <span className="ml-2 text-gray-500 dark:text-gray-400">
+                  <span className="ml-2 text-gray-500 dark:text-gray-300">
                     Finding related articles...
                   </span>
                 </div>
               ) : relatedArticles.length === 0 ? (
-                <p className="text-center py-8 text-gray-500 dark:text-gray-400">
+                <p className="text-center py-8 text-gray-500 dark:text-gray-300">
                   No related articles found
                 </p>
               ) : (
                 <div className="space-y-3">
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
+                  <p className="text-xs text-gray-500 dark:text-gray-300 mb-4">
                     Articles from all topics similar to the selected article
                   </p>
                   {relatedArticles.map((article) => (
@@ -364,7 +364,7 @@ export function PolicyTrackerTab({ onArticleClick }: PolicyTrackerTabProps) {
                       <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 line-clamp-2">
                         {article.title}
                       </h4>
-                      <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 dark:text-gray-400">
+                      <div className="flex items-center gap-3 mt-1 text-xs text-gray-500 dark:text-gray-300">
                         {article.news_source && <span>{article.news_source}</span>}
                         {article.topic && (
                           <span className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-600 rounded">

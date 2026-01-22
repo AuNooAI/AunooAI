@@ -569,7 +569,7 @@ export function NewsletterTuneModal({
                               <SelectItem key={preset.value} value={preset.value}>
                                 <div className="flex flex-col">
                                   <span className="font-medium">{preset.label}</span>
-                                  <span className="text-gray-400 text-xs">{preset.description}</span>
+                                  <span className="text-gray-500 text-xs">{preset.description}</span>
                                 </div>
                               </SelectItem>
                             ))}

@@ -56,7 +56,7 @@ class GoogleSearchProvider(BaseDataProvider):
         api_key: Optional[str] = None,
         search_engine_id: Optional[str] = None
     ):
-        super().__init__(api_key or os.getenv("GOOGLE_CSE_API_KEY"))
+        super().__init__(api_key or os.getenv("GOOGLE_CSE_API_KEY") or os.getenv("GOOGLE_API_KEY"))
         self.search_engine_id = search_engine_id or os.getenv("GOOGLE_CSE_ID")
         self._daily_query_count = 0
         self._query_reset_date = datetime.now().date()
