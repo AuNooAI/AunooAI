@@ -1106,3 +1106,101 @@ export async function getTopicCategories(topicName: string): Promise<{
 
   return response.json();
 }
+
+// ============================================================================
+// Promote Article to Incident API
+// ============================================================================
+
+export interface SuggestedIncident {
+  name: string;
+  type?: string;
+  subtype?: string;
+  significance?: string;
+  description?: string;
+  entities?: string[];
+  timeline?: string;
+  plausibility?: string;
+  source_quality?: string;
+  investigation_leads?: string[];
+  organizational_relevance?: string;
+  article_uris?: string[];
+  article_metadata?: any[];
+  topic?: string;
+}
+
+export interface AnalyzeArticleForIncidentResponse {
+  success: boolean;
+  suggested_incident: SuggestedIncident;
+  article_metadata: {
+    uri: string;
+    title: string;
+    summary: string;
+    source: string;
+    publication_date?: string;
+    category?: string;
+    sentiment?: string;
+    topic?: string;
+    bias?: string;
+    factual_reporting?: string;
+    mbfc_credibility_rating?: string;
+  };
+}
+
+/**
+ * Analyze a single article for incident classification
+ * Returns AI-suggested incident data that can be edited before saving
+ */
+export async function analyzeArticleForIncident(
+  articleUri: string,
+  topic?: string,
+  profileId?: number
+): Promise<AnalyzeArticleForIncidentResponse> {
+  const response = await fetch('/api/analyze-article-for-incident', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      article_uri: articleUri,
+      topic: topic || undefined,
+      profile_id: profileId || undefined,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to analyze article: ${response.status}`));
+  }
+
+  return response.json();
+}
+
+/**
+ * Add an article to an existing saved incident
+ */
+export async function addArticleToIncident(
+  incidentName: string,
+  topic: string,
+  articleUri: string,
+  articleMetadata?: any
+): Promise<{ success: boolean; message: string; updated_incident: SavedIncident }> {
+  const response = await fetch(
+    `/api/news-feed/saved/incidents/${encodeURIComponent(incidentName)}/articles`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        topic,
+        article_uri: articleUri,
+        article_metadata: articleMetadata,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to add article to incident: ${response.status}`));
+  }
+
+  return response.json();
+}

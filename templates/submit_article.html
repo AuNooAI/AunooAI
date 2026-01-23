@@ -499,8 +499,14 @@
                             <div id="bulkResultsTable" class="mt-4" style="display: none;">
                                 <h3>Analysis Results</h3>
                                 <div id="bulkResultsBody"></div>
-                                <button id="saveBulkArticlesBtn" class="btn btn-primary mt-3">Save All Articles</button>
-                                <button id="clearBulkResultsBtn" class="btn btn-secondary mt-3 ms-2">Clear Results</button>
+                                <div class="form-check mb-2 mt-3">
+                                    <input type="checkbox" class="form-check-input" id="bulkPromoteToIncidentCheck">
+                                    <label class="form-check-label" for="bulkPromoteToIncidentCheck">
+                                        <strong>Promote to Incidents</strong> - Also create incidents from these articles
+                                    </label>
+                                </div>
+                                <button id="saveBulkArticlesBtn" class="btn btn-primary">Save All Articles</button>
+                                <button id="clearBulkResultsBtn" class="btn btn-secondary ms-2">Clear Results</button>
                             </div>
                         </div>
                         
@@ -542,6 +548,12 @@
                         <!-- Will be populated with analysis results -->
                     </div>
                     <div class="mt-3">
+                        <div class="form-check mb-2">
+                            <input type="checkbox" class="form-check-input" id="promoteToIncidentCheck">
+                            <label class="form-check-label" for="promoteToIncidentCheck">
+                                <strong>Promote to Incident</strong> - Also create an incident from this article
+                            </label>
+                        </div>
                         <button id="saveArticleBtn" class="btn btn-primary" onclick="saveAnalyzedArticle()">Save Article</button>
                         <button class="btn btn-secondary" onclick="clearAnalysis()">Clear</button>
                     </div>
@@ -918,24 +930,80 @@ async function saveAnalyzedArticle() {
         
         const saveResult = await saveResponse.json();
         console.log('Article saved:', saveResult);
-        
+
+        // Check if promote to incident is enabled
+        const promoteToIncident = document.getElementById('promoteToIncidentCheck').checked;
+        let incidentResult = null;
+
+        if (promoteToIncident) {
+            try {
+                // Call the analyze-article-for-incident API
+                const analyzeResponse = await fetch('/api/analyze-article-for-incident', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        article_uri: articleData.uri,
+                        topic: topic
+                    }),
+                });
+
+                if (analyzeResponse.ok) {
+                    const analyzeResult = await analyzeResponse.json();
+
+                    if (analyzeResult.success && analyzeResult.suggested_incident) {
+                        // Save the incident
+                        const incidentToSave = {
+                            ...analyzeResult.suggested_incident,
+                            topic: topic,
+                            article_uris: [articleData.uri],
+                            article_metadata: [{
+                                uri: articleData.uri,
+                                title: articleData.title,
+                                summary: articleData.summary,
+                                source: articleData.news_source,
+                                publication_date: articleData.publication_date
+                            }]
+                        };
+
+                        const saveIncidentResponse = await fetch('/api/news-feed/saved/incidents', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify(incidentToSave),
+                        });
+
+                        if (saveIncidentResponse.ok) {
+                            incidentResult = await saveIncidentResponse.json();
+                            console.log('Incident created:', incidentResult);
+                        }
+                    }
+                }
+            } catch (incidentError) {
+                console.error('Error creating incident:', incidentError);
+                // Don't fail the whole save if incident creation fails
+            }
+        }
+
         // Show success message
         const successMessage = document.createElement('div');
         successMessage.className = 'alert alert-success mt-3';
         successMessage.innerHTML = `
-            <strong>Success!</strong> Article saved successfully.
+            <strong>Success!</strong> Article saved successfully.${incidentResult ? ' Incident created.' : ''}
             <div class="mt-2">
                 <a href="/submit-article?url=${encodeURIComponent(articleData.uri)}&topic=${encodeURIComponent(topic)}" class="btn btn-sm btn-primary">Edit Article</a>
                 <a href="/topic-dashboard?topic=${encodeURIComponent(topic)}" class="btn btn-sm btn-secondary ms-2">Explore Dashboard</a>
             </div>
         `;
-        
+
         // Insert success message after save button
         document.getElementById('saveArticleBtn').insertAdjacentElement('afterend', successMessage);
-        
+
         // Disable save button to prevent duplicate saves
         document.getElementById('saveArticleBtn').disabled = true;
-        
+
         // Refresh the recently enriched articles panel
         loadRecentEnrichedArticles();
         
@@ -1697,7 +1765,64 @@ async function saveBulkArticles() {
         }
         
         if (result.success && result.success.length > 0) {
-            alert(`${result.success.length} of ${articles.length} article(s) saved successfully!`);
+            // Check if promote to incidents is enabled
+            const promoteToIncidents = document.getElementById('bulkPromoteToIncidentCheck').checked;
+            let incidentsCreated = 0;
+
+            if (promoteToIncidents) {
+                for (const savedArticle of result.success) {
+                    try {
+                        // Call the analyze-article-for-incident API
+                        const analyzeResponse = await fetch('/api/analyze-article-for-incident', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                article_uri: savedArticle.uri,
+                                topic: topic
+                            }),
+                        });
+
+                        if (analyzeResponse.ok) {
+                            const analyzeResult = await analyzeResponse.json();
+
+                            if (analyzeResult.success && analyzeResult.suggested_incident) {
+                                // Save the incident
+                                const incidentToSave = {
+                                    ...analyzeResult.suggested_incident,
+                                    topic: topic,
+                                    article_uris: [savedArticle.uri],
+                                    article_metadata: [{
+                                        uri: savedArticle.uri,
+                                        title: savedArticle.title,
+                                        summary: savedArticle.summary,
+                                        source: savedArticle.news_source,
+                                        publication_date: savedArticle.publication_date
+                                    }]
+                                };
+
+                                const saveIncidentResponse = await fetch('/api/news-feed/saved/incidents', {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                    },
+                                    body: JSON.stringify(incidentToSave),
+                                });
+
+                                if (saveIncidentResponse.ok) {
+                                    incidentsCreated++;
+                                }
+                            }
+                        }
+                    } catch (incidentError) {
+                        console.error('Error creating incident for article:', savedArticle.uri, incidentError);
+                    }
+                }
+            }
+
+            const incidentMessage = incidentsCreated > 0 ? ` ${incidentsCreated} incident(s) created.` : '';
+            alert(`${result.success.length} of ${articles.length} article(s) saved successfully!${incidentMessage}`);
 
             // Remove saved articles from display
             result.success.forEach(savedArticle => {

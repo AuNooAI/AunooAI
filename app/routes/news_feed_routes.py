@@ -2249,6 +2249,95 @@ async def delete_saved_incident(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/saved/incidents/{incident_name}/articles")
+async def add_article_to_incident(
+    incident_name: str,
+    request_body: dict,
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Add an article to an existing saved incident."""
+    from sqlalchemy import text
+    import json
+
+    try:
+        user_id = session.get("user_id")
+        topic = request_body.get("topic", "")
+        article_uri = request_body.get("article_uri")
+
+        if not article_uri:
+            raise HTTPException(status_code=400, detail="article_uri is required")
+
+        conn = db._temp_get_connection()
+
+        # First, fetch the existing incident
+        result = conn.execute(text("""
+            SELECT id, incident_data
+            FROM saved_incidents
+            WHERE incident_name = :name AND topic = :topic
+            AND (user_id = :user_id OR user_id IS NULL)
+        """), {"name": incident_name, "topic": topic, "user_id": user_id})
+
+        row = result.mappings().fetchone()
+
+        if not row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Incident not found")
+
+        # Parse existing incident data
+        incident_data = row["incident_data"] if row["incident_data"] else {}
+
+        # Ensure article_uris list exists
+        if "article_uris" not in incident_data:
+            incident_data["article_uris"] = []
+
+        # Check if article is already in the incident
+        if article_uri in incident_data["article_uris"]:
+            conn.close()
+            return {
+                "success": True,
+                "message": "Article already in incident",
+                "updated_incident": incident_data
+            }
+
+        # Add the new article URI
+        incident_data["article_uris"].append(article_uri)
+
+        # Optionally add article metadata if provided
+        if "article_metadata" in request_body:
+            if "article_metadata" not in incident_data:
+                incident_data["article_metadata"] = []
+            incident_data["article_metadata"].append(request_body["article_metadata"])
+
+        # Update the incident in the database
+        conn.execute(text("""
+            UPDATE saved_incidents
+            SET incident_data = :data, updated_at = NOW()
+            WHERE incident_name = :name AND topic = :topic
+            AND (user_id = :user_id OR user_id IS NULL)
+        """), {
+            "data": json.dumps(incident_data),
+            "name": incident_name,
+            "topic": topic,
+            "user_id": user_id
+        })
+
+        conn.commit()
+        conn.close()
+
+        logger.info(f"Added article to incident: {incident_name}")
+        return {
+            "success": True,
+            "message": f"Article added to incident '{incident_name}'",
+            "updated_incident": incident_data
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding article to incident: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/saved/narratives")
 async def get_saved_narratives(
     topic: Optional[str] = Query(None, description="Topic filter"),

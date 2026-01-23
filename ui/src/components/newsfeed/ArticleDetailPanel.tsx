@@ -5,12 +5,13 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { X, ExternalLink, Star, StarOff, MessageSquare, Clock, TrendingUp, Building2, Layers, ChevronRight, MoreVertical, ThumbsUp, ThumbsDown, Share, Copy, Mail, Bot, Loader2 } from 'lucide-react';
+import { X, ExternalLink, Star, StarOff, MessageSquare, Clock, TrendingUp, Building2, Layers, ChevronRight, MoreVertical, ThumbsUp, ThumbsDown, Share, Copy, Mail, Bot, Loader2, AlertTriangle } from 'lucide-react';
 import { type NewsArticle, type ClusterRelatedArticle, recordArticlePreference } from '../../services/newsFeedApi';
 import { ArticleBiasIndicator } from './ArticleBiasIndicator';
 import { Button } from '../ui/button';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import { ShareModal, type ShareArticleData } from '../ShareModal';
+import { PromoteToIncidentModal } from './PromoteToIncidentModal';
 
 interface ArticleDetailPanelProps {
   article: NewsArticle | null;
@@ -20,6 +21,8 @@ interface ArticleDetailPanelProps {
   onStar?: (uri: string) => void;
   onUnstar?: (uri: string) => void;
   onRelatedArticleClick?: (uri: string) => void;
+  topic?: string;
+  profileId?: number;
 }
 
 export function ArticleDetailPanel({
@@ -29,12 +32,15 @@ export function ArticleDetailPanel({
   onClose,
   onStar,
   onUnstar,
-  onRelatedArticleClick
+  onRelatedArticleClick,
+  topic,
+  profileId
 }: ArticleDetailPanelProps) {
   const [activeTab, setActiveTab] = useState<'details' | 'related'>('details');
   const [showMenu, setShowMenu] = useState(false);
   const [preferenceLoading, setPreferenceLoading] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showPromoteModal, setShowPromoteModal] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const hasRelated = relatedArticles.length > 0;
 
@@ -75,6 +81,9 @@ export function ArticleDetailPanel({
     } else if (action === 'share') {
       // Open share modal for email
       setShowShareModal(true);
+    } else if (action === 'promote') {
+      // Open promote to incident modal
+      setShowPromoteModal(true);
     }
   };
 
@@ -228,6 +237,14 @@ Please provide:
                     >
                       <Mail className="w-4 h-4" />
                       Share via email
+                    </button>
+                    <div className="border-t border-gray-200 my-1" />
+                    <button
+                      onClick={() => handleMenuAction('promote')}
+                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                    >
+                      <AlertTriangle className="w-4 h-4" />
+                      Promote to Incident
                     </button>
                   </div>
                 )}
@@ -484,6 +501,15 @@ Please provide:
           } as ShareArticleData}
         />
       )}
+
+      {/* Promote to Incident Modal */}
+      <PromoteToIncidentModal
+        open={showPromoteModal}
+        onOpenChange={setShowPromoteModal}
+        article={article}
+        topic={topic || article?.topic}
+        profileId={profileId}
+      />
     </>
   );
 }

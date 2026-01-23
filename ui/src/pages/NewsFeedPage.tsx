@@ -1172,6 +1172,7 @@ export function NewsFeedPage() {
           // Fetch and display the related article
           handleArticleClick({ uri });
         }}
+        topic={config.topic}
       />
 
       {/* Category View Modal */}

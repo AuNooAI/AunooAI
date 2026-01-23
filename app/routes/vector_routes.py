@@ -5702,4 +5702,225 @@ Do not include any explanatory text outside the JSON array.""",
             "profileContextTemplate": default_profile_context_template,
             "enableProfileIntegration": True
         }
-        } 
+        }
+
+
+# ---------------------------------------------------------------------------
+# Analyze Article for Incident - Single article analysis for incident promotion
+# ---------------------------------------------------------------------------
+
+class _AnalyzeArticleForIncidentRequest(BaseModel):
+    """Request model for analyzing a single article for incident creation."""
+    article_uri: str = Field(..., description="URI of the article to analyze")
+    topic: Optional[str] = Field(None, description="Topic context for analysis")
+    profile_id: Optional[int] = Field(None, description="Organizational profile ID for context")
+    model: Optional[str] = Field(None, description="Model to use for analysis (uses first available if not specified)")
+
+
+@router.post("/analyze-article-for-incident")
+async def analyze_article_for_incident(
+    req: _AnalyzeArticleForIncidentRequest,
+    session=Depends(verify_session),
+):
+    """Analyze a single article to suggest incident classification for promotion.
+
+    Returns AI-suggested incident data that can be edited before saving.
+    """
+    try:
+        from app.database import get_database_instance
+        from app.database_query_facade import DatabaseQueryFacade
+
+        db = get_database_instance()
+        facade = DatabaseQueryFacade(db, logger)
+
+        # Fetch the article by URI
+        article = facade.get_article_by_uri(req.article_uri)
+
+        if not article:
+            raise HTTPException(status_code=404, detail="Article not found")
+
+        # Convert to dict for easier handling
+        article_dict = dict(article)
+
+        # Build article metadata for response
+        article_metadata = {
+            "uri": article_dict.get("uri"),
+            "title": article_dict.get("title"),
+            "summary": article_dict.get("summary"),
+            "source": article_dict.get("news_source"),
+            "publication_date": str(article_dict.get("publication_date")) if article_dict.get("publication_date") else None,
+            "category": article_dict.get("category"),
+            "sentiment": article_dict.get("sentiment"),
+            "topic": article_dict.get("topic") or req.topic,
+            "bias": article_dict.get("bias"),
+            "factual_reporting": article_dict.get("factual_reporting"),
+            "mbfc_credibility_rating": article_dict.get("mbfc_credibility_rating"),
+        }
+
+        # Prepare article text for LLM analysis
+        def _norm(value):
+            return (value or '').strip() if isinstance(value, str) else (value or '')
+
+        article_text = (
+            f"Article:\n"
+            f"Title: {article_dict.get('title')}\n"
+            f"Source: {article_dict.get('news_source')}\n"
+            f"Date: {article_dict.get('publication_date')}\n"
+            f"Category: {article_dict.get('category')} | Sentiment: {article_dict.get('sentiment')}\n"
+            f"Credibility: factual_reporting={_norm(article_dict.get('factual_reporting')) or 'unknown'}, "
+            f"mbfc={_norm(article_dict.get('mbfc_credibility_rating')) or 'unknown'}, bias={_norm(article_dict.get('bias')) or 'unknown'}\n"
+            f"Summary: {article_dict.get('summary')}\n"
+            f"URI: {article_dict.get('uri')}"
+        )
+
+        # Get organizational profile context if provided
+        profile_context = ""
+        if req.profile_id:
+            try:
+                profile_row = facade.get_organisational_profile(req.profile_id)
+                if profile_row:
+                    profile = {
+                        'name': profile_row['name'],
+                        'industry': profile_row['industry'],
+                        'organization_type': profile_row['organization_type'],
+                        'region': profile_row['region'],
+                        'key_concerns': json.loads(profile_row['key_concerns']) if profile_row['key_concerns'] else [],
+                        'strategic_priorities': json.loads(profile_row['strategic_priorities']) if profile_row['strategic_priorities'] else [],
+                        'risk_tolerance': profile_row['risk_tolerance'],
+                        'innovation_appetite': profile_row['innovation_appetite'],
+                        'decision_making_style': profile_row['decision_making_style'],
+                        'stakeholder_focus': json.loads(profile_row['stakeholder_focus']) if profile_row['stakeholder_focus'] else [],
+                        'competitive_landscape': json.loads(profile_row['competitive_landscape']) if profile_row['competitive_landscape'] else [],
+                        'regulatory_environment': json.loads(profile_row['regulatory_environment']) if profile_row['regulatory_environment'] else [],
+                        'custom_context': profile_row['custom_context']
+                    }
+
+                    key_concerns = ', '.join(profile['key_concerns']) if profile['key_concerns'] else 'General business concerns'
+                    strategic_priorities = ', '.join(profile['strategic_priorities']) if profile['strategic_priorities'] else 'Growth and sustainability'
+                    stakeholder_focus = ', '.join(profile['stakeholder_focus']) if profile['stakeholder_focus'] else 'Customers and employees'
+                    competitive_landscape = ', '.join(profile['competitive_landscape']) if profile['competitive_landscape'] else 'Industry competitors'
+                    regulatory_environment = ', '.join(profile['regulatory_environment']) if profile['regulatory_environment'] else 'Standard regulations'
+
+                    profile_context = f"""
+ORGANIZATIONAL CONTEXT:
+Organization: {profile['name']} ({profile.get('organization_type', 'Organization')} in {profile.get('industry', 'General')})
+Region: {profile.get('region', 'Not specified')}
+Risk Tolerance: {profile.get('risk_tolerance', 'Medium')} | Innovation Appetite: {profile.get('innovation_appetite', 'Moderate')}
+Decision Making: {profile.get('decision_making_style', 'Collaborative')}
+
+Key Concerns: {key_concerns}
+Strategic Priorities: {strategic_priorities}
+Key Stakeholders: {stakeholder_focus}
+Competitive Landscape: {competitive_landscape}
+Regulatory Environment: {regulatory_environment}
+
+Custom Context: {profile.get('custom_context', 'No additional context specified')}
+"""
+                    logger.info(f"Using organizational profile: {profile['name']} ({profile.get('industry', 'General')})")
+            except Exception as e:
+                logger.error(f"Error loading organizational profile {req.profile_id}: {str(e)}")
+
+        # Build the LLM prompt
+        topic_label = req.topic or article_dict.get('topic') or 'general news'
+
+        system_prompt = f"""You are a strategic intelligence analyst classifying a news article as a potential incident for tracking.
+
+{profile_context}
+
+Analyze the article and suggest appropriate classification. Return a single JSON object (not an array) with these fields:
+- name: concise, factual headline (what happened)
+- type: incident | event | entity | expertise | informed_insider | trend_signal | strategic_shift
+- subtype: from the allowed list for the chosen type
+  - incident: regulatory_action, compliance_breach, data_security, legal_ip, mna, layoffs, funding_cut, rd_spend_change, governance_change, market_disruption
+  - event: product_launch, feature_update, partnership_mou, funding_round, hiring, award, conference_announcement, roadmap_teaser, benchmark_result, pilot_program
+  - entity: company, person, product, dataset, venue, regulator, research_institution, government_agency
+  - expertise: industry_analysis, market_prediction, technical_assessment, strategic_forecast, expert_warning, research_finding
+  - informed_insider: leaked_strategy, internal_memo, insider_trading, confidential_roadmap, private_meeting, executive_communication
+  - trend_signal: adoption_trend, market_shift, behavioral_change, technology_uptake, regulatory_momentum, competitive_dynamic
+  - strategic_shift: policy_pivot, strategic_realignment, market_repositioning, technology_focus_change, regulatory_approach_change
+- significance: low | medium | high
+- description: FACTUAL summary of what happened/is happening - include who, what, when, where
+- entities: array of named entities mentioned (companies, people, products)
+- timeline: string describing when this happened/is happening
+- plausibility: likely | questionable | implausible
+- source_quality: high | mixed | low (based on credibility indicators)
+- investigation_leads: array of suggested follow-up questions or areas to investigate
+- organizational_relevance: 1-2 sentences explaining why this is relevant to the organization (if profile provided)
+
+Output a single JSON object only, no explanation text."""
+
+        user_prompt = f"Classify this article for incident tracking in the context of {topic_label}:\n\n{article_text}"
+
+        # Generate analysis
+        from app.ai_models import LiteLLMModel, get_available_models
+        from fastapi.concurrency import run_in_threadpool
+
+        # Get model name - use specified or first available
+        model_name = req.model
+        if not model_name:
+            available_models = get_available_models()
+            if not available_models:
+                raise HTTPException(status_code=500, detail="No AI models configured")
+            model_name = available_models[0]['name']
+
+        ai_model = LiteLLMModel.get_instance(model_name)
+        if not ai_model:
+            raise HTTPException(status_code=500, detail=f"Failed to initialize model {model_name}")
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
+
+        response_str = await run_in_threadpool(ai_model.generate_response, messages)
+
+        # Check for error messages from AI model
+        if response_str and ("⚠️" in response_str or "unavailable" in response_str.lower()):
+            logger.error(f"LLM returned error message for article analysis: {response_str}")
+            raise HTTPException(status_code=500, detail=response_str)
+
+        # Parse response
+        suggested_incident = {}
+        if response_str:
+            try:
+                import re
+                # Try to extract JSON object
+                json_match = re.search(r'\{.*\}', response_str, re.DOTALL)
+                if json_match:
+                    suggested_incident = json.loads(json_match.group())
+            except json.JSONDecodeError as je:
+                logger.error(f"Failed to parse article analysis response: {je}")
+                # Provide default structure
+                suggested_incident = {
+                    "name": article_dict.get('title', ''),
+                    "type": "event",
+                    "subtype": "general",
+                    "significance": "medium",
+                    "description": article_dict.get('summary', ''),
+                    "entities": [],
+                    "timeline": str(article_dict.get('publication_date', '')),
+                    "plausibility": "likely",
+                    "source_quality": "mixed",
+                    "investigation_leads": [],
+                    "organizational_relevance": ""
+                }
+
+        # Add article URIs to the suggested incident
+        suggested_incident["article_uris"] = [req.article_uri]
+        suggested_incident["article_metadata"] = [article_metadata]
+
+        # Ensure topic is set
+        if not suggested_incident.get("topic"):
+            suggested_incident["topic"] = req.topic or article_dict.get('topic', '')
+
+        return {
+            "success": True,
+            "suggested_incident": suggested_incident,
+            "article_metadata": article_metadata
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error analyzing article for incident: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e)) 
