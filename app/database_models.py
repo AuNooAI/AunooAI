@@ -1208,6 +1208,9 @@ t_rss_feeds = Table(
     # Relevance filtering (0 = skip filtering, 1-100 = threshold percentage)
     Column('relevance_threshold', Integer, server_default=text('0'), nullable=False),
 
+    # Source credibility - factual reporting level to set on enriched articles
+    Column('default_factual_reporting', String(50)),
+
     # Tracking
     Column('last_checked_at', DateTime(timezone=True)),
     Column('last_article_date', DateTime(timezone=True)),
