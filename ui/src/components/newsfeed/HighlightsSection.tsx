@@ -32,6 +32,7 @@ import {
   Download,
   FileText,
   Table,
+  MessageSquare,
 } from 'lucide-react';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import {
@@ -62,6 +63,8 @@ import { Skeleton } from '../ui/skeleton';
 import { AgentSignalBadge, extractSignalTags } from './AgentSignalBadge';
 import { ExportService } from '../../services/exportService';
 import { ShareModal, type ShareIncidentData, type ShareIncidentsData, type ShareData } from '../ShareModal';
+import { AnalystNotesSection } from './SavedIncidentsSection';
+import { type AnalystNote } from '../../services/newsFeedApi';
 
 // Helper to extract all signal tags from an incident's article metadata
 function getIncidentSignalTags(incident: Incident): string[] {
@@ -447,6 +450,7 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
                 onToggleExpand={() => setSelectedIncidentId(null)}
                 onIncidentUpdate={onIncidentUpdate}
                 onArticleClick={onArticleClick}
+                savedIncidentNames={savedIncidentNames}
               />
             </div>
           )}
@@ -809,6 +813,12 @@ function CompactIncidentCard({ incident, onClick, isSaved, isPromoted, currentTo
               Saved
             </span>
           )}
+          {incident.analyst_notes && incident.analyst_notes.length > 0 && (
+            <span className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded">
+              <MessageSquare className="w-3 h-3" />
+              {incident.analyst_notes.length}
+            </span>
+          )}
         </div>
 
         {/* Summary - displayed on card */}
@@ -896,9 +906,10 @@ interface IncidentCardProps {
   onToggleExpand: () => void;
   onIncidentUpdate?: () => void;
   onArticleClick?: (article: { uri: string; title?: string }) => void;
+  savedIncidentNames?: string[];
 }
 
-function IncidentCard({ incident, expanded, onToggleExpand, onIncidentUpdate, onArticleClick }: IncidentCardProps) {
+function IncidentCard({ incident, expanded, onToggleExpand, onIncidentUpdate, onArticleClick, savedIncidentNames = [] }: IncidentCardProps) {
   const [actionLoading, setActionLoading] = useState(false);
 
   // Get display values with fallbacks
@@ -908,6 +919,20 @@ function IncidentCard({ incident, expanded, onToggleExpand, onIncidentUpdate, on
   const significance = incident.significance || 'medium';
   const status = incident.status || 'active';
   const signalTags = getIncidentSignalTags(incident);
+  const topic = incident.topic || '';
+
+  // Check if this incident supports notes (saved incidents have _saved_id, are promoted, or in savedIncidentNames)
+  const supportsNotes = !!(incident as any)._saved_id || incident.isPromoted || savedIncidentNames.includes(name);
+
+  // State for analyst notes - initialized from incident data (only for saved/promoted incidents)
+  const [analystNotes, setAnalystNotes] = useState<AnalystNote[]>(
+    incident.analyst_notes || []
+  );
+
+  // Handle new note added
+  const handleNoteAdded = (note: AnalystNote) => {
+    setAnalystNotes(prev => [note, ...prev]);
+  };
 
   // Check for low quality indicators
   const isLowQuality =
@@ -1319,6 +1344,17 @@ Provide balanced analysis of how this story is being covered across sources, cit
                 )}
               </div>
             </div>
+          )}
+
+          {/* Analyst Notes Section - only for saved/promoted incidents */}
+          {expanded && supportsNotes && (
+            <AnalystNotesSection
+              notes={analystNotes}
+              incidentName={name}
+              topic={topic}
+              savedId={(incident as any)._saved_id}
+              onNoteAdded={handleNoteAdded}
+            />
           )}
         </div>
       </CardContent>

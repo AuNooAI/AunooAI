@@ -208,6 +208,9 @@ export function NewsFeedPage() {
   // Promoted incidents - incidents created from articles that aren't in AI-generated list
   const [promotedIncidents, setPromotedIncidents] = useState<typeof incidents>([]);
 
+  // Map of saved incidents by name for quick lookup (includes analyst_notes)
+  const [savedIncidentsMap, setSavedIncidentsMap] = useState<Map<string, typeof incidents[0]>>(new Map());
+
   // Load saved incident names and promoted incidents when topic changes or refresh is triggered
   useEffect(() => {
     // Fetch saved incidents - use topic filter if available, otherwise fetch all
@@ -220,6 +223,13 @@ export function NewsFeedPage() {
 
         // Update saved incident names list
         setSavedIncidentNames(savedIncidents.map(i => i.name));
+
+        // Create map of saved incidents for merging notes into AI-generated incidents
+        const savedMap = new Map<string, typeof incidents[0]>();
+        savedIncidents.forEach(saved => {
+          savedMap.set(saved.name, savedToIncident(saved));
+        });
+        setSavedIncidentsMap(savedMap);
 
         // Identify promoted incidents: those in saved_incidents but NOT in AI-generated incidents
         // These are articles that were promoted to incidents by the user
@@ -434,7 +444,22 @@ export function NewsFeedPage() {
 
   // Merge AI-generated incidents with promoted incidents, then filter
   // Promoted incidents appear first since they were explicitly created by the user
-  const allIncidents = [...promotedIncidents, ...incidents];
+  // For AI incidents that are also saved, merge in saved data (including analyst_notes)
+  const mergedAiIncidents = incidents.map(incident => {
+    const incidentName = incident.name || incident.title;
+    const savedData = incidentName ? savedIncidentsMap.get(incidentName) : null;
+    if (savedData) {
+      // Merge saved data into AI incident (saved data takes precedence for notes)
+      return {
+        ...incident,
+        analyst_notes: savedData.analyst_notes,
+        _saved_id: (savedData as any)._saved_id,
+        _saved_at: (savedData as any)._saved_at,
+      };
+    }
+    return incident;
+  });
+  const allIncidents = [...promotedIncidents, ...mergedAiIncidents];
   console.log('[NewsFeedPage] Merging incidents: promoted=', promotedIncidents.length, 'AI=', incidents.length, 'total=', allIncidents.length);
   const filteredIncidents = applyFilters(allIncidents, filters);
 
