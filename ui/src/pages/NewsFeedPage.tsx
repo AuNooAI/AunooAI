@@ -54,7 +54,7 @@ import { NewsfeedScheduleModal } from '../components/newsfeed/NewsfeedScheduleMo
 import { type NewsArticle, type ArticleCluster, type ClusterRelatedArticle, getArticleByUri, getClusteredArticles, clusterArticleToNewsArticle, saveIncident as saveIncidentToDb } from '../services/newsFeedApi';
 import { applyFilters, createEmptyFilters, type IncidentFilters } from '../components/newsfeed/FilterPanel';
 import { getSignalReportsCount } from '../services/researchAgentsApi';
-import { getSavedIncidents, saveIncident as apiSaveIncident, unsaveIncident as apiUnsaveIncident } from '../services/narrativeExplorerApi';
+// Note: Incidents are now saved only to saved_incidents table, not incident_status
 import { NotificationBell } from '../components/gather/NotificationBell';
 import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import { Button } from '../components/ui/button';
@@ -198,17 +198,22 @@ export function NewsFeedPage() {
   const [selectedCategory, setSelectedCategory] = useState<{ name: string; topic?: string } | null>(null);
   const [loadingArticleDetail, setLoadingArticleDetail] = useState(false);
 
-  // Saved incidents state
+  // Saved incidents refresh trigger - increment to refresh SavedIncidentsSection
+  const [savedIncidentsRefresh, setSavedIncidentsRefresh] = useState(0);
+
+  // Saved incident names - for showing save/unsave status in HighlightsSection
   const [savedIncidentNames, setSavedIncidentNames] = useState<string[]>([]);
 
-  // Load saved incidents when topic changes
+  // Load saved incident names when topic changes
   useEffect(() => {
     if (config.topic) {
-      getSavedIncidents(config.topic)
-        .then(names => setSavedIncidentNames(names))
-        .catch(err => console.error('Failed to load saved incidents:', err));
+      import('../services/newsFeedApi').then(({ getSavedIncidents }) => {
+        getSavedIncidents(config.topic)
+          .then(incidents => setSavedIncidentNames(incidents.map(i => i.name)))
+          .catch(err => console.error('Failed to load saved incident names:', err));
+      });
     }
-  }, [config.topic]);
+  }, [config.topic, savedIncidentsRefresh]);
 
   // Save incident handler - saves both status and full incident data
   const handleSaveIncident = useCallback(async (incidentName: string) => {
@@ -217,10 +222,7 @@ export function NewsFeedPage() {
       // Find the full incident data from the incidents array
       const incident = incidents.find(i => (i.name || i.title) === incidentName);
 
-      // Save the incident status (legacy API)
-      await apiSaveIncident(incidentName, config.topic);
-
-      // Also save the full incident data for persistence
+      // Save the full incident data to saved_incidents table
       if (incident) {
         await saveIncidentToDb({
           name: incidentName,
@@ -244,7 +246,9 @@ export function NewsFeedPage() {
         });
       }
 
+      // Update local state and trigger refresh
       setSavedIncidentNames(prev => [...prev, incidentName]);
+      setSavedIncidentsRefresh(prev => prev + 1);
     } catch (err) {
       console.error('Failed to save incident:', err);
     }
@@ -252,14 +256,10 @@ export function NewsFeedPage() {
 
   // Unsave incident handler
   const handleUnsaveIncident = useCallback(async (incidentName: string) => {
-    if (!config.topic) return;
-    try {
-      await apiUnsaveIncident(incidentName, config.topic);
-      setSavedIncidentNames(prev => prev.filter(name => name !== incidentName));
-    } catch (err) {
-      console.error('Failed to unsave incident:', err);
-    }
-  }, [config.topic]);
+    // Update local state and trigger refresh
+    setSavedIncidentNames(prev => prev.filter(name => name !== incidentName));
+    setSavedIncidentsRefresh(prev => prev + 1);
+  }, []);
 
   // Saved narratives state
   const [savedNarrativeNames, setSavedNarrativeNames] = useState<string[]>([]);
@@ -774,8 +774,8 @@ export function NewsFeedPage() {
           >
             <Bookmark className="w-4 h-4" />
             Saved
-            {(starredArticles.length + savedIncidentNames.length) > 0 && (
-              <span className="explore-tab-badge">{starredArticles.length + savedIncidentNames.length}</span>
+            {starredArticles.length > 0 && (
+              <span className="explore-tab-badge">{starredArticles.length}</span>
             )}
           </button>
           <button
@@ -1069,14 +1069,12 @@ export function NewsFeedPage() {
                 {/* Divider */}
                 <hr className="border-gray-200 dark:border-gray-700 mx-6" />
 
-                {/* Saved Incidents Section */}
+                {/* Saved Incidents Section - fetches from saved_incidents table */}
                 <SavedIncidentsSection
-                  incidents={filteredIncidents}
-                  savedIncidentNames={savedIncidentNames}
-                  loading={loadingHighlights}
-                  onUnsaveIncident={handleUnsaveIncident}
+                  topic={config.topic}
                   onArticleClick={handleArticleClick}
                   isFullTab={true}
+                  refreshTrigger={savedIncidentsRefresh}
                 />
 
                 {/* Divider */}

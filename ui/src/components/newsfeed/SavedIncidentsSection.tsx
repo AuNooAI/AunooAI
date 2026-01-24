@@ -1,5 +1,6 @@
 /**
  * Saved Incidents Section - Display saved incidents
+ * Fetches incidents directly from saved_incidents table
  * Can be used as a small section (horizontal scroll) or as a full tab (grid layout)
  */
 
@@ -24,6 +25,7 @@ import {
   Download,
   FileText,
   Table,
+  Loader2,
 } from 'lucide-react';
 import {
   type Incident,
@@ -38,6 +40,7 @@ import {
   getBiasClass,
   prettifyMisinfoFlag,
 } from '../../services/narrativeExplorerApi';
+import { getSavedIncidents, deleteSavedIncident, type SavedIncident } from '../../services/newsFeedApi';
 import { Skeleton } from '../ui/skeleton';
 import { Card, CardContent } from '../ui/card';
 import { AgentSignalBadge, extractSignalTags } from './AgentSignalBadge';
@@ -59,24 +62,43 @@ function getIncidentSignalTags(incident: Incident): string[] {
 }
 
 interface SavedIncidentsSectionProps {
-  incidents: Incident[];
-  savedIncidentNames: string[];
-  loading?: boolean;
-  onUnsaveIncident?: (incidentName: string) => void;
+  topic?: string;
   onArticleClick?: (article: { uri: string; title?: string }) => void;
   isFullTab?: boolean;
+  refreshTrigger?: number; // Increment to trigger refresh
+}
+
+// Convert SavedIncident to Incident format for display
+function savedToIncident(saved: SavedIncident): Incident {
+  return {
+    name: saved.name,
+    title: saved.name,
+    type: saved.type || 'event',
+    significance: saved.significance || 'medium',
+    description: saved.description,
+    summary: saved.description,
+    topic: saved.topic,
+    entities: saved.entities,
+    timeline: saved.timeline,
+    organizational_relevance: saved.organizational_relevance,
+    plausibility: saved.plausibility,
+    source_quality: saved.source_quality,
+    article_uris: saved.article_uris,
+    article_metadata: saved.article_metadata,
+    investigation_leads: saved.investigation_leads,
+  } as Incident;
 }
 
 export function SavedIncidentsSection({
-  incidents,
-  savedIncidentNames,
-  loading,
-  onUnsaveIncident,
+  topic,
   onArticleClick,
   isFullTab = false,
+  refreshTrigger,
 }: SavedIncidentsSectionProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
+  const [savedIncidents, setSavedIncidents] = useState<Incident[]>([]);
+  const [loading, setLoading] = useState(false);
 
   // Share modal state
   const [showShareModal, setShowShareModal] = useState(false);
@@ -90,11 +112,32 @@ export function SavedIncidentsSection({
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(false);
 
-  // Filter incidents to only show saved ones
-  const savedIncidents = incidents.filter((incident) => {
-    const name = incident.name || incident.title || '';
-    return savedIncidentNames.includes(name);
-  });
+  // Fetch saved incidents from saved_incidents table
+  useEffect(() => {
+    if (!topic) return;
+
+    setLoading(true);
+    getSavedIncidents(topic)
+      .then(incidents => {
+        setSavedIncidents(incidents.map(savedToIncident));
+      })
+      .catch(err => {
+        console.error('Failed to load saved incidents:', err);
+        setSavedIncidents([]);
+      })
+      .finally(() => setLoading(false));
+  }, [topic, refreshTrigger]);
+
+  // Handle unsave/delete incident
+  const handleUnsaveIncident = async (incidentName: string) => {
+    if (!topic) return;
+    try {
+      await deleteSavedIncident(incidentName, topic);
+      setSavedIncidents(prev => prev.filter(i => (i.name || i.title) !== incidentName));
+    } catch (err) {
+      console.error('Failed to unsave incident:', err);
+    }
+  };
 
   // Find selected incident for expansion
   const selectedIncident = selectedIncidentId
@@ -238,7 +281,7 @@ export function SavedIncidentsSection({
                   <SavedIncidentCard
                     key={incidentKey}
                     incident={incident}
-                    onUnsave={onUnsaveIncident}
+                    onUnsave={handleUnsaveIncident}
                     onArticleClick={onArticleClick}
                     onShare={handleShare}
                     onClick={() => handleCompactCardClick(incidentKey)}
@@ -254,7 +297,7 @@ export function SavedIncidentsSection({
                 <ExpandedSavedIncidentCard
                   incident={selectedIncident}
                   onClose={() => setSelectedIncidentId(null)}
-                  onUnsave={onUnsaveIncident}
+                  onUnsave={handleUnsaveIncident}
                   onArticleClick={onArticleClick}
                 />
               </div>
@@ -276,7 +319,7 @@ export function SavedIncidentsSection({
 
   // Compact Section View (original horizontal scroll)
   // Don't render if no saved incidents
-  if (savedIncidentNames.length === 0 && !loading) {
+  if (savedIncidents.length === 0 && !loading) {
     return null;
   }
 
@@ -395,7 +438,7 @@ export function SavedIncidentsSection({
                     <SavedIncidentCard
                       key={incidentKey}
                       incident={incident}
-                      onUnsave={onUnsaveIncident}
+                      onUnsave={handleUnsaveIncident}
                       onArticleClick={onArticleClick}
                       onShare={handleShare}
                     />
