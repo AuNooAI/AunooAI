@@ -2130,6 +2130,7 @@ async def get_saved_incidents(
 
     try:
         user_id = session.get("user_id")
+        logger.info(f"[get_saved_incidents] Fetching incidents for topic: {topic}, user_id: {user_id}")
         conn = db._temp_get_connection()
 
         if topic:
@@ -2151,13 +2152,28 @@ async def get_saved_incidents(
         rows = result.mappings().all()
         conn.close()
 
+        logger.info(f"[get_saved_incidents] Found {len(rows)} rows for topic: {topic}")
+
         incidents = []
         for row in rows:
-            incident_data = row["incident_data"] if row["incident_data"] else {}
+            # Handle JSONB - might be dict or might need parsing
+            raw_data = row["incident_data"]
+            if raw_data is None:
+                incident_data = {}
+            elif isinstance(raw_data, str):
+                # If it's a string, parse it
+                import json as json_module
+                incident_data = json_module.loads(raw_data)
+            else:
+                # Already a dict from JSONB
+                incident_data = dict(raw_data) if raw_data else {}
+
             incident_data["_saved_id"] = row["id"]
             incident_data["_saved_at"] = row["saved_at"].isoformat() if row["saved_at"] else None
             incidents.append(incident_data)
+            logger.info(f"[get_saved_incidents] Incident: {incident_data.get('name')} topic: {incident_data.get('topic')}")
 
+        logger.info(f"[get_saved_incidents] Returning {len(incidents)} incidents")
         return {
             "success": True,
             "incidents": incidents,
@@ -2182,24 +2198,51 @@ async def save_incident(
         user_id = session.get("user_id")
         incident_name = incident_data.get("name") or incident_data.get("title")
         topic = incident_data.get("topic", "")
+        logger.info(f"[save_incident] Saving incident: {incident_name}, topic: {topic}, user_id: {user_id}")
 
         if not incident_name:
             raise HTTPException(status_code=400, detail="Incident name is required")
 
         conn = db._temp_get_connection()
 
-        # Upsert - insert or update on conflict
-        conn.execute(text("""
-            INSERT INTO saved_incidents (incident_name, topic, user_id, incident_data, updated_at)
-            VALUES (:name, :topic, :user_id, :data, NOW())
-            ON CONFLICT (incident_name, topic, user_id)
-            DO UPDATE SET incident_data = :data, updated_at = NOW()
-        """), {
-            "name": incident_name,
-            "topic": topic,
-            "user_id": user_id,
-            "data": json.dumps(incident_data)
-        })
+        # Handle upsert manually to deal with NULL user_id (NULL != NULL in unique constraints)
+        # First try to update existing row
+        if user_id is not None:
+            update_result = conn.execute(text("""
+                UPDATE saved_incidents
+                SET incident_data = :data, updated_at = NOW()
+                WHERE incident_name = :name AND topic = :topic AND user_id = :user_id
+            """), {
+                "name": incident_name,
+                "topic": topic,
+                "user_id": user_id,
+                "data": json.dumps(incident_data)
+            })
+        else:
+            update_result = conn.execute(text("""
+                UPDATE saved_incidents
+                SET incident_data = :data, updated_at = NOW()
+                WHERE incident_name = :name AND topic = :topic AND user_id IS NULL
+            """), {
+                "name": incident_name,
+                "topic": topic,
+                "data": json.dumps(incident_data)
+            })
+
+        # If no rows updated, insert new row
+        if update_result.rowcount == 0:
+            logger.info(f"[save_incident] No existing row found, inserting new incident")
+            conn.execute(text("""
+                INSERT INTO saved_incidents (incident_name, topic, user_id, incident_data, updated_at)
+                VALUES (:name, :topic, :user_id, :data, NOW())
+            """), {
+                "name": incident_name,
+                "topic": topic,
+                "user_id": user_id,
+                "data": json.dumps(incident_data)
+            })
+        else:
+            logger.info(f"[save_incident] Updated existing incident row")
 
         conn.commit()
         conn.close()
@@ -2335,6 +2378,99 @@ async def add_article_to_incident(
         raise
     except Exception as e:
         logger.error(f"Error adding article to incident: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/saved/incidents/{incident_name}/notes")
+async def add_note_to_incident(
+    incident_name: str,
+    request_body: dict,
+    session=Depends(verify_session),
+    db: Database = Depends(get_database_instance)
+):
+    """Add an analyst note to an existing saved incident."""
+    from sqlalchemy import text
+    import json
+    from datetime import datetime
+
+    try:
+        user_id = session.get("user_id")
+        topic = request_body.get("topic", "")
+        analyst = request_body.get("analyst", "")
+        comment = request_body.get("comment", "")
+        saved_id = request_body.get("saved_id")  # Unique database ID
+
+        if not analyst or not comment:
+            raise HTTPException(status_code=400, detail="analyst and comment are required")
+
+        conn = db._temp_get_connection()
+
+        # Fetch the existing incident - prefer saved_id if provided for precise targeting
+        if saved_id:
+            result = conn.execute(text("""
+                SELECT id, incident_data
+                FROM saved_incidents
+                WHERE id = :saved_id
+                AND (user_id = :user_id OR user_id IS NULL)
+            """), {"saved_id": saved_id, "user_id": user_id})
+        else:
+            result = conn.execute(text("""
+                SELECT id, incident_data
+                FROM saved_incidents
+                WHERE incident_name = :name AND topic = :topic
+                AND (user_id = :user_id OR user_id IS NULL)
+            """), {"name": incident_name, "topic": topic, "user_id": user_id})
+
+        row = result.mappings().fetchone()
+
+        if not row:
+            conn.close()
+            raise HTTPException(status_code=404, detail="Incident not found")
+
+        incident_db_id = row["id"]
+
+        # Parse existing incident data
+        incident_data = row["incident_data"] if row["incident_data"] else {}
+
+        # Create the new note
+        now = datetime.utcnow()
+        note = {
+            "id": f"{int(now.timestamp() * 1000)}",  # Timestamp-based ID
+            "timestamp": now.isoformat() + "Z",
+            "analyst": analyst,
+            "comment": comment
+        }
+
+        # Ensure analyst_notes list exists
+        if "analyst_notes" not in incident_data:
+            incident_data["analyst_notes"] = []
+
+        # Add the new note at the beginning (most recent first)
+        incident_data["analyst_notes"].insert(0, note)
+
+        # Update the incident in the database using the unique ID
+        conn.execute(text("""
+            UPDATE saved_incidents
+            SET incident_data = :data, updated_at = NOW()
+            WHERE id = :incident_id
+        """), {
+            "data": json.dumps(incident_data),
+            "incident_id": incident_db_id
+        })
+
+        conn.commit()
+        conn.close()
+
+        logger.info(f"Added note to incident: {incident_name} (id={incident_db_id}) by {analyst}")
+        return {
+            "success": True,
+            "note": note,
+            "updated_incident": incident_data
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error adding note to incident: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

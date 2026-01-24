@@ -112,6 +112,14 @@ class ArticleRef(BaseModel):
     summary: Optional[str] = None
 
 
+class AnalystNoteRef(BaseModel):
+    """Analyst note reference for incident sharing."""
+    id: str
+    timestamp: str
+    analyst: str
+    comment: str
+
+
 class ShareIncidentRequest(BaseModel):
     """Request to share an incident via email."""
     to_email: str
@@ -130,6 +138,7 @@ class ShareIncidentRequest(BaseModel):
     first_seen: Optional[str] = None
     last_seen: Optional[str] = None
     articles: Optional[List[ArticleRef]] = None
+    analyst_notes: Optional[List[AnalystNoteRef]] = None
 
 
 class IncidentData(BaseModel):
@@ -143,6 +152,7 @@ class IncidentData(BaseModel):
     plausibility: Optional[str] = None
     source_quality: Optional[str] = None
     articles: Optional[List[ArticleRef]] = None
+    analyst_notes: Optional[List[AnalystNoteRef]] = None
 
 
 class ShareIncidentsRequest(BaseModel):
@@ -396,6 +406,24 @@ async def share_incident(
             html_parts.append(f'<div style="font-size: 12px; color: #666;">{source}</div>')
             if article.summary:
                 html_parts.append(f'<div style="font-size: 13px; color: #555; margin-top: 6px; line-height: 1.4;">{article.summary[:200]}{"..." if len(article.summary) > 200 else ""}</div>')
+            html_parts.append('</div>')
+        html_parts.append('</div>')
+
+    # Analyst notes section
+    if request.analyst_notes and len(request.analyst_notes) > 0:
+        html_parts.append('<div style="margin: 20px 0; padding-top: 15px; border-top: 1px solid #e9ecef;">')
+        html_parts.append(f'<h4 style="color: #d97706; margin: 0 0 12px 0;">📝 Analyst Notes ({len(request.analyst_notes)})</h4>')
+        for note in request.analyst_notes:
+            # Format timestamp
+            try:
+                from datetime import datetime
+                ts = datetime.fromisoformat(note.timestamp.replace('Z', '+00:00'))
+                formatted_date = ts.strftime('%d %b %Y %H:%M')
+            except:
+                formatted_date = note.timestamp
+            html_parts.append('<div style="background: #fffbeb; padding: 12px; border-radius: 4px; margin: 8px 0; border-left: 3px solid #f59e0b;">')
+            html_parts.append(f'<div style="font-size: 12px; color: #92400e; margin-bottom: 6px;"><strong>{note.analyst}</strong> · {formatted_date}</div>')
+            html_parts.append(f'<div style="font-size: 13px; color: #333; line-height: 1.5; white-space: pre-wrap;">{note.comment}</div>')
             html_parts.append('</div>')
         html_parts.append('</div>')
 
@@ -681,6 +709,24 @@ async def share_incidents(
                     html_parts.append(f'<p style="margin: 2px 0; font-size: 12px; color: #555;">• <a href="{url}" style="color: #1976d2; text-decoration: none;">{title}</a>{" - " + source if source else ""}</p>')
                 else:
                     html_parts.append(f'<p style="margin: 2px 0; font-size: 12px; color: #555;">• {title}{" - " + source if source else ""}</p>')
+            html_parts.append('</div>')
+
+        # Analyst notes for this incident
+        if incident.analyst_notes and len(incident.analyst_notes) > 0:
+            html_parts.append('<div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #fef3c7;">')
+            html_parts.append(f'<p style="margin: 0 0 6px 0; font-size: 11px; color: #d97706; font-weight: 600;">📝 Analyst Notes ({len(incident.analyst_notes)}):</p>')
+            for note in incident.analyst_notes[:3]:
+                # Format timestamp
+                try:
+                    from datetime import datetime
+                    ts = datetime.fromisoformat(note.timestamp.replace('Z', '+00:00'))
+                    formatted_date = ts.strftime('%d %b %H:%M')
+                except:
+                    formatted_date = note.timestamp[:10] if len(note.timestamp) > 10 else note.timestamp
+                html_parts.append(f'<div style="background: #fffbeb; padding: 8px; border-radius: 4px; margin: 4px 0; border-left: 2px solid #f59e0b;">')
+                html_parts.append(f'<p style="margin: 0; font-size: 11px; color: #92400e;"><strong>{note.analyst}</strong> · {formatted_date}</p>')
+                html_parts.append(f'<p style="margin: 4px 0 0 0; font-size: 12px; color: #333;">{note.comment[:150]}{"..." if len(note.comment) > 150 else ""}</p>')
+                html_parts.append('</div>')
             html_parts.append('</div>')
 
         html_parts.append('</div>')

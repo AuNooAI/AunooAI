@@ -26,6 +26,9 @@ import {
   FileText,
   Table,
   Loader2,
+  MessageSquare,
+  Send,
+  User,
 } from 'lucide-react';
 import {
   type Incident,
@@ -40,7 +43,7 @@ import {
   getBiasClass,
   prettifyMisinfoFlag,
 } from '../../services/narrativeExplorerApi';
-import { getSavedIncidents, deleteSavedIncident, type SavedIncident } from '../../services/newsFeedApi';
+import { getSavedIncidents, deleteSavedIncident, addNoteToIncident, type SavedIncident, type AnalystNote } from '../../services/newsFeedApi';
 import { Skeleton } from '../ui/skeleton';
 import { Card, CardContent } from '../ui/card';
 import { AgentSignalBadge, extractSignalTags } from './AgentSignalBadge';
@@ -87,6 +90,7 @@ export function savedToIncident(saved: SavedIncident): Incident {
     article_uris: saved.article_uris,
     article_metadata: saved.article_metadata,
     investigation_leads: saved.investigation_leads,
+    analyst_notes: saved.analyst_notes,
   } as Incident;
 }
 
@@ -605,8 +609,16 @@ function SavedIncidentCard({ incident, onUnsave, onArticleClick, onShare, onClic
           </div>
         </div>
 
-        {/* Title */}
-        <h4 className="font-semibold text-gray-900 dark:text-gray-100 text-sm mb-2">{name}</h4>
+        {/* Title with notes badge */}
+        <div className="flex items-start gap-2 mb-2">
+          <h4 className="font-semibold text-gray-900 dark:text-gray-100 text-sm flex-1">{name}</h4>
+          {(incident as any).analyst_notes && (incident as any).analyst_notes.length > 0 && (
+            <span className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded">
+              <MessageSquare className="w-3 h-3" />
+              {(incident as any).analyst_notes.length}
+            </span>
+          )}
+        </div>
 
         {/* Summary */}
         {displaySummary && (
@@ -679,12 +691,23 @@ interface ExpandedSavedIncidentCardProps {
 }
 
 function ExpandedSavedIncidentCard({ incident, onClose, onUnsave, onArticleClick }: ExpandedSavedIncidentCardProps) {
+  // State for analyst notes - initialized from incident data
+  const [analystNotes, setAnalystNotes] = useState<AnalystNote[]>(
+    (incident as any).analyst_notes || []
+  );
+
   // Get display values with fallbacks
   const name = incident.name || incident.title || 'Unnamed Incident';
   const description = incident.description || incident.summary || '';
   const type = incident.type || 'event';
   const significance = incident.significance || 'medium';
   const signalTags = getIncidentSignalTags(incident);
+  const topic = incident.topic || '';
+
+  // Handle new note added
+  const handleNoteAdded = (note: AnalystNote) => {
+    setAnalystNotes(prev => [note, ...prev]);
+  };
 
   // Check for low quality indicators
   const isLowQuality =
@@ -1036,6 +1059,15 @@ Provide balanced analysis of how this story is being covered across sources, cit
             </div>
           </div>
 
+          {/* Analyst Notes Section */}
+          <AnalystNotesSection
+            notes={analystNotes}
+            incidentName={name}
+            topic={topic}
+            savedId={(incident as any)._saved_id}
+            onNoteAdded={handleNoteAdded}
+          />
+
           {/* Collapse button */}
           <button
             onClick={onClose}
@@ -1047,6 +1079,192 @@ Provide balanced analysis of how this story is being covered across sources, cit
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Analyst Notes Section - display and add analyst notes
+ * Exported for reuse in HighlightsSection
+ */
+export interface AnalystNotesSectionProps {
+  notes: AnalystNote[];
+  incidentName: string;
+  topic: string;
+  savedId?: number;  // Unique database ID for the saved incident
+  onNoteAdded: (note: AnalystNote) => void;
+}
+
+export function AnalystNotesSection({ notes, incidentName, topic, savedId, onNoteAdded }: AnalystNotesSectionProps) {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [analystName, setAnalystName] = useState(() => {
+    // Try to get saved analyst name from localStorage
+    return localStorage.getItem('aunoo_analyst_name') || '';
+  });
+  const [comment, setComment] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!analystName.trim() || !comment.trim() || isSubmitting) return;
+
+    setIsSubmitting(true);
+    setError(null);
+
+    try {
+      // Save analyst name for future use
+      localStorage.setItem('aunoo_analyst_name', analystName.trim());
+
+      const result = await addNoteToIncident(
+        incidentName,
+        topic,
+        analystName.trim(),
+        comment.trim(),
+        savedId  // Pass unique ID for proper targeting
+      );
+
+      if (result.success && result.note) {
+        onNoteAdded(result.note);
+        setComment(''); // Clear comment but keep analyst name
+      }
+    } catch (err) {
+      console.error('Failed to add note:', err);
+      setError(err instanceof Error ? err.message : 'Failed to add note');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const formatNoteDate = (timestamp: string) => {
+    try {
+      const date = new Date(timestamp);
+      return date.toLocaleString('en-GB', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return timestamp;
+    }
+  };
+
+  // Collapsed view - just a small button
+  if (!isExpanded) {
+    return (
+      <div className="mt-3 pt-3 border-t border-amber-200 dark:border-amber-700">
+        <button
+          onClick={() => setIsExpanded(true)}
+          className="inline-flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 font-medium transition-colors"
+        >
+          <MessageSquare className="w-3.5 h-3.5" />
+          Analyst Notes {notes.length > 0 && `(${notes.length})`}
+          <ChevronDown className="w-3 h-3" />
+        </button>
+      </div>
+    );
+  }
+
+  // Expanded view
+  return (
+    <div className="mt-3 pt-3 border-t border-amber-200 dark:border-amber-700">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <MessageSquare className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+          <h4 className="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
+            Analyst Notes ({notes.length})
+          </h4>
+        </div>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            setIsExpanded(false);
+          }}
+          className="inline-flex items-center gap-1 px-2 py-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-amber-100 dark:hover:bg-amber-800 rounded transition-colors"
+          title="Collapse"
+        >
+          <ChevronUp className="w-3.5 h-3.5" />
+          Hide
+        </button>
+      </div>
+
+      {/* Add Note Form */}
+      <form onSubmit={handleSubmit} className="mb-3 bg-white dark:bg-gray-800 rounded-lg p-3 border border-amber-100 dark:border-amber-800">
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <User className="w-4 h-4 text-gray-400 dark:text-gray-500" />
+            <input
+              type="text"
+              value={analystName}
+              onChange={(e) => setAnalystName(e.target.value)}
+              placeholder="Your name"
+              className="flex-1 text-sm px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-amber-400 dark:focus:ring-amber-500"
+            />
+          </div>
+          <div className="flex items-start gap-2">
+            <MessageSquare className="w-4 h-4 text-gray-400 dark:text-gray-500 mt-2" />
+            <textarea
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="Add a note..."
+              rows={2}
+              className="flex-1 text-sm px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-amber-400 dark:focus:ring-amber-500 resize-none"
+            />
+            <button
+              type="submit"
+              disabled={!analystName.trim() || !comment.trim() || isSubmitting}
+              className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 disabled:bg-gray-300 dark:disabled:bg-gray-600 text-white rounded text-sm font-medium transition-colors flex items-center gap-1"
+            >
+              {isSubmitting ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <>
+                  <Send className="w-3.5 h-3.5" />
+                  Add
+                </>
+              )}
+            </button>
+          </div>
+          {error && (
+            <p className="text-xs text-red-500 dark:text-red-400">{error}</p>
+          )}
+        </div>
+      </form>
+
+      {/* Notes Timeline */}
+      {notes.length > 0 && (
+        <div className="space-y-3">
+          {notes.map((note) => (
+            <div key={note.id} className="flex gap-3">
+              <div className="flex flex-col items-center">
+                <div className="w-2 h-2 bg-amber-400 dark:bg-amber-500 rounded-full" />
+                <div className="w-0.5 flex-1 bg-amber-200 dark:bg-amber-700" />
+              </div>
+              <div className="flex-1 pb-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                    {note.analyst}
+                  </span>
+                  <span className="text-[10px] text-gray-500 dark:text-gray-400">
+                    {formatNoteDate(note.timestamp)}
+                  </span>
+                </div>
+                <p className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap">
+                  {note.comment}
+                </p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {notes.length === 0 && (
+        <p className="text-xs text-gray-500 dark:text-gray-400 italic">
+          No notes yet. Add the first note above.
+        </p>
+      )}
+    </div>
   );
 }
 

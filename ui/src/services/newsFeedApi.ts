@@ -808,6 +808,13 @@ export async function recordArticlePreference(
 // Saved Incidents and Narratives API
 // ============================================================================
 
+export interface AnalystNote {
+  id: string;           // Unique ID (timestamp-based)
+  timestamp: string;    // ISO 8601 datetime (auto-generated)
+  analyst: string;      // Analyst name/username
+  comment: string;      // Note content
+}
+
 export interface SavedIncident {
   name: string;
   title?: string;
@@ -827,6 +834,7 @@ export interface SavedIncident {
   investigation_leads?: string[];
   credibility_summary?: string;
   misinfo_flags?: string[];
+  analyst_notes?: AnalystNote[];
   _saved_id?: number;
   _saved_at?: string;
 }
@@ -1200,6 +1208,39 @@ export async function addArticleToIncident(
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
     throw new Error(extractErrorMessage(errorData, `Failed to add article to incident: ${response.status}`));
+  }
+
+  return response.json();
+}
+
+/**
+ * Add an analyst note to a saved incident
+ */
+export async function addNoteToIncident(
+  incidentName: string,
+  topic: string,
+  analyst: string,
+  comment: string,
+  savedId?: number  // Unique database ID for precise targeting
+): Promise<{ success: boolean; note: AnalystNote; updated_incident: SavedIncident }> {
+  const response = await fetch(
+    `/api/news-feed/saved/incidents/${encodeURIComponent(incidentName)}/notes`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        topic,
+        analyst,
+        comment,
+        saved_id: savedId,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(extractErrorMessage(errorData, `Failed to add note to incident: ${response.status}`));
   }
 
   return response.json();

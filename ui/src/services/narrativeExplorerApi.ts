@@ -74,6 +74,14 @@ export interface Incident {
   source_quality?: SourceQuality;
   misinfo_flags?: string[];
 
+  // Analyst notes
+  analyst_notes?: Array<{
+    id: string;
+    timestamp: string;
+    analyst: string;
+    comment: string;
+  }>;
+
   // UI flags - set when merging saved/promoted incidents into feed
   isPromoted?: boolean;  // True for incidents promoted from articles (not AI-generated)
 }

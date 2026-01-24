@@ -45,6 +45,12 @@ export interface ShareIncidentData {
     url?: string;
     summary?: string;
   }>;
+  analyst_notes?: Array<{
+    id: string;
+    timestamp: string;
+    analyst: string;
+    comment: string;
+  }>;
 }
 
 export interface ShareNarrativeData {
@@ -130,6 +136,12 @@ export interface ShareIncidentsData {
       source?: string;
       url?: string;
       summary?: string;
+    }>;
+    analyst_notes?: Array<{
+      id: string;
+      timestamp: string;
+      analyst: string;
+      comment: string;
     }>;
   }>;
 }
@@ -231,6 +243,18 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [includeNotes, setIncludeNotes] = useState(true);
+
+  // Check if sharing content has analyst notes
+  const hasAnalystNotes = (): boolean => {
+    if (data.type === 'incident') {
+      return (data.analyst_notes?.length ?? 0) > 0;
+    }
+    if (data.type === 'incidents') {
+      return data.incidents.some(i => (i.analyst_notes?.length ?? 0) > 0);
+    }
+    return false;
+  };
 
   // Load saved email and check configuration on mount
   useEffect(() => {
@@ -322,13 +346,18 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
           first_seen: data.first_seen,
           last_seen: data.last_seen,
           articles: data.articles,
+          analyst_notes: includeNotes ? data.analyst_notes : undefined,
         };
       } else if (data.type === 'incidents') {
         endpoint = '/api/share/incidents';
+        // Include or exclude notes based on checkbox
+        const incidentsToShare = includeNotes
+          ? data.incidents
+          : data.incidents.map(i => ({ ...i, analyst_notes: undefined }));
         body = {
           to_email: email,
           topic: data.topic,
-          incidents: data.incidents,
+          incidents: incidentsToShare,
         };
       } else if (data.type === 'narrative') {
         endpoint = '/api/share/narrative';
@@ -565,6 +594,21 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
                   </p>
                 )}
               </div>
+              {/* Include Analyst Notes checkbox - only show for incidents with notes */}
+              {hasAnalystNotes() && (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={includeNotes}
+                    onChange={(e) => setIncludeNotes(e.target.checked)}
+                    className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-pink-500 focus:ring-pink-500"
+                    disabled={isSending}
+                  />
+                  <span className="text-sm text-gray-700 dark:text-gray-300">
+                    Include analyst notes in email
+                  </span>
+                </label>
+              )}
               <p className="text-xs text-gray-500 dark:text-gray-300">
                 Your email address will be saved for future shares.
               </p>
