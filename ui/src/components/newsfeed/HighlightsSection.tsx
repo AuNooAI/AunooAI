@@ -65,19 +65,7 @@ import { ExportService } from '../../services/exportService';
 import { ShareModal, type ShareIncidentData, type ShareIncidentsData, type ShareData } from '../ShareModal';
 import { AnalystNotesSection } from './SavedIncidentsSection';
 import { type AnalystNote } from '../../services/newsFeedApi';
-
-// Helper to extract all signal tags from an incident's article metadata
-function getIncidentSignalTags(incident: Incident): string[] {
-  const allTags: string[] = [];
-  if (incident.article_metadata) {
-    for (const meta of incident.article_metadata) {
-      if (meta.tags) {
-        allTags.push(...meta.tags);
-      }
-    }
-  }
-  return extractSignalTags(allTags);
-}
+import { getIncidentSignalTags, NotesBadge, TimelineRuler, ArticleLink, formatDisplayDate } from './incidentUtils';
 
 interface HighlightsSectionProps {
   incidents: Incident[];
@@ -813,12 +801,7 @@ function CompactIncidentCard({ incident, onClick, isSaved, isPromoted, currentTo
               Saved
             </span>
           )}
-          {incident.analyst_notes && incident.analyst_notes.length > 0 && (
-            <span className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded">
-              <MessageSquare className="w-3 h-3" />
-              {incident.analyst_notes.length}
-            </span>
-          )}
+          <NotesBadge count={incident.analyst_notes?.length ?? 0} />
         </div>
 
         {/* Summary - displayed on card */}

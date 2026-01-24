@@ -84,6 +84,8 @@ export interface Incident {
 
   // UI flags - set when merging saved/promoted incidents into feed
   isPromoted?: boolean;  // True for incidents promoted from articles (not AI-generated)
+  _saved_id?: number;    // Database ID when incident is saved
+  _saved_at?: string;    // Timestamp when incident was saved
 }
 
 export interface IncidentTrackingResponse {

@@ -2433,10 +2433,11 @@ async def add_note_to_incident(
         incident_data = row["incident_data"] if row["incident_data"] else {}
 
         # Create the new note
-        now = datetime.utcnow()
+        from datetime import timezone
+        now = datetime.now(timezone.utc)
         note = {
             "id": f"{int(now.timestamp() * 1000)}",  # Timestamp-based ID
-            "timestamp": now.isoformat() + "Z",
+            "timestamp": now.isoformat().replace('+00:00', 'Z'),  # Proper ISO 8601 with Z suffix
             "analyst": analyst,
             "comment": comment
         }

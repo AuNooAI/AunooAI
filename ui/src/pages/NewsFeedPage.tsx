@@ -37,6 +37,7 @@ import { SavedPodcastsSection } from '../components/newsfeed/SavedPodcastsSectio
 import { SavedEmergingTopicsSection } from '../components/newsfeed/SavedEmergingTopicsSection';
 import { SavedNarrativesSection, saveNarrative, unsaveNarrative, getSavedNarrativeNames } from '../components/newsfeed/SavedNarrativesSection';
 import { savedToIncident } from '../components/newsfeed/SavedIncidentsSection';
+import { mergeIncidentWithSavedData } from '../components/newsfeed/incidentUtils';
 import { NarrativeInsightsSection } from '../components/newsfeed/NarrativeInsightsSection';
 import { ResearchAgentsSection } from '../components/newsfeed/ResearchAgentsSection';
 import { SignalReportsTab } from '../components/newsfeed/SignalReportsTab';
@@ -445,22 +446,8 @@ export function NewsFeedPage() {
   // Merge AI-generated incidents with promoted incidents, then filter
   // Promoted incidents appear first since they were explicitly created by the user
   // For AI incidents that are also saved, merge in saved data (including analyst_notes)
-  const mergedAiIncidents = incidents.map(incident => {
-    const incidentName = incident.name || incident.title;
-    const savedData = incidentName ? savedIncidentsMap.get(incidentName) : null;
-    if (savedData) {
-      // Merge saved data into AI incident (saved data takes precedence for notes)
-      return {
-        ...incident,
-        analyst_notes: savedData.analyst_notes,
-        _saved_id: (savedData as any)._saved_id,
-        _saved_at: (savedData as any)._saved_at,
-      };
-    }
-    return incident;
-  });
+  const mergedAiIncidents = incidents.map(incident => mergeIncidentWithSavedData(incident, savedIncidentsMap));
   const allIncidents = [...promotedIncidents, ...mergedAiIncidents];
-  console.log('[NewsFeedPage] Merging incidents: promoted=', promotedIncidents.length, 'AI=', incidents.length, 'total=', allIncidents.length);
   const filteredIncidents = applyFilters(allIncidents, filters);
 
   // Sync topic selection from newsFeed config to narrative config
