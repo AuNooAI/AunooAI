@@ -145,22 +145,10 @@ export function PromoteToIncidentModal({
         ],
       };
 
-      // Save the full incident data
+      // Save the full incident data to saved_incidents table
       const saved = await saveIncident(incidentToSave);
 
       if (saved) {
-        // Also update incident status to 'saved' so it appears in Explore -> Incidents
-        try {
-          const statusParams = new URLSearchParams({ status: 'saved', topic: incidentTopic });
-          await fetch(`/api/incident-status/${encodeURIComponent(editedIncident.name)}?${statusParams}`, {
-            method: 'POST',
-            credentials: 'include',
-          });
-        } catch (statusErr) {
-          console.warn('Failed to update incident status:', statusErr);
-          // Don't fail the whole operation if status update fails
-        }
-
         setSuccess('Incident created successfully');
         onSuccess?.();
         setTimeout(() => onOpenChange(false), 1500);

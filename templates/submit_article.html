@@ -978,17 +978,6 @@ async function saveAnalyzedArticle() {
                         if (saveIncidentResponse.ok) {
                             incidentResult = await saveIncidentResponse.json();
                             console.log('Incident created:', incidentResult);
-
-                            // Also update incident status to 'saved' so it appears in Explore -> Incidents
-                            try {
-                                const statusParams = new URLSearchParams({ status: 'saved', topic: topic });
-                                await fetch(`/api/incident-status/${encodeURIComponent(incidentToSave.name)}?${statusParams}`, {
-                                    method: 'POST',
-                                    credentials: 'include',
-                                });
-                            } catch (statusErr) {
-                                console.warn('Failed to update incident status:', statusErr);
-                            }
                         }
                     }
                 }
@@ -1823,17 +1812,6 @@ async function saveBulkArticles() {
 
                                 if (saveIncidentResponse.ok) {
                                     incidentsCreated++;
-
-                                    // Also update incident status to 'saved' so it appears in Explore -> Incidents
-                                    try {
-                                        const statusParams = new URLSearchParams({ status: 'saved', topic: topic });
-                                        await fetch(`/api/incident-status/${encodeURIComponent(incidentToSave.name)}?${statusParams}`, {
-                                            method: 'POST',
-                                            credentials: 'include',
-                                        });
-                                    } catch (statusErr) {
-                                        console.warn('Failed to update incident status:', statusErr);
-                                    }
                                 }
                             }
                         }
