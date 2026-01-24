@@ -50,19 +50,16 @@ import { AgentSignalBadge, extractSignalTags } from './AgentSignalBadge';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import { ShareModal, type ShareIncidentData } from '../ShareModal';
 import { ExportService } from '../../services/exportService';
-
-// Helper to extract all signal tags from an incident's article metadata
-function getIncidentSignalTags(incident: Incident): string[] {
-  const allTags: string[] = [];
-  if (incident.article_metadata) {
-    for (const meta of incident.article_metadata) {
-      if (meta.tags) {
-        allTags.push(...meta.tags);
-      }
-    }
-  }
-  return extractSignalTags(allTags);
-}
+import {
+  getIncidentSignalTags,
+  formatDisplayDate,
+  formatNoteDate,
+  NotesBadge,
+  TimelineRuler,
+  ArticleLink,
+  getStoredAnalystName,
+  setStoredAnalystName,
+} from './incidentUtils';
 
 interface SavedIncidentsSectionProps {
   topic?: string;
@@ -612,12 +609,7 @@ function SavedIncidentCard({ incident, onUnsave, onArticleClick, onShare, onClic
         {/* Title with notes badge */}
         <div className="flex items-start gap-2 mb-2">
           <h4 className="font-semibold text-gray-900 dark:text-gray-100 text-sm flex-1">{name}</h4>
-          {(incident as any).analyst_notes && (incident as any).analyst_notes.length > 0 && (
-            <span className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded">
-              <MessageSquare className="w-3 h-3" />
-              {(incident as any).analyst_notes.length}
-            </span>
-          )}
+          <NotesBadge count={incident.analyst_notes?.length ?? 0} />
         </div>
 
         {/* Summary */}
@@ -1096,10 +1088,7 @@ export interface AnalystNotesSectionProps {
 
 export function AnalystNotesSection({ notes, incidentName, topic, savedId, onNoteAdded }: AnalystNotesSectionProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [analystName, setAnalystName] = useState(() => {
-    // Try to get saved analyst name from localStorage
-    return localStorage.getItem('aunoo_analyst_name') || '';
-  });
+  const [analystName, setAnalystName] = useState(getStoredAnalystName);
   const [comment, setComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1113,7 +1102,7 @@ export function AnalystNotesSection({ notes, incidentName, topic, savedId, onNot
 
     try {
       // Save analyst name for future use
-      localStorage.setItem('aunoo_analyst_name', analystName.trim());
+      setStoredAnalystName(analystName.trim());
 
       const result = await addNoteToIncident(
         incidentName,
@@ -1132,21 +1121,6 @@ export function AnalystNotesSection({ notes, incidentName, topic, savedId, onNot
       setError(err instanceof Error ? err.message : 'Failed to add note');
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const formatNoteDate = (timestamp: string) => {
-    try {
-      const date = new Date(timestamp);
-      return date.toLocaleString('en-GB', {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      });
-    } catch {
-      return timestamp;
     }
   };
 
