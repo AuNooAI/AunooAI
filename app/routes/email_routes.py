@@ -291,6 +291,7 @@ async def share_incident(
 ):
     """Share an incident via email."""
     logger.info(f"share_incident called with incident_name={request.incident_name}, to_email={request.to_email}")
+    logger.info(f"share_incident analyst_notes received: {request.analyst_notes}")
     email_service = get_email_service()
 
     if not email_service.is_available():

@@ -135,6 +135,7 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
 
   // Share handler - opens modal with single incident data including articles
   const handleShare = (incident: Incident) => {
+    console.log('[handleShare] incident:', incident.name, 'analyst_notes:', incident.analyst_notes);
     const name = incident.name || incident.title || 'Unnamed Incident';
     // Build articles array from incident data - use article_metadata as primary source
     const articleMetadata = incident.article_metadata || [];
@@ -171,6 +172,7 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
       first_seen: incident.first_seen,
       last_seen: incident.last_seen,
       articles: articles.length > 0 ? articles : undefined,
+      analyst_notes: incident.analyst_notes,
     });
     setShowShareModal(true);
   };
@@ -209,6 +211,7 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
           plausibility: incident.plausibility,
           source_quality: incident.source_quality,
           articles: articles.length > 0 ? articles : undefined,
+          analyst_notes: incident.analyst_notes,
         };
       }),
     });
@@ -317,26 +320,51 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
                   onClick={() => setShowDownloadDropdown(false)}
                 />
                 {/* Dropdown */}
-                <div className="absolute right-0 top-full mt-1 w-48 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1">
+                <div className="absolute right-0 top-full mt-1 w-56 bg-white dark:bg-[#232326] border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg z-20 py-1">
                   <button
+                    type="button"
                     onClick={() => {
-                      ExportService.exportIncidentsMarkdown(incidents, undefined, model);
+                      ExportService.exportIncidentsPDF(incidents, currentTopic, model);
                       setShowDownloadDropdown(false);
                     }}
-                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 transition-colors flex items-center gap-2"
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center gap-2 cursor-pointer"
                   >
-                    <FileText className="w-4 h-4 text-gray-700 dark:text-gray-300" />
-                    <span>Export as Markdown</span>
+                    <FileText className="w-4 h-4 text-pink-500" />
+                    <span className="text-gray-800 dark:text-gray-100">Export as PDF (Styled)</span>
                   </button>
                   <button
+                    type="button"
+                    onClick={() => {
+                      ExportService.exportIncidentsStyledMarkdown(incidents, currentTopic, model);
+                      setShowDownloadDropdown(false);
+                    }}
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center gap-2 cursor-pointer"
+                  >
+                    <FileText className="w-4 h-4 text-blue-500" />
+                    <span className="text-gray-800 dark:text-gray-100">Export as Markdown (Styled)</span>
+                  </button>
+                  <div className="border-t border-gray-200 dark:border-gray-600 my-1"></div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      ExportService.exportIncidentsMarkdown(incidents, currentTopic, model);
+                      setShowDownloadDropdown(false);
+                    }}
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center gap-2 cursor-pointer"
+                  >
+                    <FileText className="w-4 h-4 text-gray-400" />
+                    <span className="text-gray-800 dark:text-gray-100">Export as Markdown (Plain)</span>
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => {
                       ExportService.exportIncidentsCSV(incidents);
                       setShowDownloadDropdown(false);
                     }}
-                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 transition-colors flex items-center gap-2"
+                    className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center gap-2 cursor-pointer"
                   >
-                    <Table className="w-4 h-4 text-gray-700 dark:text-gray-300" />
-                    <span>Export as CSV</span>
+                    <Table className="w-4 h-4 text-gray-400" />
+                    <span className="text-gray-800 dark:text-gray-100">Export as CSV</span>
                   </button>
                 </div>
               </>
@@ -439,6 +467,7 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
                 onIncidentUpdate={onIncidentUpdate}
                 onArticleClick={onArticleClick}
                 savedIncidentNames={savedIncidentNames}
+                onShare={handleShare}
               />
             </div>
           )}
@@ -514,7 +543,9 @@ function CompactIncidentCard({ incident, onClick, isSaved, isPromoted, currentTo
   const [badgeTooltipPos, setBadgeTooltipPos] = useState({ top: 0, left: 0 });
   const [showMenu, setShowMenu] = useState(false);
   const [actionInProgress, setActionInProgress] = useState(false);
+  const [menuPos, setMenuPos] = useState({ top: 0, left: 0 });
   const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const name = incident.name || incident.title || 'Unnamed Incident';
   const type = incident.type || 'event';
   const significance = incident.significance || 'medium';
@@ -620,10 +651,12 @@ function CompactIncidentCard({ incident, onClick, isSaved, isPromoted, currentTo
       } finally {
         setActionInProgress(false);
       }
+    } else if (action === 'export-png') {
+      ExportService.exportSingleIncidentPNG(incident);
+    } else if (action === 'export-pdf') {
+      ExportService.exportSingleIncidentPDF(incident);
     } else if (action === 'export-md') {
-      ExportService.exportIncidentsMarkdown([incident], undefined, undefined);
-    } else if (action === 'export-csv') {
-      ExportService.exportIncidentsCSV([incident]);
+      ExportService.exportSingleIncidentMarkdown(incident);
     }
   };
 
@@ -688,15 +721,27 @@ function CompactIncidentCard({ incident, onClick, isSaved, isPromoted, currentTo
               See More
             </span>
             {/* Kebab menu */}
-            <div ref={menuRef} className="relative">
+            <div className="relative">
               <button
-                onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
+                ref={menuButtonRef}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (!showMenu && menuButtonRef.current) {
+                    const rect = menuButtonRef.current.getBoundingClientRect();
+                    setMenuPos({ top: rect.bottom + 4, left: rect.right - 144 }); // 144 = menu width
+                  }
+                  setShowMenu(!showMenu);
+                }}
                 className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
               >
-                <MoreVertical className="w-4 h-4 text-gray-700 dark:text-gray-300 dark:text-gray-300" />
+                <MoreVertical className="w-4 h-4 text-gray-700 dark:text-gray-300" />
               </button>
-              {showMenu && (
-                <div className="absolute right-0 top-full mt-1 w-36 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
+              {showMenu && createPortal(
+                <div
+                  ref={menuRef}
+                  style={{ position: 'fixed', top: menuPos.top, left: menuPos.left }}
+                  className="w-36 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-[9999] py-1"
+                >
                   <button
                     onClick={(e) => handleMenuAction('save', e)}
                     className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
@@ -753,20 +798,28 @@ function CompactIncidentCard({ incident, onClick, isSaved, isPromoted, currentTo
                   </button>
                   <div className="h-px bg-gray-200 dark:bg-gray-700 my-1" />
                   <button
+                    onClick={(e) => handleMenuAction('export-png', e)}
+                    className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                  >
+                    <Download className="w-4 h-4 text-pink-500" />
+                    Export as PNG
+                  </button>
+                  <button
+                    onClick={(e) => handleMenuAction('export-pdf', e)}
+                    className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                  >
+                    <FileText className="w-4 h-4 text-blue-500" />
+                    Export as PDF
+                  </button>
+                  <button
                     onClick={(e) => handleMenuAction('export-md', e)}
                     className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                   >
-                    <FileText className="w-4 h-4 text-gray-700 dark:text-gray-300" />
-                    Export Markdown
+                    <FileText className="w-4 h-4 text-gray-400" />
+                    Export as Markdown
                   </button>
-                  <button
-                    onClick={(e) => handleMenuAction('export-csv', e)}
-                    className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
-                  >
-                    <Table className="w-4 h-4 text-gray-700 dark:text-gray-300" />
-                    Export CSV
-                  </button>
-                </div>
+                </div>,
+                document.body
               )}
             </div>
           </div>
@@ -890,9 +943,10 @@ interface IncidentCardProps {
   onIncidentUpdate?: () => void;
   onArticleClick?: (article: { uri: string; title?: string }) => void;
   savedIncidentNames?: string[];
+  onShare?: (incident: Incident) => void;
 }
 
-function IncidentCard({ incident, expanded, onToggleExpand, onIncidentUpdate, onArticleClick, savedIncidentNames = [] }: IncidentCardProps) {
+function IncidentCard({ incident, expanded, onToggleExpand, onIncidentUpdate, onArticleClick, savedIncidentNames = [], onShare }: IncidentCardProps) {
   const [actionLoading, setActionLoading] = useState(false);
 
   // Get display values with fallbacks
@@ -912,9 +966,24 @@ function IncidentCard({ incident, expanded, onToggleExpand, onIncidentUpdate, on
     incident.analyst_notes || []
   );
 
+  // Sync analyst notes when incident data changes (e.g., after notes are loaded from backend)
+  useEffect(() => {
+    if (incident.analyst_notes && incident.analyst_notes.length > 0) {
+      setAnalystNotes(incident.analyst_notes);
+    }
+  }, [incident.analyst_notes]);
+
   // Handle new note added
   const handleNoteAdded = (note: AnalystNote) => {
     setAnalystNotes(prev => [note, ...prev]);
+  };
+
+  // Handle share - pass incident with current notes state
+  const handleShareClick = () => {
+    console.log('[IncidentCard.handleShareClick] analystNotes:', analystNotes);
+    if (onShare) {
+      onShare({ ...incident, analyst_notes: analystNotes });
+    }
   };
 
   // Check for low quality indicators
@@ -1323,6 +1392,15 @@ Provide balanced analysis of how this story is being covered across sources, cit
                   >
                     <Scale className="w-3.5 h-3.5" />
                     Consensus
+                  </button>
+                )}
+                {onShare && (
+                  <button
+                    onClick={handleShareClick}
+                    className="inline-flex items-center gap-1.5 text-sm text-pink-600 dark:text-pink-400 hover:text-pink-700 dark:hover:text-pink-300 font-medium transition-colors"
+                  >
+                    <Share2 className="w-3.5 h-3.5" />
+                    Share
                   </button>
                 )}
               </div>
