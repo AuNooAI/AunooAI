@@ -245,15 +245,20 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
   const [success, setSuccess] = useState(false);
   const [includeNotes, setIncludeNotes] = useState(true);
 
-  // Check if sharing content has analyst notes
-  const hasAnalystNotes = (): boolean => {
+  // Check if sharing content is an incident type (for showing checkbox)
+  const isIncidentType = (): boolean => {
+    return data.type === 'incident' || data.type === 'incidents';
+  };
+
+  // Count analyst notes across incidents
+  const getNotesCount = (): number => {
     if (data.type === 'incident') {
-      return (data.analyst_notes?.length ?? 0) > 0;
+      return data.analyst_notes?.length ?? 0;
     }
     if (data.type === 'incidents') {
-      return data.incidents.some(i => (i.analyst_notes?.length ?? 0) > 0);
+      return data.incidents.reduce((sum, i) => sum + (i.analyst_notes?.length ?? 0), 0);
     }
-    return false;
+    return 0;
   };
 
   // Load saved email and check configuration on mount
@@ -329,6 +334,10 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
         };
       } else if (data.type === 'incident') {
         endpoint = '/api/share/incident';
+        const notesToSend = includeNotes ? data.analyst_notes : undefined;
+        console.log('[ShareModal] DEBUG - data.analyst_notes:', JSON.stringify(data.analyst_notes));
+        console.log('[ShareModal] DEBUG - includeNotes:', includeNotes);
+        console.log('[ShareModal] DEBUG - notesToSend:', JSON.stringify(notesToSend));
         body = {
           to_email: email,
           incident_name: data.incident_name,
@@ -346,7 +355,7 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
           first_seen: data.first_seen,
           last_seen: data.last_seen,
           articles: data.articles,
-          analyst_notes: includeNotes ? data.analyst_notes : undefined,
+          analyst_notes: notesToSend,
         };
       } else if (data.type === 'incidents') {
         endpoint = '/api/share/incidents';
@@ -594,18 +603,25 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
                   </p>
                 )}
               </div>
-              {/* Include Analyst Notes checkbox - only show for incidents with notes */}
-              {hasAnalystNotes() && (
-                <label className="flex items-center gap-2 cursor-pointer">
+              {/* Include Analyst Notes checkbox - show for all incidents */}
+              {isIncidentType() && (
+                <label className={`flex items-center gap-2 ${getNotesCount() > 0 ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}>
                   <input
                     type="checkbox"
-                    checked={includeNotes}
+                    checked={includeNotes && getNotesCount() > 0}
                     onChange={(e) => setIncludeNotes(e.target.checked)}
                     className="w-4 h-4 rounded border-gray-300 dark:border-gray-600 text-pink-500 focus:ring-pink-500"
-                    disabled={isSending}
+                    disabled={isSending || getNotesCount() === 0}
                   />
                   <span className="text-sm text-gray-700 dark:text-gray-300">
-                    Include analyst notes in email
+                    Include analyst notes
+                    {getNotesCount() > 0 ? (
+                      <span className="text-gray-500 dark:text-gray-400 ml-1">
+                        ({getNotesCount()} note{getNotesCount() !== 1 ? 's' : ''})
+                      </span>
+                    ) : (
+                      <span className="text-gray-400 dark:text-gray-500 ml-1">(none)</span>
+                    )}
                   </span>
                 </label>
               )}

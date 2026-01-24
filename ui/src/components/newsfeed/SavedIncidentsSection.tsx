@@ -169,6 +169,7 @@ export function SavedIncidentsSection({
       strategic_relevance: incident.organizational_relevance,
       plausibility: incident.plausibility,
       source_quality: incident.source_quality,
+      analyst_notes: incident.analyst_notes,
     });
     setShowShareModal(true);
   };
@@ -231,26 +232,51 @@ export function SavedIncidentsSection({
                     onClick={() => setShowDownloadDropdown(false)}
                   />
                   {/* Dropdown */}
-                  <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-20 py-1">
+                  <div className="absolute right-0 top-full mt-1 w-56 bg-white dark:bg-[#232326] border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg z-20 py-1">
                     <button
+                      type="button"
                       onClick={() => {
-                        ExportService.exportIncidentsMarkdown(savedIncidents);
+                        ExportService.exportIncidentsPDF(savedIncidents, topic);
                         setShowDownloadDropdown(false);
                       }}
-                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2"
+                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center gap-2 cursor-pointer"
                     >
-                      <FileText className="w-4 h-4 text-gray-700 dark:text-gray-300" />
-                      <span>Export as Markdown</span>
+                      <FileText className="w-4 h-4 text-pink-500" />
+                      <span className="text-gray-800 dark:text-gray-100">Export as PDF (Styled)</span>
                     </button>
                     <button
+                      type="button"
+                      onClick={() => {
+                        ExportService.exportIncidentsStyledMarkdown(savedIncidents, topic);
+                        setShowDownloadDropdown(false);
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center gap-2 cursor-pointer"
+                    >
+                      <FileText className="w-4 h-4 text-blue-500" />
+                      <span className="text-gray-800 dark:text-gray-100">Export as Markdown (Styled)</span>
+                    </button>
+                    <div className="border-t border-gray-200 dark:border-gray-600 my-1"></div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        ExportService.exportIncidentsMarkdown(savedIncidents, topic);
+                        setShowDownloadDropdown(false);
+                      }}
+                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center gap-2 cursor-pointer"
+                    >
+                      <FileText className="w-4 h-4 text-gray-400" />
+                      <span className="text-gray-800 dark:text-gray-100">Export as Markdown (Plain)</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => {
                         ExportService.exportIncidentsCSV(savedIncidents);
                         setShowDownloadDropdown(false);
                       }}
-                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors flex items-center gap-2"
+                      className="w-full px-4 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center gap-2 cursor-pointer"
                     >
-                      <Table className="w-4 h-4 text-gray-700 dark:text-gray-300" />
-                      <span>Export as CSV</span>
+                      <Table className="w-4 h-4 text-gray-400" />
+                      <span className="text-gray-800 dark:text-gray-100">Export as CSV</span>
                     </button>
                   </div>
                 </>

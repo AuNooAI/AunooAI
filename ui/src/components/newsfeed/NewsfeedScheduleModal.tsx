@@ -286,7 +286,7 @@ export function NewsfeedScheduleModal({
           <div className="space-y-3">
             <Label className="font-medium">Generate</Label>
             <div className="space-y-2">
-              <label className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded cursor-pointer">
+              <label className="flex items-center gap-3 p-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded cursor-pointer">
                 <Switch
                   checked={scheduleSettings.generate_briefing}
                   onCheckedChange={(checked) =>
@@ -294,11 +294,11 @@ export function NewsfeedScheduleModal({
                   }
                 />
                 <div>
-                  <span className="text-sm font-medium">Executive Briefing</span>
-                  <p className="text-xs text-gray-700 dark:text-gray-300">Six articles with AI analysis</p>
+                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Executive Briefing</span>
+                  <p className="text-xs text-gray-600 dark:text-gray-400">Six articles with AI analysis</p>
                 </div>
               </label>
-              <label className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded cursor-pointer">
+              <label className="flex items-center gap-3 p-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded cursor-pointer">
                 <Switch
                   checked={scheduleSettings.generate_highlights}
                   onCheckedChange={(checked) =>
@@ -306,11 +306,11 @@ export function NewsfeedScheduleModal({
                   }
                 />
                 <div>
-                  <span className="text-sm font-medium">Highlights / Incidents</span>
-                  <p className="text-xs text-gray-700 dark:text-gray-300">Key events and incidents</p>
+                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Highlights / Incidents</span>
+                  <p className="text-xs text-gray-600 dark:text-gray-400">Key events and incidents</p>
                 </div>
               </label>
-              <label className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded cursor-pointer">
+              <label className="flex items-center gap-3 p-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded cursor-pointer">
                 <Switch
                   checked={scheduleSettings.generate_narratives}
                   onCheckedChange={(checked) =>
@@ -318,8 +318,8 @@ export function NewsfeedScheduleModal({
                   }
                 />
                 <div>
-                  <span className="text-sm font-medium">Narratives</span>
-                  <p className="text-xs text-gray-700 dark:text-gray-300">Thematic story threads</p>
+                  <span className="text-sm font-medium text-gray-900 dark:text-gray-100">Narratives</span>
+                  <p className="text-xs text-gray-600 dark:text-gray-400">Thematic story threads</p>
                 </div>
               </label>
             </div>
