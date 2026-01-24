@@ -87,10 +87,9 @@ export function KeywordGroupCard({ group, onClick, onDeleteUnscored }: KeywordGr
         <div className="gather-card-title-section">
           <h3 className="gather-card-title">{group.name}</h3>
           <p className="gather-card-subtitle">
-            {group.keyword_count} keyword{group.keyword_count !== 1 ? 's' : ''} monitored
+            {group.topic} · {group.keyword_count} keyword{group.keyword_count !== 1 ? 's' : ''} monitored
           </p>
         </div>
-        <span className="gather-card-topic-badge">{group.topic}</span>
       </div>
 
       {/* Metrics Grid - Row 1: Relevance-based counts */}
