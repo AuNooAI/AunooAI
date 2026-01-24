@@ -36,6 +36,7 @@ import { SavedArticlesSection } from '../components/newsfeed/SavedArticlesSectio
 import { SavedPodcastsSection } from '../components/newsfeed/SavedPodcastsSection';
 import { SavedEmergingTopicsSection } from '../components/newsfeed/SavedEmergingTopicsSection';
 import { SavedNarrativesSection, saveNarrative, unsaveNarrative, getSavedNarrativeNames } from '../components/newsfeed/SavedNarrativesSection';
+import { savedToIncident } from '../components/newsfeed/SavedIncidentsSection';
 import { NarrativeInsightsSection } from '../components/newsfeed/NarrativeInsightsSection';
 import { ResearchAgentsSection } from '../components/newsfeed/ResearchAgentsSection';
 import { SignalReportsTab } from '../components/newsfeed/SignalReportsTab';
@@ -51,7 +52,7 @@ import { IncidentConfigModal } from '../components/newsfeed/IncidentConfigModal'
 import { NarrativesConfigModal } from '../components/newsfeed/NarrativesConfigModal';
 import { SixArticlesTuneModal } from '../components/SixArticlesTuneModal';
 import { NewsfeedScheduleModal } from '../components/newsfeed/NewsfeedScheduleModal';
-import { type NewsArticle, type ArticleCluster, type ClusterRelatedArticle, getArticleByUri, getClusteredArticles, clusterArticleToNewsArticle, saveIncident as saveIncidentToDb } from '../services/newsFeedApi';
+import { type NewsArticle, type ArticleCluster, type ClusterRelatedArticle, getArticleByUri, getClusteredArticles, clusterArticleToNewsArticle, saveIncident as saveIncidentToDb, getSavedIncidents } from '../services/newsFeedApi';
 import { applyFilters, createEmptyFilters, type IncidentFilters } from '../components/newsfeed/FilterPanel';
 import { getSignalReportsCount } from '../services/researchAgentsApi';
 // Note: Incidents are now saved only to saved_incidents table, not incident_status
@@ -204,16 +205,39 @@ export function NewsFeedPage() {
   // Saved incident names - for showing save/unsave status in HighlightsSection
   const [savedIncidentNames, setSavedIncidentNames] = useState<string[]>([]);
 
-  // Load saved incident names when topic changes
+  // Promoted incidents - incidents created from articles that aren't in AI-generated list
+  const [promotedIncidents, setPromotedIncidents] = useState<typeof incidents>([]);
+
+  // Load saved incident names and promoted incidents when topic changes or refresh is triggered
   useEffect(() => {
-    if (config.topic) {
-      import('../services/newsFeedApi').then(({ getSavedIncidents }) => {
-        getSavedIncidents(config.topic)
-          .then(incidents => setSavedIncidentNames(incidents.map(i => i.name)))
-          .catch(err => console.error('Failed to load saved incident names:', err));
-      });
-    }
-  }, [config.topic, savedIncidentsRefresh]);
+    // Fetch saved incidents - use topic filter if available, otherwise fetch all
+    const topicFilter = config.topic || narrativeConfig.selectedTopics?.[0] || undefined;
+    console.log('[NewsFeedPage] Fetching saved incidents for topic:', topicFilter, 'refresh:', savedIncidentsRefresh);
+
+    getSavedIncidents(topicFilter)
+      .then(savedIncidents => {
+        console.log('[NewsFeedPage] Got saved incidents:', savedIncidents.length, savedIncidents.map(i => i.name));
+
+        // Update saved incident names list
+        setSavedIncidentNames(savedIncidents.map(i => i.name));
+
+        // Identify promoted incidents: those in saved_incidents but NOT in AI-generated incidents
+        // These are articles that were promoted to incidents by the user
+        const aiIncidentNames = new Set(incidents.map(i => i.name || i.title));
+        console.log('[NewsFeedPage] AI incident names:', [...aiIncidentNames]);
+
+        const promoted = savedIncidents
+          .filter(saved => !aiIncidentNames.has(saved.name))
+          .map(saved => ({
+            ...savedToIncident(saved),
+            isPromoted: true,  // Mark as promoted for visual distinction
+          }));
+
+        console.log('[NewsFeedPage] Promoted incidents (not in AI):', promoted.length, promoted.map(i => i.name));
+        setPromotedIncidents(promoted);
+      })
+      .catch(err => console.error('Failed to load saved incidents:', err));
+  }, [config.topic, narrativeConfig.selectedTopics, savedIncidentsRefresh, incidents]);
 
   // Save incident handler - saves both status and full incident data
   const handleSaveIncident = useCallback(async (incidentName: string) => {
@@ -408,8 +432,11 @@ export function NewsFeedPage() {
   // Combined loading state for analyses
   const isGeneratingAnalyses = loadingHighlights || loadingNarratives;
 
-  // Filter and sort incidents
-  const filteredIncidents = applyFilters(incidents, filters);
+  // Merge AI-generated incidents with promoted incidents, then filter
+  // Promoted incidents appear first since they were explicitly created by the user
+  const allIncidents = [...promotedIncidents, ...incidents];
+  console.log('[NewsFeedPage] Merging incidents: promoted=', promotedIncidents.length, 'AI=', incidents.length, 'total=', allIncidents.length);
+  const filteredIncidents = applyFilters(allIncidents, filters);
 
   // Sync topic selection from newsFeed config to narrative config
   useEffect(() => {
@@ -1171,6 +1198,10 @@ export function NewsFeedPage() {
           handleArticleClick({ uri });
         }}
         topic={config.topic}
+        onIncidentSaved={() => {
+          // Trigger refresh of SavedIncidentsSection
+          setSavedIncidentsRefresh(prev => prev + 1);
+        }}
       />
 
       {/* Category View Modal */}

@@ -73,6 +73,9 @@ export interface Incident {
   plausibility?: Plausibility;
   source_quality?: SourceQuality;
   misinfo_flags?: string[];
+
+  // UI flags - set when merging saved/promoted incidents into feed
+  isPromoted?: boolean;  // True for incidents promoted from articles (not AI-generated)
 }
 
 export interface IncidentTrackingResponse {

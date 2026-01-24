@@ -414,6 +414,7 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
                     incident={incident}
                     onClick={() => handleCompactCardClick(incidentKey)}
                     isSaved={savedIncidentNames.includes(incidentName)}
+                    isPromoted={incident.isPromoted}
                     currentTopic={currentTopic}
                     onSave={onSaveIncident}
                     onUnsave={onUnsaveIncident}
@@ -472,6 +473,7 @@ interface CompactIncidentCardProps {
   incident: Incident;
   onClick?: () => void;
   isSaved?: boolean;
+  isPromoted?: boolean;  // True for incidents promoted from articles
   currentTopic?: string;
   onSave?: (incidentName: string) => void;
   onUnsave?: (incidentName: string) => void;
@@ -515,7 +517,7 @@ function getSourceQualityTooltip(quality: string): string {
   return `Source quality: ${quality}`;
 }
 
-function CompactIncidentCard({ incident, onClick, isSaved, currentTopic, onSave, onUnsave, onShare, preference, onPreferenceChange, onIncidentUpdate }: CompactIncidentCardProps) {
+function CompactIncidentCard({ incident, onClick, isSaved, isPromoted, currentTopic, onSave, onUnsave, onShare, preference, onPreferenceChange, onIncidentUpdate }: CompactIncidentCardProps) {
   const [hoveredBadge, setHoveredBadge] = useState<string | null>(null);
   const [badgeTooltipPos, setBadgeTooltipPos] = useState({ top: 0, left: 0 });
   const [showMenu, setShowMenu] = useState(false);
@@ -795,7 +797,13 @@ function CompactIncidentCard({ incident, onClick, isSaved, currentTopic, onSave,
               Less
             </span>
           )}
-          {isSaved && (
+          {isPromoted && (
+            <span className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 px-1.5 py-0.5 rounded">
+              <Bookmark className="w-3 h-3 fill-current" />
+              Promoted
+            </span>
+          )}
+          {isSaved && !isPromoted && (
             <span className="flex-shrink-0 inline-flex items-center gap-1 text-[10px] bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded">
               <Bookmark className="w-3 h-3 fill-current" />
               Saved
