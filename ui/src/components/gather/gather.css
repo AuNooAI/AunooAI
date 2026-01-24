@@ -370,18 +370,18 @@
 
 /* Switch styling - global for all switches when gather CSS is loaded */
 [data-slot="switch"] {
-  background-color: var(--gather-mauve-7) !important;
-  border: 1px solid var(--gather-mauve-11) !important;
+  background-color: #9ca3af !important;
+  border: 2px solid #6b7280 !important;
 }
 
 [data-slot="switch"][data-state="checked"] {
-  background-color: var(--gather-pink-9) !important;
-  border-color: var(--gather-pink-9) !important;
+  background-color: #d6409f !important;
+  border-color: #d6409f !important;
 }
 
 [data-slot="switch-thumb"] {
-  background-color: var(--gather-card-bg) !important;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  background-color: #ffffff !important;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
 }
 
 /* Slider styling - global for all sliders when gather CSS is loaded */
