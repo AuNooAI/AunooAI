@@ -129,6 +129,7 @@ export function PromoteToIncidentModal({
 
     try {
       const incidentTopic = editedIncident.topic || topic || article.topic || '';
+      console.log('[PromoteToIncidentModal] Saving incident with topic:', incidentTopic, 'editedIncident.topic:', editedIncident.topic, 'prop topic:', topic, 'article.topic:', article.topic);
       const incidentToSave: SavedIncident = {
         ...editedIncident,
         name: editedIncident.name,

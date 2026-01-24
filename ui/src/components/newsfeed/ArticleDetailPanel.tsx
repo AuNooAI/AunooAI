@@ -23,6 +23,7 @@ interface ArticleDetailPanelProps {
   onRelatedArticleClick?: (uri: string) => void;
   topic?: string;
   profileId?: number;
+  onIncidentSaved?: () => void;
 }
 
 export function ArticleDetailPanel({
@@ -34,7 +35,8 @@ export function ArticleDetailPanel({
   onUnstar,
   onRelatedArticleClick,
   topic,
-  profileId
+  profileId,
+  onIncidentSaved,
 }: ArticleDetailPanelProps) {
   const [activeTab, setActiveTab] = useState<'details' | 'related'>('details');
   const [showMenu, setShowMenu] = useState(false);
@@ -509,6 +511,7 @@ Please provide:
         article={article}
         topic={topic || article?.topic}
         profileId={profileId}
+        onSuccess={onIncidentSaved}
       />
     </>
   );

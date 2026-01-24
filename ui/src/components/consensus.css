@@ -48,7 +48,7 @@
 .consensus-card-title {
   font-size: 18px;
   font-weight: 700;
-  color: #1f2937;
+  color: #232326;
   margin: 0 0 4px 0;
 }
 
@@ -238,7 +238,7 @@
 .metric-value {
   font-size: 16px;
   font-weight: 700;
-  color: #1f2937;
+  color: #232326;
 }
 
 .metric-badge {
@@ -310,7 +310,7 @@
   font-size: 14px;
   font-weight: 600;
   margin-bottom: 8px;
-  color: #1f2937;
+  color: #232326;
 }
 
 .section-content-small {
@@ -362,7 +362,7 @@
 .decision-action {
   font-size: 14px;
   font-weight: 600;
-  color: #1f2937;
+  color: #232326;
 }
 
 .urgency-badge {
@@ -414,7 +414,7 @@
 .section-title {
   font-size: 16px;
   font-weight: 600;
-  color: #1f2937;
+  color: #232326;
   margin-bottom: 12px;
   display: flex;
   align-items: center;
@@ -484,7 +484,7 @@
 .milestone-title {
   font-weight: 600;
   font-size: 14px;
-  color: #1f2937;
+  color: #232326;
   margin-bottom: 4px;
 }
 
@@ -520,7 +520,7 @@
   font-weight: 600;
   margin-bottom: 8px;
   font-size: 14px;
-  color: #1f2937;
+  color: #232326;
 }
 
 .outlier-details {
@@ -553,7 +553,7 @@
 .article-title {
   font-weight: 600;
   font-size: 14px;
-  color: #1f2937;
+  color: #232326;
   margin-bottom: 4px;
 }
 
@@ -592,8 +592,8 @@
 
 /* ===== Dark Mode Styles ===== */
 .dark .consensus-card-simple {
-  background: #1f2937;
-  border-color: #374151;
+  background: #232326;
+  border-color: #35353a;
 }
 
 .dark .consensus-card-simple:hover {
@@ -618,11 +618,11 @@
 }
 
 .dark .consensus-card-expanded-content {
-  border-top-color: #374151;
+  border-top-color: #35353a;
 }
 
 .dark .consensus-metrics {
-  background: #111827;
+  background: #1c1c1f;
 }
 
 .dark .metric-label {
@@ -662,8 +662,8 @@
 }
 
 .dark .decision-window {
-  background: #111827;
-  border-color: #374151;
+  background: #1c1c1f;
+  border-color: #35353a;
 }
 
 .dark .decision-window.urgency-critical {
@@ -707,8 +707,8 @@
 }
 
 .dark .timeframe-box {
-  background: #111827;
-  border-color: #374151;
+  background: #1c1c1f;
+  border-color: #35353a;
 }
 
 .dark .timeframe-label {
@@ -732,7 +732,7 @@
 }
 
 .dark .outlier-card {
-  border-color: #374151;
+  border-color: #35353a;
 }
 
 .dark .outlier-card.optimistic {
@@ -758,7 +758,7 @@
 }
 
 .dark .article-item {
-  background: #111827;
+  background: #1c1c1f;
   border-left-color: #60a5fa;
 }
 
@@ -788,5 +788,5 @@
 }
 
 .dark .timeline-thin-line {
-  background: linear-gradient(90deg, #374151 0%, #4b5563 50%, #374151 100%);
+  background: linear-gradient(90deg, #35353a 0%, #4b5563 50%, #35353a 100%);
 }

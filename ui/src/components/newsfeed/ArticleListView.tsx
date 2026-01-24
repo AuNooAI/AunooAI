@@ -910,7 +910,7 @@ Please provide:
             <div key={group.label || groupIndex}>
               {/* Time Period Header - solid background to hide content behind */}
               {group.label && showTimeGrouping && sortBy === 'date_desc' && (
-                <div className="sticky -top-8 z-30 -mx-10 px-10 pt-10 pb-2 text-xs font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-300 dark:border-gray-600 bg-[#ffffff] dark:bg-[#111827] shadow-sm">
+                <div className="sticky -top-8 z-30 -mx-10 px-10 pt-10 pb-2 text-xs font-semibold text-gray-700 dark:text-gray-300 border-b border-gray-300 dark:border-gray-600 bg-[#ffffff] dark:bg-[#1c1c1f] shadow-sm">
                   {group.label}
                 </div>
               )}
