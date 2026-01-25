@@ -1240,3 +1240,94 @@ t_rss_feed_monitor_status = Table(
     Column('created_at', DateTime(timezone=True), server_default=text('NOW()')),
     Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'))
 )
+
+
+# Geopolitical Hotspots Tables
+t_geopolitical_hotspots = Table(
+    'geopolitical_hotspots', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('location_name', Text, nullable=False),
+    Column('location_type', Text, nullable=False),  # city, region, country
+    Column('country_code', String(2), nullable=True),  # ISO 3166-1 alpha-2
+    Column('country_name', Text, nullable=True),
+    Column('latitude', Float, nullable=False),
+    Column('longitude', Float, nullable=False),
+    Column('intensity_score', Float, nullable=False, server_default=text('0')),  # 0-100
+    Column('risk_level', Text, nullable=False, server_default=text("'low'")),  # critical, high, medium, low, info
+    Column('trend', Text, server_default=text("'stable'")),  # escalating, stable, de-escalating
+    Column('article_count', Integer, nullable=False, server_default=text('0')),
+    Column('recent_article_count', Integer, nullable=False, server_default=text('0')),  # 7 days
+    Column('primary_category', Text, nullable=True),
+    Column('tags', JSONB, nullable=True),
+    Column('topic', Text, nullable=True),
+    Column('last_article_date', DateTime(timezone=True), nullable=True),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Index('idx_geopolitical_hotspots_location', 'location_name'),
+    Index('idx_geopolitical_hotspots_country', 'country_code'),
+    Index('idx_geopolitical_hotspots_risk', 'risk_level'),
+    Index('idx_geopolitical_hotspots_intensity', 'intensity_score'),
+    Index('idx_geopolitical_hotspots_category', 'primary_category'),
+    Index('idx_geopolitical_hotspots_topic', 'topic'),
+    Index('idx_geopolitical_hotspots_coords', 'latitude', 'longitude'),
+)
+
+t_hotspot_articles = Table(
+    'hotspot_articles', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('hotspot_id', Integer, ForeignKey('geopolitical_hotspots.id', ondelete='CASCADE'), nullable=False),
+    Column('article_uri', Text, ForeignKey('articles.uri', ondelete='CASCADE'), nullable=False),
+    Column('relevance_score', Float, nullable=True),  # 0-1
+    Column('mention_type', Text, nullable=True),  # primary, secondary, background
+    Column('extracted_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    UniqueConstraint('hotspot_id', 'article_uri', name='uq_hotspot_article'),
+    Index('idx_hotspot_articles_hotspot', 'hotspot_id'),
+    Index('idx_hotspot_articles_article', 'article_uri'),
+)
+
+t_hotspot_daily_stats = Table(
+    'hotspot_daily_stats', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('date', DateTime, nullable=False),
+    Column('hotspot_id', Integer, ForeignKey('geopolitical_hotspots.id', ondelete='CASCADE'), nullable=False),
+    Column('article_count', Integer, nullable=False, server_default=text('0')),
+    Column('intensity_score', Float, nullable=True),
+    Column('trend', Text, nullable=True),
+    Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    UniqueConstraint('date', 'hotspot_id', name='uq_hotspot_daily_stats'),
+    Index('idx_hotspot_daily_stats_date', 'date'),
+    Index('idx_hotspot_daily_stats_hotspot', 'hotspot_id'),
+)
+
+t_country_hotspot_stats = Table(
+    'country_hotspot_stats', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('country_code', String(2), nullable=False, unique=True),
+    Column('country_name', Text, nullable=False),
+    Column('total_hotspots', Integer, nullable=False, server_default=text('0')),
+    Column('total_articles', Integer, nullable=False, server_default=text('0')),
+    Column('heat_value', Float, nullable=False, server_default=text('0')),  # 0-100
+    Column('max_risk_level', Text, nullable=True),
+    Column('primary_category', Text, nullable=True),
+    Column('topic', Text, nullable=True),
+    Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Index('idx_country_hotspot_stats_code', 'country_code'),
+    Index('idx_country_hotspot_stats_heat', 'heat_value'),
+    Index('idx_country_hotspot_stats_topic', 'topic'),
+)
+
+t_geopolitical_insights = Table(
+    'geopolitical_insights', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('topic', Text, nullable=True),
+    Column('insight_type', Text, nullable=False),  # overview, regional, category, trend
+    Column('content', Text, nullable=False),
+    Column('metadata', JSONB, nullable=True),
+    Column('model_used', Text, nullable=True),
+    Column('hotspot_ids', ARRAY(Integer), nullable=True),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('expires_at', DateTime(timezone=True), nullable=True),
+    Index('idx_geopolitical_insights_type', 'insight_type'),
+    Index('idx_geopolitical_insights_topic', 'topic'),
+    Index('idx_geopolitical_insights_created', 'created_at'),
+)

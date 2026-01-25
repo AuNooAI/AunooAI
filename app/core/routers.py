@@ -53,6 +53,7 @@ def register_routers(app: FastAPI):
     from app.routes.emerging_topics_routes import router as emerging_topics_router
     from app.routes.rss_feeds_routes import router as rss_feeds_router
     from app.routes.policy_tracker_routes import router as policy_tracker_router
+    from app.routes.geopolitical_hotspots_routes import router as geopolitical_hotspots_router
 
     # Register database routes
     app.include_router(database.router)
@@ -179,5 +180,8 @@ def register_routers(app: FastAPI):
 
     # Policy Tracker dashboard routes
     app.include_router(policy_tracker_router)
+
+    # Geopolitical Hotspots dashboard routes
+    app.include_router(geopolitical_hotspots_router)
 
     logger.info("All routers registered successfully")
