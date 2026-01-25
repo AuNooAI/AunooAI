@@ -2,6 +2,39 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Comprehensive Leaflet fix for Tailwind compatibility
+   Tailwind's Preflight applies max-width: 100% to images which breaks Leaflet tile rendering.
+   This must override Tailwind's base styles with higher specificity. */
+@layer base {
+  .leaflet-container img,
+  .leaflet-container .leaflet-tile-pane img,
+  .leaflet-container .leaflet-marker-pane img,
+  .leaflet-container .leaflet-shadow-pane img,
+  .leaflet-container .leaflet-overlay-pane img,
+  .leaflet-container .leaflet-overlay-pane svg,
+  .leaflet-container img.leaflet-image-layer,
+  .leaflet-container img.leaflet-tile {
+    max-width: none !important;
+    max-height: none !important;
+    width: auto;
+    height: auto;
+  }
+
+  /* Reset any inherited styles that could affect tiles */
+  .leaflet-tile-pane,
+  .leaflet-tile {
+    position: absolute;
+    max-width: none !important;
+    max-height: none !important;
+  }
+
+  /* Ensure the map container itself isn't affected by Tailwind resets */
+  .leaflet-container {
+    font-size: 12px;
+    line-height: 1.5;
+  }
+}
+
 /* Base dark mode styles for html and body */
 @layer base {
   html {

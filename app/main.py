@@ -3526,8 +3526,8 @@ async def debug_topics():
 @app.get("/submit-articles", response_class=HTMLResponse)
 async def submit_articles_page(request: Request, session=Depends(verify_session)):
     return templates.TemplateResponse(
-        "submit_article.html", 
-        get_template_context(request)
+        "submit_articles_react.html",
+        {"request": request, "session": session}
     )
 
 # Removed auspex-status route and test routes - no longer needed
