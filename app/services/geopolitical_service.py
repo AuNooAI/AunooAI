@@ -218,6 +218,8 @@ class GeopoliticalService:
             stats['by_category'] = {row[0]: row[1] for row in cursor.fetchall() if row[0]}
 
             # Get top hotspots (filtered by date range with article counts)
+            # Deduplicate: if both a country and a city/region in that country appear,
+            # prefer the country-level entry to avoid showing e.g. both "Ukraine" and "Kyiv"
             cursor.execute(f"""
                 WITH filtered_hotspots AS (
                     SELECT h.id, COUNT(DISTINCT ha.article_uri) as filtered_count
@@ -226,12 +228,24 @@ class GeopoliticalService:
                     JOIN articles a ON ha.article_uri = a.uri
                     WHERE 1=1 {date_filter} {topic_filter}
                     GROUP BY h.id
+                ),
+                ranked AS (
+                    SELECT h.id, h.location_name, h.country_name, h.intensity_score, h.risk_level,
+                           h.primary_category, fh.filtered_count as article_count, h.trend,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY COALESCE(h.country_code, h.id::text)
+                               ORDER BY
+                                   CASE WHEN h.location_type = 'country' THEN 0 ELSE 1 END,
+                                   h.intensity_score DESC
+                           ) as rn
+                    FROM geopolitical_hotspots h
+                    JOIN filtered_hotspots fh ON h.id = fh.id
                 )
-                SELECT h.id, h.location_name, h.country_name, h.intensity_score, h.risk_level,
-                       h.primary_category, fh.filtered_count as article_count, h.trend
-                FROM geopolitical_hotspots h
-                JOIN filtered_hotspots fh ON h.id = fh.id
-                ORDER BY h.intensity_score DESC
+                SELECT id, location_name, country_name, intensity_score, risk_level,
+                       primary_category, article_count, trend
+                FROM ranked
+                WHERE rn = 1
+                ORDER BY intensity_score DESC
                 LIMIT 5
             """, params)
 
