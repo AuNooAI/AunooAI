@@ -9,6 +9,13 @@ export interface KeywordGroup {
   created_at: string;
   provider?: string;
   source?: string;
+  // Per-group scheduling fields
+  is_active?: boolean;
+  has_custom_schedule?: boolean;
+  has_custom_providers?: boolean;
+  last_checked_at?: string;
+  next_check_at?: string;
+  last_error?: string;
 }
 
 export interface MonitoredKeyword {
@@ -89,6 +96,57 @@ export interface KeywordGroupSummary {
   articles_past_week: number;
   articles_past_month: number;
   daily_counts: [string, number][]; // [date, count] tuples for sparkline
+  // Per-group scheduling fields
+  is_active?: boolean;
+  has_custom_schedule?: boolean;
+  has_custom_providers?: boolean;
+  next_check_at?: string;
+}
+
+// Per-group collection settings
+export interface KeywordGroupSettings {
+  check_interval?: number;
+  interval_unit?: number;      // 60=minutes, 3600=hours, 86400=days
+  search_date_range?: number;
+  providers?: string;          // JSON array e.g., '["thenewsapi", "arxiv"]'
+  auto_ingest_enabled?: boolean;
+  min_relevance_threshold?: number;
+  quality_control_enabled?: boolean;
+  auto_save_approved_only?: boolean;
+  default_llm_model?: string;
+  llm_temperature?: number;
+  llm_max_tokens?: number;
+}
+
+export interface GroupSettingsResponse {
+  success: boolean;
+  group_id: number;
+  group_name: string;
+  topic: string;
+  is_active: boolean;
+  last_checked_at?: string;
+  next_check_at?: string;
+  last_error?: string;
+  settings: KeywordGroupSettings;
+  custom_fields: string[];
+  has_custom_schedule: boolean;
+  has_custom_providers: boolean;
+}
+
+export interface GroupSettingsUpdateRequest {
+  use_global_settings?: boolean;  // Set true to reset all to global defaults
+  is_active?: boolean;
+  check_interval?: number;
+  interval_unit?: number;
+  search_date_range?: number;
+  providers?: string;
+  auto_ingest_enabled?: boolean;
+  min_relevance_threshold?: number;
+  quality_control_enabled?: boolean;
+  auto_save_approved_only?: boolean;
+  default_llm_model?: string;
+  llm_temperature?: number;
+  llm_max_tokens?: number;
 }
 
 export interface ArticleMatch {
@@ -625,4 +683,24 @@ export async function fetchRSSFeed(feedId: number): Promise<{ success: boolean; 
 export async function getRSSMonitorStatus(): Promise<RSSMonitorStatus> {
   const response = await fetchJson<{ success: boolean; status: RSSMonitorStatus }>(`${RSS_API_BASE}/status/monitor`);
   return response.status;
+}
+
+// ============================================================================
+// Per-Group Collection Settings
+// ============================================================================
+
+// Get effective settings for a keyword group
+export async function getGroupSettings(groupId: number): Promise<GroupSettingsResponse> {
+  return fetchJson<GroupSettingsResponse>(`${API_BASE}/group/${groupId}/settings`);
+}
+
+// Update per-group collection settings
+export async function updateGroupSettings(
+  groupId: number,
+  settings: GroupSettingsUpdateRequest
+): Promise<{ success: boolean; message: string; effective_settings?: KeywordGroupSettings; custom_fields?: string[] }> {
+  return fetchJson(`${API_BASE}/group/${groupId}/settings`, {
+    method: 'POST',
+    body: JSON.stringify(settings),
+  });
 }
