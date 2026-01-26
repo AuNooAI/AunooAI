@@ -45,6 +45,46 @@ if (!document.getElementById('leaflet-tailwind-fix-v2')) {
     .leaflet-tile-container {
       pointer-events: none;
     }
+    /* Custom tooltip styling - compact rectangle card */
+    .leaflet-tooltip.custom-tooltip {
+      background-color: #1f2937 !important;
+      border: none !important;
+      border-radius: 6px !important;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+      padding: 8px 10px !important;
+      font-family: inherit !important;
+      color: #f9fafb !important;
+      font-size: 11px !important;
+      max-width: 180px !important;
+      min-width: 120px !important;
+      white-space: normal !important;
+      pointer-events: none !important;
+      transition: none !important;
+    }
+    .leaflet-tooltip.custom-tooltip::before {
+      border-top-color: #1f2937 !important;
+    }
+    /* Cluster tooltip - compact rectangle */
+    .leaflet-tooltip.cluster-tooltip {
+      background-color: #1f2937 !important;
+      border: none !important;
+      border-radius: 6px !important;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+      padding: 8px 10px !important;
+      color: #f9fafb !important;
+      font-size: 11px !important;
+      max-width: 160px !important;
+      min-width: 100px !important;
+      pointer-events: none !important;
+      transition: none !important;
+    }
+    .leaflet-tooltip.cluster-tooltip::before {
+      border-top-color: #1f2937 !important;
+    }
+    /* Prevent tooltip flickering */
+    .leaflet-tooltip {
+      pointer-events: none !important;
+    }
   `;
   // Append to body to override head styles
   document.body.appendChild(leafletFix);
@@ -221,6 +261,7 @@ interface HotspotMapProps {
   height?: string;
   showLegend?: boolean;
   centerOnSelected?: boolean;
+  fillContainer?: boolean;
 }
 
 export function HotspotMap({
@@ -230,6 +271,7 @@ export function HotspotMap({
   height = '500px',
   showLegend = true,
   centerOnSelected = true,
+  fillContainer = false,
 }: HotspotMapProps) {
   const mapRef = useRef<L.Map | null>(null);
 
@@ -247,8 +289,12 @@ export function HotspotMap({
   const attribution =
     '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>';
 
+  // Calculate height - if fillContainer, use calc to fill available space
+  const containerHeight = fillContainer ? 'calc(100vh - 280px)' : height;
+  const minHeight = fillContainer ? '400px' : undefined;
+
   return (
-    <div className="relative" style={{ height }}>
+    <div className="relative" style={{ height: containerHeight, minHeight }}>
       <MapContainer
         center={[20, 0]}
         zoom={2}
@@ -273,6 +319,37 @@ export function HotspotMap({
           spiderfyOnMaxZoom={true}
           showCoverageOnHover={false}
           removeOutsideVisibleBounds={true}
+          eventHandlers={{
+            clustermouseover: (e: any) => {
+              const cluster = e.propagatedFrom || e.layer;
+              const markers = cluster.getAllChildMarkers();
+              const count = markers.length;
+
+              // Get risk breakdown
+              const riskCounts: Record<string, number> = {};
+              markers.forEach((m: any) => {
+                const risk = m.options?.riskLevel || 'info';
+                riskCounts[risk] = (riskCounts[risk] || 0) + 1;
+              });
+
+              const riskSummary = Object.entries(riskCounts)
+                .sort((a, b) => b[1] - a[1])
+                .map(([risk, cnt]) => `${cnt} ${risk}`)
+                .join(', ');
+
+              const tooltipContent = `<strong>${count} Hotspots</strong><br/><span style="opacity:0.8">${riskSummary}</span>`;
+
+              cluster.bindTooltip(tooltipContent, {
+                direction: 'top',
+                offset: [0, -10],
+                className: 'cluster-tooltip',
+              }).openTooltip();
+            },
+            clustermouseout: (e: any) => {
+              const cluster = e.propagatedFrom || e.layer;
+              cluster.closeTooltip();
+            },
+          }}
         >
           {hotspots.map((hotspot) => (
             <Marker
@@ -281,9 +358,20 @@ export function HotspotMap({
               icon={createMarkerIcon(hotspot.risk_level)}
               eventHandlers={{
                 click: () => onHotspotClick?.(hotspot),
+                add: (e) => {
+                  // Bind native Leaflet tooltip for better compatibility with clustering
+                  const marker = e.target;
+                  const tooltipContent = `<strong>${hotspot.location_name}</strong><br/><span style="opacity:0.8">${hotspot.risk_level.toUpperCase()} • ${hotspot.article_count} articles${hotspot.primary_category ? ` • ${hotspot.primary_category}` : ''}</span>`;
+                  marker.bindTooltip(tooltipContent, {
+                    direction: 'top',
+                    offset: [0, -8],
+                    className: 'custom-tooltip',
+                  });
+                },
               }}
               {...({ riskLevel: hotspot.risk_level } as any)}
             >
+              {/* Click popup with full details */}
               <Popup>
                 <div className="min-w-[200px]">
                   <h3 className="font-semibold text-gray-900 mb-1">{hotspot.location_name}</h3>

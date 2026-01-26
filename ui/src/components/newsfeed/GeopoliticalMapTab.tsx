@@ -1,17 +1,19 @@
 /**
  * GeopoliticalMapTab Component
- * Full interactive map with filters for geopolitical hotspots
+ * Full interactive 3D globe with filters for geopolitical hotspots
  */
 
-import { useState } from 'react';
+import { useState, Suspense, lazy } from 'react';
 import { Filter, X } from 'lucide-react';
-import { HotspotMap } from './map';
 import type { Hotspot, ThreatCategory, RiskLevel } from '../../services/geopoliticalHotspotsApi';
 import {
   THREAT_CATEGORIES,
   RISK_LEVELS,
   RISK_COLORS,
 } from '../../services/geopoliticalHotspotsApi';
+
+// Lazy load the globe component (it's heavy)
+const HotspotGlobe = lazy(() => import('./map/HotspotGlobe').then(m => ({ default: m.HotspotGlobe })));
 
 interface GeopoliticalMapTabProps {
   hotspots: Hotspot[];
@@ -150,13 +152,21 @@ export function GeopoliticalMapTab({
         </div>
       )}
 
-      {/* Map */}
+      {/* 3D Globe */}
       {loading ? (
-        <div className="flex items-center justify-center h-[600px] bg-gray-100 dark:bg-gray-800 rounded-lg">
-          <div className="animate-pulse text-gray-500 dark:text-gray-400">Loading map...</div>
+        <div className="flex items-center justify-center bg-gray-900 rounded-lg" style={{ height: 'calc(100vh - 280px)', minHeight: '500px' }}>
+          <div className="animate-pulse text-gray-400">Loading globe...</div>
         </div>
       ) : (
-        <HotspotMap hotspots={hotspots} height="600px" onHotspotClick={onHotspotClick} />
+        <Suspense
+          fallback={
+            <div className="flex items-center justify-center bg-gray-900 rounded-lg" style={{ height: 'calc(100vh - 280px)', minHeight: '500px' }}>
+              <div className="animate-pulse text-gray-400">Loading 3D globe...</div>
+            </div>
+          }
+        >
+          <HotspotGlobe hotspots={hotspots} onHotspotClick={onHotspotClick} />
+        </Suspense>
       )}
     </div>
   );

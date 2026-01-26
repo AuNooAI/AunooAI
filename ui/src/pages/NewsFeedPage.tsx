@@ -740,7 +740,7 @@ export function NewsFeedPage() {
             <span className="gather-top-bar-title">Explore</span>
             <span className="gather-top-bar-separator">/</span>
             <span className="gather-top-bar-subtitle">
-              {currentTab === 'agents' ? 'Observer Agents' : currentTab === 'emerging' ? 'Emerging Topics' : currentTab === 'saved' ? 'Saved' : currentTab === 'policy' ? 'Policy Tracker' : currentTab === 'geopolitical' ? 'Geopolitical Hotspots' : 'News Feed'}
+              {currentTab === 'agents' ? 'Observer Agents' : currentTab === 'emerging' ? 'Emerging Topics' : currentTab === 'saved' ? 'Saved' : currentTab === 'policy' ? 'US Crisis Tracker' : currentTab === 'geopolitical' ? 'GeoHotSpots' : 'News Feed'}
             </span>
           </div>
           <div className="gather-top-bar-right">
@@ -790,6 +790,20 @@ export function NewsFeedPage() {
             News Feed
           </button>
           <button
+            className={`explore-tab-btn ${currentTab === 'geopolitical' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('geopolitical')}
+          >
+            <Globe className="w-4 h-4" />
+            GeoHotSpots
+          </button>
+          <button
+            className={`explore-tab-btn ${currentTab === 'policy' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('policy')}
+          >
+            <Scale className="w-4 h-4" />
+            US Crisis Tracker
+          </button>
+          <button
             className={`explore-tab-btn ${currentTab === 'emerging' ? 'active' : ''}`}
             onClick={() => setCurrentTab('emerging')}
           >
@@ -818,20 +832,6 @@ export function NewsFeedPage() {
             {starredArticles.length > 0 && (
               <span className="explore-tab-badge">{starredArticles.length}</span>
             )}
-          </button>
-          <button
-            className={`explore-tab-btn ${currentTab === 'policy' ? 'active' : ''}`}
-            onClick={() => setCurrentTab('policy')}
-          >
-            <Scale className="w-4 h-4" />
-            Policy Tracker
-          </button>
-          <button
-            className={`explore-tab-btn ${currentTab === 'geopolitical' ? 'active' : ''}`}
-            onClick={() => setCurrentTab('geopolitical')}
-          >
-            <Globe className="w-4 h-4" />
-            Geopolitical
           </button>
         </div>
 
