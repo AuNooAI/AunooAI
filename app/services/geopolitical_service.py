@@ -113,55 +113,73 @@ class GeopoliticalService:
         pass
 
     def get_overview_stats(self, topic: Optional[str] = None, days_back: int = 30) -> Dict[str, Any]:
-        """Get dashboard overview statistics."""
+        """Get dashboard overview statistics filtered by article publication dates."""
         conn = get_database_instance().get_connection()
         cursor = conn.cursor()
 
         try:
-            # Build WHERE clause for topic filter
-            where_clause = ""
-            params = []
+            # Build base filter
+            topic_filter = ""
+            topic_params = []
             if topic:
-                where_clause = "WHERE topic = ?"
-                params.append(topic)
+                topic_filter = "AND h.topic = ?"
+                topic_params.append(topic)
 
-            # Get total hotspots and risk breakdown
+            # Date filter for articles (publication_date is TEXT, needs casting)
+            date_filter = """
+                AND (
+                    a.publication_date::timestamp >= CURRENT_DATE - ? * INTERVAL '1 day'
+                    OR a.publication_date::date >= CURRENT_DATE - ? * INTERVAL '1 day'
+                )
+            """
+
+            # Get hotspot IDs that have articles in the date range
+            params = [days_back, days_back] + topic_params
             cursor.execute(f"""
+                WITH filtered_hotspots AS (
+                    SELECT DISTINCT h.id
+                    FROM geopolitical_hotspots h
+                    JOIN hotspot_articles ha ON h.id = ha.hotspot_id
+                    JOIN articles a ON ha.article_uri = a.uri
+                    WHERE 1=1 {date_filter} {topic_filter}
+                )
                 SELECT
                     COUNT(*) as total_hotspots,
-                    COUNT(CASE WHEN risk_level = 'critical' THEN 1 END) as critical_count,
-                    COUNT(CASE WHEN risk_level = 'high' THEN 1 END) as high_count,
-                    COUNT(CASE WHEN risk_level = 'medium' THEN 1 END) as medium_count,
-                    COUNT(CASE WHEN risk_level = 'low' THEN 1 END) as low_count,
-                    COUNT(CASE WHEN risk_level = 'info' THEN 1 END) as info_count,
-                    COUNT(DISTINCT country_code) as countries_affected,
-                    COUNT(CASE WHEN trend = 'escalating' THEN 1 END) as escalating_count,
-                    COUNT(CASE WHEN trend = 'de-escalating' THEN 1 END) as de_escalating_count
-                FROM geopolitical_hotspots
-                {where_clause}
-            """, params if params else None)
+                    COUNT(CASE WHEN h.risk_level = 'critical' THEN 1 END) as critical_count,
+                    COUNT(CASE WHEN h.risk_level = 'high' THEN 1 END) as high_count,
+                    COUNT(CASE WHEN h.risk_level = 'medium' THEN 1 END) as medium_count,
+                    COUNT(CASE WHEN h.risk_level = 'low' THEN 1 END) as low_count,
+                    COUNT(CASE WHEN h.risk_level = 'info' THEN 1 END) as info_count,
+                    COUNT(DISTINCT h.country_code) as countries_affected,
+                    COUNT(CASE WHEN h.trend = 'escalating' THEN 1 END) as escalating_count,
+                    COUNT(CASE WHEN h.trend = 'de-escalating' THEN 1 END) as de_escalating_count
+                FROM geopolitical_hotspots h
+                WHERE h.id IN (SELECT id FROM filtered_hotspots)
+            """, params)
 
             row = cursor.fetchone()
 
-            # Get distinct article counts from hotspot_articles table
-            # This counts only articles actually linked to hotspots (being analyzed)
+            # Get article counts in date range
             from datetime import datetime, timedelta
             recent_cutoff = datetime.now() - timedelta(days=7)
 
-            article_where = ""
-            article_params = [recent_cutoff]
-            if topic:
-                article_where = "AND gh.topic = ?"
-                article_params.append(topic)
-
+            article_params = [days_back, days_back] + topic_params + [days_back, days_back]
             cursor.execute(f"""
                 SELECT
                     COUNT(DISTINCT ha.article_uri) as total_articles,
-                    COUNT(DISTINCT CASE WHEN ha.extracted_at >= ? THEN ha.article_uri END) as recent_articles
+                    COUNT(DISTINCT CASE
+                        WHEN a.publication_date::timestamp >= CURRENT_DATE - 7 * INTERVAL '1 day'
+                        OR a.publication_date::date >= CURRENT_DATE - 7 * INTERVAL '1 day'
+                        THEN ha.article_uri
+                    END) as recent_articles
                 FROM hotspot_articles ha
-                JOIN geopolitical_hotspots gh ON ha.hotspot_id = gh.id
-                WHERE 1=1 {article_where}
-            """, article_params)
+                JOIN geopolitical_hotspots h ON ha.hotspot_id = h.id
+                JOIN articles a ON ha.article_uri = a.uri
+                WHERE (
+                    a.publication_date::timestamp >= CURRENT_DATE - ? * INTERVAL '1 day'
+                    OR a.publication_date::date >= CURRENT_DATE - ? * INTERVAL '1 day'
+                ) {topic_filter}
+            """, article_params[:2] + topic_params)
 
             article_row = cursor.fetchone()
 
@@ -181,26 +199,41 @@ class GeopoliticalService:
                 'de_escalating_count': row[8] if row else 0,
             }
 
-            # Get category distribution
+            # Get category distribution (only for hotspots with articles in date range)
             cursor.execute(f"""
-                SELECT primary_category, COUNT(*) as count
-                FROM geopolitical_hotspots
-                {where_clause}
-                GROUP BY primary_category
+                WITH filtered_hotspots AS (
+                    SELECT DISTINCT h.id
+                    FROM geopolitical_hotspots h
+                    JOIN hotspot_articles ha ON h.id = ha.hotspot_id
+                    JOIN articles a ON ha.article_uri = a.uri
+                    WHERE 1=1 {date_filter} {topic_filter}
+                )
+                SELECT h.primary_category, COUNT(*) as count
+                FROM geopolitical_hotspots h
+                WHERE h.id IN (SELECT id FROM filtered_hotspots)
+                GROUP BY h.primary_category
                 ORDER BY count DESC
-            """, params if params else None)
+            """, params)
 
             stats['by_category'] = {row[0]: row[1] for row in cursor.fetchall() if row[0]}
 
-            # Get top hotspots
+            # Get top hotspots (filtered by date range with article counts)
             cursor.execute(f"""
-                SELECT id, location_name, country_name, intensity_score, risk_level,
-                       primary_category, article_count, trend
-                FROM geopolitical_hotspots
-                {where_clause}
-                ORDER BY intensity_score DESC
+                WITH filtered_hotspots AS (
+                    SELECT h.id, COUNT(DISTINCT ha.article_uri) as filtered_count
+                    FROM geopolitical_hotspots h
+                    JOIN hotspot_articles ha ON h.id = ha.hotspot_id
+                    JOIN articles a ON ha.article_uri = a.uri
+                    WHERE 1=1 {date_filter} {topic_filter}
+                    GROUP BY h.id
+                )
+                SELECT h.id, h.location_name, h.country_name, h.intensity_score, h.risk_level,
+                       h.primary_category, fh.filtered_count as article_count, h.trend
+                FROM geopolitical_hotspots h
+                JOIN filtered_hotspots fh ON h.id = fh.id
+                ORDER BY h.intensity_score DESC
                 LIMIT 5
-            """, params if params else None)
+            """, params)
 
             stats['top_hotspots'] = [
                 {
@@ -226,39 +259,57 @@ class GeopoliticalService:
                      categories: Optional[List[str]] = None,
                      risk_levels: Optional[List[str]] = None,
                      days_back: int = 30) -> List[Dict[str, Any]]:
-        """Get all hotspots with coordinates for map display."""
+        """Get all hotspots with coordinates for map display, filtered by article publication dates."""
         conn = get_database_instance().get_connection()
         cursor = conn.cursor()
 
         try:
-            where_clauses = []
-            params = []
+            where_clauses = ["1=1"]
+            params = [days_back, days_back]  # For date filter
 
             if topic:
-                where_clauses.append("topic = ?")
+                where_clauses.append("h.topic = ?")
                 params.append(topic)
 
             if categories:
                 placeholders = ', '.join(['?' for _ in categories])
-                where_clauses.append(f"primary_category IN ({placeholders})")
+                where_clauses.append(f"h.primary_category IN ({placeholders})")
                 params.extend(categories)
 
             if risk_levels:
                 placeholders = ', '.join(['?' for _ in risk_levels])
-                where_clauses.append(f"risk_level IN ({placeholders})")
+                where_clauses.append(f"h.risk_level IN ({placeholders})")
                 params.extend(risk_levels)
 
-            where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+            where_sql = " AND ".join(where_clauses)
+
+            # Date filter for articles (publication_date is TEXT, needs casting)
+            date_filter = """
+                AND (
+                    a.publication_date::timestamp >= CURRENT_DATE - ? * INTERVAL '1 day'
+                    OR a.publication_date::date >= CURRENT_DATE - ? * INTERVAL '1 day'
+                )
+            """
 
             cursor.execute(f"""
-                SELECT id, location_name, location_type, country_code, country_name,
-                       latitude, longitude, intensity_score, risk_level, trend,
-                       article_count, recent_article_count, primary_category, tags,
-                       last_article_date
-                FROM geopolitical_hotspots
-                {where_sql}
-                ORDER BY intensity_score DESC
-            """, params if params else None)
+                WITH filtered_hotspots AS (
+                    SELECT h.id, COUNT(DISTINCT ha.article_uri) as filtered_count
+                    FROM geopolitical_hotspots h
+                    JOIN hotspot_articles ha ON h.id = ha.hotspot_id
+                    JOIN articles a ON ha.article_uri = a.uri
+                    WHERE {where_sql} {date_filter}
+                    GROUP BY h.id
+                    HAVING COUNT(DISTINCT ha.article_uri) > 0
+                )
+                SELECT h.id, h.location_name, h.location_type, h.country_code, h.country_name,
+                       h.latitude, h.longitude, h.intensity_score, h.risk_level, h.trend,
+                       fh.filtered_count as article_count,
+                       fh.filtered_count as recent_article_count,
+                       h.primary_category, h.tags, h.last_article_date
+                FROM geopolitical_hotspots h
+                JOIN filtered_hotspots fh ON h.id = fh.id
+                ORDER BY h.intensity_score DESC
+            """, params)
 
             return [
                 {
@@ -330,66 +381,109 @@ class GeopoliticalService:
                      page: int = 1, page_size: int = 20,
                      sort_by: str = 'intensity',
                      sort_order: str = 'desc') -> Tuple[List[Dict[str, Any]], int]:
-        """Get paginated list of hotspots with filters."""
+        """Get paginated list of hotspots with filters based on article publication dates."""
         conn = get_database_instance().get_connection()
         cursor = conn.cursor()
 
         try:
-            where_clauses = []
+            where_clauses = ["h.id IS NOT NULL"]  # Start with a true condition
             params = []
 
-            # Filter by days_back - only show hotspots with recent articles
-            if days_back:
-                where_clauses.append("last_article_date >= CURRENT_DATE - ? * INTERVAL '1 day'")
-                params.append(days_back)
-
             if topic:
-                where_clauses.append("topic = ?")
+                where_clauses.append("h.topic = ?")
                 params.append(topic)
 
             if categories:
                 placeholders = ', '.join(['?' for _ in categories])
-                where_clauses.append(f"primary_category IN ({placeholders})")
+                where_clauses.append(f"h.primary_category IN ({placeholders})")
                 params.extend(categories)
 
             if risk_levels:
                 placeholders = ', '.join(['?' for _ in risk_levels])
-                where_clauses.append(f"risk_level IN ({placeholders})")
+                where_clauses.append(f"h.risk_level IN ({placeholders})")
                 params.extend(risk_levels)
 
             if country_code:
-                where_clauses.append("country_code = ?")
+                where_clauses.append("h.country_code = ?")
                 params.append(country_code)
 
-            where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+            where_sql = "WHERE " + " AND ".join(where_clauses)
 
             # Sort mapping
             sort_columns = {
-                'intensity': 'intensity_score',
-                'articles': 'article_count',
-                'recent': 'recent_article_count',
-                'name': 'location_name',
-                'updated': 'updated_at'
+                'intensity': 'h.intensity_score',
+                'articles': 'filtered_article_count',
+                'recent': 'filtered_article_count',
+                'name': 'h.location_name',
+                'updated': 'h.updated_at'
             }
-            sort_col = sort_columns.get(sort_by, 'intensity_score')
+            sort_col = sort_columns.get(sort_by, 'h.intensity_score')
             order = 'DESC' if sort_order.lower() == 'desc' else 'ASC'
 
-            # Get total count
-            cursor.execute(f"SELECT COUNT(*) FROM geopolitical_hotspots {where_sql}", params if params else None)
+            # Build the date filter for articles
+            # publication_date is stored as TEXT, so we need to cast it
+            date_filter_sql = ""
+            if days_back:
+                date_filter_sql = f"""
+                    AND (
+                        a.publication_date::timestamp >= CURRENT_DATE - ? * INTERVAL '1 day'
+                        OR a.publication_date::date >= CURRENT_DATE - ? * INTERVAL '1 day'
+                    )
+                """
+
+            # Query that joins with articles and filters by publication date
+            # Returns hotspots that have at least one article in the date range
+            query = f"""
+                WITH filtered_hotspots AS (
+                    SELECT h.id,
+                           COUNT(DISTINCT ha.article_uri) as filtered_article_count
+                    FROM geopolitical_hotspots h
+                    JOIN hotspot_articles ha ON h.id = ha.hotspot_id
+                    JOIN articles a ON ha.article_uri = a.uri
+                    {where_sql}
+                    {date_filter_sql}
+                    GROUP BY h.id
+                    HAVING COUNT(DISTINCT ha.article_uri) > 0
+                )
+                SELECT COUNT(*) FROM filtered_hotspots
+            """
+
+            # Build params for date filter (used twice in the OR clause)
+            count_params = params.copy()
+            if days_back:
+                count_params.extend([days_back, days_back])
+
+            cursor.execute(query, count_params if count_params else None)
             total = cursor.fetchone()[0]
 
-            # Get paginated results
+            # Get paginated results with article counts
             offset = (page - 1) * page_size
-            cursor.execute(f"""
-                SELECT id, location_name, location_type, country_code, country_name,
-                       latitude, longitude, intensity_score, risk_level, trend,
-                       article_count, recent_article_count, primary_category, tags,
-                       last_article_date, created_at, updated_at
-                FROM geopolitical_hotspots
-                {where_sql}
+            results_query = f"""
+                WITH filtered_hotspots AS (
+                    SELECT h.id,
+                           COUNT(DISTINCT ha.article_uri) as filtered_article_count
+                    FROM geopolitical_hotspots h
+                    JOIN hotspot_articles ha ON h.id = ha.hotspot_id
+                    JOIN articles a ON ha.article_uri = a.uri
+                    {where_sql}
+                    {date_filter_sql}
+                    GROUP BY h.id
+                    HAVING COUNT(DISTINCT ha.article_uri) > 0
+                )
+                SELECT h.id, h.location_name, h.location_type, h.country_code, h.country_name,
+                       h.latitude, h.longitude, h.intensity_score, h.risk_level, h.trend,
+                       fh.filtered_article_count as article_count,
+                       fh.filtered_article_count as recent_article_count,
+                       h.primary_category, h.tags,
+                       h.last_article_date, h.created_at, h.updated_at
+                FROM geopolitical_hotspots h
+                JOIN filtered_hotspots fh ON h.id = fh.id
                 ORDER BY {sort_col} {order}
                 LIMIT ? OFFSET ?
-            """, (params + [page_size, offset]) if params else [page_size, offset])
+            """
+
+            results_params = count_params + [page_size, offset]
+            cursor.execute(results_query, results_params)
 
             hotspots = [
                 {
