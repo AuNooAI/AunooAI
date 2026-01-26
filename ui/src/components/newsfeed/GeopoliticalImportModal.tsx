@@ -30,6 +30,16 @@ interface ProcessResult {
   hotspots_updated: number;
   articles_skipped: number;
   errors: number;
+  // Background processing fields
+  running?: boolean;
+  progress?: number;
+  total?: number;
+  processed?: number;
+  created?: number;
+  updated?: number;
+  skipped?: number;
+  completed?: boolean;
+  last_error?: string | null;
 }
 
 interface GeopoliticalImportModalProps {
@@ -73,6 +83,7 @@ export function GeopoliticalImportModal({
 
   const statsLoadedRef = useRef(false);
   const topicsLoadedRef = useRef(false);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load available topics when modal opens
   useEffect(() => {
@@ -101,8 +112,22 @@ export function GeopoliticalImportModal({
       setError(null);
       setProcessingLog([]);
       setProcessAll(false);
+      // Clear any polling interval
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
     }
   }, [isOpen]);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, []);
 
   const fetchAvailableTopics = async () => {
     setLoadingTopics(true);
@@ -151,6 +176,77 @@ export function GeopoliticalImportModal({
     }
   };
 
+  // Poll for processing status
+  const pollProcessingStatus = useCallback(async () => {
+    try {
+      const response = await fetch('/api/geopolitical-hotspots/process-articles/status');
+      if (!response.ok) return;
+
+      const status = await response.json();
+
+      // Update the result with background processing status
+      setProcessResult({
+        status: status.completed ? 'complete' : (status.running ? 'running' : 'pending'),
+        message: status.message || '',
+        articles_processed: status.processed || 0,
+        hotspots_created: status.created || 0,
+        hotspots_updated: status.updated || 0,
+        articles_skipped: status.skipped || 0,
+        errors: status.errors || 0,
+        running: status.running,
+        progress: status.progress,
+        total: status.total,
+        completed: status.completed,
+        last_error: status.last_error,
+      });
+
+      // Update processing log
+      if (status.progress && status.total) {
+        setProcessingLog((prev) => {
+          // Only add if different from last entry
+          const progressLine = `Processing: ${status.progress}/${status.total} articles...`;
+          if (prev[prev.length - 1] !== progressLine) {
+            // Remove previous progress lines to avoid log spam
+            const filtered = prev.filter(line => !line.startsWith('Processing:'));
+            return [...filtered, progressLine];
+          }
+          return prev;
+        });
+      }
+
+      // If completed, stop polling and finalize
+      if (status.completed || (!status.running && status.progress === status.total)) {
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+        setIsProcessing(false);
+
+        setProcessingLog((prev) => {
+          const filtered = prev.filter(line => !line.startsWith('Processing:'));
+          return [
+            ...filtered,
+            `Processed: ${status.processed || 0} articles`,
+            `Hotspots created: ${status.created || 0}`,
+            `Hotspots updated: ${status.updated || 0}`,
+            `Skipped: ${status.skipped || 0}`,
+            status.errors > 0 ? `Errors: ${status.errors}` : '',
+            'Processing complete!',
+          ].filter(Boolean);
+        });
+
+        // Refresh stats after processing
+        await fetchProcessingStats();
+
+        if (onImportComplete) {
+          onImportComplete();
+        }
+      }
+    } catch (err) {
+      console.error('Error polling processing status:', err);
+    }
+  }, [fetchProcessingStats, onImportComplete]);
+
   const handleProcess = useCallback(async () => {
     setError(null);
     setIsProcessing(true);
@@ -191,35 +287,45 @@ export function GeopoliticalImportModal({
       }
 
       if (response.ok) {
-        setProcessResult(result);
-        setProcessingLog((prev) => [
-          ...prev,
-          `Processed: ${result.articles_processed} articles`,
-          `Hotspots created: ${result.hotspots_created}`,
-          `Hotspots updated: ${result.hotspots_updated}`,
-          `Skipped: ${result.articles_skipped}`,
-          result.errors > 0 ? `Errors: ${result.errors}` : '',
-          'Processing complete!',
-        ].filter(Boolean));
+        // Check if background processing started
+        if (result.status === 'started' || result.status === 'running') {
+          setProcessingLog((prev) => [...prev, result.message || 'Processing started in background...']);
 
-        // Refresh stats after processing
-        await fetchProcessingStats();
+          // Start polling for status
+          pollingIntervalRef.current = setInterval(pollProcessingStatus, 2000);
+        } else {
+          // Synchronous completion (shouldn't happen anymore, but handle it)
+          setProcessResult(result);
+          setProcessingLog((prev) => [
+            ...prev,
+            `Processed: ${result.articles_processed} articles`,
+            `Hotspots created: ${result.hotspots_created}`,
+            `Hotspots updated: ${result.hotspots_updated}`,
+            `Skipped: ${result.articles_skipped}`,
+            result.errors > 0 ? `Errors: ${result.errors}` : '',
+            'Processing complete!',
+          ].filter(Boolean));
 
-        if (onImportComplete) {
-          onImportComplete();
+          // Refresh stats after processing
+          await fetchProcessingStats();
+          setIsProcessing(false);
+
+          if (onImportComplete) {
+            onImportComplete();
+          }
         }
       } else {
         setError(result.detail || 'Processing failed');
         setProcessingLog((prev) => [...prev, `Error: ${result.detail || 'Unknown error'}`]);
+        setIsProcessing(false);
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Processing failed';
       setError(errorMsg);
       setProcessingLog((prev) => [...prev, `Error: ${errorMsg}`]);
-    } finally {
       setIsProcessing(false);
     }
-  }, [batchSize, model, runLlmExtraction, regenerateNarrative, selectedTopic, processAll, onImportComplete]);
+  }, [batchSize, model, runLlmExtraction, regenerateNarrative, selectedTopic, processAll, onImportComplete, pollProcessingStatus]);
 
   const handleClearAllData = useCallback(async () => {
     setIsClearing(true);
@@ -315,6 +421,22 @@ export function GeopoliticalImportModal({
                   {isComplete ? 'Processing Complete' : 'Processing...'}
                 </span>
               </div>
+
+              {/* Progress bar for background processing */}
+              {processResult.running && processResult.total && processResult.total > 0 && (
+                <div className="mb-3">
+                  <div className="flex justify-between text-xs text-blue-600 dark:text-blue-400 mb-1">
+                    <span>Progress</span>
+                    <span>{processResult.progress || 0} / {processResult.total} articles</span>
+                  </div>
+                  <div className="w-full bg-blue-200 dark:bg-blue-800 rounded-full h-2">
+                    <div
+                      className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                      style={{ width: `${((processResult.progress || 0) / processResult.total) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="text-gray-600 dark:text-gray-300">Articles Processed:</div>

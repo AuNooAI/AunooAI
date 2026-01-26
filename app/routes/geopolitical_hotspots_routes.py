@@ -522,6 +522,139 @@ async def get_available_topics(session=Depends(verify_session_api)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# Global state for tracking background processing
+_processing_status = {
+    "running": False,
+    "progress": 0,
+    "total": 0,
+    "processed": 0,
+    "created": 0,
+    "updated": 0,
+    "skipped": 0,
+    "errors": 0,
+    "last_error": None,
+    "completed": False,
+    "message": ""
+}
+
+
+def get_processing_status():
+    """Get current processing status."""
+    return _processing_status.copy()
+
+
+async def _process_articles_background(
+    articles: list,
+    model: str,
+    topic: Optional[str],
+    process_all: bool
+):
+    """Background task to process articles."""
+    global _processing_status
+
+    service = get_geopolitical_service()
+    topic_name = topic or "Geopolitical Hotspots"
+
+    _processing_status["running"] = True
+    _processing_status["total"] = len(articles)
+    _processing_status["progress"] = 0
+    _processing_status["processed"] = 0
+    _processing_status["created"] = 0
+    _processing_status["updated"] = 0
+    _processing_status["skipped"] = 0
+    _processing_status["errors"] = 0
+    _processing_status["completed"] = False
+    _processing_status["last_error"] = None
+    _processing_status["message"] = f"Processing {len(articles)} articles..."
+
+    try:
+        for i, article in enumerate(articles):
+            try:
+                _processing_status["progress"] = i + 1
+
+                # Add small delay to avoid rate limiting
+                await asyncio.sleep(0.3)
+
+                # Extract location using LLM
+                result = await extract_location_with_llm(
+                    article['title'] or "",
+                    article['summary'] or "",
+                    article['category'] or "",
+                    model
+                )
+
+                if result.get('no_location'):
+                    _processing_status["skipped"] += 1
+                    continue
+
+                # Validate we have required fields
+                if not result.get('location_name') or not result.get('latitude') or not result.get('longitude'):
+                    _processing_status["skipped"] += 1
+                    continue
+
+                # Check if this will create or update
+                from app.database import get_database_instance
+                conn = get_database_instance().get_connection()
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT id FROM geopolitical_hotspots
+                    WHERE location_name = ? AND country_code = ?
+                """, [result['location_name'], result.get('country_code')])
+                existing = cursor.fetchone()
+                cursor.close()
+                conn.close()
+
+                is_new = existing is None
+
+                # Create or update hotspot (pass topic for new hotspots)
+                hotspot_id = service.create_or_update_hotspot(result, topic=topic)
+
+                # Link article to hotspot (uses UPSERT so works for reprocessing)
+                service.link_article_to_hotspot(
+                    hotspot_id,
+                    article['uri'],
+                    relevance_score=1.0,
+                    mention_type='primary'
+                )
+
+                if is_new:
+                    _processing_status["created"] += 1
+                else:
+                    _processing_status["updated"] += 1
+
+                _processing_status["processed"] += 1
+                logger.info(f"Processed ({i+1}/{len(articles)}): {article['title'][:40]}... -> {result['location_name']}")
+
+            except Exception as e:
+                _processing_status["errors"] += 1
+                _processing_status["last_error"] = str(e)
+                logger.warning(f"Error processing article {article['uri']}: {e}")
+
+        # Update country stats after processing
+        try:
+            service.update_country_stats()
+        except Exception as e:
+            logger.warning(f"Failed to update country stats: {e}")
+
+        _processing_status["completed"] = True
+        _processing_status["message"] = f"Completed: {_processing_status['processed']} processed, {_processing_status['created']} created, {_processing_status['updated']} updated"
+        logger.info(f"Background processing completed: {_processing_status}")
+
+    except Exception as e:
+        _processing_status["last_error"] = str(e)
+        _processing_status["message"] = f"Error: {str(e)}"
+        logger.error(f"Background processing error: {e}")
+
+    finally:
+        _processing_status["running"] = False
+
+
+@router.get("/process-articles/status")
+async def get_process_articles_status(session=Depends(verify_session_api)):
+    """Get the current status of background article processing."""
+    return get_processing_status()
+
+
 @router.post("/process-articles", response_model=ProcessArticlesResponse)
 async def process_articles(
     request: ProcessArticlesRequest,
@@ -530,12 +663,26 @@ async def process_articles(
 ):
     """
     Process curated articles to extract locations and create/update hotspots.
-    Only processes articles with populated category and sentiment fields.
+    Processing runs in the background to avoid timeouts.
 
     Args:
         request.topic: Topic to process articles from (default: Geopolitical Hotspots)
         request.process_all: If True, include already-processed articles (will reprocess and update)
     """
+    global _processing_status
+
+    # Check if already processing
+    if _processing_status["running"]:
+        return ProcessArticlesResponse(
+            status="running",
+            message=f"Processing already in progress: {_processing_status['progress']}/{_processing_status['total']} articles",
+            articles_processed=_processing_status["processed"],
+            hotspots_created=_processing_status["created"],
+            hotspots_updated=_processing_status["updated"],
+            articles_skipped=_processing_status["skipped"],
+            errors=_processing_status["errors"]
+        )
+
     service = get_geopolitical_service()
 
     try:
@@ -554,90 +701,25 @@ async def process_articles(
 
         topic_name = request.topic or "Geopolitical Hotspots"
         mode = "all" if request.process_all else "unprocessed"
-        logger.info(f"Processing {len(articles)} {mode} articles from topic '{topic_name}'")
+        logger.info(f"Starting background processing of {len(articles)} {mode} articles from topic '{topic_name}'")
 
-        stats = {
-            "processed": 0,
-            "created": 0,
-            "updated": 0,
-            "skipped": 0,
-            "errors": 0
-        }
-
-        for article in articles:
-            try:
-                # Add small delay to avoid rate limiting
-                await asyncio.sleep(0.3)
-
-                # Extract location using LLM
-                result = await extract_location_with_llm(
-                    article['title'] or "",
-                    article['summary'] or "",
-                    article['category'] or "",
-                    request.model
-                )
-
-                if result.get('no_location'):
-                    stats["skipped"] += 1
-                    logger.debug(f"No location found for: {article['title'][:50]}")
-                    continue
-
-                # Validate we have required fields
-                if not result.get('location_name') or not result.get('latitude') or not result.get('longitude'):
-                    stats["skipped"] += 1
-                    continue
-
-                # Check if this will create or update
-                from app.database import get_database_instance
-                conn = get_database_instance().get_connection()
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT id FROM geopolitical_hotspots
-                    WHERE location_name = ? AND country_code = ?
-                """, [result['location_name'], result.get('country_code')])
-                existing = cursor.fetchone()
-                cursor.close()
-                conn.close()
-
-                is_new = existing is None
-
-                # Create or update hotspot (pass topic for new hotspots)
-                hotspot_id = service.create_or_update_hotspot(result, topic=request.topic)
-
-                # Link article to hotspot (uses UPSERT so works for reprocessing)
-                service.link_article_to_hotspot(
-                    hotspot_id,
-                    article['uri'],
-                    relevance_score=1.0,
-                    mention_type='primary'
-                )
-
-                if is_new:
-                    stats["created"] += 1
-                else:
-                    stats["updated"] += 1
-
-                stats["processed"] += 1
-                logger.info(f"Processed: {article['title'][:40]}... -> {result['location_name']}")
-
-            except Exception as e:
-                stats["errors"] += 1
-                logger.warning(f"Error processing article {article['uri']}: {e}")
-
-        # Update country stats after processing
-        try:
-            service.update_country_stats()
-        except Exception as e:
-            logger.warning(f"Failed to update country stats: {e}")
+        # Start background processing
+        background_tasks.add_task(
+            _process_articles_background,
+            articles,
+            request.model,
+            request.topic,
+            request.process_all
+        )
 
         return ProcessArticlesResponse(
-            status="success",
-            message=f"Processed {stats['processed']} articles from '{topic_name}'",
-            articles_processed=stats["processed"],
-            hotspots_created=stats["created"],
-            hotspots_updated=stats["updated"],
-            articles_skipped=stats["skipped"],
-            errors=stats["errors"]
+            status="started",
+            message=f"Started processing {len(articles)} articles in background. Poll /process-articles/status for progress.",
+            articles_processed=0,
+            hotspots_created=0,
+            hotspots_updated=0,
+            articles_skipped=0,
+            errors=0
         )
 
     except Exception as e:
