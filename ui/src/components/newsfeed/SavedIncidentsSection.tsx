@@ -66,6 +66,7 @@ interface SavedIncidentsSectionProps {
   onArticleClick?: (article: { uri: string; title?: string }) => void;
   isFullTab?: boolean;
   refreshTrigger?: number; // Increment to trigger refresh
+  onUnsave?: () => void; // Callback when an incident is unsaved
 }
 
 // Convert SavedIncident to Incident format for display
@@ -96,6 +97,7 @@ export function SavedIncidentsSection({
   onArticleClick,
   isFullTab = false,
   refreshTrigger,
+  onUnsave,
 }: SavedIncidentsSectionProps) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
@@ -139,8 +141,16 @@ export function SavedIncidentsSection({
   const handleUnsaveIncident = async (incidentName: string) => {
     if (!topic) return;
     try {
-      await deleteSavedIncident(incidentName, topic);
-      setSavedIncidents(prev => prev.filter(i => (i.name || i.title) !== incidentName));
+      console.log('[SavedIncidentsSection] Attempting to unsave incident:', incidentName, 'topic:', topic);
+      const success = await deleteSavedIncident(incidentName, topic);
+      console.log('[SavedIncidentsSection] Delete result:', success);
+      if (success) {
+        setSavedIncidents(prev => prev.filter(i => (i.name || i.title) !== incidentName));
+        // Notify parent to refresh promoted incidents
+        onUnsave?.();
+      } else {
+        console.error('[SavedIncidentsSection] Failed to delete incident - API returned false');
+      }
     } catch (err) {
       console.error('Failed to unsave incident:', err);
     }

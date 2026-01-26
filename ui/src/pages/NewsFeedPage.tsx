@@ -55,7 +55,7 @@ import { IncidentConfigModal } from '../components/newsfeed/IncidentConfigModal'
 import { NarrativesConfigModal } from '../components/newsfeed/NarrativesConfigModal';
 import { SixArticlesTuneModal } from '../components/SixArticlesTuneModal';
 import { NewsfeedScheduleModal } from '../components/newsfeed/NewsfeedScheduleModal';
-import { type NewsArticle, type ArticleCluster, type ClusterRelatedArticle, getArticleByUri, getClusteredArticles, clusterArticleToNewsArticle, saveIncident as saveIncidentToDb, getSavedIncidents } from '../services/newsFeedApi';
+import { type NewsArticle, type ArticleCluster, type ClusterRelatedArticle, getArticleByUri, getClusteredArticles, clusterArticleToNewsArticle, saveIncident as saveIncidentToDb, getSavedIncidents, deleteSavedIncident } from '../services/newsFeedApi';
 import { applyFilters, createEmptyFilters, type IncidentFilters } from '../components/newsfeed/FilterPanel';
 import { getSignalReportsCount } from '../services/researchAgentsApi';
 // Note: Incidents are now saved only to saved_incidents table, not incident_status
@@ -293,10 +293,30 @@ export function NewsFeedPage() {
 
   // Unsave incident handler
   const handleUnsaveIncident = useCallback(async (incidentName: string) => {
-    // Update local state and trigger refresh
-    setSavedIncidentNames(prev => prev.filter(name => name !== incidentName));
-    setSavedIncidentsRefresh(prev => prev + 1);
-  }, []);
+    // Find the incident to get its topic - check AI incidents, promoted incidents, and saved map
+    const aiIncident = incidents.find(i => (i.name || i.title) === incidentName);
+    const promotedIncident = promotedIncidents.find(i => (i.name || i.title) === incidentName);
+    const savedIncident = savedIncidentsMap.get(incidentName);
+
+    const topic = aiIncident?.topic || promotedIncident?.topic || savedIncident?.topic || config.topic;
+
+    console.log('[NewsFeedPage] Unsaving incident:', incidentName, 'topic:', topic);
+
+    if (!topic) {
+      console.error('[NewsFeedPage] Cannot unsave - no topic found for incident:', incidentName);
+      return;
+    }
+
+    // Call the delete API
+    const success = await deleteSavedIncident(incidentName, topic);
+    if (success) {
+      // Update local state and trigger refresh
+      setSavedIncidentNames(prev => prev.filter(name => name !== incidentName));
+      setSavedIncidentsRefresh(prev => prev + 1);
+    } else {
+      console.error('[NewsFeedPage] Failed to unsave incident:', incidentName);
+    }
+  }, [incidents, promotedIncidents, savedIncidentsMap, config.topic]);
 
   // Saved narratives state
   const [savedNarrativeNames, setSavedNarrativeNames] = useState<string[]>([]);
@@ -1131,6 +1151,7 @@ export function NewsFeedPage() {
                   onArticleClick={handleArticleClick}
                   isFullTab={true}
                   refreshTrigger={savedIncidentsRefresh}
+                  onUnsave={() => setSavedIncidentsRefresh(prev => prev + 1)}
                 />
 
                 {/* Divider */}
