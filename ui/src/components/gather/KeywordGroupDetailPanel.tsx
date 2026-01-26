@@ -256,7 +256,11 @@ export function KeywordGroupDetailPanel({
   return (
     <>
     <Sheet open={isOpen} onOpenChange={onClose}>
-      <SheetContent className="gather-detail-panel" side="right">
+      <SheetContent
+        className="gather-detail-panel"
+        side="right"
+        style={{ backgroundColor: '#ffffff' }}
+      >
         <SheetHeader>
           <SheetTitle className="gather-detail-title">
             {group.name}
