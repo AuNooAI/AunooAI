@@ -806,9 +806,10 @@
    ============================================ */
 
 /* Force sheet panel to be visible with proper colors */
+/* Use explicit colors with fallbacks since portal renders outside .gather-app scope */
 [data-slot="sheet-content"] {
-  background-color: var(--gather-card-bg) !important;
-  color: var(--gather-mauve-12) !important;
+  background-color: #ffffff !important;
+  color: #211f26 !important;
 }
 
 [data-slot="sheet-overlay"] {
@@ -816,17 +817,17 @@
 }
 
 [data-slot="sheet-title"] {
-  color: var(--gather-mauve-12) !important;
+  color: #211f26 !important;
 }
 
 [data-slot="sheet-description"] {
-  color: var(--gather-mauve-11) !important;
+  color: #65636d !important;
 }
 
 .gather-detail-panel {
   width: 480px !important;
   max-width: 90vw !important;
-  background-color: var(--gather-card-bg) !important;
+  background-color: #ffffff !important;
 }
 
 .gather-detail-title {
@@ -2617,11 +2618,11 @@
 /* Detail Panel - Dark Mode */
 .dark [data-slot="sheet-content"] {
   background-color: var(--gather-mauve-3) !important;
-  color: var(--gather-mauve-3) !important;
+  color: var(--gather-mauve-12) !important;
 }
 
 .dark [data-slot="sheet-title"] {
-  color: var(--gather-mauve-3) !important;
+  color: var(--gather-mauve-12) !important;
 }
 
 .dark [data-slot="sheet-description"] {
@@ -2633,7 +2634,7 @@
 }
 
 .dark .gather-detail-title {
-  color: var(--gather-mauve-3);
+  color: var(--gather-mauve-12);
 }
 
 .dark .gather-detail-meta {
