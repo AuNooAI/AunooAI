@@ -4,7 +4,8 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { X, Database, Loader2, CheckCircle, AlertCircle, Play, Trash2, RefreshCw } from 'lucide-react';
+import { X, Database, Loader2, CheckCircle, AlertCircle, Play, Trash2, RefreshCw, Clock } from 'lucide-react';
+import { GeopoliticalScheduleModal } from './GeopoliticalScheduleModal';
 
 interface ProcessingStats {
   total_curated_articles: number;
@@ -52,6 +53,9 @@ export function GeopoliticalImportModal({
   const [regenerateNarrative, setRegenerateNarrative] = useState(false);
   const [selectedTopic, setSelectedTopic] = useState<string>('');
   const [processAll, setProcessAll] = useState(false);
+
+  // Schedule modal
+  const [showScheduleModal, setShowScheduleModal] = useState(false);
 
   // Available topics
   const [availableTopics, setAvailableTopics] = useState<AvailableTopic[]>([]);
@@ -638,6 +642,14 @@ export function GeopoliticalImportModal({
                 Cancel
               </button>
               <button
+                onClick={() => setShowScheduleModal(true)}
+                disabled={isProcessing}
+                className="flex items-center gap-2 px-4 py-2 text-sm text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors"
+              >
+                <Clock className="w-4 h-4" />
+                Schedule
+              </button>
+              <button
                 onClick={handleProcess}
                 disabled={
                   isProcessing ||
@@ -668,6 +680,12 @@ export function GeopoliticalImportModal({
           </div>
         )}
       </div>
+
+      {/* Schedule Modal */}
+      <GeopoliticalScheduleModal
+        isOpen={showScheduleModal}
+        onClose={() => setShowScheduleModal(false)}
+      />
     </div>
   );
 }

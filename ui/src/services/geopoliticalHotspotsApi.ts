@@ -584,3 +584,135 @@ export async function processArticles(
   }
   return response.json();
 }
+
+// ============================================================================
+// Scheduling Types & API Functions
+// ============================================================================
+
+export interface GeopoliticalSchedule {
+  id: number;
+  name: string;
+  topic: string | null;
+  batch_size: number;
+  model: string;
+  process_all: boolean;
+  schedule_enabled: boolean;
+  schedule_type: 'interval' | 'daily' | null;
+  schedule_interval: number | null;
+  schedule_unit: 'minutes' | 'hours' | 'days' | null;
+  schedule_time: string | null;
+  notify_on_complete: boolean;
+  notify_threshold: number;
+  last_run_at: string | null;
+  next_run_at: string | null;
+  last_run_status: 'success' | 'error' | 'running' | null;
+  last_run_error: string | null;
+  last_run_articles_processed: number;
+  last_run_hotspots_created: number;
+  last_run_hotspots_updated: number;
+  run_count: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface CreateScheduleRequest {
+  name: string;
+  topic?: string;
+  batch_size?: number;
+  model?: string;
+  process_all?: boolean;
+  schedule_enabled?: boolean;
+  schedule_type?: 'interval' | 'daily';
+  schedule_interval?: number;
+  schedule_unit?: 'minutes' | 'hours' | 'days';
+  schedule_time?: string;
+  notify_on_complete?: boolean;
+  notify_threshold?: number;
+}
+
+export interface UpdateScheduleRequest {
+  name?: string;
+  topic?: string;
+  batch_size?: number;
+  model?: string;
+  process_all?: boolean;
+  schedule_enabled?: boolean;
+  schedule_type?: 'interval' | 'daily';
+  schedule_interval?: number;
+  schedule_unit?: 'minutes' | 'hours' | 'days';
+  schedule_time?: string;
+  notify_on_complete?: boolean;
+  notify_threshold?: number;
+}
+
+export async function getSchedules(): Promise<GeopoliticalSchedule[]> {
+  const response = await fetch(`${API_BASE}/schedules`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch schedules: ${response.statusText}`);
+  }
+  const data = await response.json();
+  return data.schedules;
+}
+
+export async function createSchedule(request: CreateScheduleRequest): Promise<{ schedule_id: number; next_run_at: string | null }> {
+  const response = await fetch(`${API_BASE}/schedules`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new Error(error.detail || `Failed to create schedule: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function updateSchedule(scheduleId: number, request: UpdateScheduleRequest): Promise<void> {
+  const response = await fetch(`${API_BASE}/schedules/${scheduleId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new Error(error.detail || `Failed to update schedule: ${response.statusText}`);
+  }
+}
+
+export async function deleteSchedule(scheduleId: number): Promise<void> {
+  const response = await fetch(`${API_BASE}/schedules/${scheduleId}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new Error(error.detail || `Failed to delete schedule: ${response.statusText}`);
+  }
+}
+
+export async function runScheduleNow(scheduleId: number): Promise<ProcessArticlesResponse> {
+  const response = await fetch(`${API_BASE}/schedules/${scheduleId}/run`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new Error(error.detail || `Failed to run schedule: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export interface MonitorStatus {
+  running: boolean;
+  last_check_time: string | null;
+  last_error: string | null;
+  schedules_checked: number;
+  schedules_run: number;
+  is_checking: boolean;
+}
+
+export async function getMonitorStatus(): Promise<MonitorStatus> {
+  const response = await fetch(`${API_BASE}/schedules/status`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch monitor status: ${response.statusText}`);
+  }
+  return response.json();
+}
