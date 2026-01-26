@@ -6,7 +6,7 @@ Follows the same pattern as observer_agent_monitor.py.
 import logging
 import asyncio
 from datetime import datetime, timedelta, time as dt_time
-from typing import Dict, Optional, Any, List
+from typing import Dict, Optional, Any, List, Union
 from sqlalchemy import text
 
 from app.database import Database, get_database_instance
@@ -33,7 +33,7 @@ def calculate_next_run(
     schedule_type: str,
     schedule_interval: Optional[int],
     schedule_unit: Optional[str],
-    schedule_time: Optional[dt_time],
+    schedule_time: Optional[Any],
     from_time: Optional[datetime] = None
 ) -> datetime:
     """
@@ -43,7 +43,7 @@ def calculate_next_run(
         schedule_type: 'interval' or 'daily'
         schedule_interval: Interval value (for interval type)
         schedule_unit: 'minutes', 'hours', or 'days' (for interval type)
-        schedule_time: Time of day to run (for daily type)
+        schedule_time: Time of day to run (for daily type) - can be time, timedelta, or string
         from_time: Base time to calculate from (defaults to now)
 
     Returns:
@@ -52,10 +52,36 @@ def calculate_next_run(
     now = from_time or datetime.now()
 
     if schedule_type == 'daily' and schedule_time:
+        # Convert schedule_time to hour and minute
+        # PostgreSQL TIME columns may return as timedelta, time, or string
+        hour = 0
+        minute = 0
+
+        if isinstance(schedule_time, dt_time):
+            hour = schedule_time.hour
+            minute = schedule_time.minute
+        elif isinstance(schedule_time, timedelta):
+            # PostgreSQL TIME columns often return as timedelta
+            total_seconds = int(schedule_time.total_seconds())
+            hour = total_seconds // 3600
+            minute = (total_seconds % 3600) // 60
+        elif isinstance(schedule_time, str):
+            # Handle string format "HH:MM" or "HH:MM:SS"
+            try:
+                parts = schedule_time.split(':')
+                hour = int(parts[0])
+                minute = int(parts[1]) if len(parts) > 1 else 0
+            except (ValueError, IndexError):
+                logger.warning(f"Could not parse schedule_time string: {schedule_time}")
+                hour = 9  # Default to 9:00 AM
+                minute = 0
+        else:
+            logger.warning(f"Unknown schedule_time type: {type(schedule_time)}")
+
         # For daily schedules, find the next occurrence of schedule_time
         next_run = now.replace(
-            hour=schedule_time.hour,
-            minute=schedule_time.minute,
+            hour=hour,
+            minute=minute,
             second=0,
             microsecond=0
         )
