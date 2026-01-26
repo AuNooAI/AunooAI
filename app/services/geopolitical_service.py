@@ -134,8 +134,6 @@ class GeopoliticalService:
                     COUNT(CASE WHEN risk_level = 'medium' THEN 1 END) as medium_count,
                     COUNT(CASE WHEN risk_level = 'low' THEN 1 END) as low_count,
                     COUNT(CASE WHEN risk_level = 'info' THEN 1 END) as info_count,
-                    COALESCE(SUM(article_count), 0) as total_articles,
-                    COALESCE(SUM(recent_article_count), 0) as recent_articles,
                     COUNT(DISTINCT country_code) as countries_affected,
                     COUNT(CASE WHEN trend = 'escalating' THEN 1 END) as escalating_count,
                     COUNT(CASE WHEN trend = 'de-escalating' THEN 1 END) as de_escalating_count
@@ -144,6 +142,29 @@ class GeopoliticalService:
             """, params if params else None)
 
             row = cursor.fetchone()
+
+            # Get distinct article counts from hotspot_articles table
+            # This counts only articles actually linked to hotspots (being analyzed)
+            from datetime import datetime, timedelta
+            recent_cutoff = datetime.now() - timedelta(days=7)
+
+            article_where = ""
+            article_params = [recent_cutoff]
+            if topic:
+                article_where = "AND gh.topic = ?"
+                article_params.append(topic)
+
+            cursor.execute(f"""
+                SELECT
+                    COUNT(DISTINCT ha.article_uri) as total_articles,
+                    COUNT(DISTINCT CASE WHEN ha.extracted_at >= ? THEN ha.article_uri END) as recent_articles
+                FROM hotspot_articles ha
+                JOIN geopolitical_hotspots gh ON ha.hotspot_id = gh.id
+                WHERE 1=1 {article_where}
+            """, article_params)
+
+            article_row = cursor.fetchone()
+
             stats = {
                 'total_hotspots': row[0] if row else 0,
                 'by_risk_level': {
@@ -153,11 +174,11 @@ class GeopoliticalService:
                     'low': row[4] if row else 0,
                     'info': row[5] if row else 0,
                 },
-                'total_articles': row[6] if row else 0,
-                'recent_articles': row[7] if row else 0,
-                'countries_affected': row[8] if row else 0,
-                'escalating_count': row[9] if row else 0,
-                'de_escalating_count': row[10] if row else 0,
+                'total_articles': article_row[0] if article_row else 0,
+                'recent_articles': article_row[1] if article_row else 0,
+                'countries_affected': row[6] if row else 0,
+                'escalating_count': row[7] if row else 0,
+                'de_escalating_count': row[8] if row else 0,
             }
 
             # Get category distribution
@@ -485,14 +506,15 @@ class GeopoliticalService:
 
     def get_timeline_data(self, topic: Optional[str] = None,
                           days_back: int = 30) -> List[Dict[str, Any]]:
-        """Get temporal trend data for hotspots."""
+        """Get temporal trend data for hotspots using article publication dates."""
         conn = get_database_instance().get_connection()
         cursor = conn.cursor()
 
         try:
             start_date = datetime.now() - timedelta(days=days_back)
 
-            where_clause = "WHERE hds.date >= ?"
+            # Use article publication_date for timeline (same approach as get_daily_article_counts)
+            where_clause = "WHERE a.publication_date::timestamp >= ?"
             params = [start_date]
 
             if topic:
@@ -500,15 +522,18 @@ class GeopoliticalService:
                 params.append(topic)
 
             cursor.execute(f"""
-                SELECT hds.date,
-                       SUM(hds.article_count) as article_count,
-                       AVG(hds.intensity_score) as avg_intensity,
-                       COUNT(DISTINCT hds.hotspot_id) as hotspot_count
-                FROM hotspot_daily_stats hds
-                JOIN geopolitical_hotspots gh ON hds.hotspot_id = gh.id
+                SELECT DATE(a.publication_date::timestamp) as date,
+                       COUNT(DISTINCT ha.article_uri) as article_count,
+                       AVG(gh.intensity_score) as avg_intensity,
+                       COUNT(DISTINCT ha.hotspot_id) as hotspot_count
+                FROM hotspot_articles ha
+                JOIN geopolitical_hotspots gh ON ha.hotspot_id = gh.id
+                JOIN articles a ON ha.article_uri = a.uri
                 {where_clause}
-                GROUP BY hds.date
-                ORDER BY hds.date
+                AND a.publication_date IS NOT NULL
+                AND a.publication_date != ''
+                GROUP BY DATE(a.publication_date::timestamp)
+                ORDER BY date
             """, params)
 
             return [
@@ -542,7 +567,9 @@ class GeopoliticalService:
             cursor.execute(f"""
                 WITH region_mapping AS (
                     SELECT
+                        id,
                         country_code,
+                        article_count,
                         CASE
                             WHEN country_code IN ('US', 'CA', 'MX') THEN 'North America'
                             WHEN country_code IN ('BR', 'AR', 'CO', 'CL', 'PE', 'VE', 'EC', 'BO', 'PY', 'UY') THEN 'South America'
@@ -562,7 +589,7 @@ class GeopoliticalService:
                 SELECT
                     region,
                     COUNT(*) as hotspot_count,
-                    SUM((SELECT article_count FROM geopolitical_hotspots WHERE country_code = rm.country_code LIMIT 1)) as article_count
+                    COALESCE(SUM(article_count), 0) as article_count
                 FROM region_mapping rm
                 GROUP BY region
                 ORDER BY hotspot_count DESC
@@ -620,24 +647,605 @@ class GeopoliticalService:
             cursor.close()
             conn.close()
 
-    def get_unprocessed_articles(self, limit: int = 100) -> List[Dict[str, Any]]:
-        """Get curated articles that haven't been processed for hotspots yet."""
+    def get_all_hotspot_articles(self, page: int = 1, page_size: int = 20,
+                                   risk_level: Optional[str] = None,
+                                   category: Optional[str] = None,
+                                   hotspot_id: Optional[int] = None,
+                                   search: Optional[str] = None,
+                                   sort_by: str = 'date',
+                                   sort_order: str = 'desc') -> Tuple[List[Dict[str, Any]], int]:
+        """Get all articles linked to any hotspot with filters."""
         conn = get_database_instance().get_connection()
         cursor = conn.cursor()
 
         try:
-            cursor.execute("""
-                SELECT a.uri, a.title, a.summary, a.category, a.sentiment,
-                       a.news_source, a.publication_date
-                FROM articles a
-                LEFT JOIN hotspot_articles ha ON a.uri = ha.article_uri
-                WHERE a.topic = ?
-                AND a.category IS NOT NULL
-                AND a.sentiment IS NOT NULL
-                AND ha.article_uri IS NULL
-                ORDER BY a.publication_date DESC
-                LIMIT ?
-            """, [DEFAULT_GEOPOLITICAL_TOPIC, limit])
+            where_clauses = []
+            params = []
+
+            # Filter by specific hotspot
+            if hotspot_id:
+                where_clauses.append("gh.id = ?")
+                params.append(hotspot_id)
+
+            # Filter by risk level
+            if risk_level:
+                where_clauses.append("gh.risk_level = ?")
+                params.append(risk_level)
+
+            # Filter by category
+            if category:
+                where_clauses.append("gh.primary_category = ?")
+                params.append(category)
+
+            # Search by title or summary
+            if search:
+                where_clauses.append("(a.title LIKE ? OR a.summary LIKE ?)")
+                search_term = f"%{search}%"
+                params.extend([search_term, search_term])
+
+            where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
+
+            # Sort mapping
+            sort_columns = {
+                'date': 'a.publication_date',
+                'title': 'a.title',
+                'relevance': 'ha.relevance_score',
+                'intensity': 'gh.intensity_score'
+            }
+            sort_col = sort_columns.get(sort_by, 'a.publication_date')
+            order = 'DESC' if sort_order.lower() == 'desc' else 'ASC'
+
+            # Get total count (unique articles)
+            cursor.execute(f"""
+                SELECT COUNT(DISTINCT a.uri)
+                FROM hotspot_articles ha
+                JOIN articles a ON ha.article_uri = a.uri
+                JOIN geopolitical_hotspots gh ON ha.hotspot_id = gh.id
+                {where_sql}
+            """, params if params else None)
+            total = cursor.fetchone()[0]
+
+            # Get paginated results - aggregate all hotspots per article
+            offset = (page - 1) * page_size
+            cursor.execute(f"""
+                WITH article_hotspots AS (
+                    SELECT a.uri, a.title, a.news_source, a.publication_date, a.summary,
+                           a.category, a.sentiment,
+                           json_agg(json_build_object(
+                               'id', gh.id,
+                               'name', gh.location_name,
+                               'risk_level', gh.risk_level,
+                               'category', gh.primary_category,
+                               'intensity', gh.intensity_score
+                           ) ORDER BY gh.intensity_score DESC) as hotspots,
+                           MAX(gh.intensity_score) as max_intensity,
+                           MAX(ha.relevance_score) as max_relevance
+                    FROM hotspot_articles ha
+                    JOIN articles a ON ha.article_uri = a.uri
+                    JOIN geopolitical_hotspots gh ON ha.hotspot_id = gh.id
+                    {where_sql}
+                    GROUP BY a.uri, a.title, a.news_source, a.publication_date, a.summary,
+                             a.category, a.sentiment
+                )
+                SELECT uri, title, news_source, publication_date, summary,
+                       category, sentiment, max_relevance, hotspots, max_intensity
+                FROM article_hotspots
+                ORDER BY {sort_col.replace('a.', '').replace('ha.', 'max_').replace('gh.', 'max_')} {order}
+                LIMIT ? OFFSET ?
+            """, (params + [page_size, offset]) if params else [page_size, offset])
+
+            articles = []
+            for row in cursor.fetchall():
+                hotspots_data = row[8] if row[8] else []
+                # Primary hotspot is first (highest intensity)
+                primary = hotspots_data[0] if hotspots_data else {}
+                articles.append({
+                    'uri': row[0],
+                    'title': row[1],
+                    'source': row[2],
+                    'publication_date': row[3] if row[3] else None,
+                    'summary': row[4],
+                    'category': row[5],
+                    'sentiment': row[6],
+                    'relevance_score': row[7],
+                    'mention_type': 'primary',
+                    # Primary hotspot fields for backward compatibility
+                    'hotspot_id': primary.get('id'),
+                    'hotspot_name': primary.get('name'),
+                    'risk_level': primary.get('risk_level', 'info'),
+                    'hotspot_category': primary.get('category'),
+                    'intensity_score': row[9],
+                    # All linked hotspots
+                    'hotspots': hotspots_data
+                })
+
+            return articles, total
+
+        finally:
+            cursor.close()
+            conn.close()
+
+    def get_daily_article_counts(self, topic: Optional[str] = None,
+                                  days_back: int = 30) -> List[Dict[str, Any]]:
+        """Get daily article counts for timeline chart with rolling average.
+        Uses article publication_date for timeline (not submission/extraction date).
+        """
+        conn = None
+        cursor = None
+        try:
+            conn = get_database_instance().get_connection()
+            cursor = conn.cursor()
+
+            from datetime import datetime, timedelta
+            start_date = datetime.now() - timedelta(days=days_back)
+
+            # Use article publication_date for timeline, not extracted_at
+            # Cast text to timestamp for proper date comparison (handles ISO formats)
+            where_clause = "WHERE a.publication_date::timestamp >= ?"
+            params = [start_date]
+
+            if topic:
+                where_clause += " AND gh.topic = ?"
+                params.append(topic)
+
+            cursor.execute(f"""
+                SELECT DATE(a.publication_date::timestamp) as date,
+                       COUNT(DISTINCT ha.article_uri) as article_count,
+                       COUNT(DISTINCT ha.hotspot_id) as hotspot_count,
+                       AVG(gh.intensity_score) as avg_intensity
+                FROM hotspot_articles ha
+                JOIN geopolitical_hotspots gh ON ha.hotspot_id = gh.id
+                JOIN articles a ON ha.article_uri = a.uri
+                {where_clause}
+                AND a.publication_date IS NOT NULL
+                AND a.publication_date != ''
+                GROUP BY DATE(a.publication_date::timestamp)
+                ORDER BY date
+            """, params)
+
+            daily_data = []
+            for row in cursor.fetchall():
+                try:
+                    date_val = row[0].isoformat() if row[0] else None
+                    daily_data.append({
+                        'date': date_val,
+                        'article_count': int(row[1]) if row[1] else 0,
+                        'hotspot_count': int(row[2]) if row[2] else 0,
+                        'avg_intensity': round(float(row[3]), 2) if row[3] else 0
+                    })
+                except Exception as row_err:
+                    logger.warning(f"Error processing row in daily counts: {row_err}, row: {row}")
+                    continue
+
+            # Calculate 7-day rolling average
+            for i, day in enumerate(daily_data):
+                window_start = max(0, i - 6)
+                window = daily_data[window_start:i + 1]
+                day['rolling_avg'] = round(
+                    sum(d['article_count'] for d in window) / len(window), 1
+                ) if window else 0
+
+            return daily_data
+
+        except Exception as e:
+            logger.error(f"Error in get_daily_article_counts: {e}")
+            raise
+        finally:
+            if cursor:
+                try:
+                    cursor.close()
+                except:
+                    pass
+            if conn:
+                try:
+                    conn.close()
+                except:
+                    pass
+
+    def get_day_of_week_distribution(self, topic: Optional[str] = None,
+                                      days_back: int = 30) -> List[Dict[str, Any]]:
+        """Get article count distribution by day of week.
+        Uses article publication_date (not submission/extraction date).
+        """
+        conn = None
+        cursor = None
+        try:
+            conn = get_database_instance().get_connection()
+            cursor = conn.cursor()
+
+            from datetime import datetime, timedelta
+            start_date = datetime.now() - timedelta(days=days_back)
+
+            # Use publication_date for distribution, not extracted_at
+            # Cast text to timestamp for proper date comparison
+            where_clause = "WHERE a.publication_date::timestamp >= ?"
+            params = [start_date]
+
+            if topic:
+                where_clause += " AND gh.topic = ?"
+                params.append(topic)
+
+            # PostgreSQL uses EXTRACT(DOW FROM ...), SQLite uses strftime('%w', ...)
+            cursor.execute(f"""
+                SELECT EXTRACT(DOW FROM a.publication_date::timestamp) as day_of_week,
+                       COUNT(DISTINCT ha.article_uri) as article_count
+                FROM hotspot_articles ha
+                JOIN geopolitical_hotspots gh ON ha.hotspot_id = gh.id
+                JOIN articles a ON ha.article_uri = a.uri
+                {where_clause}
+                AND a.publication_date IS NOT NULL
+                AND a.publication_date != ''
+                GROUP BY EXTRACT(DOW FROM a.publication_date::timestamp)
+                ORDER BY day_of_week
+            """, params)
+
+            day_names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+            distribution = {i: 0 for i in range(7)}
+
+            for row in cursor.fetchall():
+                try:
+                    day_num = int(row[0]) if row[0] is not None else 0
+                    if 0 <= day_num <= 6:
+                        distribution[day_num] = int(row[1]) if row[1] else 0
+                except Exception as row_err:
+                    logger.warning(f"Error processing row in day_of_week: {row_err}, row: {row}")
+                    continue
+
+            return [
+                {'day': day_names[i], 'day_num': i, 'article_count': distribution[i]}
+                for i in range(7)
+            ]
+
+        except Exception as e:
+            logger.error(f"Error in get_day_of_week_distribution: {e}")
+            raise
+        finally:
+            if cursor:
+                try:
+                    cursor.close()
+                except:
+                    pass
+            if conn:
+                try:
+                    conn.close()
+                except:
+                    pass
+
+    def get_category_cooccurrence(self, topic: Optional[str] = None) -> Dict[str, Any]:
+        """Get category co-occurrence matrix for heatmap."""
+        conn = get_database_instance().get_connection()
+        cursor = conn.cursor()
+
+        try:
+            where_clause = ""
+            params = []
+            if topic:
+                where_clause = "WHERE gh1.topic = ? AND gh2.topic = ?"
+                params = [topic, topic]
+
+            # Get articles that appear in multiple hotspots with different categories
+            cursor.execute(f"""
+                SELECT gh1.primary_category as cat1, gh2.primary_category as cat2, COUNT(*) as count
+                FROM hotspot_articles ha1
+                JOIN hotspot_articles ha2 ON ha1.article_uri = ha2.article_uri AND ha1.hotspot_id < ha2.hotspot_id
+                JOIN geopolitical_hotspots gh1 ON ha1.hotspot_id = gh1.id
+                JOIN geopolitical_hotspots gh2 ON ha2.hotspot_id = gh2.id
+                {where_clause}
+                AND gh1.primary_category IS NOT NULL
+                AND gh2.primary_category IS NOT NULL
+                GROUP BY gh1.primary_category, gh2.primary_category
+                ORDER BY count DESC
+            """, params if params else None)
+
+            pairs = []
+            matrix = {}
+            categories_set = set()
+
+            for row in cursor.fetchall():
+                cat1, cat2, count = row[0], row[1], row[2]
+                pairs.append({'category1': cat1, 'category2': cat2, 'count': count})
+                categories_set.add(cat1)
+                categories_set.add(cat2)
+
+                # Build matrix
+                if cat1 not in matrix:
+                    matrix[cat1] = {}
+                if cat2 not in matrix:
+                    matrix[cat2] = {}
+                matrix[cat1][cat2] = count
+                matrix[cat2][cat1] = count  # Symmetric
+
+            categories = sorted(list(categories_set))
+
+            return {
+                'categories': categories,
+                'pairs': pairs[:20],  # Top 20 pairs
+                'matrix': matrix
+            }
+
+        finally:
+            cursor.close()
+            conn.close()
+
+    def get_category_trends(self, topic: Optional[str] = None, days_back: int = 90,
+                            granularity: str = 'weekly') -> List[Dict[str, Any]]:
+        """Get category breakdown over time periods (weekly or monthly)."""
+        conn = get_database_instance().get_connection()
+        cursor = conn.cursor()
+
+        try:
+            start_date = datetime.now() - timedelta(days=days_back)
+
+            where_clause = "WHERE ha.extracted_at >= ?"
+            params = [start_date]
+
+            if topic:
+                where_clause += " AND gh.topic = ?"
+                params.append(topic)
+
+            # Use DATE_TRUNC for PostgreSQL to group by period
+            if granularity == 'monthly':
+                date_trunc = "DATE_TRUNC('month', ha.extracted_at)"
+            else:  # weekly
+                date_trunc = "DATE_TRUNC('week', ha.extracted_at)"
+
+            cursor.execute(f"""
+                SELECT {date_trunc} as period,
+                       gh.primary_category,
+                       COUNT(DISTINCT ha.article_uri) as article_count
+                FROM hotspot_articles ha
+                JOIN geopolitical_hotspots gh ON ha.hotspot_id = gh.id
+                {where_clause}
+                AND gh.primary_category IS NOT NULL
+                GROUP BY {date_trunc}, gh.primary_category
+                ORDER BY period
+            """, params)
+
+            # Organize by period
+            trends_dict = {}
+            for row in cursor.fetchall():
+                period = row[0].strftime('%Y-%m-%d') if row[0] else None
+                category = row[1]
+                count = row[2]
+
+                if period not in trends_dict:
+                    trends_dict[period] = {}
+                trends_dict[period][category] = count
+
+            # Convert to list format
+            trends = [
+                {'period': period, 'by_category': cats}
+                for period, cats in sorted(trends_dict.items())
+            ]
+
+            return trends
+
+        finally:
+            cursor.close()
+            conn.close()
+
+    def get_actors(self, topic: Optional[str] = None, days_back: int = 30) -> List[Dict[str, Any]]:
+        """Get key actors/entities extracted from articles.
+
+        Actors are extracted from hotspot country names and location names,
+        as well as article categories indicating state/non-state actors.
+        """
+        conn = get_database_instance().get_connection()
+        cursor = conn.cursor()
+
+        try:
+            start_date = datetime.now() - timedelta(days=days_back)
+
+            where_clause = "WHERE ha.extracted_at >= ?"
+            params = [start_date]
+
+            if topic:
+                where_clause += " AND gh.topic = ?"
+                params.append(topic)
+
+            # Get actors from country names (State actors)
+            cursor.execute(f"""
+                SELECT gh.country_name as actor,
+                       'state' as actor_type,
+                       COUNT(DISTINCT ha.article_uri) as mention_count
+                FROM hotspot_articles ha
+                JOIN geopolitical_hotspots gh ON ha.hotspot_id = gh.id
+                {where_clause}
+                AND gh.country_name IS NOT NULL
+                GROUP BY gh.country_name
+                ORDER BY mention_count DESC
+                LIMIT 20
+            """, params)
+
+            actors = []
+            total_mentions = 0
+
+            for row in cursor.fetchall():
+                actors.append({
+                    'actor': row[0],
+                    'actor_type': row[1],
+                    'mention_count': row[2]
+                })
+                total_mentions += row[2]
+
+            # Get actors from location names that indicate organizations or groups
+            # (locations with certain categories tend to indicate non-state actors)
+            cursor.execute(f"""
+                SELECT gh.location_name as actor,
+                       CASE
+                           WHEN gh.primary_category IN ('terrorism', 'crime', 'piracy') THEN 'non_state'
+                           WHEN gh.primary_category IN ('diplomatic', 'military') THEN 'organization'
+                           ELSE 'location'
+                       END as actor_type,
+                       COUNT(DISTINCT ha.article_uri) as mention_count
+                FROM hotspot_articles ha
+                JOIN geopolitical_hotspots gh ON ha.hotspot_id = gh.id
+                {where_clause}
+                AND gh.location_type != 'city'
+                AND gh.primary_category IN ('terrorism', 'crime', 'piracy', 'diplomatic', 'military')
+                GROUP BY gh.location_name, gh.primary_category
+                ORDER BY mention_count DESC
+                LIMIT 10
+            """, params)
+
+            for row in cursor.fetchall():
+                actors.append({
+                    'actor': row[0],
+                    'actor_type': row[1],
+                    'mention_count': row[2]
+                })
+                total_mentions += row[2]
+
+            # Calculate percentages
+            for actor in actors:
+                actor['percentage'] = round(
+                    (actor['mention_count'] / total_mentions * 100) if total_mentions > 0 else 0, 1
+                )
+
+            # Sort by mention count
+            actors.sort(key=lambda x: x['mention_count'], reverse=True)
+
+            return actors
+
+        finally:
+            cursor.close()
+            conn.close()
+
+    def get_escalation_markers(self, topic: Optional[str] = None, days_back: int = 30) -> Dict[str, Any]:
+        """Get escalation indicators from article analysis.
+
+        Escalation markers are derived from:
+        - Hotspot trend status (escalating/de-escalating)
+        - Category distribution changes
+        - Risk level progression
+        """
+        conn = get_database_instance().get_connection()
+        cursor = conn.cursor()
+
+        try:
+            start_date = datetime.now() - timedelta(days=days_back)
+
+            where_clause = "WHERE ha.extracted_at >= ?"
+            params = [start_date]
+
+            if topic:
+                where_clause += " AND gh.topic = ?"
+                params.append(topic)
+
+            # Get escalation marker types based on categories
+            # Map threat categories to escalation marker types
+            cursor.execute(f"""
+                SELECT
+                    CASE
+                        WHEN gh.primary_category = 'military' THEN 'Military Buildup'
+                        WHEN gh.primary_category = 'diplomatic' THEN 'Diplomatic Breakdown'
+                        WHEN gh.primary_category = 'economic' THEN 'Economic Sanctions'
+                        WHEN gh.primary_category = 'protest' THEN 'Civil Unrest'
+                        WHEN gh.primary_category = 'conflict' THEN 'Armed Conflict'
+                        WHEN gh.primary_category = 'terrorism' THEN 'Terrorist Activity'
+                        WHEN gh.primary_category = 'cyber' THEN 'Cyber Operations'
+                        ELSE 'Other'
+                    END as marker_type,
+                    COUNT(DISTINCT ha.article_uri) as article_count
+                FROM hotspot_articles ha
+                JOIN geopolitical_hotspots gh ON ha.hotspot_id = gh.id
+                {where_clause}
+                AND gh.primary_category IS NOT NULL
+                GROUP BY marker_type
+                ORDER BY article_count DESC
+            """, params)
+
+            markers = []
+            total_count = 0
+
+            for row in cursor.fetchall():
+                markers.append({
+                    'marker_type': row[0],
+                    'article_count': row[1]
+                })
+                total_count += row[1]
+
+            # Calculate percentages
+            for marker in markers:
+                marker['percentage'] = round(
+                    (marker['article_count'] / total_count * 100) if total_count > 0 else 0, 1
+                )
+
+            # Get escalation trends over time (weekly)
+            cursor.execute(f"""
+                SELECT DATE_TRUNC('week', ha.extracted_at) as period,
+                       COUNT(DISTINCT ha.article_uri) as total_articles,
+                       AVG(gh.intensity_score) as avg_intensity,
+                       COUNT(CASE WHEN gh.trend = 'escalating' THEN 1 END) as escalating_count
+                FROM hotspot_articles ha
+                JOIN geopolitical_hotspots gh ON ha.hotspot_id = gh.id
+                {where_clause}
+                GROUP BY DATE_TRUNC('week', ha.extracted_at)
+                ORDER BY period
+            """, params)
+
+            trends = []
+            for row in cursor.fetchall():
+                week_num = len(trends) + 1
+                trends.append({
+                    'period': f"Week {week_num}",
+                    'period_date': row[0].strftime('%Y-%m-%d') if row[0] else None,
+                    'total_articles': row[1],
+                    'avg_intensity': round(row[2], 1) if row[2] else 0,
+                    'escalating_count': row[3] or 0
+                })
+
+            return {
+                'markers': markers,
+                'trends': trends
+            }
+
+        finally:
+            cursor.close()
+            conn.close()
+
+    def get_unprocessed_articles(self, limit: int = 100, topic: str = None,
+                                  process_all: bool = False) -> List[Dict[str, Any]]:
+        """Get articles for geopolitical processing.
+
+        Args:
+            limit: Max articles to return
+            topic: Topic to filter by (default: "Geopolitical Hotspots")
+            process_all: If True, include already-processed articles
+        """
+        conn = get_database_instance().get_connection()
+        cursor = conn.cursor()
+
+        # Use default topic if not specified
+        topic = topic or DEFAULT_GEOPOLITICAL_TOPIC
+
+        try:
+            if process_all:
+                # Include all articles, even already processed
+                cursor.execute("""
+                    SELECT a.uri, a.title, a.summary, a.category, a.sentiment,
+                           a.news_source, a.publication_date
+                    FROM articles a
+                    WHERE a.topic = ?
+                    AND a.category IS NOT NULL
+                    AND a.sentiment IS NOT NULL
+                    ORDER BY a.publication_date DESC
+                    LIMIT ?
+                """, [topic, limit])
+            else:
+                # Only unprocessed articles (current behavior)
+                cursor.execute("""
+                    SELECT a.uri, a.title, a.summary, a.category, a.sentiment,
+                           a.news_source, a.publication_date
+                    FROM articles a
+                    LEFT JOIN hotspot_articles ha ON a.uri = ha.article_uri
+                    WHERE a.topic = ?
+                    AND a.category IS NOT NULL
+                    AND a.sentiment IS NOT NULL
+                    AND ha.article_uri IS NULL
+                    ORDER BY a.publication_date DESC
+                    LIMIT ?
+                """, [topic, limit])
 
             return [
                 {
@@ -656,48 +1264,103 @@ class GeopoliticalService:
             cursor.close()
             conn.close()
 
-    def get_processing_stats(self) -> Dict[str, Any]:
-        """Get statistics about article processing progress."""
+    def get_processing_stats(self, topic: str = None) -> Dict[str, Any]:
+        """Get statistics about article processing progress.
+
+        Args:
+            topic: Topic to filter by (default: "Geopolitical Hotspots")
+        """
         conn = get_database_instance().get_connection()
         cursor = conn.cursor()
 
+        # Use default topic if not specified
+        topic = topic or DEFAULT_GEOPOLITICAL_TOPIC
+
         try:
-            # Total curated articles
+            # Total curated articles for the specified topic
             cursor.execute("""
                 SELECT COUNT(*) FROM articles
                 WHERE topic = ? AND category IS NOT NULL AND sentiment IS NOT NULL
-            """, [DEFAULT_GEOPOLITICAL_TOPIC])
+            """, [topic])
             total_curated = cursor.fetchone()[0]
 
-            # Already processed (linked to hotspots)
+            # Already processed articles for this topic
+            # Join with articles to filter by topic
             cursor.execute("""
                 SELECT COUNT(DISTINCT ha.article_uri)
                 FROM hotspot_articles ha
                 JOIN articles a ON ha.article_uri = a.uri
                 WHERE a.topic = ?
-            """, [DEFAULT_GEOPOLITICAL_TOPIC])
+            """, [topic])
             processed = cursor.fetchone()[0]
 
-            # Total hotspots
-            cursor.execute("SELECT COUNT(*) FROM geopolitical_hotspots")
+            # Total hotspots (for the specified topic)
+            cursor.execute("""
+                SELECT COUNT(*) FROM geopolitical_hotspots WHERE topic = ?
+            """, [topic])
             total_hotspots = cursor.fetchone()[0]
+
+            # Log the stats for debugging
+            logger.debug(f"Processing stats for topic '{topic}': total_curated={total_curated}, processed={processed}, hotspots={total_hotspots}")
 
             return {
                 'total_curated_articles': total_curated,
                 'processed_articles': processed,
-                'unprocessed_articles': total_curated - processed,
+                'unprocessed_articles': max(0, total_curated - processed),
                 'total_hotspots': total_hotspots,
-                'processing_percentage': round((processed / total_curated * 100) if total_curated > 0 else 0, 1)
+                'processing_percentage': round((processed / total_curated * 100) if total_curated > 0 else 0, 1),
+                'topic': topic
             }
 
         finally:
             cursor.close()
             conn.close()
 
-    def create_or_update_hotspot(self, location_data: Dict[str, Any]) -> int:
-        """Create a new hotspot or update existing one, returns hotspot_id."""
+    def get_available_topics(self) -> List[Dict[str, Any]]:
+        """Get list of ALL topics with article counts for processing."""
         conn = get_database_instance().get_connection()
         cursor = conn.cursor()
+
+        try:
+            cursor.execute("""
+                SELECT a.topic,
+                       COUNT(*) as total_articles,
+                       COUNT(*) - COUNT(ha.article_uri) as unprocessed_count
+                FROM articles a
+                LEFT JOIN hotspot_articles ha ON a.uri = ha.article_uri
+                WHERE a.topic IS NOT NULL
+                AND a.category IS NOT NULL
+                AND a.sentiment IS NOT NULL
+                GROUP BY a.topic
+                HAVING COUNT(*) > 0
+                ORDER BY unprocessed_count DESC, total_articles DESC
+            """)
+
+            return [
+                {
+                    'topic': row[0],
+                    'total_articles': row[1],
+                    'unprocessed_count': row[2]
+                }
+                for row in cursor.fetchall()
+            ]
+
+        finally:
+            cursor.close()
+            conn.close()
+
+    def create_or_update_hotspot(self, location_data: Dict[str, Any], topic: str = None) -> int:
+        """Create a new hotspot or update existing one, returns hotspot_id.
+
+        Args:
+            location_data: Location information extracted from article
+            topic: Topic to associate with the hotspot (default: "Geopolitical Hotspots")
+        """
+        conn = get_database_instance().get_connection()
+        cursor = conn.cursor()
+
+        # Use default topic if not specified
+        topic = topic or DEFAULT_GEOPOLITICAL_TOPIC
 
         try:
             # Check if hotspot exists at this location
@@ -753,7 +1416,7 @@ class GeopoliticalService:
                     location_data.get('risk_assessment', 'medium'),
                     location_data.get('threat_category'),
                     json.dumps(location_data.get('tags', [])),
-                    DEFAULT_GEOPOLITICAL_TOPIC
+                    topic
                 ])
                 hotspot_id = cursor.fetchone()[0]
 
@@ -766,17 +1429,134 @@ class GeopoliticalService:
 
     def link_article_to_hotspot(self, hotspot_id: int, article_uri: str,
                                  relevance_score: float = 1.0, mention_type: str = 'primary'):
-        """Link an article to a hotspot."""
+        """Link an article to a hotspot.
+
+        Uses UPSERT to update existing links when reprocessing articles.
+        """
         conn = get_database_instance().get_connection()
         cursor = conn.cursor()
 
         try:
             cursor.execute("""
-                INSERT INTO hotspot_articles (hotspot_id, article_uri, relevance_score, mention_type, linked_at)
+                INSERT INTO hotspot_articles (hotspot_id, article_uri, relevance_score, mention_type, extracted_at)
                 VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-                ON CONFLICT (hotspot_id, article_uri) DO NOTHING
+                ON CONFLICT (hotspot_id, article_uri)
+                DO UPDATE SET relevance_score = EXCLUDED.relevance_score,
+                              mention_type = EXCLUDED.mention_type,
+                              extracted_at = CURRENT_TIMESTAMP
             """, [hotspot_id, article_uri, relevance_score, mention_type])
             conn.commit()
+
+        finally:
+            cursor.close()
+            conn.close()
+
+    def backfill_article_links(self) -> Dict[str, Any]:
+        """
+        Backfill hotspot_articles by matching location names in article text.
+        This is useful when hotspots exist but links weren't created.
+        """
+        conn = get_database_instance().get_connection()
+        cursor = conn.cursor()
+
+        try:
+            # Get all hotspots
+            cursor.execute("""
+                SELECT id, location_name, country_name
+                FROM geopolitical_hotspots
+            """)
+            hotspots = cursor.fetchall()
+
+            stats = {
+                'hotspots_processed': 0,
+                'links_created': 0,
+                'hotspots_with_matches': 0,
+                'errors': 0
+            }
+
+            for hotspot in hotspots:
+                hotspot_id = hotspot[0]
+                location_name = hotspot[1]
+                country_name = hotspot[2]
+
+                try:
+                    # Build search patterns - try location name and country
+                    search_patterns = [location_name]
+                    if country_name and country_name != location_name:
+                        search_patterns.append(country_name)
+
+                    # Find articles mentioning this location
+                    # Use ILIKE for case-insensitive search (PostgreSQL)
+                    placeholders = []
+                    params = []
+                    for pattern in search_patterns:
+                        placeholders.append("(LOWER(a.title) LIKE ? OR LOWER(a.summary) LIKE ?)")
+                        search_term = f"%{pattern.lower()}%"
+                        params.extend([search_term, search_term])
+
+                    where_clause = " OR ".join(placeholders)
+
+                    cursor.execute(f"""
+                        SELECT a.uri
+                        FROM articles a
+                        LEFT JOIN hotspot_articles ha ON a.uri = ha.article_uri AND ha.hotspot_id = ?
+                        WHERE a.topic = ?
+                        AND a.category IS NOT NULL
+                        AND a.sentiment IS NOT NULL
+                        AND ha.article_uri IS NULL
+                        AND ({where_clause})
+                    """, [hotspot_id, DEFAULT_GEOPOLITICAL_TOPIC] + params)
+
+                    matching_articles = cursor.fetchall()
+
+                    if matching_articles:
+                        stats['hotspots_with_matches'] += 1
+
+                        # Insert links
+                        for (article_uri,) in matching_articles:
+                            cursor.execute("""
+                                INSERT INTO hotspot_articles (hotspot_id, article_uri, relevance_score, mention_type, extracted_at)
+                                VALUES (?, ?, 0.8, 'backfill', CURRENT_TIMESTAMP)
+                                ON CONFLICT (hotspot_id, article_uri) DO NOTHING
+                            """, [hotspot_id, article_uri])
+                            stats['links_created'] += 1
+
+                        # Update article_count on hotspot
+                        cursor.execute("""
+                            UPDATE geopolitical_hotspots
+                            SET article_count = (
+                                SELECT COUNT(*) FROM hotspot_articles WHERE hotspot_id = ?
+                            ),
+                            updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                        """, [hotspot_id, hotspot_id])
+
+                    stats['hotspots_processed'] += 1
+
+                except Exception as e:
+                    logger.warning(f"Error processing hotspot {hotspot_id} ({location_name}): {e}")
+                    stats['errors'] += 1
+                    # Rollback the failed transaction so we can continue
+                    conn.rollback()
+
+            conn.commit()
+
+            # Also update recent_article_count based on last 7 days
+            # publication_date is stored as TEXT, so cast it
+            cursor.execute("""
+                UPDATE geopolitical_hotspots gh
+                SET recent_article_count = (
+                    SELECT COUNT(*)
+                    FROM hotspot_articles ha
+                    JOIN articles a ON ha.article_uri = a.uri
+                    WHERE ha.hotspot_id = gh.id
+                    AND a.publication_date::timestamp >= CURRENT_DATE - INTERVAL '7 days'
+                )
+            """)
+            conn.commit()
+
+            logger.info(f"Backfill complete: {stats}")
+            return stats
 
         finally:
             cursor.close()
