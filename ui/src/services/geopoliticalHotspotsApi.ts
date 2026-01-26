@@ -281,6 +281,7 @@ export async function getHotspots(options: {
   categories?: ThreatCategory[];
   riskLevels?: RiskLevel[];
   countryCode?: string;
+  daysBack?: number;
   page?: number;
   pageSize?: number;
   sortBy?: 'intensity' | 'articles' | 'recent' | 'name' | 'updated';
@@ -291,6 +292,7 @@ export async function getHotspots(options: {
   if (options.categories?.length) params.append('categories', options.categories.join(','));
   if (options.riskLevels?.length) params.append('risk_levels', options.riskLevels.join(','));
   if (options.countryCode) params.append('country_code', options.countryCode);
+  if (options.daysBack) params.append('days_back', String(options.daysBack));
   if (options.page) params.append('page', String(options.page));
   if (options.pageSize) params.append('page_size', String(options.pageSize));
   if (options.sortBy) params.append('sort_by', options.sortBy);

@@ -326,6 +326,7 @@ class GeopoliticalService:
                      categories: Optional[List[str]] = None,
                      risk_levels: Optional[List[str]] = None,
                      country_code: Optional[str] = None,
+                     days_back: int = 30,
                      page: int = 1, page_size: int = 20,
                      sort_by: str = 'intensity',
                      sort_order: str = 'desc') -> Tuple[List[Dict[str, Any]], int]:
@@ -336,6 +337,11 @@ class GeopoliticalService:
         try:
             where_clauses = []
             params = []
+
+            # Filter by days_back - only show hotspots with recent articles
+            if days_back:
+                where_clauses.append("last_article_date >= CURRENT_DATE - ? * INTERVAL '1 day'")
+                params.append(days_back)
 
             if topic:
                 where_clauses.append("topic = ?")
