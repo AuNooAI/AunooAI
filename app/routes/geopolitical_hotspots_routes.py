@@ -848,3 +848,367 @@ async def generate_narrative(
     except Exception as e:
         logger.error(f"Error generating narrative: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Scheduling Endpoints
+# ============================================================================
+
+class GeopoliticalScheduleCreate(BaseModel):
+    name: str = Field(..., description="Name for the schedule")
+    topic: Optional[str] = Field(None, description="Topic to process (default: Geopolitical Hotspots)")
+    batch_size: int = Field(50, ge=1, le=500, description="Number of articles per run")
+    model: str = Field("gpt-4o-mini", description="LLM model to use")
+    process_all: bool = Field(False, description="Reprocess already-processed articles")
+    schedule_enabled: bool = Field(True, description="Enable scheduling")
+    schedule_type: str = Field("interval", description="Schedule type: 'interval' or 'daily'")
+    schedule_interval: Optional[int] = Field(None, description="Interval value")
+    schedule_unit: Optional[str] = Field("hours", description="Interval unit: 'minutes', 'hours', 'days'")
+    schedule_time: Optional[str] = Field(None, description="Time for daily schedule (HH:MM)")
+    notify_on_complete: bool = Field(True, description="Send notification when complete")
+    notify_threshold: int = Field(1, ge=0, description="Min articles processed to notify")
+
+
+class GeopoliticalScheduleUpdate(BaseModel):
+    name: Optional[str] = None
+    topic: Optional[str] = None
+    batch_size: Optional[int] = Field(None, ge=1, le=500)
+    model: Optional[str] = None
+    process_all: Optional[bool] = None
+    schedule_enabled: Optional[bool] = None
+    schedule_type: Optional[str] = None
+    schedule_interval: Optional[int] = None
+    schedule_unit: Optional[str] = None
+    schedule_time: Optional[str] = None
+    notify_on_complete: Optional[bool] = None
+    notify_threshold: Optional[int] = Field(None, ge=0)
+
+
+class GeopoliticalScheduleResponse(BaseModel):
+    id: int
+    name: str
+    topic: Optional[str]
+    batch_size: int
+    model: str
+    process_all: bool
+    schedule_enabled: bool
+    schedule_type: Optional[str]
+    schedule_interval: Optional[int]
+    schedule_unit: Optional[str]
+    schedule_time: Optional[str]
+    notify_on_complete: bool
+    notify_threshold: int
+    last_run_at: Optional[str]
+    next_run_at: Optional[str]
+    last_run_status: Optional[str]
+    last_run_error: Optional[str]
+    last_run_articles_processed: int
+    last_run_hotspots_created: int
+    last_run_hotspots_updated: int
+    run_count: int
+    created_at: Optional[str]
+    updated_at: Optional[str]
+
+
+@router.get("/schedules")
+async def list_schedules(session=Depends(verify_session_api)):
+    """List all geopolitical hotspots processing schedules."""
+    from app.database import get_database_instance
+    from sqlalchemy import text
+
+    try:
+        db = get_database_instance()
+        conn = db._temp_get_connection()
+        result = conn.execute(text("""
+            SELECT id, name, topic, batch_size, model, process_all,
+                   schedule_enabled, schedule_type, schedule_interval, schedule_unit, schedule_time,
+                   notify_on_complete, notify_threshold,
+                   last_run_at, next_run_at, last_run_status, last_run_error,
+                   last_run_articles_processed, last_run_hotspots_created, last_run_hotspots_updated,
+                   run_count, created_at, updated_at
+            FROM geopolitical_schedules
+            ORDER BY created_at DESC
+        """))
+        schedules = []
+        for row in result:
+            row_dict = dict(row._mapping)
+            # Convert datetime objects to ISO strings
+            for key in ['last_run_at', 'next_run_at', 'created_at', 'updated_at']:
+                if row_dict.get(key):
+                    row_dict[key] = row_dict[key].isoformat()
+            if row_dict.get('schedule_time'):
+                row_dict['schedule_time'] = str(row_dict['schedule_time'])
+            schedules.append(row_dict)
+        conn.close()
+
+        return {"schedules": schedules}
+    except Exception as e:
+        logger.error(f"Error listing schedules: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/schedules")
+async def create_schedule(
+    schedule: GeopoliticalScheduleCreate,
+    session=Depends(verify_session_api)
+):
+    """Create a new geopolitical hotspots processing schedule."""
+    from app.database import get_database_instance
+    from sqlalchemy import text
+    from datetime import time as dt_time
+
+    try:
+        db = get_database_instance()
+        conn = db._temp_get_connection()
+
+        # Parse schedule_time if provided
+        schedule_time_val = None
+        if schedule.schedule_time:
+            try:
+                parts = schedule.schedule_time.split(':')
+                schedule_time_val = dt_time(int(parts[0]), int(parts[1]))
+            except Exception:
+                pass
+
+        # Calculate initial next_run_at
+        from app.tasks.geopolitical_hotspots_monitor import calculate_next_run
+        next_run = None
+        if schedule.schedule_enabled:
+            next_run = calculate_next_run(
+                schedule.schedule_type,
+                schedule.schedule_interval,
+                schedule.schedule_unit,
+                schedule_time_val
+            )
+
+        result = conn.execute(text("""
+            INSERT INTO geopolitical_schedules
+            (name, topic, batch_size, model, process_all,
+             schedule_enabled, schedule_type, schedule_interval, schedule_unit, schedule_time,
+             notify_on_complete, notify_threshold, next_run_at)
+            VALUES (:name, :topic, :batch_size, :model, :process_all,
+                    :schedule_enabled, :schedule_type, :schedule_interval, :schedule_unit, :schedule_time,
+                    :notify_on_complete, :notify_threshold, :next_run_at)
+            RETURNING id
+        """), {
+            "name": schedule.name,
+            "topic": schedule.topic,
+            "batch_size": schedule.batch_size,
+            "model": schedule.model,
+            "process_all": schedule.process_all,
+            "schedule_enabled": schedule.schedule_enabled,
+            "schedule_type": schedule.schedule_type,
+            "schedule_interval": schedule.schedule_interval,
+            "schedule_unit": schedule.schedule_unit,
+            "schedule_time": schedule_time_val,
+            "notify_on_complete": schedule.notify_on_complete,
+            "notify_threshold": schedule.notify_threshold,
+            "next_run_at": next_run
+        })
+        schedule_id = result.scalar()
+        conn.commit()
+        conn.close()
+
+        return {
+            "status": "success",
+            "message": "Schedule created successfully",
+            "schedule_id": schedule_id,
+            "next_run_at": next_run.isoformat() if next_run else None
+        }
+    except Exception as e:
+        logger.error(f"Error creating schedule: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/schedules/{schedule_id}")
+async def update_schedule(
+    schedule_id: int,
+    schedule: GeopoliticalScheduleUpdate,
+    session=Depends(verify_session_api)
+):
+    """Update a geopolitical hotspots processing schedule."""
+    from app.database import get_database_instance
+    from sqlalchemy import text
+    from datetime import time as dt_time
+
+    try:
+        db = get_database_instance()
+        conn = db._temp_get_connection()
+
+        # Build update query dynamically based on provided fields
+        updates = []
+        params = {"id": schedule_id}
+
+        if schedule.name is not None:
+            updates.append("name = :name")
+            params["name"] = schedule.name
+
+        if schedule.topic is not None:
+            updates.append("topic = :topic")
+            params["topic"] = schedule.topic if schedule.topic else None
+
+        if schedule.batch_size is not None:
+            updates.append("batch_size = :batch_size")
+            params["batch_size"] = schedule.batch_size
+
+        if schedule.model is not None:
+            updates.append("model = :model")
+            params["model"] = schedule.model
+
+        if schedule.process_all is not None:
+            updates.append("process_all = :process_all")
+            params["process_all"] = schedule.process_all
+
+        if schedule.schedule_enabled is not None:
+            updates.append("schedule_enabled = :schedule_enabled")
+            params["schedule_enabled"] = schedule.schedule_enabled
+
+        if schedule.schedule_type is not None:
+            updates.append("schedule_type = :schedule_type")
+            params["schedule_type"] = schedule.schedule_type
+
+        if schedule.schedule_interval is not None:
+            updates.append("schedule_interval = :schedule_interval")
+            params["schedule_interval"] = schedule.schedule_interval
+
+        if schedule.schedule_unit is not None:
+            updates.append("schedule_unit = :schedule_unit")
+            params["schedule_unit"] = schedule.schedule_unit
+
+        if schedule.schedule_time is not None:
+            schedule_time_val = None
+            if schedule.schedule_time:
+                try:
+                    parts = schedule.schedule_time.split(':')
+                    schedule_time_val = dt_time(int(parts[0]), int(parts[1]))
+                except Exception:
+                    pass
+            updates.append("schedule_time = :schedule_time")
+            params["schedule_time"] = schedule_time_val
+
+        if schedule.notify_on_complete is not None:
+            updates.append("notify_on_complete = :notify_on_complete")
+            params["notify_on_complete"] = schedule.notify_on_complete
+
+        if schedule.notify_threshold is not None:
+            updates.append("notify_threshold = :notify_threshold")
+            params["notify_threshold"] = schedule.notify_threshold
+
+        updates.append("updated_at = NOW()")
+
+        if not updates:
+            return {"status": "success", "message": "No changes made"}
+
+        # Recalculate next_run_at if scheduling changed
+        if any(key in params for key in ['schedule_enabled', 'schedule_type', 'schedule_interval', 'schedule_unit', 'schedule_time']):
+            # Get current values
+            current = conn.execute(text("""
+                SELECT schedule_enabled, schedule_type, schedule_interval, schedule_unit, schedule_time
+                FROM geopolitical_schedules WHERE id = :id
+            """), {"id": schedule_id}).mappings().first()
+
+            if current:
+                from app.tasks.geopolitical_hotspots_monitor import calculate_next_run
+                s_enabled = params.get('schedule_enabled', current['schedule_enabled'])
+                s_type = params.get('schedule_type', current['schedule_type'])
+                s_interval = params.get('schedule_interval', current['schedule_interval'])
+                s_unit = params.get('schedule_unit', current['schedule_unit'])
+                s_time = params.get('schedule_time') if 'schedule_time' in params else current['schedule_time']
+
+                if s_enabled:
+                    next_run = calculate_next_run(s_type, s_interval, s_unit, s_time)
+                    updates.append("next_run_at = :next_run_at")
+                    params["next_run_at"] = next_run
+                else:
+                    updates.append("next_run_at = NULL")
+
+        conn.execute(text(f"""
+            UPDATE geopolitical_schedules
+            SET {', '.join(updates)}
+            WHERE id = :id
+        """), params)
+        conn.commit()
+        conn.close()
+
+        return {"status": "success", "message": "Schedule updated successfully"}
+    except Exception as e:
+        logger.error(f"Error updating schedule: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/schedules/{schedule_id}")
+async def delete_schedule(
+    schedule_id: int,
+    session=Depends(verify_session_api)
+):
+    """Delete a geopolitical hotspots processing schedule."""
+    from app.database import get_database_instance
+    from sqlalchemy import text
+
+    try:
+        db = get_database_instance()
+        conn = db._temp_get_connection()
+
+        result = conn.execute(text("""
+            DELETE FROM geopolitical_schedules WHERE id = :id
+        """), {"id": schedule_id})
+        conn.commit()
+        conn.close()
+
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Schedule not found")
+
+        return {"status": "success", "message": "Schedule deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting schedule: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/schedules/{schedule_id}/run")
+async def run_schedule_now(
+    schedule_id: int,
+    session=Depends(verify_session_api)
+):
+    """Manually trigger a schedule to run immediately."""
+    from app.database import Database
+    from app.tasks.geopolitical_hotspots_monitor import run_schedule_now as _run_schedule_now
+
+    try:
+        db = Database()
+        result = await _run_schedule_now(db, schedule_id)
+
+        if not result.get("success"):
+            if result.get("error") == "Schedule not found":
+                raise HTTPException(status_code=404, detail="Schedule not found")
+            raise HTTPException(status_code=500, detail=result.get("error", "Unknown error"))
+
+        return {
+            "status": "success",
+            "message": f"Schedule processed {result.get('articles_processed', 0)} articles",
+            "articles_processed": result.get("articles_processed", 0),
+            "hotspots_created": result.get("hotspots_created", 0),
+            "hotspots_updated": result.get("hotspots_updated", 0)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error running schedule: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/schedules/status")
+async def get_monitor_status(session=Depends(verify_session_api)):
+    """Get the current status of the geopolitical hotspots background monitor."""
+    from app.tasks.geopolitical_hotspots_monitor import get_task_status
+
+    try:
+        status = get_task_status()
+        # Convert datetime to ISO string if present
+        if status.get("last_check_time"):
+            status["last_check_time"] = status["last_check_time"].isoformat()
+        return status
+    except Exception as e:
+        logger.error(f"Error getting monitor status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
