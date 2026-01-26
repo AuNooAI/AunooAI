@@ -509,13 +509,13 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-50 bg-black/50"
+        className="fixed inset-0 z-[1100] bg-black/50"
         onClick={() => onOpenChange(false)}
       />
 
       {/* Modal */}
       <div
-        className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-6"
+        className="fixed z-[1100] bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-6"
         style={{
           top: '50%',
           left: '50%',

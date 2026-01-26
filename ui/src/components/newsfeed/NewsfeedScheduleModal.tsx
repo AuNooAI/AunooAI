@@ -194,7 +194,7 @@ export function NewsfeedScheduleModal({
           <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
             <div>
               <Label className="font-medium">Automatic Generation</Label>
-              <p className="text-xs text-gray-700 dark:text-gray-300 mt-1">
+              <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">
                 Generate dashboard content on a schedule
               </p>
             </div>
@@ -258,7 +258,7 @@ export function NewsfeedScheduleModal({
                   </SelectContent>
                 </Select>
               </div>
-              <p className="text-xs text-gray-700 dark:text-gray-300">
+              <p className="text-xs text-gray-600 dark:text-gray-400">
                 Dashboard will be generated every {scheduleSettings.check_interval} {scheduleSettings.interval_unit}
               </p>
             </div>
@@ -276,7 +276,7 @@ export function NewsfeedScheduleModal({
                 }
                 className="w-40"
               />
-              <p className="text-xs text-gray-700 dark:text-gray-300">
+              <p className="text-xs text-gray-600 dark:text-gray-400">
                 Dashboard will be generated daily at {scheduleSettings.schedule_time} (server time)
               </p>
             </div>

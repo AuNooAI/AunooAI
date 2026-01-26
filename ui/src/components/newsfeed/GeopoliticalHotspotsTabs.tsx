@@ -3,9 +3,9 @@
  * Tab navigation for the geopolitical hotspots feature
  */
 
-import { Globe, Map, Clock, MapPin, Sparkles, Newspaper } from 'lucide-react';
+import { Globe, Map, Clock, MapPin, Sparkles, Newspaper, BarChart2, Layers } from 'lucide-react';
 
-export type GeopoliticalTab = 'overview' | 'map' | 'timeline' | 'regions' | 'insights' | 'articles';
+export type GeopoliticalTab = 'overview' | 'map' | 'timeline' | 'regions' | 'themes' | 'analysis' | 'insights' | 'articles';
 
 interface GeopoliticalHotspotsTabsProps {
   activeTab: GeopoliticalTab;
@@ -17,6 +17,8 @@ const tabs: { id: GeopoliticalTab; label: string; icon: React.ElementType }[] = 
   { id: 'map', label: 'Map', icon: Map },
   { id: 'timeline', label: 'Timeline', icon: Clock },
   { id: 'regions', label: 'Regions', icon: MapPin },
+  { id: 'themes', label: 'Themes', icon: Layers },
+  { id: 'analysis', label: 'Analysis', icon: BarChart2 },
   { id: 'insights', label: 'Insights', icon: Sparkles },
   { id: 'articles', label: 'Articles', icon: Newspaper },
 ];

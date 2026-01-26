@@ -174,12 +174,12 @@ Please provide:
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/20 z-40"
+        className="fixed inset-0 bg-black/20 z-[1100]"
         onClick={onClose}
       />
 
       {/* Panel */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-lg bg-white shadow-2xl z-50 overflow-y-auto transform transition-transform duration-300">
+      <div className="fixed inset-y-0 right-0 w-full max-w-lg bg-white shadow-2xl z-[1100] overflow-y-auto transform transition-transform duration-300">
         {/* Header */}
         <div className="sticky top-0 bg-white border-b border-gray-200 z-10">
           <div className="px-6 py-4 flex items-center justify-between">

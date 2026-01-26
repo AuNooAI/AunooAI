@@ -4,4 +4,5 @@
  */
 
 export { HotspotMap } from './HotspotMap';
+export { HotspotGlobe } from './HotspotGlobe';
 export { MapLegend } from './MapLegend';

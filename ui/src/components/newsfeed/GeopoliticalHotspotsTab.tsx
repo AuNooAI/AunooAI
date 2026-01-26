@@ -11,9 +11,11 @@ import { GeopoliticalOverviewTab } from './GeopoliticalOverviewTab';
 import { GeopoliticalMapTab } from './GeopoliticalMapTab';
 import { GeopoliticalTimelineTab } from './GeopoliticalTimelineTab';
 import { GeopoliticalRegionsTab } from './GeopoliticalRegionsTab';
+import { GeopoliticalThemesTab } from './GeopoliticalThemesTab';
 import { GeopoliticalInsightsTab } from './GeopoliticalInsightsTab';
 import { GeopoliticalArticlesTab } from './GeopoliticalArticlesTab';
 import { GeopoliticalImportModal } from './GeopoliticalImportModal';
+import { GeopoliticalAnalysisTab } from './GeopoliticalAnalysisTab';
 import type { Hotspot } from '../../services/geopoliticalHotspotsApi';
 
 interface GeopoliticalHotspotsTabProps {
@@ -52,13 +54,27 @@ export function GeopoliticalHotspotsTab({ onArticleClick, model = 'gpt-4o-mini' 
 
   const [activeTab, setActiveTab] = useState<GeopoliticalTab>('overview');
   const [selectedHotspot, setSelectedHotspot] = useState<Hotspot | null>(null);
+  const [articleHotspotFilter, setArticleHotspotFilter] = useState<Hotspot | null>(null);
+  const [articleRiskLevelFilter, setArticleRiskLevelFilter] = useState<'critical' | 'high' | 'medium' | 'low' | 'info' | null>(null);
 
-  // Handle hotspot click from any tab
+  // Handle hotspot click from any tab - navigate to articles with filter
   const handleHotspotClick = useCallback((hotspot: Hotspot) => {
     setSelectedHotspot(hotspot);
-    // Optionally navigate to article view
-    // For now, just log it
-    console.log('Selected hotspot:', hotspot);
+    setArticleHotspotFilter(hotspot);
+    setActiveTab('articles');
+  }, []);
+
+  // Clear the hotspot filter on articles tab
+  const handleHotspotFilterClear = useCallback(() => {
+    setArticleHotspotFilter(null);
+    setArticleRiskLevelFilter(null);
+  }, []);
+
+  // Handle risk level filter from overview tab
+  const handleOverviewRiskLevelFilter = useCallback((level: 'critical' | 'high' | 'medium' | 'low' | 'info') => {
+    setArticleRiskLevelFilter(level);
+    setArticleHotspotFilter(null); // Clear hotspot filter when filtering by risk
+    setActiveTab('articles');
   }, []);
 
   // Handle category filter change
@@ -107,8 +123,8 @@ export function GeopoliticalHotspotsTab({ onArticleClick, model = 'gpt-4o-mini' 
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      {/* Header - z-index ensures tabs stay above Leaflet controls */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 relative z-[1001]">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-pink-100 dark:bg-pink-900/30 rounded-lg">
             <Globe className="w-6 h-6 text-pink-600 dark:text-pink-400" />
@@ -184,6 +200,11 @@ export function GeopoliticalHotspotsTab({ onArticleClick, model = 'gpt-4o-mini' 
           hotspots={mapHotspots}
           loading={loadingStats || loadingMap}
           onHotspotClick={handleHotspotClick}
+          onRiskLevelFilter={handleOverviewRiskLevelFilter}
+          onCategoryFilter={(category) => {
+            handleCategoriesChange([category as any]);
+            setActiveTab('articles');
+          }}
         />
       )}
 
@@ -218,6 +239,24 @@ export function GeopoliticalHotspotsTab({ onArticleClick, model = 'gpt-4o-mini' 
         />
       )}
 
+      {activeTab === 'themes' && (
+        <GeopoliticalThemesTab
+          onCategoryFilter={(category) => {
+            handleCategoriesChange([category as any]);
+            setActiveTab('articles');
+          }}
+        />
+      )}
+
+      {activeTab === 'analysis' && (
+        <GeopoliticalAnalysisTab
+          onCategoryFilter={(category) => {
+            handleCategoriesChange([category as any]);
+            setActiveTab('articles');
+          }}
+        />
+      )}
+
       {activeTab === 'insights' && (
         <GeopoliticalInsightsTab
           stats={stats}
@@ -229,20 +268,12 @@ export function GeopoliticalHotspotsTab({ onArticleClick, model = 'gpt-4o-mini' 
 
       {activeTab === 'articles' && (
         <GeopoliticalArticlesTab
-          hotspots={hotspots}
-          totalHotspots={totalHotspots}
-          totalPages={totalPages}
-          currentPage={config.page}
-          loading={loadingHotspots}
-          selectedCategories={config.selectedCategories}
-          selectedRiskLevels={config.selectedRiskLevels}
-          sortBy={config.sortBy}
-          sortOrder={config.sortOrder}
-          onPageChange={handlePageChange}
-          onCategoriesChange={handleCategoriesChange}
-          onRiskLevelsChange={handleRiskLevelsChange}
-          onSortChange={handleSortChange}
-          onHotspotClick={handleHotspotClick}
+          onArticleClick={(article) => {
+            console.log('Article clicked:', article);
+          }}
+          initialHotspot={articleHotspotFilter}
+          onHotspotFilterClear={handleHotspotFilterClear}
+          initialRiskLevel={articleRiskLevelFilter}
         />
       )}
 
