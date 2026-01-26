@@ -145,6 +145,30 @@ export function ResearchAgentsSection({
       console.error('Failed to fetch autoprocessing schedule:', e);
     }
 
+    // Fetch Geopolitical Hotspots schedules
+    try {
+      const ghRes = await fetch('/api/geopolitical-hotspots/schedules', { credentials: 'include' });
+      if (ghRes.ok) {
+        const data = await ghRes.json();
+        if (data.schedules && data.schedules.length > 0) {
+          for (const schedule of data.schedules) {
+            if (schedule.schedule_enabled) {
+              schedules.push({
+                name: schedule.name || 'Geopolitical Hotspots',
+                type: 'geopolitical',
+                enabled: true,
+                next_run_at: schedule.next_run_at || null,
+                last_run_at: schedule.last_run_at || null,
+                last_run_status: schedule.last_run_status || null,
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch geopolitical hotspots schedules:', e);
+    }
+
     setSystemSchedules(schedules);
   }, []);
 
