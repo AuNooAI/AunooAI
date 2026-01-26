@@ -17,7 +17,7 @@ from app.services.geopolitical_service import (
     THREAT_CATEGORIES,
     RISK_LEVELS
 )
-from app.security.session import verify_session
+from app.security.session import verify_session, verify_session_api
 
 logger = logging.getLogger(__name__)
 
@@ -321,6 +321,137 @@ async def get_categories(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/articles")
+async def get_all_articles(
+    page: int = Query(1, ge=1, description="Page number"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page"),
+    risk_level: Optional[str] = Query(None, description="Filter by risk level"),
+    category: Optional[str] = Query(None, description="Filter by threat category"),
+    hotspot_id: Optional[int] = Query(None, description="Filter by hotspot ID"),
+    search: Optional[str] = Query(None, description="Search in title/summary"),
+    sort_by: str = Query("date", description="Sort field: date, title, relevance, intensity"),
+    sort_order: str = Query("desc", description="Sort order: asc, desc")
+):
+    """Get all articles linked to hotspots with filters and pagination."""
+    try:
+        service = get_geopolitical_service()
+        articles, total = service.get_all_hotspot_articles(
+            page=page,
+            page_size=page_size,
+            risk_level=risk_level,
+            category=category,
+            hotspot_id=hotspot_id,
+            search=search,
+            sort_by=sort_by,
+            sort_order=sort_order
+        )
+
+        total_pages = (total + page_size - 1) // page_size
+
+        return {
+            "articles": articles,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": total_pages
+        }
+    except Exception as e:
+        logger.error(f"Error getting articles: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/daily-counts")
+async def get_daily_counts(
+    topic: Optional[str] = Query(None, description="Filter by topic"),
+    days_back: int = Query(30, description="Days to look back")
+):
+    """Get daily article counts with rolling average for timeline chart."""
+    try:
+        service = get_geopolitical_service()
+        data = service.get_daily_article_counts(topic=topic, days_back=days_back)
+        return {"daily_counts": data}
+    except Exception as e:
+        import traceback
+        logger.error(f"Error getting daily counts: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/day-of-week")
+async def get_day_of_week_distribution(
+    topic: Optional[str] = Query(None, description="Filter by topic"),
+    days_back: int = Query(30, description="Days to look back")
+):
+    """Get article count distribution by day of week."""
+    try:
+        service = get_geopolitical_service()
+        data = service.get_day_of_week_distribution(topic=topic, days_back=days_back)
+        return {"distribution": data}
+    except Exception as e:
+        import traceback
+        logger.error(f"Error getting day of week distribution: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/category-cooccurrence")
+async def get_category_cooccurrence(
+    topic: Optional[str] = Query(None, description="Filter by topic")
+):
+    """Get category co-occurrence data for heatmap visualization."""
+    try:
+        service = get_geopolitical_service()
+        data = service.get_category_cooccurrence(topic=topic)
+        return data
+    except Exception as e:
+        logger.error(f"Error getting category co-occurrence: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/category-trends")
+async def get_category_trends(
+    topic: Optional[str] = Query(None, description="Filter by topic"),
+    days_back: int = Query(90, description="Days to look back"),
+    granularity: str = Query("weekly", description="Granularity: weekly or monthly")
+):
+    """Get category breakdown over time periods."""
+    try:
+        service = get_geopolitical_service()
+        data = service.get_category_trends(topic=topic, days_back=days_back, granularity=granularity)
+        return {"trends": data}
+    except Exception as e:
+        logger.error(f"Error getting category trends: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/actors")
+async def get_actors(
+    topic: Optional[str] = Query(None, description="Filter by topic"),
+    days_back: int = Query(30, description="Days to look back")
+):
+    """Get key actors/entities extracted from articles."""
+    try:
+        service = get_geopolitical_service()
+        data = service.get_actors(topic=topic, days_back=days_back)
+        return {"actors": data}
+    except Exception as e:
+        logger.error(f"Error getting actors: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/escalation-markers")
+async def get_escalation_markers(
+    topic: Optional[str] = Query(None, description="Filter by topic"),
+    days_back: int = Query(30, description="Days to look back")
+):
+    """Get escalation indicators from article analysis."""
+    try:
+        service = get_geopolitical_service()
+        data = service.get_escalation_markers(topic=topic, days_back=days_back)
+        return data
+    except Exception as e:
+        logger.error(f"Error getting escalation markers: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/threat-categories")
 async def get_threat_categories():
     """Get list of available threat categories."""
@@ -348,6 +479,8 @@ class ProcessingStats(BaseModel):
 class ProcessArticlesRequest(BaseModel):
     batch_size: int = Field(50, ge=1, le=500, description="Number of articles to process")
     model: str = Field("gpt-4o-mini", description="LLM model to use for location extraction")
+    topic: Optional[str] = Field(None, description="Topic to process articles from (default: Geopolitical Hotspots)")
+    process_all: bool = Field(False, description="If True, process all articles including already-processed ones")
 
 
 class ProcessArticlesResponse(BaseModel):
@@ -360,15 +493,30 @@ class ProcessArticlesResponse(BaseModel):
     errors: int = 0
 
 
-@router.get("/processing-stats", response_model=ProcessingStats)
-async def get_processing_stats(session=Depends(verify_session)):
-    """Get statistics about article processing progress."""
+@router.get("/processing-stats")
+async def get_processing_stats(
+    topic: Optional[str] = Query(None, description="Topic to get stats for (default: Geopolitical Hotspots)"),
+    session=Depends(verify_session_api)
+):
+    """Get statistics about article processing progress for a specific topic."""
     try:
         service = get_geopolitical_service()
-        stats = service.get_processing_stats()
+        stats = service.get_processing_stats(topic=topic)
         return stats
     except Exception as e:
         logger.error(f"Error getting processing stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/available-topics")
+async def get_available_topics(session=Depends(verify_session_api)):
+    """Get list of topics available for geopolitical processing with article counts."""
+    try:
+        service = get_geopolitical_service()
+        topics = service.get_available_topics()
+        return {"topics": topics}
+    except Exception as e:
+        logger.error(f"Error getting available topics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -376,25 +524,35 @@ async def get_processing_stats(session=Depends(verify_session)):
 async def process_articles(
     request: ProcessArticlesRequest,
     background_tasks: BackgroundTasks,
-    session=Depends(verify_session)
+    session=Depends(verify_session_api)
 ):
     """
     Process curated articles to extract locations and create/update hotspots.
     Only processes articles with populated category and sentiment fields.
+
+    Args:
+        request.topic: Topic to process articles from (default: Geopolitical Hotspots)
+        request.process_all: If True, include already-processed articles (will reprocess and update)
     """
     service = get_geopolitical_service()
 
     try:
-        # Get unprocessed articles
-        articles = service.get_unprocessed_articles(limit=request.batch_size)
+        # Get articles to process (may include already-processed if process_all=True)
+        articles = service.get_unprocessed_articles(
+            limit=request.batch_size,
+            topic=request.topic,
+            process_all=request.process_all
+        )
 
         if not articles:
             return ProcessArticlesResponse(
                 status="complete",
-                message="No unprocessed articles found"
+                message="No articles found to process"
             )
 
-        logger.info(f"Processing {len(articles)} articles for geopolitical hotspots")
+        topic_name = request.topic or "Geopolitical Hotspots"
+        mode = "all" if request.process_all else "unprocessed"
+        logger.info(f"Processing {len(articles)} {mode} articles from topic '{topic_name}'")
 
         stats = {
             "processed": 0,
@@ -441,10 +599,10 @@ async def process_articles(
 
                 is_new = existing is None
 
-                # Create or update hotspot
-                hotspot_id = service.create_or_update_hotspot(result)
+                # Create or update hotspot (pass topic for new hotspots)
+                hotspot_id = service.create_or_update_hotspot(result, topic=request.topic)
 
-                # Link article to hotspot
+                # Link article to hotspot (uses UPSERT so works for reprocessing)
                 service.link_article_to_hotspot(
                     hotspot_id,
                     article['uri'],
@@ -472,7 +630,7 @@ async def process_articles(
 
         return ProcessArticlesResponse(
             status="success",
-            message=f"Processed {stats['processed']} articles",
+            message=f"Processed {stats['processed']} articles from '{topic_name}'",
             articles_processed=stats["processed"],
             hotspots_created=stats["created"],
             hotspots_updated=stats["updated"],
@@ -488,12 +646,18 @@ async def process_articles(
 @router.get("/unprocessed-articles")
 async def get_unprocessed_articles(
     limit: int = Query(10, ge=1, le=100),
-    session=Depends(verify_session)
+    topic: Optional[str] = Query(None, description="Topic to get articles from"),
+    process_all: bool = Query(False, description="If True, include already-processed articles"),
+    session=Depends(verify_session_api)
 ):
-    """Preview unprocessed articles that would be processed next."""
+    """Preview articles that would be processed next."""
     try:
         service = get_geopolitical_service()
-        articles = service.get_unprocessed_articles(limit=limit)
+        articles = service.get_unprocessed_articles(
+            limit=limit,
+            topic=topic,
+            process_all=process_all
+        )
         return {"articles": articles, "count": len(articles)}
     except Exception as e:
         logger.error(f"Error getting unprocessed articles: {e}")
@@ -501,7 +665,7 @@ async def get_unprocessed_articles(
 
 
 @router.delete("/clear-hotspots")
-async def clear_hotspots(session=Depends(verify_session)):
+async def clear_hotspots(session=Depends(verify_session_api)):
     """Clear all hotspots, article links, narratives, and insights.
 
     Note: Processing status is determined by the hotspot_articles junction table,
@@ -536,6 +700,29 @@ async def clear_hotspots(session=Depends(verify_session)):
         return {"status": "success", "message": "All hotspots, narratives, and processing status cleared"}
     except Exception as e:
         logger.error(f"Error clearing hotspots: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/backfill-article-links")
+async def backfill_article_links(session=Depends(verify_session_api)):
+    """
+    Backfill hotspot_articles by matching location names in article text.
+
+    This is useful when hotspots exist with article_count > 0 but the actual
+    links in hotspot_articles were never created. It searches for hotspot
+    location names in article titles/summaries and creates the missing links.
+    """
+    try:
+        service = get_geopolitical_service()
+        stats = service.backfill_article_links()
+
+        return {
+            "status": "success",
+            "message": f"Backfill complete: {stats['links_created']} article links created for {stats['hotspots_with_matches']} hotspots",
+            **stats
+        }
+    except Exception as e:
+        logger.error(f"Error backfilling article links: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -607,7 +794,7 @@ async def get_narratives_history(
 @router.post("/generate-narrative")
 async def generate_narrative(
     request: GenerateNarrativeRequest,
-    session=Depends(verify_session)
+    session=Depends(verify_session_api)
 ):
     """Generate a new strategic intelligence narrative using LLM."""
     try:

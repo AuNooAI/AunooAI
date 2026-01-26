@@ -137,6 +137,85 @@ export interface CategoryData {
   total_articles: number;
 }
 
+export interface LinkedHotspot {
+  id: number;
+  name: string;
+  risk_level: RiskLevel;
+  category: string | null;
+  intensity: number;
+}
+
+export interface LinkedArticle {
+  uri: string;
+  title: string | null;
+  source: string | null;
+  publication_date: string | null;
+  summary: string | null;
+  category: string | null;
+  sentiment: string | null;
+  relevance_score: number | null;
+  mention_type: string | null;
+  // Primary hotspot (highest intensity) for backward compatibility
+  hotspot_id: number;
+  hotspot_name: string;
+  risk_level: RiskLevel;
+  hotspot_category: string | null;
+  intensity_score: number;
+  // All linked hotspots
+  hotspots: LinkedHotspot[];
+}
+
+export interface DailyCount {
+  date: string;
+  article_count: number;
+  hotspot_count: number;
+  avg_intensity: number;
+  rolling_avg: number;
+}
+
+export interface DayOfWeekData {
+  day: string;
+  day_num: number;
+  article_count: number;
+}
+
+export interface CategoryCooccurrence {
+  categories: string[];
+  pairs: Array<{ category1: string; category2: string; count: number }>;
+  matrix: Record<string, Record<string, number>>;
+}
+
+export interface CategoryTrendPeriod {
+  period: string;
+  by_category: Record<string, number>;
+}
+
+export interface ActorData {
+  actor: string;
+  actor_type: 'state' | 'non_state' | 'organization' | 'location';
+  mention_count: number;
+  percentage: number;
+}
+
+export interface EscalationMarker {
+  marker_type: string;
+  article_count: number;
+  percentage: number;
+}
+
+export interface EscalationTrend {
+  period: string;
+  period_date: string | null;
+  total_articles: number;
+  avg_intensity: number;
+  escalating_count: number;
+}
+
+export interface EscalationData {
+  markers: EscalationMarker[];
+  trends: EscalationTrend[];
+}
+
 export interface PaginatedResponse<T> {
   data: T[];
   total: number;
@@ -301,4 +380,207 @@ export async function getCategoriesData(topic?: string): Promise<CategoryData[]>
   }
   const data = await response.json();
   return data.categories;
+}
+
+export async function getAllArticles(options: {
+  page?: number;
+  pageSize?: number;
+  riskLevel?: RiskLevel;
+  category?: ThreatCategory;
+  hotspotId?: number;
+  search?: string;
+  sortBy?: 'date' | 'title' | 'relevance' | 'intensity';
+  sortOrder?: 'asc' | 'desc';
+}): Promise<PaginatedResponse<LinkedArticle>> {
+  const params = new URLSearchParams();
+  if (options.page) params.append('page', String(options.page));
+  if (options.pageSize) params.append('page_size', String(options.pageSize));
+  if (options.riskLevel) params.append('risk_level', options.riskLevel);
+  if (options.category) params.append('category', options.category);
+  if (options.hotspotId) params.append('hotspot_id', String(options.hotspotId));
+  if (options.search) params.append('search', options.search);
+  if (options.sortBy) params.append('sort_by', options.sortBy);
+  if (options.sortOrder) params.append('sort_order', options.sortOrder);
+
+  const response = await fetch(`${API_BASE}/articles?${params}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch articles: ${response.statusText}`);
+  }
+  const data = await response.json();
+  return {
+    data: data.articles,
+    total: data.total,
+    page: data.page,
+    page_size: data.page_size,
+    total_pages: data.total_pages,
+  };
+}
+
+export async function getDailyCounts(
+  topic?: string,
+  daysBack: number = 30
+): Promise<DailyCount[]> {
+  const params = new URLSearchParams();
+  if (topic) params.append('topic', topic);
+  params.append('days_back', String(daysBack));
+
+  const response = await fetch(`${API_BASE}/daily-counts?${params}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch daily counts: ${response.statusText}`);
+  }
+  const data = await response.json();
+  return data.daily_counts;
+}
+
+export async function getDayOfWeekDistribution(
+  topic?: string,
+  daysBack: number = 30
+): Promise<DayOfWeekData[]> {
+  const params = new URLSearchParams();
+  if (topic) params.append('topic', topic);
+  params.append('days_back', String(daysBack));
+
+  const response = await fetch(`${API_BASE}/day-of-week?${params}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch day of week distribution: ${response.statusText}`);
+  }
+  const data = await response.json();
+  return data.distribution;
+}
+
+export async function getCategoryCooccurrence(
+  topic?: string
+): Promise<CategoryCooccurrence> {
+  const params = new URLSearchParams();
+  if (topic) params.append('topic', topic);
+
+  const response = await fetch(`${API_BASE}/category-cooccurrence?${params}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch category co-occurrence: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function getCategoryTrends(
+  topic?: string,
+  daysBack: number = 90,
+  granularity: 'weekly' | 'monthly' = 'weekly'
+): Promise<CategoryTrendPeriod[]> {
+  const params = new URLSearchParams();
+  if (topic) params.append('topic', topic);
+  params.append('days_back', String(daysBack));
+  params.append('granularity', granularity);
+
+  const response = await fetch(`${API_BASE}/category-trends?${params}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch category trends: ${response.statusText}`);
+  }
+  const data = await response.json();
+  return data.trends;
+}
+
+export async function getActors(
+  topic?: string,
+  daysBack: number = 30
+): Promise<ActorData[]> {
+  const params = new URLSearchParams();
+  if (topic) params.append('topic', topic);
+  params.append('days_back', String(daysBack));
+
+  const response = await fetch(`${API_BASE}/actors?${params}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch actors: ${response.statusText}`);
+  }
+  const data = await response.json();
+  return data.actors;
+}
+
+export async function getEscalationMarkers(
+  topic?: string,
+  daysBack: number = 30
+): Promise<EscalationData> {
+  const params = new URLSearchParams();
+  if (topic) params.append('topic', topic);
+  params.append('days_back', String(daysBack));
+
+  const response = await fetch(`${API_BASE}/escalation-markers?${params}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch escalation markers: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+// ============================================================================
+// Processing & Import Types
+// ============================================================================
+
+export interface ProcessingStats {
+  total_curated_articles: number;
+  processed_articles: number;
+  unprocessed_articles: number;
+  total_hotspots: number;
+  processing_percentage: number;
+  topic: string;
+}
+
+export interface AvailableTopic {
+  topic: string;
+  total_articles: number;
+  unprocessed_count: number;
+}
+
+export interface ProcessArticlesRequest {
+  batch_size: number;
+  model: string;
+  topic?: string;
+  process_all?: boolean;
+}
+
+export interface ProcessArticlesResponse {
+  status: string;
+  message: string;
+  articles_processed: number;
+  hotspots_created: number;
+  hotspots_updated: number;
+  articles_skipped: number;
+  errors: number;
+}
+
+// ============================================================================
+// Processing & Import API Functions
+// ============================================================================
+
+export async function getProcessingStats(topic?: string): Promise<ProcessingStats> {
+  const params = new URLSearchParams();
+  if (topic) params.append('topic', topic);
+
+  const response = await fetch(`${API_BASE}/processing-stats?${params}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch processing stats: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export async function getAvailableTopics(): Promise<AvailableTopic[]> {
+  const response = await fetch(`${API_BASE}/available-topics`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch available topics: ${response.statusText}`);
+  }
+  const data = await response.json();
+  return data.topics;
+}
+
+export async function processArticles(
+  request: ProcessArticlesRequest
+): Promise<ProcessArticlesResponse> {
+  const response = await fetch(`${API_BASE}/process-articles`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new Error(error.detail || `Failed to process articles: ${response.statusText}`);
+  }
+  return response.json();
 }

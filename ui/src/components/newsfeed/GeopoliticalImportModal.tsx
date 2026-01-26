@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { X, Database, Loader2, CheckCircle, AlertCircle, Play, Trash2 } from 'lucide-react';
+import { X, Database, Loader2, CheckCircle, AlertCircle, Play, Trash2, RefreshCw } from 'lucide-react';
 
 interface ProcessingStats {
   total_curated_articles: number;
@@ -12,6 +12,13 @@ interface ProcessingStats {
   unprocessed_articles: number;
   total_hotspots: number;
   processing_percentage: number;
+  topic?: string;
+}
+
+interface AvailableTopic {
+  topic: string;
+  total_articles: number;
+  unprocessed_count: number;
 }
 
 interface ProcessResult {
@@ -43,6 +50,12 @@ export function GeopoliticalImportModal({
   const [batchSize, setBatchSize] = useState(50);
   const [runLlmExtraction, setRunLlmExtraction] = useState(true);
   const [regenerateNarrative, setRegenerateNarrative] = useState(false);
+  const [selectedTopic, setSelectedTopic] = useState<string>('');
+  const [processAll, setProcessAll] = useState(false);
+
+  // Available topics
+  const [availableTopics, setAvailableTopics] = useState<AvailableTopic[]>([]);
+  const [loadingTopics, setLoadingTopics] = useState(false);
 
   // Processing state
   const [isProcessing, setIsProcessing] = useState(false);
@@ -55,29 +68,69 @@ export function GeopoliticalImportModal({
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
   const statsLoadedRef = useRef(false);
+  const topicsLoadedRef = useRef(false);
 
-  // Load processing stats when modal opens
+  // Load available topics when modal opens
   useEffect(() => {
-    if (isOpen && !statsLoadedRef.current && !loadingStats) {
-      statsLoadedRef.current = true;
-      fetchProcessingStats();
+    if (isOpen && !topicsLoadedRef.current && !loadingTopics) {
+      topicsLoadedRef.current = true;
+      fetchAvailableTopics();
     }
-  }, [isOpen, loadingStats]);
+  }, [isOpen, loadingTopics]);
+
+  // Load processing stats when modal opens or topic changes
+  useEffect(() => {
+    if (isOpen && !loadingStats) {
+      if (!statsLoadedRef.current || selectedTopic !== (processingStats?.topic || '')) {
+        statsLoadedRef.current = true;
+        fetchProcessingStats();
+      }
+    }
+  }, [isOpen, loadingStats, selectedTopic]);
 
   // Reset state when modal closes
   useEffect(() => {
     if (!isOpen) {
       statsLoadedRef.current = false;
+      topicsLoadedRef.current = false;
       setProcessResult(null);
       setError(null);
       setProcessingLog([]);
+      setProcessAll(false);
     }
   }, [isOpen]);
+
+  const fetchAvailableTopics = async () => {
+    setLoadingTopics(true);
+    try {
+      const response = await fetch('/api/geopolitical-hotspots/available-topics');
+      if (response.ok) {
+        const data = await response.json();
+        setAvailableTopics(data.topics || []);
+        // Set default topic to first topic with unprocessed articles, or "Geopolitical Hotspots" if available
+        if (data.topics?.length > 0 && !selectedTopic) {
+          const geoTopic = data.topics.find((t: AvailableTopic) => t.topic === 'Geopolitical Hotspots');
+          setSelectedTopic(geoTopic ? geoTopic.topic : data.topics[0].topic);
+        }
+      } else {
+        console.error('Failed to load available topics');
+        topicsLoadedRef.current = false;
+      }
+    } catch (err) {
+      console.error('Failed to fetch available topics:', err);
+      topicsLoadedRef.current = false;
+    } finally {
+      setLoadingTopics(false);
+    }
+  };
 
   const fetchProcessingStats = async () => {
     setLoadingStats(true);
     try {
-      const response = await fetch('/api/geopolitical-hotspots/processing-stats');
+      const params = new URLSearchParams();
+      if (selectedTopic) params.append('topic', selectedTopic);
+
+      const response = await fetch(`/api/geopolitical-hotspots/processing-stats?${params}`);
       if (response.ok) {
         const data = await response.json();
         setProcessingStats(data);
@@ -98,7 +151,9 @@ export function GeopoliticalImportModal({
     setError(null);
     setIsProcessing(true);
     setProcessResult(null);
-    setProcessingLog([`Starting processing of ${batchSize} articles using ${model}...`]);
+    const topicName = selectedTopic || 'Geopolitical Hotspots';
+    const modeText = processAll ? 'all' : 'unprocessed';
+    setProcessingLog([`Starting processing of ${batchSize} ${modeText} articles from "${topicName}" using ${model}...`]);
 
     try {
       const response = await fetch('/api/geopolitical-hotspots/process-articles', {
@@ -109,10 +164,27 @@ export function GeopoliticalImportModal({
           model: model,
           run_llm_extraction: runLlmExtraction,
           regenerate_narrative: regenerateNarrative,
+          topic: selectedTopic || undefined,
+          process_all: processAll,
         }),
       });
 
+      // Check if response is JSON before parsing
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        const text = await response.text();
+        if (response.status === 401 || response.status === 307) {
+          throw new Error('Session expired. Please refresh the page and log in again.');
+        }
+        throw new Error(`Server returned non-JSON response (${response.status}): ${text.slice(0, 100)}...`);
+      }
+
       const result = await response.json();
+
+      // Handle authentication errors
+      if (response.status === 401) {
+        throw new Error('Session expired. Please refresh the page and log in again.');
+      }
 
       if (response.ok) {
         setProcessResult(result);
@@ -143,7 +215,7 @@ export function GeopoliticalImportModal({
     } finally {
       setIsProcessing(false);
     }
-  }, [batchSize, model, runLlmExtraction, regenerateNarrative, onImportComplete]);
+  }, [batchSize, model, runLlmExtraction, regenerateNarrative, selectedTopic, processAll, onImportComplete]);
 
   const handleClearAllData = useCallback(async () => {
     setIsClearing(true);
@@ -193,7 +265,7 @@ export function GeopoliticalImportModal({
   const isFailed = !!error;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-[1100] flex items-center justify-center">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/50"
@@ -286,7 +358,7 @@ export function GeopoliticalImportModal({
                   <div className="flex items-center gap-2 mb-3">
                     <Database className="w-5 h-5 text-pink-500" />
                     <span className="font-medium text-gray-900 dark:text-gray-100">
-                      Geopolitical Hotspots
+                      {processingStats.topic || 'Geopolitical Hotspots'}
                     </span>
                   </div>
 
@@ -304,9 +376,13 @@ export function GeopoliticalImportModal({
                       </div>
                     </div>
                     <div>
-                      <div className="text-gray-500 dark:text-gray-400">Remaining</div>
+                      <div className="text-gray-500 dark:text-gray-400">
+                        {processAll ? 'Available' : 'Remaining'}
+                      </div>
                       <div className="text-lg font-semibold text-amber-600 dark:text-amber-400">
-                        {processingStats.unprocessed_articles.toLocaleString()}
+                        {processAll
+                          ? processingStats.total_curated_articles.toLocaleString()
+                          : processingStats.unprocessed_articles.toLocaleString()}
                       </div>
                     </div>
                     <div>
@@ -329,6 +405,64 @@ export function GeopoliticalImportModal({
                   </div>
                 </div>
               )}
+
+              {/* Topic Selector */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Topic
+                </label>
+                <div className="relative">
+                  <select
+                    value={selectedTopic}
+                    onChange={(e) => {
+                      setSelectedTopic(e.target.value);
+                      statsLoadedRef.current = false;
+                    }}
+                    disabled={isProcessing || loadingTopics}
+                    className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 dark:text-gray-100"
+                  >
+                    {loadingTopics ? (
+                      <option>Loading topics...</option>
+                    ) : availableTopics.length === 0 ? (
+                      <option>No topics available</option>
+                    ) : (
+                      availableTopics.map((t) => (
+                        <option key={t.topic} value={t.topic}>
+                          {t.topic} ({t.unprocessed_count} unprocessed / {t.total_articles} total)
+                        </option>
+                      ))
+                    )}
+                  </select>
+                  {loadingTopics && (
+                    <Loader2 className="absolute right-8 top-1/2 -translate-y-1/2 w-4 h-4 animate-spin text-gray-400" />
+                  )}
+                </div>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                  Select which topic's articles to process
+                </p>
+              </div>
+
+              {/* Process All Checkbox */}
+              <div className="p-3 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={processAll}
+                    onChange={(e) => setProcessAll(e.target.checked)}
+                    disabled={isProcessing}
+                    className="mt-0.5 w-4 h-4 text-amber-500 border-gray-300 rounded focus:ring-amber-500"
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-amber-800 dark:text-amber-200 flex items-center gap-2">
+                      <RefreshCw className="w-4 h-4" />
+                      Reprocess All Articles
+                    </span>
+                    <p className="text-xs text-amber-600 dark:text-amber-300 mt-1">
+                      Include previously processed articles. This will re-extract locations and update existing hotspots.
+                    </p>
+                  </div>
+                </label>
+              </div>
 
               {/* Batch Size Selector */}
               <div>
@@ -505,13 +639,23 @@ export function GeopoliticalImportModal({
               </button>
               <button
                 onClick={handleProcess}
-                disabled={isProcessing || !processingStats || processingStats.unprocessed_articles === 0}
+                disabled={
+                  isProcessing ||
+                  !processingStats ||
+                  (processingStats.unprocessed_articles === 0 && !processAll) ||
+                  (processingStats.total_curated_articles === 0)
+                }
                 className="flex items-center gap-2 px-4 py-2 text-sm bg-pink-500 text-white rounded-lg hover:bg-pink-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {isProcessing ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
                     Processing...
+                  </>
+                ) : processAll ? (
+                  <>
+                    <RefreshCw className="w-4 h-4" />
+                    Reprocess Batch
                   </>
                 ) : (
                   <>
