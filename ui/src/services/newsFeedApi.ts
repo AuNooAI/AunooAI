@@ -908,22 +908,27 @@ export async function saveIncident(incident: SavedIncident): Promise<boolean> {
 export async function deleteSavedIncident(incidentName: string, topic: string): Promise<boolean> {
   try {
     const params = new URLSearchParams({ topic });
-    const response = await fetch(
-      `/api/news-feed/saved/incidents/${encodeURIComponent(incidentName)}?${params}`,
-      {
-        method: 'DELETE',
-        credentials: 'include',
-      }
-    );
+    const url = `/api/news-feed/saved/incidents/${encodeURIComponent(incidentName)}?${params}`;
+    console.log('[deleteSavedIncident] Calling DELETE:', url);
+
+    const response = await fetch(url, {
+      method: 'DELETE',
+      credentials: 'include',
+    });
+
+    console.log('[deleteSavedIncident] Response status:', response.status, response.statusText);
 
     if (!response.ok) {
-      console.warn(`Failed to delete incident: ${response.status}`);
+      const text = await response.text();
+      console.warn(`[deleteSavedIncident] Failed: ${response.status} - ${text}`);
       return false;
     }
 
+    const data = await response.json();
+    console.log('[deleteSavedIncident] Success response:', data);
     return true;
   } catch (error) {
-    console.error('Error deleting incident:', error);
+    console.error('[deleteSavedIncident] Error:', error);
     return false;
   }
 }

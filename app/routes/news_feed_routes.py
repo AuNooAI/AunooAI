@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query, Depends, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
-from app.security.session import verify_session
+from app.security.session import verify_session, verify_session_api
 from typing import Optional, List, Dict
 import logging
 from datetime import datetime, timedelta
@@ -2076,7 +2076,7 @@ def get_latest_dashboard_snapshot(topic: Optional[str] = None) -> Optional[Dict]
 @router.get("/dashboard/snapshot/latest")
 async def get_latest_snapshot(
     topic: Optional[str] = Query(None, description="Topic filter"),
-    session=Depends(verify_session)
+    session=Depends(verify_session_api)
 ):
     """
     Get the latest auto-generated dashboard snapshot.
@@ -2122,7 +2122,7 @@ async def get_latest_snapshot(
 @router.get("/saved/incidents")
 async def get_saved_incidents(
     topic: Optional[str] = Query(None, description="Topic filter"),
-    session=Depends(verify_session),
+    session=Depends(verify_session_api),
     db: Database = Depends(get_database_instance)
 ):
     """Get all saved incidents for the current user."""
@@ -2187,7 +2187,7 @@ async def get_saved_incidents(
 @router.post("/saved/incidents")
 async def save_incident(
     incident_data: dict,
-    session=Depends(verify_session),
+    session=Depends(verify_session_api),
     db: Database = Depends(get_database_instance)
 ):
     """Save an incident with full data."""
@@ -2260,7 +2260,7 @@ async def save_incident(
 async def delete_saved_incident(
     incident_name: str,
     topic: str = Query(..., description="Topic of the incident"),
-    session=Depends(verify_session),
+    session=Depends(verify_session_api),
     db: Database = Depends(get_database_instance)
 ):
     """Delete a saved incident."""
@@ -2296,7 +2296,7 @@ async def delete_saved_incident(
 async def add_article_to_incident(
     incident_name: str,
     request_body: dict,
-    session=Depends(verify_session),
+    session=Depends(verify_session_api),
     db: Database = Depends(get_database_instance)
 ):
     """Add an article to an existing saved incident."""
@@ -2385,7 +2385,7 @@ async def add_article_to_incident(
 async def add_note_to_incident(
     incident_name: str,
     request_body: dict,
-    session=Depends(verify_session),
+    session=Depends(verify_session_api),
     db: Database = Depends(get_database_instance)
 ):
     """Add an analyst note to an existing saved incident."""
@@ -2478,7 +2478,7 @@ async def add_note_to_incident(
 @router.get("/saved/narratives")
 async def get_saved_narratives(
     topic: Optional[str] = Query(None, description="Topic filter"),
-    session=Depends(verify_session),
+    session=Depends(verify_session_api),
     db: Database = Depends(get_database_instance)
 ):
     """Get all saved narratives for the current user."""
@@ -2527,7 +2527,7 @@ async def get_saved_narratives(
 @router.post("/saved/narratives")
 async def save_narrative(
     narrative_data: dict,
-    session=Depends(verify_session),
+    session=Depends(verify_session_api),
     db: Database = Depends(get_database_instance)
 ):
     """Save a narrative with full data."""
@@ -2573,7 +2573,7 @@ async def save_narrative(
 async def delete_saved_narrative(
     narrative_name: str,
     topic: Optional[str] = Query(None, description="Topic of the narrative"),
-    session=Depends(verify_session),
+    session=Depends(verify_session_api),
     db: Database = Depends(get_database_instance)
 ):
     """Delete a saved narrative."""
