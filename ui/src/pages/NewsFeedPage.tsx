@@ -24,6 +24,7 @@ import {
   ChevronRight,
   Scale,
   Globe,
+  Shield,
 } from 'lucide-react';
 import { useNewsFeed } from '../hooks/useNewsFeed';
 import { useNarrativeExplorer } from '../hooks/useNarrativeExplorer';
@@ -45,6 +46,7 @@ import { SignalReportsTab } from '../components/newsfeed/SignalReportsTab';
 import { EmergingTopicsTab } from '../components/newsfeed/EmergingTopicsTab';
 import { PolicyTrackerTab } from '../components/newsfeed/PolicyTrackerTab';
 import { GeopoliticalHotspotsTab } from '../components/newsfeed/GeopoliticalHotspotsTab';
+import { ThreatIntelligenceTab } from '../components/newsfeed/ThreatIntelligenceTab';
 import { TopicCluster, getCategoryIcon } from '../components/newsfeed/TopicCluster';
 import { ArticleListView } from '../components/newsfeed/ArticleListView';
 import { OnboardingWizard } from '../components/onboarding/OnboardingWizard';
@@ -185,7 +187,7 @@ export function NewsFeedPage() {
   };
 
   // UI State
-  const [currentTab, setCurrentTab] = useState<'feed' | 'emerging' | 'agents' | 'saved' | 'policy' | 'geopolitical'>('feed');
+  const [currentTab, setCurrentTab] = useState<'feed' | 'emerging' | 'agents' | 'saved' | 'policy' | 'geopolitical' | 'threatintel'>('feed');
   const [viewMode, setViewMode] = useState<'clustered' | 'list'>('list');
   const [emergingTopicsCount, setEmergingTopicsCount] = useState(0);
   const [reportsCount, setReportsCount] = useState(0);
@@ -760,7 +762,7 @@ export function NewsFeedPage() {
             <span className="gather-top-bar-title">Explore</span>
             <span className="gather-top-bar-separator">/</span>
             <span className="gather-top-bar-subtitle">
-              {currentTab === 'agents' ? 'Observer Agents' : currentTab === 'emerging' ? 'Emerging Topics' : currentTab === 'saved' ? 'Saved' : currentTab === 'policy' ? 'US Crisis Tracker' : currentTab === 'geopolitical' ? 'GeoHotSpots' : 'News Feed'}
+              {currentTab === 'agents' ? 'Observer Agents' : currentTab === 'emerging' ? 'Emerging Topics' : currentTab === 'saved' ? 'Saved' : currentTab === 'policy' ? 'US Crisis Tracker' : currentTab === 'geopolitical' ? 'GeoHotSpots' : currentTab === 'threatintel' ? 'Threat Intelligence' : 'News Feed'}
             </span>
           </div>
           <div className="gather-top-bar-right">
@@ -815,6 +817,13 @@ export function NewsFeedPage() {
           >
             <Globe className="w-4 h-4" />
             GeoHotSpots
+          </button>
+          <button
+            className={`explore-tab-btn ${currentTab === 'threatintel' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('threatintel')}
+          >
+            <Shield className="w-4 h-4" />
+            Threat Intel
           </button>
           <button
             className={`explore-tab-btn ${currentTab === 'policy' ? 'active' : ''}`}
@@ -1127,6 +1136,13 @@ export function NewsFeedPage() {
               <GeopoliticalHotspotsTab
                 onArticleClick={handleArticleClick}
                 model={config.model}
+              />
+            )}
+
+            {/* Threat Intelligence Tab Content */}
+            {currentTab === 'threatintel' && (
+              <ThreatIntelligenceTab
+                onArticleClick={handleArticleClick}
               />
             )}
 

@@ -156,6 +156,21 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(delayed_geopolitical_hotspots_monitor_start())
         logger.info("Scheduled geopolitical hotspots monitor to start in 30 seconds")
 
+        # Start the threat intelligence monitor background task with a delay
+        async def delayed_threat_intelligence_monitor_start():
+            """Start threat intelligence monitor after other monitors"""
+            await asyncio.sleep(35)  # Wait 35 seconds after startup
+            try:
+                from app.tasks.threat_intelligence_monitor import run_threat_intelligence_monitor
+                logger.info("Starting threat intelligence monitor background task...")
+                asyncio.create_task(run_threat_intelligence_monitor())
+                logger.info("Threat intelligence monitor background task started successfully")
+            except Exception as e:
+                logger.error(f"Failed to start threat intelligence monitor: {str(e)}")
+
+        asyncio.create_task(delayed_threat_intelligence_monitor_start())
+        logger.info("Scheduled threat intelligence monitor to start in 35 seconds")
+
     except Exception as e:
         logging.error(f"Error during startup: {str(e)}", exc_info=True)
         raise
