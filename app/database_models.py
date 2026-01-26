@@ -422,7 +422,29 @@ t_keyword_groups = Table(
     Column('topic', Text, nullable=False),
     Column('created_at', Text, default=text('CURRENT_TIMESTAMP')),
     Column('provider', Text, default=text("'news'")),
-    Column('source', Text, nullable=False, default=text("'news'"))
+    Column('source', Text, nullable=False, default=text("'news'")),
+    # Per-group collection settings (NULL = use global)
+    Column('is_active', Boolean, default=True),
+    Column('check_interval', Integer, nullable=True),
+    Column('interval_unit', Integer, nullable=True),  # 60=minutes, 3600=hours, 86400=days
+    Column('search_date_range', Integer, nullable=True),
+    Column('providers', Text, nullable=True),  # JSON array e.g., '["thenewsapi", "arxiv"]'
+    # Processing settings
+    Column('auto_ingest_enabled', Boolean, nullable=True),
+    Column('min_relevance_threshold', REAL, nullable=True),
+    Column('quality_control_enabled', Boolean, nullable=True),
+    Column('auto_save_approved_only', Boolean, nullable=True),
+    # AI settings
+    Column('default_llm_model', Text, nullable=True),
+    Column('llm_temperature', REAL, nullable=True),
+    Column('llm_max_tokens', Integer, nullable=True),
+    # Scheduling state
+    Column('last_checked_at', TIMESTAMP(timezone=True), nullable=True),
+    Column('next_check_at', TIMESTAMP(timezone=True), nullable=True),
+    Column('last_error', Text, nullable=True),
+    Column('updated_at', TIMESTAMP(timezone=True), default=text('NOW()')),
+    # Index for efficient due-group queries
+    Index('idx_keyword_groups_next_check', 'is_active', 'next_check_at')
 )
 
 t_keyword_monitor_settings = Table(

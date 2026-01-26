@@ -12,6 +12,7 @@ import { KeywordGroupDetailPanel } from './components/gather/KeywordGroupDetailP
 import { AutoCollectModal } from './components/gather/AutoCollectModal';
 import { ManageKeywordsModal } from './components/gather/ManageKeywordsModal';
 import { TestProcessModal } from './components/gather/TestProcessModal';
+import { GroupSettingsModal } from './components/gather/GroupSettingsModal';
 import { ProcessingStatusBadge } from './components/gather/ProcessingStatusBadge';
 import { NotificationBell } from './components/gather/NotificationBell';
 import { RSSFeedsTab } from './components/gather/RSSFeedsTab';
@@ -63,6 +64,7 @@ function GatherApp() {
   const [isTestProcessOpen, setIsTestProcessOpen] = useState(false);
   const [testProcessArticle, setTestProcessArticle] = useState<{ uri: string; groupId: number } | null>(null);
   const [isOnboardingOpen, setIsOnboardingOpen] = useState(false);
+  const [groupSettingsTarget, setGroupSettingsTarget] = useState<{ id: number; name: string } | null>(null);
 
   // Handle test process for specific article
   const handleTestProcessArticle = (uri: string, groupId: number) => {
@@ -140,6 +142,14 @@ function GatherApp() {
       }
     } catch (err) {
       console.error('Failed to delete unscored articles:', err);
+    }
+  };
+
+  // Handle opening group settings modal
+  const handleOpenGroupSettings = (groupId: number) => {
+    const group = groupSummaries.find(g => g.id === groupId);
+    if (group) {
+      setGroupSettingsTarget({ id: group.id, name: group.name });
     }
   };
 
@@ -252,6 +262,7 @@ function GatherApp() {
                   group={group}
                   onClick={() => handleCardClick(group)}
                   onDeleteUnscored={handleDeleteUnscored}
+                  onSettingsClick={handleOpenGroupSettings}
                 />
               ))
             )}
@@ -314,6 +325,17 @@ function GatherApp() {
         onSuccess={refresh}
         preloadArticle={testProcessArticle}
       />
+
+      {/* Group Settings Modal */}
+      {groupSettingsTarget && (
+        <GroupSettingsModal
+          isOpen={!!groupSettingsTarget}
+          onClose={() => setGroupSettingsTarget(null)}
+          groupId={groupSettingsTarget.id}
+          groupName={groupSettingsTarget.name}
+          onSaved={refresh}
+        />
+      )}
 
       {/* Onboarding Wizard */}
       <OnboardingWizard

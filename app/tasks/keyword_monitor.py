@@ -1,8 +1,14 @@
-"""Monitor keywords and collect matching news articles."""
+"""Monitor keywords and collect matching news articles.
+
+Supports per-group scheduling where each keyword group can have its own
+collectors and check interval. Groups without custom settings fall back
+to global defaults.
+"""
 
 import logging
 import asyncio
-from datetime import datetime, timedelta
+import json
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 from app.collectors.newsapi_collector import NewsAPICollector
 from app.database import Database
@@ -875,23 +881,216 @@ class KeywordMonitor:
             logger.debug(f"Cleaning up keyword monitor job {job_id}")
             del _keyword_monitor_jobs[job_id]
 
+    def _get_group_collectors(self, group_settings: Dict) -> Dict:
+        """Initialize collectors for a group's specific providers.
+
+        Args:
+            group_settings: Dict containing 'providers' (JSON string) or fallback to global.
+
+        Returns:
+            Dict of {provider_name: collector_instance}
+        """
+        collectors = {}
+
+        # Get providers - use group's custom providers or fall back to global
+        providers_json = group_settings.get('providers')
+        if not providers_json:
+            # Fall back to global providers
+            providers_json = self.db.facade.get_keyword_monitoring_providers()
+
+        try:
+            providers = json.loads(providers_json) if isinstance(providers_json, str) else providers_json
+        except (json.JSONDecodeError, TypeError):
+            providers = ['thenewsapi']  # Default fallback
+
+        logger.info(f"Initializing collectors for group '{group_settings.get('name')}': {providers}")
+
+        for provider in providers:
+            try:
+                collector = self._create_collector(provider)
+                if collector:
+                    collectors[provider] = collector
+                    logger.debug(f"Initialized {provider} collector for group")
+            except Exception as e:
+                logger.warning(f"Failed to initialize {provider} for group: {e}")
+
+        return collectors
+
+    def _get_effective_group_settings(self, group: Dict) -> Dict:
+        """Get effective settings for a group, merging with global defaults.
+
+        Args:
+            group: Dict from get_due_keyword_groups() with both group and global values.
+
+        Returns:
+            Dict with effective settings for collection.
+        """
+        # Global settings are included in the group query as global_check_interval, global_interval_unit
+        effective = {
+            'id': group['id'],
+            'name': group['name'],
+            'topic': group['topic'],
+            'is_active': group.get('is_active', True),
+            'check_interval': group.get('check_interval') or group.get('global_check_interval', 24),
+            'interval_unit': group.get('interval_unit') or group.get('global_interval_unit', 3600),
+            'search_date_range': group.get('search_date_range') or self.search_date_range,
+            'providers': group.get('providers'),
+            'auto_ingest_enabled': group.get('auto_ingest_enabled'),
+            'min_relevance_threshold': group.get('min_relevance_threshold'),
+            'quality_control_enabled': group.get('quality_control_enabled'),
+            'auto_save_approved_only': group.get('auto_save_approved_only'),
+            'default_llm_model': group.get('default_llm_model'),
+            'llm_temperature': group.get('llm_temperature'),
+            'llm_max_tokens': group.get('llm_max_tokens'),
+        }
+
+        # Calculate interval in seconds
+        effective['interval_seconds'] = effective['check_interval'] * effective['interval_unit']
+
+        return effective
+
+    async def check_single_group(self, group: Dict, progress_callback=None, username=None) -> Dict:
+        """Check a single keyword group with its effective settings.
+
+        Args:
+            group: Group dict from get_due_keyword_groups() or effective settings
+            progress_callback: Optional callback for progress updates
+            username: Optional username for notifications
+
+        Returns:
+            Dict with results: {success, new_articles, keywords_processed, error}
+        """
+        group_id = group['id']
+        group_name = group.get('name', f'Group {group_id}')
+        effective = self._get_effective_group_settings(group)
+
+        logger.info(f"Starting collection for group '{group_name}' (ID: {group_id})")
+
+        # Initialize collectors for this group's providers
+        group_collectors = self._get_group_collectors(effective)
+
+        if not group_collectors:
+            error_msg = f"No collectors available for group '{group_name}'"
+            logger.error(error_msg)
+            self.db.facade.update_keyword_group_check_status(
+                group_id, error=error_msg, next_check_seconds=effective['interval_seconds']
+            )
+            return {"success": False, "error": error_msg, "new_articles": 0}
+
+        # Temporarily set collectors for this group
+        original_collectors = self.collectors
+        self.collectors = group_collectors
+
+        # Also update settings temporarily
+        original_search_date_range = self.search_date_range
+        self.search_date_range = effective['search_date_range']
+
+        try:
+            # Run the check for this specific group
+            result = await self.check_keywords(
+                group_id=group_id,
+                progress_callback=progress_callback,
+                username=username
+            )
+
+            # Update group check status
+            error = result.get('error') if not result.get('success') else None
+            self.db.facade.update_keyword_group_check_status(
+                group_id, error=error, next_check_seconds=effective['interval_seconds']
+            )
+
+            logger.info(
+                f"Completed collection for group '{group_name}': "
+                f"success={result.get('success')}, articles={result.get('new_articles', 0)}"
+            )
+
+            return result
+
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Error checking group '{group_name}': {error_msg}", exc_info=True)
+            self.db.facade.update_keyword_group_check_status(
+                group_id, error=error_msg, next_check_seconds=effective['interval_seconds']
+            )
+            return {"success": False, "error": error_msg, "new_articles": 0}
+
+        finally:
+            # Restore original collectors
+            self.collectors = original_collectors
+            self.search_date_range = original_search_date_range
+
+    async def check_due_groups(self) -> Dict:
+        """Check all keyword groups that are due for collection.
+
+        Returns:
+            Dict with summary: {groups_checked, total_articles, errors}
+        """
+        due_groups = self.db.facade.get_due_keyword_groups()
+
+        if not due_groups:
+            logger.debug("No keyword groups are due for checking")
+            return {"groups_checked": 0, "total_articles": 0, "errors": []}
+
+        logger.info(f"Found {len(due_groups)} keyword group(s) due for collection")
+
+        results = {
+            "groups_checked": 0,
+            "total_articles": 0,
+            "errors": [],
+        }
+
+        for group in due_groups:
+            try:
+                group_result = await self.check_single_group(group)
+
+                results["groups_checked"] += 1
+                results["total_articles"] += group_result.get("new_articles", 0)
+
+                if not group_result.get("success"):
+                    results["errors"].append({
+                        "group_id": group['id'],
+                        "group_name": group.get('name'),
+                        "error": group_result.get("error"),
+                    })
+
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"Failed to check group {group.get('name')}: {error_msg}")
+                results["errors"].append({
+                    "group_id": group['id'],
+                    "group_name": group.get('name'),
+                    "error": error_msg,
+                })
+
+        logger.info(
+            f"Per-group collection complete: {results['groups_checked']} groups, "
+            f"{results['total_articles']} articles, {len(results['errors'])} errors"
+        )
+
+        return results
+
+
 async def run_keyword_monitor():
-    """Background task to periodically check keywords"""
+    """Background task to periodically check keywords using per-group scheduling.
+
+    Checks for due groups every 60 seconds and processes each with its own settings.
+    This replaces the old single-timer approach.
+    """
     global _background_task_status
     db = Database()
     monitor = KeywordMonitor(db)
-    logger.info("Keyword monitor background task started")
+
+    # Per-group scheduling: check every 60 seconds for due groups
+    CHECK_INTERVAL_SECONDS = 60
+
+    logger.info("Keyword monitor background task started (per-group scheduling mode)")
     _background_task_status["running"] = True
 
-    # Calculate next check time immediately
-    next_check = datetime.now() + timedelta(seconds=monitor.check_interval)
-    _background_task_status["next_check_time"] = next_check
+    # Initial delay before first check
+    initial_delay = 5
+    logger.info(f"Keyword monitor will start checking in {initial_delay} seconds")
+    await asyncio.sleep(initial_delay)
 
-    logger.info(f"Keyword monitor scheduled - first check in {monitor.check_interval} seconds at {next_check.strftime('%H:%M:%S')}")
-
-    # Sleep first before starting the checking loop
-    await asyncio.sleep(monitor.check_interval)
-    
     # Track checkpoint intervals
     last_checkpoint = datetime.now()
     checkpoint_interval = 300  # 5 minutes
@@ -907,56 +1106,57 @@ async def run_keyword_monitor():
                     logger.debug("Performed periodic WAL checkpoint")
                 except Exception as checkpoint_error:
                     logger.warning(f"WAL checkpoint failed: {checkpoint_error}")
-            
-            # Check if polling is enabled
+
+            # Check if global polling is enabled
             is_enabled = db.facade.get_keyword_monitor_polling_enabled()
 
             if is_enabled:
-                logger.info("Starting scheduled keyword check")
                 _background_task_status["last_check_time"] = datetime.now()
                 _background_task_status["last_error"] = None
 
                 try:
-                    result = await monitor.check_keywords()
-                    if result.get("success", False):
+                    # Check all due groups (per-group scheduling)
+                    result = await monitor.check_due_groups()
+
+                    if result["groups_checked"] > 0:
                         logger.info(
-                            f"Scheduled keyword check completed successfully. "
-                            f"Found {result.get('new_articles', 0)} new articles."
+                            f"Per-group collection: {result['groups_checked']} groups checked, "
+                            f"{result['total_articles']} articles collected, "
+                            f"{len(result['errors'])} errors"
                         )
+
                         # Perform WAL checkpoint after successful operations
                         try:
                             db.perform_wal_checkpoint("PASSIVE")
                         except Exception as checkpoint_error:
                             logger.warning(f"Post-operation WAL checkpoint failed: {checkpoint_error}")
+
+                    if result["errors"]:
+                        error_summary = "; ".join(
+                            f"{e['group_name']}: {e['error']}" for e in result["errors"][:3]
+                        )
+                        _background_task_status["last_error"] = error_summary
                     else:
-                        error_msg = result.get('error', 'Unknown error')
-                        logger.error(f"Scheduled keyword check failed: {error_msg}")
-                        _background_task_status["last_error"] = error_msg
+                        _background_task_status["last_error"] = None
+
                 except Exception as check_error:
                     error_msg = str(check_error)
-                    logger.error(f"Error during scheduled keyword check: {error_msg}", exc_info=True)
+                    logger.error(f"Error during per-group collection: {error_msg}", exc_info=True)
                     _background_task_status["last_error"] = error_msg
             else:
-                logger.debug("Keyword checking is disabled in settings, skipping check")
+                logger.debug("Keyword monitoring is disabled in settings, skipping check")
 
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Keyword monitor error: {error_msg}", exc_info=True)
             _background_task_status["last_error"] = error_msg
-            # Sleep a short time before retrying after error to prevent CPU spinning
+            # Sleep a short time before retrying after error
             await asyncio.sleep(30)
+            continue
 
-        try:
-            # Refresh interval from settings in case it was changed
-            settings = db.facade.get_keyword_monitor_interval()
-            if settings:
-                monitor.check_interval = settings[0] * settings[1]  # interval * unit
-        except Exception as e:
-            logger.error(f"Error refreshing check interval settings: {str(e)}", exc_info=True)
-        
-        # Calculate next check time
-        next_check = datetime.now() + timedelta(seconds=monitor.check_interval)
+        # Calculate next check time (always 60 seconds for the scheduler loop)
+        next_check = datetime.now() + timedelta(seconds=CHECK_INTERVAL_SECONDS)
         _background_task_status["next_check_time"] = next_check
-        
-        logger.debug(f"Sleeping for {monitor.check_interval} seconds until next keyword check")
-        await asyncio.sleep(monitor.check_interval) 
+
+        logger.debug(f"Sleeping for {CHECK_INTERVAL_SECONDS}s until next due-group check")
+        await asyncio.sleep(CHECK_INTERVAL_SECONDS) 

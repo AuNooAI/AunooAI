@@ -632,6 +632,98 @@
   margin: 2px 0 0 0;
 }
 
+/* Card Title Row with badges */
+.gather-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Custom settings badge */
+.gather-custom-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--gather-purple);
+  background: var(--gather-purple-bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--gather-purple-border);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.dark .gather-custom-badge {
+  background: rgba(139, 92, 246, 0.15);
+  border-color: rgba(139, 92, 246, 0.3);
+  color: var(--gather-purple-bright);
+}
+
+/* Paused badge */
+.gather-paused-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--gather-mauve-11);
+  background: var(--gather-mauve-4);
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.dark .gather-paused-badge {
+  background: var(--gather-mauve-6);
+  color: var(--gather-mauve-10);
+}
+
+/* Settings button on card */
+.gather-card-settings-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: 1px solid var(--gather-mauve-6);
+  border-radius: 6px;
+  color: var(--gather-mauve-11);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.gather-card-settings-btn:hover {
+  background: var(--gather-mauve-3);
+  border-color: var(--gather-mauve-7);
+  color: var(--gather-mauve-12);
+}
+
+.dark .gather-card-settings-btn {
+  border-color: var(--gather-mauve-7);
+  color: var(--gather-mauve-10);
+}
+
+.dark .gather-card-settings-btn:hover {
+  background: var(--gather-mauve-5);
+  border-color: var(--gather-mauve-8);
+  color: var(--gather-mauve-11);
+}
+
+/* Footer with left content */
+.gather-card-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+}
+
+.gather-card-next-check {
+  font-size: 12px;
+  color: var(--gather-mauve-10);
+}
+
 .gather-card-topic-badge {
   font-size: 11px;
   font-weight: 500;
@@ -1401,6 +1493,74 @@
 
 .gather-autocollect-modal {
   max-width: 640px !important;
+}
+
+.gather-group-settings-modal {
+  max-width: 640px !important;
+}
+
+/* Global settings toggle section */
+.gather-global-toggle-section {
+  background: var(--gather-mauve-2);
+  margin: 0 -24px;
+  padding: 16px 24px;
+  border-top: none;
+}
+
+.dark .gather-global-toggle-section {
+  background: var(--gather-mauve-3);
+}
+
+.gather-global-toggle {
+  background: none;
+  padding: 0;
+}
+
+.gather-reset-btn {
+  margin-top: 12px;
+  color: var(--gather-mauve-11);
+}
+
+.gather-reset-btn:hover {
+  color: var(--gather-mauve-12);
+}
+
+/* Modal loading and error states */
+.gather-modal-loading,
+.gather-modal-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px;
+  gap: 16px;
+  color: var(--gather-mauve-11);
+}
+
+.gather-modal-error {
+  color: var(--gather-error-text);
+}
+
+/* Modal info section */
+.gather-modal-info {
+  padding: 12px 16px;
+  background: var(--gather-info-bg);
+  border: 1px solid var(--gather-info-border);
+  border-radius: 8px;
+  margin: 16px 0;
+  font-size: 13px;
+  color: var(--gather-info-text);
+}
+
+.dark .gather-modal-info {
+  background: rgba(0, 145, 255, 0.1);
+  border-color: rgba(0, 145, 255, 0.2);
+  color: #6cb6ff;
+}
+
+/* Custom badge in section titles */
+.gather-modal-section-title .gather-custom-badge {
+  margin-left: 8px;
 }
 
 .gather-manage-keywords-modal {

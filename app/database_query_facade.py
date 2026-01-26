@@ -3573,6 +3573,251 @@ class DatabaseQueryFacade:
             'last_run_not_saved': row['not_saved_count'] if row else 0,
         }
 
+    # =========================================================================
+    # Per-Group Collection Settings Methods
+    # =========================================================================
+
+    def get_keyword_group_with_settings(self, group_id: int):
+        """Get keyword group with all collection settings columns.
+
+        Returns dict with all group fields including per-group settings.
+        """
+        query = text("""
+            SELECT
+                id, name, topic, created_at, provider, source,
+                is_active, check_interval, interval_unit, search_date_range,
+                providers, auto_ingest_enabled, min_relevance_threshold,
+                quality_control_enabled, auto_save_approved_only,
+                default_llm_model, llm_temperature, llm_max_tokens,
+                last_checked_at, next_check_at, last_error, updated_at
+            FROM keyword_groups
+            WHERE id = :group_id
+        """)
+        result = self._execute_with_rollback(query, {'group_id': group_id})
+        row = result.mappings().fetchone()
+        return dict(row) if row else None
+
+    def get_effective_group_settings(self, group_id: int):
+        """Get effective settings for a group, merging with global defaults.
+
+        Returns dict with effective settings where NULL values are replaced
+        with global defaults. Also indicates which settings are custom vs inherited.
+        """
+        # Get group settings
+        group = self.get_keyword_group_with_settings(group_id)
+        if not group:
+            return None
+
+        # Get global settings
+        global_settings = self.get_or_create_keyword_monitor_settings()
+
+        # Define which settings to merge and their global key mappings
+        setting_keys = {
+            'check_interval': 'check_interval',
+            'interval_unit': 'interval_unit',
+            'search_date_range': 'search_date_range',
+            'providers': 'providers',
+            'auto_ingest_enabled': 'auto_ingest_enabled',
+            'min_relevance_threshold': 'min_relevance_threshold',
+            'quality_control_enabled': 'quality_control_enabled',
+            'auto_save_approved_only': 'auto_save_approved_only',
+            'default_llm_model': 'default_llm_model',
+            'llm_temperature': 'llm_temperature',
+            'llm_max_tokens': 'llm_max_tokens',
+        }
+
+        # Build effective settings
+        effective = {
+            'id': group['id'],
+            'name': group['name'],
+            'topic': group['topic'],
+            'is_active': group.get('is_active', True),
+            'last_checked_at': group.get('last_checked_at'),
+            'next_check_at': group.get('next_check_at'),
+            'last_error': group.get('last_error'),
+            'updated_at': group.get('updated_at'),
+            'settings': {},
+            'custom_fields': [],  # List of fields with custom (non-null) values
+        }
+
+        for group_key, global_key in setting_keys.items():
+            group_value = group.get(group_key)
+            global_value = global_settings.get(global_key) if global_settings else None
+
+            # Use group value if set, otherwise fall back to global
+            if group_value is not None:
+                effective['settings'][group_key] = group_value
+                effective['custom_fields'].append(group_key)
+            else:
+                effective['settings'][group_key] = global_value
+
+        # Determine if group has custom schedule or providers
+        effective['has_custom_schedule'] = any(
+            group.get(k) is not None for k in ['check_interval', 'interval_unit']
+        )
+        effective['has_custom_providers'] = group.get('providers') is not None
+
+        return effective
+
+    def update_keyword_group_settings(self, group_id: int, settings: dict):
+        """Update per-group collection settings.
+
+        Args:
+            group_id: The keyword group ID
+            settings: Dict of settings to update. Set values to None to use global defaults.
+                      Supports 'use_global_settings': True to reset all to NULL.
+
+        Returns:
+            True if update succeeded, False otherwise.
+        """
+        # If resetting to global defaults
+        if settings.get('use_global_settings'):
+            query = text("""
+                UPDATE keyword_groups
+                SET check_interval = NULL,
+                    interval_unit = NULL,
+                    search_date_range = NULL,
+                    providers = NULL,
+                    auto_ingest_enabled = NULL,
+                    min_relevance_threshold = NULL,
+                    quality_control_enabled = NULL,
+                    auto_save_approved_only = NULL,
+                    default_llm_model = NULL,
+                    llm_temperature = NULL,
+                    llm_max_tokens = NULL,
+                    updated_at = NOW()
+                WHERE id = :group_id
+            """)
+            self._execute_with_rollback(query, {'group_id': group_id})
+            return True
+
+        # Build dynamic update
+        allowed_fields = [
+            'is_active', 'check_interval', 'interval_unit', 'search_date_range',
+            'providers', 'auto_ingest_enabled', 'min_relevance_threshold',
+            'quality_control_enabled', 'auto_save_approved_only',
+            'default_llm_model', 'llm_temperature', 'llm_max_tokens',
+        ]
+
+        update_parts = []
+        params = {'group_id': group_id}
+
+        for field in allowed_fields:
+            if field in settings:
+                update_parts.append(f"{field} = :{field}")
+                params[field] = settings[field]
+
+        if not update_parts:
+            return False
+
+        update_parts.append("updated_at = NOW()")
+        query = text(f"""
+            UPDATE keyword_groups
+            SET {', '.join(update_parts)}
+            WHERE id = :group_id
+        """)
+        self._execute_with_rollback(query, params)
+        return True
+
+    def get_due_keyword_groups(self):
+        """Get keyword groups that are due for checking based on their schedules.
+
+        Returns list of groups where now >= next_check_at or where next_check_at is NULL
+        and enough time has passed since last_checked_at (or never checked).
+        Groups must be active.
+        """
+        query = text("""
+            SELECT
+                kg.id, kg.name, kg.topic, kg.is_active,
+                kg.check_interval, kg.interval_unit, kg.search_date_range,
+                kg.providers, kg.auto_ingest_enabled, kg.min_relevance_threshold,
+                kg.quality_control_enabled, kg.auto_save_approved_only,
+                kg.default_llm_model, kg.llm_temperature, kg.llm_max_tokens,
+                kg.last_checked_at, kg.next_check_at, kg.last_error,
+                -- Get global defaults for fallback
+                kms.check_interval as global_check_interval,
+                kms.interval_unit as global_interval_unit
+            FROM keyword_groups kg
+            CROSS JOIN (SELECT * FROM keyword_monitor_settings WHERE id = 1) kms
+            WHERE kg.is_active = TRUE
+              AND (
+                  -- Group has custom schedule and is due
+                  (kg.next_check_at IS NOT NULL AND kg.next_check_at <= NOW())
+                  OR
+                  -- Group has never been checked
+                  (kg.last_checked_at IS NULL)
+                  OR
+                  -- Group was checked but next_check_at not set - calculate from interval
+                  (kg.next_check_at IS NULL AND kg.last_checked_at IS NOT NULL
+                   AND kg.last_checked_at + (
+                       COALESCE(kg.check_interval, kms.check_interval) *
+                       COALESCE(kg.interval_unit, kms.interval_unit) * INTERVAL '1 second'
+                   ) <= NOW())
+              )
+            ORDER BY kg.last_checked_at NULLS FIRST
+        """)
+        result = self._execute_with_rollback(query)
+        return [dict(row) for row in result.mappings().fetchall()]
+
+    def update_keyword_group_check_status(self, group_id: int, error: str = None, next_check_seconds: int = None):
+        """Update group's check status after a collection run.
+
+        Args:
+            group_id: The keyword group ID
+            error: Error message if the check failed, None if successful
+            next_check_seconds: Seconds until next check (calculated from group/global interval)
+
+        Updates last_checked_at, next_check_at, and last_error.
+        """
+        if next_check_seconds is not None:
+            query = text("""
+                UPDATE keyword_groups
+                SET last_checked_at = NOW(),
+                    next_check_at = NOW() + (:next_seconds * INTERVAL '1 second'),
+                    last_error = :error,
+                    updated_at = NOW()
+                WHERE id = :group_id
+            """)
+            params = {
+                'group_id': group_id,
+                'error': error,
+                'next_seconds': next_check_seconds,
+            }
+        else:
+            # Calculate next check from group or global settings
+            query = text("""
+                UPDATE keyword_groups
+                SET last_checked_at = NOW(),
+                    next_check_at = NOW() + (
+                        COALESCE(check_interval, (SELECT check_interval FROM keyword_monitor_settings WHERE id = 1)) *
+                        COALESCE(interval_unit, (SELECT interval_unit FROM keyword_monitor_settings WHERE id = 1)) *
+                        INTERVAL '1 second'
+                    ),
+                    last_error = :error,
+                    updated_at = NOW()
+                WHERE id = :group_id
+            """)
+            params = {'group_id': group_id, 'error': error}
+
+        self._execute_with_rollback(query, params)
+
+    def get_all_keyword_groups_with_schedule_info(self):
+        """Get all keyword groups with schedule info for API listing.
+
+        Returns groups with has_custom_schedule, has_custom_providers, last_checked_at, next_check_at.
+        """
+        query = text("""
+            SELECT
+                kg.id, kg.name, kg.topic, kg.created_at, kg.provider, kg.source,
+                kg.is_active, kg.last_checked_at, kg.next_check_at, kg.last_error,
+                kg.check_interval IS NOT NULL OR kg.interval_unit IS NOT NULL as has_custom_schedule,
+                kg.providers IS NOT NULL as has_custom_providers
+            FROM keyword_groups kg
+            ORDER BY kg.name
+        """)
+        result = self._execute_with_rollback(query)
+        return [dict(row) for row in result.mappings().fetchall()]
+
     def toggle_polling(self, toggle):
         statement = select(
             keyword_monitor_settings.c.id

@@ -118,9 +118,9 @@ class PollingToggle(BaseModel):
 
 @router.get("/groups")
 async def get_groups(db=Depends(get_database_instance), session=Depends(verify_session)):
-    """Get all keyword monitoring groups."""
+    """Get all keyword monitoring groups with schedule info."""
     try:
-        groups = db.facade.get_all_keyword_groups()
+        groups = db.facade.get_all_keyword_groups_with_schedule_info()
         return [
             {
                 "id": g["id"],
@@ -129,6 +129,13 @@ async def get_groups(db=Depends(get_database_instance), session=Depends(verify_s
                 "created_at": g.get("created_at"),
                 "provider": g.get("provider"),
                 "source": g.get("source"),
+                # Per-group scheduling fields
+                "is_active": g.get("is_active", True),
+                "has_custom_schedule": g.get("has_custom_schedule", False),
+                "has_custom_providers": g.get("has_custom_providers", False),
+                "last_checked_at": g.get("last_checked_at").isoformat() if g.get("last_checked_at") else None,
+                "next_check_at": g.get("next_check_at").isoformat() if g.get("next_check_at") else None,
+                "last_error": g.get("last_error"),
             }
             for g in groups
         ]
@@ -167,7 +174,8 @@ async def get_keywords(
 async def get_group_summaries(db=Depends(get_database_instance), session=Depends(verify_session)):
     """Get summary statistics for all keyword groups (for Gather cards)."""
     try:
-        groups = db.facade.get_all_keyword_groups()
+        # Use the new method that includes schedule info
+        groups = db.facade.get_all_keyword_groups_with_schedule_info()
         keywords = db.facade.get_monitored_keywords()
         relevance_stats = db.facade.get_keyword_relevance_stats()
 
@@ -195,17 +203,21 @@ async def get_group_summaries(db=Depends(get_database_instance), session=Depends
                 if group_stats else 0
             )
 
-            # Find last checked time
-            last_checked = None
-            for kw in group_keywords:
-                kw_last = kw.get("last_checked")
-                if kw_last:
-                    if last_checked is None or kw_last > last_checked:
-                        last_checked = kw_last
+            # Use group-level last_checked_at if available, otherwise find from keywords
+            last_checked = group.get("last_checked_at")
+            if not last_checked:
+                for kw in group_keywords:
+                    kw_last = kw.get("last_checked")
+                    if kw_last:
+                        if last_checked is None or kw_last > last_checked:
+                            last_checked = kw_last
 
-            # Determine status
+            # Determine status using group-level last_error if available
+            group_error = group.get("last_error")
             status_value = "never_run"
-            if status and status.get("last_error"):
+            if group_error:
+                status_value = "error"
+            elif status and status.get("last_error"):
                 status_value = "error"
             elif last_checked:
                 status_value = "success"
@@ -217,6 +229,22 @@ async def get_group_summaries(db=Depends(get_database_instance), session=Depends
             total_scored = article_stats.get('relevant_count', 0) + article_stats.get('irrelevant_count', 0)
             relevance_pct = round((article_stats.get('relevant_count', 0) / total_scored * 100) if total_scored > 0 else 0)
 
+            # Format timestamps
+            last_checked_iso = None
+            if last_checked:
+                if hasattr(last_checked, 'isoformat'):
+                    last_checked_iso = last_checked.isoformat()
+                else:
+                    last_checked_iso = str(last_checked)
+
+            next_check_at = group.get("next_check_at")
+            next_check_iso = None
+            if next_check_at:
+                if hasattr(next_check_at, 'isoformat'):
+                    next_check_iso = next_check_at.isoformat()
+                else:
+                    next_check_iso = str(next_check_at)
+
             summaries.append({
                 "id": group_id,
                 "name": group["name"],
@@ -225,8 +253,8 @@ async def get_group_summaries(db=Depends(get_database_instance), session=Depends
                 "total_articles": article_stats.get('total_count', 0),
                 "avg_relevance": round(avg_relevance),
                 "relevance_pct": relevance_pct,  # % of scored articles that are relevant
-                "last_checked": last_checked,
-                "last_error": status.get("last_error") if status else None,
+                "last_checked": last_checked_iso,
+                "last_error": group_error or (status.get("last_error") if status else None),
                 "status": status_value,
                 # Relevance-based article counts
                 "relevant_count": article_stats.get('relevant_count', 0),
@@ -237,6 +265,11 @@ async def get_group_summaries(db=Depends(get_database_instance), session=Depends
                 "articles_past_week": article_stats.get('articles_past_week', 0),
                 "articles_past_month": article_stats.get('articles_past_month', 0),
                 "daily_counts": article_stats.get('daily_counts', []),
+                # Per-group schedule info
+                "is_active": group.get("is_active", True),
+                "has_custom_schedule": group.get("has_custom_schedule", False),
+                "has_custom_providers": group.get("has_custom_providers", False),
+                "next_check_at": next_check_iso,
             })
 
         return summaries
@@ -283,6 +316,108 @@ async def get_group_articles(
         ]
     except Exception as e:
         logger.error(f"Error getting group articles: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Per-Group Collection Settings Endpoints
+# ============================================================================
+
+class GroupSettingsUpdate(BaseModel):
+    """Request body for updating per-group collection settings."""
+    use_global_settings: Optional[bool] = None  # Set True to reset all to global defaults
+    is_active: Optional[bool] = None
+    check_interval: Optional[int] = None
+    interval_unit: Optional[int] = None  # 60=minutes, 3600=hours, 86400=days
+    search_date_range: Optional[int] = None
+    providers: Optional[str] = None  # JSON array e.g., '["thenewsapi", "arxiv"]'
+    auto_ingest_enabled: Optional[bool] = None
+    min_relevance_threshold: Optional[float] = None
+    quality_control_enabled: Optional[bool] = None
+    auto_save_approved_only: Optional[bool] = None
+    default_llm_model: Optional[str] = None
+    llm_temperature: Optional[float] = None
+    llm_max_tokens: Optional[int] = None
+
+
+@router.get("/group/{group_id}/settings")
+async def get_group_settings(
+    group_id: int,
+    db=Depends(get_database_instance),
+    session=Depends(verify_session)
+):
+    """Get effective collection settings for a keyword group.
+
+    Returns merged settings where NULL values are replaced with global defaults.
+    Also indicates which settings are custom vs inherited from global.
+    """
+    try:
+        effective = db.facade.get_effective_group_settings(group_id)
+
+        if not effective:
+            raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
+
+        return {
+            "success": True,
+            "group_id": effective['id'],
+            "group_name": effective['name'],
+            "topic": effective['topic'],
+            "is_active": effective['is_active'],
+            "last_checked_at": effective['last_checked_at'].isoformat() if effective.get('last_checked_at') else None,
+            "next_check_at": effective['next_check_at'].isoformat() if effective.get('next_check_at') else None,
+            "last_error": effective.get('last_error'),
+            "settings": effective['settings'],
+            "custom_fields": effective['custom_fields'],
+            "has_custom_schedule": effective['has_custom_schedule'],
+            "has_custom_providers": effective['has_custom_providers'],
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting group settings for group {group_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/group/{group_id}/settings")
+async def update_group_settings(
+    group_id: int,
+    settings: GroupSettingsUpdate,
+    db=Depends(get_database_instance),
+    session=Depends(verify_session)
+):
+    """Update per-group collection settings.
+
+    Set use_global_settings=true to reset all custom settings back to global defaults.
+    Individual settings set to null will inherit from global settings.
+    """
+    try:
+        # Check group exists
+        group = db.facade.get_keyword_group_by_id(group_id)
+        if not group:
+            raise HTTPException(status_code=404, detail=f"Group {group_id} not found")
+
+        # Convert Pydantic model to dict, excluding None values (unless use_global_settings)
+        settings_dict = settings.model_dump(exclude_unset=True)
+
+        success = db.facade.update_keyword_group_settings(group_id, settings_dict)
+
+        if success:
+            # Return updated effective settings
+            effective = db.facade.get_effective_group_settings(group_id)
+            return {
+                "success": True,
+                "message": "Settings updated successfully",
+                "group_id": group_id,
+                "effective_settings": effective['settings'] if effective else {},
+                "custom_fields": effective['custom_fields'] if effective else [],
+            }
+        else:
+            return {"success": False, "message": "No settings were updated"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating group settings for group {group_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
