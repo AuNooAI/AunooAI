@@ -33,15 +33,13 @@ DEFAULT_TRACKER_TOPIC = "Trump Administration Tracker"
 # Using SHORT category names that match the imported database data
 # Keywords include singular/plural forms and common variations
 POLICY_CATEGORIES = {
-    "Democratic Norms": [
+    "Undermining Democracy": [
         "democracy", "democratic", "voting rights", "election", "elections", "constitution",
         "democratic norms", "voting", "ballot", "ballots", "electoral", "constitutional",
-        "autocracy", "authoritarian", "dictator", "dictatorship"
-    ],
-    "Rule of Law": [
-        "judicial", "courts", "court", "prosecution", "prosecutor", "justice", "law enforcement",
+        "autocracy", "authoritarian", "dictator", "dictatorship",
+        "judicial", "courts", "court", "prosecution", "prosecutor", "justice",
         "judge", "judges", "attorney general", "DOJ", "FBI", "supreme court", "unconstitutional",
-        "rule of law", "legal", "lawsuit", "lawsuits", "ruling", "rulings", "injunction"
+        "rule of law", "lawsuit", "lawsuits", "ruling", "rulings", "injunction"
     ],
     "Hollowing State": [
         "federal agency", "federal agencies", "bureaucracy", "government shutdown", "defund",
@@ -60,7 +58,7 @@ POLICY_CATEGORIES = {
         "disinformation", "press", "journalism", "journalist", "journalists", "censor",
         "censored", "government data", "transparency", "FOIA", "news outlet", "news outlets"
     ],
-    "Science & Health Control": [
+    "Attacking Science": [
         "CDC", "FDA", "vaccine", "vaccines", "vaccination", "climate", "EPA", "research funding",
         "NIH", "public health", "environment", "environmental", "science", "scientific",
         "RFK", "Kennedy", "health policy", "medical", "pandemic", "scientist", "scientists"
@@ -75,31 +73,32 @@ POLICY_CATEGORIES = {
     "Weakening Civil Rights": [
         "civil rights", "discrimination", "discriminatory", "LGBTQ", "LGBT", "gay", "lesbian",
         "abortion", "equal protection", "reproductive rights", "transgender", "trans",
-        "DEI", "affirmative action", "voting rights", "racial", "gender", "disability",
+        "DEI", "affirmative action", "racial", "gender", "disability",
         "women's rights", "minority", "minorities"
     ],
-    "Corruption & Enrichment": [
+    "Corruption": [
         "conflict of interest", "ethics", "nepotism", "emoluments", "self-dealing",
         "corruption", "corrupt", "bribery", "grift", "pardon", "pardons", "ethics violation",
         "profiteering", "enrichment", "kickback"
     ],
-    "Immigration Enforcement": [
+    "Foreign Policy": [
+        "NATO", "sanctions", "sanction", "foreign policy", "ally", "allies", "alliance",
+        "alliances", "treaty", "treaties", "withdraw", "withdrawal", "isolationist",
+        "tariff", "tariffs", "trade war", "Greenland", "Panama", "annexation", "annex",
+        "military intervention", "military", "troops",
+        "China", "Russia", "Ukraine", "Gaza", "Israel", "Middle East", "diplomat", "diplomacy",
+        "embassy", "ambassador", "United Nations", "UN", "G7", "G20", "summit", "bilateral"
+    ],
+    "Nationalism & Immigration": [
         "immigration", "immigrant", "immigrants", "border", "border patrol",
         "deportation", "deportations", "deport", "deported", "ICE", "migrant", "migrants",
         "asylum", "detention", "detention center", "detention centers", "wall", "border wall",
         "illegal alien", "illegal aliens", "undocumented", "CBP", "customs and border",
         "immigration enforcement", "mass deportation", "immigration raid", "immigration raids",
         "sanctuary city", "sanctuary cities", "visa", "visas", "green card", "citizenship",
-        "naturalization", "USCIS", "immigration court", "removal", "removals"
-    ],
-    "Foreign Policy / Nationalism": [
-        "NATO", "sanctions", "sanction", "foreign policy", "ally", "allies", "alliance",
-        "alliances", "treaty", "treaties", "withdraw", "withdrawal", "isolationist",
-        "tariff", "tariffs", "trade war", "Greenland", "Panama", "annexation", "annex",
-        "military intervention", "nationalist", "nationalism", "military", "troops",
-        "National Guard", "invasion", "Honduras", "Mexico", "Latin America", "Central America",
-        "China", "Russia", "Ukraine", "Gaza", "Israel", "Middle East", "diplomat", "diplomacy",
-        "embassy", "ambassador", "United Nations", "UN", "G7", "G20", "summit", "bilateral"
+        "naturalization", "USCIS", "immigration court", "removal", "removals",
+        "nationalist", "nationalism", "National Guard", "invasion", "Honduras", "Mexico",
+        "Latin America", "Central America", "America first"
     ]
 }
 
@@ -953,16 +952,16 @@ async def get_policy_stats(
         multi_category_count = 0
         new_categorizations = []
 
+        classified_articles = []
         for article in articles:
             uri, title, summary, pub_date = article
 
-            # Use stored categories if available, otherwise classify
-            if uri in stored_categories:
-                categories = stored_categories[uri]
-            else:
-                categories = categorize_article(title or '', summary or '')
-                if categories:
-                    new_categorizations.append((uri, categories))
+            # Only count articles with stored categories
+            if uri not in stored_categories:
+                continue
+
+            classified_articles.append(article)
+            categories = stored_categories[uri]
 
             for cat in categories:
                 if cat in category_counts:
@@ -971,11 +970,8 @@ async def get_policy_stats(
             if len(categories) >= 3:
                 multi_category_count += 1
 
-        # Store new categorizations
-        for uri, categories in new_categorizations:
-            store_article_categories(conn, uri, categories, topic)
-        if new_categorizations:
-            conn.commit()
+        # Use only classified articles for stats
+        articles = classified_articles
 
         # Find most active category
         most_active = max(category_counts.items(), key=lambda x: x[1]) if category_counts else (None, 0)
@@ -1050,13 +1046,11 @@ async def get_policy_articles(
         for article in all_articles:
             uri, title, summary, source, pub_date, sentiment, bias, factual = article
 
-            # Use stored categories if available
-            if uri in stored_categories:
-                article_categories = stored_categories[uri]
-            else:
-                article_categories = categorize_article(title or '', summary or '')
-                if article_categories:
-                    new_categorizations.append((uri, article_categories))
+            # Only show articles with stored categories
+            if uri not in stored_categories:
+                continue
+
+            article_categories = stored_categories[uri]
 
             # Filter by category if specified
             if category_filter:
@@ -1075,12 +1069,6 @@ async def get_policy_articles(
                 'factual_reporting': factual,
                 'category_count': len(article_categories)
             })
-
-        # Store new categorizations
-        for uri, cats in new_categorizations:
-            store_article_categories(conn, uri, cats, topic)
-        if new_categorizations:
-            conn.commit()
 
         # Sort
         if sort_by == "category_count":
@@ -1413,16 +1401,16 @@ async def get_tracker_config(session=Depends(verify_session)):
 
 # Map CSV column names to our policy category names
 CSV_TO_CATEGORY_MAP = {
-    "Violating Democratic Norms, Undermining Rule of Law": ["Democratic Norms", "Rule of Law"],
+    "Violating Democratic Norms, Undermining Rule of Law": ["Undermining Democracy"],
     "Hollowing State / Weakening Federal Institutions": ["Hollowing State"],
     "Suppressing Dissent / Weaponising State Against 'Enemies'": ["Suppressing Dissent"],
     "Controlling Information Including Spreading Misinformation and Propaganda": ["Controlling Information"],
-    "Control of Science & Health to Align with State Ideology": ["Science & Health Control"],
+    "Control of Science & Health to Align with State Ideology": ["Attacking Science"],
     "Attacking Universities, Schools, Museums, Culture": ["Attacking Education"],
     "Weakening Civil Rights": ["Weakening Civil Rights"],
-    "Corruption & Enrichment": ["Corruption & Enrichment"],
-    "Aggressive Foreign Policy & Global Destabilisation": ["Foreign Policy / Nationalism"],
-    "Anti-immigrant or Militarised Nationalism": ["Foreign Policy / Nationalism"],
+    "Corruption & Enrichment": ["Corruption"],
+    "Aggressive Foreign Policy & Global Destabilisation": ["Foreign Policy"],
+    "Nationalism & Immigration": ["Nationalism & Immigration"],
 }
 
 
@@ -2286,12 +2274,13 @@ async def get_daily_intensity(
         start_date, end_date = get_date_range_filter(days_back)
 
         result = conn.execute(text("""
-            SELECT DATE(publication_date) as pub_date, COUNT(*) as count
-            FROM articles
-            WHERE topic = :topic
-            AND publication_date >= :start_date
-            AND publication_date <= :end_date
-            GROUP BY DATE(publication_date)
+            SELECT DATE(a.publication_date) as pub_date, COUNT(DISTINCT a.uri) as count
+            FROM articles a
+            INNER JOIN policy_article_categories pac ON a.uri = pac.article_uri
+            WHERE a.topic = :topic
+            AND a.publication_date >= :start_date
+            AND a.publication_date <= :end_date
+            GROUP BY DATE(a.publication_date)
             ORDER BY pub_date ASC
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
 
