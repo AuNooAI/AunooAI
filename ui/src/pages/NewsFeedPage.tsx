@@ -214,13 +214,13 @@ export function NewsFeedPage() {
   // Map of saved incidents by name for quick lookup (includes analyst_notes)
   const [savedIncidentsMap, setSavedIncidentsMap] = useState<Map<string, typeof incidents[0]>>(new Map());
 
-  // Load saved incident names and promoted incidents when topic changes or refresh is triggered
+  // Load saved incident names and promoted incidents when refresh is triggered
   useEffect(() => {
-    // Fetch saved incidents - use topic filter if available, otherwise fetch all
-    const topicFilter = config.topic || narrativeConfig.selectedTopics?.[0] || undefined;
-    console.log('[NewsFeedPage] Fetching saved incidents for topic:', topicFilter, 'refresh:', savedIncidentsRefresh);
+    // Fetch ALL saved incidents (no topic filter) so promoted incidents appear regardless of current topic
+    // Topic filtering happens in the display layer via filteredIncidents = applyFilters(allIncidents, filters)
+    console.log('[NewsFeedPage] Fetching all saved incidents, refresh:', savedIncidentsRefresh);
 
-    getSavedIncidents(topicFilter)
+    getSavedIncidents(undefined)
       .then(savedIncidents => {
         console.log('[NewsFeedPage] Got saved incidents:', savedIncidents.length, savedIncidents.map(i => i.name));
 

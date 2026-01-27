@@ -100,6 +100,7 @@ export function NewsFeedHeader({
   const selectAllTopics = () => {
     const allTopicNames = topics.map((t) => t.name);
     onNarrativeConfigChange({ selectedTopics: allTopicNames });
+    onConfigChange({ topic: undefined }); // Clear single-topic filter when multiple selected
   };
 
   // Clear all topics
