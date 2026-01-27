@@ -279,7 +279,7 @@ class GeopoliticalService:
 
         try:
             where_clauses = ["1=1"]
-            params = [days_back, days_back]  # For date filter
+            params = []  # Build params in order they appear in SQL
 
             if topic:
                 where_clauses.append("h.topic = ?")
@@ -296,6 +296,9 @@ class GeopoliticalService:
                 params.extend(risk_levels)
 
             where_sql = " AND ".join(where_clauses)
+
+            # Add days_back params at end (they appear last in the SQL query)
+            params.extend([days_back, days_back])
 
             # Date filter for articles (publication_date is TEXT, needs casting)
             date_filter = """
