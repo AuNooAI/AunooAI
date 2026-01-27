@@ -83,15 +83,23 @@ POLICY_CATEGORIES = {
         "corruption", "corrupt", "bribery", "grift", "pardon", "pardons", "ethics violation",
         "profiteering", "enrichment", "kickback"
     ],
+    "Immigration Enforcement": [
+        "immigration", "immigrant", "immigrants", "border", "border patrol",
+        "deportation", "deportations", "deport", "deported", "ICE", "migrant", "migrants",
+        "asylum", "detention", "detention center", "detention centers", "wall", "border wall",
+        "illegal alien", "illegal aliens", "undocumented", "CBP", "customs and border",
+        "immigration enforcement", "mass deportation", "immigration raid", "immigration raids",
+        "sanctuary city", "sanctuary cities", "visa", "visas", "green card", "citizenship",
+        "naturalization", "USCIS", "immigration court", "removal", "removals"
+    ],
     "Foreign Policy / Nationalism": [
         "NATO", "sanctions", "sanction", "foreign policy", "ally", "allies", "alliance",
         "alliances", "treaty", "treaties", "withdraw", "withdrawal", "isolationist",
         "tariff", "tariffs", "trade war", "Greenland", "Panama", "annexation", "annex",
-        "military intervention", "immigration", "immigrant", "immigrants", "border",
-        "deportation", "deportations", "deport", "deported", "ICE", "migrant", "migrants",
-        "asylum", "detention", "wall", "nationalist", "nationalism", "military", "troops",
-        "National Guard", "invasion", "illegal alien", "illegal aliens", "Honduras",
-        "Mexico", "Latin America", "Central America"
+        "military intervention", "nationalist", "nationalism", "military", "troops",
+        "National Guard", "invasion", "Honduras", "Mexico", "Latin America", "Central America",
+        "China", "Russia", "Ukraine", "Gaza", "Israel", "Middle East", "diplomat", "diplomacy",
+        "embassy", "ambassador", "United Nations", "UN", "G7", "G20", "summit", "bilateral"
     ]
 }
 
@@ -136,7 +144,7 @@ INTERNATIONAL_LOCATIONS = ["Greenland", "Venezuela", "Russia", "China", "Gaza", 
 CATEGORY_DEFINITIONS = """
 ## Policy Category Definitions (from Trump Action Tracker - trumpactiontracker.info)
 
-These are the 10 categories used to classify government actions. Use the EXACT short names shown:
+These are the 11 categories used to classify government actions. Use the EXACT short names shown:
 
 1. **Democratic Norms** - Actions undermining democratic institutions, electoral integrity, constitutional processes.
 
@@ -156,7 +164,9 @@ These are the 10 categories used to classify government actions. Use the EXACT s
 
 9. **Corruption & Enrichment** - Self-dealing, conflicts of interest, nepotism, questionable pardons, using office for personal gain.
 
-10. **Foreign Policy / Nationalism** - Aggressive foreign policy, destabilizing alliances, trade wars, annexation threats, immigration crackdowns, mass deportations, border militarization.
+10. **Immigration Enforcement** - ICE raids, mass deportations, detention centers, border wall, asylum restrictions, sanctuary city crackdowns, immigration courts, visa policies, citizenship/naturalization changes.
+
+11. **Foreign Policy / Nationalism** - Aggressive foreign policy, destabilizing NATO/alliances, trade wars, tariffs, annexation threats (Greenland, Panama), relations with China/Russia/Ukraine, diplomatic actions, international summits.
 """
 
 SEMANTIC_CATEGORIZATION_PROMPT = """You are a policy analyst classifying news articles about Trump administration actions using the Trump Action Tracker methodology.
@@ -3954,78 +3964,80 @@ async def import_from_feed(
         articles = result.fetchall()
         logger.info(f"Processing {len(articles)} uncategorized articles for topic '{group_topic}' (LLM: {request.run_llm_classification})")
 
+        if not articles:
+            # No articles to process
+            conn.execute(text("""
+                UPDATE policy_tracker_imports
+                SET status = 'completed', completed_at = CURRENT_TIMESTAMP,
+                    articles_created = 0, articles_updated = 0, errors = 0
+                WHERE id = :import_id
+            """), {"import_id": import_id})
+            conn.commit()
+            conn.close()
+            return ImportFromFeedResponse(
+                import_id=import_id,
+                status="completed",
+                message="No uncategorized articles found",
+                articles_imported=0,
+                articles_skipped=0
+            )
+
+        if request.run_llm_classification:
+            # Use LLM-based classification in background (accurate but slow)
+            # Return immediately and process in background
+            conn.close()  # Close this connection, background task will open its own
+
+            background_tasks.add_task(
+                _run_import_from_feed_task,
+                import_id,
+                group_topic,
+                articles,
+                request.regenerate_narrative
+            )
+
+            return ImportFromFeedResponse(
+                import_id=import_id,
+                status="processing",
+                message=f"Started LLM classification for {len(articles)} articles in background. Check import status for progress.",
+                articles_imported=0,
+                articles_skipped=0
+            )
+
+        # Use keyword-based categorization (fast, runs synchronously)
         articles_categorized = 0
         articles_no_match = 0
         articles_error = 0
 
-        if request.run_llm_classification:
-            # Use LLM-based classification (more accurate but slower)
-            import asyncio
+        for uri, title, summary in articles:
+            if not title:
+                articles_no_match += 1
+                continue
 
-            for uri, title, summary in articles:
-                if not title:
+            try:
+                categories = categorize_article(title or '', summary or '')
+                if categories:
+                    for category in categories:
+                        conn.execute(text("""
+                            INSERT INTO policy_article_categories
+                            (article_uri, category, topic, classification_method)
+                            VALUES (:uri, :category, :topic, 'keyword')
+                            ON CONFLICT (article_uri, category) DO NOTHING
+                        """), {
+                            "uri": uri,
+                            "category": category,
+                            "topic": group_topic
+                        })
+                    articles_categorized += 1
+                    logger.debug(f"Keyword categorized '{title[:50]}' into {categories}")
+                else:
                     articles_no_match += 1
-                    continue
-
-                try:
-                    # Add small delay to avoid rate limiting
-                    await asyncio.sleep(0.3)
-
-                    result = await llm_categorize_article(title or "", summary or "", "gpt-4o-mini")
-
-                    if result["categories"]:
-                        for category in result["categories"]:
-                            conn.execute(text("""
-                                INSERT INTO policy_article_categories
-                                (article_uri, category, topic, classification_method, confidence)
-                                VALUES (:uri, :category, :topic, 'llm_semantic', :confidence)
-                                ON CONFLICT (article_uri, category)
-                                DO UPDATE SET classification_method = 'llm_semantic', confidence = :confidence
-                            """), {
-                                "uri": uri,
-                                "category": category,
-                                "topic": group_topic,
-                                "confidence": result["confidence"]
-                            })
-                        articles_categorized += 1
-                        logger.info(f"LLM categorized '{title[:50]}' into {result['categories']}")
-                    else:
-                        articles_no_match += 1
-                except Exception as e:
-                    logger.warning(f"Failed to LLM categorize article {uri}: {e}")
-                    articles_error += 1
-        else:
-            # Use keyword-based categorization (fast but less accurate)
-            for uri, title, summary in articles:
-                if not title:
-                    articles_no_match += 1
-                    continue
-
-                try:
-                    categories = categorize_article(title or '', summary or '')
-                    if categories:
-                        for category in categories:
-                            conn.execute(text("""
-                                INSERT INTO policy_article_categories
-                                (article_uri, category, topic, classification_method)
-                                VALUES (:uri, :category, :topic, 'keyword')
-                                ON CONFLICT (article_uri, category) DO NOTHING
-                            """), {
-                                "uri": uri,
-                                "category": category,
-                                "topic": group_topic
-                            })
-                        articles_categorized += 1
-                        logger.debug(f"Keyword categorized '{title[:50]}' into {categories}")
-                    else:
-                        articles_no_match += 1
-                except Exception as e:
-                    logger.warning(f"Failed to categorize article {uri}: {e}")
-                    articles_error += 1
+            except Exception as e:
+                logger.warning(f"Failed to categorize article {uri}: {e}")
+                conn.rollback()  # Reset transaction state after error
+                articles_error += 1
 
         conn.commit()
-        method = "LLM" if request.run_llm_classification else "keyword"
-        logger.info(f"{method} categorization complete: {articles_categorized} categorized, {articles_no_match} no match, {articles_error} errors")
+        logger.info(f"Keyword categorization complete: {articles_categorized} categorized, {articles_no_match} no match, {articles_error} errors")
 
         # Update import record
         conn.execute(text("""
@@ -4072,6 +4084,11 @@ async def import_from_feed(
         raise
     except Exception as e:
         logger.error(f"Error processing keyword group: {e}")
+        # Rollback any pending transaction before trying to update import record
+        try:
+            conn.rollback()
+        except:
+            pass
         # Try to update import record with error
         if import_id:
             try:
@@ -4084,6 +4101,103 @@ async def import_from_feed(
             except:
                 pass
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+async def _run_import_from_feed_task(import_id: int, group_topic: str, articles: list, regenerate_narrative: bool):
+    """Background task to run LLM classification for import-from-feed."""
+    import asyncio
+
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+
+    articles_categorized = 0
+    articles_no_match = 0
+    articles_error = 0
+
+    try:
+        for uri, title, summary in articles:
+            if not title:
+                articles_no_match += 1
+                continue
+
+            try:
+                # Add small delay to avoid rate limiting
+                await asyncio.sleep(0.3)
+
+                result = await llm_categorize_article(title or "", summary or "", "gpt-4o-mini")
+
+                if result["categories"]:
+                    for category in result["categories"]:
+                        conn.execute(text("""
+                            INSERT INTO policy_article_categories
+                            (article_uri, category, topic, classification_method, confidence)
+                            VALUES (:uri, :category, :topic, 'llm_semantic', :confidence)
+                            ON CONFLICT (article_uri, category)
+                            DO UPDATE SET classification_method = 'llm_semantic', confidence = :confidence
+                        """), {
+                            "uri": uri,
+                            "category": category,
+                            "topic": group_topic,
+                            "confidence": result["confidence"]
+                        })
+                    articles_categorized += 1
+                    logger.info(f"LLM categorized '{title[:50]}' into {result['categories']}")
+
+                    # Commit progress periodically to keep connection alive
+                    if articles_categorized % 10 == 0:
+                        conn.commit()
+                        logger.info(f"Progress: {articles_categorized}/{len(articles)} categorized so far...")
+                else:
+                    articles_no_match += 1
+            except Exception as e:
+                logger.warning(f"Failed to LLM categorize article {uri}: {e}")
+                try:
+                    conn.rollback()  # Reset transaction state after error
+                except:
+                    pass
+                articles_error += 1
+
+        conn.commit()
+        logger.info(f"LLM categorization complete: {articles_categorized} categorized, {articles_no_match} no match, {articles_error} errors")
+
+        # Update import record
+        conn.execute(text("""
+            UPDATE policy_tracker_imports
+            SET status = 'completed',
+                completed_at = CURRENT_TIMESTAMP,
+                articles_created = :categorized,
+                articles_updated = :no_match,
+                errors = :errors
+            WHERE id = :import_id
+        """), {
+            "import_id": import_id,
+            "categorized": articles_categorized,
+            "no_match": articles_no_match,
+            "errors": articles_error
+        })
+        conn.commit()
+
+        # Optionally trigger narrative generation
+        if regenerate_narrative and articles_categorized > 0:
+            await _run_narrative_generation_task(group_topic, 365)
+
+    except Exception as e:
+        logger.error(f"Error in background import task: {e}")
+        try:
+            conn.rollback()
+        except:
+            pass
+        try:
+            conn.execute(text("""
+                UPDATE policy_tracker_imports
+                SET status = 'failed', error_message = :error, completed_at = CURRENT_TIMESTAMP
+                WHERE id = :import_id
+            """), {"import_id": import_id, "error": str(e)})
+            conn.commit()
+        except:
+            pass
     finally:
         conn.close()
 
