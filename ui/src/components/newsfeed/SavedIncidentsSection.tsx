@@ -119,13 +119,9 @@ export function SavedIncidentsSection({
   // Fetch saved incidents from saved_incidents table
   useEffect(() => {
     console.log('[SavedIncidentsSection] Fetching incidents for topic:', topic, 'refreshTrigger:', refreshTrigger);
-    if (!topic) {
-      console.log('[SavedIncidentsSection] No topic provided, skipping fetch');
-      return;
-    }
-
+    // Fetch all incidents when no topic filter, or filter by topic when specified
     setLoading(true);
-    getSavedIncidents(topic)
+    getSavedIncidents(topic || undefined)
       .then(incidents => {
         console.log('[SavedIncidentsSection] Received incidents:', incidents);
         setSavedIncidents(incidents.map(savedToIncident));
