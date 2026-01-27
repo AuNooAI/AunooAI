@@ -136,7 +136,8 @@ class ResendProvider(EmailProvider):
             url = "https://api.resend.com/emails"
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "User-Agent": "AunooAI/1.0"
             }
 
             data = {
