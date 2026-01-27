@@ -400,15 +400,26 @@ def categorize_article(title: str, summary: str) -> List[str]:
     """
     Categorize an article based on keyword matching.
     Returns list of matching category names.
+    Uses word boundary matching for short keywords to avoid false positives.
     """
+    import re
     text_content = f"{title} {summary}".lower()
     matched_categories = []
 
     for category, keywords in POLICY_CATEGORIES.items():
         for keyword in keywords:
-            if keyword.lower() in text_content:
-                matched_categories.append(category)
-                break  # Only add category once
+            kw_lower = keyword.lower()
+            if len(kw_lower) <= 3:
+                # Short keywords (UN, FBI, ICE, etc.) need word boundaries
+                pattern = r'\b' + re.escape(kw_lower) + r'\b'
+                if re.search(pattern, text_content):
+                    matched_categories.append(category)
+                    break
+            else:
+                # Longer keywords/phrases can use substring matching
+                if kw_lower in text_content:
+                    matched_categories.append(category)
+                    break
 
     return matched_categories
 
