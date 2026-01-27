@@ -16,7 +16,7 @@ import { ThreatAnalysisTab } from './ThreatAnalysisTab';
 import { ThreatInsightsTab } from './ThreatInsightsTab';
 import { ThreatArticlesTab } from './ThreatArticlesTab';
 import { ThreatImportModal } from './ThreatImportModal';
-import type { ThreatMapData, ThreatCategory, SeverityLevel } from '../../services/threatIntelligenceApi';
+import type { ThreatMapData, ThreatCategory, SeverityLevel, ThreatActor } from '../../services/threatIntelligenceApi';
 
 interface ThreatIntelligenceTabProps {
   onArticleClick?: (article: { uri: string; title?: string }) => void;
@@ -56,24 +56,36 @@ export function ThreatIntelligenceTab({ onArticleClick, model = 'gpt-4o-mini' }:
   const [selectedThreat, setSelectedThreat] = useState<ThreatMapData | null>(null);
   const [articleThreatFilter, setArticleThreatFilter] = useState<ThreatMapData | null>(null);
   const [articleSeverityFilter, setArticleSeverityFilter] = useState<SeverityLevel | null>(null);
+  const [articleActorFilter, setArticleActorFilter] = useState<ThreatActor | null>(null);
 
   // Handle threat click from any tab - navigate to articles with filter
   const handleThreatClick = useCallback((threat: ThreatMapData) => {
     setSelectedThreat(threat);
     setArticleThreatFilter(threat);
+    setArticleActorFilter(null);
     setActiveTab('articles');
   }, []);
 
-  // Clear the threat filter on articles tab
+  // Handle actor articles click - navigate to articles filtered by actor
+  const handleActorArticlesClick = useCallback((actor: ThreatActor) => {
+    setArticleActorFilter(actor);
+    setArticleThreatFilter(null);
+    setArticleSeverityFilter(null);
+    setActiveTab('articles');
+  }, []);
+
+  // Clear the filters on articles tab
   const handleThreatFilterClear = useCallback(() => {
     setArticleThreatFilter(null);
     setArticleSeverityFilter(null);
+    setArticleActorFilter(null);
   }, []);
 
   // Handle severity level filter from overview tab
   const handleOverviewSeverityFilter = useCallback((level: SeverityLevel) => {
     setArticleSeverityFilter(level);
     setArticleThreatFilter(null);
+    setArticleActorFilter(null);
     setActiveTab('articles');
   }, []);
 
@@ -235,6 +247,7 @@ export function ThreatIntelligenceTab({ onArticleClick, model = 'gpt-4o-mini' }:
       {activeTab === 'actors' && (
         <ThreatActorsTab
           onThreatClick={handleThreatClick}
+          onActorArticlesClick={handleActorArticlesClick}
         />
       )}
 
@@ -273,7 +286,16 @@ export function ThreatIntelligenceTab({ onArticleClick, model = 'gpt-4o-mini' }:
           onArticleClick={(article) => {
             console.log('Article clicked:', article);
           }}
-          initialThreat={articleThreatFilter}
+          onThreatClick={(threatId, threatName) => {
+            // Find the threat from mapThreats and filter articles by it
+            const threat = mapThreats.find((t) => t.id === threatId);
+            if (threat) {
+              setArticleThreatFilter(threat);
+              setArticleActorFilter(null);
+            }
+          }}
+          initialThreat={articleThreatFilter ? { id: articleThreatFilter.id, threat_name: articleThreatFilter.threat_name } : null}
+          initialActor={articleActorFilter ? { id: articleActorFilter.id, name: articleActorFilter.name } : null}
           onThreatFilterClear={handleThreatFilterClear}
           initialSeverityLevel={articleSeverityFilter}
         />

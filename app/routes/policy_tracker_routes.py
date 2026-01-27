@@ -83,15 +83,23 @@ POLICY_CATEGORIES = {
         "corruption", "corrupt", "bribery", "grift", "pardon", "pardons", "ethics violation",
         "profiteering", "enrichment", "kickback"
     ],
+    "Immigration Enforcement": [
+        "immigration", "immigrant", "immigrants", "border", "border patrol",
+        "deportation", "deportations", "deport", "deported", "ICE", "migrant", "migrants",
+        "asylum", "detention", "detention center", "detention centers", "wall", "border wall",
+        "illegal alien", "illegal aliens", "undocumented", "CBP", "customs and border",
+        "immigration enforcement", "mass deportation", "immigration raid", "immigration raids",
+        "sanctuary city", "sanctuary cities", "visa", "visas", "green card", "citizenship",
+        "naturalization", "USCIS", "immigration court", "removal", "removals"
+    ],
     "Foreign Policy / Nationalism": [
         "NATO", "sanctions", "sanction", "foreign policy", "ally", "allies", "alliance",
         "alliances", "treaty", "treaties", "withdraw", "withdrawal", "isolationist",
         "tariff", "tariffs", "trade war", "Greenland", "Panama", "annexation", "annex",
-        "military intervention", "immigration", "immigrant", "immigrants", "border",
-        "deportation", "deportations", "deport", "deported", "ICE", "migrant", "migrants",
-        "asylum", "detention", "wall", "nationalist", "nationalism", "military", "troops",
-        "National Guard", "invasion", "illegal alien", "illegal aliens", "Honduras",
-        "Mexico", "Latin America", "Central America"
+        "military intervention", "nationalist", "nationalism", "military", "troops",
+        "National Guard", "invasion", "Honduras", "Mexico", "Latin America", "Central America",
+        "China", "Russia", "Ukraine", "Gaza", "Israel", "Middle East", "diplomat", "diplomacy",
+        "embassy", "ambassador", "United Nations", "UN", "G7", "G20", "summit", "bilateral"
     ]
 }
 
@@ -136,7 +144,7 @@ INTERNATIONAL_LOCATIONS = ["Greenland", "Venezuela", "Russia", "China", "Gaza", 
 CATEGORY_DEFINITIONS = """
 ## Policy Category Definitions (from Trump Action Tracker - trumpactiontracker.info)
 
-These are the 10 categories used to classify government actions. Use the EXACT short names shown:
+These are the 11 categories used to classify government actions. Use the EXACT short names shown:
 
 1. **Democratic Norms** - Actions undermining democratic institutions, electoral integrity, constitutional processes.
 
@@ -156,7 +164,9 @@ These are the 10 categories used to classify government actions. Use the EXACT s
 
 9. **Corruption & Enrichment** - Self-dealing, conflicts of interest, nepotism, questionable pardons, using office for personal gain.
 
-10. **Foreign Policy / Nationalism** - Aggressive foreign policy, destabilizing alliances, trade wars, annexation threats, immigration crackdowns, mass deportations, border militarization.
+10. **Immigration Enforcement** - ICE raids, mass deportations, detention centers, border wall, asylum restrictions, sanctuary city crackdowns, immigration courts, visa policies, citizenship/naturalization changes.
+
+11. **Foreign Policy / Nationalism** - Aggressive foreign policy, destabilizing NATO/alliances, trade wars, tariffs, annexation threats (Greenland, Panama), relations with China/Russia/Ukraine, diplomatic actions, international summits.
 """
 
 SEMANTIC_CATEGORIZATION_PROMPT = """You are a policy analyst classifying news articles about Trump administration actions using the Trump Action Tracker methodology.

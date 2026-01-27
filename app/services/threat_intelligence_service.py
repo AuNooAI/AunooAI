@@ -11,7 +11,247 @@ from typing import Optional, List, Dict, Any, Tuple
 from sqlalchemy import text
 from app.database import get_database_instance
 
+# IOC extraction
+try:
+    import iocextract
+    HAS_IOCEXTRACT = True
+except ImportError:
+    HAS_IOCEXTRACT = False
+    iocextract = None
+
 logger = logging.getLogger(__name__)
+
+
+# Blocklists for filtering placeholder/example IOCs
+PLACEHOLDER_DOMAINS = {
+    # RFC 2606 reserved domains
+    'example.com', 'example.org', 'example.net', 'example.edu',
+    'www.example.com', 'mail.example.com', 'ftp.example.com',
+    'test.com', 'test.org', 'test.net',
+    'localhost', 'localhost.localdomain',
+    # Common placeholder domains
+    'domain.com', 'yourdomain.com', 'mydomain.com',
+    'sample.com', 'demo.com', 'placeholder.com',
+    'foo.com', 'bar.com', 'baz.com',
+    'acme.com', 'company.com', 'corp.com',
+    # Microsoft documentation examples
+    'contoso.com', 'fabrikam.com', 'adventure-works.com',
+    'northwindtraders.com', 'wingtiptoys.com', 'tailspintoys.com',
+    # Generic examples
+    'your-domain.com', 'my-domain.com', 'some-domain.com',
+    'abc.com', 'xyz.com', '123.com',
+    'email.com', 'mail.com', 'website.com',
+    'testsite.com', 'samplesite.com',
+    # Invalid/generic TLDs
+    'invalid', 'test', 'local', 'internal',
+}
+
+PLACEHOLDER_IPS = {
+    # Localhost and special addresses
+    '127.0.0.1', '0.0.0.0', '255.255.255.255',
+    '::1',  # IPv6 localhost
+    # Private network ranges (common examples)
+    '192.168.0.1', '192.168.1.1', '192.168.1.254',
+    '10.0.0.1', '10.0.0.2', '10.1.1.1',
+    '172.16.0.1', '172.16.1.1',
+    # Common documentation examples
+    '1.2.3.4', '11.22.33.44', '12.34.56.78',
+    # Google DNS (often used as examples)
+    '8.8.8.8', '8.8.4.4',
+    # Cloudflare DNS
+    '1.1.1.1', '1.0.0.1',
+    # Generic patterns
+    '0.0.0.0', '1.1.1.1', '2.2.2.2', '3.3.3.3',
+    '123.123.123.123', '111.111.111.111',
+}
+
+# RFC 5737 documentation address blocks
+RFC5737_PREFIXES = ('192.0.2.', '198.51.100.', '203.0.113.')
+
+
+def is_placeholder_domain(domain: str) -> bool:
+    """Check if a domain is a known placeholder/example domain."""
+    domain_lower = domain.lower().strip()
+
+    # Direct match
+    if domain_lower in PLACEHOLDER_DOMAINS:
+        return True
+
+    # Check for subdomain of placeholder
+    for placeholder in PLACEHOLDER_DOMAINS:
+        if domain_lower.endswith('.' + placeholder):
+            return True
+
+    # Check for example TLD patterns
+    if domain_lower.endswith('.example') or domain_lower.endswith('.test'):
+        return True
+    if domain_lower.endswith('.invalid') or domain_lower.endswith('.local'):
+        return True
+
+    return False
+
+
+def is_placeholder_ip(ip: str) -> bool:
+    """Check if an IP is a placeholder or documentation address."""
+    ip_clean = ip.strip()
+
+    # Direct match
+    if ip_clean in PLACEHOLDER_IPS:
+        return True
+
+    # Check RFC 5737 documentation blocks
+    for prefix in RFC5737_PREFIXES:
+        if ip_clean.startswith(prefix):
+            return True
+
+    # Check for private network ranges (common placeholders)
+    if ip_clean.startswith('192.168.') or ip_clean.startswith('10.'):
+        return True
+    if ip_clean.startswith('172.16.') or ip_clean.startswith('172.17.'):
+        return True
+
+    return False
+
+
+def is_placeholder_cve(cve: str) -> bool:
+    """Check if a CVE ID is a placeholder/example."""
+    cve_upper = cve.upper().strip()
+
+    # Check for obvious placeholder patterns
+    placeholder_patterns = [
+        'CVE-XXXX',      # Generic placeholder
+        'CVE-YYYY',      # Year placeholder
+        'CVE-NNNN',      # Number placeholder
+        'X-XXXXX',       # Placeholder suffix
+        'X-NNNNN',       # Placeholder suffix
+        '-XXXXX',        # Just X's in ID
+        '-NNNNN',        # Just N's in ID
+        '-00000',        # All zeros
+        '-99999',        # All nines
+        '-12345',        # Sequential
+    ]
+
+    for pattern in placeholder_patterns:
+        if pattern in cve_upper:
+            return True
+
+    # Check for template patterns like CVE-2024-XXXX
+    import re
+    if re.match(r'CVE-\d{4}-[XN]+$', cve_upper, re.IGNORECASE):
+        return True
+
+    return False
+
+
+def filter_placeholder_cves(cve_ids: List[str]) -> List[str]:
+    """Filter out placeholder CVE IDs from a list."""
+    if not cve_ids:
+        return []
+    return [cve for cve in cve_ids if cve and not is_placeholder_cve(cve)]
+
+
+def extract_iocs_from_text(text: str) -> List[Dict[str, str]]:
+    """
+    Extract IOCs from text using iocextract library.
+    Returns list of dicts with 'type' and 'value' keys.
+    Handles defanged IOCs (e.g., hxxp://, example[.]com).
+    """
+    if not HAS_IOCEXTRACT or not text:
+        return []
+
+    iocs = []
+    seen = set()  # Dedupe
+
+    try:
+        # Extract IPv4 addresses (refanged)
+        for ip in iocextract.extract_ipv4s(text, refang=True):
+            if is_placeholder_ip(ip):
+                continue
+            key = ('ip', ip)
+            if key not in seen:
+                seen.add(key)
+                iocs.append({'type': 'ip', 'value': ip})
+
+        # Extract IPv6 addresses
+        for ip in iocextract.extract_ipv6s(text):
+            key = ('ipv6', ip)
+            if key not in seen:
+                seen.add(key)
+                iocs.append({'type': 'ipv6', 'value': ip})
+
+        # Extract URLs (refanged)
+        for url in iocextract.extract_urls(text, refang=True):
+            # Skip common non-IOC URLs
+            if any(skip in url.lower() for skip in ['github.com', 'twitter.com', 'linkedin.com', 'facebook.com']):
+                continue
+            # Extract domain from URL and check if placeholder
+            try:
+                from urllib.parse import urlparse
+                parsed = urlparse(url)
+                if parsed.netloc and is_placeholder_domain(parsed.netloc):
+                    continue
+            except:
+                pass
+            key = ('url', url)
+            if key not in seen:
+                seen.add(key)
+                iocs.append({'type': 'url', 'value': url})
+
+        # Extract domains (excluding URLs)
+        for domain in iocextract.extract_iocs(text, refang=True):
+            # iocextract.extract_iocs returns all IOCs, filter for domains
+            if '.' in domain and not domain.startswith('http') and '@' not in domain:
+                # Basic domain validation
+                if len(domain) < 256 and not domain.endswith('.'):
+                    domain_lower = domain.lower()
+                    # Skip placeholder domains
+                    if is_placeholder_domain(domain_lower):
+                        continue
+                    key = ('domain', domain_lower)
+                    if key not in seen:
+                        seen.add(key)
+                        iocs.append({'type': 'domain', 'value': domain_lower})
+
+        # Extract email addresses
+        for email in iocextract.extract_emails(text, refang=True):
+            email_lower = email.lower()
+            # Check if email domain is a placeholder
+            if '@' in email_lower:
+                email_domain = email_lower.split('@')[1]
+                if is_placeholder_domain(email_domain):
+                    continue
+            key = ('email', email_lower)
+            if key not in seen:
+                seen.add(key)
+                iocs.append({'type': 'email', 'value': email_lower})
+
+        # Extract MD5 hashes
+        for hash_val in iocextract.extract_md5_hashes(text):
+            key = ('hash_md5', hash_val.lower())
+            if key not in seen:
+                seen.add(key)
+                iocs.append({'type': 'hash_md5', 'value': hash_val.lower()})
+
+        # Extract SHA256 hashes
+        for hash_val in iocextract.extract_sha256_hashes(text):
+            key = ('hash_sha256', hash_val.lower())
+            if key not in seen:
+                seen.add(key)
+                iocs.append({'type': 'hash_sha256', 'value': hash_val.lower()})
+
+        # Extract SHA1 hashes
+        for hash_val in iocextract.extract_sha1_hashes(text):
+            key = ('hash_sha1', hash_val.lower())
+            if key not in seen:
+                seen.add(key)
+                iocs.append({'type': 'hash_sha1', 'value': hash_val.lower()})
+
+        logger.debug(f"Extracted {len(iocs)} IOCs from text")
+
+    except Exception as e:
+        logger.warning(f"Error extracting IOCs: {e}")
+
+    return iocs
 
 # Default topic for threat intelligence
 DEFAULT_THREAT_INTEL_TOPIC = "Threat Intelligence"
@@ -67,11 +307,12 @@ Extract threat intelligence data from this article. Focus on:
 1. The specific threat (malware, vulnerability, attack campaign, etc.)
 2. Attribution to any known threat actors or countries
 3. Target information (industries, countries, organizations)
-4. Technical indicators (CVEs, MITRE ATT&CK techniques, IOCs)
+4. Technical indicators (CVEs, IOCs)
+5. Campaign information if this is part of a coordinated attack
 
 Respond with JSON only:
 {{
-    "threat_name": "Name of the threat (e.g., 'LockBit 3.0', 'CVE-2024-XXXX', 'Volt Typhoon Campaign')",
+    "threat_name": "Name of the threat (e.g., 'LockBit 3.0', 'CVE-2024-3400', 'Volt Typhoon Campaign'). Use actual CVE IDs when the vulnerability is named, never use placeholder patterns like CVE-XXXX.",
     "threat_type": "malware|ransomware|apt|phishing|vulnerability|data_breach|botnet|ddos|supply_chain|credential_theft|cryptojacking|insider_threat|iot_ot|mobile",
     "threat_subtype": "More specific classification (optional)",
     "severity_level": "critical|high|medium|low|info",
@@ -87,13 +328,16 @@ Respond with JSON only:
     "target_latitude": latitude as float or null (primary target location),
     "target_longitude": longitude as float or null,
 
-    "cve_ids": ["CVE-XXXX-XXXXX format"],
-    "mitre_techniques": ["TXXXX format MITRE ATT&CK technique IDs"],
+    "cve_ids": ["Real CVE IDs only, e.g., CVE-2023-44487, CVE-2024-3400"],
     "malware_families": ["Names of malware families"],
 
     "iocs": [
         {{"type": "ip|domain|hash_md5|hash_sha256|url|email", "value": "indicator value"}}
     ],
+
+    "campaign_name": "Named campaign if mentioned (e.g., 'Operation Aurora', 'SolarWinds Attack', 'Volt Typhoon Campaign') or null",
+    "campaign_description": "Brief description of the campaign objectives and scope, or null",
+    "is_coordinated_attack": true if article describes coordinated/multi-target campaign, false otherwise,
 
     "tags": ["relevant tags"]
 }}
@@ -230,12 +474,20 @@ class ThreatIntelligenceService:
             cursor.execute("SELECT COUNT(*) FROM threat_intel_actors")
             actor_count = cursor.fetchone()[0]
 
-            # Get new threats in last 7 days
+            # Get new threats in last 7 days (threats first seen in last 7 days that have articles in the date range)
+            new_threats_params = [days_back, days_back] + topic_params
             cursor.execute(f"""
-                SELECT COUNT(*) FROM threat_intel_threats t
-                WHERE t.created_at >= CURRENT_DATE - 7 * INTERVAL '1 day'
+                SELECT COUNT(DISTINCT t.id)
+                FROM threat_intel_threats t
+                JOIN threat_articles ta ON t.id = ta.threat_id
+                JOIN articles a ON ta.article_uri = a.uri
+                WHERE t.first_seen_date >= CURRENT_DATE - 7 * INTERVAL '1 day'
+                AND (
+                    a.publication_date::timestamp >= CURRENT_DATE - ? * INTERVAL '1 day'
+                    OR a.publication_date::date >= CURRENT_DATE - ? * INTERVAL '1 day'
+                )
                 {topic_filter}
-            """, topic_params if topic_params else None)
+            """, new_threats_params)
             new_threats = cursor.fetchone()[0]
 
             stats = {
@@ -321,7 +573,7 @@ class ThreatIntelligenceService:
 
         try:
             where_clauses = ["t.target_latitude IS NOT NULL AND t.target_longitude IS NOT NULL"]
-            params = [days_back, days_back]
+            params = []
 
             if topic:
                 where_clauses.append("t.topic = ?")
@@ -338,6 +590,9 @@ class ThreatIntelligenceService:
                 params.extend(severity_levels)
 
             where_sql = " AND ".join(where_clauses)
+
+            # Add days_back params at the end for the date filter
+            params.extend([days_back, days_back])
 
             cursor.execute(f"""
                 WITH filtered_threats AS (
@@ -362,7 +617,7 @@ class ThreatIntelligenceService:
                 FROM threat_intel_threats t
                 JOIN filtered_threats ft ON t.id = ft.id
                 ORDER BY t.severity_score DESC
-            """, params + [days_back, days_back])
+            """, params)
 
             return [
                 {
@@ -634,7 +889,7 @@ class ThreatIntelligenceService:
                    page: int = 1, page_size: int = 20,
                    sort_by: str = 'threat_count',
                    sort_order: str = 'desc') -> Tuple[List[Dict[str, Any]], int]:
-        """Get paginated list of threat actors."""
+        """Get paginated list of threat actors with dynamically calculated article counts."""
         conn = get_database_instance().get_connection()
         cursor = conn.cursor()
 
@@ -643,37 +898,50 @@ class ThreatIntelligenceService:
             params = []
 
             if actor_type:
-                where_clauses.append("actor_type = ?")
+                where_clauses.append("a.actor_type = ?")
                 params.append(actor_type)
 
             where_sql = "WHERE " + " AND ".join(where_clauses) if where_clauses else ""
 
             sort_columns = {
-                'threat_count': 'threat_count',
-                'article_count': 'article_count',
-                'name': 'name',
-                'sophistication': 'sophistication_level',
-                'last_active': 'last_active'
+                'threat_count': 'a.threat_count',
+                'article_count': 'calculated_article_count',
+                'name': 'a.name',
+                'sophistication': 'a.sophistication_level',
+                'last_active': 'a.last_active'
             }
-            sort_col = sort_columns.get(sort_by, 'threat_count')
+            sort_col = sort_columns.get(sort_by, 'a.threat_count')
             order = 'DESC' if sort_order.lower() == 'desc' else 'ASC'
 
             cursor.execute(f"""
-                SELECT COUNT(*) FROM threat_intel_actors {where_sql}
+                SELECT COUNT(*) FROM threat_intel_actors a {where_sql}
             """, params if params else None)
             total = cursor.fetchone()[0]
 
             offset = (page - 1) * page_size
+            # Calculate article_count dynamically by counting unique articles
+            # linked to threats associated with each actor
             cursor.execute(f"""
-                SELECT id, name, aliases, actor_type,
-                       attributed_country, attributed_country_name,
-                       description, motivation, sophistication_level,
-                       target_industries, target_regions,
-                       known_ttps, associated_malware,
-                       first_observed, last_active,
-                       threat_count, article_count,
-                       created_at, updated_at
-                FROM threat_intel_actors
+                WITH actor_article_counts AS (
+                    SELECT
+                        t.threat_actor_id,
+                        COUNT(DISTINCT ta.article_uri) as calculated_article_count
+                    FROM threat_intel_threats t
+                    JOIN threat_articles ta ON t.id = ta.threat_id
+                    WHERE t.threat_actor_id IS NOT NULL
+                    GROUP BY t.threat_actor_id
+                )
+                SELECT a.id, a.name, a.aliases, a.actor_type,
+                       a.attributed_country, a.attributed_country_name,
+                       a.description, a.motivation, a.sophistication_level,
+                       a.target_industries, a.target_regions,
+                       a.known_ttps, a.associated_malware,
+                       a.first_observed, a.last_active,
+                       a.threat_count,
+                       COALESCE(aac.calculated_article_count, 0) as article_count,
+                       a.created_at, a.updated_at
+                FROM threat_intel_actors a
+                LEFT JOIN actor_article_counts aac ON a.id = aac.threat_actor_id
                 {where_sql}
                 ORDER BY {sort_col} {order}
                 LIMIT ? OFFSET ?
@@ -711,23 +979,32 @@ class ThreatIntelligenceService:
             conn.close()
 
     def get_actor_by_id(self, actor_id: int) -> Optional[Dict[str, Any]]:
-        """Get single threat actor by ID with full details."""
+        """Get single threat actor by ID with full details and dynamically calculated article count."""
         conn = get_database_instance().get_connection()
         cursor = conn.cursor()
 
         try:
+            # Calculate article_count dynamically from linked threats
             cursor.execute("""
-                SELECT id, name, aliases, actor_type,
-                       attributed_country, attributed_country_name,
-                       description, motivation, sophistication_level,
-                       target_industries, target_regions,
-                       known_ttps, associated_malware,
-                       first_observed, last_active,
-                       threat_count, article_count, metadata,
-                       created_at, updated_at
-                FROM threat_intel_actors
-                WHERE id = ?
-            """, [actor_id])
+                WITH actor_article_count AS (
+                    SELECT COUNT(DISTINCT ta.article_uri) as calculated_article_count
+                    FROM threat_intel_threats t
+                    JOIN threat_articles ta ON t.id = ta.threat_id
+                    WHERE t.threat_actor_id = ?
+                )
+                SELECT a.id, a.name, a.aliases, a.actor_type,
+                       a.attributed_country, a.attributed_country_name,
+                       a.description, a.motivation, a.sophistication_level,
+                       a.target_industries, a.target_regions,
+                       a.known_ttps, a.associated_malware,
+                       a.first_observed, a.last_active,
+                       a.threat_count,
+                       COALESCE((SELECT calculated_article_count FROM actor_article_count), 0) as article_count,
+                       a.metadata,
+                       a.created_at, a.updated_at
+                FROM threat_intel_actors a
+                WHERE a.id = ?
+            """, [actor_id, actor_id])
 
             row = cursor.fetchone()
             if not row:
@@ -802,6 +1079,108 @@ class ThreatIntelligenceService:
         finally:
             cursor.close()
             conn.close()
+
+    def generate_actor_description(self, actor_id: int) -> Optional[str]:
+        """Generate actor description from linked article summaries.
+
+        Fetches article summaries linked to this actor's threats and uses
+        an LLM to generate a concise description of the actor's activities.
+
+        Args:
+            actor_id: The ID of the threat actor.
+
+        Returns:
+            The generated description, or None if no articles are linked.
+        """
+        conn = get_database_instance().get_connection()
+        cursor = conn.cursor()
+
+        try:
+            # Get all article summaries linked to this actor's threats
+            cursor.execute("""
+                SELECT DISTINCT a.summary, a.title
+                FROM threat_intel_threats t
+                JOIN threat_articles ta ON t.id = ta.threat_id
+                JOIN articles a ON ta.article_uri = a.uri
+                WHERE t.threat_actor_id = ?
+                AND a.summary IS NOT NULL
+                ORDER BY a.publication_date DESC
+                LIMIT 10
+            """, [actor_id])
+
+            articles = cursor.fetchall()
+            if not articles:
+                logger.info(f"No articles linked to actor {actor_id}")
+                return None
+
+            # Combine summaries for context
+            combined_text = "\n".join([
+                f"- {row[0]}" for row in articles if row[0]
+            ])
+
+            if not combined_text.strip():
+                return None
+
+            # Use LLM to generate concise description
+            description = self._generate_actor_summary(combined_text)
+
+            if description:
+                # Update actor record with generated description
+                cursor.execute("""
+                    UPDATE threat_intel_actors
+                    SET description = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                """, [description, actor_id])
+                conn.commit()
+                logger.info(f"Generated description for actor {actor_id}: {description[:50]}...")
+
+            return description
+
+        except Exception as e:
+            logger.error(f"Error generating actor description: {e}")
+            return None
+
+        finally:
+            cursor.close()
+            conn.close()
+
+    def _generate_actor_summary(self, article_summaries: str) -> Optional[str]:
+        """Use LLM to summarize actor activities from article text.
+
+        Args:
+            article_summaries: Combined text from article summaries.
+
+        Returns:
+            A 2-3 sentence description of the actor's activities.
+        """
+        from app.ai_models import LiteLLMModel
+
+        try:
+            prompt = f"""Based on these cybersecurity news summaries about a threat actor,
+write a 2-3 sentence description of the actor's known activities and targets.
+Only include information explicitly mentioned in the summaries.
+
+Article summaries:
+{article_summaries}
+
+Write a factual description (2-3 sentences):"""
+
+            model = LiteLLMModel.get_instance("gpt-4o-mini")
+            response = model.generate_response([
+                {"role": "user", "content": prompt}
+            ])
+
+            # Clean and truncate response
+            description = response.strip()
+            if len(description) > 500:
+                description = description[:497] + "..."
+
+            return description
+
+        except Exception as e:
+            logger.error(f"LLM actor summary generation failed: {e}")
+            return None
 
     # ============================================================================
     # Timeline & Analysis
@@ -1205,6 +1584,7 @@ class ThreatIntelligenceService:
                                 severity_level: Optional[str] = None,
                                 threat_type: Optional[str] = None,
                                 threat_id: Optional[int] = None,
+                                actor_id: Optional[int] = None,
                                 search: Optional[str] = None,
                                 sort_by: str = 'date',
                                 sort_order: str = 'desc') -> Tuple[List[Dict[str, Any]], int]:
@@ -1219,6 +1599,10 @@ class ThreatIntelligenceService:
             if threat_id:
                 where_clauses.append("t.id = ?")
                 params.append(threat_id)
+
+            if actor_id:
+                where_clauses.append("t.threat_actor_id = ?")
+                params.append(actor_id)
 
             if severity_level:
                 where_clauses.append("t.severity_level = ?")
@@ -1480,6 +1864,34 @@ class ThreatIntelligenceService:
                 if threat_data.get('threat_actor_name'):
                     actor_id = self._get_or_create_actor(cursor, threat_data)
 
+                # Build metadata with NER entities if available
+                metadata = {}
+                if threat_data.get('ner_organizations'):
+                    metadata['ner_organizations'] = threat_data['ner_organizations']
+                if threat_data.get('ner_locations'):
+                    metadata['ner_locations'] = threat_data['ner_locations']
+                if threat_data.get('ner_persons'):
+                    metadata['ner_persons'] = threat_data['ner_persons']
+                if threat_data.get('ner_products'):
+                    metadata['ner_products'] = threat_data['ner_products']
+
+                # Sanitize "null" strings from LLM responses
+                def sanitize_null(val):
+                    if val is None or (isinstance(val, str) and val.lower() in ('null', 'none', 'n/a', '')):
+                        return None
+                    return val
+
+                # Sanitize country code (must be max 2 chars)
+                country_code = sanitize_null(threat_data.get('attributed_country'))
+                if country_code and len(country_code) > 2:
+                    country_code = country_code[:2].upper()
+
+                # Sanitize actor name for threat record
+                actor_name = sanitize_null(threat_data.get('threat_actor_name'))
+                invalid_actor_names = {'unknown', 'unidentified', 'unnamed', 'n/a', 'na', 'none', 'null'}
+                if actor_name and actor_name.lower().strip() in invalid_actor_names:
+                    actor_name = None
+
                 cursor.execute("""
                     INSERT INTO threat_intel_threats
                     (threat_name, threat_type, threat_subtype, severity_level, severity_score, trend,
@@ -1487,30 +1899,31 @@ class ThreatIntelligenceService:
                      target_countries, target_latitude, target_longitude, target_industries,
                      cve_ids, mitre_techniques, malware_families,
                      first_seen_date, last_seen_date, article_count, recent_article_count,
-                     description, tags, topic, created_at, updated_at)
+                     description, tags, metadata, topic, created_at, updated_at)
                     VALUES (?, ?, ?, ?, ?, 'stable', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                            CURRENT_DATE, CURRENT_DATE, 1, 1, ?, ?, ?,
+                            CURRENT_DATE, CURRENT_DATE, 1, 1, ?, ?, ?, ?,
                             CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
                     RETURNING id
                 """, [
                     threat_data['threat_name'],
-                    threat_data.get('threat_type', 'unknown'),
-                    threat_data.get('threat_subtype'),
-                    threat_data.get('severity_level', 'medium'),
+                    sanitize_null(threat_data.get('threat_type')) or 'unknown',
+                    sanitize_null(threat_data.get('threat_subtype')),
+                    sanitize_null(threat_data.get('severity_level')) or 'medium',
                     severity_score,
                     actor_id,
-                    threat_data.get('threat_actor_name'),
-                    threat_data.get('attributed_country'),
-                    threat_data.get('attributed_country_name'),
+                    actor_name,
+                    country_code,
+                    sanitize_null(threat_data.get('attributed_country_name')),
                     threat_data.get('target_countries'),
                     threat_data.get('target_latitude'),
                     threat_data.get('target_longitude'),
                     threat_data.get('target_industries'),
-                    threat_data.get('cve_ids'),
+                    filter_placeholder_cves(threat_data.get('cve_ids') or []) or None,
                     threat_data.get('mitre_techniques'),
                     threat_data.get('malware_families'),
-                    threat_data.get('description'),
+                    sanitize_null(threat_data.get('description')),
                     threat_data.get('tags'),
+                    json.dumps(metadata) if metadata else None,
                     topic
                 ])
                 threat_id = cursor.fetchone()[0]
@@ -1529,6 +1942,28 @@ class ThreatIntelligenceService:
                     except Exception as e:
                         logger.warning(f"Failed to insert IOC: {e}")
 
+            # Link to campaign if provided
+            campaign_name = threat_data.get('campaign_name')
+            if campaign_name and campaign_name.lower() not in ('null', 'none', 'n/a', ''):
+                try:
+                    campaign_id = self._get_or_create_campaign(
+                        cursor,
+                        campaign_name,
+                        threat_data.get('campaign_description'),
+                        threat_data.get('threat_actor_name'),
+                        threat_data.get('target_countries'),
+                        threat_data.get('target_industries')
+                    )
+                    # Store campaign_id in threat metadata
+                    if campaign_id:
+                        cursor.execute("""
+                            UPDATE threat_intel_threats
+                            SET metadata = COALESCE(metadata, '{}'::jsonb) || ?::jsonb
+                            WHERE id = ?
+                        """, [json.dumps({'campaign_id': campaign_id}), threat_id])
+                except Exception as e:
+                    logger.warning(f"Failed to link campaign: {e}")
+
             conn.commit()
             return threat_id
 
@@ -1537,44 +1972,173 @@ class ThreatIntelligenceService:
             conn.close()
 
     def _get_or_create_actor(self, cursor, threat_data: Dict[str, Any]) -> int:
-        """Get or create a threat actor."""
+        """Get or create a threat actor with case-insensitive lookup."""
         actor_name = threat_data.get('threat_actor_name')
         if not actor_name:
             return None
 
+        # Filter out placeholder/invalid actor names
+        invalid_actor_names = {
+            'unknown', 'unidentified', 'unnamed', 'n/a', 'na', 'none', 'null',
+            'not specified', 'unattributed', 'anonymous', 'various',
+            'multiple actors', 'threat actor', 'attacker', 'attackers',
+            'hacker', 'hackers', 'cybercriminal', 'cybercriminals',
+        }
+        if actor_name.lower().strip() in invalid_actor_names:
+            logger.debug(f"Skipping invalid actor name: {actor_name}")
+            return None
+
+        # Case-insensitive lookup to prevent duplicates like "Unknown" vs "unknown"
         cursor.execute("""
-            SELECT id FROM threat_intel_actors WHERE name = ?
+            SELECT id, name FROM threat_intel_actors WHERE LOWER(name) = LOWER(?)
         """, [actor_name])
         existing = cursor.fetchone()
 
         if existing:
-            # Update counts
+            actor_id = existing[0]
+            # Update counts and merge any new data
             cursor.execute("""
                 UPDATE threat_intel_actors
                 SET threat_count = threat_count + 1,
                     last_active = CURRENT_DATE,
-                    updated_at = CURRENT_TIMESTAMP
+                    updated_at = CURRENT_TIMESTAMP,
+                    -- Fill in missing fields if we have new data
+                    description = COALESCE(description, ?),
+                    motivation = COALESCE(motivation, ?),
+                    sophistication_level = COALESCE(sophistication_level, ?)
                 WHERE id = ?
-            """, [existing[0]])
-            return existing[0]
+            """, [
+                threat_data.get('actor_description'),
+                threat_data.get('actor_motivation'),
+                threat_data.get('actor_sophistication'),
+                actor_id
+            ])
+            # Run aggregation to update TTPs, malware, industries from threats
+            self._update_actor_aggregations(cursor, actor_id)
+            return actor_id
 
-        # Create new actor
+        # Create new actor - sanitize "null" strings from LLM responses
+        def sanitize_null(val):
+            if val is None or (isinstance(val, str) and val.lower() in ('null', 'none', 'n/a', '')):
+                return None
+            return val
+
+        country_code = sanitize_null(threat_data.get('attributed_country'))
+        # Ensure country code is max 2 chars (ISO format)
+        if country_code and len(country_code) > 2:
+            country_code = country_code[:2].upper()
+
         cursor.execute("""
             INSERT INTO threat_intel_actors
             (name, actor_type, attributed_country, attributed_country_name,
+             description, motivation, sophistication_level,
              target_industries, threat_count, article_count,
              first_observed, last_active, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 1, 0, CURRENT_DATE, CURRENT_DATE,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, 0, CURRENT_DATE, CURRENT_DATE,
                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
             RETURNING id
         """, [
             actor_name,
-            threat_data.get('actor_type', 'unknown'),
-            threat_data.get('attributed_country'),
-            threat_data.get('attributed_country_name'),
+            sanitize_null(threat_data.get('actor_type')) or 'unknown',
+            country_code,
+            sanitize_null(threat_data.get('attributed_country_name')),
+            sanitize_null(threat_data.get('actor_description')),
+            sanitize_null(threat_data.get('actor_motivation')),
+            sanitize_null(threat_data.get('actor_sophistication')),
             threat_data.get('target_industries')
         ])
         return cursor.fetchone()[0]
+
+    def _update_actor_aggregations(self, cursor, actor_id: int):
+        """Aggregate TTPs, malware, and industries from all threats into actor record."""
+        try:
+            cursor.execute("""
+                UPDATE threat_intel_actors a
+                SET known_ttps = subq.ttps,
+                    associated_malware = subq.malware,
+                    target_industries = subq.industries,
+                    updated_at = CURRENT_TIMESTAMP
+                FROM (
+                    SELECT
+                        ? as actor_id,
+                        (SELECT array_agg(DISTINCT technique)
+                         FROM threat_intel_threats t, unnest(t.mitre_techniques) as technique
+                         WHERE t.threat_actor_id = ? AND t.mitre_techniques IS NOT NULL
+                        ) as ttps,
+                        (SELECT array_agg(DISTINCT malware)
+                         FROM threat_intel_threats t, unnest(t.malware_families) as malware
+                         WHERE t.threat_actor_id = ? AND t.malware_families IS NOT NULL
+                        ) as malware,
+                        (SELECT array_agg(DISTINCT industry)
+                         FROM threat_intel_threats t, unnest(t.target_industries) as industry
+                         WHERE t.threat_actor_id = ? AND t.target_industries IS NOT NULL
+                        ) as industries
+                ) subq
+                WHERE a.id = subq.actor_id
+            """, [actor_id, actor_id, actor_id, actor_id])
+        except Exception as e:
+            logger.warning(f"Failed to update actor aggregations for actor {actor_id}: {e}")
+
+    def _get_or_create_campaign(self, cursor, campaign_name: str,
+                                 description: str = None,
+                                 actor_name: str = None,
+                                 target_countries: List[str] = None,
+                                 target_industries: List[str] = None) -> Optional[int]:
+        """Get or create a campaign with case-insensitive lookup."""
+        if not campaign_name or campaign_name.lower() in ('null', 'none', 'n/a', ''):
+            return None
+
+        # Case-insensitive lookup
+        cursor.execute("""
+            SELECT id FROM threat_intel_campaigns WHERE LOWER(name) = LOWER(?)
+        """, [campaign_name])
+        existing = cursor.fetchone()
+
+        if existing:
+            campaign_id = existing[0]
+            # Update counts and merge data
+            cursor.execute("""
+                UPDATE threat_intel_campaigns
+                SET threat_count = threat_count + 1,
+                    is_active = true,
+                    updated_at = CURRENT_TIMESTAMP,
+                    description = COALESCE(description, ?),
+                    target_countries = COALESCE(target_countries, ?),
+                    target_industries = COALESCE(target_industries, ?)
+                WHERE id = ?
+            """, [description, target_countries, target_industries, campaign_id])
+            return campaign_id
+
+        # Find actor ID if actor name provided
+        actor_id = None
+        if actor_name and actor_name.lower() not in ('unknown', 'null', 'none'):
+            cursor.execute("""
+                SELECT id FROM threat_intel_actors WHERE LOWER(name) = LOWER(?)
+            """, [actor_name])
+            actor_row = cursor.fetchone()
+            if actor_row:
+                actor_id = actor_row[0]
+
+        # Create new campaign
+        cursor.execute("""
+            INSERT INTO threat_intel_campaigns
+            (name, description, threat_actor_id, threat_actor_name,
+             start_date, is_active, target_countries, target_industries,
+             threat_count, article_count, created_at, updated_at)
+            VALUES (?, ?, ?, ?, CURRENT_DATE, true, ?, ?, 1, 0,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            RETURNING id
+        """, [
+            campaign_name,
+            description,
+            actor_id,
+            actor_name if actor_name and actor_name.lower() not in ('unknown', 'null', 'none') else None,
+            target_countries,
+            target_industries
+        ])
+        campaign_id = cursor.fetchone()[0]
+        logger.info(f"Created new campaign: {campaign_name} (ID: {campaign_id})")
+        return campaign_id
 
     def link_article_to_threat(self, threat_id: int, article_uri: str,
                                 relevance_score: float = 1.0, mention_type: str = 'primary'):
@@ -1600,6 +2164,67 @@ class ThreatIntelligenceService:
     # ============================================================================
     # Narratives
     # ============================================================================
+
+    def get_narratives(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        topic: Optional[str] = None
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """Get paginated list of narratives."""
+        conn = get_database_instance().get_connection()
+        cursor = conn.cursor()
+
+        try:
+            where_clause = ""
+            params = []
+            if topic:
+                where_clause = "WHERE topic = ?"
+                params.append(topic)
+
+            # Get total count
+            cursor.execute(f"""
+                SELECT COUNT(*) FROM threat_intel_narratives {where_clause}
+            """, params if params else None)
+            total = cursor.fetchone()[0]
+
+            # Get paginated results
+            offset = (page - 1) * page_size
+            cursor.execute(f"""
+                SELECT id, narrative_text, executive_summary, threat_landscape,
+                       emerging_threats, recommendations, threat_count, article_count,
+                       top_threat_types, top_actors, severity_breakdown, model_used,
+                       topic, generated_at
+                FROM threat_intel_narratives
+                {where_clause}
+                ORDER BY generated_at DESC
+                LIMIT ? OFFSET ?
+            """, (*params, page_size, offset) if params else (page_size, offset))
+
+            narratives = []
+            for row in cursor.fetchall():
+                narratives.append({
+                    'id': row[0],
+                    'narrative_text': row[1],
+                    'executive_summary': row[2],
+                    'threat_landscape': row[3],
+                    'emerging_threats': row[4],
+                    'recommendations': row[5],
+                    'threat_count': row[6],
+                    'article_count': row[7],
+                    'top_threat_types': row[8],
+                    'top_actors': row[9],
+                    'severity_breakdown': row[10],
+                    'model_used': row[11],
+                    'topic': row[12],
+                    'generated_at': row[13].isoformat() if row[13] else None
+                })
+
+            return narratives, total
+
+        finally:
+            cursor.close()
+            conn.close()
 
     def get_latest_narrative(self, topic: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Get the most recent narrative."""

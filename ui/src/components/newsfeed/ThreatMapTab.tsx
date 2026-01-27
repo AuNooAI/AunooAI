@@ -4,7 +4,7 @@
  */
 
 import { useState } from 'react';
-import { Filter, X } from 'lucide-react';
+import { Filter, X, Tag } from 'lucide-react';
 import { ThreatMap } from './map/ThreatMap';
 import {
   type ThreatMapData,
@@ -37,6 +37,7 @@ export function ThreatMapTab({
   onThreatClick,
 }: ThreatMapTabProps) {
   const [showFilters, setShowFilters] = useState(false);
+  const [showLabels, setShowLabels] = useState(false);
 
   const toggleThreatType = (type: ThreatCategory) => {
     if (selectedThreatTypes.includes(type)) {
@@ -92,6 +93,19 @@ export function ThreatMapTab({
               Clear
             </button>
           )}
+
+          {/* Labels Toggle */}
+          <button
+            onClick={() => setShowLabels(!showLabels)}
+            className={`flex items-center gap-2 px-3 py-2 text-sm rounded-lg border transition-colors ${
+              showLabels
+                ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800 text-red-700 dark:text-red-300'
+                : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+            }`}
+          >
+            <Tag className="w-4 h-4" />
+            Labels
+          </button>
         </div>
 
         <div className="text-sm text-gray-500 dark:text-gray-400">
@@ -176,6 +190,7 @@ export function ThreatMapTab({
           onThreatClick={onThreatClick}
           fillContainer
           showLegend
+          showLabels={showLabels}
         />
       )}
     </div>
