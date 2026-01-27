@@ -9,7 +9,7 @@ import logging
 import os
 import urllib.parse
 
-from app.security.session import verify_session
+from app.security.session import verify_session_api
 from app.services.email_service import get_email_service, markdown_to_html
 
 logger = logging.getLogger(__name__)
@@ -273,7 +273,7 @@ class ShareResponse(BaseModel):
 
 
 @router.get("/email/status", response_model=EmailStatusResponse)
-async def get_email_status(session=Depends(verify_session)):
+async def get_email_status(session=Depends(verify_session_api)):
     """Check if email service is configured and available."""
     email_service = get_email_service()
     provider = os.getenv("EMAIL_PROVIDER", "resend")
@@ -287,7 +287,7 @@ async def get_email_status(session=Depends(verify_session)):
 @router.post("/share/incident", response_model=ShareResponse)
 async def share_incident(
     request: ShareIncidentRequest,
-    session=Depends(verify_session)
+    session=Depends(verify_session_api)
 ):
     """Share an incident via email."""
     logger.info(f"share_incident called with incident_name={request.incident_name}, to_email={request.to_email}")
@@ -539,7 +539,7 @@ Shared from AuNoo AI
 @router.post("/share/article", response_model=ShareResponse)
 async def share_article(
     request: ShareArticleRequest,
-    session=Depends(verify_session)
+    session=Depends(verify_session_api)
 ):
     """Share an article via email."""
     log_share_request("Article", {
@@ -638,7 +638,7 @@ Shared from AuNoo AI
 @router.post("/share/incidents", response_model=ShareResponse)
 async def share_incidents(
     request: ShareIncidentsRequest,
-    session=Depends(verify_session)
+    session=Depends(verify_session_api)
 ):
     """Share multiple incidents via email."""
     email_service = get_email_service()
@@ -776,7 +776,7 @@ async def share_incidents(
 @router.post("/share/narrative", response_model=ShareResponse)
 async def share_narrative(
     request: ShareNarrativeRequest,
-    session=Depends(verify_session)
+    session=Depends(verify_session_api)
 ):
     """Share a narrative via email."""
     email_service = get_email_service()
@@ -935,7 +935,7 @@ Shared from AuNoo AI
 @router.post("/share/briefing", response_model=ShareResponse)
 async def share_briefing(
     request: ShareBriefingRequest,
-    session=Depends(verify_session)
+    session=Depends(verify_session_api)
 ):
     """Share a briefing via email."""
     email_service = get_email_service()
@@ -1127,7 +1127,7 @@ Shared from AuNoo AI
 @router.post("/share/briefing-card", response_model=ShareResponse)
 async def share_briefing_card(
     request: ShareBriefingCardRequest,
-    session=Depends(verify_session)
+    session=Depends(verify_session_api)
 ):
     """Share a single briefing card via email with all rich data."""
     # Debug: log all fields for troubleshooting
@@ -1376,7 +1376,7 @@ async def share_briefing_card(
 @router.post("/share/emerging-topic", response_model=ShareResponse)
 async def share_emerging_topic(
     request: ShareEmergingTopicRequest,
-    session=Depends(verify_session)
+    session=Depends(verify_session_api)
 ):
     """Share an emerging topic via email."""
     email_service = get_email_service()
@@ -1681,7 +1681,7 @@ async def share_emerging_topic(
 @router.post("/share/executive-summary", response_model=ShareResponse)
 async def share_executive_summary(
     request: ShareExecutiveSummaryRequest,
-    session=Depends(verify_session)
+    session=Depends(verify_session_api)
 ):
     """Share an executive summary via email with all rich data."""
     logger.info(f"Executive summary share request received for topic: {request.topic_title}")
