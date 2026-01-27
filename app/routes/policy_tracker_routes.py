@@ -143,29 +143,27 @@ INTERNATIONAL_LOCATIONS = ["Greenland", "Venezuela", "Russia", "China", "Gaza", 
 CATEGORY_DEFINITIONS = """
 ## Policy Category Definitions (from Trump Action Tracker - trumpactiontracker.info)
 
-These are the 11 categories used to classify government actions. Use the EXACT short names shown:
+These are the 10 categories used to classify government actions. Use the EXACT category names shown:
 
-1. **Democratic Norms** - Actions undermining democratic institutions, electoral integrity, constitutional processes.
+1. **Undermining Democracy** - Actions undermining democratic institutions, electoral integrity, constitutional processes. Also includes: undermining judicial independence, defying court orders, politicizing DOJ/FBI, attacking judges, eroding rule of law and checks and balances.
 
-2. **Rule of Law** - Undermining judicial independence, defying court orders, politicizing DOJ/FBI, attacking judges, eroding checks and balances.
+2. **Hollowing State** - Systematic weakening of federal agencies. Mass firings, Schedule F, DOGE measures, eliminating agencies, dismantling expertise.
 
-3. **Hollowing State** - Systematic weakening of federal agencies. Mass firings, Schedule F, DOGE measures, eliminating agencies, dismantling expertise.
+3. **Suppressing Dissent** - Using state power to target opponents, protesters, activists, journalists. Surveillance, arrests, retaliation against whistleblowers.
 
-4. **Suppressing Dissent** - Using state power to target opponents, protesters, activists, journalists. Surveillance, arrests, retaliation against whistleblowers.
+4. **Controlling Information** - Government misinformation, propaganda, attacking media, censoring data, restricting press access.
 
-5. **Controlling Information** - Government misinformation, propaganda, attacking media, censoring data, restricting press access.
+5. **Attacking Science** - Politicizing CDC/FDA/NIH/EPA, suppressing climate science, vaccine misinformation, appointing ideologues (RFK Jr), attacking public health.
 
-6. **Science & Health Control** - Politicizing CDC/FDA/NIH/EPA, suppressing climate science, vaccine misinformation, appointing ideologues (RFK Jr).
+6. **Attacking Education** - Targeting universities, DEI programs, curriculum changes, threatening academic freedom, defunding schools, attacking museums and cultural institutions.
 
-7. **Attacking Education** - Targeting universities, DEI programs, curriculum changes, threatening academic freedom, defunding schools.
+7. **Weakening Civil Rights** - Rolling back LGBTQ+, reproductive, voting, racial equality protections. Discriminatory policies.
 
-8. **Weakening Civil Rights** - Rolling back LGBTQ+, reproductive, voting, racial equality protections. Discriminatory policies.
+8. **Corruption** - Self-dealing, conflicts of interest, nepotism, questionable pardons, using office for personal gain, enrichment.
 
-9. **Corruption & Enrichment** - Self-dealing, conflicts of interest, nepotism, questionable pardons, using office for personal gain.
+9. **Foreign Policy** - Aggressive foreign policy, destabilizing NATO/alliances, trade wars, tariffs, annexation threats (Greenland, Panama), relations with China/Russia/Ukraine, diplomatic actions, international summits.
 
-10. **Immigration Enforcement** - ICE raids, mass deportations, detention centers, border wall, asylum restrictions, sanctuary city crackdowns, immigration courts, visa policies, citizenship/naturalization changes.
-
-11. **Foreign Policy / Nationalism** - Aggressive foreign policy, destabilizing NATO/alliances, trade wars, tariffs, annexation threats (Greenland, Panama), relations with China/Russia/Ukraine, diplomatic actions, international summits.
+10. **Nationalism & Immigration** - ICE raids, mass deportations, detention centers, border wall, asylum restrictions, sanctuary city crackdowns, immigration courts, visa policies, citizenship/naturalization changes, nationalist rhetoric, "America First" policies.
 """
 
 SEMANTIC_CATEGORIZATION_PROMPT = """You are a policy analyst classifying news articles about Trump administration actions using the Trump Action Tracker methodology.
@@ -186,7 +184,7 @@ Return a JSON object with:
 - "reasoning": brief explanation of why each category applies
 
 Example response:
-{{"categories": ["Rule of Law", "Suppressing Dissent"], "confidence": 0.85, "reasoning": "DOJ targeting political opponents combines rule of law violations with state weaponization against enemies."}}
+{{"categories": ["Undermining Democracy", "Suppressing Dissent"], "confidence": 0.85, "reasoning": "DOJ targeting political opponents combines rule of law violations with state weaponization against enemies."}}
 
 Respond ONLY with valid JSON, no other text."""
 
