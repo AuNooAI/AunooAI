@@ -1856,6 +1856,9 @@ Write a factual description (2-3 sentences):"""
                         updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                 """, [new_count, new_score, threat_data.get('severity_level', 'medium'), threat_id])
+
+                # Update trend based on activity changes
+                self._update_threat_trend(cursor, threat_id)
             else:
                 severity_score = get_severity_score(threat_data.get('severity_level', 'medium'))
 
@@ -2078,6 +2081,112 @@ Write a factual description (2-3 sentences):"""
             """, [actor_id, actor_id, actor_id, actor_id])
         except Exception as e:
             logger.warning(f"Failed to update actor aggregations for actor {actor_id}: {e}")
+
+    def _calculate_threat_trend(self, cursor, threat_id: int, days: int = 7) -> str:
+        """Calculate trend for a single threat based on activity changes.
+
+        Compares article counts and IOC counts from current period vs previous period.
+        Returns: 'escalating', 'stable', or 'declining'
+        """
+        try:
+            # Get article counts for current and previous period
+            cursor.execute("""
+                WITH current_period AS (
+                    SELECT COUNT(DISTINCT ta.article_uri) as cnt
+                    FROM threat_articles ta
+                    JOIN articles a ON ta.article_uri = a.uri
+                    WHERE ta.threat_id = ?
+                      AND a.publication_date::date >= CURRENT_DATE - ? * INTERVAL '1 day'
+                ),
+                previous_period AS (
+                    SELECT COUNT(DISTINCT ta.article_uri) as cnt
+                    FROM threat_articles ta
+                    JOIN articles a ON ta.article_uri = a.uri
+                    WHERE ta.threat_id = ?
+                      AND a.publication_date::date >= CURRENT_DATE - (? * 2) * INTERVAL '1 day'
+                      AND a.publication_date::date < CURRENT_DATE - ? * INTERVAL '1 day'
+                ),
+                current_iocs AS (
+                    SELECT COUNT(*) as cnt
+                    FROM threat_intel_iocs
+                    WHERE threat_id = ?
+                      AND created_at >= CURRENT_TIMESTAMP - ? * INTERVAL '1 day'
+                ),
+                previous_iocs AS (
+                    SELECT COUNT(*) as cnt
+                    FROM threat_intel_iocs
+                    WHERE threat_id = ?
+                      AND created_at >= CURRENT_TIMESTAMP - (? * 2) * INTERVAL '1 day'
+                      AND created_at < CURRENT_TIMESTAMP - ? * INTERVAL '1 day'
+                ),
+                threat_info AS (
+                    SELECT severity_score FROM threat_intel_threats WHERE id = ?
+                )
+                SELECT
+                    (SELECT cnt FROM current_period) as current_articles,
+                    (SELECT cnt FROM previous_period) as previous_articles,
+                    (SELECT cnt FROM current_iocs) as current_iocs,
+                    (SELECT cnt FROM previous_iocs) as previous_iocs,
+                    (SELECT severity_score FROM threat_info) as severity_score
+            """, [threat_id, days, threat_id, days, days, threat_id, days, threat_id, days, days, threat_id])
+
+            row = cursor.fetchone()
+            if not row:
+                return 'stable'
+
+            current_articles = row[0] or 0
+            previous_articles = row[1] or 0
+            current_iocs = row[2] or 0
+            previous_iocs = row[3] or 0
+            severity_score = row[4] or 50
+
+            # Calculate score components
+            # Article change score (weight: 50%)
+            if previous_articles > 0:
+                article_change = (current_articles - previous_articles) / previous_articles * 100
+                article_score = max(-50, min(50, article_change / 2))
+            elif current_articles > 0:
+                article_score = 40  # New activity
+            else:
+                article_score = 0
+
+            # IOC change score (weight: 30%)
+            if previous_iocs > 0:
+                ioc_change = (current_iocs - previous_iocs) / previous_iocs * 100
+                ioc_score = max(-30, min(30, ioc_change * 0.3))
+            elif current_iocs > 0:
+                ioc_score = 25  # New IOCs
+            else:
+                ioc_score = 0
+
+            # Severity bonus (weight: 20%)
+            severity_bonus = 0
+            if severity_score >= 80 and (current_articles > 0 or current_iocs > 0):
+                severity_bonus = 15
+            elif severity_score >= 60 and (current_articles > 0 or current_iocs > 0):
+                severity_bonus = 10
+
+            total_score = article_score + ioc_score + severity_bonus
+
+            # Determine trend
+            if total_score >= 20:
+                return 'escalating'
+            elif total_score <= -20:
+                return 'declining'
+            return 'stable'
+
+        except Exception as e:
+            logger.warning(f"Failed to calculate trend for threat {threat_id}: {e}")
+            return 'stable'
+
+    def _update_threat_trend(self, cursor, threat_id: int):
+        """Update the trend field for a threat."""
+        trend = self._calculate_threat_trend(cursor, threat_id)
+        cursor.execute("""
+            UPDATE threat_intel_threats
+            SET trend = ?
+            WHERE id = ? AND (trend IS NULL OR trend != ?)
+        """, [trend, threat_id, trend])
 
     def _get_or_create_campaign(self, cursor, campaign_name: str,
                                  description: str = None,
