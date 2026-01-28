@@ -5561,9 +5561,11 @@ class DatabaseQueryFacade:
         ).where(
             and_(*where_conditions)
         ).order_by(
+            # Sort by date first (newest day first), then by quality within each day
+            # This ensures today's articles always appear before yesterday's
+            articles.c.publication_date.desc(),
             factual_reporting_order.desc(),
-            news_source_order.desc(),
-            articles.c.publication_date.desc()
+            news_source_order.desc()
         )
 
         # Apply pagination (use limit parameter if provided, otherwise max_articles)
