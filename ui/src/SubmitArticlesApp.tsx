@@ -173,7 +173,7 @@ function SubmitArticlesApp() {
     Promise.all([
       fetchTopics(),
       fetchModels(),
-      fetchDropdownOptions(),
+      fetchDropdownOptions(),  // Initial load without topic
       fetchRecentArticles(),
     ]).finally(() => setLoading(false));
 
@@ -198,6 +198,13 @@ function SubmitArticlesApp() {
     }
   }, []);
 
+  // Refetch dropdown options when topic changes
+  useEffect(() => {
+    if (selectedTopic) {
+      fetchDropdownOptions(selectedTopic);
+    }
+  }, [selectedTopic]);
+
   const fetchTopics = async () => {
     try {
       const response = await fetch('/api/topics');
@@ -218,14 +225,17 @@ function SubmitArticlesApp() {
     }
   };
 
-  const fetchDropdownOptions = async () => {
+  const fetchDropdownOptions = async (topic?: string) => {
     try {
+      // Build query string with topic parameter if provided
+      const topicParam = topic ? `?topic=${encodeURIComponent(topic)}` : '';
+
       const [categoriesRes, sentimentsRes, futureSignalsRes, timeToImpactRes, driverTypesRes] = await Promise.all([
-        fetch('/api/categories'),
-        fetch('/api/sentiments'),
-        fetch('/api/future_signals'),
-        fetch('/api/time_to_impact'),
-        fetch('/api/driver_types'),
+        fetch(`/api/categories${topicParam}`),
+        fetch(`/api/sentiments${topicParam}`),
+        fetch(`/api/future_signals${topicParam}`),
+        fetch(`/api/time_to_impact${topicParam}`),
+        fetch(`/api/driver_types${topicParam}`),
       ]);
       setCategories(await categoriesRes.json());
       setSentiments(await sentimentsRes.json());
