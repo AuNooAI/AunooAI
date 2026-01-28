@@ -45,6 +45,8 @@ import { SignalReportsTab } from '../components/newsfeed/SignalReportsTab';
 import { EmergingTopicsTab } from '../components/newsfeed/EmergingTopicsTab';
 import { PolicyTrackerTab } from '../components/newsfeed/PolicyTrackerTab';
 import { GeopoliticalHotspotsTab } from '../components/newsfeed/GeopoliticalHotspotsTab';
+import { BriefingDeskSection } from '../components/newsfeed/BriefingDeskSection';
+import { fetchDraftBriefingsCount } from '../services/briefingDeskApi';
 import { TopicCluster, getCategoryIcon } from '../components/newsfeed/TopicCluster';
 import { ArticleListView } from '../components/newsfeed/ArticleListView';
 import { OnboardingWizard } from '../components/onboarding/OnboardingWizard';
@@ -185,10 +187,11 @@ export function NewsFeedPage() {
   };
 
   // UI State
-  const [currentTab, setCurrentTab] = useState<'feed' | 'emerging' | 'agents' | 'saved' | 'policy' | 'geopolitical'>('feed');
+  const [currentTab, setCurrentTab] = useState<'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical'>('feed');
   const [viewMode, setViewMode] = useState<'clustered' | 'list'>('list');
   const [emergingTopicsCount, setEmergingTopicsCount] = useState(0);
   const [reportsCount, setReportsCount] = useState(0);
+  const [draftBriefingsCount, setDraftBriefingsCount] = useState(0);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [isNarrativesConfigOpen, setIsNarrativesConfigOpen] = useState(false);
@@ -541,6 +544,19 @@ export function NewsFeedPage() {
     fetchEmergingTopicsCount();
   }, [config.topic]);
 
+  // Fetch draft briefings count for tab badge
+  useEffect(() => {
+    const loadDraftCount = async () => {
+      try {
+        const count = await fetchDraftBriefingsCount();
+        setDraftBriefingsCount(count);
+      } catch (err) {
+        console.error('Failed to fetch draft briefings count:', err);
+      }
+    };
+    loadDraftCount();
+  }, []);
+
   // Fetch clusters when categories change
   useEffect(() => {
     const fetchClustersForCategories = async () => {
@@ -760,7 +776,7 @@ export function NewsFeedPage() {
             <span className="gather-top-bar-title">Explore</span>
             <span className="gather-top-bar-separator">/</span>
             <span className="gather-top-bar-subtitle">
-              {currentTab === 'agents' ? 'Observer Agents' : currentTab === 'emerging' ? 'Emerging Topics' : currentTab === 'saved' ? 'Saved' : currentTab === 'policy' ? 'US Crisis Tracker' : currentTab === 'geopolitical' ? 'GeoHotSpots' : 'News Feed'}
+              {currentTab === 'agents' ? 'Observer Agents' : currentTab === 'emerging' ? 'Emerging Topics' : currentTab === 'saved' ? 'Saved' : currentTab === 'briefing-desk' ? 'Briefing Desk' : currentTab === 'policy' ? 'US Crisis Tracker' : currentTab === 'geopolitical' ? 'GeoHotSpots' : 'News Feed'}
             </span>
           </div>
           <div className="gather-top-bar-right">
@@ -851,6 +867,16 @@ export function NewsFeedPage() {
             Saved
             {starredArticles.length > 0 && (
               <span className="explore-tab-badge">{starredArticles.length}</span>
+            )}
+          </button>
+          <button
+            className={`explore-tab-btn ${currentTab === 'briefing-desk' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('briefing-desk')}
+          >
+            <Newspaper className="w-4 h-4" />
+            Briefing Desk
+            {draftBriefingsCount > 0 && (
+              <span className="explore-tab-badge">{draftBriefingsCount}</span>
             )}
           </button>
         </div>
@@ -1194,6 +1220,22 @@ export function NewsFeedPage() {
                   </div>
                   <SignalReportsTab topic={config.topic || undefined} />
                 </div>
+              </div>
+            )}
+
+            {/* Briefing Desk Tab */}
+            {currentTab === 'briefing-desk' && (
+              <div className="px-6 py-4">
+                <BriefingDeskSection
+                  isFullTab={true}
+                  model={config.model}
+                  organizationalProfile={profiles.find(p => p.id === config.profileId)?.name}
+                  persona={config.persona}
+                  onRefreshNeeded={() => {
+                    // Refresh draft count when briefings are created/deleted
+                    fetchDraftBriefingsCount().then(setDraftBriefingsCount).catch(console.error);
+                  }}
+                />
               </div>
             )}
           </div>
