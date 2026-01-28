@@ -164,6 +164,20 @@ export function SavedIncidentsSection({
   // Share handler - opens modal with incident data
   const handleShare = (incident: Incident) => {
     const name = incident.name || incident.title || 'Unnamed Incident';
+
+    // Map articles with proper field names for email API
+    const articles = incident.articles || [];
+    const articleMetadata = incident.article_metadata || [];
+    const mappedArticles = articles.map((article, i) => {
+      const metadata = articleMetadata[i];
+      return {
+        title: article.title || metadata?.title || 'Untitled',
+        source: article.news_source || metadata?.news_source || article.source || '',
+        url: article.uri || '',
+        summary: article.summary || '',
+      };
+    });
+
     setShareData({
       type: 'incident',
       incident_name: name,
@@ -176,6 +190,7 @@ export function SavedIncidentsSection({
       plausibility: incident.plausibility,
       source_quality: incident.source_quality,
       analyst_notes: incident.analyst_notes,
+      articles: mappedArticles.length > 0 ? mappedArticles : undefined,
     });
     setShowShareModal(true);
   };
