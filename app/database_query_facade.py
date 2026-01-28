@@ -11240,3 +11240,784 @@ class DatabaseQueryFacade:
             "factuality": factuality,
             "bias": bias
         }
+
+    # ========================================================================
+    # DESK BRIEFINGS CRUD (Briefing Desk Feature)
+    # ========================================================================
+
+    def create_desk_briefing(
+        self,
+        name: str,
+        username: str,
+        description: str = None,
+        topic: str = None
+    ) -> int:
+        """Create a new desk briefing.
+
+        Args:
+            name: Briefing name (required)
+            username: Username (required)
+            description: Optional description
+            topic: Optional topic (briefings can be cross-topic)
+
+        Returns:
+            ID of the created briefing
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import insert
+
+            statement = insert(t_desk_briefings).values(
+                name=name,
+                username=username,
+                description=description,
+                topic=topic,
+                status='draft',
+                articles_count=0,
+                incidents_count=0
+            ).returning(t_desk_briefings.c.id)
+
+            result = self._execute_with_rollback(statement)
+            row = result.fetchone()
+            self.logger.info(f"Created desk briefing '{name}' for user '{username}' (ID: {row[0]})")
+            return row[0]
+        except Exception as e:
+            self.logger.error(f"Error creating desk briefing: {e}")
+            raise
+
+    def get_desk_briefings_for_user(self, username: str) -> list:
+        """Get all desk briefings for a user.
+
+        Returns list of briefing summaries sorted by update date desc.
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import select
+
+            statement = select(
+                t_desk_briefings.c.id,
+                t_desk_briefings.c.name,
+                t_desk_briefings.c.description,
+                t_desk_briefings.c.topic,
+                t_desk_briefings.c.status,
+                t_desk_briefings.c.articles_count,
+                t_desk_briefings.c.incidents_count,
+                t_desk_briefings.c.model_used,
+                t_desk_briefings.c.created_at,
+                t_desk_briefings.c.updated_at,
+                t_desk_briefings.c.finalized_at
+            ).where(
+                t_desk_briefings.c.username == username
+            ).order_by(
+                t_desk_briefings.c.updated_at.desc()
+            )
+
+            results = self._execute_with_rollback(statement).fetchall()
+            return [dict(r._mapping) for r in results]
+        except Exception as e:
+            self.logger.error(f"Error getting desk briefings for user {username}: {e}")
+            return []
+
+    def get_desk_briefing_by_id(self, briefing_id: int, username: str) -> dict:
+        """Get a specific desk briefing by ID (user-scoped).
+
+        Returns full briefing data or None if not found.
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import select
+
+            statement = select(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            )
+
+            result = self._execute_with_rollback(statement).fetchone()
+            if result:
+                return dict(result._mapping)
+            return None
+        except Exception as e:
+            self.logger.error(f"Error retrieving desk briefing {briefing_id}: {e}")
+            return None
+
+    def update_desk_briefing(
+        self,
+        briefing_id: int,
+        username: str,
+        name: str = None,
+        description: str = None
+    ) -> bool:
+        """Update desk briefing name/description.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            name: New name (optional)
+            description: New description (optional)
+
+        Returns:
+            True if updated, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import update
+            from datetime import datetime
+
+            updates = {'updated_at': datetime.utcnow()}
+            if name is not None:
+                updates['name'] = name
+            if description is not None:
+                updates['description'] = description
+
+            statement = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            ).values(**updates)
+
+            result = self._execute_with_rollback(statement)
+            updated = result.rowcount > 0
+            if updated:
+                self.logger.info(f"Updated desk briefing {briefing_id}")
+            return updated
+        except Exception as e:
+            self.logger.error(f"Error updating desk briefing {briefing_id}: {e}")
+            return False
+
+    def delete_desk_briefing(self, briefing_id: int, username: str) -> bool:
+        """Delete a desk briefing (user-scoped)."""
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import delete
+
+            statement = delete(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            )
+
+            result = self._execute_with_rollback(statement)
+            deleted = result.rowcount > 0
+            if deleted:
+                self.logger.info(f"Deleted desk briefing {briefing_id} for user '{username}'")
+            return deleted
+        except Exception as e:
+            self.logger.error(f"Error deleting desk briefing {briefing_id}: {e}")
+            return False
+
+    def add_article_to_desk_briefing(
+        self,
+        briefing_id: int,
+        username: str,
+        article_data: dict
+    ) -> bool:
+        """Add an article to a desk briefing.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            article_data: Article data dict (must include 'uri')
+
+        Returns:
+            True if added, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import select, update
+            from datetime import datetime
+            import json
+
+            # Get current briefing
+            statement = select(
+                t_desk_briefings.c.articles,
+                t_desk_briefings.c.status
+            ).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            )
+            result = self._execute_with_rollback(statement).fetchone()
+            if not result:
+                return False
+
+            # Don't allow adding to finalized briefings
+            if result[1] == 'finalized':
+                self.logger.warning(f"Cannot add article to finalized briefing {briefing_id}")
+                return False
+
+            articles = result[0] if result[0] else []
+
+            # Check for duplicate URI
+            article_uri = article_data.get('uri') or article_data.get('url')
+            if any(a.get('uri') == article_uri for a in articles):
+                self.logger.info(f"Article {article_uri} already in briefing {briefing_id}")
+                return True  # Already exists, consider success
+
+            # Add the article
+            articles.append(article_data)
+
+            # Update briefing
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            ).values(
+                articles=json.loads(json.dumps(articles, default=str)),
+                articles_count=len(articles),
+                updated_at=datetime.utcnow()
+            )
+
+            self._execute_with_rollback(update_stmt)
+            self.logger.info(f"Added article to briefing {briefing_id}, total: {len(articles)}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error adding article to briefing {briefing_id}: {e}")
+            return False
+
+    def remove_article_from_desk_briefing(
+        self,
+        briefing_id: int,
+        username: str,
+        article_uri: str
+    ) -> bool:
+        """Remove an article from a desk briefing.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            article_uri: URI of the article to remove
+
+        Returns:
+            True if removed, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import select, update
+            from datetime import datetime
+            import json
+
+            # Get current briefing
+            statement = select(
+                t_desk_briefings.c.articles,
+                t_desk_briefings.c.status
+            ).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            )
+            result = self._execute_with_rollback(statement).fetchone()
+            if not result:
+                return False
+
+            # Don't allow modifying finalized briefings
+            if result[1] == 'finalized':
+                self.logger.warning(f"Cannot remove article from finalized briefing {briefing_id}")
+                return False
+
+            articles = result[0] if result[0] else []
+
+            # Remove the article
+            original_count = len(articles)
+            articles = [a for a in articles if a.get('uri') != article_uri]
+
+            if len(articles) == original_count:
+                self.logger.warning(f"Article {article_uri} not found in briefing {briefing_id}")
+                return False
+
+            # Update briefing
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            ).values(
+                articles=json.loads(json.dumps(articles, default=str)),
+                articles_count=len(articles),
+                updated_at=datetime.utcnow()
+            )
+
+            self._execute_with_rollback(update_stmt)
+            self.logger.info(f"Removed article from briefing {briefing_id}, remaining: {len(articles)}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error removing article from briefing {briefing_id}: {e}")
+            return False
+
+    def add_incident_to_desk_briefing(
+        self,
+        briefing_id: int,
+        username: str,
+        incident_data: dict
+    ) -> bool:
+        """Add an incident to a desk briefing.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            incident_data: Incident data dict (must include 'name')
+
+        Returns:
+            True if added, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import select, update
+            from datetime import datetime
+            import json
+
+            # Get current briefing
+            statement = select(
+                t_desk_briefings.c.incidents,
+                t_desk_briefings.c.status
+            ).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            )
+            result = self._execute_with_rollback(statement).fetchone()
+            if not result:
+                return False
+
+            # Don't allow adding to finalized briefings
+            if result[1] == 'finalized':
+                self.logger.warning(f"Cannot add incident to finalized briefing {briefing_id}")
+                return False
+
+            incidents = result[0] if result[0] else []
+
+            # Check for duplicate name
+            incident_name = incident_data.get('name')
+            if any(i.get('name') == incident_name for i in incidents):
+                self.logger.info(f"Incident {incident_name} already in briefing {briefing_id}")
+                return True  # Already exists, consider success
+
+            # Add the incident
+            incidents.append(incident_data)
+
+            # Update briefing
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            ).values(
+                incidents=json.loads(json.dumps(incidents, default=str)),
+                incidents_count=len(incidents),
+                updated_at=datetime.utcnow()
+            )
+
+            self._execute_with_rollback(update_stmt)
+            self.logger.info(f"Added incident to briefing {briefing_id}, total: {len(incidents)}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error adding incident to briefing {briefing_id}: {e}")
+            return False
+
+    def remove_incident_from_desk_briefing(
+        self,
+        briefing_id: int,
+        username: str,
+        incident_name: str
+    ) -> bool:
+        """Remove an incident from a desk briefing.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            incident_name: Name of the incident to remove
+
+        Returns:
+            True if removed, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import select, update
+            from datetime import datetime
+            import json
+
+            # Get current briefing
+            statement = select(
+                t_desk_briefings.c.incidents,
+                t_desk_briefings.c.status
+            ).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            )
+            result = self._execute_with_rollback(statement).fetchone()
+            if not result:
+                return False
+
+            # Don't allow modifying finalized briefings
+            if result[1] == 'finalized':
+                self.logger.warning(f"Cannot remove incident from finalized briefing {briefing_id}")
+                return False
+
+            incidents = result[0] if result[0] else []
+
+            # Remove the incident
+            original_count = len(incidents)
+            incidents = [i for i in incidents if i.get('name') != incident_name]
+
+            if len(incidents) == original_count:
+                self.logger.warning(f"Incident {incident_name} not found in briefing {briefing_id}")
+                return False
+
+            # Update briefing
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            ).values(
+                incidents=json.loads(json.dumps(incidents, default=str)),
+                incidents_count=len(incidents),
+                updated_at=datetime.utcnow()
+            )
+
+            self._execute_with_rollback(update_stmt)
+            self.logger.info(f"Removed incident from briefing {briefing_id}, remaining: {len(incidents)}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error removing incident from briefing {briefing_id}: {e}")
+            return False
+
+    def add_emerging_topic_to_desk_briefing(
+        self,
+        briefing_id: int,
+        username: str,
+        topic_data: dict
+    ) -> bool:
+        """Add an emerging topic to a desk briefing.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            topic_data: Emerging topic data dict (must include 'name')
+
+        Returns:
+            True if added, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import select, update
+            from datetime import datetime
+            import json
+
+            # Get current briefing
+            statement = select(
+                t_desk_briefings.c.emerging_topics,
+                t_desk_briefings.c.status
+            ).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            )
+            result = self._execute_with_rollback(statement).fetchone()
+            if not result:
+                return False
+
+            # Don't allow adding to finalized briefings
+            if result[1] == 'finalized':
+                self.logger.warning(f"Cannot add emerging topic to finalized briefing {briefing_id}")
+                return False
+
+            emerging_topics = result[0] if result[0] else []
+
+            # Check for duplicate name
+            topic_name = topic_data.get('name')
+            if any(t.get('name') == topic_name for t in emerging_topics):
+                self.logger.info(f"Emerging topic {topic_name} already in briefing {briefing_id}")
+                return True  # Already exists, consider success
+
+            # Add the emerging topic
+            emerging_topics.append(topic_data)
+
+            # Update briefing
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            ).values(
+                emerging_topics=json.loads(json.dumps(emerging_topics, default=str)),
+                emerging_topics_count=len(emerging_topics),
+                updated_at=datetime.utcnow()
+            )
+
+            self._execute_with_rollback(update_stmt)
+            self.logger.info(f"Added emerging topic to briefing {briefing_id}, total: {len(emerging_topics)}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error adding emerging topic to briefing {briefing_id}: {e}")
+            return False
+
+    def remove_emerging_topic_from_desk_briefing(
+        self,
+        briefing_id: int,
+        username: str,
+        topic_name: str
+    ) -> bool:
+        """Remove an emerging topic from a desk briefing.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            topic_name: Name of the emerging topic to remove
+
+        Returns:
+            True if removed, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import select, update
+            from datetime import datetime
+            import json
+
+            # Get current briefing
+            statement = select(
+                t_desk_briefings.c.emerging_topics,
+                t_desk_briefings.c.status
+            ).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            )
+            result = self._execute_with_rollback(statement).fetchone()
+            if not result:
+                return False
+
+            # Don't allow modifying finalized briefings
+            if result[1] == 'finalized':
+                self.logger.warning(f"Cannot remove emerging topic from finalized briefing {briefing_id}")
+                return False
+
+            emerging_topics = result[0] if result[0] else []
+
+            # Remove the emerging topic
+            original_count = len(emerging_topics)
+            emerging_topics = [t for t in emerging_topics if t.get('name') != topic_name]
+
+            if len(emerging_topics) == original_count:
+                self.logger.warning(f"Emerging topic {topic_name} not found in briefing {briefing_id}")
+                return False
+
+            # Update briefing
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            ).values(
+                emerging_topics=json.loads(json.dumps(emerging_topics, default=str)),
+                emerging_topics_count=len(emerging_topics),
+                updated_at=datetime.utcnow()
+            )
+
+            self._execute_with_rollback(update_stmt)
+            self.logger.info(f"Removed emerging topic from briefing {briefing_id}, remaining: {len(emerging_topics)}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Error removing emerging topic from briefing {briefing_id}: {e}")
+            return False
+
+    def finalize_desk_briefing(
+        self,
+        briefing_id: int,
+        username: str,
+        synthesis: str,
+        themes: list,
+        priority_actions: list,
+        metadata: dict,
+        model_used: str
+    ) -> bool:
+        """Finalize a desk briefing with AI-generated synthesis.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            synthesis: AI-generated synthesis text
+            themes: List of theme dicts
+            priority_actions: List of action dicts
+            metadata: Generation metadata
+            model_used: AI model used
+
+        Returns:
+            True if finalized, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import update
+            from datetime import datetime
+            import json
+
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            ).values(
+                synthesis=synthesis,
+                themes=json.loads(json.dumps(themes, default=str)) if themes else None,
+                priority_actions=json.loads(json.dumps(priority_actions, default=str)) if priority_actions else None,
+                metadata=json.loads(json.dumps(metadata, default=str)) if metadata else None,
+                model_used=model_used,
+                status='finalized',
+                finalized_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            )
+
+            result = self._execute_with_rollback(update_stmt)
+            finalized = result.rowcount > 0
+            if finalized:
+                self.logger.info(f"Finalized desk briefing {briefing_id}")
+            return finalized
+        except Exception as e:
+            self.logger.error(f"Error finalizing desk briefing {briefing_id}: {e}")
+            return False
+
+    def update_desk_briefing_synthesis(
+        self,
+        briefing_id: int,
+        username: str,
+        synthesis: str
+    ) -> bool:
+        """Update just the synthesis text of a desk briefing.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            synthesis: Updated synthesis text (markdown supported)
+
+        Returns:
+            True if updated, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import update
+            from datetime import datetime
+
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            ).values(
+                synthesis=synthesis,
+                updated_at=datetime.utcnow()
+            )
+
+            result = self._execute_with_rollback(update_stmt)
+            updated = result.rowcount > 0
+            if updated:
+                self.logger.info(f"Updated synthesis for desk briefing {briefing_id}")
+            return updated
+        except Exception as e:
+            self.logger.error(f"Error updating synthesis for desk briefing {briefing_id}: {e}")
+            return False
+
+    def reopen_desk_briefing(self, briefing_id: int, username: str) -> bool:
+        """Reopen a finalized desk briefing to allow adding more content.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+
+        Returns:
+            True if reopened, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import update
+            from datetime import datetime
+
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username) &
+                (t_desk_briefings.c.status == 'finalized')
+            ).values(
+                status='draft',
+                updated_at=datetime.utcnow()
+            )
+
+            result = self._execute_with_rollback(update_stmt)
+            reopened = result.rowcount > 0
+            if reopened:
+                self.logger.info(f"Reopened desk briefing {briefing_id}")
+            return reopened
+        except Exception as e:
+            self.logger.error(f"Error reopening desk briefing {briefing_id}: {e}")
+            return False
+
+    def update_desk_briefing_priority_actions(
+        self,
+        briefing_id: int,
+        username: str,
+        priority_actions: list
+    ) -> bool:
+        """Update just the priority actions of a desk briefing.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            priority_actions: Updated list of priority actions
+
+        Returns:
+            True if updated, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import update
+            from datetime import datetime
+
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            ).values(
+                priority_actions=json.dumps(priority_actions) if priority_actions else '[]',
+                updated_at=datetime.utcnow()
+            )
+
+            result = self._execute_with_rollback(update_stmt)
+            updated = result.rowcount > 0
+            if updated:
+                self.logger.info(f"Updated priority actions for desk briefing {briefing_id}")
+            return updated
+        except Exception as e:
+            self.logger.error(f"Error updating priority actions for desk briefing {briefing_id}: {e}")
+            return False
+
+    def update_desk_briefing_themes(
+        self,
+        briefing_id: int,
+        username: str,
+        themes: list
+    ) -> bool:
+        """Update just the themes of a desk briefing.
+
+        Args:
+            briefing_id: Briefing ID
+            username: Username (for ownership check)
+            themes: Updated list of themes
+
+        Returns:
+            True if updated, False otherwise
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import update
+            from datetime import datetime
+
+            update_stmt = update(t_desk_briefings).where(
+                (t_desk_briefings.c.id == briefing_id) &
+                (t_desk_briefings.c.username == username)
+            ).values(
+                themes=json.dumps(themes) if themes else '[]',
+                updated_at=datetime.utcnow()
+            )
+
+            result = self._execute_with_rollback(update_stmt)
+            updated = result.rowcount > 0
+            if updated:
+                self.logger.info(f"Updated themes for desk briefing {briefing_id}")
+            return updated
+        except Exception as e:
+            self.logger.error(f"Error updating themes for desk briefing {briefing_id}: {e}")
+            return False
+
+    def get_draft_desk_briefings_count(self, username: str) -> int:
+        """Get count of draft desk briefings for a user.
+
+        Returns count of briefings with status='draft'.
+        """
+        try:
+            from app.database_models import t_desk_briefings
+            from sqlalchemy import select, func
+
+            statement = select(func.count()).where(
+                (t_desk_briefings.c.username == username) &
+                (t_desk_briefings.c.status == 'draft')
+            )
+
+            result = self._execute_with_rollback(statement).scalar()
+            return result or 0
+        except Exception as e:
+            self.logger.error(f"Error getting draft briefings count for {username}: {e}")
+            return 0

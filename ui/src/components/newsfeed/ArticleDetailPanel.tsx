@@ -5,13 +5,14 @@
  */
 
 import { useState, useRef, useEffect } from 'react';
-import { X, ExternalLink, Star, StarOff, MessageSquare, Clock, TrendingUp, Building2, Layers, ChevronRight, MoreVertical, ThumbsUp, ThumbsDown, Share, Copy, Mail, Bot, Loader2, AlertTriangle } from 'lucide-react';
+import { X, ExternalLink, Star, StarOff, MessageSquare, Clock, TrendingUp, Building2, Layers, ChevronRight, MoreVertical, ThumbsUp, ThumbsDown, Share, Copy, Mail, Bot, Loader2, AlertTriangle, Newspaper } from 'lucide-react';
 import { type NewsArticle, type ClusterRelatedArticle, recordArticlePreference } from '../../services/newsFeedApi';
 import { ArticleBiasIndicator } from './ArticleBiasIndicator';
 import { Button } from '../ui/button';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import { ShareModal, type ShareArticleData } from '../ShareModal';
 import { PromoteToIncidentModal } from './PromoteToIncidentModal';
+import { AddToBriefingModal } from './AddToBriefingModal';
 
 interface ArticleDetailPanelProps {
   article: NewsArticle | null;
@@ -43,6 +44,7 @@ export function ArticleDetailPanel({
   const [preferenceLoading, setPreferenceLoading] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showPromoteModal, setShowPromoteModal] = useState(false);
+  const [showAddToBriefingModal, setShowAddToBriefingModal] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const hasRelated = relatedArticles.length > 0;
 
@@ -86,6 +88,9 @@ export function ArticleDetailPanel({
     } else if (action === 'promote') {
       // Open promote to incident modal
       setShowPromoteModal(true);
+    } else if (action === 'add-to-briefing') {
+      // Open add to briefing modal
+      setShowAddToBriefingModal(true);
     }
   };
 
@@ -239,6 +244,13 @@ Please provide:
                     >
                       <Mail className="w-4 h-4" />
                       Share via email
+                    </button>
+                    <button
+                      onClick={() => handleMenuAction('add-to-briefing')}
+                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                    >
+                      <Newspaper className="w-4 h-4" />
+                      Add to Briefing
                     </button>
                     <div className="border-t border-gray-200 my-1" />
                     <button
@@ -512,6 +524,33 @@ Please provide:
         topic={topic || article?.topic}
         profileId={profileId}
         onSuccess={onIncidentSaved}
+      />
+
+      {/* Add to Briefing Modal */}
+      <AddToBriefingModal
+        isOpen={showAddToBriefingModal}
+        onClose={() => setShowAddToBriefingModal(false)}
+        itemType="article"
+        article={{
+          uri: article.uri,
+          title: article.title,
+          summary: article.summary,
+          source: article.source?.name,
+          publication_date: article.publication_date,
+          topic: article.topic || topic,
+          url: article.url || article.uri,
+          sentiment: article.sentiment,
+          bias: article.source?.bias,
+          category: article.category,
+          // Include analysis if available (from executive briefing context)
+          analysis: (article as any).executive_takeaway || (article as any).strategic_relevance ? {
+            executive_takeaway: (article as any).executive_takeaway,
+            strategic_relevance: (article as any).strategic_relevance,
+            time_horizon: (article as any).time_horizon,
+            risk_opportunity: (article as any).risk_opportunity,
+            signal_strength: (article as any).signal_strength,
+          } : undefined,
+        }}
       />
     </>
   );

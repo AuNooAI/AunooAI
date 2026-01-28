@@ -226,7 +226,45 @@ export interface ShareExecutiveSummaryData {
   source_scenarios?: string[];
 }
 
-export type ShareData = ShareArticleData | ShareIncidentData | ShareNarrativeData | ShareBriefingData | ShareBriefingCardData | ShareIncidentsData | ShareEmergingTopicData | ShareExecutiveSummaryData;
+export interface ShareDeskBriefingData {
+  type: 'desk_briefing';
+  briefing_id: number;
+  name: string;
+  description?: string;
+  status?: 'draft' | 'finalized';
+  synthesis?: string;
+  themes?: Array<{
+    theme_name: string;
+    description?: string;
+  }>;
+  priority_actions?: Array<{
+    action: string;
+    urgency?: string;
+    rationale?: string;
+  }>;
+  articles?: Array<{
+    title?: string;
+    source?: string;
+    uri?: string;
+    summary?: string;
+    category?: string;
+  }>;
+  incidents?: Array<{
+    name: string;
+    type?: string;
+    significance?: string;
+    description?: string;
+    entities?: string[];
+  }>;
+  emerging_topics?: Array<{
+    name: string;
+    summary?: string;
+    trend_score?: number;
+    velocity?: string;
+  }>;
+}
+
+export type ShareData = ShareArticleData | ShareIncidentData | ShareNarrativeData | ShareBriefingData | ShareBriefingCardData | ShareIncidentsData | ShareEmergingTopicData | ShareExecutiveSummaryData | ShareDeskBriefingData;
 
 interface ShareModalProps {
   open: boolean;
@@ -440,6 +478,11 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
           action_window: data.action_window,
           source_scenarios: data.source_scenarios,
         };
+      } else if (data.type === 'desk_briefing') {
+        endpoint = `/api/desk-briefings/${data.briefing_id}/share`;
+        body = {
+          to_email: email,
+        };
       } else {
         endpoint = '/api/share/briefing';
         body = {
@@ -498,6 +541,8 @@ export function ShareModal({ open, onOpenChange, data, onSuccess }: ShareModalPr
         return `Share Emerging Topic: ${data.topic_label}`;
       case 'executive_summary':
         return `Share Executive Summary: ${data.topic_title}`;
+      case 'desk_briefing':
+        return `Share Briefing: ${data.name}`;
       default:
         return 'Share via Email';
     }

@@ -33,6 +33,7 @@ import {
   FileText,
   Table,
   MessageSquare,
+  Newspaper,
 } from 'lucide-react';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import {
@@ -66,6 +67,7 @@ import { ShareModal, type ShareIncidentData, type ShareIncidentsData, type Share
 import { AnalystNotesSection } from './SavedIncidentsSection';
 import { type AnalystNote } from '../../services/newsFeedApi';
 import { getIncidentSignalTags, NotesBadge, TimelineRuler, ArticleLink, formatDisplayDate } from './incidentUtils';
+import { AddToBriefingModal } from './AddToBriefingModal';
 
 interface HighlightsSectionProps {
   incidents: Incident[];
@@ -88,6 +90,10 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
   // Share modal state
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareData, setShareData] = useState<ShareData | null>(null);
+
+  // Add to Briefing modal state
+  const [showAddToBriefingModal, setShowAddToBriefingModal] = useState(false);
+  const [selectedIncidentForBriefing, setSelectedIncidentForBriefing] = useState<Incident | null>(null);
 
   // Preferences state - map of incident name to 'more' | 'less'
   const [incidentPreferences, setIncidentPreferences] = useState<Map<string, 'more' | 'less'>>(new Map());
@@ -134,6 +140,12 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
   };
 
   // Share handler - opens modal with single incident data including articles
+  // Handle Add to Briefing action
+  const handleAddToBriefing = (incident: Incident) => {
+    setSelectedIncidentForBriefing(incident);
+    setShowAddToBriefingModal(true);
+  };
+
   const handleShare = (incident: Incident) => {
     console.log('[handleShare] incident:', incident.name, 'analyst_notes:', incident.analyst_notes);
     const name = incident.name || incident.title || 'Unnamed Incident';
@@ -438,6 +450,7 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
                     onSave={onSaveIncident}
                     onUnsave={onUnsaveIncident}
                     onShare={handleShare}
+                    onAddToBriefing={handleAddToBriefing}
                     preference={pref}
                     onPreferenceChange={handlePreferenceChange}
                     onIncidentUpdate={onIncidentUpdate}
@@ -482,6 +495,40 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
           data={shareData}
         />
       )}
+
+      {/* Add to Briefing Modal */}
+      {showAddToBriefingModal && selectedIncidentForBriefing && (
+        <AddToBriefingModal
+          isOpen={showAddToBriefingModal}
+          onClose={() => {
+            setShowAddToBriefingModal(false);
+            setSelectedIncidentForBriefing(null);
+          }}
+          itemType="incident"
+          incident={{
+            name: selectedIncidentForBriefing.name || selectedIncidentForBriefing.title || 'Unnamed Incident',
+            title: selectedIncidentForBriefing.title,
+            type: selectedIncidentForBriefing.type,
+            significance: selectedIncidentForBriefing.significance,
+            description: selectedIncidentForBriefing.description,
+            summary: selectedIncidentForBriefing.summary,
+            topic: selectedIncidentForBriefing.topic || currentTopic,
+            timeline: Array.isArray(selectedIncidentForBriefing.timeline)
+              ? selectedIncidentForBriefing.timeline[0]
+              : selectedIncidentForBriefing.timeline,
+            first_seen: selectedIncidentForBriefing.first_seen,
+            last_seen: selectedIncidentForBriefing.last_seen,
+            entities: selectedIncidentForBriefing.entities,
+            article_uris: selectedIncidentForBriefing.article_uris,
+            organizational_relevance: selectedIncidentForBriefing.organizational_relevance,
+            plausibility: selectedIncidentForBriefing.plausibility,
+            source_quality: selectedIncidentForBriefing.source_quality,
+            credibility_summary: selectedIncidentForBriefing.credibility_summary,
+            investigation_leads: selectedIncidentForBriefing.investigation_leads,
+            analyst_notes: selectedIncidentForBriefing.analyst_notes,
+          }}
+        />
+      )}
     </section>
   );
 }
@@ -499,6 +546,7 @@ interface CompactIncidentCardProps {
   onSave?: (incidentName: string) => void;
   onUnsave?: (incidentName: string) => void;
   onShare?: (incident: Incident) => void;
+  onAddToBriefing?: (incident: Incident) => void;
   preference?: 'more' | 'less' | null;
   onPreferenceChange?: (incidentName: string, preference: 'more' | 'less' | null) => void;
   onIncidentUpdate?: () => void;
@@ -538,7 +586,7 @@ function getSourceQualityTooltip(quality: string): string {
   return `Source quality: ${quality}`;
 }
 
-function CompactIncidentCard({ incident, onClick, isSaved, isPromoted, currentTopic, onSave, onUnsave, onShare, preference, onPreferenceChange, onIncidentUpdate }: CompactIncidentCardProps) {
+function CompactIncidentCard({ incident, onClick, isSaved, isPromoted, currentTopic, onSave, onUnsave, onShare, onAddToBriefing, preference, onPreferenceChange, onIncidentUpdate }: CompactIncidentCardProps) {
   const [hoveredBadge, setHoveredBadge] = useState<string | null>(null);
   const [badgeTooltipPos, setBadgeTooltipPos] = useState({ top: 0, left: 0 });
   const [showMenu, setShowMenu] = useState(false);
@@ -657,6 +705,8 @@ function CompactIncidentCard({ incident, onClick, isSaved, isPromoted, currentTo
       ExportService.exportSingleIncidentPDF(incident);
     } else if (action === 'export-md') {
       ExportService.exportSingleIncidentMarkdown(incident);
+    } else if (action === 'add-to-briefing') {
+      onAddToBriefing?.(incident);
     }
   };
 
@@ -755,6 +805,13 @@ function CompactIncidentCard({ incident, onClick, isSaved, isPromoted, currentTo
                   >
                     <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                     Share
+                  </button>
+                  <button
+                    onClick={(e) => handleMenuAction('add-to-briefing', e)}
+                    className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                  >
+                    <Newspaper className="w-4 h-4 text-pink-500" />
+                    Add to Briefing
                   </button>
                   <button
                     onClick={(e) => handleMenuAction('more', e)}

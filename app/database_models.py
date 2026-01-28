@@ -195,6 +195,35 @@ t_saved_executive_briefings = Table(
     Index('idx_saved_exec_briefings_created', 'created_at')
 )
 
+# Desk briefings - user-curated briefings with articles and incidents
+t_desk_briefings = Table(
+    'desk_briefings', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('name', String(255), nullable=False),
+    Column('description', Text),
+    Column('topic', String(255)),  # Optional - briefings can be cross-topic
+    Column('username', Text, ForeignKey('users.username', ondelete='SET NULL')),
+    Column('articles', JSONB, nullable=False, server_default=text("'[]'")),  # Array of curated articles
+    Column('incidents', JSONB, nullable=False, server_default=text("'[]'")),  # Array of curated incidents
+    Column('emerging_topics', JSONB, nullable=False, server_default=text("'[]'")),  # Array of emerging topics
+    Column('synthesis', Text),  # AI-generated synthesis narrative
+    Column('themes', JSONB),  # AI-generated themes
+    Column('priority_actions', JSONB),  # AI-generated actions
+    Column('metadata', JSONB),  # Generation metadata
+    Column('status', String(50), nullable=False, server_default=text("'draft'")),  # draft, finalized
+    Column('model_used', String(100)),
+    Column('articles_count', Integer, server_default=text('0'), nullable=False),
+    Column('incidents_count', Integer, server_default=text('0'), nullable=False),
+    Column('emerging_topics_count', Integer, server_default=text('0'), nullable=False),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('updated_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Column('finalized_at', DateTime(timezone=True)),
+    UniqueConstraint('name', 'username', name='uq_desk_briefings_name_user'),
+    Index('idx_desk_briefings_username', 'username'),
+    Index('idx_desk_briefings_status', 'status'),
+    Index('idx_desk_briefings_created_at', 'created_at')
+)
+
 # Newsfeed dashboard snapshots - stores auto-generated dashboard state
 t_newsfeed_dashboard_snapshots = Table(
     'newsfeed_dashboard_snapshots', metadata,

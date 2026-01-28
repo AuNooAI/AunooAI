@@ -46,6 +46,7 @@ import {
   Archive,
   RotateCcw,
   Compass,
+  Newspaper,
 } from 'lucide-react';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
@@ -75,6 +76,7 @@ import {
   loadEmergingTopicsConfig,
 } from './EmergingTopicsConfigModal';
 import { EmergingTopicsScheduleModal } from './EmergingTopicsScheduleModal';
+import { AddToBriefingModal } from './AddToBriefingModal';
 import { ShareModal, type ShareEmergingTopicData, type ShareData } from '../ShareModal';
 import { getAvailableModels } from '../../services/newsFeedApi';
 import { ExportService } from '../../services/exportService';
@@ -328,6 +330,10 @@ export function EmergingTopicsTab({ topic, onArticleClick }: EmergingTopicsTabPr
   // Share modal state
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareData, setShareData] = useState<ShareData | null>(null);
+
+  // Add to Briefing modal state
+  const [showAddToBriefingModal, setShowAddToBriefingModal] = useState(false);
+  const [topicForBriefing, setTopicForBriefing] = useState<EmergingTopicV2 | null>(null);
 
   // Topic history for sparklines
   const [topicHistories, setTopicHistories] = useState<Record<number, Array<{ run_date: string; composite_score: number }>>>({});
@@ -1753,7 +1759,7 @@ Please provide:
                             </button>
 
                             {menuOpenId === topicItem.id && (
-                              <div className="absolute right-0 top-full mt-1 w-32 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
+                              <div className="absolute right-0 top-full mt-1 w-40 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -1763,6 +1769,28 @@ Please provide:
                                 >
                                   <Bookmark className={`w-4 h-4 ${trackedTopicIds.has(topicItem.id) ? 'fill-current text-amber-500' : ''}`} />
                                   {trackedTopicIds.has(topicItem.id) ? 'Saved' : 'Save'}
+                                </button>
+                                <button
+                                  onClick={async (e) => {
+                                    e.stopPropagation();
+                                    // Fetch articles if not already loaded
+                                    let articles = topicDetails[topicItem.id]?.articles || [];
+                                    if (articles.length === 0) {
+                                      try {
+                                        const data = await fetchTopicArticles(topicItem.id);
+                                        articles = data.articles || [];
+                                      } catch (err) {
+                                        console.error('Failed to fetch topic articles for briefing:', err);
+                                      }
+                                    }
+                                    // Store articles with the topic for briefing
+                                    setTopicForBriefing({ ...topicItem, _articles: articles });
+                                    setShowAddToBriefingModal(true);
+                                    setMenuOpenId(null);
+                                  }}
+                                  className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                                >
+                                  <Newspaper className="w-4 h-4 text-pink-500" /> Add to Briefing
                                 </button>
                                 <button
                                   onClick={(e) => {
@@ -2302,6 +2330,46 @@ Please provide:
           open={showShareModal}
           onOpenChange={setShowShareModal}
           data={shareData}
+        />
+      )}
+
+      {/* Add to Briefing Modal */}
+      {topicForBriefing && (
+        <AddToBriefingModal
+          isOpen={showAddToBriefingModal}
+          onClose={() => {
+            setShowAddToBriefingModal(false);
+            setTopicForBriefing(null);
+          }}
+          itemType="emerging_topic"
+          emergingTopic={{
+            name: topicForBriefing.topic_label || topicForBriefing.topic_name,
+            summary: topicForBriefing.synthesis?.narrative || topicForBriefing.why_emerging || topicForBriefing.summary,
+            description: topicForBriefing.topic_description,
+            why_emerging: topicForBriefing.why_emerging,
+            key_takeaway: topicForBriefing.synthesis?.key_takeaway,
+            article_count: topicForBriefing.article_count,
+            velocity: topicForBriefing.velocity,
+            trend_score: topicForBriefing.trend_score,
+            key_entities: topicForBriefing.key_entities,
+            representative_keywords: topicForBriefing.representative_keywords,
+            key_themes: topicForBriefing.key_themes,
+            topic: topic,
+            // Rich analysis fields
+            implications: topicForBriefing.implications,
+            organization_implications: topicForBriefing.organization_implications,
+            signals: topicForBriefing.signals,
+            actors: topicForBriefing.actors,
+            events: topicForBriefing.events,
+            // Source articles with links
+            source_articles: (topicForBriefing as any)._articles?.slice(0, 10).map((a: any) => ({
+              title: a.title,
+              url: a.uri || a.url,
+              source: a.news_source || a.source,
+              date: a.publication_date,
+              summary: a.summary,
+            })),
+          }}
         />
       )}
 
