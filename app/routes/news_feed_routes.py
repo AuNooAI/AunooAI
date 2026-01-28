@@ -345,9 +345,10 @@ async def get_articles_list(
         offset = (page - 1) * per_page
 
         # Get articles sorted chronologically by publication date
+        # Use 'T' format for end_date to match ISO format in database (e.g., '2026-01-28T14:25:03+00:00')
         articles_data = db_facade.get_news_feed_articles_chronological(
-            start_date=start_date.strftime('%Y-%m-%d %H:%M:%S') if start_date else None,
-            end_date=now.strftime('%Y-%m-%d %H:%M:%S'),
+            start_date=start_date.strftime('%Y-%m-%d') if start_date else None,
+            end_date=now.strftime('%Y-%m-%dT23:59:59'),
             topic=topic,
             offset=offset,
             limit=per_page
@@ -355,8 +356,8 @@ async def get_articles_list(
 
         # Get total count for pagination
         total_count = db_facade.get_news_feed_articles_chronological_count(
-            start_date=start_date.strftime('%Y-%m-%d %H:%M:%S') if start_date else None,
-            end_date=now.strftime('%Y-%m-%d %H:%M:%S'),
+            start_date=start_date.strftime('%Y-%m-%d') if start_date else None,
+            end_date=now.strftime('%Y-%m-%dT23:59:59'),
             topic=topic
         )
 
