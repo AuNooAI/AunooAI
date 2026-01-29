@@ -157,6 +157,63 @@ def get_database_instance():
         _db_instance = Database()
     return _db_instance
 
+
+class AutoClosingConnection:
+    """
+    Wrapper around SQLAlchemy connection that auto-closes when garbage collected.
+
+    This prevents connection pool exhaustion from code that forgets to close connections.
+    The connection is returned to the pool when:
+    - close() is called explicitly
+    - The object is garbage collected (via __del__)
+    - Used as a context manager (with statement)
+    """
+
+    def __init__(self, connection):
+        self._connection = connection
+        self._closed = False
+
+    def __del__(self):
+        """Auto-close on garbage collection."""
+        self._safe_close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self._safe_close()
+        return False
+
+    def _safe_close(self):
+        """Safely close the connection, ignoring errors."""
+        if not self._closed and self._connection is not None:
+            try:
+                self._connection.close()
+            except Exception:
+                pass
+            self._closed = True
+
+    def close(self):
+        """Explicitly close the connection."""
+        self._safe_close()
+
+    def execute(self, *args, **kwargs):
+        return self._connection.execute(*args, **kwargs)
+
+    def commit(self):
+        return self._connection.commit()
+
+    def rollback(self):
+        return self._connection.rollback()
+
+    def begin(self):
+        return self._connection.begin()
+
+    def __getattr__(self, name):
+        """Proxy all other attributes to the underlying connection."""
+        return getattr(self._connection, name)
+
+
 class Database:
     
     # Connection pool settings
@@ -239,9 +296,9 @@ class Database:
                                     pool_timeout=30
                                 )
 
-                    # Get fresh connection from pool each time
-                    connection = Database._pg_engine_instance.connect()
-                    return connection
+                    # Get fresh connection from pool, wrapped for auto-close
+                    raw_connection = Database._pg_engine_instance.connect()
+                    return AutoClosingConnection(raw_connection)
                 except Exception as e:
                     logger.warning(f"PostgreSQL connection attempt {attempt + 1}/{max_retries} failed: {e}")
                     if attempt == max_retries - 1:
