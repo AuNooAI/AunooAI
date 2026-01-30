@@ -524,7 +524,11 @@ export function HighlightsSection({ incidents, loading, onIncidentUpdate, onArti
             plausibility: selectedIncidentForBriefing.plausibility,
             source_quality: selectedIncidentForBriefing.source_quality,
             credibility_summary: selectedIncidentForBriefing.credibility_summary,
-            investigation_leads: selectedIncidentForBriefing.investigation_leads,
+            investigation_leads: Array.isArray(selectedIncidentForBriefing.investigation_leads)
+              ? selectedIncidentForBriefing.investigation_leads
+              : typeof selectedIncidentForBriefing.investigation_leads === 'string'
+              ? selectedIncidentForBriefing.investigation_leads.split(/[;\n]/).map(s => s.trim()).filter(Boolean)
+              : undefined,
             analyst_notes: selectedIncidentForBriefing.analyst_notes,
           }}
         />
