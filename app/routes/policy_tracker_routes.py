@@ -9,7 +9,7 @@ Integrates with existing keyword groups system for category tracking.
 from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime, timedelta, date
 from sqlalchemy import text
 import logging
@@ -394,10 +394,28 @@ class TrendDataResponse(BaseModel):
 # Helper Functions
 # ============================================================================
 
-def categorize_article(title: str, summary: str) -> List[str]:
+# Mapping from ML model category names to display names
+ML_TO_DISPLAY_CATEGORY = {
+    "undermining_democracy": "Undermining Democracy",
+    "hollowing_state": "Hollowing State",
+    "suppressing_dissent": "Suppressing Dissent",
+    "controlling_information": "Controlling Information",
+    "attacking_science": "Attacking Science",
+    "attacking_education": "Attacking Education",
+    "weakening_civil_rights": "Weakening Civil Rights",
+    "corruption": "Corruption",
+    "foreign_policy": "Foreign Policy",
+    "nationalism_immigration": "Nationalism & Immigration",
+}
+
+# Reverse mapping
+DISPLAY_TO_ML_CATEGORY = {v: k for k, v in ML_TO_DISPLAY_CATEGORY.items()}
+
+
+def _categorize_article_keywords(title: str, summary: str) -> List[str]:
     """
-    Categorize an article based on keyword matching.
-    Returns list of matching category names.
+    Categorize an article based on keyword matching (fallback method).
+    Returns list of matching category names (display format).
     Uses word boundary matching for short keywords to avoid false positives.
     """
     import re
@@ -422,6 +440,58 @@ def categorize_article(title: str, summary: str) -> List[str]:
     return matched_categories
 
 
+def _categorize_article_ml(title: str, summary: str) -> Tuple[List[str], Dict[str, float], bool]:
+    """
+    Categorize an article using ML classifier (preferred method).
+    Returns (categories_display_names, scores, success).
+    """
+    try:
+        from app.services.policy_classifier_service import classify_article_ml
+
+        ml_categories, scores = classify_article_ml(title, summary)
+
+        if not ml_categories and not scores:
+            # ML classifier not available
+            return [], {}, False
+
+        # Convert to display names
+        display_categories = [
+            ML_TO_DISPLAY_CATEGORY.get(cat, cat)
+            for cat in ml_categories
+        ]
+
+        return display_categories, scores, True
+
+    except Exception as e:
+        logger.warning(f"ML classification failed: {e}")
+        return [], {}, False
+
+
+def categorize_article(title: str, summary: str, use_ml: bool = True) -> List[str]:
+    """
+    Categorize an article into policy categories.
+
+    Uses ML classifier (RoBERTa + DeBERTa ensemble) when available,
+    falls back to keyword matching if ML not available.
+
+    Args:
+        title: Article title
+        summary: Article summary/content
+        use_ml: Whether to try ML classification first (default True)
+
+    Returns:
+        List of category names (display format, e.g., "Undermining Democracy")
+    """
+    if use_ml:
+        categories, scores, success = _categorize_article_ml(title, summary)
+        if success:
+            logger.debug(f"ML classified: {categories}")
+            return categories
+
+    # Fall back to keyword-based
+    return _categorize_article_keywords(title, summary)
+
+
 # ============================================================================
 # Service Functions (for use by other modules like automated_ingest_service)
 # ============================================================================
@@ -431,7 +501,7 @@ def categorize_article_sync(
     title: str,
     summary: str,
     topic: str = None,
-    use_llm: bool = False,
+    use_ml: bool = True,
     llm_model: str = None
 ) -> List[str]:
     """
@@ -445,8 +515,8 @@ def categorize_article_sync(
         title: Article title
         summary: Article summary/content
         topic: Topic name (default: Trump Administration Tracker)
-        use_llm: If True, use LLM for more accurate categorization
-        llm_model: Optional specific LLM model to use
+        use_ml: If True, use ML classifier (default True, falls back to keywords)
+        llm_model: Optional specific LLM model to use (deprecated, use use_ml)
 
     Returns:
         List of matched category names
@@ -454,12 +524,18 @@ def categorize_article_sync(
     if topic is None:
         topic = DEFAULT_TRACKER_TOPIC
 
-    # Use keyword-based categorization
-    categories = categorize_article(title, summary)
+    # Determine classification method
+    classification_method = "keyword"
 
-    if use_llm and categories:
-        # Optionally refine with LLM (for future implementation)
-        pass
+    if use_ml:
+        ml_categories, scores, ml_success = _categorize_article_ml(title, summary)
+        if ml_success:
+            categories = ml_categories
+            classification_method = "ml_ensemble"
+        else:
+            categories = _categorize_article_keywords(title, summary)
+    else:
+        categories = _categorize_article_keywords(title, summary)
 
     # Store categories in database
     if categories:
@@ -477,12 +553,12 @@ def categorize_article_sync(
                         "uri": article_uri,
                         "category": category,
                         "topic": topic,
-                        "method": "llm" if use_llm else "keyword"
+                        "method": classification_method
                     })
                 except Exception as e:
                     logger.warning(f"Failed to store category {category} for {article_uri}: {e}")
             conn.commit()
-            logger.info(f"Categorized article {article_uri} into {len(categories)} policy categories: {categories}")
+            logger.info(f"Categorized article {article_uri} ({classification_method}) into {len(categories)} categories: {categories}")
         finally:
             conn.close()
 
@@ -1401,6 +1477,70 @@ async def get_tracker_config(session=Depends(verify_session)):
     return {
         "default_topic": DEFAULT_TRACKER_TOPIC,
         "categories": POLICY_CATEGORIES
+    }
+
+
+@router.get("/classifier/status")
+async def get_classifier_status(session=Depends(verify_session)):
+    """
+    Get the ML classifier status and configuration.
+
+    Returns information about whether the ML classifier is available,
+    which models are loaded, and classification method being used.
+    """
+    try:
+        from app.services.policy_classifier_service import get_classifier_service
+
+        classifier = get_classifier_service()
+        status = classifier.get_status()
+        status["method"] = "ml_ensemble" if status["available"] else "keyword"
+        return status
+    except ImportError:
+        return {
+            "available": False,
+            "error": "ML classifier service not installed",
+            "method": "keyword",
+            "categories": list(POLICY_CATEGORIES.keys()),
+        }
+    except Exception as e:
+        return {
+            "available": False,
+            "error": str(e),
+            "method": "keyword",
+            "categories": list(POLICY_CATEGORIES.keys()),
+        }
+
+
+@router.post("/classifier/test")
+async def test_classifier(
+    text: str = Query(..., description="Text to classify"),
+    use_ml: bool = Query(True, description="Use ML classifier if available"),
+    session=Depends(verify_session),
+):
+    """
+    Test the classifier with a sample text.
+
+    Returns both ML and keyword-based classifications for comparison.
+    """
+    # Get keyword-based result
+    keyword_categories = _categorize_article_keywords(text, "")
+
+    # Get ML result
+    ml_categories = []
+    ml_scores = {}
+    ml_available = False
+
+    if use_ml:
+        ml_categories, ml_scores, ml_available = _categorize_article_ml(text, "")
+
+    return {
+        "text": text[:200] + "..." if len(text) > 200 else text,
+        "ml_available": ml_available,
+        "ml_categories": ml_categories,
+        "ml_scores": ml_scores,
+        "keyword_categories": keyword_categories,
+        "final_categories": ml_categories if ml_available else keyword_categories,
+        "method_used": "ml_ensemble" if ml_available else "keyword",
     }
 
 
@@ -3393,19 +3533,65 @@ async def process_csv_import(
 
         conn.commit()
 
-        # Run LLM classification if requested
+        # Run ML classification if requested (uses RoBERTa + DeBERTa ensemble)
         narrative_id = None
         if run_llm_classification:
             try:
-                # Import asyncio for running async function
-                import asyncio
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                # Run batch classification (process new articles)
-                # This would be done via the existing semantic batch classification
-                logger.info("LLM classification requested - would process new articles")
+                from app.services.policy_classifier_service import get_classifier_service
+
+                classifier = get_classifier_service()
+                if classifier.load_models():
+                    logger.info("Running ML classification on imported articles...")
+
+                    # Get articles that were just imported (articles from this import run)
+                    result = conn.execute(text("""
+                        SELECT a.uri, a.title, a.summary
+                        FROM articles a
+                        WHERE a.topic = :topic
+                        AND a.article_origin = 'external'
+                        ORDER BY a.created_at DESC
+                        LIMIT 500
+                    """), {"topic": topic})
+
+                    articles_to_classify = result.fetchall()
+                    ml_classified = 0
+
+                    for uri, title, summary in articles_to_classify:
+                        if not title:
+                            continue
+
+                        text_to_classify = f"{title}. {summary}" if summary else title
+                        ml_result = classifier.classify(text_to_classify, return_scores=True)
+
+                        if ml_result["categories"]:
+                            # Convert internal names to display names
+                            from app.services.policy_classifier_service import CATEGORY_DISPLAY_NAMES
+                            display_categories = [
+                                CATEGORY_DISPLAY_NAMES.get(cat, cat)
+                                for cat in ml_result["categories"]
+                            ]
+
+                            for category in display_categories:
+                                conn.execute(text("""
+                                    INSERT INTO policy_article_categories
+                                    (article_uri, category, topic, classification_method, confidence)
+                                    VALUES (:uri, :category, :topic, 'ml_ensemble', :confidence)
+                                    ON CONFLICT (article_uri, category)
+                                    DO UPDATE SET classification_method = 'ml_ensemble', confidence = :confidence
+                                """), {
+                                    "uri": uri,
+                                    "category": category,
+                                    "topic": topic,
+                                    "confidence": max(ml_result.get("scores", {}).values()) if ml_result.get("scores") else 0.9
+                                })
+                            ml_classified += 1
+
+                    conn.commit()
+                    logger.info(f"ML classified {ml_classified} articles with ensemble model")
+                else:
+                    logger.warning("ML classifier models not available")
             except Exception as e:
-                logger.warning(f"LLM classification failed: {e}")
+                logger.warning(f"ML classification failed: {e}")
 
         # Regenerate narrative if requested
         if regenerate_narrative:
@@ -3960,7 +4146,7 @@ async def import_from_feed(
         """), {"topic": group_topic})
 
         articles = result.fetchall()
-        logger.info(f"Processing {len(articles)} uncategorized articles for topic '{group_topic}' (LLM: {request.run_llm_classification})")
+        logger.info(f"Processing {len(articles)} uncategorized articles for topic '{group_topic}' (ML ensemble: {request.run_llm_classification})")
 
         if not articles:
             # No articles to process
@@ -3981,7 +4167,7 @@ async def import_from_feed(
             )
 
         if request.run_llm_classification:
-            # Use LLM-based classification in background (accurate but slow)
+            # Use ML ensemble classification in background (RoBERTa + DeBERTa, F1: 0.9558)
             # Return immediately and process in background
             conn.close()  # Close this connection, background task will open its own
 
@@ -3996,7 +4182,7 @@ async def import_from_feed(
             return ImportFromFeedResponse(
                 import_id=import_id,
                 status="processing",
-                message=f"Started LLM classification for {len(articles)} articles in background. Check import status for progress.",
+                message=f"Started ML classification for {len(articles)} articles in background. Check import status for progress.",
                 articles_imported=0,
                 articles_skipped=0
             )
@@ -4104,9 +4290,11 @@ async def import_from_feed(
 
 
 async def _run_import_from_feed_task(import_id: int, group_topic: str, articles: list, regenerate_narrative: bool):
-    """Background task to run LLM classification for import-from-feed."""
-    import asyncio
+    """Background task to run ML classification for import-from-feed.
 
+    Uses RoBERTa + DeBERTa ensemble classifier (F1: 0.9558) which is faster
+    and more accurate than GPT-4o-mini (F1: 0.6713) for this domain.
+    """
     db = get_database_instance()
     conn = db._temp_get_connection()
 
@@ -4115,50 +4303,75 @@ async def _run_import_from_feed_task(import_id: int, group_topic: str, articles:
     articles_error = 0
 
     try:
+        # Load ML classifier (runs locally, no API calls needed)
+        from app.services.policy_classifier_service import get_classifier_service, CATEGORY_DISPLAY_NAMES
+
+        classifier = get_classifier_service()
+        if not classifier.load_models():
+            logger.error("ML classifier models not available, cannot proceed with classification")
+            conn.execute(text("""
+                UPDATE policy_tracker_imports
+                SET status = 'failed', error_message = 'ML classifier models not available',
+                    completed_at = CURRENT_TIMESTAMP
+                WHERE id = :import_id
+            """), {"import_id": import_id})
+            conn.commit()
+            conn.close()
+            return
+
+        logger.info(f"Starting ML classification for {len(articles)} articles...")
+
         for uri, title, summary in articles:
             if not title:
                 articles_no_match += 1
                 continue
 
             try:
-                # Add small delay to avoid rate limiting
-                await asyncio.sleep(0.3)
-
-                result = await llm_categorize_article(title or "", summary or "", "gpt-4o-mini")
+                text_to_classify = f"{title}. {summary}" if summary else title
+                result = classifier.classify(text_to_classify, return_scores=True)
 
                 if result["categories"]:
-                    for category in result["categories"]:
+                    # Convert internal names to display names
+                    display_categories = [
+                        CATEGORY_DISPLAY_NAMES.get(cat, cat)
+                        for cat in result["categories"]
+                    ]
+
+                    # Get max confidence score
+                    confidence = max(result.get("scores", {}).values()) if result.get("scores") else 0.9
+
+                    for category in display_categories:
                         conn.execute(text("""
                             INSERT INTO policy_article_categories
                             (article_uri, category, topic, classification_method, confidence)
-                            VALUES (:uri, :category, :topic, 'llm_semantic', :confidence)
+                            VALUES (:uri, :category, :topic, 'ml_ensemble', :confidence)
                             ON CONFLICT (article_uri, category)
-                            DO UPDATE SET classification_method = 'llm_semantic', confidence = :confidence
+                            DO UPDATE SET classification_method = 'ml_ensemble', confidence = :confidence
                         """), {
                             "uri": uri,
                             "category": category,
                             "topic": group_topic,
-                            "confidence": result["confidence"]
+                            "confidence": confidence
                         })
                     articles_categorized += 1
-                    logger.info(f"LLM categorized '{title[:50]}' into {result['categories']}")
+                    logger.debug(f"ML classified '{title[:50]}' into {display_categories}")
 
-                    # Commit progress periodically to keep connection alive
-                    if articles_categorized % 10 == 0:
+                    # Commit progress periodically
+                    if articles_categorized % 50 == 0:
                         conn.commit()
-                        logger.info(f"Progress: {articles_categorized}/{len(articles)} categorized so far...")
+                        logger.info(f"Progress: {articles_categorized}/{len(articles)} categorized...")
                 else:
                     articles_no_match += 1
             except Exception as e:
-                logger.warning(f"Failed to LLM categorize article {uri}: {e}")
+                logger.warning(f"Failed to ML classify article {uri}: {e}")
                 try:
-                    conn.rollback()  # Reset transaction state after error
+                    conn.rollback()
                 except:
                     pass
                 articles_error += 1
 
         conn.commit()
-        logger.info(f"LLM categorization complete: {articles_categorized} categorized, {articles_no_match} no match, {articles_error} errors")
+        logger.info(f"ML classification complete: {articles_categorized} categorized, {articles_no_match} no match, {articles_error} errors")
 
         # Update import record
         conn.execute(text("""
