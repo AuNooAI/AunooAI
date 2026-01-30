@@ -10,7 +10,7 @@ Provides endpoints for:
 
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List, Dict, Any
 import json
 import logging
@@ -81,7 +81,8 @@ class IncidentAnalysis(BaseModel):
 
 class AddIncidentRequest(BaseModel):
     """Request model for adding an incident to a briefing."""
-    name: str = Field(..., description="Incident name")
+    # All fields first
+    name: Optional[str] = Field(None, description="Incident name")
     title: Optional[str] = Field(None, description="Incident title")
     type: Optional[str] = Field(None, description="Incident type")
     significance: Optional[str] = Field(None, description="Significance level")
@@ -93,7 +94,6 @@ class AddIncidentRequest(BaseModel):
     last_seen: Optional[str] = Field(None, description="Last seen date")
     entities: Optional[List[str]] = Field(None, description="Related entities")
     article_uris: Optional[List[str]] = Field(None, description="Related article URIs")
-    # Rich analysis fields
     organizational_relevance: Optional[str] = Field(None, description="Organizational relevance")
     strategic_relevance: Optional[str] = Field(None, description="Strategic relevance (alias for organizational)")
     plausibility: Optional[str] = Field(None, description="Plausibility assessment")
@@ -102,6 +102,33 @@ class AddIncidentRequest(BaseModel):
     investigation_leads: Optional[List[str]] = Field(None, description="Investigation leads")
     analyst_notes: Optional[List[Dict[str, Any]]] = Field(None, description="Analyst notes")
     analysis: Optional[IncidentAnalysis] = Field(None, description="Incident analysis data")
+
+    # Validators after all fields
+    @field_validator('entities', 'article_uris', 'investigation_leads', mode='before')
+    @classmethod
+    def convert_string_to_list(cls, v):
+        """Convert string values to list (AI sometimes returns strings instead of lists)."""
+        if v is None:
+            return None
+        if isinstance(v, str):
+            # Split by semicolons or newlines if present, otherwise wrap in list
+            if ';' in v:
+                return [item.strip() for item in v.split(';') if item.strip()]
+            elif '\n' in v:
+                return [item.strip() for item in v.split('\n') if item.strip()]
+            else:
+                return [v.strip()] if v.strip() else None
+        return v
+
+    @model_validator(mode='after')
+    def ensure_name_from_title(self):
+        """Ensure name is set from title if not provided."""
+        if not self.name:
+            if self.title and str(self.title).strip():
+                self.name = str(self.title).strip()
+            else:
+                self.name = "Unnamed Incident"
+        return self
 
 
 class FinalizeBriefingRequest(BaseModel):
