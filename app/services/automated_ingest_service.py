@@ -27,6 +27,7 @@ from app.services.hybrid_relevance_service import get_hybrid_relevance_service
 from app.services.enrichment_service import get_enrichment_service
 from app.services.summarization_service import get_summarization_service
 from app.services.keybert_tagging_service import get_keybert_tagging_service
+from app.services.explanation_service import get_explanation_service
 from app.analyzers.article_analyzer import ArticleAnalyzer
 from app.ai_models import LiteLLMModel, get_available_models
 import asyncio
@@ -58,6 +59,7 @@ class AutomatedIngestService:
         self.enrichment_service = None  # Lazy-loaded SLM-based enrichment
         self.summarization_service = None  # Lazy-loaded SLM-based summarization
         self.keybert_tagging_service = None  # Lazy-loaded KeyBERT tagging
+        self.explanation_service = None  # Lazy-loaded SLM-based explanations
         self.media_bias = MediaBias(db)
         self.article_analyzer = None
 
@@ -1183,17 +1185,50 @@ class AutomatedIngestService:
 
             tags_str = ','.join(tags) if isinstance(tags, list) else str(tags) if tags else None
 
+            # Step 4: Generate explanations using SLM (Qwen)
+            slm_explanations = {}
+            explanation_source = "llm"
+            try:
+                if not self.explanation_service:
+                    self.explanation_service = get_explanation_service()
+
+                if self.explanation_service.is_available():
+                    # Get classification values (prefer SLM values if available)
+                    sentiment_val = slm_result.get('sentiment') if 'sentiment' in slm_fields_used else analysis_result.get('sentiment')
+                    time_to_impact_val = slm_result.get('time_to_impact') if 'time_to_impact' in slm_fields_used else analysis_result.get('time_to_impact')
+                    driver_type_val = slm_result.get('driver_type') if 'driver_type' in slm_fields_used else analysis_result.get('driver_type')
+                    future_signal_val = slm_result.get('future_signal') if 'future_signal' in slm_fields_used else analysis_result.get('future_signal')
+
+                    explanation_result = await loop.run_in_executor(
+                        None,
+                        lambda: self.explanation_service.generate_explanations(
+                            title=title,
+                            summary=final_summary or article_text,
+                            sentiment=sentiment_val,
+                            time_to_impact=time_to_impact_val,
+                            driver_type=driver_type_val,
+                            future_signal=future_signal_val
+                        )
+                    )
+
+                    if explanation_result.get('source') == 'qwen':
+                        slm_explanations = explanation_result
+                        explanation_source = "qwen"
+                        self.logger.info(f"    💬 SLM explanations generated ({explanation_result.get('latency_ms', 0)}ms)")
+            except Exception as e:
+                self.logger.warning(f"SLM explanation generation failed, using LLM fallback: {e}")
+
             final_result = {
                 'summary': final_summary,
                 'category': analysis_result.get('category'),
                 'sentiment': analysis_result.get('sentiment'),
                 'future_signal': analysis_result.get('future_signal'),
-                'future_signal_explanation': analysis_result.get('future_signal_explanation'),
-                'sentiment_explanation': analysis_result.get('sentiment_explanation'),
+                'future_signal_explanation': slm_explanations.get('future_signal_explanation') or analysis_result.get('future_signal_explanation'),
+                'sentiment_explanation': slm_explanations.get('sentiment_explanation') or analysis_result.get('sentiment_explanation'),
                 'time_to_impact': analysis_result.get('time_to_impact'),
-                'time_to_impact_explanation': analysis_result.get('time_to_impact_explanation'),
+                'time_to_impact_explanation': slm_explanations.get('time_to_impact_explanation') or analysis_result.get('time_to_impact_explanation'),
                 'driver_type': analysis_result.get('driver_type'),
-                'driver_type_explanation': analysis_result.get('driver_type_explanation'),
+                'driver_type_explanation': slm_explanations.get('driver_type_explanation') or analysis_result.get('driver_type_explanation'),
                 'tags': tags_str,
                 'analyzed': True,
                 '_enrichment_method': 'llm_only',
@@ -1213,6 +1248,8 @@ class AutomatedIngestService:
                 slm_components.append('tags')
             if entities:
                 slm_components.append('ner')
+            if explanation_source == "qwen":
+                slm_components.append('explanations')
 
             if slm_components:
                 final_result['_enrichment_method'] = f"hybrid_slm({','.join(slm_components)})"

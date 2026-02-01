@@ -26,7 +26,8 @@ Replace/reduce LLM API calls for article processing with local Small Language Mo
 │  2. SUMMARIZATION (vLLM Phi-3)          ~3.5s    FREE               │
 │  3. CLASSIFICATION (DeBERTa)            ~56ms    FREE               │
 │  4. TAGGING + NER (KeyBERT + Phi-3)     ~2.5s    FREE               │
-│  5. GENERATION (Configured LLM)         ~2-5s    API COST           │
+│  5. EXPLANATIONS (vLLM Qwen)            ~5s      FREE               │
+│  6. CATEGORY (Configured LLM)           ~2-5s    API COST           │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -443,6 +444,7 @@ We evaluated 9 different summarization approaches across speed, quality, and cos
 | Relevance Classifier | `app/services/relevance_classifier_service.py` | DeBERTa | CPU | ✅ Running |
 | Hybrid Relevance | `app/services/hybrid_relevance_service.py` | DeBERTa + MiniLM-L6-v2 | CPU | ✅ Running |
 | Hybrid Tagging + NER | `app/services/keybert_tagging_service.py` | KeyBERT + vLLM Phi-3 | CPU+GPU | ✅ Running |
+| Explanations | `app/services/explanation_service.py` | vLLM Qwen2.5-3B | GPU | ✅ Running |
 
 **Note:** The pipeline uses `hybrid_relevance_service.py` which combines the DeBERTa classifier (weight 0.6) with MiniLM embedding similarity (weight 0.4). The standalone `relevance_classifier_service.py` is used by the hybrid service internally.
 
@@ -939,6 +941,7 @@ SAVINGS: ~73% reduction in API costs (from $0.0011 to $0.0003)
 | `app/services/hybrid_relevance_service.py` | Hybrid scoring: DeBERTa (0.6) + MiniLM embeddings (0.4) |
 | `app/services/relevance_classifier_service.py` | DeBERTa relevance classifier (used by hybrid service) |
 | `app/services/keybert_tagging_service.py` | Hybrid tagging: KeyBERT + Phi-3 refinement + NER |
+| `app/services/explanation_service.py` | Qwen-based explanation generation for classifications |
 | `app/services/automated_ingest_service.py` | Main ingestion pipeline (orchestrates all services) |
 | `scripts/evaluate_keybert_tags.py` | KeyBERT vs LLM tag evaluation script |
 | `models/enrichment_model/final/` | Trained DeBERTa multi-task model weights |
