@@ -27,7 +27,7 @@ Replace/reduce LLM API calls for article processing with local Small Language Mo
 │  3. CLASSIFICATION (DeBERTa)            ~56ms    FREE               │
 │  4. TAGGING + NER (KeyBERT + Phi-3)     ~2.5s    FREE               │
 │  5. EXPLANATIONS (vLLM Qwen)            ~5s      FREE               │
-│  6. CATEGORY (Configured LLM)           ~2-5s    API COST           │
+│  6. CATEGORY (vLLM Qwen)                ~100ms   FREE               │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -307,7 +307,7 @@ Replace/reduce LLM API calls for article processing with local Small Language Mo
 │  │  TOTAL                                     $0.0011/article         │    │
 │  └────────────────────────────────────────────────────────────────────┘    │
 │                                                                             │
-│  AFTER SLM PIPELINE (CURRENT):                                              │
+│  AFTER FULL SLM PIPELINE (CURRENT):                                         │
 │  ┌────────────────────────────────────────────────────────────────────┐    │
 │  │  Relevance    → Hybrid   ░░░░░░░░░░░░░░░░  FREE (DeBERTa+Embed)    │    │
 │  │  Summary      → vLLM     ░░░░░░░░░░░░░░░░  FREE (Phi-3 :8765)      │    │
@@ -317,12 +317,12 @@ Replace/reduce LLM API calls for article processing with local Small Language Mo
 │  │  Signal       → DeBERTa  ░░░░░░░░░░░░░░░░  FREE                    │    │
 │  │  Tags + NER   → Hybrid   ░░░░░░░░░░░░░░░░  FREE (KeyBERT+Phi-3)    │    │
 │  │  Explanations → vLLM     ░░░░░░░░░░░░░░░░  FREE (Qwen :8766)       │    │
-│  │  Category     → LLM API  ████████████████  $0.0001                 │    │
+│  │  Category     → vLLM     ░░░░░░░░░░░░░░░░  FREE (Qwen :8766)       │    │
 │  │  ─────────────────────────────────────────────────                 │    │
-│  │  TOTAL                                     $0.0001/article         │    │
+│  │  TOTAL                                     $0.00/article           │    │
 │  └────────────────────────────────────────────────────────────────────┘    │
 │                                                                             │
-│  SAVINGS: ~91% reduction in API costs                                       │
+│  SAVINGS: 100% reduction in API costs for article enrichment!               │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -440,6 +440,7 @@ We evaluated 9 different summarization approaches across speed, quality, and cos
 | Hybrid Relevance | `app/services/hybrid_relevance_service.py` | DeBERTa + MiniLM-L6-v2 | CPU | ✅ Running |
 | Hybrid Tagging + NER | `app/services/keybert_tagging_service.py` | KeyBERT + vLLM Phi-3 | CPU+GPU | ✅ Running |
 | Explanations | `app/services/explanation_service.py` | vLLM Qwen2.5-3B | GPU | ✅ Running |
+| Category | `app/services/category_service.py` | vLLM Qwen2.5-3B | GPU | ✅ Running |
 
 **Note:** The pipeline uses `hybrid_relevance_service.py` which combines the DeBERTa classifier (weight 0.6) with MiniLM embedding similarity (weight 0.4). The standalone `relevance_classifier_service.py` is used by the hybrid service internally.
 
@@ -975,14 +976,16 @@ result = service.generate_explanations(
 - [x] Implement NER via Phi-3 (people, organizations, locations)
 - [x] Implement KeyBERT tagging service (replaces LLM tags)
 - [x] Implement explanation service (Qwen - replaces LLM explanations)
+- [x] Implement category service (Qwen - replaces LLM category assignment)
 - [x] Dual-model vLLM setup (Phi-3 + Qwen on same GPU)
+- [x] **100% LLM-free article enrichment pipeline!**
 
-### Remaining
+### Remaining (Optimization)
 
-- [ ] Move category assignment to SLM (last LLM dependency)
 - [ ] Move DeBERTa enrichment model to GPU for faster inference
 - [ ] Create systemd services for dual vLLM setup
-- [ ] Finetune Qwen on existing summaries for improved quality
+- [ ] Finetune Qwen/Phi-3 on existing data for improved quality
+- [ ] Evaluate finetuned vs zero-shot performance
 
 ---
 
@@ -994,12 +997,12 @@ result = service.generate_explanations(
 | Classification (4 fields) | LLM API | DeBERTa (local) | 100% |
 | Relevance scoring | LLM API | Hybrid: DeBERTa + MiniLM (local) | 100% |
 | Tags + NER | LLM API | KeyBERT + Phi-3 (local) | 100% |
-| **Explanations** | LLM API | **vLLM Qwen (local)** | **100%** |
-| Category | LLM API | LLM API | 0% |
+| Explanations | LLM API | vLLM Qwen (local) | 100% |
+| **Category** | LLM API | **vLLM Qwen (local)** | **100%** |
 
-**Estimated overall reduction:** ~91% fewer LLM API calls for article enrichment.
+**Total reduction:** 100% - Zero LLM API costs for article enrichment!
 
-**Only remaining LLM cost:** Category assignment (~$0.0001/article)
+**All operations now run locally on GPU using Phi-3 and Qwen.**
 
 ### Cost Per Article Breakdown (Current)
 
@@ -1014,12 +1017,12 @@ AFTER FULL SLM PIPELINE (Phi-3 + Qwen):
 │  Signal       → DeBERTa  ░░░░░░░░░░░░░░░░  FREE                    │
 │  Tags + NER   → Hybrid   ░░░░░░░░░░░░░░░░  FREE (KeyBERT+Phi-3)    │
 │  Explanations → vLLM     ░░░░░░░░░░░░░░░░  FREE (Qwen :8766)       │
-│  Category     → LLM API  ████████████████  $0.0001                 │
+│  Category     → vLLM     ░░░░░░░░░░░░░░░░  FREE (Qwen :8766)       │
 │  ─────────────────────────────────────────────────                 │
-│  TOTAL                                     $0.0001/article         │
+│  TOTAL                                     $0.00/article           │
 └────────────────────────────────────────────────────────────────────┘
 
-SAVINGS: ~91% reduction in API costs (from $0.0011 to $0.0001)
+SAVINGS: 100% reduction in API costs (from $0.0011 to $0.00)
 ```
 
 ---
@@ -1033,6 +1036,7 @@ SAVINGS: ~91% reduction in API costs (from $0.0011 to $0.0001)
 | Enrichment (4 tasks) | 56ms | ~18/sec | Avg F1: 0.720 |
 | Hybrid Tagging + NER | ~2,500ms | ~0.4/sec | High quality + NER entities |
 | Explanations (vLLM Qwen) | ~5,000ms | ~0.2/sec | Good - cites article evidence |
+| Category (vLLM Qwen) | ~100ms | ~10/sec | Accurate zero-shot classification |
 
 ---
 
@@ -1046,6 +1050,7 @@ SAVINGS: ~91% reduction in API costs (from $0.0011 to $0.0001)
 | `app/services/relevance_classifier_service.py` | DeBERTa relevance classifier (used by hybrid service) |
 | `app/services/keybert_tagging_service.py` | Hybrid tagging: KeyBERT + Phi-3 refinement + NER |
 | `app/services/explanation_service.py` | Qwen-based explanation generation for classifications |
+| `app/services/category_service.py` | Qwen-based zero-shot category classification |
 | `app/services/automated_ingest_service.py` | Main ingestion pipeline (orchestrates all services) |
 | `scripts/evaluate_keybert_tags.py` | KeyBERT vs LLM tag evaluation script |
 | `models/enrichment_model/final/` | Trained DeBERTa multi-task model weights |

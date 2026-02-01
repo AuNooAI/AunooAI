@@ -28,6 +28,7 @@ from app.services.enrichment_service import get_enrichment_service
 from app.services.summarization_service import get_summarization_service
 from app.services.keybert_tagging_service import get_keybert_tagging_service
 from app.services.explanation_service import get_explanation_service
+from app.services.category_service import get_category_service
 from app.analyzers.article_analyzer import ArticleAnalyzer
 from app.ai_models import LiteLLMModel, get_available_models
 import asyncio
@@ -60,6 +61,7 @@ class AutomatedIngestService:
         self.summarization_service = None  # Lazy-loaded SLM-based summarization
         self.keybert_tagging_service = None  # Lazy-loaded KeyBERT tagging
         self.explanation_service = None  # Lazy-loaded SLM-based explanations
+        self.category_service = None  # Lazy-loaded SLM-based category classification
         self.media_bias = MediaBias(db)
         self.article_analyzer = None
 
@@ -1218,9 +1220,34 @@ class AutomatedIngestService:
             except Exception as e:
                 self.logger.warning(f"SLM explanation generation failed, using LLM fallback: {e}")
 
+            # Step 5: Classify category using SLM (Qwen)
+            slm_category = None
+            category_source = "llm"
+            try:
+                if not self.category_service:
+                    self.category_service = get_category_service()
+
+                if self.category_service.is_available() and categories:
+                    category_result = await loop.run_in_executor(
+                        None,
+                        lambda: self.category_service.classify_category(
+                            title=title,
+                            summary=final_summary or article_text,
+                            categories=categories,
+                            topic=topic
+                        )
+                    )
+
+                    if category_result.get('source') == 'qwen' and category_result.get('category'):
+                        slm_category = category_result['category']
+                        category_source = "qwen"
+                        self.logger.info(f"    📂 SLM category: {slm_category} ({category_result.get('latency_ms', 0)}ms)")
+            except Exception as e:
+                self.logger.warning(f"SLM category classification failed, using LLM fallback: {e}")
+
             final_result = {
                 'summary': final_summary,
-                'category': analysis_result.get('category'),
+                'category': slm_category or analysis_result.get('category'),
                 'sentiment': analysis_result.get('sentiment'),
                 'future_signal': analysis_result.get('future_signal'),
                 'future_signal_explanation': slm_explanations.get('future_signal_explanation') or analysis_result.get('future_signal_explanation'),
@@ -1250,6 +1277,8 @@ class AutomatedIngestService:
                 slm_components.append('ner')
             if explanation_source == "qwen":
                 slm_components.append('explanations')
+            if category_source == "qwen":
+                slm_components.append('category')
 
             if slm_components:
                 final_result['_enrichment_method'] = f"hybrid_slm({','.join(slm_components)})"
