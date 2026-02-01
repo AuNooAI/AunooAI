@@ -189,33 +189,28 @@ Replace/reduce LLM API calls for article processing with local Small Language Mo
                               │
                               ▼
 ┌────────────────────────────────────────────────────────────────────────────┐
-│                     STEP 5: LLM GENERATION                                 │
-│                     Service: article_analyzer.py                           │
-│                     Model: Configured LLM (e.g., gpt-4o-mini)              │
-│                     Latency: ~2-5s | Cost: API COST                        │
+│                     STEP 5: EXPLANATION GENERATION (SLM)                   │
+│                     Service: explanation_service.py                        │
+│                     Model: vLLM Qwen2.5-3B-Instruct (port 8766)            │
+│                     Latency: ~5s | Cost: FREE                              │
 ├────────────────────────────────────────────────────────────────────────────┤
 │                                                                            │
 │  ┌──────────────────────────────────────────────────────────────────────┐ │
-│  │                    LLM GENERATION TASKS                              │ │
+│  │                SLM EXPLANATION GENERATION (Qwen)                     │ │
 │  │                                                                      │ │
-│  │  ┌────────────────────┐  ┌────────────────────┐                     │ │
-│  │  │  EXPLANATIONS      │  │  CATEGORY          │                     │ │
-│  │  │  (required)        │  │  (required)        │                     │ │
-│  │  ├────────────────────┤  ├────────────────────┤                     │ │
-│  │  │ • sentiment_       │  │  Assign to topic-  │                     │ │
-│  │  │   explanation      │  │  specific category │                     │ │
-│  │  │ • time_to_impact_  │  │  from ontology     │                     │ │
-│  │  │   explanation      │  │                    │                     │ │
-│  │  │ • driver_type_     │  │                    │                     │ │
-│  │  │   explanation      │  │                    │                     │ │
-│  │  │ • future_signal_   │  │                    │                     │ │
-│  │  │   explanation      │  │                    │                     │ │
-│  │  └────────────────────┘  └────────────────────┘                     │ │
+│  │  Input: title, summary, classification values from Step 4            │ │
 │  │                                                                      │ │
-│  │  Note: Tags are now handled by KeyBERT (local) - see Step 4.5       │ │
+│  │  Qwen generates explanations for each classification:                │ │
+│  │  • sentiment_explanation      - What indicates the sentiment         │ │
+│  │  • time_to_impact_explanation - What suggests the timeframe          │ │
+│  │  • driver_type_explanation    - What makes this the primary driver   │ │
+│  │  • future_signal_explanation  - What indicates this signal type      │ │
+│  │                                                                      │ │
+│  │  Prompt: "Explain what in the article indicates this classification" │ │
+│  │  Output: JSON with 1-2 sentence explanations citing article evidence │ │
+│  │                                                                      │ │
+│  │  Fallback: LLM API (gpt-4o-mini) if Qwen unavailable                 │ │
 │  └──────────────────────────────────────────────────────────────────────┘ │
-│                                                                            │
-│  Note: If SLM confidence was low, LLM also verifies/corrects those fields │
 │                                                                            │
 └─────────────────────────────┬──────────────────────────────────────────────┘
                               │
@@ -312,22 +307,22 @@ Replace/reduce LLM API calls for article processing with local Small Language Mo
 │  │  TOTAL                                     $0.0011/article         │    │
 │  └────────────────────────────────────────────────────────────────────┘    │
 │                                                                             │
-│  AFTER SLM PIPELINE:                                                        │
+│  AFTER SLM PIPELINE (CURRENT):                                              │
 │  ┌────────────────────────────────────────────────────────────────────┐    │
 │  │  Relevance    → Hybrid   ░░░░░░░░░░░░░░░░  FREE (DeBERTa+Embed)    │    │
-│  │  Summary      → vLLM     ░░░░░░░░░░░░░░░░  FREE                    │    │
+│  │  Summary      → vLLM     ░░░░░░░░░░░░░░░░  FREE (Phi-3 :8765)      │    │
 │  │  Sentiment    → DeBERTa  ░░░░░░░░░░░░░░░░  FREE                    │    │
 │  │  TTI          → DeBERTa  ░░░░░░░░░░░░░░░░  FREE                    │    │
 │  │  Driver       → DeBERTa  ░░░░░░░░░░░░░░░░  FREE                    │    │
 │  │  Signal       → DeBERTa  ░░░░░░░░░░░░░░░░  FREE                    │    │
-│  │  Explanations → LLM API  ████████████████  $0.0002                 │    │
+│  │  Tags + NER   → Hybrid   ░░░░░░░░░░░░░░░░  FREE (KeyBERT+Phi-3)    │    │
+│  │  Explanations → vLLM     ░░░░░░░░░░░░░░░░  FREE (Qwen :8766)       │    │
 │  │  Category     → LLM API  ████████████████  $0.0001                 │    │
-│  │  Tags         → LLM API  ████████████████  $0.0001                 │    │
 │  │  ─────────────────────────────────────────────────                 │    │
-│  │  TOTAL                                     $0.0004/article         │    │
+│  │  TOTAL                                     $0.0001/article         │    │
 │  └────────────────────────────────────────────────────────────────────┘    │
 │                                                                             │
-│  SAVINGS: ~64% reduction in API costs                                       │
+│  SAVINGS: ~91% reduction in API costs                                       │
 │                                                                             │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -472,15 +467,37 @@ Multi-task DeBERTa classifier trained on LLM-generated labels (knowledge distill
 
 ## Infrastructure
 
-### vLLM Phi-3 Service
+### Dual-Model vLLM Setup
+
+The pipeline runs two SLM models simultaneously on a single GPU:
+
+| Port | Model | Purpose | GPU Memory |
+|------|-------|---------|------------|
+| 8765 | Phi-3-mini-4k-instruct | Summarization, Tagging + NER | ~48% |
+| 8766 | Qwen2.5-3B-Instruct | Explanations | ~45% |
+
+**Total GPU Usage:** ~20GB on RTX 4000 SFF (20.5GB total)
+
+### vLLM Phi-3 Service (Port 8765)
 
 ```
 Endpoint: http://localhost:8765/v1
 Model: microsoft/Phi-3-mini-4k-instruct
-Max context: 4096 tokens
-GPU memory: 85%
+Max context: 2048 tokens (reduced for dual-model)
+GPU memory: 48%
+Purpose: Summarization, Hybrid Tagging + NER
 Status: Running
-Systemd: Enabled (auto-start on boot)
+```
+
+### vLLM Qwen Service (Port 8766)
+
+```
+Endpoint: http://localhost:8766/v1
+Model: Qwen/Qwen2.5-3B-Instruct
+Max context: 2048 tokens
+GPU memory: 45%
+Purpose: Explanation generation
+Status: Running
 ```
 
 **Systemd service file:** `/etc/systemd/system/vllm-phi3.service`
@@ -872,16 +889,100 @@ Hybrid mode:   ["Bitcoin", "Investment", "Strategy Inc."]           ✅ Good
 
 ---
 
+## Explanation Service
+
+### Overview
+
+The explanation service uses Qwen2.5-3B via vLLM to generate human-readable explanations for article classifications. Since the DeBERTa classifier only outputs labels (not reasoning), the explanation service reviews the article and explains WHY each classification makes sense.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    EXPLANATION SERVICE                          │
+│                    File: explanation_service.py                 │
+│                    Model: Qwen2.5-3B-Instruct (port 8766)       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│  Input:                                                         │
+│  • title, summary                                               │
+│  • sentiment, time_to_impact, driver_type, future_signal        │
+│                                                                 │
+│  Prompt:                                                        │
+│  "Analyze this article and explain what indicates each          │
+│   classification. Write brief explanations (1-2 sentences)      │
+│   that help a reader understand the analysis."                  │
+│                                                                 │
+│  Output (JSON):                                                 │
+│  {                                                              │
+│    "sentiment_explanation": "The article uses negative          │
+│      language such as 'layoffs' and 'risk'...",                 │
+│    "time_to_impact_explanation": "The mention of 'this week'    │
+│      suggests immediate impact...",                             │
+│    "driver_type_explanation": "The focus on 'AI automation'     │
+│      points to economic factors...",                            │
+│    "future_signal_explanation": "The phrase 'increasingly at    │
+│      risk' implies a growing trend..."                          │
+│  }                                                              │
+│                                                                 │
+│  Latency: ~5s | Cost: FREE                                      │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Usage
+
+```python
+from app.services.explanation_service import get_explanation_service
+
+service = get_explanation_service()
+
+result = service.generate_explanations(
+    title="Major Tech Layoffs Continue...",
+    summary="Several major technology companies announced...",
+    sentiment="Negative",
+    time_to_impact="0-6 months",
+    driver_type="Economic",
+    future_signal="Accelerating Trend"
+)
+# Returns: {
+#     "sentiment_explanation": "The article uses negative language...",
+#     "time_to_impact_explanation": "The mention of 'this week'...",
+#     "driver_type_explanation": "The focus on 'AI automation'...",
+#     "future_signal_explanation": "The phrase 'increasingly at risk'...",
+#     "source": "qwen",
+#     "latency_ms": 5160
+# }
+```
+
+### Model Comparison (Tested)
+
+| Model | Avg Latency | Quality | Notes |
+|-------|-------------|---------|-------|
+| Qwen2.5-3B | 4.4s | Good | Selected - best speed/quality |
+| Phi-3-mini | 8.7s | Good | Slower |
+| Qwen2.5-7B | 14.4s | Excellent | Too slow |
+| gpt-4o-mini | 4.9s | Excellent | API cost |
+
+---
+
 ## Pending/Future Work
 
-### Other Items
+### Completed
 
 - [x] Enable vLLM systemd service for persistence
 - [x] Implement hybrid tagging service (KeyBERT + Phi-3)
 - [x] Implement NER via Phi-3 (people, organizations, locations)
 - [x] Implement KeyBERT tagging service (replaces LLM tags)
+- [x] Implement explanation service (Qwen - replaces LLM explanations)
+- [x] Dual-model vLLM setup (Phi-3 + Qwen on same GPU)
+
+### Remaining
+
+- [ ] Move category assignment to SLM (last LLM dependency)
 - [ ] Move DeBERTa enrichment model to GPU for faster inference
-- [ ] Implement NER service for entity extraction
+- [ ] Create systemd services for dual vLLM setup
+- [ ] Finetune Qwen on existing summaries for improved quality
 
 ---
 
@@ -892,31 +993,33 @@ Hybrid mode:   ["Bitcoin", "Investment", "Strategy Inc."]           ✅ Good
 | Summarization | LLM API | vLLM Phi-3 (local) | 100% |
 | Classification (4 fields) | LLM API | DeBERTa (local) | 100% |
 | Relevance scoring | LLM API | Hybrid: DeBERTa + MiniLM (local) | 100% |
-| **Tags + NER** | LLM API | **KeyBERT + Phi-3 (local)** | **100%** |
-| Explanations | LLM API | LLM API | 0% |
+| Tags + NER | LLM API | KeyBERT + Phi-3 (local) | 100% |
+| **Explanations** | LLM API | **vLLM Qwen (local)** | **100%** |
 | Category | LLM API | LLM API | 0% |
 
-**Estimated overall reduction:** ~70-80% fewer LLM API calls for article enrichment.
+**Estimated overall reduction:** ~91% fewer LLM API calls for article enrichment.
 
-### Cost Per Article Breakdown (Updated)
+**Only remaining LLM cost:** Category assignment (~$0.0001/article)
+
+### Cost Per Article Breakdown (Current)
 
 ```
-AFTER SLM + HYBRID TAGGING PIPELINE:
+AFTER FULL SLM PIPELINE (Phi-3 + Qwen):
 ┌────────────────────────────────────────────────────────────────────┐
 │  Relevance    → Hybrid   ░░░░░░░░░░░░░░░░  FREE (DeBERTa+Embed)    │
-│  Summary      → vLLM     ░░░░░░░░░░░░░░░░  FREE (Phi-3)            │
+│  Summary      → vLLM     ░░░░░░░░░░░░░░░░  FREE (Phi-3 :8765)      │
 │  Sentiment    → DeBERTa  ░░░░░░░░░░░░░░░░  FREE                    │
 │  TTI          → DeBERTa  ░░░░░░░░░░░░░░░░  FREE                    │
 │  Driver       → DeBERTa  ░░░░░░░░░░░░░░░░  FREE                    │
 │  Signal       → DeBERTa  ░░░░░░░░░░░░░░░░  FREE                    │
 │  Tags + NER   → Hybrid   ░░░░░░░░░░░░░░░░  FREE (KeyBERT+Phi-3)    │
-│  Explanations → LLM API  ████████████████  $0.0002                 │
+│  Explanations → vLLM     ░░░░░░░░░░░░░░░░  FREE (Qwen :8766)       │
 │  Category     → LLM API  ████████████████  $0.0001                 │
 │  ─────────────────────────────────────────────────                 │
-│  TOTAL                                     $0.0003/article         │
+│  TOTAL                                     $0.0001/article         │
 └────────────────────────────────────────────────────────────────────┘
 
-SAVINGS: ~73% reduction in API costs (from $0.0011 to $0.0003)
+SAVINGS: ~91% reduction in API costs (from $0.0011 to $0.0001)
 ```
 
 ---
@@ -929,6 +1032,7 @@ SAVINGS: ~73% reduction in API costs (from $0.0011 to $0.0003)
 | Summarization (vLLM Phi-3) | 3,574ms | ~0.3/sec | BERTScore: 0.874 |
 | Enrichment (4 tasks) | 56ms | ~18/sec | Avg F1: 0.720 |
 | Hybrid Tagging + NER | ~2,500ms | ~0.4/sec | High quality + NER entities |
+| Explanations (vLLM Qwen) | ~5,000ms | ~0.2/sec | Good - cites article evidence |
 
 ---
 
