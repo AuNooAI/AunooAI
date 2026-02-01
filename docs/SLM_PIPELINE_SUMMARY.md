@@ -979,6 +979,7 @@ result = service.generate_explanations(
 - [x] Implement category service (Qwen - replaces LLM category assignment)
 - [x] Dual-model vLLM setup (Phi-3 + Qwen on same GPU)
 - [x] **100% LLM-free article enrichment pipeline!**
+- [x] **LLM skip optimization** - Skip LLM entirely when all SLM services succeed
 
 ### Remaining (Optimization)
 
@@ -1040,6 +1041,128 @@ SAVINGS: 100% reduction in API costs (from $0.0011 to $0.00)
 
 ---
 
+## LLM Skip Optimization
+
+### Overview
+
+The pipeline includes an optimization that **completely skips the LLM API call** when all SLM services are available and have high confidence. This ensures zero API costs when the local models can handle everything.
+
+### How It Works
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         LLM SKIP DECISION FLOW                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Check SLM readiness:                                                       │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  1. Summary available? (Phi-3 summarization succeeded)              │   │
+│  │  2. All 4 classification fields confident? (DeBERTa ≥ 0.6)         │   │
+│  │     • sentiment ✓                                                   │   │
+│  │     • time_to_impact ✓                                              │   │
+│  │     • driver_type ✓                                                 │   │
+│  │     • future_signal ✓                                               │   │
+│  │  3. SLM services available?                                         │   │
+│  │     • explanation_service (Qwen) ✓                                  │   │
+│  │     • category_service (Qwen) ✓                                     │   │
+│  │     • keybert_tagging_service (KeyBERT + Phi-3) ✓                   │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│                    ALL CONDITIONS MET?                                      │
+│                           │                                                 │
+│             YES ──────────┴────────── NO                                    │
+│              │                         │                                    │
+│              ▼                         ▼                                    │
+│  ┌─────────────────────┐   ┌─────────────────────────────────────┐         │
+│  │ ✨ FULL SLM MODE    │   │ 🤖 LLM FALLBACK MODE                │         │
+│  │                     │   │                                     │         │
+│  │ Skip LLM entirely!  │   │ Call LLM only for missing fields:  │         │
+│  │ Cost: $0.00         │   │ • summary (if Phi-3 failed)        │         │
+│  │                     │   │ • low-confidence classifications   │         │
+│  │ Log: "✨ Full SLM   │   │                                     │         │
+│  │ mode - skipping     │   │ Log: "🤖 LLM for {missing_fields}" │         │
+│  │ LLM call"           │   │                                     │         │
+│  └─────────────────────┘   └─────────────────────────────────────┘         │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Cost Impact
+
+| Scenario | SLM Components | LLM Calls | Cost/Article |
+|----------|----------------|-----------|--------------|
+| **Full SLM Mode** | All 9 confident | 0 | $0.00 |
+| Partial Mode (1 field missing) | 8 confident | 1 field | ~$0.0002 |
+| Partial Mode (2 fields missing) | 7 confident | 2 fields | ~$0.0004 |
+| Full LLM Fallback | SLM unavailable | Full analysis | ~$0.0011 |
+
+### Example Log Output
+
+**Full SLM Mode (all confident):**
+```
+✅ SLM confident: sentiment, time_to_impact, driver_type, future_signal
+✅ Summary generated via vllm (332 chars)
+✨ Full SLM mode - skipping LLM call
+🏷️ Hybrid tags: ['AI', 'GPT-5', 'OpenAI'] | Entities: 1P/1O/0L (2481ms)
+💬 SLM explanations generated (4586ms)
+📂 SLM category: AI and Robotics (114ms)
+📝 Enriched: method=hybrid_slm(summary,sentiment,time_to_impact,driver_type,future_signal,tags,ner,explanations,category)
+```
+
+**Partial SLM Mode (one field missing):**
+```
+✅ SLM confident: sentiment, time_to_impact, future_signal
+✅ Summary generated via vllm (330 chars)
+🤖 LLM (gpt-4o-mini) for driver_type
+🏷️ Hybrid tags: ['AI Regulation', 'Europe'] | Entities: 0P/0O/1L (2516ms)
+💬 SLM explanations generated (4743ms)
+📂 SLM category: AI Business (91ms)
+📝 Enriched: method=hybrid_slm(summary,sentiment,driver_type,future_signal,tags,ner,explanations,category)
+```
+
+### Implementation
+
+The optimization is implemented in `automated_ingest_service.py`:
+
+```python
+def _check_slm_services_available(self) -> bool:
+    """Check if all SLM services are available for full SLM mode."""
+    # Check explanation service (Qwen)
+    if not self.explanation_service.is_available():
+        return False
+    # Check category service (Qwen)
+    if not self.category_service.is_available():
+        return False
+    # Check tagging service (KeyBERT + Phi-3)
+    if not self.keybert_tagging_service.is_hybrid_available():
+        return False
+    return True
+
+# In _analyze_article_content_async():
+slm_fully_available = (
+    slm_summary is not None and           # Summary via Phi-3
+    len(slm_fields_used) >= 4 and         # All 4 classifications confident
+    self._check_slm_services_available()  # All SLM services ready
+)
+
+if slm_fully_available:
+    self.logger.info("✨ Full SLM mode - skipping LLM call")
+    analysis_result = {}  # No LLM needed!
+else:
+    # Call LLM only for missing components
+    self.logger.info(f"🤖 LLM for {missing_components}")
+    analysis_result = await self.article_analyzer.analyze_content(...)
+```
+
+### Test Script
+
+Verify the optimization with:
+```bash
+python scripts/test_slm_only_pipeline.py
+```
+
+---
+
 ## Key Files
 
 | File | Description |
@@ -1053,6 +1176,7 @@ SAVINGS: 100% reduction in API costs (from $0.0011 to $0.00)
 | `app/services/category_service.py` | Qwen-based zero-shot category classification |
 | `app/services/automated_ingest_service.py` | Main ingestion pipeline (orchestrates all services) |
 | `scripts/evaluate_keybert_tags.py` | KeyBERT vs LLM tag evaluation script |
+| `scripts/test_slm_only_pipeline.py` | Test script for LLM skip optimization |
 | `models/enrichment_model/final/` | Trained DeBERTa multi-task model weights |
 | `models/relevance_classifier/final/` | Trained DeBERTa relevance model weights |
 | `/etc/systemd/system/vllm-phi3.service` | vLLM systemd service definition |
