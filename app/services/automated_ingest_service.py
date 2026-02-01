@@ -1011,6 +1011,31 @@ class AutomatedIngestService:
         # Could be optimized further with async bias lookups
         return self.enrich_article_with_bias(article_data)
 
+    def _check_slm_services_available(self) -> bool:
+        """Check if all SLM services are available for full SLM mode."""
+        try:
+            # Check explanation service
+            if not self.explanation_service:
+                self.explanation_service = get_explanation_service()
+            if not self.explanation_service.is_available():
+                return False
+
+            # Check category service
+            if not self.category_service:
+                self.category_service = get_category_service()
+            if not self.category_service.is_available():
+                return False
+
+            # Check tagging service
+            if not self.keybert_tagging_service:
+                self.keybert_tagging_service = get_keybert_tagging_service()
+            if not self.keybert_tagging_service.is_hybrid_available():
+                return False
+
+            return True
+        except Exception:
+            return False
+
     async def _analyze_article_content_async(self, article_data: Dict[str, Any], topic: str) -> Dict[str, Any]:
         """
         Async version of article analysis using hybrid SLM + LLM approach.
@@ -1019,7 +1044,7 @@ class AutomatedIngestService:
         - sentiment, time_to_impact, driver_type, future_signal (DeBERTa classification)
         - summary (vLLM Phi-3 local inference)
 
-        LLM handles: explanations, category, tags (generation)
+        LLM handles (fallback only): explanations, category, tags (generation)
         """
         try:
             # Prepare content for analysis
@@ -1090,18 +1115,10 @@ class AutomatedIngestService:
             except Exception as e:
                 self.logger.warning(f"Local summarization failed, falling back to LLM: {e}")
 
-            # Step 2: Use LLM for generative fields and low-confidence classifications
-            if not self.article_analyzer:
-                model_name = self.get_llm_client()
-                ai_model = LiteLLMModel.get_instance(model_name)
-                self.article_analyzer = ArticleAnalyzer(ai_model, use_cache=True)
-
+            # Step 2: Get ontology data for classification (needed for SLM category service)
             from app.research import Research
             model_name = self.get_llm_client()
             research = Research(self.db, model_name=model_name)
-            llm_tasks = "explanations, category, tags" if slm_summary else "summary, explanations, category, tags"
-            self.logger.info(f"    🤖 LLM ({model_name}) for {llm_tasks}")
-
             research.set_topic(topic)
 
             # Get ontology data asynchronously
@@ -1111,16 +1128,42 @@ class AutomatedIngestService:
             time_to_impact_options = await research.get_time_to_impact(topic)
             driver_types = await research.get_driver_types(topic)
 
-            # Run LLM analysis in thread executor
-            loop = asyncio.get_event_loop()
-            analysis_result = await loop.run_in_executor(
-                None,
-                self.article_analyzer.analyze_content,
-                article_text, title, source, uri,
-                50, "neutral", "informative",
-                categories, future_signals, sentiment_options,
-                time_to_impact_options, driver_types
+            # Check if all SLM services are available to potentially skip LLM entirely
+            slm_fully_available = (
+                slm_summary is not None and  # Summary via Phi-3
+                len(slm_fields_used) >= 4 and  # All 4 classification fields confident
+                self._check_slm_services_available()  # Explanations + category services
             )
+
+            loop = asyncio.get_event_loop()
+            analysis_result = {}
+
+            if slm_fully_available:
+                # 🎉 100% SLM mode - skip LLM entirely!
+                self.logger.info(f"    ✨ Full SLM mode - skipping LLM call")
+            else:
+                # Fall back to LLM for missing components
+                if not self.article_analyzer:
+                    ai_model = LiteLLMModel.get_instance(model_name)
+                    self.article_analyzer = ArticleAnalyzer(ai_model, use_cache=True)
+
+                missing_components = []
+                if not slm_summary:
+                    missing_components.append("summary")
+                if len(slm_fields_used) < 4:
+                    missing_fields = [f for f in ['sentiment', 'time_to_impact', 'driver_type', 'future_signal'] if f not in slm_fields_used]
+                    missing_components.extend(missing_fields)
+
+                self.logger.info(f"    🤖 LLM ({model_name}) for {', '.join(missing_components) if missing_components else 'fallback'}")
+
+                analysis_result = await loop.run_in_executor(
+                    None,
+                    self.article_analyzer.analyze_content,
+                    article_text, title, source, uri,
+                    50, "neutral", "informative",
+                    categories, future_signals, sentiment_options,
+                    time_to_impact_options, driver_types
+                )
 
             # Use local summary if available, otherwise use LLM summary
             final_summary = slm_summary if slm_summary else analysis_result.get('summary')
