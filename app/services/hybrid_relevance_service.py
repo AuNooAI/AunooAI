@@ -1,0 +1,427 @@
+"""
+Hybrid Relevance Service
+
+Combines multiple approaches for robust relevance scoring:
+1. Embedding similarity - Works for ANY topic (zero-shot)
+2. Fine-tuned classifier - More accurate for known topics
+3. LLM fallback - Most accurate, used when confidence is low
+
+Scoring hierarchy:
+- High confidence: Use hybrid (classifier + embedding)
+- Medium confidence: Use embedding only
+- Low confidence: Fall back to LLM
+
+Usage:
+    from app.services.hybrid_relevance_service import get_hybrid_relevance_service
+
+    service = get_hybrid_relevance_service()
+    result = service.score_relevance(
+        topic="Climate Change Policy",
+        title="New EPA regulations on carbon emissions",
+        summary="The EPA announced new rules..."
+    )
+    # Returns: {
+    #     "relevant": True,
+    #     "score": 0.85,
+    #     "embedding_score": 0.82,
+    #     "classifier_score": 0.88,
+    #     "method": "hybrid"
+    # }
+"""
+
+import logging
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Any
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+# Configuration
+EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"  # Fast, good quality
+CLASSIFIER_WEIGHT = 0.6  # Weight for classifier when available
+EMBEDDING_WEIGHT = 0.4   # Weight for embedding similarity
+NEW_TOPIC_THRESHOLD = 100  # Minimum training samples to trust classifier
+DEFAULT_THRESHOLD = 0.5
+LLM_FALLBACK_THRESHOLD = 0.3  # Use LLM if score is in uncertain range (0.3-0.7)
+
+
+class HybridRelevanceService:
+    """
+    Hybrid relevance scoring combining embeddings and classification.
+    """
+
+    _instance = None
+    _initialized = False
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
+
+    def __init__(self):
+        if HybridRelevanceService._initialized:
+            return
+
+        self.embedding_model = None
+        self.classifier = None
+        self.classifier_tokenizer = None
+        self.device = "cpu"
+
+        self._embedding_loaded = False
+        self._classifier_loaded = False
+        self._topic_cache = {}  # Cache topic embeddings
+        self._known_topics = set()  # Topics seen in training
+
+        HybridRelevanceService._initialized = True
+
+    def _load_embedding_model(self) -> bool:
+        """Load the sentence embedding model."""
+        if self._embedding_loaded:
+            return True
+
+        try:
+            from sentence_transformers import SentenceTransformer
+
+            logger.info(f"Loading embedding model: {EMBEDDING_MODEL} (CPU mode)")
+            self.embedding_model = SentenceTransformer(EMBEDDING_MODEL, device='cpu')
+            self._embedding_loaded = True
+            logger.info("Embedding model loaded successfully on CPU")
+            return True
+
+        except ImportError:
+            logger.warning("sentence-transformers not installed. Run: pip install sentence-transformers")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to load embedding model: {e}")
+            return False
+
+    def _load_classifier(self) -> bool:
+        """Load the fine-tuned relevance classifier."""
+        if self._classifier_loaded:
+            return True
+
+        try:
+            from transformers import AutoTokenizer, AutoModelForSequenceClassification
+            import torch
+            import json
+
+            model_path = Path(__file__).parent.parent.parent / "models" / "relevance_classifier" / "final"
+
+            if not model_path.exists():
+                logger.warning(f"Classifier not found at {model_path}")
+                return False
+
+            logger.info(f"Loading classifier from {model_path}")
+            self.classifier_tokenizer = AutoTokenizer.from_pretrained(str(model_path))
+            self.classifier = AutoModelForSequenceClassification.from_pretrained(str(model_path))
+            self.classifier.eval()
+
+            # Load known topics from training data
+            config_path = model_path / "model_config.json"
+            if config_path.exists():
+                with open(config_path) as f:
+                    config = json.load(f)
+                    # Could store known topics in config
+
+            self._classifier_loaded = True
+            logger.info("Classifier loaded successfully")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to load classifier: {e}")
+            return False
+
+    def load_models(self) -> Dict[str, bool]:
+        """Load all models."""
+        return {
+            "embedding": self._load_embedding_model(),
+            "classifier": self._load_classifier(),
+        }
+
+    def is_available(self) -> bool:
+        """Check if at least embedding model is available."""
+        if not self._embedding_loaded:
+            self._load_embedding_model()
+        return self._embedding_loaded
+
+    def _get_topic_embedding(self, topic: str) -> np.ndarray:
+        """Get or compute topic embedding (cached)."""
+        if topic not in self._topic_cache:
+            self._topic_cache[topic] = self.embedding_model.encode(topic, convert_to_numpy=True)
+        return self._topic_cache[topic]
+
+    def _compute_embedding_similarity(
+        self,
+        topic: str,
+        title: str,
+        summary: str
+    ) -> float:
+        """
+        Compute cosine similarity between topic and article.
+        """
+        if not self._embedding_loaded:
+            return 0.0
+
+        # Get topic embedding (cached)
+        topic_emb = self._get_topic_embedding(topic)
+
+        # Compute article embedding
+        article_text = f"{title}. {summary}"
+        article_emb = self.embedding_model.encode(article_text, convert_to_numpy=True)
+
+        # Cosine similarity
+        similarity = np.dot(topic_emb, article_emb) / (
+            np.linalg.norm(topic_emb) * np.linalg.norm(article_emb)
+        )
+
+        # Convert from [-1, 1] to [0, 1]
+        score = (similarity + 1) / 2
+
+        return float(score)
+
+    def _compute_classifier_score(
+        self,
+        topic: str,
+        title: str,
+        summary: str
+    ) -> Optional[float]:
+        """
+        Get relevance probability from fine-tuned classifier.
+        """
+        if not self._classifier_loaded:
+            return None
+
+        try:
+            import torch
+
+            # Format input like training data
+            text = f"{topic} [SEP] {title}. {summary}"
+
+            inputs = self.classifier_tokenizer(
+                text,
+                truncation=True,
+                max_length=256,
+                return_tensors="pt"
+            )
+
+            with torch.no_grad():
+                outputs = self.classifier(**inputs)
+                probs = torch.softmax(outputs.logits, dim=1)
+                # Return probability of "relevant" class (index 1)
+                score = probs[0, 1].item()
+
+            return score
+
+        except Exception as e:
+            logger.error(f"Classifier inference failed: {e}")
+            return None
+
+    def _compute_llm_score(
+        self,
+        topic: str,
+        title: str,
+        summary: str
+    ) -> Optional[float]:
+        """
+        Get relevance score from LLM (most accurate, but slow/expensive).
+        Used as fallback when other methods have low confidence.
+        """
+        try:
+            from app.ai_models import AIModelFactory
+
+            ai = AIModelFactory.get_model()
+
+            prompt = f"""Rate the relevance of this article to the given topic on a scale of 0.0 to 1.0.
+
+Topic: {topic}
+
+Article Title: {title}
+Article Summary: {summary}
+
+Respond with ONLY a number between 0.0 and 1.0, where:
+- 0.0 = completely irrelevant
+- 0.5 = somewhat relevant
+- 1.0 = highly relevant
+
+Score:"""
+
+            response = ai.generate(prompt, max_tokens=10, temperature=0.0)
+
+            # Parse the score from response
+            try:
+                score = float(response.strip())
+                score = max(0.0, min(1.0, score))  # Clamp to [0, 1]
+                return score
+            except ValueError:
+                logger.warning(f"Could not parse LLM score: {response}")
+                return None
+
+        except Exception as e:
+            logger.error(f"LLM relevance scoring failed: {e}")
+            return None
+
+    def _is_uncertain(self, score: float) -> bool:
+        """Check if score is in the uncertain range where LLM fallback would help."""
+        return LLM_FALLBACK_THRESHOLD < score < (1 - LLM_FALLBACK_THRESHOLD)
+
+    def score_relevance(
+        self,
+        topic: str,
+        title: str,
+        summary: str,
+        threshold: float = DEFAULT_THRESHOLD,
+        use_llm_fallback: bool = True,
+        force_llm: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Score article relevance using hybrid approach.
+
+        Args:
+            topic: The topic to check relevance against
+            title: Article title
+            summary: Article summary
+            threshold: Score threshold for binary relevance
+            use_llm_fallback: Whether to use LLM for uncertain scores
+            force_llm: Force LLM usage (for comparison/testing)
+
+        Returns:
+            Dict with relevance decision and component scores
+        """
+        # Force LLM mode
+        if force_llm:
+            llm_score = self._compute_llm_score(topic, title, summary)
+            return {
+                "topic": topic,
+                "relevant": (llm_score or 0) >= threshold,
+                "score": llm_score or 0,
+                "embedding_score": None,
+                "classifier_score": None,
+                "llm_score": llm_score,
+                "method": "llm_only",
+                "confidence": "high" if llm_score is not None else "failed",
+            }
+
+        # Ensure models are loaded
+        if not self._embedding_loaded:
+            self._load_embedding_model()
+        if not self._classifier_loaded:
+            self._load_classifier()
+
+        result = {
+            "topic": topic,
+            "relevant": False,
+            "score": 0.0,
+            "embedding_score": None,
+            "classifier_score": None,
+            "llm_score": None,
+            "method": "none",
+            "confidence": "low",
+        }
+
+        # Compute embedding similarity (always available if loaded)
+        if self._embedding_loaded:
+            embedding_score = self._compute_embedding_similarity(topic, title, summary)
+            result["embedding_score"] = embedding_score
+        else:
+            embedding_score = None
+
+        # Compute classifier score (if available)
+        if self._classifier_loaded:
+            classifier_score = self._compute_classifier_score(topic, title, summary)
+            result["classifier_score"] = classifier_score
+        else:
+            classifier_score = None
+
+        # Combine scores based on availability
+        if classifier_score is not None and embedding_score is not None:
+            # Both available - weighted combination
+            combined_score = (
+                CLASSIFIER_WEIGHT * classifier_score +
+                EMBEDDING_WEIGHT * embedding_score
+            )
+            result["score"] = combined_score
+            result["method"] = "hybrid"
+
+        elif embedding_score is not None:
+            # Only embedding available (new topic or classifier not loaded)
+            result["score"] = embedding_score
+            result["method"] = "embedding_only"
+
+        elif classifier_score is not None:
+            # Only classifier available
+            result["score"] = classifier_score
+            result["method"] = "classifier_only"
+
+        # Set confidence based on score position, not just model availability
+        # Scores clearly below or above thresholds are confident; borderline scores are uncertain
+        if result["score"] < 0.35 or result["score"] > 0.65:
+            result["confidence"] = "high"  # Clear decision
+        else:
+            result["confidence"] = "medium"  # Borderline, may benefit from LLM
+
+        # LLM fallback for uncertain/borderline scores
+        if use_llm_fallback and result["confidence"] != "high":
+            logger.info(f"🤖 LLM fallback triggered for borderline score {result['score']:.3f}")
+            llm_score = self._compute_llm_score(topic, title, summary)
+            if llm_score is not None:
+                result["llm_score"] = llm_score
+                result["score"] = llm_score  # LLM overrides when uncertain
+                result["method"] = f"{result['method']}+llm_fallback"
+                result["confidence"] = "high"
+
+        # Make binary decision
+        result["relevant"] = result["score"] >= threshold
+
+        return result
+
+    def score_batch(
+        self,
+        articles: List[Dict],
+        threshold: float = DEFAULT_THRESHOLD,
+    ) -> List[Dict[str, Any]]:
+        """
+        Score multiple articles efficiently.
+
+        Args:
+            articles: List of dicts with 'topic', 'title', 'summary'
+            threshold: Score threshold
+
+        Returns:
+            List of result dicts
+        """
+        results = []
+
+        # TODO: Batch embedding computation for efficiency
+        for article in articles:
+            result = self.score_relevance(
+                topic=article.get("topic", ""),
+                title=article.get("title", ""),
+                summary=article.get("summary", ""),
+                threshold=threshold,
+            )
+            results.append(result)
+
+        return results
+
+    def get_status(self) -> Dict[str, Any]:
+        """Get service status."""
+        return {
+            "embedding_loaded": self._embedding_loaded,
+            "classifier_loaded": self._classifier_loaded,
+            "embedding_model": EMBEDDING_MODEL if self._embedding_loaded else None,
+            "cached_topics": list(self._topic_cache.keys()),
+            "classifier_weight": CLASSIFIER_WEIGHT,
+            "embedding_weight": EMBEDDING_WEIGHT,
+        }
+
+
+# Singleton accessor
+_service_instance = None
+
+
+def get_hybrid_relevance_service() -> HybridRelevanceService:
+    """Get the singleton hybrid relevance service."""
+    global _service_instance
+    if _service_instance is None:
+        _service_instance = HybridRelevanceService()
+    return _service_instance

@@ -120,6 +120,9 @@ def parse_args():
     parser.add_argument('--tasks', type=str, nargs='+',
                         default=['sentiment', 'time_to_impact', 'driver_type', 'future_signal'],
                         help='Tasks to train on')
+    parser.add_argument('--device', type=str, default='auto',
+                        choices=['auto', 'cpu', 'cuda'],
+                        help='Device to train on (default: auto)')
     return parser.parse_args()
 
 
@@ -188,7 +191,7 @@ class MultiTaskModel(PreTrainedModel):
         loss = None
         if labels is not None:
             loss_fct = nn.CrossEntropyLoss()
-            total_loss = 0
+            task_losses = []
 
             for task, task_logits in logits.items():
                 if task in labels and labels[task] is not None:
@@ -197,9 +200,11 @@ class MultiTaskModel(PreTrainedModel):
                     mask = task_labels != -100
                     if mask.any():
                         task_loss = loss_fct(task_logits[mask], task_labels[mask])
-                        total_loss += task_loss
+                        task_losses.append(task_loss)
 
-            loss = total_loss if total_loss > 0 else None
+            # Average loss across tasks
+            if task_losses:
+                loss = torch.stack(task_losses).mean()
 
         return {
             'loss': loss,
@@ -339,13 +344,13 @@ def create_datasets(
     label_cols = [c for c in label_cols if c in train_df.columns]
 
     # Convert to HuggingFace datasets
-    train_dataset = Dataset.from_pandas(train_df[label_cols]).map(
+    train_dataset = Dataset.from_pandas(train_df[label_cols], preserve_index=False).map(
         tokenize_function, batched=True, remove_columns=label_cols
     )
-    val_dataset = Dataset.from_pandas(val_df[label_cols]).map(
+    val_dataset = Dataset.from_pandas(val_df[label_cols], preserve_index=False).map(
         tokenize_function, batched=True, remove_columns=label_cols
     )
-    test_dataset = Dataset.from_pandas(test_df[label_cols]).map(
+    test_dataset = Dataset.from_pandas(test_df[label_cols], preserve_index=False).map(
         tokenize_function, batched=True, remove_columns=label_cols
     )
 
@@ -358,8 +363,14 @@ class MultiTaskTrainer(Trainer):
     def __init__(self, task_configs: Dict[str, Dict], **kwargs):
         super().__init__(**kwargs)
         self.task_configs = task_configs
+        self.task_names = list(task_configs.keys())
 
     def compute_loss(self, model, inputs, return_outputs=False, **kwargs):
+        # Debug once
+        if not hasattr(self, '_debug_printed'):
+            print(f"DEBUG - inputs keys: {list(inputs.keys())}")
+            self._debug_printed = True
+
         # Extract labels for each task
         labels = {}
         for task in self.task_configs.keys():
@@ -371,7 +382,40 @@ class MultiTaskTrainer(Trainer):
         outputs = model(labels=labels, **inputs)
 
         loss = outputs['loss']
+        if loss is None:
+            print(f"WARNING - loss is None! labels keys: {list(labels.keys())}")
         return (loss, outputs) if return_outputs else loss
+
+    def prediction_step(self, model, inputs, prediction_loss_only, ignore_keys=None):
+        """Override to handle multi-task outputs properly."""
+        # Extract labels
+        labels_dict = {}
+        for task in self.task_names:
+            label_key = f'label_{task}'
+            if label_key in inputs:
+                labels_dict[task] = inputs.pop(label_key)
+
+        # Move inputs to device
+        inputs = self._prepare_inputs(inputs)
+
+        with torch.no_grad():
+            outputs = model(labels=labels_dict, **inputs)
+            loss = outputs['loss']
+            logits_dict = outputs['logits']
+
+        if prediction_loss_only:
+            return (loss, None, None)
+
+        # Convert logits dict to tuple for Trainer compatibility
+        logits_tuple = tuple(logits_dict[task].detach() for task in self.task_names)
+
+        # Convert labels dict to tuple
+        labels_tuple = tuple(
+            labels_dict[task].detach() if labels_dict.get(task) is not None else None
+            for task in self.task_names
+        )
+
+        return (loss, logits_tuple, labels_tuple)
 
 
 def compute_metrics_factory(task_configs: Dict[str, Dict]):
@@ -441,31 +485,12 @@ class MultiTaskDataCollator:
     def __init__(self, tokenizer, task_configs):
         self.tokenizer = tokenizer
         self.task_configs = task_configs
+        from transformers import default_data_collator
+        self.default_collator = default_data_collator
 
     def __call__(self, features):
-        # Separate regular features from labels
-        batch = {}
-        label_features = {}
-
-        for feature in features:
-            for key, value in feature.items():
-                if key.startswith('label_'):
-                    if key not in label_features:
-                        label_features[key] = []
-                    label_features[key].append(value)
-                else:
-                    if key not in batch:
-                        batch[key] = []
-                    batch[key].append(value)
-
-        # Convert to tensors
-        batch = {k: torch.tensor(v) for k, v in batch.items()}
-
-        # Add label tensors
-        for key, values in label_features.items():
-            batch[key] = torch.tensor(values)
-
-        return batch
+        # Use default collator which handles everything properly
+        return self.default_collator(features)
 
 
 def train(args):
@@ -482,13 +507,17 @@ def train(args):
     logger.info(f"Max length: {args.max_length}")
     logger.info(f"Tasks: {args.tasks}")
 
-    # Check GPU
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    # Check GPU and set device
+    if args.device == "auto":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    else:
+        device = args.device
+
     if device == "cuda":
         logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
         logger.info(f"GPU Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
     else:
-        logger.info("Warning: No GPU detected, training will be slow")
+        logger.info(f"Using CPU for training (device={args.device})")
 
     # Load data
     train_df, val_df, test_df, label_mappings = load_training_data(DATA_DIR)
@@ -542,8 +571,10 @@ def train(args):
         greater_is_better=True,
         save_total_limit=2,
         fp16=False,  # DeBERTa has issues with fp16, use fp32
-        dataloader_num_workers=4,
+        dataloader_num_workers=0 if device == "cpu" else 4,  # Reduce workers on CPU
         report_to="none",
+        remove_unused_columns=False,  # Keep our custom label_* columns
+        use_cpu=(device == "cpu"),  # Force CPU if specified
     )
 
     # Create compute_metrics function

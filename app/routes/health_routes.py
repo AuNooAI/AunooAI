@@ -19,6 +19,7 @@ from app.security.session import verify_session
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
+templates.env.auto_reload = True  # Reload templates on changes
 
 # Track application start time
 START_TIME = time.time()

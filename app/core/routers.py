@@ -55,6 +55,8 @@ def register_routers(app: FastAPI):
     from app.routes.policy_tracker_routes import router as policy_tracker_router
     from app.routes.geopolitical_hotspots_routes import router as geopolitical_hotspots_router
     from app.routes.daily_reports_routes import router as desk_briefings_router
+    from app.routes.slm_routes import router as slm_router
+    from app.routes.training_routes import router as training_router
 
     # Register database routes
     app.include_router(database.router)
@@ -187,5 +189,11 @@ def register_routers(app: FastAPI):
 
     # Desk Briefings (Briefing Desk feature)
     app.include_router(desk_briefings_router)
+
+    # SLM (Small Language Model) routes for relevance, summarization, enrichment
+    app.include_router(slm_router)
+
+    # Adaptive Classification Training routes
+    app.include_router(training_router)
 
     logger.info("All routers registered successfully")

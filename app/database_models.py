@@ -1382,3 +1382,54 @@ t_geopolitical_insights = Table(
     Index('idx_geopolitical_insights_topic', 'topic'),
     Index('idx_geopolitical_insights_created', 'created_at'),
 )
+
+# Adaptive Classification Training Tables
+t_enrichment_training_samples = Table(
+    'enrichment_training_samples', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('article_uri', Text, ForeignKey('articles.uri', ondelete='CASCADE'), nullable=False),
+    Column('topic', Text, nullable=False),
+    Column('field_name', Text, nullable=False),  # 'sentiment', 'time_to_impact', etc.
+    Column('field_value', Text, nullable=False),
+    Column('source', Text, nullable=False),  # 'llm_bootstrap', 'human_verified'
+    Column('model_used', Text),  # 'gpt-4o-mini'
+    Column('confidence', Float),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    UniqueConstraint('article_uri', 'field_name', name='uq_training_sample_article_field'),
+    Index('idx_training_samples_topic', 'topic'),
+    Index('idx_training_samples_field', 'field_name'),
+    Index('idx_training_samples_source', 'source'),
+    Index('idx_training_samples_topic_field', 'topic', 'field_name'),
+)
+
+t_training_sample_counts = Table(
+    'training_sample_counts', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('topic', Text, nullable=False),
+    Column('field_name', Text, nullable=False),
+    Column('field_value', Text, nullable=False),
+    Column('sample_count', Integer, nullable=False, server_default=text('0')),
+    Column('last_updated', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    UniqueConstraint('topic', 'field_name', 'field_value', name='uq_sample_counts_topic_field_value'),
+    Index('idx_sample_counts_topic', 'topic'),
+    Index('idx_sample_counts_field', 'field_name'),
+    Index('idx_sample_counts_topic_field', 'topic', 'field_name'),
+)
+
+t_training_runs = Table(
+    'training_runs', metadata,
+    Column('id', Integer, primary_key=True),
+    Column('run_id', Text, nullable=False, unique=True),
+    Column('status', Text, nullable=False, server_default=text("'pending'")),  # pending, running, completed, failed, deployed
+    Column('topics_included', JSONB),
+    Column('fields_included', JSONB),
+    Column('sample_count', Integer),
+    Column('metrics', JSONB),  # accuracy, f1, etc.
+    Column('started_at', DateTime(timezone=True)),
+    Column('completed_at', DateTime(timezone=True)),
+    Column('model_path', Text),
+    Column('error_message', Text),
+    Column('created_at', DateTime(timezone=True), server_default=text('NOW()'), nullable=False),
+    Index('idx_training_runs_status', 'status'),
+    Index('idx_training_runs_created', 'created_at'),
+)

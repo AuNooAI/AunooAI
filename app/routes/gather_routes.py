@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["gather"])
 templates = Jinja2Templates(directory="templates")
+templates.env.auto_reload = True  # Reload templates on changes
 
 
 @router.get("/gather", response_class=HTMLResponse)

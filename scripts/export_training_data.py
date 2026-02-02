@@ -121,9 +121,14 @@ def export_relevance_data(engine, output_dir: Path) -> Dict[str, int]:
     """
     Export data for relevance classification training.
 
-    Labels are determined by curation status:
-    - Articles WITH future_signal AND category = curated/relevant (positive class)
-    - Articles WITHOUT these fields = failed relevance eval (negative class)
+    Labels are determined by topic_alignment_score (LLM-generated):
+    - topic_alignment_score >= 0.5 = relevant (positive class)
+    - topic_alignment_score < 0.5 = irrelevant (negative class)
+
+    This approach:
+    - Works for ALL topics without per-topic human labels
+    - Uses LLM relevance judgment as training signal (knowledge distillation)
+    - Score is available BEFORE enrichment in the pipeline
 
     Features:
     - topic: The target topic for relevance
@@ -135,7 +140,10 @@ def export_relevance_data(engine, output_dir: Path) -> Dict[str, int]:
     """
     logger.info("Exporting relevance training data...")
 
-    # Query all articles, using future_signal and category presence as the label
+    # Threshold for relevance classification
+    RELEVANCE_THRESHOLD = 0.5
+
+    # Query all articles with topic_alignment_score
     query = """
     SELECT
         a.uri,
@@ -147,13 +155,12 @@ def export_relevance_data(engine, output_dir: Path) -> Dict[str, int]:
         a.confidence_score,
         a.ingest_status,
         a.submission_date,
-        a.user_preference,
-        a.future_signal,
-        a.category
+        a.user_preference
     FROM articles a
     WHERE a.title IS NOT NULL
       AND a.summary IS NOT NULL
       AND a.topic IS NOT NULL
+      AND a.topic_alignment_score IS NOT NULL
     ORDER BY a.submission_date ASC
     """
 
@@ -161,27 +168,22 @@ def export_relevance_data(engine, output_dir: Path) -> Dict[str, int]:
         result = conn.execute(text(query))
         rows = result.fetchall()
 
-    logger.info(f"Retrieved {len(rows)} articles with relevance data")
+    logger.info(f"Retrieved {len(rows)} articles with topic_alignment_score")
 
     # Process into training format
     data = []
     for row in rows:
         (uri, title, summary, topic, topic_alignment, keyword_relevance,
-         confidence, ingest_status, submission_date, user_preference,
-         future_signal, category) = row
+         confidence, ingest_status, submission_date, user_preference) = row
 
-        # Determine label based on curation status:
-        # - Articles with future_signal AND category = curated = RELEVANT
-        # - Articles without these = failed relevance eval = IRRELEVANT
-        has_enrichment = (future_signal is not None and future_signal != '' and
-                         category is not None and category != '')
-
-        if has_enrichment:
-            label = 1  # Relevant (curated)
-            label_source = 'curated'
+        # Use topic_alignment_score as the label
+        # This is the LLM's relevance judgment - we're distilling it into the SLM
+        if topic_alignment is not None and topic_alignment >= RELEVANCE_THRESHOLD:
+            label = 1  # Relevant
+            label_source = 'alignment_score_high'
         else:
-            label = 0  # Irrelevant (failed relevance)
-            label_source = 'filtered'
+            label = 0  # Irrelevant
+            label_source = 'alignment_score_low'
 
         # User preference can still override
         if user_preference == 'less':
@@ -204,6 +206,9 @@ def export_relevance_data(engine, output_dir: Path) -> Dict[str, int]:
             'submission_date': submission_date,
         }
         data.append(record)
+
+    logger.info(f"Labeled {sum(1 for d in data if d['label'] == 1)} as relevant (score >= {RELEVANCE_THRESHOLD})")
+    logger.info(f"Labeled {sum(1 for d in data if d['label'] == 0)} as irrelevant (score < {RELEVANCE_THRESHOLD})")
 
     # Convert to DataFrame for analysis
     df = pd.DataFrame(data)

@@ -60,6 +60,7 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 templates = Jinja2Templates(directory="templates")
+templates.env.auto_reload = True  # Reload templates on changes
 
 # Pydantic models for organizational profiles
 class OrganizationalProfile(BaseModel):

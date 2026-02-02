@@ -13,6 +13,7 @@ from typing import List, Dict
 
 router = APIRouter()
 templates = Jinja2Templates(directory="templates")
+templates.env.auto_reload = True  # Reload templates on changes
 logger = logging.getLogger(__name__)
 
 # Add this class to define the expected request body

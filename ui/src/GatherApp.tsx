@@ -16,15 +16,16 @@ import { GroupSettingsModal } from './components/gather/GroupSettingsModal';
 import { ProcessingStatusBadge } from './components/gather/ProcessingStatusBadge';
 import { NotificationBell } from './components/gather/NotificationBell';
 import { RSSFeedsTab } from './components/gather/RSSFeedsTab';
+import { TrainingStatusTab } from './components/gather/TrainingStatusTab';
 import { Alert, AlertDescription } from './components/ui/alert';
-import { Loader2, AlertCircle, Plus, Search, Rss } from 'lucide-react';
+import { Loader2, AlertCircle, Plus, Search, Rss, GraduationCap } from 'lucide-react';
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
 import { AuspexChat } from './components/auspex';
 import type { KeywordGroupSummary } from './services/gatherApi';
 import { getRecentArticlesForGroup, deleteUnscoredArticles } from './services/gatherApi';
 import './components/gather/gather.css';
 
-type GatherTab = 'keywords' | 'rss';
+type GatherTab = 'keywords' | 'rss' | 'training';
 
 function GatherApp() {
   const {
@@ -220,6 +221,13 @@ function GatherApp() {
             <Rss className="w-4 h-4" />
             RSS Feeds
           </button>
+          <button
+            className={`gather-tab-btn ${activeTab === 'training' ? 'active' : ''}`}
+            onClick={() => setActiveTab('training')}
+          >
+            <GraduationCap className="w-4 h-4" />
+            Training
+          </button>
         </div>
 
         {/* Error Alert */}
@@ -236,7 +244,7 @@ function GatherApp() {
         )}
 
         {/* Tab Content */}
-        {activeTab === 'keywords' ? (
+        {activeTab === 'keywords' && (
           /* Keyword Group Cards Grid */
           <div className="gather-cards-grid">
             {groupSummaries.length === 0 ? (
@@ -267,9 +275,16 @@ function GatherApp() {
               ))
             )}
           </div>
-        ) : (
+        )}
+
+        {activeTab === 'rss' && (
           /* RSS Feeds Tab */
           <RSSFeedsTab topics={topics} />
+        )}
+
+        {activeTab === 'training' && (
+          /* Training Status Tab */
+          <TrainingStatusTab />
         )}
           </main>
         </div>

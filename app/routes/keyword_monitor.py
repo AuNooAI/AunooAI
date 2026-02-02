@@ -82,6 +82,7 @@ page_router = APIRouter()
 
 # Set up templates
 templates = Jinja2Templates(directory="templates")
+templates.env.auto_reload = True  # Reload templates on changes
 
 class KeywordGroup(BaseModel):
     name: str

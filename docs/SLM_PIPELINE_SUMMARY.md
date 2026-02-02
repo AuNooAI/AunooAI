@@ -1163,6 +1163,138 @@ python scripts/test_slm_only_pipeline.py
 
 ---
 
+## Adaptive Training System
+
+### Overview
+
+The system includes an **Adaptive Classification Training System** that automatically collects training samples from LLM classifications and allows finetuning DeBERTa models through the UI.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      ADAPTIVE TRAINING SYSTEM                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  Two-Tier Classification:                                                   │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  Samples < 500  →  GPT-4o-mini (stores results as training data)   │   │
+│  │  Samples >= 500 →  DeBERTa (fast, free, locally trained)           │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+│  Training Data Flow:                                                        │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │  1. Article ingested                                                │   │
+│  │  2. DeBERTa classifies with confidence scores                       │   │
+│  │  3. If confidence >= 0.6: Use DeBERTa result (FREE)                │   │
+│  │     If confidence < 0.6: Use LLM + store result as training sample  │   │
+│  │  4. When topic reaches 500+ samples: Finetune DeBERTa               │   │
+│  │  5. Deploy finetuned model via UI                                   │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Training UI (Gather → Training Tab)
+
+The Training tab shows:
+- **Sample counts** per topic per field
+- **Readiness status** (red/yellow/green)
+- **DeBERTa Confidence Stats** (last 24 hours):
+  - Overall avg confidence per topic
+  - Per-field confidence breakdown
+  - % of readings above threshold
+- **Training runs** with progress tracking
+- **Deploy/Delete** controls for trained models
+
+### Confidence Tracking
+
+When DeBERTa processes articles, confidence scores are tracked per topic/field:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  DeBERTa Confidence (Last 24h)                                              │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  ┌──────────────────────┐  ┌──────────────────────┐                         │
+│  │ Geopolitical Hotspots│  │ AI and Machine Learn │                         │
+│  │ 42% avg              │  │ 38% avg              │                         │
+│  │ (156 readings)       │  │ (89 readings)        │                         │
+│  │ 12% above 60%        │  │ 8% above 60%         │                         │
+│  │ sen:45 tim:38        │  │ sen:40 tim:35        │                         │
+│  │ dri:41 fut:44        │  │ dri:36 fut:41        │                         │
+│  └──────────────────────┘  └──────────────────────┘                         │
+│                                                                             │
+│  Topics with low confidence fall back to LLM. More training data improves   │
+│  model performance.                                                          │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+Log output format:
+```
+⚠️ SLM low confidence (avg=0.42, sen=0.45, tim=0.38, dri=0.41, fut=0.44), using LLM for all
+✅ SLM confident: sentiment, time_to_impact (avg=0.68, sen=0.72, tim=0.65, dri=0.58, fut=0.55)
+```
+
+### API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/training/topics-status` | GET | Sample counts & readiness per topic |
+| `/api/training/confidence-stats` | GET | DeBERTa confidence stats (24h window) |
+| `/api/training/trigger-finetune` | POST | Start a training run |
+| `/api/training/runs` | GET | List training runs |
+| `/api/training/runs/{id}/deploy` | POST | Deploy trained model |
+| `/api/training/runs/{id}` | DELETE | Delete training run |
+
+### Training Files
+
+| File | Purpose |
+|------|---------|
+| `app/services/training_bootstrap_service.py` | GPT classification + sample storage |
+| `app/services/hybrid_enrichment_service.py` | Routes GPT vs DeBERTa based on samples |
+| `app/services/finetuning_service.py` | Training pipeline management |
+| `app/routes/training_routes.py` | API endpoints + confidence tracker |
+| `scripts/train_enrichment_model.py` | DeBERTa training script |
+| `scripts/backfill_training_samples.py` | Backfill from existing articles |
+
+---
+
+## SLM Model Summary
+
+### Why Two GPU Models?
+
+| Model | Port | Size | Best For |
+|-------|------|------|----------|
+| **Phi-3-mini** | 8765 | 3.8B | Short outputs: summaries, tag refinement |
+| **Qwen2.5-3B** | 8766 | 3B | Reasoning: explanations, category decisions |
+
+### Model Usage Map
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          MODEL USAGE BY TASK                                 │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  ┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐       │
+│  │   DeBERTa       │     │   Phi-3 (8765)  │     │   Qwen (8766)   │       │
+│  │   (CPU)         │     │   (GPU)         │     │   (GPU)         │       │
+│  ├─────────────────┤     ├─────────────────┤     ├─────────────────┤       │
+│  │ • Relevance     │     │ • Summarization │     │ • Explanations  │       │
+│  │ • Sentiment     │     │ • Tag refinement│     │ • Category      │       │
+│  │ • Time to Impact│     │ • NER extraction│     │   classification│       │
+│  │ • Driver Type   │     │                 │     │                 │       │
+│  │ • Future Signal │     │                 │     │                 │       │
+│  └─────────────────┘     └─────────────────┘     └─────────────────┘       │
+│         │                        │                        │                 │
+│         │ ~56ms                  │ ~3.5s                  │ ~5s             │
+│         │ FREE                   │ FREE                   │ FREE            │
+│         │ Classification         │ Generation             │ Reasoning       │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## Key Files
 
 | File | Description |
@@ -1175,8 +1307,12 @@ python scripts/test_slm_only_pipeline.py
 | `app/services/explanation_service.py` | Qwen-based explanation generation for classifications |
 | `app/services/category_service.py` | Qwen-based zero-shot category classification |
 | `app/services/automated_ingest_service.py` | Main ingestion pipeline (orchestrates all services) |
+| `app/services/training_bootstrap_service.py` | GPT → training sample collection |
+| `app/services/finetuning_service.py` | Training run management |
+| `app/routes/training_routes.py` | Training API + confidence tracker |
 | `scripts/evaluate_keybert_tags.py` | KeyBERT vs LLM tag evaluation script |
 | `scripts/test_slm_only_pipeline.py` | Test script for LLM skip optimization |
+| `scripts/train_enrichment_model.py` | DeBERTa finetuning script |
 | `models/enrichment_model/final/` | Trained DeBERTa multi-task model weights |
 | `models/relevance_classifier/final/` | Trained DeBERTa relevance model weights |
 | `/etc/systemd/system/vllm-phi3.service` | vLLM systemd service definition |

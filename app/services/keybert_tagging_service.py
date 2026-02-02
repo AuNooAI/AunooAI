@@ -84,10 +84,10 @@ class KeyBERTTaggingService:
             from keybert import KeyBERT
             from sentence_transformers import SentenceTransformer
 
-            logger.info(f"Loading KeyBERT with embedding model: {EMBEDDING_MODEL}")
+            logger.info(f"Loading KeyBERT with embedding model: {EMBEDDING_MODEL} (CPU mode)")
 
-            # Load the embedding model first
-            self.embedding_model = SentenceTransformer(EMBEDDING_MODEL)
+            # Load the embedding model on CPU (GPU occupied by vLLM)
+            self.embedding_model = SentenceTransformer(EMBEDDING_MODEL, device='cpu')
 
             # Initialize KeyBERT with the embedding model
             self.keybert_model = KeyBERT(model=self.embedding_model)

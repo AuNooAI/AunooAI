@@ -3073,35 +3073,90 @@ async def record_article_preference(
     request: _ArticlePreferenceRequest,
     session=Depends(verify_session),
 ):
-    """Record more/less like this preference for an article."""
+    """Record more/less like this preference for an article.
+
+    Also stores in user_relevance_feedback table for relevance model training.
+    """
+    conn = None
     try:
         from app.database import get_database_instance
+        from sqlalchemy import text
+        import json
 
         if request.preference not in ['more', 'less', 'clear']:
             raise HTTPException(status_code=400, detail="Invalid preference. Must be 'more', 'less', or 'clear'")
 
         db = get_database_instance()
+        conn = db._temp_get_connection()
 
         if request.preference == 'clear':
-            # Clear the preference
-            db.execute(
-                "UPDATE articles SET user_preference = NULL, preference_date = NULL WHERE uri = %s",
-                (request.uri,)
-            )
+            # Clear the preference from articles table
+            conn.execute(text(
+                "UPDATE articles SET user_preference = NULL, preference_date = NULL WHERE uri = :uri"
+            ), {"uri": request.uri})
+
+            # Also remove from training feedback table
+            conn.execute(text(
+                "DELETE FROM user_relevance_feedback WHERE article_uri = :uri"
+            ), {"uri": request.uri})
+            conn.commit()
         else:
-            # Set the preference
-            db.execute(
-                "UPDATE articles SET user_preference = %s, preference_date = %s WHERE uri = %s",
-                (request.preference, datetime.now(), request.uri)
-            )
+            # Set the preference on articles table
+            conn.execute(text(
+                "UPDATE articles SET user_preference = :pref, preference_date = :date WHERE uri = :uri"
+            ), {"pref": request.preference, "date": datetime.now(), "uri": request.uri})
+            conn.commit()
+
+            # Also store in user_relevance_feedback for training
+            # First get article context
+            result = conn.execute(text(
+                """SELECT topic, title, category, news_source, keyword_relevance_score
+                   FROM articles WHERE uri = :uri"""
+            ), {"uri": request.uri})
+            article = result.fetchone()
+
+            if article:
+                topic = article[0] or "unknown"
+                feedback_type = "more_like_this" if request.preference == "more" else "less_like_this"
+                metadata = json.dumps({
+                    "title": article[1],
+                    "category": article[2],
+                    "source": article[3],
+                })
+
+                # Upsert into training feedback table
+                conn.execute(text("""
+                    INSERT INTO user_relevance_feedback
+                        (article_uri, topic, user_id, feedback_type, relevance_score, article_metadata)
+                    VALUES (:uri, :topic, :user_id, :feedback_type, :relevance_score, CAST(:metadata AS jsonb))
+                    ON CONFLICT (article_uri, user_id)
+                    DO UPDATE SET
+                        feedback_type = EXCLUDED.feedback_type,
+                        relevance_score = EXCLUDED.relevance_score,
+                        article_metadata = EXCLUDED.article_metadata,
+                        created_at = NOW()
+                """), {
+                    "uri": request.uri,
+                    "topic": topic,
+                    "user_id": None,
+                    "feedback_type": feedback_type,
+                    "relevance_score": article[4],
+                    "metadata": metadata,
+                })
+                conn.commit()
 
         return {"success": True, "message": f"Article preference '{request.preference}' recorded"}
 
     except HTTPException:
         raise
     except Exception as exc:
+        if conn:
+            conn.rollback()
         logger.error("Error recording article preference: %s", exc)
         raise HTTPException(status_code=500, detail="Error recording article preference")
+    finally:
+        if conn:
+            conn.close()
 
 
 @router.get("/article-preferences")

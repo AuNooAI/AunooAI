@@ -7,6 +7,7 @@ import { ExternalLink, Star, StarOff, Calendar } from 'lucide-react';
 import { type NewsArticle } from '../../services/newsFeedApi';
 import { Card, CardContent } from '../ui/card';
 import { getCategoryBadgeColor, getSentimentDotColor, formatDate } from './cardUtils';
+import { RelevanceFeedbackButtons } from './RelevanceFeedbackButtons';
 
 interface FeaturedArticleCardProps {
   article: NewsArticle;
@@ -14,6 +15,7 @@ interface FeaturedArticleCardProps {
   onStar?: (uri: string) => void;
   onUnstar?: (uri: string) => void;
   showCategory?: boolean;
+  showRelevanceFeedback?: boolean;
   onClick?: (article: NewsArticle) => void;
 }
 
@@ -23,6 +25,7 @@ export function FeaturedArticleCard({
   onStar,
   onUnstar,
   showCategory = true,
+  showRelevanceFeedback = false,
   onClick
 }: FeaturedArticleCardProps) {
   const handleStarClick = (e: React.MouseEvent) => {
@@ -62,6 +65,20 @@ export function FeaturedArticleCard({
               <span
                 className={`w-2.5 h-2.5 rounded-full ${getSentimentDotColor(article.sentiment)}`}
                 title={article.sentiment}
+              />
+            )}
+
+            {/* Relevance feedback */}
+            {showRelevanceFeedback && article.topic && (
+              <RelevanceFeedbackButtons
+                articleUri={article.uri}
+                topic={article.topic}
+                articleMetadata={{
+                  title: article.title,
+                  category: article.category,
+                  source: article.source?.name,
+                }}
+                size="sm"
               />
             )}
 

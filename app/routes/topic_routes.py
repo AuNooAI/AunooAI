@@ -15,6 +15,7 @@ from pydantic import BaseModel
 
 # Setup templates
 templates = Jinja2Templates(directory="templates")
+templates.env.auto_reload = True  # Reload templates on changes
 
 logger = logging.getLogger(__name__)
 
