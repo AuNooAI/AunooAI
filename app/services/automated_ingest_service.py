@@ -25,6 +25,7 @@ from app.models.media_bias import MediaBias
 from app.relevance import RelevanceCalculator
 from app.services.hybrid_relevance_service import get_hybrid_relevance_service
 from app.services.enrichment_service import get_enrichment_service
+from app.services.hybrid_enrichment_service import get_hybrid_enrichment_service
 from app.services.summarization_service import get_summarization_service
 from app.services.keybert_tagging_service import get_keybert_tagging_service
 from app.services.explanation_service import get_explanation_service
@@ -58,6 +59,8 @@ class AutomatedIngestService:
         self.relevance_calculator = None
         self.hybrid_relevance_service = None  # Lazy-loaded SLM-based relevance
         self.enrichment_service = None  # Lazy-loaded SLM-based enrichment
+        self.hybrid_enrichment_service = None  # Lazy-loaded adaptive enrichment (GPT -> DeBERTa)
+        self.use_adaptive_enrichment = self.config.get('use_adaptive_enrichment', False)  # Enable GPT -> DeBERTa training
         self.summarization_service = None  # Lazy-loaded SLM-based summarization
         self.keybert_tagging_service = None  # Lazy-loaded KeyBERT tagging
         self.explanation_service = None  # Lazy-loaded SLM-based explanations
@@ -194,29 +197,94 @@ class AutomatedIngestService:
                 self.logger.error(f"No topic specified for article {uri} - cannot determine ontology")
                 return article_data
 
-            # Step 1: Try SLM enrichment for classification fields
+            # Step 1: Try SLM/Hybrid enrichment for classification fields
             slm_result = {}
             slm_fields_used = []
+            enrichment_sources = {}
+
             try:
-                if not self.enrichment_service:
-                    self.enrichment_service = get_enrichment_service()
+                if self.use_adaptive_enrichment:
+                    # Use adaptive hybrid enrichment (GPT for new topics, DeBERTa for trained)
+                    if not self.hybrid_enrichment_service:
+                        self.hybrid_enrichment_service = get_hybrid_enrichment_service()
 
-                if self.enrichment_service.is_available():
-                    self.logger.info(f"    🧠 Using SLM for classification: {title[:50]}...")
-                    slm_result = self.enrichment_service.enrich(title=title, summary=article_text)
+                    self.logger.info(f"    🔄 Using adaptive enrichment: {title[:50]}...")
 
-                    # Check which fields have high confidence
-                    confidence_threshold = 0.6
+                    # Run async coroutine in sync context
+                    import asyncio
+                    slm_result = asyncio.run(
+                        self.hybrid_enrichment_service.enrich_article(
+                            title=title,
+                            summary=article_text,
+                            topic=topic,
+                            article_uri=uri,
+                        )
+                    )
+
+                    # Track which fields were handled and by which model
+                    enrichment_sources = slm_result.get('sources', {})
                     for field in ['sentiment', 'time_to_impact', 'driver_type', 'future_signal']:
-                        if field in slm_result and slm_result.get(f'{field}_confidence', 0) >= confidence_threshold:
+                        if field in slm_result and slm_result[field]:
                             slm_fields_used.append(field)
 
                     if slm_fields_used:
-                        self.logger.info(f"    ✅ SLM confident for: {', '.join(slm_fields_used)}")
-                    else:
-                        self.logger.info(f"    ⚠️ SLM low confidence, will use LLM for all fields")
+                        sources_str = ', '.join(f"{f}={enrichment_sources.get(f, '?')}" for f in slm_fields_used)
+                        self.logger.info(f"    ✅ Adaptive enrichment: {sources_str}")
+
+                    # Record confidence stats for frontend tracking (hybrid enrichment path)
+                    # Only record for fields that used DeBERTa (not GPT)
+                    try:
+                        deberta_confidence_scores = {}
+                        for field in ['sentiment', 'time_to_impact', 'driver_type', 'future_signal']:
+                            if enrichment_sources.get(field) == 'deberta':
+                                conf = slm_result.get(f'{field}_confidence', 0)
+                                deberta_confidence_scores[field] = conf
+
+                        if deberta_confidence_scores:
+                            from app.routes.training_routes import get_confidence_tracker
+                            tracker = get_confidence_tracker()
+                            tracker.record(topic, deberta_confidence_scores)
+                    except Exception as tracker_err:
+                        self.logger.debug(f"Failed to record confidence stats (hybrid): {tracker_err}")
+
+                else:
+                    # Use standard DeBERTa enrichment service
+                    if not self.enrichment_service:
+                        self.enrichment_service = get_enrichment_service()
+
+                    if self.enrichment_service.is_available():
+                        self.logger.info(f"    🧠 Using SLM for classification: {title[:50]}...")
+                        slm_result = self.enrichment_service.enrich(title=title, summary=article_text)
+
+                        # Check which fields have high confidence and track scores
+                        confidence_threshold = 0.6
+                        confidence_scores = {}
+                        for field in ['sentiment', 'time_to_impact', 'driver_type', 'future_signal']:
+                            conf = slm_result.get(f'{field}_confidence', 0)
+                            confidence_scores[field] = conf
+                            if field in slm_result and conf >= confidence_threshold:
+                                slm_fields_used.append(field)
+                                enrichment_sources[field] = 'deberta'
+
+                        # Calculate and log average confidence
+                        avg_conf = sum(confidence_scores.values()) / len(confidence_scores) if confidence_scores else 0
+                        conf_str = ', '.join(f"{f[:3]}={c:.2f}" for f, c in confidence_scores.items())
+
+                        # Record confidence stats for frontend tracking
+                        try:
+                            from app.routes.training_routes import get_confidence_tracker
+                            tracker = get_confidence_tracker()
+                            tracker.record(topic, confidence_scores)
+                        except Exception as tracker_err:
+                            self.logger.debug(f"Failed to record confidence stats: {tracker_err}")
+
+                        if slm_fields_used:
+                            self.logger.info(f"    ✅ SLM confident for: {', '.join(slm_fields_used)} (avg={avg_conf:.2f}, {conf_str})")
+                        else:
+                            self.logger.info(f"    ⚠️ SLM low confidence (avg={avg_conf:.2f}, {conf_str}), will use LLM for all fields")
+
             except Exception as e:
-                self.logger.warning(f"SLM enrichment failed, falling back to LLM: {e}")
+                self.logger.warning(f"Enrichment failed, falling back to LLM: {e}")
 
             # Step 2: Use LLM for generative fields (summary, explanations) and low-confidence classifications
             # Initialize article analyzer if not already done
@@ -370,6 +438,21 @@ class AutomatedIngestService:
                 "_classifier_score": hybrid_result.get("classifier_score"),
                 "_llm_score": hybrid_result.get("llm_score"),
             }
+
+            # Record relevance confidence stats for frontend tracking
+            try:
+                from app.routes.training_routes import get_relevance_confidence_tracker
+                tracker = get_relevance_confidence_tracker()
+                tracker.record(
+                    topic=topic,
+                    score=hybrid_result.get("score", 0.0),
+                    classifier_score=hybrid_result.get("classifier_score"),
+                    embedding_score=hybrid_result.get("embedding_score"),
+                    method=hybrid_result.get("method", "unknown"),
+                    relevant=hybrid_result.get("relevant")
+                )
+            except Exception as tracker_err:
+                self.logger.debug(f"Failed to record relevance confidence stats: {tracker_err}")
 
             self.logger.debug(f"Hybrid relevance for {article_data.get('uri')}: score={relevance_result['relevance_score']:.3f}, method={hybrid_result.get('method')}")
 
@@ -1069,6 +1152,7 @@ class AutomatedIngestService:
             # Step 1: Try SLM enrichment for classification fields
             slm_result = {}
             slm_fields_used = []
+            enrichment_sources = {}  # Track which model (deberta/llm) was used for each field
             try:
                 if not self.enrichment_service:
                     self.enrichment_service = get_enrichment_service()
@@ -1081,16 +1165,40 @@ class AutomatedIngestService:
                         lambda: self.enrichment_service.enrich(title=title, summary=article_text)
                     )
 
-                    # Check which fields have high confidence
+                    # Check which fields have high confidence and track scores
                     confidence_threshold = 0.6
+                    confidence_scores = {}
                     for field in ['sentiment', 'time_to_impact', 'driver_type', 'future_signal']:
-                        if field in slm_result and slm_result.get(f'{field}_confidence', 0) >= confidence_threshold:
+                        conf = slm_result.get(f'{field}_confidence', 0)
+                        confidence_scores[field] = conf
+                        if field in slm_result and conf >= confidence_threshold:
                             slm_fields_used.append(field)
+                            enrichment_sources[field] = 'deberta'
+
+                    # Calculate and log average confidence
+                    avg_conf = sum(confidence_scores.values()) / len(confidence_scores) if confidence_scores else 0
+                    conf_str = ', '.join(f"{f[:3]}={c:.2f}" for f, c in confidence_scores.items())
+
+                    # Record confidence stats for frontend tracking
+                    try:
+                        from app.routes.training_routes import get_confidence_tracker
+                        tracker = get_confidence_tracker()
+                        tracker.record(topic, confidence_scores)
+                    except Exception as tracker_err:
+                        self.logger.debug(f"Failed to record confidence stats: {tracker_err}")
+
+                    # Record DeBERTa latency for model config
+                    if slm_result.get('latency_ms') and slm_result.get('source') == 'slm':
+                        try:
+                            from app.routes.training_routes import get_latency_tracker
+                            get_latency_tracker().record('DeBERTa', slm_result['latency_ms'])
+                        except Exception:
+                            pass
 
                     if slm_fields_used:
-                        self.logger.info(f"    ✅ SLM confident: {', '.join(slm_fields_used)}")
+                        self.logger.info(f"    ✅ SLM confident: {', '.join(slm_fields_used)} (avg={avg_conf:.2f}, {conf_str})")
                     else:
-                        self.logger.info(f"    ⚠️ SLM low confidence, using LLM for all")
+                        self.logger.info(f"    ⚠️ SLM low confidence (avg={avg_conf:.2f}, {conf_str}), using LLM for all")
             except Exception as e:
                 self.logger.warning(f"SLM enrichment failed: {e}")
 
@@ -1112,6 +1220,13 @@ class AutomatedIngestService:
                         slm_summary = summary_result['summary']
                         summary_source = summary_result.get('source', 'vllm')
                         self.logger.info(f"    ✅ Summary generated via {summary_source} ({len(slm_summary)} chars)")
+                        # Record Phi-3 latency for model config
+                        if summary_result.get('latency_ms'):
+                            try:
+                                from app.routes.training_routes import get_latency_tracker
+                                get_latency_tracker().record('Phi-3', summary_result['latency_ms'])
+                            except Exception:
+                                pass
             except Exception as e:
                 self.logger.warning(f"Local summarization failed, falling back to LLM: {e}")
 
@@ -1153,6 +1268,9 @@ class AutomatedIngestService:
                 if len(slm_fields_used) < 4:
                     missing_fields = [f for f in ['sentiment', 'time_to_impact', 'driver_type', 'future_signal'] if f not in slm_fields_used]
                     missing_components.extend(missing_fields)
+                    # Track LLM sources for missing fields
+                    for field in missing_fields:
+                        enrichment_sources[field] = 'llm'
 
                 self.logger.info(f"    🤖 LLM ({model_name}) for {', '.join(missing_components) if missing_components else 'fallback'}")
 
@@ -1192,6 +1310,13 @@ class AutomatedIngestService:
                         entities = tag_result.get('entities', {})
                         tag_source = tag_result.get('source', 'hybrid')
                         self.logger.info(f"    🏷️ Hybrid tags: {tags} | Entities: {len(entities.get('people', []))}P/{len(entities.get('organizations', []))}O/{len(entities.get('locations', []))}L ({tag_result.get('latency_ms', 0)}ms)")
+                        # Record KeyBERT latency (hybrid mode still uses KeyBERT as base)
+                        if tag_result.get('latency_ms'):
+                            try:
+                                from app.routes.training_routes import get_latency_tracker
+                                get_latency_tracker().record('KeyBERT', tag_result['latency_ms'])
+                            except Exception:
+                                pass
                 elif self.keybert_tagging_service.is_available():
                     # Fallback to KeyBERT-only if vLLM unavailable
                     raw_content = article_data.get('raw_content') or article_data.get('content')
@@ -1207,6 +1332,13 @@ class AutomatedIngestService:
                         tags = tag_result['tags']
                         tag_source = "keybert"
                         self.logger.info(f"    🏷️ KeyBERT tags: {tags} ({tag_result.get('latency_ms', 0)}ms)")
+                        # Record KeyBERT latency
+                        if tag_result.get('latency_ms'):
+                            try:
+                                from app.routes.training_routes import get_latency_tracker
+                                get_latency_tracker().record('KeyBERT', tag_result['latency_ms'])
+                            except Exception:
+                                pass
             except Exception as e:
                 self.logger.warning(f"Hybrid tagging failed, using LLM fallback: {e}")
 
@@ -1260,6 +1392,13 @@ class AutomatedIngestService:
                         slm_explanations = explanation_result
                         explanation_source = "qwen"
                         self.logger.info(f"    💬 SLM explanations generated ({explanation_result.get('latency_ms', 0)}ms)")
+                        # Record Qwen latency for explanations
+                        if explanation_result.get('latency_ms'):
+                            try:
+                                from app.routes.training_routes import get_latency_tracker
+                                get_latency_tracker().record('Qwen', explanation_result['latency_ms'])
+                            except Exception:
+                                pass
             except Exception as e:
                 self.logger.warning(f"SLM explanation generation failed, using LLM fallback: {e}")
 
@@ -1285,6 +1424,13 @@ class AutomatedIngestService:
                         slm_category = category_result['category']
                         category_source = "qwen"
                         self.logger.info(f"    📂 SLM category: {slm_category} ({category_result.get('latency_ms', 0)}ms)")
+                        # Record Qwen latency for category
+                        if category_result.get('latency_ms'):
+                            try:
+                                from app.routes.training_routes import get_latency_tracker
+                                get_latency_tracker().record('Qwen', category_result['latency_ms'])
+                            except Exception:
+                                pass
             except Exception as e:
                 self.logger.warning(f"SLM category classification failed, using LLM fallback: {e}")
 
@@ -1302,7 +1448,8 @@ class AutomatedIngestService:
                 'tags': tags_str,
                 'analyzed': True,
                 '_enrichment_method': 'llm_only',
-                '_summary_source': summary_source
+                '_summary_source': summary_source,
+                '_enrichment_sources': enrichment_sources,  # Track which model was used for each field
             }
 
             # Override with SLM results for high-confidence fields

@@ -336,11 +336,15 @@ class EnrichmentService:
         if use_slm:
             result = self._enrich_with_slm(title, summary, tasks)
             self._stats['slm_requests'] += 1
-            self._stats['slm_latency_sum'] += time.time() - start_time
+            elapsed = time.time() - start_time
+            self._stats['slm_latency_sum'] += elapsed
+            result['latency_ms'] = int(elapsed * 1000)
         else:
             result = self._enrich_with_llm(title, summary, tasks)
             self._stats['llm_requests'] += 1
-            self._stats['llm_latency_sum'] += time.time() - start_time
+            elapsed = time.time() - start_time
+            self._stats['llm_latency_sum'] += elapsed
+            result['latency_ms'] = int(elapsed * 1000)
 
         return result
 

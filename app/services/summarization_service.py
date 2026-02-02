@@ -1,236 +1,213 @@
 """
 Summarization Service
 
-ML-based article summarization using fine-tuned T5/BART models.
-Supports both local model inference and LLM fallback.
+Uses vLLM with Phi-3-mini as the primary summarizer for fast, local inference.
+Falls back to the configured LLM model (from Gather settings) if vLLM is unavailable.
 
 Usage:
-    from app.services.summarization_service import SummarizationService
+    from app.services.summarization_service import get_summarization_service
 
-    summarizer = SummarizationService()
+    summarizer = get_summarization_service()
     result = summarizer.summarize(
         title="OpenAI launches GPT-5",
         content="OpenAI has announced the release of GPT-5..."
     )
-    # Returns: {"summary": "OpenAI releases GPT-5 with...", "source": "local"}
+    # Returns: {"summary": "OpenAI releases GPT-5 with...", "source": "vllm", "latency_ms": 2500}
 """
 
-import json
 import logging
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-
-import numpy as np
+import time
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# Model configuration
-DEFAULT_MAX_SOURCE_LENGTH = 1024
-DEFAULT_MAX_TARGET_LENGTH = 128
-DEFAULT_NUM_BEAMS = 4
-
-# Local model paths
-BASE_DIR = Path(__file__).parent.parent.parent
-LOCAL_MODEL_PATH = BASE_DIR / "models" / "summarizer" / "final"
-
-# HuggingFace Hub model ID (for future distribution)
-HF_MODEL_ID = "aunoo/article-summarizer-t5"
+# vLLM Configuration
+VLLM_BASE_URL = "http://localhost:8765/v1"
+VLLM_MODEL = "microsoft/Phi-3-mini-4k-instruct"
 
 
 class SummarizationService:
     """
-    ML-based article summarization service.
+    Summarization service using vLLM Phi-3-mini with LLM fallback.
 
     Features:
-    - T5/BART-based summarization
-    - Configurable generation parameters
+    - vLLM Phi-3-mini for fast local inference (~3s per summary)
+    - Automatic fallback to configured LLM model
     - Batch processing support
-    - LLM fallback when model unavailable
-    - Caching support for efficiency
+    - Zero API cost for primary path
     """
 
     _instance = None
     _initialized = False
 
     def __new__(cls):
-        """Singleton pattern for efficient model loading."""
+        """Singleton pattern for efficient resource usage."""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(
-        self,
-        use_gpu: bool = False,
-        prefer_local: bool = True,
-        max_source_length: int = DEFAULT_MAX_SOURCE_LENGTH,
-        max_target_length: int = DEFAULT_MAX_TARGET_LENGTH,
-    ):
-        """
-        Initialize the summarization service.
-
-        Args:
-            use_gpu: Whether to use GPU (default False for server stability)
-            prefer_local: Prefer local models over HuggingFace Hub
-            max_source_length: Maximum input length in tokens
-            max_target_length: Maximum output length in tokens
-        """
+    def __init__(self):
+        """Initialize the summarization service."""
         if SummarizationService._initialized:
             return
 
-        self.model = None
-        self.tokenizer = None
-        self.device = "cpu"
-
-        self.max_source_length = max_source_length
-        self.max_target_length = max_target_length
-        self.prefer_local = prefer_local
-        self.use_gpu = use_gpu
-
-        self._models_loaded = False
-        self._load_error = None
-        self._model_config = None
-
-        # Generation parameters
-        self.num_beams = DEFAULT_NUM_BEAMS
-        self.length_penalty = 1.0
-        self.no_repeat_ngram_size = 3
-        self.early_stopping = True
+        self._vllm_available = None  # Lazy check
+        self._vllm_checked = False
 
         SummarizationService._initialized = True
 
-    def _get_device(self) -> str:
-        """Determine device to use."""
-        if self.use_gpu:
-            try:
-                import torch
-                if torch.cuda.is_available():
-                    return "cuda"
-            except ImportError:
-                pass
-        return "cpu"
-
-    def load_models(self, force_reload: bool = False) -> bool:
-        """
-        Load the summarization model.
-
-        Returns:
-            True if model loaded successfully, False otherwise
-        """
-        if self._models_loaded and not force_reload:
-            return True
+    def _check_vllm_available(self) -> bool:
+        """Check if vLLM server is running and responsive."""
+        if self._vllm_checked:
+            return self._vllm_available
 
         try:
-            import torch
-            from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
-        except ImportError as e:
-            if not self._load_error:
-                self._load_error = f"Missing dependencies: {e}. Install with: pip install torch transformers"
-                logger.warning(self._load_error)
+            import requests
+            response = requests.get(f"{VLLM_BASE_URL}/models", timeout=5)
+            if response.status_code == 200:
+                models = response.json().get("data", [])
+                # Check if our model is loaded
+                for model in models:
+                    if VLLM_MODEL in model.get("id", ""):
+                        self._vllm_available = True
+                        self._vllm_checked = True
+                        logger.info(f"vLLM available with model: {VLLM_MODEL}")
+                        return True
+            self._vllm_available = False
+            self._vllm_checked = True
+            logger.warning(f"vLLM not available or model not loaded")
             return False
-
-        self.device = self._get_device()
-        logger.info(f"Loading summarization model on {self.device}")
-
-        model_path = None
-
-        # Try local path first
-        if self.prefer_local and LOCAL_MODEL_PATH.exists():
-            model_path = str(LOCAL_MODEL_PATH)
-            logger.info(f"Loading from local: {model_path}")
-        else:
-            # Try HuggingFace Hub
-            try:
-                from huggingface_hub import HfApi
-                api = HfApi()
-                try:
-                    api.model_info(HF_MODEL_ID)
-                    model_path = HF_MODEL_ID
-                    logger.info(f"Loading from HuggingFace Hub: {model_path}")
-                except Exception:
-                    # Fallback to public T5 model
-                    model_path = "t5-base"
-                    logger.info(f"Using base T5 model: {model_path}")
-            except ImportError:
-                model_path = "t5-base"
-                logger.info(f"Using base T5 model: {model_path}")
-
-        if not model_path:
-            self._load_error = "No summarization model found"
-            logger.error(self._load_error)
-            return False
-
-        try:
-            self.tokenizer = AutoTokenizer.from_pretrained(model_path)
-
-            # Load with appropriate dtype
-            if self.device == "cpu":
-                import torch
-                self.model = AutoModelForSeq2SeqLM.from_pretrained(
-                    model_path, torch_dtype=torch.float32
-                )
-            else:
-                self.model = AutoModelForSeq2SeqLM.from_pretrained(model_path)
-
-            self.model.to(self.device)
-            self.model.eval()
-
-            # Load model config if available
-            config_path = Path(model_path) / "model_config.json"
-            if config_path.exists():
-                with open(config_path) as f:
-                    self._model_config = json.load(f)
-                    self.max_source_length = self._model_config.get("max_source_length", DEFAULT_MAX_SOURCE_LENGTH)
-                    self.max_target_length = self._model_config.get("max_target_length", DEFAULT_MAX_TARGET_LENGTH)
-                    gen_config = self._model_config.get("generation_config", {})
-                    self.num_beams = gen_config.get("num_beams", DEFAULT_NUM_BEAMS)
-
-            self._models_loaded = True
-            logger.info("Summarization model loaded successfully")
-            return True
-
         except Exception as e:
-            self._load_error = f"Failed to load model: {e}"
-            logger.error(self._load_error)
+            logger.warning(f"vLLM check failed: {e}")
+            self._vllm_available = False
+            self._vllm_checked = True
             return False
 
     def is_available(self) -> bool:
-        """Check if summarizer is available for use."""
-        if not self._models_loaded:
-            self.load_models()
-        return self._models_loaded
+        """Check if summarizer is available (vLLM or fallback)."""
+        # Always available since we have LLM fallback
+        return True
 
     def get_status(self) -> Dict:
         """Get summarizer status and configuration."""
         return {
-            "available": self._models_loaded,
-            "error": self._load_error,
-            "device": self.device,
-            "model_loaded": self.model is not None,
-            "max_source_length": self.max_source_length,
-            "max_target_length": self.max_target_length,
-            "num_beams": self.num_beams,
-            "model_config": self._model_config,
+            "available": True,
+            "vllm_available": self._check_vllm_available(),
+            "vllm_url": VLLM_BASE_URL,
+            "vllm_model": VLLM_MODEL,
+            "fallback": "configured_llm",
         }
 
-    def _prepare_input(self, title: str, content: str) -> str:
+    def _summarize_with_vllm(self, title: str, content: str) -> Optional[Dict]:
         """
-        Prepare input text for summarization.
+        Summarize using vLLM Phi-3-mini.
 
         Args:
             title: Article title
             content: Article content
 
         Returns:
-            Formatted input text
+            Dict with 'summary' and 'source', or None if failed
         """
-        title = str(title).strip() if title else ""
-        content = str(content).strip() if content else ""
+        if not self._check_vllm_available():
+            return None
 
-        # Format for T5: "summarize: title\n\ncontent"
-        if title:
-            return f"summarize: {title}\n\n{content}"
-        else:
-            return f"summarize: {content}"
+        try:
+            from litellm import completion
+
+            # Truncate content if too long
+            max_content = 3000
+            if len(content) > max_content:
+                content = content[:max_content] + "..."
+
+            response = completion(
+                model=f"openai/{VLLM_MODEL}",
+                api_base=VLLM_BASE_URL,
+                messages=[
+                    {"role": "system", "content": "You are a news summarizer. Output only the summary, nothing else."},
+                    {"role": "user", "content": f"Summarize in 2-3 sentences:\n\nTitle: {title}\n\nContent: {content}"}
+                ],
+                max_tokens=150,
+                temperature=0.2,
+            )
+
+            summary = response.choices[0].message.content.strip()
+
+            # Validate summary
+            if len(summary) < 20:
+                logger.warning(f"vLLM returned short summary: {summary}")
+                return None
+
+            return {
+                "summary": summary,
+                "source": "vllm",
+            }
+
+        except Exception as e:
+            logger.warning(f"vLLM summarization failed: {e}")
+            # Reset availability check for next time
+            self._vllm_checked = False
+            return None
+
+    def _summarize_with_configured_llm(self, title: str, content: str) -> Dict:
+        """
+        Fallback summarization using the configured LLM from Gather settings.
+
+        Args:
+            title: Article title
+            content: Article content
+
+        Returns:
+            Dict with 'summary' and 'source'
+        """
+        try:
+            from litellm import completion
+            from app.database import Database
+
+            # Get configured model from database
+            db = Database()
+            configured_model = db.facade.get_configured_llm_model()
+
+            if not configured_model:
+                # Get first available model
+                from app.ai_models import get_available_models
+                available = get_available_models()
+                if available and len(available) > 0:
+                    configured_model = available[0].get('name')
+                else:
+                    configured_model = "gpt-4o-mini"  # Ultimate fallback
+
+            logger.info(f"Using fallback LLM for summarization: {configured_model}")
+
+            # Truncate content if too long
+            max_content = 4000
+            if len(content) > max_content:
+                content = content[:max_content] + "..."
+
+            response = completion(
+                model=configured_model,
+                messages=[
+                    {"role": "user", "content": f"Summarize the following article in 2-3 concise sentences.\n\nTitle: {title}\n\nContent:\n{content}\n\nSummary:"}
+                ],
+                max_tokens=200,
+                temperature=0.3,
+            )
+
+            summary = response.choices[0].message.content.strip()
+
+            return {
+                "summary": summary,
+                "source": "llm",
+                "model": configured_model,
+            }
+
+        except Exception as e:
+            logger.error(f"LLM fallback failed: {e}")
+            # Return truncated content as last resort
+            return {
+                "summary": f"{title}. {content[:200]}...",
+                "source": "fallback",
+            }
 
     def summarize(
         self,
@@ -243,56 +220,31 @@ class SummarizationService:
         """
         Generate a summary for an article.
 
+        Primary: vLLM Phi-3-mini (fast, local, free)
+        Fallback: Configured LLM from Gather settings
+
         Args:
             title: Article title
             content: Article content
-            max_length: Override max output length
-            min_length: Minimum output length
-            num_beams: Override beam search width
+            max_length: Ignored (kept for API compatibility)
+            min_length: Ignored (kept for API compatibility)
+            num_beams: Ignored (kept for API compatibility)
 
         Returns:
-            Dict with 'summary' (str) and 'source' ('local' or 'llm')
+            Dict with 'summary' (str), 'source' ('vllm', 'llm', or 'fallback'), and 'latency_ms'
         """
-        if not self.is_available():
-            # Fallback to LLM
-            return self._summarize_with_llm(title, content)
+        start_time = time.time()
 
-        import torch
+        # Try vLLM first
+        result = self._summarize_with_vllm(title, content)
+        if result:
+            result['latency_ms'] = int((time.time() - start_time) * 1000)
+            return result
 
-        max_length = max_length or self.max_target_length
-        min_length = min_length or 30
-        num_beams = num_beams or self.num_beams
-
-        # Prepare input
-        input_text = self._prepare_input(title, content)
-
-        # Tokenize
-        inputs = self.tokenizer(
-            input_text,
-            max_length=self.max_source_length,
-            truncation=True,
-            return_tensors="pt"
-        ).to(self.device)
-
-        # Generate
-        with torch.no_grad():
-            outputs = self.model.generate(
-                **inputs,
-                max_length=max_length,
-                min_length=min_length,
-                num_beams=num_beams,
-                length_penalty=self.length_penalty,
-                no_repeat_ngram_size=self.no_repeat_ngram_size,
-                early_stopping=self.early_stopping,
-            )
-
-        # Decode
-        summary = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
-
-        return {
-            "summary": summary.strip(),
-            "source": "local",
-        }
+        # Fall back to configured LLM
+        result = self._summarize_with_configured_llm(title, content)
+        result['latency_ms'] = int((time.time() - start_time) * 1000)
+        return result
 
     def summarize_batch(
         self,
@@ -301,119 +253,29 @@ class SummarizationService:
         batch_size: int = 8,
     ) -> List[Dict]:
         """
-        Generate summaries for multiple articles efficiently.
+        Generate summaries for multiple articles.
 
         Args:
             articles: List of dicts with 'title', 'content' keys
-            max_length: Override max output length
-            batch_size: Processing batch size
+            max_length: Ignored (kept for API compatibility)
+            batch_size: Ignored (vLLM handles batching internally)
 
         Returns:
             List of dicts with 'summary' and 'source'
         """
-        if not self.is_available():
-            # Fallback to LLM for each article
-            return [
-                self._summarize_with_llm(
-                    article.get("title", ""),
-                    article.get("content", "")
-                )
-                for article in articles
-            ]
-
-        import torch
-
-        max_length = max_length or self.max_target_length
         results = []
-
-        # Prepare all inputs
-        input_texts = [
-            self._prepare_input(
-                article.get("title", ""),
-                article.get("content", "")
+        for article in articles:
+            result = self.summarize(
+                title=article.get("title", ""),
+                content=article.get("content", "")
             )
-            for article in articles
-        ]
-
-        # Process in batches
-        for i in range(0, len(input_texts), batch_size):
-            batch_texts = input_texts[i:i + batch_size]
-
-            # Tokenize batch
-            inputs = self.tokenizer(
-                batch_texts,
-                max_length=self.max_source_length,
-                truncation=True,
-                padding=True,
-                return_tensors="pt"
-            ).to(self.device)
-
-            # Generate
-            with torch.no_grad():
-                outputs = self.model.generate(
-                    **inputs,
-                    max_length=max_length,
-                    num_beams=self.num_beams,
-                    length_penalty=self.length_penalty,
-                    no_repeat_ngram_size=self.no_repeat_ngram_size,
-                    early_stopping=self.early_stopping,
-                )
-
-            # Decode batch
-            summaries = self.tokenizer.batch_decode(outputs, skip_special_tokens=True)
-
-            for summary in summaries:
-                results.append({
-                    "summary": summary.strip(),
-                    "source": "local",
-                })
-
+            results.append(result)
         return results
 
-    def _summarize_with_llm(self, title: str, content: str) -> Dict:
-        """
-        Fallback summarization using LLM.
-
-        Args:
-            title: Article title
-            content: Article content
-
-        Returns:
-            Dict with 'summary' and 'source'
-        """
-        try:
-            from app.ai_models import AIModelFactory
-
-            ai = AIModelFactory.get_model()
-
-            # Truncate content if too long
-            max_content = 4000  # ~1000 tokens
-            if len(content) > max_content:
-                content = content[:max_content] + "..."
-
-            prompt = f"""Summarize the following article in 2-3 concise sentences.
-
-Title: {title}
-
-Content:
-{content}
-
-Summary:"""
-
-            summary = ai.generate(prompt, max_tokens=200, temperature=0.3)
-
-            return {
-                "summary": summary.strip(),
-                "source": "llm",
-            }
-
-        except Exception as e:
-            logger.error(f"LLM fallback failed: {e}")
-            # Return truncated content as last resort
-            return {
-                "summary": f"{title}. {content[:200]}...",
-                "source": "fallback",
-            }
+    def reset_vllm_check(self):
+        """Reset vLLM availability check to force re-check on next call."""
+        self._vllm_checked = False
+        self._vllm_available = None
 
 
 # Singleton instance getter
