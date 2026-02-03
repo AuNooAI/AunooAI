@@ -30,6 +30,7 @@ Usage:
 """
 
 import logging
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 import numpy as np
@@ -273,7 +274,6 @@ Score:"""
 
             response_text = response.choices[0].message.content.strip()
             # Extract first number from response
-            import re
             match = re.search(r'(\d+\.?\d*)', response_text)
             if match:
                 score = float(match.group(1))

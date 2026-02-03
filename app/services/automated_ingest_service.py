@@ -33,11 +33,15 @@ from app.services.category_service import get_category_service
 from app.analyzers.article_analyzer import ArticleAnalyzer
 from app.ai_models import LiteLLMModel, get_available_models
 import asyncio
+import nest_asyncio
 import concurrent.futures
 from concurrent.futures import ThreadPoolExecutor
 import requests
 from app.config.config import load_config, get_topic_description
 import time
+
+# Allow nested event loops (needed when called from FastAPI routes)
+nest_asyncio.apply()
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -235,24 +239,16 @@ class AutomatedIngestService:
 
                     self.logger.info(f"    🔄 Using adaptive enrichment ({llm_type} fallback): {title[:50]}...")
 
-                    # Run async coroutine - handle both sync and async contexts
-                    coro = self.hybrid_enrichment_service.enrich_article(
-                        title=title,
-                        summary=article_text,
-                        topic=topic,
-                        article_uri=uri,
-                        use_local_llm=use_local_llm,
+                    # Run async coroutine (nest_asyncio applied at module level)
+                    slm_result = asyncio.run(
+                        self.hybrid_enrichment_service.enrich_article(
+                            title=title,
+                            summary=article_text,
+                            topic=topic,
+                            article_uri=uri,
+                            use_local_llm=use_local_llm,
+                        )
                     )
-                    try:
-                        # Check if we're in an existing event loop
-                        loop = asyncio.get_running_loop()
-                        # Run in thread pool to avoid blocking the loop
-                        import nest_asyncio
-                        nest_asyncio.apply()
-                        slm_result = asyncio.run(coro)
-                    except RuntimeError:
-                        # No running loop, safe to use asyncio.run
-                        slm_result = asyncio.run(coro)
 
                     # Track which fields were handled and by which model
                     enrichment_sources = slm_result.get('sources', {})
