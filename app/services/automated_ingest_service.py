@@ -483,7 +483,7 @@ class AutomatedIngestService:
                 "topic_alignment_score": hybrid_result.get("score", 0.0),  # Use combined score
                 "keyword_relevance_score": hybrid_result.get("embedding_score", 0.0),  # Embedding as keyword proxy
                 "confidence_score": 1.0 if hybrid_result.get("confidence") == "high" else 0.5,
-                "overall_match_explanation": f"Hybrid scoring: {hybrid_result.get('method')} (embed={hybrid_result.get('embedding_score', 0):.2f}, class={hybrid_result.get('classifier_score', 0):.2f})",
+                "overall_match_explanation": f"Hybrid scoring: {hybrid_result.get('method')} (embed={(hybrid_result.get('embedding_score') or 0):.2f}, class={(hybrid_result.get('classifier_score') or 0):.2f})",
                 # Additional hybrid metadata
                 "_hybrid_method": hybrid_result.get("method"),
                 "_hybrid_confidence": hybrid_result.get("confidence"),
@@ -507,7 +507,7 @@ class AutomatedIngestService:
             except Exception as tracker_err:
                 self.logger.debug(f"Failed to record relevance confidence stats: {tracker_err}")
 
-            self.logger.debug(f"Hybrid relevance for {article_data.get('uri')}: score={relevance_result['relevance_score']:.3f}, method={hybrid_result.get('method')}")
+            self.logger.debug(f"Hybrid relevance for {article_data.get('uri')}: score={(relevance_result.get('relevance_score') or 0):.3f}, method={hybrid_result.get('method')}")
 
             return relevance_result
 

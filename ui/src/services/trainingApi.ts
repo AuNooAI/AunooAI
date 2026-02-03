@@ -126,6 +126,17 @@ export interface RelevanceConfidenceStatsResponse {
 const API_BASE = '/api/training';
 
 /**
+ * Handle API response with consistent error handling
+ */
+async function handleResponse<T>(response: Response, errorPrefix: string): Promise<T> {
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `${errorPrefix}: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
  * Get sample counts per topic per field
  */
 export async function getSampleCounts(topic?: string): Promise<{
@@ -213,12 +224,7 @@ export async function triggerFinetuning(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ topics, fields }),
   });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || `Failed to trigger finetuning: ${response.statusText}`);
-  }
-  return response.json();
+  return handleResponse(response, 'Failed to trigger finetuning');
 }
 
 /**
@@ -233,12 +239,7 @@ export async function triggerRelevanceTraining(): Promise<{
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || `Failed to trigger relevance training: ${response.statusText}`);
-  }
-  return response.json();
+  return handleResponse(response, 'Failed to trigger relevance training');
 }
 
 /**
@@ -277,12 +278,7 @@ export async function deployModel(runId: string): Promise<{ status: string; run_
   const response = await fetch(`${API_BASE}/runs/${encodeURIComponent(runId)}/deploy`, {
     method: 'POST',
   });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || `Failed to deploy model: ${response.statusText}`);
-  }
-  return response.json();
+  return handleResponse(response, 'Failed to deploy model');
 }
 
 /**
@@ -292,12 +288,7 @@ export async function deleteRun(runId: string): Promise<{ status: string; run_id
   const response = await fetch(`${API_BASE}/runs/${encodeURIComponent(runId)}`, {
     method: 'DELETE',
   });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || `Failed to delete run: ${response.statusText}`);
-  }
-  return response.json();
+  return handleResponse(response, 'Failed to delete run');
 }
 
 /**
@@ -307,12 +298,7 @@ export async function rollbackModel(): Promise<{ status: string }> {
   const response = await fetch(`${API_BASE}/rollback`, {
     method: 'POST',
   });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || `Failed to rollback: ${response.statusText}`);
-  }
-  return response.json();
+  return handleResponse(response, 'Failed to rollback');
 }
 
 /**
@@ -478,12 +464,7 @@ export async function recordRelevanceFeedback(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
   });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({}));
-    throw new Error(error.detail || `Failed to record feedback: ${response.statusText}`);
-  }
-  return response.json();
+  return handleResponse(response, 'Failed to record feedback');
 }
 
 /**
@@ -534,7 +515,6 @@ export async function deleteRelevanceFeedback(feedbackId: number): Promise<void>
   const response = await fetch(`${API_BASE}/relevance-feedback/${feedbackId}`, {
     method: 'DELETE',
   });
-
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
     throw new Error(error.detail || `Failed to delete feedback: ${response.statusText}`);

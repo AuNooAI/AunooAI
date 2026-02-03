@@ -20,6 +20,7 @@ import {
   type PodcastSummary,
 } from '../services/researchAgentsApi';
 import { extractErrorMessage } from '../services/api';
+import { showSuccess } from '../utils/toast';
 
 export interface UseResearchAgentsState {
   agents: ResearchAgent[];
@@ -218,8 +219,7 @@ export function useResearchAgents(initialTopic?: string): UseResearchAgentsState
         await fetchAlerts({ topic: options?.topic });
         // Notify about generated unified report
         if (response.report) {
-          // Use browser alert for now - can be replaced with proper toast later
-          window.alert(`Unified report generated!\n\nReport: ${response.report.name}\nArticles analyzed: ${response.report.articles_used}\n\nView in Saved Reports.`);
+          showSuccess(`Unified report generated: ${response.report.name} (${response.report.articles_used} articles). View in Saved Reports.`, 8000);
         }
         return true;
       } else {

@@ -35,6 +35,50 @@ function transformKeys(obj: any): any {
   return obj;
 }
 
+// Transform raw PAM response data to typed PAMData structure
+function transformPAMResponse(resultData: any): PAMData {
+  return {
+    runId: resultData.run_id || '',
+    topic: resultData.topic || '',
+    analysisType: resultData.analysis_type || 'comprehensive',
+    entityType: resultData.entity_type || 'publisher',
+    timeHorizon: resultData.time_horizon || '1_year',
+    executiveSummary: transformKeys(resultData.executive_summary) || {},
+    scores: {
+      powerScore: resultData.scores?.power_score || 50,
+      attentionScore: resultData.scores?.attention_score || 50,
+      moneyScore: resultData.scores?.money_score || 50,
+      overallScore: resultData.scores?.overall_score || 50,
+      threatLevel: resultData.scores?.threat_level || 'moderate',
+      weightsUsed: resultData.scores?.weights_used ? transformKeys(resultData.scores.weights_used) : undefined,
+      dataSources: resultData.scores?.data_sources ? transformKeys(resultData.scores.data_sources) : undefined,
+    },
+    powerAnalysis: resultData.power_analysis ? transformKeys(resultData.power_analysis) : null,
+    attentionAnalysis: resultData.attention_analysis ? transformKeys(resultData.attention_analysis) : null,
+    moneyAnalysis: resultData.money_analysis ? transformKeys(resultData.money_analysis) : null,
+    trendAnalysis: transformKeys(resultData.trend_analysis) || {
+      trends: [],
+      overallTrajectory: '',
+      dominantTrend: '',
+      emergingSignals: [],
+    },
+    scenarioAnalysis: transformKeys(resultData.scenario_analysis) || {},
+    strategicRecommendations: transformKeys(resultData.strategic_recommendations) || [],
+    articlesAnalyzed: resultData.articles_analyzed || 0,
+    articleUris: resultData.article_uris || [],
+    referenceArticles: (transformKeys(resultData.reference_articles) || []).map((article: any, index: number) => ({
+      ...article,
+      id: index + 1
+    })),
+    modelUsed: resultData.model_used || '',
+    durationSeconds: resultData.duration_seconds || 0,
+    createdAt: resultData.created_at || new Date().toISOString(),
+    architectureVersion: resultData.architecture_version,
+    configUsed: resultData.config_used ? transformKeys(resultData.config_used) : undefined,
+    pillarQueries: resultData.pillar_queries ? transformKeys(resultData.pillar_queries) : undefined,
+  };
+}
+
 // Types
 export interface PAMConfig {
   topic: string;
@@ -427,49 +471,7 @@ export function usePAM(): UsePAMReturn {
           ? JSON.parse(result.data.content_json)
           : result.data.content_json;
 
-        // Transform the cached data using the same transformation as live data
-        const transformedData: PAMData = {
-          runId: cachedContent.run_id || '',
-          topic: cachedContent.topic || '',
-          analysisType: cachedContent.analysis_type || 'comprehensive',
-          entityType: cachedContent.entity_type || 'publisher',
-          timeHorizon: cachedContent.time_horizon || '1_year',
-          executiveSummary: transformKeys(cachedContent.executive_summary) || {},
-          scores: {
-            powerScore: cachedContent.scores?.power_score || 50,
-            attentionScore: cachedContent.scores?.attention_score || 50,
-            moneyScore: cachedContent.scores?.money_score || 50,
-            overallScore: cachedContent.scores?.overall_score || 50,
-            threatLevel: cachedContent.scores?.threat_level || 'moderate',
-            // v2 fields
-            weightsUsed: cachedContent.scores?.weights_used ? transformKeys(cachedContent.scores.weights_used) : undefined,
-            dataSources: cachedContent.scores?.data_sources ? transformKeys(cachedContent.scores.data_sources) : undefined,
-          },
-          powerAnalysis: cachedContent.power_analysis ? transformKeys(cachedContent.power_analysis) : null,
-          attentionAnalysis: cachedContent.attention_analysis ? transformKeys(cachedContent.attention_analysis) : null,
-          moneyAnalysis: cachedContent.money_analysis ? transformKeys(cachedContent.money_analysis) : null,
-          trendAnalysis: transformKeys(cachedContent.trend_analysis) || {
-            trends: [],
-            overallTrajectory: '',
-            dominantTrend: '',
-            emergingSignals: [],
-          },
-          scenarioAnalysis: transformKeys(cachedContent.scenario_analysis) || {},
-          strategicRecommendations: transformKeys(cachedContent.strategic_recommendations) || [],
-          articlesAnalyzed: cachedContent.articles_analyzed || 0,
-          articleUris: cachedContent.article_uris || [],
-          referenceArticles: (transformKeys(cachedContent.reference_articles) || []).map((article: any, index: number) => ({
-            ...article,
-            id: index + 1  // 1-based index for citation matching [1], [2], etc.
-          })),
-          modelUsed: cachedContent.model_used || '',
-          durationSeconds: cachedContent.duration_seconds || 0,
-          createdAt: cachedContent.created_at || new Date().toISOString(),
-          // v2 fields
-          architectureVersion: cachedContent.architecture_version,
-          configUsed: cachedContent.config_used ? transformKeys(cachedContent.config_used) : undefined,
-          pillarQueries: cachedContent.pillar_queries ? transformKeys(cachedContent.pillar_queries) : undefined,
-        };
+        const transformedData = transformPAMResponse(cachedContent);
 
         console.log('📊 Loaded cached PAM report:', {
           runId: transformedData.runId,
@@ -490,93 +492,64 @@ export function usePAM(): UsePAMReturn {
   }, []);
 
   const handleSSEEvent = useCallback((eventData: any) => {
-    const { stage, progress, articles_found, articles_analyzed, chunk, data: resultData } = eventData;
+    const { stage, progress, articles_found, articles_analyzed, data: resultData } = eventData;
 
     console.log('📊 PAM SSE event:', { stage, progress });
 
-    if (stage === 'fetching') {
-      setCurrentStage('fetching');
-      setStageProgress(progress || 0);
-      setOverallProgress((progress || 0) * 0.15);
-      if (articles_found) {
-        setArticlesFetched(articles_found);
-      }
-    } else if (stage === 'analyzing_power') {
-      setCurrentStage('analyzing_power');
-      setStageProgress(progress || 0);
-      setOverallProgress(0.15 + (progress || 0) * 0.2);
-      if (articles_analyzed) {
-        setArticlesAnalyzed(articles_analyzed);
-      }
-    } else if (stage === 'analyzing_attention') {
-      setCurrentStage('analyzing_attention');
-      setStageProgress(progress || 0);
-      setOverallProgress(0.35 + (progress || 0) * 0.2);
-    } else if (stage === 'analyzing_money') {
-      setCurrentStage('analyzing_money');
-      setStageProgress(progress || 0);
-      setOverallProgress(0.55 + (progress || 0) * 0.2);
-    } else if (stage === 'synthesizing') {
-      setCurrentStage('synthesizing');
-      setStageProgress(progress || 0);
-      setOverallProgress(0.75 + (progress || 0) * 0.2);
-    } else if (stage === 'complete') {
-      setCurrentStage('complete');
-      setStageProgress(1);
-      setOverallProgress(1);
+    switch (stage) {
+      case 'fetching':
+        setCurrentStage('fetching');
+        setStageProgress(progress || 0);
+        setOverallProgress((progress || 0) * 0.15);
+        if (articles_found) {
+          setArticlesFetched(articles_found);
+        }
+        break;
 
-      if (resultData) {
-        // Transform snake_case to camelCase recursively for nested objects
-        const transformedData: PAMData = {
-          runId: resultData.run_id || '',
-          topic: resultData.topic || '',
-          analysisType: resultData.analysis_type || 'comprehensive',
-          entityType: resultData.entity_type || 'publisher',
-          timeHorizon: resultData.time_horizon || '1_year',
-          executiveSummary: transformKeys(resultData.executive_summary) || {},
-          scores: {
-            powerScore: resultData.scores?.power_score || 50,
-            attentionScore: resultData.scores?.attention_score || 50,
-            moneyScore: resultData.scores?.money_score || 50,
-            overallScore: resultData.scores?.overall_score || 50,
-            threatLevel: resultData.scores?.threat_level || 'moderate',
-            // v2 fields
-            weightsUsed: resultData.scores?.weights_used ? transformKeys(resultData.scores.weights_used) : undefined,
-            dataSources: resultData.scores?.data_sources ? transformKeys(resultData.scores.data_sources) : undefined,
-          },
-          powerAnalysis: resultData.power_analysis ? transformKeys(resultData.power_analysis) : null,
-          attentionAnalysis: resultData.attention_analysis ? transformKeys(resultData.attention_analysis) : null,
-          moneyAnalysis: resultData.money_analysis ? transformKeys(resultData.money_analysis) : null,
-          trendAnalysis: transformKeys(resultData.trend_analysis) || {
-            trends: [],
-            overallTrajectory: '',
-            dominantTrend: '',
-            emergingSignals: [],
-          },
-          scenarioAnalysis: transformKeys(resultData.scenario_analysis) || {},
-          strategicRecommendations: transformKeys(resultData.strategic_recommendations) || [],
-          articlesAnalyzed: resultData.articles_analyzed || 0,
-          articleUris: resultData.article_uris || [],
-          referenceArticles: (transformKeys(resultData.reference_articles) || []).map((article: any, index: number) => ({
-            ...article,
-            id: index + 1  // 1-based index for citation matching [1], [2], etc.
-          })),
-          modelUsed: resultData.model_used || '',
-          durationSeconds: resultData.duration_seconds || 0,
-          createdAt: resultData.created_at || new Date().toISOString(),
-          // v2 fields
-          architectureVersion: resultData.architecture_version,
-          configUsed: resultData.config_used ? transformKeys(resultData.config_used) : undefined,
-          pillarQueries: resultData.pillar_queries ? transformKeys(resultData.pillar_queries) : undefined,
-        };
+      case 'analyzing_power':
+        setCurrentStage('analyzing_power');
+        setStageProgress(progress || 0);
+        setOverallProgress(0.15 + (progress || 0) * 0.2);
+        if (articles_analyzed) {
+          setArticlesAnalyzed(articles_analyzed);
+        }
+        break;
 
-        console.log('📊 Transformed PAM data:', transformedData);
-        setData(transformedData);
-        setArticlesAnalyzed(transformedData.articlesAnalyzed);
-      }
-    } else if (stage === 'error') {
-      setCurrentStage('error');
-      setError(extractErrorMessage(eventData.message || eventData.error, 'Analysis failed'));
+      case 'analyzing_attention':
+        setCurrentStage('analyzing_attention');
+        setStageProgress(progress || 0);
+        setOverallProgress(0.35 + (progress || 0) * 0.2);
+        break;
+
+      case 'analyzing_money':
+        setCurrentStage('analyzing_money');
+        setStageProgress(progress || 0);
+        setOverallProgress(0.55 + (progress || 0) * 0.2);
+        break;
+
+      case 'synthesizing':
+        setCurrentStage('synthesizing');
+        setStageProgress(progress || 0);
+        setOverallProgress(0.75 + (progress || 0) * 0.2);
+        break;
+
+      case 'complete':
+        setCurrentStage('complete');
+        setStageProgress(1);
+        setOverallProgress(1);
+
+        if (resultData) {
+          const transformedData = transformPAMResponse(resultData);
+          console.log('📊 Transformed PAM data:', transformedData);
+          setData(transformedData);
+          setArticlesAnalyzed(transformedData.articlesAnalyzed);
+        }
+        break;
+
+      case 'error':
+        setCurrentStage('error');
+        setError(extractErrorMessage(eventData.message || eventData.error, 'Analysis failed'));
+        break;
     }
   }, []);
 

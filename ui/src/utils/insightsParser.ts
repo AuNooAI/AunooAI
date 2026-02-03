@@ -24,6 +24,16 @@ export interface ConversationStats {
 }
 
 /**
+ * Check if link text is a valid source name (not a URL or generic text)
+ */
+function isValidLinkText(text: string): boolean {
+  const isReasonableLength = text.length > 2 && text.length < 100;
+  const isNotUrl = !/^https?:/.test(text);
+  const isNotGenericText = text !== 'link' && text !== 'here';
+  return isReasonableLength && isNotUrl && isNotGenericText;
+}
+
+/**
  * Extract a readable source name from a domain
  */
 function extractSourceFromDomain(domain: string): string | null {
@@ -152,7 +162,7 @@ export function parseConversationStats(messages: Array<{ role: string; content: 
       const domain = fullUrl.match(/https?:\/\/([^\/]+)/)?.[1] || '';
 
       // Use link text if it looks like a source name (not a URL or generic text)
-      if (linkText.length > 2 && linkText.length < 100 && !/^https?:/.test(linkText) && linkText !== 'link' && linkText !== 'here') {
+      if (isValidLinkText(linkText)) {
         allSources.add(linkText);
         // Store the full URL with the article title
         if (!sourceLinksMap.has(fullUrl)) {

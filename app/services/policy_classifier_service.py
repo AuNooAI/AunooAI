@@ -223,15 +223,11 @@ class PolicyClassifierService:
         try:
             tokenizer = AutoTokenizer.from_pretrained(model_path)
 
-            # Load with appropriate dtype
-            if self.device == "cpu":
-                model = AutoModelForSequenceClassification.from_pretrained(
-                    model_path, torch_dtype=torch.float32
-                )
-            else:
-                model = AutoModelForSequenceClassification.from_pretrained(model_path)
-
-            model.to(self.device)
+            # Disable meta tensor lazy loading to avoid CPU loading issues
+            model = AutoModelForSequenceClassification.from_pretrained(
+                model_path,
+                low_cpu_mem_usage=False
+            )
             model.eval()
 
             if name == "roberta":

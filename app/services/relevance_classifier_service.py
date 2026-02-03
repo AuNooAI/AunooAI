@@ -152,15 +152,11 @@ class RelevanceClassifierService:
         try:
             self.tokenizer = AutoTokenizer.from_pretrained(model_path)
 
-            # Load with appropriate dtype
-            if self.device == "cpu":
-                self.model = AutoModelForSequenceClassification.from_pretrained(
-                    model_path, torch_dtype=torch.float32
-                )
-            else:
-                self.model = AutoModelForSequenceClassification.from_pretrained(model_path)
-
-            self.model.to(self.device)
+            # Disable meta tensor lazy loading to avoid CPU loading issues
+            self.model = AutoModelForSequenceClassification.from_pretrained(
+                model_path,
+                low_cpu_mem_usage=False
+            )
             self.model.eval()
 
             # Load model config if available

@@ -57,6 +57,52 @@ load_environment()
 # Now ensure model-specific environment variables are set
 ensure_model_env_vars()
 
+
+def extract_content(response) -> str:
+    """
+    Extract text content from various LLM response formats.
+
+    Args:
+        response: LLM response object or string
+
+    Returns:
+        Extracted text content as string
+    """
+    if response is None:
+        return ""
+
+    # Already a string
+    if isinstance(response, str):
+        return response
+
+    # LiteLLM/OpenAI response object
+    if hasattr(response, 'choices') and response.choices:
+        choice = response.choices[0]
+        if hasattr(choice, 'message') and hasattr(choice.message, 'content'):
+            return choice.message.content or ""
+        if hasattr(choice, 'text'):
+            return choice.text or ""
+        if hasattr(choice, 'content'):
+            return choice.content or ""
+
+    # Dict response
+    if isinstance(response, dict):
+        if 'content' in response:
+            return response['content'] or ""
+        if 'text' in response:
+            return response['text'] or ""
+        if 'choices' in response and response['choices']:
+            choice = response['choices'][0]
+            if isinstance(choice, dict):
+                if 'message' in choice and 'content' in choice['message']:
+                    return choice['message']['content'] or ""
+                if 'content' in choice:
+                    return choice['content'] or ""
+
+    # Fallback: convert to string
+    return str(response)
+
+
 def get_litellm_config_path():
     """Get the LiteLLM config path - check environment variable first, then use litellm_config.yaml."""
     # Check if environment variable specifies a config path
@@ -347,6 +393,42 @@ class LiteLLMModel(AIModel):
             logger.debug(f"♻️ Reusing existing instance for {model_name}")
             instance = cls._instances[model_name]
         return instance
+
+    def generate(self, prompt: str, max_tokens: int = None, temperature: float = None) -> str:
+        """
+        Synchronous generate method for simple prompt-based generation.
+
+        Args:
+            prompt: The prompt text to send to the model
+            max_tokens: Maximum tokens to generate (default: 2000)
+            temperature: Sampling temperature (default: 0.7)
+
+        Returns:
+            Generated text response as string
+        """
+        return self.generate_sync(prompt, max_tokens=max_tokens, temperature=temperature)
+
+    def generate_sync(self, prompt: str, max_tokens: int = None, temperature: float = None) -> str:
+        """
+        Synchronous generate method for simple prompt-based generation.
+
+        Args:
+            prompt: The prompt text to send to the model
+            max_tokens: Maximum tokens to generate (default: 2000)
+            temperature: Sampling temperature (default: 0.7)
+
+        Returns:
+            Generated text response as string
+        """
+        messages = [{"role": "user", "content": prompt}]
+        response = self.generate_response(messages)
+
+        # Handle error responses that start with warning emoji
+        if isinstance(response, str) and response.startswith("⚠️"):
+            return response
+
+        # Extract text from response
+        return extract_content(response)
 
     def init_router(self):
         logger.info(f"🔧 Starting router initialization for model: {self.model_name}")

@@ -275,7 +275,7 @@ class AutoIngestService:
                             'confidence_score': analysis_result.get('confidence_score'),
                         }
 
-                        logger.debug(f"Article relevance with ontology: {article['title'][:50]}... = {relevance_data['topic_alignment_score']:.2f}")
+                        logger.debug(f"Article relevance with ontology: {article['title'][:50]}... = {(relevance_data.get('topic_alignment_score') or 0):.2f}")
                         logger.debug(f"  Topic: {topic_name}")
                         logger.debug(f"  Category: {analysis_result.get('category', 'Unknown')}")
                         logger.debug(f"  Keyword relevance: {relevance_data.get('keyword_relevance_score')}")

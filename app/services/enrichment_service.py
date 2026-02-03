@@ -187,13 +187,16 @@ class EnrichmentService:
             from scripts.train_enrichment_model import MultiTaskModel
             self.model = MultiTaskModel(base_config, self._task_configs)
 
-            # Load weights
+            # Load weights with assign=True to handle meta tensor issues in PyTorch 2.x
             weights_path = Path(model_path) / "pytorch_model.bin"
             if weights_path.exists():
-                state_dict = torch.load(weights_path, map_location=self.device)
-                self.model.load_state_dict(state_dict)
+                state_dict = torch.load(weights_path, map_location=self.device, weights_only=False)
+                # Use assign=True to properly copy weights to meta tensors (PyTorch 2.0+)
+                self.model.load_state_dict(state_dict, assign=True)
+                # Model is already on correct device from map_location, skip .to()
+            else:
+                self.model.to(self.device)
 
-            self.model.to(self.device)
             self.model.eval()
 
             self._models_loaded = True

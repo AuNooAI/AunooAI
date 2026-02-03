@@ -30,6 +30,7 @@ Usage:
 """
 
 import logging
+import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 import numpy as np
@@ -52,6 +53,7 @@ class HybridRelevanceService:
 
     _instance = None
     _initialized = False
+    _load_lock = threading.Lock()  # Prevent concurrent model loading
 
     def __new__(cls):
         if cls._instance is None:
@@ -79,57 +81,76 @@ class HybridRelevanceService:
         if self._embedding_loaded:
             return True
 
-        try:
-            from sentence_transformers import SentenceTransformer
+        with HybridRelevanceService._load_lock:
+            # Double-check after acquiring lock
+            if self._embedding_loaded:
+                return True
 
-            logger.info(f"Loading embedding model: {EMBEDDING_MODEL} (CPU mode)")
-            self.embedding_model = SentenceTransformer(EMBEDDING_MODEL, device='cpu')
-            self._embedding_loaded = True
-            logger.info("Embedding model loaded successfully on CPU")
-            return True
+            try:
+                from sentence_transformers import SentenceTransformer
 
-        except ImportError:
-            logger.warning("sentence-transformers not installed. Run: pip install sentence-transformers")
-            return False
-        except Exception as e:
-            logger.error(f"Failed to load embedding model: {e}")
-            return False
+                logger.info(f"Loading embedding model: {EMBEDDING_MODEL}")
+                # Disable meta tensor lazy loading to avoid CPU loading issues
+                self.embedding_model = SentenceTransformer(
+                    EMBEDDING_MODEL,
+                    model_kwargs={'low_cpu_mem_usage': False}
+                )
+                self._embedding_loaded = True
+                logger.info("Embedding model loaded successfully on CPU")
+                return True
+
+            except ImportError:
+                logger.warning("sentence-transformers not installed. Run: pip install sentence-transformers")
+                return False
+            except Exception as e:
+                logger.error(f"Failed to load embedding model: {e}")
+                return False
 
     def _load_classifier(self) -> bool:
         """Load the fine-tuned relevance classifier."""
         if self._classifier_loaded:
             return True
 
-        try:
-            from transformers import AutoTokenizer, AutoModelForSequenceClassification
-            import torch
-            import json
+        with HybridRelevanceService._load_lock:
+            # Double-check after acquiring lock
+            if self._classifier_loaded:
+                return True
 
-            model_path = Path(__file__).parent.parent.parent / "models" / "relevance_classifier" / "final"
+            try:
+                from transformers import AutoTokenizer, AutoModelForSequenceClassification
+                import json
 
-            if not model_path.exists():
-                logger.warning(f"Classifier not found at {model_path}")
+                model_path = Path(__file__).parent.parent.parent / "models" / "relevance_classifier" / "final"
+
+                if not model_path.exists():
+                    logger.warning(f"Classifier not found at {model_path}")
+                    return False
+
+                logger.info(f"Loading classifier from {model_path}")
+                self.classifier_tokenizer = AutoTokenizer.from_pretrained(str(model_path))
+
+                # Disable meta tensor lazy loading to avoid CPU loading issues
+                self.classifier = AutoModelForSequenceClassification.from_pretrained(
+                    str(model_path),
+                    low_cpu_mem_usage=False
+                )
+
+                self.classifier.eval()
+
+                # Load known topics from training data
+                config_path = model_path / "model_config.json"
+                if config_path.exists():
+                    with open(config_path) as f:
+                        config = json.load(f)
+                        # Could store known topics in config
+
+                self._classifier_loaded = True
+                logger.info("Classifier loaded successfully")
+                return True
+
+            except Exception as e:
+                logger.error(f"Failed to load classifier: {e}")
                 return False
-
-            logger.info(f"Loading classifier from {model_path}")
-            self.classifier_tokenizer = AutoTokenizer.from_pretrained(str(model_path))
-            self.classifier = AutoModelForSequenceClassification.from_pretrained(str(model_path))
-            self.classifier.eval()
-
-            # Load known topics from training data
-            config_path = model_path / "model_config.json"
-            if config_path.exists():
-                with open(config_path) as f:
-                    config = json.load(f)
-                    # Could store known topics in config
-
-            self._classifier_loaded = True
-            logger.info("Classifier loaded successfully")
-            return True
-
-        except Exception as e:
-            logger.error(f"Failed to load classifier: {e}")
-            return False
 
     def load_models(self) -> Dict[str, bool]:
         """Load all models."""
@@ -145,9 +166,39 @@ class HybridRelevanceService:
         return self._embedding_loaded
 
     def _get_topic_embedding(self, topic: str) -> np.ndarray:
-        """Get or compute topic embedding (cached)."""
+        """Get or compute topic embedding (cached).
+
+        Enriches topic name with description and keywords for better semantic matching.
+        """
         if topic not in self._topic_cache:
-            self._topic_cache[topic] = self.embedding_model.encode(topic, convert_to_numpy=True)
+            # Try to get topic description and keywords from config
+            topic_text = topic
+            try:
+                from app.research import Research
+                # Load config to get topic details
+                import json
+                config_path = "app/config/config.json"
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+
+                for t in config.get('topics', []):
+                    if t.get('name') == topic:
+                        # Enrich topic text with description and keywords
+                        parts = [topic]
+                        if t.get('description'):
+                            parts.append(t['description'])
+                        if t.get('keywords'):
+                            # Filter out exclusion keywords (starting with -)
+                            keywords = [k for k in t['keywords'] if not k.startswith('-') and not k.startswith('company:') and not k.startswith('person:')]
+                            if keywords:
+                                parts.append(', '.join(keywords[:10]))  # Limit to 10 keywords
+                        topic_text = '. '.join(parts)
+                        logger.debug(f"Enriched topic embedding for '{topic}': {topic_text[:100]}...")
+                        break
+            except Exception as e:
+                logger.debug(f"Could not enrich topic embedding: {e}")
+
+            self._topic_cache[topic] = self.embedding_model.encode(topic_text, convert_to_numpy=True)
         return self._topic_cache[topic]
 
     def _compute_embedding_similarity(
@@ -412,7 +463,7 @@ Score:"""
         # LLM fallback for uncertain/borderline scores
         if use_llm_fallback and result["confidence"] != "high":
             fallback_type = "🏠 Local Qwen" if use_local_llm else "☁️ GPT"
-            logger.info(f"🤖 {fallback_type} fallback triggered for borderline score {result['score']:.3f}")
+            logger.info(f"🤖 {fallback_type} fallback triggered for borderline score {(result.get('score') or 0):.3f}")
             llm_score = self._compute_llm_score(topic, title, summary, use_local=use_local_llm)
             if llm_score is not None:
                 result["llm_score"] = llm_score

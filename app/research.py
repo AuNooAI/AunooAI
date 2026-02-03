@@ -201,10 +201,23 @@ class Research:
         """Get categories for current topic."""
         return self.topic_configs[self.current_topic]['categories']
 
+    # Default future signals used when topic config has none defined
+    DEFAULT_FUTURE_SIGNALS = [
+        "Emerging trend",
+        "Disruption signal",
+        "Paradigm shift indicator",
+        "Early warning signal",
+        "Other"
+    ]
+
     @property
     def FUTURE_SIGNALS(self):
-        """Get future signals for current topic."""
-        return self.topic_configs[self.current_topic]['future_signals']
+        """Get future signals for current topic. Returns defaults if none configured."""
+        signals = self.topic_configs[self.current_topic].get('future_signals', [])
+        if not signals:
+            logger.debug(f"No future_signals configured for topic '{self.current_topic}', using defaults")
+            return self.DEFAULT_FUTURE_SIGNALS
+        return signals
 
     @property
     def SENTIMENT(self):
