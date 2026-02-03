@@ -1576,7 +1576,7 @@
 .gather-modal-content {
   padding: 0 24px;
   overflow-y: auto;
-  max-height: 60vh;
+  max-height: 80vh;
 }
 
 .gather-modal-section {

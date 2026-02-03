@@ -1146,6 +1146,35 @@ export function AddAgentModal({
                   </p>
                 </div>
 
+                {/* Email Notification for Scheduled Runs */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label>Email Notification</Label>
+                    <Switch
+                      checked={actionSendEmail}
+                      onCheckedChange={(checked) => {
+                        setActionSendEmail(checked);
+                        setShowEmailConfig(checked);
+                      }}
+                      disabled={saving || loading}
+                    />
+                  </div>
+                  {actionSendEmail && (
+                    <div className="space-y-2">
+                      <Input
+                        value={emailRecipient}
+                        onChange={(e) => setEmailRecipient(e.target.value)}
+                        placeholder="recipient@example.com"
+                        type="email"
+                        disabled={saving || loading}
+                      />
+                      <p className="text-xs text-gray-700 dark:text-gray-300">
+                        Receive email alerts when matches are found during scheduled runs
+                      </p>
+                    </div>
+                  )}
+                </div>
+
                 {/* Next Run Preview */}
                 {isEditMode && editAgent?.next_run_at && (
                   <div className="p-3 bg-gray-50 rounded-lg">

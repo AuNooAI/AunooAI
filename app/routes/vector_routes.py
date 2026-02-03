@@ -7,9 +7,11 @@ from pathlib import Path
 import os
 import urllib.parse
 
-from fastapi import APIRouter, Query, Depends, HTTPException
+from fastapi import APIRouter, Query, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
+import uuid
+import threading
 
 from app.security.session import verify_session, verify_session_optional
 from app.vector_store import (
@@ -33,6 +35,12 @@ from app.database import Database, get_database_instance
 router = APIRouter(prefix="/api", tags=["vector-search"])
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Signal run tracking for background tasks
+# ---------------------------------------------------------------------------
+_signal_runs: Dict[str, Dict[str, Any]] = {}
+_signal_runs_lock = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # Dependency availability checks (run at module load to warn early)
@@ -3753,22 +3761,63 @@ class _RunSignalRequest(BaseModel):
 @router.post("/run-signals")
 async def run_signal_instructions(
     req: _RunSignalRequest,
+    background_tasks: BackgroundTasks,
     session=Depends(verify_session),
+    run_in_background: bool = Query(default=True, description="Run in background and return immediately"),
 ):
-    """Run specific signal instructions against recent articles independently."""
+    """Run specific signal instructions against recent articles independently.
+
+    When run_in_background=True (default), returns immediately with a run_id
+    that can be used to poll for status via GET /api/signal-run-status/{run_id}
+    """
     logger = logging.getLogger(__name__)
+
+    # Generate run ID for tracking
+    run_id = str(uuid.uuid4())[:8]
+
     try:
         from app.database import get_database_instance
         from datetime import datetime, timedelta
 
         db = get_database_instance()
-        
+
         # Get the specific signal instructions
         all_instructions = db.facade.get_signal_instructions(topic=req.topic, active_only=False)
         instructions = [inst for inst in all_instructions if inst['id'] in req.instruction_ids and inst['is_active']]
-        
+
         if not instructions:
             return {"success": False, "message": "No active signal instructions found with provided IDs"}
+
+        # If running in background, queue the task and return immediately
+        if run_in_background:
+            instruction_names = [inst['name'] for inst in instructions]
+            with _signal_runs_lock:
+                _signal_runs[run_id] = {
+                    "status": "running",
+                    "started_at": datetime.now().isoformat(),
+                    "instruction_ids": req.instruction_ids,
+                    "instruction_names": instruction_names,
+                    "progress": 0,
+                    "total_instructions": len(instructions),
+                    "result": None,
+                    "error": None
+                }
+
+            # Queue background task
+            background_tasks.add_task(
+                _run_signals_background,
+                run_id,
+                req,
+                session
+            )
+
+            return {
+                "success": True,
+                "status": "running",
+                "run_id": run_id,
+                "message": f"Started processing {len(instructions)} observer agent(s) in background",
+                "instruction_names": instruction_names
+            }
         
         # Get articles for the specified time range
         end_date_dt = datetime.now()
@@ -4553,6 +4602,133 @@ Format as a concise markdown report.
         raise HTTPException(status_code=500, detail="Signal runner error")
 
 
+async def _run_signals_background(
+    run_id: str,
+    req: _RunSignalRequest,
+    session: dict
+):
+    """Background task to run signal instructions.
+
+    Updates _signal_runs with progress and results.
+    """
+    logger = logging.getLogger(__name__)
+    logger.info(f"[{run_id}] Starting background signal run for {len(req.instruction_ids)} instruction(s)")
+
+    try:
+        from app.database import get_database_instance
+        from datetime import datetime, timedelta
+
+        db = get_database_instance()
+
+        # Get the specific signal instructions
+        all_instructions = db.facade.get_signal_instructions(topic=req.topic, active_only=False)
+        instructions = [inst for inst in all_instructions if inst['id'] in req.instruction_ids and inst['is_active']]
+
+        if not instructions:
+            with _signal_runs_lock:
+                _signal_runs[run_id]["status"] = "completed"
+                _signal_runs[run_id]["result"] = {"success": False, "message": "No active instructions found"}
+            return
+
+        # Get articles for the specified time range
+        end_date_dt = datetime.now()
+        start_date_dt = end_date_dt - timedelta(days=req.days_back)
+
+        query = """
+        SELECT uri, title, summary, news_source, publication_date, category, sentiment,
+               tags, extracted_article_topics, extracted_article_keywords
+        FROM articles
+        WHERE publication_date >= ? AND publication_date <= ?
+        AND category IS NOT NULL AND sentiment IS NOT NULL
+        """
+        params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
+
+        if req.topic:
+            query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
+            topic_pattern = f"%{req.topic}%"
+            params.extend([req.topic, topic_pattern, topic_pattern])
+
+        query += " ORDER BY publication_date DESC LIMIT ?"
+        params.append(req.max_articles)
+
+        articles = db.fetch_all(query, params)
+
+        if not articles:
+            with _signal_runs_lock:
+                _signal_runs[run_id]["status"] = "completed"
+                _signal_runs[run_id]["result"] = {
+                    "success": False,
+                    "message": f"No articles found for analysis in the last {req.days_back} days"
+                }
+            return
+
+        # Initialize LLM
+        from app.ai_models import LiteLLMModel
+
+        ai_model = LiteLLMModel.get_instance(req.model)
+        if not ai_model:
+            with _signal_runs_lock:
+                _signal_runs[run_id]["status"] = "failed"
+                _signal_runs[run_id]["error"] = f"Failed to initialize model {req.model}"
+            return
+
+        # Process each instruction
+        alerts_created = []
+        total_matches = 0
+        processed_count = 0
+
+        for instruction in instructions:
+            try:
+                # Run using internal function
+                result = await _run_signal_instruction_internal(
+                    instruction_id=instruction['id'],
+                    days_back=req.days_back,
+                    tag_articles=req.tag_articles,
+                    model=req.model
+                )
+                if result.get('success'):
+                    total_matches += result.get('alerts_created', 0)
+
+                processed_count += 1
+                with _signal_runs_lock:
+                    _signal_runs[run_id]["progress"] = processed_count
+                    _signal_runs[run_id]["current_instruction"] = instruction['name']
+
+            except Exception as inst_error:
+                logger.error(f"[{run_id}] Error processing instruction {instruction['name']}: {inst_error}")
+
+        # Mark as completed
+        with _signal_runs_lock:
+            _signal_runs[run_id]["status"] = "completed"
+            _signal_runs[run_id]["completed_at"] = datetime.now().isoformat()
+            _signal_runs[run_id]["result"] = {
+                "success": True,
+                "total_matches": total_matches,
+                "instructions_run": len(instructions),
+                "articles_analyzed": len(articles)
+            }
+
+        logger.info(f"[{run_id}] Background signal run completed: {total_matches} matches from {len(instructions)} instructions")
+
+    except Exception as exc:
+        logger.error(f"[{run_id}] Error in background signal run: {exc}", exc_info=True)
+        with _signal_runs_lock:
+            _signal_runs[run_id]["status"] = "failed"
+            _signal_runs[run_id]["error"] = str(exc)
+
+
+@router.get("/signal-run-status/{run_id}")
+async def get_signal_run_status(
+    run_id: str,
+    session=Depends(verify_session_optional),
+):
+    """Get status of a background signal run."""
+    with _signal_runs_lock:
+        if run_id not in _signal_runs:
+            raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
+        return _signal_runs[run_id]
+
+
 async def _run_signal_instruction_internal(
     instruction_id: int,
     days_back: int = 7,
@@ -4752,6 +4928,11 @@ Return a JSON array of match objects. Only include articles that match the crite
                     email_service = get_email_service()
                     if email_service.is_available():
                         recipient = config.get('email_recipient')
+                        # Fallback to default observer email from env if not configured
+                        if not recipient:
+                            recipient = os.environ.get('DEFAULT_OBSERVER_EMAIL')
+                            if recipient:
+                                logger.info(f"Using DEFAULT_OBSERVER_EMAIL fallback for {instruction['name']}")
                         if recipient:
                             success = email_service.send_signal_alert_email(
                                 to_address=recipient,
@@ -4766,7 +4947,7 @@ Return a JSON array of match objects. Only include articles that match the crite
                                 email_sent = True
                                 logger.info(f"Email sent to {recipient} for {instruction['name']} ({alerts_created} alerts)")
                         else:
-                            logger.warning(f"No email recipient configured for {instruction['name']}")
+                            logger.warning(f"No email recipient configured for {instruction['name']} (set email_recipient in config or DEFAULT_OBSERVER_EMAIL env var)")
                 except Exception as email_error:
                     logger.error(f"Error sending email for {instruction['name']}: {email_error}")
 

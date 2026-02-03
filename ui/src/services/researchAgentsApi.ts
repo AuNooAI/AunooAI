@@ -119,11 +119,16 @@ export interface PodcastSummary {
 export interface RunAgentsResponse {
   success: boolean;
   message: string;
-  alerts_created: SignalAlert[];
-  instructions_run: number;
-  total_matches: number;
-  articles_analyzed: number;
-  analysis_period: string;
+  // Async response fields (when running in background)
+  status?: 'running' | 'completed' | 'failed';
+  run_id?: string;
+  instruction_names?: string[];
+  // Sync response fields (when run_in_background=false)
+  alerts_created?: SignalAlert[];
+  instructions_run?: number;
+  total_matches?: number;
+  articles_analyzed?: number;
+  analysis_period?: string;
   report?: {
     id: number;
     name: string;
@@ -131,6 +136,25 @@ export interface RunAgentsResponse {
     articles_used: number;
   } | null;
   podcast_summaries?: PodcastSummary[];
+}
+
+export interface SignalRunStatus {
+  status: 'running' | 'completed' | 'failed';
+  started_at: string;
+  completed_at?: string;
+  instruction_ids: number[];
+  instruction_names: string[];
+  progress: number;
+  total_instructions: number;
+  current_instruction?: string;
+  result?: {
+    success: boolean;
+    total_matches: number;
+    instructions_run: number;
+    articles_analyzed: number;
+    message?: string;
+  };
+  error?: string;
 }
 
 // API Configuration
@@ -261,6 +285,40 @@ export async function runResearchAgents(
       report_name: request.report_name || null,
     }),
   });
+}
+
+/**
+ * Get status of a background signal run
+ */
+export async function getSignalRunStatus(runId: string): Promise<SignalRunStatus> {
+  return fetchWithAuth(`${API_BASE_URL}/api/signal-run-status/${runId}`, {
+    method: 'GET',
+  });
+}
+
+/**
+ * Poll for signal run completion
+ * Returns when the run completes or fails, or after maxWaitMs
+ */
+export async function waitForSignalRunCompletion(
+  runId: string,
+  pollIntervalMs: number = 2000,
+  maxWaitMs: number = 300000 // 5 minutes
+): Promise<SignalRunStatus> {
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < maxWaitMs) {
+    const status = await getSignalRunStatus(runId);
+
+    if (status.status === 'completed' || status.status === 'failed') {
+      return status;
+    }
+
+    // Wait before next poll
+    await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+  }
+
+  throw new Error(`Signal run ${runId} did not complete within ${maxWaitMs}ms`);
 }
 
 /**
