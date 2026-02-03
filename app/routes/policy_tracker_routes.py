@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks, U
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from typing import Optional, List, Dict, Any, Tuple
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, time as dt_time
 from sqlalchemy import text
 import logging
 import json
@@ -4492,3 +4492,326 @@ async def _run_narrative_generation_task(topic: str, days_back: int):
 
     except Exception as e:
         logger.error(f"Background narrative generation failed: {e}")
+
+
+# ============================================================================
+# Scheduling Endpoints
+# ============================================================================
+
+class PolicyScheduleCreate(BaseModel):
+    name: str = Field(..., description="Name for the schedule")
+    topic: Optional[str] = Field(None, description="Topic to classify")
+    run_type: str = Field("incremental", description="Run type: 'full' or 'incremental'")
+    days_back: int = Field(30, description="Days back to look for articles")
+    schedule_enabled: bool = Field(True, description="Enable scheduling")
+    schedule_type: str = Field("interval", description="Schedule type: 'interval' or 'daily'")
+    schedule_interval: Optional[int] = Field(None, description="Interval value")
+    schedule_unit: Optional[str] = Field("hours", description="Interval unit: 'minutes', 'hours', 'days'")
+    schedule_time: Optional[str] = Field(None, description="Time for daily schedule (HH:MM)")
+    notify_on_complete: bool = Field(True, description="Send notification on completion")
+    notify_threshold: int = Field(10, description="Minimum articles to trigger notification")
+
+
+class PolicyScheduleUpdate(BaseModel):
+    name: Optional[str] = None
+    topic: Optional[str] = None
+    run_type: Optional[str] = None
+    days_back: Optional[int] = None
+    schedule_enabled: Optional[bool] = None
+    schedule_type: Optional[str] = None
+    schedule_interval: Optional[int] = None
+    schedule_unit: Optional[str] = None
+    schedule_time: Optional[str] = None
+    notify_on_complete: Optional[bool] = None
+    notify_threshold: Optional[int] = None
+
+
+class PolicyScheduleResponse(BaseModel):
+    id: int
+    name: str
+    topic: Optional[str]
+    run_type: str
+    days_back: int
+    schedule_enabled: bool
+    schedule_type: Optional[str]
+    schedule_interval: Optional[int]
+    schedule_unit: Optional[str]
+    schedule_time: Optional[str]
+    notify_on_complete: bool
+    notify_threshold: int
+    last_run_at: Optional[datetime]
+    next_run_at: Optional[datetime]
+    last_run_status: Optional[str]
+    last_run_articles_processed: int
+    last_run_articles_categorized: int
+    run_count: int
+
+
+@router.get("/schedules")
+async def list_schedules(session=Depends(verify_session)):
+    """List all policy tracker classification schedules."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+
+    try:
+        result = conn.execute(text("""
+            SELECT id, name, topic, run_type, days_back,
+                   schedule_enabled, schedule_type, schedule_interval, schedule_unit, schedule_time,
+                   notify_on_complete, notify_threshold,
+                   last_run_at, next_run_at, last_run_status,
+                   last_run_articles_processed, last_run_articles_categorized, run_count
+            FROM policy_tracker_schedules
+            ORDER BY name
+        """))
+        schedules = []
+        for row in result:
+            row_dict = dict(row._mapping)
+            # Convert time to string if needed
+            if row_dict.get('schedule_time'):
+                row_dict['schedule_time'] = str(row_dict['schedule_time'])
+            schedules.append(row_dict)
+
+        conn.close()
+        return {"schedules": schedules}
+    except Exception as e:
+        logger.error(f"Error listing policy tracker schedules: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/schedules")
+async def create_schedule(
+    schedule: PolicyScheduleCreate,
+    session=Depends(verify_session)
+):
+    """Create a new policy tracker classification schedule."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+
+    try:
+        # Parse schedule_time if provided
+        schedule_time_val = None
+        if schedule.schedule_time:
+            try:
+                parts = schedule.schedule_time.split(':')
+                schedule_time_val = dt_time(int(parts[0]), int(parts[1]))
+            except:
+                pass
+
+        # Calculate next_run_at if enabled
+        next_run_at = None
+        if schedule.schedule_enabled:
+            from app.tasks.policy_tracker_monitor import calculate_next_run
+            next_run_at = calculate_next_run(
+                schedule.schedule_type,
+                schedule.schedule_interval,
+                schedule.schedule_unit,
+                schedule_time_val
+            )
+
+        result = conn.execute(text("""
+            INSERT INTO policy_tracker_schedules
+            (name, topic, run_type, days_back,
+             schedule_enabled, schedule_type, schedule_interval, schedule_unit, schedule_time,
+             notify_on_complete, notify_threshold, next_run_at)
+            VALUES (:name, :topic, :run_type, :days_back,
+                    :schedule_enabled, :schedule_type, :schedule_interval, :schedule_unit, :schedule_time,
+                    :notify_on_complete, :notify_threshold, :next_run_at)
+            RETURNING id
+        """), {
+            "name": schedule.name,
+            "topic": schedule.topic,
+            "run_type": schedule.run_type,
+            "days_back": schedule.days_back,
+            "schedule_enabled": schedule.schedule_enabled,
+            "schedule_type": schedule.schedule_type,
+            "schedule_interval": schedule.schedule_interval,
+            "schedule_unit": schedule.schedule_unit,
+            "schedule_time": schedule_time_val,
+            "notify_on_complete": schedule.notify_on_complete,
+            "notify_threshold": schedule.notify_threshold,
+            "next_run_at": next_run_at
+        })
+        schedule_id = result.scalar()
+        conn.commit()
+        conn.close()
+
+        return {
+            "status": "success",
+            "message": "Schedule created successfully",
+            "schedule_id": schedule_id,
+            "next_run_at": next_run_at.isoformat() if next_run_at else None
+        }
+    except Exception as e:
+        logger.error(f"Error creating policy tracker schedule: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/schedules/{schedule_id}")
+async def update_schedule(
+    schedule_id: int,
+    schedule: PolicyScheduleUpdate,
+    session=Depends(verify_session)
+):
+    """Update a policy tracker classification schedule."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+
+    try:
+        updates = []
+        params = {"id": schedule_id}
+
+        if schedule.name is not None:
+            updates.append("name = :name")
+            params["name"] = schedule.name
+
+        if schedule.topic is not None:
+            updates.append("topic = :topic")
+            params["topic"] = schedule.topic if schedule.topic else None
+
+        if schedule.run_type is not None:
+            updates.append("run_type = :run_type")
+            params["run_type"] = schedule.run_type
+
+        if schedule.days_back is not None:
+            updates.append("days_back = :days_back")
+            params["days_back"] = schedule.days_back
+
+        if schedule.schedule_enabled is not None:
+            updates.append("schedule_enabled = :schedule_enabled")
+            params["schedule_enabled"] = schedule.schedule_enabled
+
+        if schedule.schedule_type is not None:
+            updates.append("schedule_type = :schedule_type")
+            params["schedule_type"] = schedule.schedule_type
+
+        if schedule.schedule_interval is not None:
+            updates.append("schedule_interval = :schedule_interval")
+            params["schedule_interval"] = schedule.schedule_interval
+
+        if schedule.schedule_unit is not None:
+            updates.append("schedule_unit = :schedule_unit")
+            params["schedule_unit"] = schedule.schedule_unit
+
+        if schedule.schedule_time is not None:
+            schedule_time_val = None
+            if schedule.schedule_time:
+                try:
+                    parts = schedule.schedule_time.split(':')
+                    schedule_time_val = dt_time(int(parts[0]), int(parts[1]))
+                except:
+                    pass
+            updates.append("schedule_time = :schedule_time")
+            params["schedule_time"] = schedule_time_val
+
+        if schedule.notify_on_complete is not None:
+            updates.append("notify_on_complete = :notify_on_complete")
+            params["notify_on_complete"] = schedule.notify_on_complete
+
+        if schedule.notify_threshold is not None:
+            updates.append("notify_threshold = :notify_threshold")
+            params["notify_threshold"] = schedule.notify_threshold
+
+        if not updates:
+            return {"status": "success", "message": "No updates provided"}
+
+        # Recalculate next_run_at if schedule config changed
+        if any(key in params for key in ['schedule_enabled', 'schedule_type', 'schedule_interval', 'schedule_unit', 'schedule_time']):
+            current = conn.execute(text("""
+                SELECT schedule_enabled, schedule_type, schedule_interval, schedule_unit, schedule_time
+                FROM policy_tracker_schedules WHERE id = :id
+            """), {"id": schedule_id}).mappings().first()
+
+            if current:
+                from app.tasks.policy_tracker_monitor import calculate_next_run
+                s_enabled = params.get('schedule_enabled', current['schedule_enabled'])
+                s_type = params.get('schedule_type', current['schedule_type'])
+                s_interval = params.get('schedule_interval', current['schedule_interval'])
+                s_unit = params.get('schedule_unit', current['schedule_unit'])
+                s_time = params.get('schedule_time') if 'schedule_time' in params else current['schedule_time']
+
+                if s_enabled:
+                    next_run = calculate_next_run(s_type, s_interval, s_unit, s_time)
+                    updates.append("next_run_at = :next_run_at")
+                    params["next_run_at"] = next_run
+
+        updates.append("updated_at = NOW()")
+
+        conn.execute(text(f"""
+            UPDATE policy_tracker_schedules
+            SET {', '.join(updates)}
+            WHERE id = :id
+        """), params)
+        conn.commit()
+        conn.close()
+
+        return {"status": "success", "message": "Schedule updated successfully"}
+    except Exception as e:
+        logger.error(f"Error updating policy tracker schedule: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/schedules/{schedule_id}")
+async def delete_schedule(
+    schedule_id: int,
+    session=Depends(verify_session)
+):
+    """Delete a policy tracker classification schedule."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+
+    try:
+        result = conn.execute(text("""
+            DELETE FROM policy_tracker_schedules WHERE id = :id
+        """), {"id": schedule_id})
+        conn.commit()
+        conn.close()
+
+        if result.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Schedule not found")
+
+        return {"status": "success", "message": "Schedule deleted successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting policy tracker schedule: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/schedules/{schedule_id}/run")
+async def run_schedule_now(
+    schedule_id: int,
+    session=Depends(verify_session)
+):
+    """Manually trigger a schedule to run immediately."""
+    from app.tasks.policy_tracker_monitor import run_schedule_now as _run_schedule_now
+
+    db = get_database_instance()
+
+    try:
+        result = await _run_schedule_now(db, schedule_id)
+
+        if not result["success"]:
+            if result.get("error") == "Schedule not found":
+                raise HTTPException(status_code=404, detail="Schedule not found")
+            raise HTTPException(status_code=500, detail=result.get("error", "Unknown error"))
+
+        return {
+            "status": "success",
+            "message": f"Schedule processed {result.get('articles_processed', 0)} articles",
+            "articles_processed": result.get("articles_processed", 0),
+            "articles_categorized": result.get("articles_categorized", 0)
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error running policy tracker schedule: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/schedules/status")
+async def get_schedules_status(session=Depends(verify_session)):
+    """Get the status of the policy tracker monitor background task."""
+    from app.tasks.policy_tracker_monitor import get_task_status
+    return get_task_status()

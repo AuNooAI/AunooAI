@@ -1717,6 +1717,160 @@ class GeopoliticalService:
             cursor.close()
             conn.close()
 
+    def update_hotspot_trends(self, days_recent: int = 7, days_comparison: int = 30) -> Dict[str, Any]:
+        """
+        Update hotspot trends based on article sentiment analysis.
+
+        Compares recent sentiment to older sentiment to determine if a hotspot
+        is escalating, de-escalating, or stable.
+
+        Args:
+            days_recent: Days to consider as "recent" period (default: 7)
+            days_comparison: Days for comparison period (default: 30)
+
+        Returns:
+            Dict with update statistics
+        """
+        conn = get_database_instance().get_connection()
+        cursor = conn.cursor()
+
+        stats = {
+            "total_hotspots": 0,
+            "updated": 0,
+            "escalating": 0,
+            "de_escalating": 0,
+            "stable": 0
+        }
+
+        def sentiment_to_score(sentiment: str) -> float:
+            """Convert sentiment string to numeric score."""
+            sentiment_map = {
+                'Positive': 1.0,
+                'Negative': -1.0,
+                'Neutral': 0.0,
+                'Mixed': 0.0,
+            }
+            return sentiment_map.get(sentiment, 0.0)
+
+        def calculate_trend(recent_avg: float, older_avg: float,
+                          recent_count: int, older_count: int) -> str:
+            """Calculate trend from sentiment comparison."""
+            if recent_count < 3:
+                return "stable"
+
+            sentiment_diff = recent_avg - older_avg
+            volume_ratio = recent_count / max(older_count, 1)
+
+            # Escalating: more negative sentiment OR volume spike with negative sentiment
+            if sentiment_diff < -0.2 or (volume_ratio > 1.5 and recent_avg < 0):
+                return "escalating"
+
+            # De-escalating: more positive sentiment OR volume decrease
+            if sentiment_diff > 0.2 or (volume_ratio < 0.5 and recent_avg >= 0):
+                return "de-escalating"
+
+            return "stable"
+
+        try:
+            recent_cutoff = datetime.now() - timedelta(days=days_recent)
+            older_cutoff = datetime.now() - timedelta(days=days_comparison)
+
+            # Get all hotspots
+            cursor.execute("""
+                SELECT id, location_name, country_name, trend
+                FROM geopolitical_hotspots
+                ORDER BY intensity_score DESC
+            """)
+            hotspots = cursor.fetchall()
+            stats["total_hotspots"] = len(hotspots)
+
+            for hotspot in hotspots:
+                hotspot_id, location_name, country_name, current_trend = hotspot
+
+                # Get articles linked to this hotspot
+                cursor.execute("""
+                    SELECT a.sentiment, a.submission_date
+                    FROM articles a
+                    JOIN hotspot_articles ha ON ha.article_uri = a.uri
+                    WHERE ha.hotspot_id = :hotspot_id
+                      AND a.submission_date >= :older_cutoff
+                      AND a.sentiment IS NOT NULL
+                    ORDER BY a.submission_date DESC
+                """, {
+                    'hotspot_id': hotspot_id,
+                    'older_cutoff': older_cutoff
+                })
+                articles = cursor.fetchall()
+
+                if not articles:
+                    # Try matching by location name in article content
+                    cursor.execute("""
+                        SELECT sentiment, submission_date
+                        FROM articles
+                        WHERE (title ILIKE :location_pattern
+                               OR summary ILIKE :location_pattern)
+                          AND submission_date >= :older_cutoff
+                          AND sentiment IS NOT NULL
+                        ORDER BY submission_date DESC
+                        LIMIT 100
+                    """, {
+                        'location_pattern': f'%{location_name}%',
+                        'older_cutoff': older_cutoff
+                    })
+                    articles = cursor.fetchall()
+
+                if len(articles) < 3:
+                    stats["stable"] += 1
+                    continue
+
+                # Split into recent and older periods
+                recent_articles = [a for a in articles if a[1] >= recent_cutoff]
+                older_articles = [a for a in articles if a[1] < recent_cutoff]
+
+                # Calculate average sentiment for each period
+                recent_scores = [sentiment_to_score(a[0]) for a in recent_articles]
+                older_scores = [sentiment_to_score(a[0]) for a in older_articles]
+
+                recent_avg = sum(recent_scores) / len(recent_scores) if recent_scores else 0
+                older_avg = sum(older_scores) / len(older_scores) if older_scores else 0
+
+                # Calculate new trend
+                new_trend = calculate_trend(
+                    recent_avg, older_avg,
+                    len(recent_articles), len(older_articles)
+                )
+
+                # Update if changed
+                if new_trend != current_trend:
+                    cursor.execute("""
+                        UPDATE geopolitical_hotspots
+                        SET trend = :trend, updated_at = NOW()
+                        WHERE id = :id
+                    """, {'trend': new_trend, 'id': hotspot_id})
+                    stats["updated"] += 1
+                    logger.info(f"Hotspot trend updated: {location_name} ({country_name}): {current_trend} → {new_trend}")
+
+                # Count trends
+                if new_trend == "escalating":
+                    stats["escalating"] += 1
+                elif new_trend == "de-escalating":
+                    stats["de_escalating"] += 1
+                else:
+                    stats["stable"] += 1
+
+            conn.commit()
+            logger.info(f"Hotspot trends updated: {stats}")
+
+        except Exception as e:
+            logger.error(f"Error updating hotspot trends: {e}")
+            conn.rollback()
+            raise
+        finally:
+            cursor.close()
+            conn.close()
+
+        return stats
+
     def get_latest_narrative(self, topic: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """Get the most recent narrative."""
         conn = get_database_instance().get_connection()

@@ -146,19 +146,50 @@ class HybridRelevanceService:
         return self._embedding_loaded
 
     def _get_topic_embedding(self, topic: str) -> np.ndarray:
-        """Get or compute topic embedding (cached)."""
+        """Get or compute topic embedding (cached).
+
+        Enriches topic name with description and keywords for better semantic matching.
+        """
         if topic not in self._topic_cache:
-            self._topic_cache[topic] = self.embedding_model.encode(topic, convert_to_numpy=True)
+            # Try to get topic description and keywords from config
+            topic_text = topic
+            try:
+                import json
+                config_path = "app/config/config.json"
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+
+                for t in config.get('topics', []):
+                    if t.get('name') == topic:
+                        # Enrich topic text with description and keywords
+                        parts = [topic]
+                        if t.get('description'):
+                            parts.append(t['description'])
+                        if t.get('keywords'):
+                            # Filter out exclusion keywords (starting with -)
+                            keywords = [k for k in t['keywords'] if not k.startswith('-') and not k.startswith('company:') and not k.startswith('person:')]
+                            if keywords:
+                                parts.append(', '.join(keywords[:10]))  # Limit to 10 keywords
+                        topic_text = '. '.join(parts)
+                        logger.debug(f"Enriched topic embedding for '{topic}': {topic_text[:100]}...")
+                        break
+            except Exception as e:
+                logger.debug(f"Could not enrich topic embedding: {e}")
+
+            self._topic_cache[topic] = self.embedding_model.encode(topic_text, convert_to_numpy=True)
         return self._topic_cache[topic]
 
     def _compute_embedding_similarity(
         self,
         topic: str,
         title: str,
-        summary: str
+        summary: str,
+        full_text: Optional[str] = None
     ) -> float:
         """
         Compute cosine similarity between topic and article.
+
+        Uses full_text (truncated) when summary is short (<100 chars).
         """
         if not self._embedding_loaded:
             return 0.0
@@ -167,7 +198,14 @@ class HybridRelevanceService:
         topic_emb = self._get_topic_embedding(topic)
 
         # Compute article embedding
-        article_text = f"{title}. {summary}"
+        # Use full_text fallback when summary is too short
+        if full_text and len(summary or '') < 100:
+            # Truncate full_text to ~1000 chars to stay within embedding limits
+            truncated_text = full_text[:1000] if len(full_text) > 1000 else full_text
+            article_text = f"{title}. {truncated_text}"
+            logger.debug(f"Using truncated full_text for short summary ({len(summary or '')} chars)")
+        else:
+            article_text = f"{title}. {summary}"
         article_emb = self.embedding_model.encode(article_text, convert_to_numpy=True)
 
         # Cosine similarity
@@ -321,6 +359,7 @@ Score:"""
         use_llm_fallback: bool = True,
         force_llm: bool = False,
         use_local_llm: bool = False,
+        full_text: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Score article relevance using hybrid approach.
@@ -333,6 +372,7 @@ Score:"""
             use_llm_fallback: Whether to use LLM for uncertain scores
             force_llm: Force LLM usage (for comparison/testing)
             use_local_llm: If True, use local Qwen instead of external GPT for fallback
+            full_text: Optional full article text (used when summary is short)
 
         Returns:
             Dict with relevance decision and component scores
@@ -370,7 +410,7 @@ Score:"""
 
         # Compute embedding similarity (always available if loaded)
         if self._embedding_loaded:
-            embedding_score = self._compute_embedding_similarity(topic, title, summary)
+            embedding_score = self._compute_embedding_similarity(topic, title, summary, full_text)
             result["embedding_score"] = embedding_score
         else:
             embedding_score = None

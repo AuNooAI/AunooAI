@@ -23,6 +23,14 @@ _background_task_status = {
     "is_checking": False
 }
 
+# Track trend update status
+_trend_update_status = {
+    "running": False,
+    "last_run_time": None,
+    "last_result": None,
+    "last_error": None
+}
+
 
 def get_task_status() -> Dict:
     """Get the current status of the geopolitical hotspots monitor background task"""
@@ -229,7 +237,44 @@ class GeopoliticalHotspotsMonitor:
             model = schedule.get('model', 'gpt-4o-mini')
             process_all = schedule.get('process_all', False)
 
-            logger.info(f"Running geopolitical schedule: {schedule_name} (ID: {schedule_id}, topic: {topic})")
+            # Adaptive batching: calculate batch size based on backlog
+            # If batch_size is 0, auto-calculate to clear backlog in ~24 hours
+            if batch_size == 0 or schedule.get('adaptive_batch', False):
+                try:
+                    # Count unprocessed articles
+                    conn = get_database_instance()._temp_get_connection()
+                    unprocessed_result = conn.execute(text("""
+                        SELECT COUNT(*)
+                        FROM articles a
+                        LEFT JOIN hotspot_articles ha ON a.uri = ha.article_uri
+                        WHERE ha.article_uri IS NULL
+                        AND (:topic IS NULL OR a.topic = :topic)
+                    """), {"topic": topic})
+                    unprocessed_count = unprocessed_result.fetchone()[0]
+                    conn.close()
+
+                    if unprocessed_count > 0:
+                        # Calculate runs per day based on schedule
+                        interval_hours = schedule.get('schedule_interval', 6)
+                        if schedule.get('schedule_unit') == 'minutes':
+                            interval_hours = interval_hours / 60
+                        elif schedule.get('schedule_unit') == 'days':
+                            interval_hours = interval_hours * 24
+
+                        runs_per_day = max(1, 24 / interval_hours)
+
+                        # Target: clear backlog in 24 hours, cap at 2000 per batch
+                        calculated_batch = min(2000, max(50, int(unprocessed_count / runs_per_day) + 10))
+
+                        logger.info(f"Adaptive batching: {unprocessed_count} unprocessed, {runs_per_day:.1f} runs/day, batch_size={calculated_batch}")
+                        batch_size = calculated_batch
+                    else:
+                        batch_size = 50  # Default when no backlog
+                except Exception as e:
+                    logger.warning(f"Failed to calculate adaptive batch size: {e}, using default")
+                    batch_size = batch_size if batch_size > 0 else 50
+
+            logger.info(f"Running geopolitical schedule: {schedule_name} (ID: {schedule_id}, topic: {topic}, batch={batch_size})")
 
             # Get articles to process
             articles = service.get_unprocessed_articles(
@@ -322,6 +367,13 @@ class GeopoliticalHotspotsMonitor:
                 service.update_country_stats()
             except Exception as e:
                 logger.warning(f"Failed to update country stats: {e}")
+
+            # Update hotspot trends based on article sentiment
+            try:
+                trend_result = service.update_hotspot_trends()
+                logger.info(f"Hotspot trends updated: {trend_result['updated']} changed")
+            except Exception as e:
+                logger.warning(f"Failed to update hotspot trends: {e}")
 
             result["success"] = True
             result["articles_processed"] = stats["processed"]
@@ -475,3 +527,59 @@ async def run_schedule_now(db: Database, schedule_id: int) -> Dict[str, Any]:
 
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+def get_trend_update_status() -> Dict:
+    """Get the current status of the trend update task."""
+    return _trend_update_status.copy()
+
+
+async def run_hotspot_trend_updates():
+    """
+    Background task to update hotspot trends every 6 hours.
+
+    Analyzes article sentiment to determine if hotspots are
+    escalating, de-escalating, or stable.
+    """
+    global _trend_update_status
+
+    logger.info("Hotspot trend update background task started (6-hour interval)")
+
+    # 6 hours in seconds
+    update_interval = 6 * 60 * 60
+
+    # Initial delay of 5 minutes to let other services start
+    await asyncio.sleep(300)
+
+    while True:
+        try:
+            _trend_update_status["running"] = True
+
+            from app.services.geopolitical_service import get_geopolitical_service
+            service = get_geopolitical_service()
+
+            logger.info("Running scheduled hotspot trend update...")
+            result = service.update_hotspot_trends(days_recent=7, days_comparison=30)
+
+            _trend_update_status["last_run_time"] = datetime.now()
+            _trend_update_status["last_result"] = result
+            _trend_update_status["last_error"] = None
+
+            logger.info(
+                f"Hotspot trend update completed: "
+                f"{result['updated']} updated, "
+                f"{result['escalating']} escalating, "
+                f"{result['de_escalating']} de-escalating, "
+                f"{result['stable']} stable"
+            )
+
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Hotspot trend update error: {error_msg}", exc_info=True)
+            _trend_update_status["last_error"] = error_msg
+
+        finally:
+            _trend_update_status["running"] = False
+
+        # Wait 6 hours before next update
+        await asyncio.sleep(update_interval)
