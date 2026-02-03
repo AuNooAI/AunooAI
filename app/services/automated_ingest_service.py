@@ -60,7 +60,7 @@ class AutomatedIngestService:
         self.hybrid_relevance_service = None  # Lazy-loaded SLM-based relevance
         self.enrichment_service = None  # Lazy-loaded SLM-based enrichment
         self.hybrid_enrichment_service = None  # Lazy-loaded adaptive enrichment (GPT -> DeBERTa)
-        self.use_adaptive_enrichment = self.config.get('use_adaptive_enrichment', False)  # Enable GPT -> DeBERTa training
+        self.use_adaptive_enrichment = self.config.get('use_adaptive_enrichment', True)  # Use hybrid enrichment that respects inference_mode
         self.summarization_service = None  # Lazy-loaded SLM-based summarization
         self.keybert_tagging_service = None  # Lazy-loaded KeyBERT tagging
         self.explanation_service = None  # Lazy-loaded SLM-based explanations
@@ -78,7 +78,27 @@ class AutomatedIngestService:
         # Configure logging
         self.logger = logger
         self.logger.info("AutomatedIngestService initialized with async capabilities and dedicated blocking I/O executor (3 workers)")
-    
+
+    def get_inference_mode(self) -> str:
+        """
+        Get the inference mode from database settings.
+
+        Returns:
+            'local' - Use local models only (DeBERTa, no LLM fallback)
+            'hybrid' - Use local models with LLM fallback for low confidence (default)
+            'external' - Use LLM for everything
+        """
+        try:
+            from sqlalchemy import text
+            result = self.db.facade._execute_with_rollback(
+                text("SELECT inference_mode FROM keyword_monitor_settings WHERE id = 1")
+            ).fetchone()
+            mode = result[0] if result else 'hybrid'
+            return mode
+        except Exception as e:
+            self.logger.warning(f"Failed to get inference mode, defaulting to hybrid: {e}")
+            return 'hybrid'
+
     def get_llm_client(self, model_override: str = None) -> str:
         """
         Get the LLM model name to use for processing
@@ -208,18 +228,31 @@ class AutomatedIngestService:
                     if not self.hybrid_enrichment_service:
                         self.hybrid_enrichment_service = get_hybrid_enrichment_service()
 
-                    self.logger.info(f"    🔄 Using adaptive enrichment: {title[:50]}...")
+                    # Get inference mode to determine if we use local LLM (Qwen) instead of GPT
+                    inference_mode = self.get_inference_mode()
+                    use_local_llm = inference_mode == 'local'
+                    llm_type = "Qwen" if use_local_llm else "GPT"
 
-                    # Run async coroutine in sync context
-                    import asyncio
-                    slm_result = asyncio.run(
-                        self.hybrid_enrichment_service.enrich_article(
-                            title=title,
-                            summary=article_text,
-                            topic=topic,
-                            article_uri=uri,
-                        )
+                    self.logger.info(f"    🔄 Using adaptive enrichment ({llm_type} fallback): {title[:50]}...")
+
+                    # Run async coroutine - handle both sync and async contexts
+                    coro = self.hybrid_enrichment_service.enrich_article(
+                        title=title,
+                        summary=article_text,
+                        topic=topic,
+                        article_uri=uri,
+                        use_local_llm=use_local_llm,
                     )
+                    try:
+                        # Check if we're in an existing event loop
+                        loop = asyncio.get_running_loop()
+                        # Run in thread pool to avoid blocking the loop
+                        import nest_asyncio
+                        nest_asyncio.apply()
+                        slm_result = asyncio.run(coro)
+                    except RuntimeError:
+                        # No running loop, safe to use asyncio.run
+                        slm_result = asyncio.run(coro)
 
                     # Track which fields were handled and by which model
                     enrichment_sources = slm_result.get('sources', {})
@@ -370,6 +403,14 @@ class AutomatedIngestService:
                         final_result[field] = slm_result[field]
                 final_result['_enrichment_method'] = f"hybrid_slm({','.join(slm_fields_used)})"
 
+            # Track which model was used for each field (for UI reporting)
+            # Fields not in slm_fields_used were handled by LLM
+            for field in ['sentiment', 'time_to_impact', 'driver_type', 'future_signal']:
+                if field not in enrichment_sources:
+                    enrichment_sources[field] = 'gpt'  # LLM fallback was used
+
+            final_result['enrichment_sources'] = enrichment_sources
+
             article_data.update(final_result)
 
             method = final_result.get('_enrichment_method', 'unknown')
@@ -413,15 +454,27 @@ class AutomatedIngestService:
 
             # Log content source for debugging
             content_source = "full content" if article_full_content else ("summary" if article_summary else "none")
-            self.logger.info(f"📊 Hybrid relevance check using {content_source} ({len(article_content)} chars) for: {title[:60]}...")
 
-            # Score using hybrid service (embedding + classifier + LLM fallback)
+            # Get inference mode to control LLM usage
+            inference_mode = self.get_inference_mode()
+            use_llm_fallback = inference_mode in ('hybrid', 'external')
+            force_llm = inference_mode == 'external'
+
+            mode_label = {'local': '🏠 Local', 'hybrid': '🔄 Hybrid', 'external': '☁️ External'}
+            self.logger.info(f"📊 {mode_label.get(inference_mode, inference_mode)} relevance check using {content_source} ({len(article_content)} chars) for: {title[:60]}...")
+
+            # In local mode, use Qwen for LLM fallback instead of GPT
+            use_local_llm = inference_mode == 'local'
+
+            # Score using hybrid service (embedding + classifier + optional LLM fallback)
             hybrid_result = self.hybrid_relevance_service.score_relevance(
                 topic=topic,
                 title=title,
                 summary=article_content,
                 threshold=self.get_relevance_threshold(),
-                use_llm_fallback=True
+                use_llm_fallback=use_llm_fallback,
+                force_llm=force_llm,
+                use_local_llm=use_local_llm
             )
 
             # Map hybrid result to expected pipeline format

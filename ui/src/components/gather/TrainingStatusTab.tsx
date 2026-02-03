@@ -10,7 +10,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { RefreshCw, Zap, AlertCircle, CheckCircle2, Info, Cpu, Play, Loader2, XCircle, Trash2, FileText, Download, Target, Folder, FlaskConical, Tag, Database, FolderOpen, Rss, Check, Hash, HelpCircle, Star } from 'lucide-react';
+import { RefreshCw, Zap, AlertCircle, CheckCircle2, Info, Cpu, Play, Loader2, XCircle, Trash2, FileText, Download, Target, Folder, FlaskConical, Tag, Database, FolderOpen, Rss, Check, Hash, HelpCircle, Star, CheckCircle, AlertTriangle } from 'lucide-react';
 import { TopicTrainingCard } from './TopicTrainingCard';
 import {
   getTopicsTrainingStatus,
@@ -28,7 +28,11 @@ import {
   getPipelineStats,
   getModelConfig,
   getCostSavings,
+  getInferenceMode,
+  setInferenceMode,
+  getLocalModelsStatus,
   type TopicTrainingStatus,
+  type LocalModelsStatus,
   type TrainingReadiness,
   type TrainingRun,
   type TrainingThresholds,
@@ -38,6 +42,7 @@ import {
   type PipelineStats,
   type ModelConfig,
   type CostSavingsStats,
+  type InferenceMode,
 } from '../../services/trainingApi';
 import { Alert, AlertDescription } from '../ui/alert';
 
@@ -71,6 +76,9 @@ export function TrainingStatusTab() {
   const [pipelineStats, setPipelineStats] = useState<PipelineStats | null>(null);
   const [modelConfig, setModelConfig] = useState<ModelConfig | null>(null);
   const [costSavings, setCostSavings] = useState<CostSavingsStats | null>(null);
+  const [inferenceMode, setInferenceModeState] = useState<InferenceMode>('hybrid');
+  const [localModelsStatus, setLocalModelsStatus] = useState<LocalModelsStatus | null>(null);
+  const [savingMode, setSavingMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [triggering, setTriggering] = useState(false);
@@ -83,7 +91,7 @@ export function TrainingStatusTab() {
     setError(null);
 
     try {
-      const [topicsData, readinessData, thresholdsData, runsData, confidenceData, relevanceConfData, feedbackData, statusData, pipelineData, modelConfigData, costSavingsData] = await Promise.all([
+      const [topicsData, readinessData, thresholdsData, runsData, confidenceData, relevanceConfData, feedbackData, statusData, pipelineData, modelConfigData, costSavingsData, inferenceModeData, localModelsData] = await Promise.all([
         getTopicsTrainingStatus(),
         checkReadiness(),
         getThresholds(),
@@ -95,6 +103,8 @@ export function TrainingStatusTab() {
         getPipelineStats().catch(() => null),
         getModelConfig().catch(() => null),
         getCostSavings().catch(() => null),
+        getInferenceMode().catch(() => ({ mode: 'hybrid' as InferenceMode })),
+        getLocalModelsStatus().catch(() => null),
       ]);
 
       setTopics(topicsData);
@@ -108,6 +118,8 @@ export function TrainingStatusTab() {
       setPipelineStats(pipelineData);
       setModelConfig(modelConfigData);
       setCostSavings(costSavingsData);
+      setInferenceModeState(inferenceModeData.mode);
+      setLocalModelsStatus(localModelsData);
     } catch (err) {
       console.error('Failed to load training data:', err);
       setError(err instanceof Error ? err.message : 'Failed to load training data');
@@ -211,6 +223,26 @@ export function TrainingStatusTab() {
     }
   };
 
+  const handleInferenceModeChange = async (mode: InferenceMode) => {
+    setSavingMode(true);
+    setError(null);
+    try {
+      await setInferenceMode(mode);
+      setInferenceModeState(mode);
+    } catch (err) {
+      console.error('Failed to set inference mode:', err);
+      const errorMsg = err instanceof Error ? err.message : 'Failed to set inference mode';
+      // Show more user-friendly error for local mode failures
+      if (mode === 'local' && errorMsg.includes('missing models')) {
+        setError(`⚠️ ${errorMsg}. Train local models first or use Hybrid mode.`);
+      } else {
+        setError(errorMsg);
+      }
+    } finally {
+      setSavingMode(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="training-status-tab p-6">
@@ -221,6 +253,37 @@ export function TrainingStatusTab() {
       </div>
     );
   }
+
+  // Pipeline configuration based on inference mode
+  const getPipelineConfig = (mode: InferenceMode) => ({
+    relevance: {
+      badge: mode === 'local' ? 'DeBERTa' : mode === 'hybrid' ? 'Hybrid' : 'GPT',
+      label: mode === 'local' ? 'DeBERTa' : mode === 'hybrid' ? 'DeBERTa → GPT' : 'GPT',
+      badgeClass: mode === 'external' ? 'bg-green-500' : 'bg-gradient-to-r from-pink-500 to-indigo-500',
+    },
+    category: {
+      badge: mode === 'external' ? 'GPT' : 'Qwen',
+      label: mode === 'local' ? 'Qwen' : mode === 'hybrid' ? '→ GPT fallback' : 'GPT',
+      badgeClass: mode === 'external' ? 'bg-green-500' : 'bg-blue-500',
+    },
+    summary: {
+      badge: mode === 'external' ? 'GPT' : 'Phi-3',
+      label: mode === 'local' ? 'Phi-3' : mode === 'hybrid' ? '→ GPT fallback' : 'GPT',
+      badgeClass: mode === 'external' ? 'bg-green-500' : 'bg-purple-500',
+    },
+    enrichment: {
+      badge: mode === 'external' ? 'GPT' : 'DeBERTa',
+      label: mode === 'local' ? 'DeBERTa' : mode === 'hybrid' ? '→ GPT fallback' : 'GPT',
+      badgeClass: mode === 'external' ? 'bg-green-500' : 'bg-pink-500',
+    },
+    tags: {
+      badge: mode === 'external' ? 'GPT' : 'KeyBERT',
+      label: mode === 'local' ? 'KeyBERT' : mode === 'hybrid' ? 'Phi-3 → GPT' : 'GPT',
+      badgeClass: mode === 'external' ? 'bg-green-500' : 'bg-teal-500',
+    },
+  });
+
+  const pipelineConfig = getPipelineConfig(inferenceMode);
 
   const totalSamples = topics.reduce((sum, t) => sum + t.total_samples, 0);
   const fullyReadyTopics = topics.filter(t => {
@@ -246,6 +309,82 @@ export function TrainingStatusTab() {
         </Alert>
       )}
 
+      {/* Inference Mode Selector */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-gray-900 flex items-center gap-2">
+              <Cpu className="w-4 h-4 text-gray-400" />
+              Inference Mode
+            </h3>
+            <p className="text-xs text-gray-500 mt-1">
+              {inferenceMode === 'local' && 'Using local models only (DeBERTa, Phi-3, Qwen) - fastest and free'}
+              {inferenceMode === 'hybrid' && 'Local models with GPT fallback for low confidence - balanced'}
+              {inferenceMode === 'external' && 'Using GPT for all processing - most accurate but costs apply'}
+            </p>
+          </div>
+          <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+            <button
+              onClick={() => handleInferenceModeChange('local')}
+              disabled={savingMode}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                inferenceMode === 'local'
+                  ? 'bg-pink-500 text-white shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
+              }`}
+            >
+              Local Only
+            </button>
+            <button
+              onClick={() => handleInferenceModeChange('hybrid')}
+              disabled={savingMode}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                inferenceMode === 'hybrid'
+                  ? 'bg-pink-500 text-white shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
+              }`}
+            >
+              Hybrid
+            </button>
+            <button
+              onClick={() => handleInferenceModeChange('external')}
+              disabled={savingMode}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                inferenceMode === 'external'
+                  ? 'bg-green-500 text-white shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
+              }`}
+            >
+              External (GPT)
+            </button>
+          </div>
+        </div>
+        {localModelsStatus && (
+          <div className="flex items-center gap-4 text-xs mt-2">
+            {localModelsStatus.available ? (
+              <span className="flex items-center gap-1 text-green-600">
+                <CheckCircle className="w-3.5 h-3.5" /> Local models ready
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-amber-600">
+                <AlertTriangle className="w-3.5 h-3.5" />
+                {localModelsStatus.missing.length} local model(s) unavailable
+              </span>
+            )}
+            <span className="text-gray-300">|</span>
+            {localModelsStatus.external_llm_available ? (
+              <span className="flex items-center gap-1 text-green-600">
+                <CheckCircle className="w-3.5 h-3.5" /> External LLM ready
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-amber-600">
+                <AlertTriangle className="w-3.5 h-3.5" /> No API keys configured
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* Stats Grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -268,15 +407,15 @@ export function TrainingStatusTab() {
           <div className="text-3xl font-bold text-gray-900">{topics.length}</div>
           <div className="text-xs text-gray-400 mt-1">Across all categories</div>
         </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-5">
+        <div className="bg-white rounded-xl border border-gray-200 p-5" title="Topics with 500+ training samples for DeBERTa relevance classification">
           <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">DeBERTa Ready</span>
+            <span className="text-xs font-medium text-gray-500 uppercase tracking-wide cursor-help">DeBERTa Ready</span>
             <div className="w-8 h-8 rounded-lg bg-pink-50 flex items-center justify-center">
               <CheckCircle2 className="w-4 h-4 text-pink-500" />
             </div>
           </div>
           <div className="text-3xl font-bold text-gray-900">{fullyReadyTopics.length}</div>
-          <div className="text-xs text-gray-400 mt-1">Models deployed</div>
+          <div className="text-xs text-gray-400 mt-1">Trainable for relevance</div>
         </div>
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-3">
@@ -328,10 +467,10 @@ export function TrainingStatusTab() {
                 <div className="w-14 h-14 rounded-xl bg-white border-2 border-gray-200 flex items-center justify-center hover:border-pink-400 hover:shadow-md transition-all cursor-default">
                   <Target className="w-6 h-6 text-gray-500" />
                 </div>
-                <span className="absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded text-[8px] font-bold bg-gradient-to-r from-pink-500 to-indigo-500 text-white whitespace-nowrap">Hybrid</span>
+                <span className={`absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded text-[8px] font-bold ${pipelineConfig.relevance.badgeClass} text-white whitespace-nowrap`}>{pipelineConfig.relevance.badge}</span>
               </div>
               <span className="text-xs font-semibold text-gray-900">Relevance</span>
-              <span className="text-[10px] text-gray-500">DeBERTa → GPT</span>
+              <span className="text-[10px] text-gray-500">{pipelineConfig.relevance.label}</span>
             </div>
 
             {/* Stage 3: Category */}
@@ -340,10 +479,10 @@ export function TrainingStatusTab() {
                 <div className="w-14 h-14 rounded-xl bg-white border-2 border-gray-200 flex items-center justify-center hover:border-pink-400 hover:shadow-md transition-all cursor-default">
                   <Folder className="w-6 h-6 text-gray-500" />
                 </div>
-                <span className="absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded text-[8px] font-bold bg-blue-500 text-white">Qwen</span>
+                <span className={`absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded text-[8px] font-bold ${pipelineConfig.category.badgeClass} text-white`}>{pipelineConfig.category.badge}</span>
               </div>
               <span className="text-xs font-semibold text-gray-900">Category</span>
-              <span className="text-[10px] text-gray-500">→ GPT fallback</span>
+              <span className="text-[10px] text-gray-500">{pipelineConfig.category.label}</span>
             </div>
 
             {/* Stage 4: Summary */}
@@ -352,10 +491,10 @@ export function TrainingStatusTab() {
                 <div className="w-14 h-14 rounded-xl bg-white border-2 border-gray-200 flex items-center justify-center hover:border-pink-400 hover:shadow-md transition-all cursor-default">
                   <FileText className="w-6 h-6 text-gray-500" />
                 </div>
-                <span className="absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded text-[8px] font-bold bg-purple-500 text-white">Phi-3</span>
+                <span className={`absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded text-[8px] font-bold ${pipelineConfig.summary.badgeClass} text-white`}>{pipelineConfig.summary.badge}</span>
               </div>
               <span className="text-xs font-semibold text-gray-900">Summary</span>
-              <span className="text-[10px] text-gray-500">→ GPT fallback</span>
+              <span className="text-[10px] text-gray-500">{pipelineConfig.summary.label}</span>
             </div>
 
             {/* Stage 5: Enrichment */}
@@ -364,10 +503,10 @@ export function TrainingStatusTab() {
                 <div className="w-14 h-14 rounded-xl bg-white border-2 border-gray-200 flex items-center justify-center hover:border-pink-400 hover:shadow-md transition-all cursor-default">
                   <Star className="w-6 h-6 text-gray-500" />
                 </div>
-                <span className="absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded text-[8px] font-bold bg-pink-500 text-white">DeBERTa</span>
+                <span className={`absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded text-[8px] font-bold ${pipelineConfig.enrichment.badgeClass} text-white`}>{pipelineConfig.enrichment.badge}</span>
               </div>
               <span className="text-xs font-semibold text-gray-900">Enrichment</span>
-              <span className="text-[10px] text-gray-500">→ GPT fallback</span>
+              <span className="text-[10px] text-gray-500">{pipelineConfig.enrichment.label}</span>
             </div>
 
             {/* Stage 6: Tags */}
@@ -376,15 +515,24 @@ export function TrainingStatusTab() {
                 <div className="w-14 h-14 rounded-xl bg-white border-2 border-gray-200 flex items-center justify-center hover:border-pink-400 hover:shadow-md transition-all cursor-default">
                   <Hash className="w-6 h-6 text-gray-500" />
                 </div>
-                <span className="absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded text-[8px] font-bold bg-teal-500 text-white">KeyBERT</span>
+                <span className={`absolute -top-1.5 -right-1.5 px-1.5 py-0.5 rounded text-[8px] font-bold ${pipelineConfig.tags.badgeClass} text-white`}>{pipelineConfig.tags.badge}</span>
               </div>
               <span className="text-xs font-semibold text-gray-900">Tags + NER</span>
-              <span className="text-[10px] text-gray-500">Phi-3 → GPT</span>
+              <span className="text-[10px] text-gray-500">{pipelineConfig.tags.label}</span>
             </div>
           </div>
 
           {/* Pipeline Stats */}
           <div className="flex items-center gap-6 pt-4 mt-2 border-t border-gray-100 text-xs text-gray-600">
+            <div className="flex items-center gap-1.5">
+              <span className={`px-2 py-0.5 rounded font-semibold ${
+                inferenceMode === 'local' ? 'bg-pink-100 text-pink-700' :
+                inferenceMode === 'hybrid' ? 'bg-purple-100 text-purple-700' :
+                'bg-green-100 text-green-700'
+              }`}>
+                {inferenceMode === 'local' ? '🏠 Local' : inferenceMode === 'hybrid' ? '🔄 Hybrid' : '☁️ External'}
+              </span>
+            </div>
             <div className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-pink-500" />
               Today: <strong className="text-gray-900 font-semibold">{pipelineStats?.articles_today ?? '—'}</strong> articles
@@ -398,9 +546,9 @@ export function TrainingStatusTab() {
               <strong className="text-gray-900 font-semibold">{pipelineStats?.topics_active ?? '—'}</strong> topics active
             </div>
             {bootstrappingTopics.length > 0 && (
-              <div className="flex items-center gap-1.5 text-green-600">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
-                <strong className="font-semibold">{bootstrappingTopics.length}</strong> topics using GPT
+              <div className={`flex items-center gap-1.5 ${inferenceMode === 'local' ? 'text-blue-600' : 'text-green-600'}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${inferenceMode === 'local' ? 'bg-blue-500' : 'bg-green-500'}`} />
+                <strong className="font-semibold">{bootstrappingTopics.length}</strong> topics using {inferenceMode === 'local' ? 'Qwen' : 'GPT'}
               </div>
             )}
           </div>
@@ -438,8 +586,8 @@ export function TrainingStatusTab() {
                 </span>
               )}
               {bootstrappingTopics.length > 0 && (
-                <span className="px-2.5 py-1.5 rounded-md text-xs font-semibold bg-pink-50 text-pink-700">
-                  {bootstrappingTopics.length} on gpt-4o-mini
+                <span className="px-2.5 py-1.5 rounded-md text-xs font-semibold bg-pink-50 text-pink-700" title={inferenceMode === 'local' ? 'Using Qwen for untrained topics' : 'Using GPT for untrained topics'}>
+                  {bootstrappingTopics.length} on {inferenceMode === 'local' ? 'Qwen' : 'gpt-4o-mini'}
                 </span>
               )}
             </div>

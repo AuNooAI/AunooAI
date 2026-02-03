@@ -464,6 +464,7 @@ export interface PipelineStats {
   articles_today: number;
   relevance_passed: number;
   topics_active: number;
+  inference_mode: InferenceMode;
 }
 
 /**
@@ -619,6 +620,62 @@ export async function getCostSavings(hours = 24): Promise<CostSavingsStats> {
   const response = await fetch(`${API_BASE}/cost-savings?hours=${hours}`);
   if (!response.ok) {
     throw new Error(`Failed to get cost savings: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+// ============================================================================
+// Inference Mode Settings
+// ============================================================================
+
+export type InferenceMode = 'local' | 'hybrid' | 'external';
+
+export interface InferenceModeResponse {
+  mode: InferenceMode;
+}
+
+/**
+ * Get the current inference mode setting
+ */
+export async function getInferenceMode(): Promise<InferenceModeResponse> {
+  const response = await fetch(`${API_BASE}/inference-mode`);
+  if (!response.ok) {
+    throw new Error(`Failed to get inference mode: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Set the inference mode
+ * @param mode - 'local' (DeBERTa only), 'hybrid' (DeBERTa + GPT fallback), or 'external' (GPT only)
+ */
+export async function setInferenceMode(mode: InferenceMode): Promise<{ success: boolean; mode: InferenceMode }> {
+  const response = await fetch(`${API_BASE}/inference-mode`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }),
+  });
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new Error(errorData.detail || `Failed to set inference mode: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+export interface LocalModelsStatus {
+  available: boolean;
+  models: Record<string, { available: boolean; name: string; error: string | null; configured_models?: string[] }>;
+  missing: string[];
+  external_llm_available: boolean;
+}
+
+/**
+ * Check if local models are available for 'local' inference mode
+ */
+export async function getLocalModelsStatus(): Promise<LocalModelsStatus> {
+  const response = await fetch(`${API_BASE}/local-models-status`);
+  if (!response.ok) {
+    throw new Error(`Failed to get local models status: ${response.statusText}`);
   }
   return response.json();
 }

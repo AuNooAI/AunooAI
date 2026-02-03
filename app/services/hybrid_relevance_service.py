@@ -220,18 +220,20 @@ class HybridRelevanceService:
         self,
         topic: str,
         title: str,
-        summary: str
+        summary: str,
+        use_local: bool = False
     ) -> Optional[float]:
         """
         Get relevance score from LLM (most accurate, but slow/expensive).
         Used as fallback when other methods have low confidence.
+
+        Args:
+            topic: Topic to check relevance against
+            title: Article title
+            summary: Article summary
+            use_local: If True, use local Qwen model instead of external GPT
         """
-        try:
-            from app.ai_models import AIModelFactory
-
-            ai = AIModelFactory.get_model()
-
-            prompt = f"""Rate the relevance of this article to the given topic on a scale of 0.0 to 1.0.
+        prompt = f"""Rate the relevance of this article to the given topic on a scale of 0.0 to 1.0.
 
 Topic: {topic}
 
@@ -245,19 +247,65 @@ Respond with ONLY a number between 0.0 and 1.0, where:
 
 Score:"""
 
-            response = ai.generate(prompt, max_tokens=10, temperature=0.0)
+        if use_local:
+            return self._compute_local_llm_score(prompt)
+        else:
+            return self._compute_external_llm_score(prompt)
 
-            # Parse the score from response
-            try:
-                score = float(response.strip())
-                score = max(0.0, min(1.0, score))  # Clamp to [0, 1]
+    def _compute_local_llm_score(self, prompt: str) -> Optional[float]:
+        """Use local Qwen model (vLLM on port 8766) for relevance scoring."""
+        try:
+            from litellm import completion
+
+            VLLM_BASE_URL = "http://localhost:8766/v1"
+            VLLM_MODEL = "Qwen/Qwen2.5-3B-Instruct"
+
+            response = completion(
+                model=f"openai/{VLLM_MODEL}",
+                api_base=VLLM_BASE_URL,
+                messages=[
+                    {"role": "system", "content": "You are a relevance scorer. Output only a number between 0.0 and 1.0."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=10,
+                temperature=0.0,
+            )
+
+            response_text = response.choices[0].message.content.strip()
+            # Extract first number from response
+            import re
+            match = re.search(r'(\d+\.?\d*)', response_text)
+            if match:
+                score = float(match.group(1))
+                score = max(0.0, min(1.0, score))
+                logger.info(f"🏠 Local Qwen relevance score: {score:.3f}")
                 return score
-            except ValueError:
-                logger.warning(f"Could not parse LLM score: {response}")
-                return None
+            logger.warning(f"Could not parse local LLM score: {response_text}")
+            return None
 
         except Exception as e:
-            logger.error(f"LLM relevance scoring failed: {e}")
+            logger.error(f"Local LLM (Qwen) relevance scoring failed: {e}")
+            return None
+
+    def _compute_external_llm_score(self, prompt: str) -> Optional[float]:
+        """Use external GPT model for relevance scoring."""
+        try:
+            from app.ai_models import AIModelFactory, extract_content
+
+            ai = AIModelFactory.get_model()
+            response = ai.generate_sync(prompt, max_tokens=10, temperature=0.0)
+
+            response_text = extract_content(response)
+            score = float(response_text.strip())
+            score = max(0.0, min(1.0, score))
+            logger.info(f"☁️ External GPT relevance score: {score:.3f}")
+            return score
+
+        except ValueError as e:
+            logger.warning(f"Could not parse external LLM score: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"External LLM relevance scoring failed: {e}")
             return None
 
     def _is_uncertain(self, score: float) -> bool:
@@ -272,6 +320,7 @@ Score:"""
         threshold: float = DEFAULT_THRESHOLD,
         use_llm_fallback: bool = True,
         force_llm: bool = False,
+        use_local_llm: bool = False,
     ) -> Dict[str, Any]:
         """
         Score article relevance using hybrid approach.
@@ -283,13 +332,14 @@ Score:"""
             threshold: Score threshold for binary relevance
             use_llm_fallback: Whether to use LLM for uncertain scores
             force_llm: Force LLM usage (for comparison/testing)
+            use_local_llm: If True, use local Qwen instead of external GPT for fallback
 
         Returns:
             Dict with relevance decision and component scores
         """
         # Force LLM mode
         if force_llm:
-            llm_score = self._compute_llm_score(topic, title, summary)
+            llm_score = self._compute_llm_score(topic, title, summary, use_local=use_local_llm)
             return {
                 "topic": topic,
                 "relevant": (llm_score or 0) >= threshold,
@@ -361,12 +411,13 @@ Score:"""
 
         # LLM fallback for uncertain/borderline scores
         if use_llm_fallback and result["confidence"] != "high":
-            logger.info(f"🤖 LLM fallback triggered for borderline score {result['score']:.3f}")
-            llm_score = self._compute_llm_score(topic, title, summary)
+            fallback_type = "🏠 Local Qwen" if use_local_llm else "☁️ GPT"
+            logger.info(f"🤖 {fallback_type} fallback triggered for borderline score {result['score']:.3f}")
+            llm_score = self._compute_llm_score(topic, title, summary, use_local=use_local_llm)
             if llm_score is not None:
                 result["llm_score"] = llm_score
                 result["score"] = llm_score  # LLM overrides when uncertain
-                result["method"] = f"{result['method']}+llm_fallback"
+                result["method"] = f"{result['method']}+{'local_llm' if use_local_llm else 'llm'}_fallback"
                 result["confidence"] = "high"
 
         # Make binary decision

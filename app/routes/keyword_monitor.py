@@ -604,20 +604,31 @@ async def test_process_article(
         article_dict['topic'] = topic
         add_step("topic", "success", f"Using topic: {topic}", {"group_name": group['name']})
 
-        # Step 3: Initialize LLM
-        add_step("model", "info", "Initializing LLM model...")
+        # Step 3: Initialize pipeline
+        add_step("model", "info", "Initializing AI pipeline...")
 
         ingest_service = AutomatedIngestService(db)
+        inference_mode = ingest_service.get_inference_mode()
         configured_model = ingest_service.get_llm_client()
         llm_params = ingest_service.get_llm_parameters()
 
-        add_step("model", "success", f"Using model: {configured_model}", {
+        # Describe what the pipeline will use based on inference mode
+        mode_descriptions = {
+            'local': 'Local only (DeBERTa + Qwen + Phi-3)',
+            'hybrid': 'Hybrid (DeBERTa → GPT fallback)',
+            'external': 'External (GPT only)',
+        }
+        mode_desc = mode_descriptions.get(inference_mode, inference_mode)
+
+        add_step("model", "success", f"Pipeline: {mode_desc}", {
+            "inference_mode": inference_mode,
+            "llm_fallback": configured_model if inference_mode != 'local' else 'Qwen (local)',
             "temperature": llm_params.get('temperature'),
             "max_tokens": llm_params.get('max_tokens')
         })
 
-        # Step 4: Run LLM enrichment
-        add_step("enrich", "info", "Running LLM enrichment analysis...")
+        # Step 4: Run enrichment through the configured pipeline
+        add_step("enrich", "info", f"Running {inference_mode} enrichment...")
         start_time = time.time()
 
         try:
@@ -640,20 +651,30 @@ async def test_process_article(
             # Filter out None values
             update_fields = {k: v for k, v in update_fields.items() if v is not None}
 
+            # Extract which model was used for each field (from adaptive enrichment)
+            enrichment_sources = enriched_article.get('enrichment_sources', {})
+            sources_summary = []
+            for field in ['sentiment', 'time_to_impact', 'driver_type', 'future_signal']:
+                source = enrichment_sources.get(field, 'unknown')
+                if field in update_fields:
+                    sources_summary.append(f"{field}={source}")
+
             if not update_fields:
-                add_step("enrich", "warning", f"LLM returned no enrichment fields ({elapsed}s)", {
-                    "elapsed_seconds": elapsed
+                add_step("enrich", "warning", f"Pipeline returned no enrichment fields ({elapsed}s)", {
+                    "elapsed_seconds": elapsed,
+                    "inference_mode": inference_mode
                 })
                 return {
                     "success": False,
                     "steps": steps,
                     "enrichment_fields": {},
-                    "message": f"LLM analysis completed but returned no enrichment data. Model: {configured_model}"
+                    "message": f"Enrichment completed but returned no data. Mode: {inference_mode}"
                 }
 
             add_step("enrich", "success", f"Enrichment complete ({elapsed}s)", {
                 "elapsed_seconds": elapsed,
-                "fields_extracted": list(update_fields.keys())
+                "fields_extracted": list(update_fields.keys()),
+                "sources": ', '.join(sources_summary) if sources_summary else 'not tracked'
             })
 
         except Exception as analysis_error:

@@ -123,13 +123,14 @@ class HybridEnrichmentService:
         topic: str,
         topic_config: Dict[str, List[str]] = None,
         article_uri: str = None,
+        use_local_llm: bool = False,
     ) -> Dict[str, Any]:
         """
         Enrich article using the appropriate model for each field.
 
         Decision logic per field:
         - samples >= 500 → DeBERTa (trained model, fast, free)
-        - samples < 500 → GPT (gpt-4o-mini, store for training)
+        - samples < 500 → GPT (gpt-4o-mini, store for training) or Qwen (if use_local_llm=True)
 
         Args:
             title: Article title
@@ -137,6 +138,7 @@ class HybridEnrichmentService:
             topic: Topic name
             topic_config: Dict mapping field_name -> list of valid values
             article_uri: Article URI for storing bootstrap samples
+            use_local_llm: If True, use local Qwen instead of GPT for bootstrapping
 
         Returns:
             Dict with enrichment values and sources tracking
@@ -169,9 +171,10 @@ class HybridEnrichmentService:
             else:
                 gpt_fields[field] = topic_config.get(field, [])
 
+        llm_type = "Qwen" if use_local_llm else "GPT"
         logger.info(
             f"Enrichment routing for '{topic}': "
-            f"DeBERTa={deberta_fields}, GPT={list(gpt_fields.keys())}"
+            f"DeBERTa={deberta_fields}, {llm_type}={list(gpt_fields.keys())}"
         )
 
         # Process with DeBERTa (if available and fields assigned)
@@ -187,29 +190,42 @@ class HybridEnrichmentService:
                         if conf_key in deberta_result:
                             result[conf_key] = deberta_result[conf_key]
             except Exception as e:
-                logger.warning(f"DeBERTa enrichment failed, falling back to GPT: {e}")
-                # Move fields to GPT fallback
+                logger.warning(f"DeBERTa enrichment failed, falling back to {llm_type}: {e}")
+                # Move fields to LLM fallback
                 for field in deberta_fields:
                     gpt_fields[field] = topic_config.get(field, [])
 
-        # Process with GPT (stores samples for training)
+        # Process with LLM (GPT or Qwen depending on mode)
         if gpt_fields:
             try:
-                gpt_result = await bootstrap.bootstrap_classification(
-                    article_uri=article_uri or "",
-                    title=title,
-                    summary=summary,
-                    topic=topic,
-                    fields=list(gpt_fields.keys()),
-                    valid_values=gpt_fields,
-                )
+                if use_local_llm:
+                    # Use local Qwen model
+                    llm_result = self._classify_with_local_llm(
+                        title=title,
+                        summary=summary,
+                        fields=list(gpt_fields.keys()),
+                        valid_values=gpt_fields,
+                    )
+                    source_name = "qwen"
+                else:
+                    # Use GPT (stores samples for training)
+                    llm_result = await bootstrap.bootstrap_classification(
+                        article_uri=article_uri or "",
+                        title=title,
+                        summary=summary,
+                        topic=topic,
+                        fields=list(gpt_fields.keys()),
+                        valid_values=gpt_fields,
+                    )
+                    source_name = "gpt"
+
                 for field in gpt_fields:
-                    if field in gpt_result:
-                        result[field] = gpt_result[field]
-                        result["sources"][field] = "gpt"
-                        result[f"{field}_confidence"] = gpt_result.get("confidence", 0.8)
+                    if field in llm_result:
+                        result[field] = llm_result[field]
+                        result["sources"][field] = source_name
+                        result[f"{field}_confidence"] = llm_result.get("confidence", 0.8)
             except Exception as e:
-                logger.error(f"GPT classification failed: {e}")
+                logger.error(f"{llm_type} classification failed: {e}")
 
         # Fill in any missing fields with None
         for field in ENRICHMENT_FIELDS:
@@ -227,6 +243,87 @@ class HybridEnrichmentService:
             "driver_type": ["accelerating", "constraining", "enabling", "disruptive", "stabilizing"],
             "future_signal": ["Emerging", "Evolving", "Established", "Declining", "Uncertain"],
         }
+
+    def _classify_with_local_llm(
+        self,
+        title: str,
+        summary: str,
+        fields: List[str],
+        valid_values: Dict[str, List[str]],
+    ) -> Dict[str, Any]:
+        """
+        Classify article using local Qwen model (vLLM on port 8766).
+
+        Used in local-only mode instead of GPT for bootstrapping.
+        Note: Does NOT store samples for training (since we're avoiding external calls).
+
+        Args:
+            title: Article title
+            summary: Article summary
+            fields: List of fields to classify
+            valid_values: Dict mapping field -> list of valid values
+
+        Returns:
+            Dict with classification values for each field
+        """
+        try:
+            from litellm import completion
+            import json
+
+            VLLM_BASE_URL = "http://localhost:8766/v1"
+            VLLM_MODEL = "Qwen/Qwen2.5-3B-Instruct"
+
+            # Build classification prompt
+            field_specs = []
+            for field in fields:
+                values = valid_values.get(field, [])
+                field_specs.append(f'- {field}: one of {values}')
+
+            prompt = f"""Classify this article for the following fields. Respond with JSON only.
+
+Article Title: {title}
+Article Summary: {summary}
+
+Classify into these fields:
+{chr(10).join(field_specs)}
+
+Respond with ONLY a JSON object like: {{"sentiment": "...", "time_to_impact": "...", ...}}
+No explanation, just JSON."""
+
+            response = completion(
+                model=f"openai/{VLLM_MODEL}",
+                api_base=VLLM_BASE_URL,
+                messages=[
+                    {"role": "system", "content": "You are a news article classifier. Output only valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=200,
+                temperature=0.1,
+            )
+
+            response_text = response.choices[0].message.content.strip()
+
+            # Try to parse JSON response
+            try:
+                # Handle markdown code blocks
+                if response_text.startswith("```"):
+                    response_text = response_text.split("```")[1]
+                    if response_text.startswith("json"):
+                        response_text = response_text[4:]
+                    response_text = response_text.strip()
+
+                result = json.loads(response_text)
+                result["confidence"] = 0.7  # Lower confidence for local model
+                logger.info(f"🏠 Local Qwen enrichment: {result}")
+                return result
+
+            except json.JSONDecodeError:
+                logger.warning(f"Could not parse Qwen JSON response: {response_text}")
+                return {"confidence": 0.0}
+
+        except Exception as e:
+            logger.error(f"Local LLM (Qwen) enrichment failed: {e}")
+            return {"confidence": 0.0}
 
     async def get_routing_status(self, topic: str) -> Dict[str, Any]:
         """

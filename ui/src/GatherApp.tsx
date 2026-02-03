@@ -18,7 +18,7 @@ import { NotificationBell } from './components/gather/NotificationBell';
 import { RSSFeedsTab } from './components/gather/RSSFeedsTab';
 import { TrainingStatusTab } from './components/gather/TrainingStatusTab';
 import { Alert, AlertDescription } from './components/ui/alert';
-import { Loader2, AlertCircle, Plus, Search, Rss, GraduationCap } from 'lucide-react';
+import { Loader2, AlertCircle, Plus, Search, Rss, Settings2 } from 'lucide-react';
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
 import { AuspexChat } from './components/auspex';
 import type { KeywordGroupSummary } from './services/gatherApi';
@@ -225,8 +225,8 @@ function GatherApp() {
             className={`gather-tab-btn ${activeTab === 'training' ? 'active' : ''}`}
             onClick={() => setActiveTab('training')}
           >
-            <GraduationCap className="w-4 h-4" />
-            Training
+            <Settings2 className="w-4 h-4" />
+            AI Pipeline Mgmt. & Training
           </button>
         </div>
 
