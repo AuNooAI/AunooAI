@@ -1042,3 +1042,31 @@ def ai_get_available_models():
     except Exception as e:
         logger.error(f"Error reading config file: {str(e)}")
         return []
+
+
+class AIModelFactory:
+    """Factory class for getting AI model instances.
+
+    Provides compatibility layer for services expecting AIModelFactory.get_model().
+    """
+
+    _default_model = "gpt-4o-mini"
+
+    @classmethod
+    def get_model(cls, model_name: str = None) -> LiteLLMModel:
+        """Get a LiteLLM model instance.
+
+        Args:
+            model_name: Optional model name. Defaults to gpt-4o-mini.
+
+        Returns:
+            LiteLLMModel instance for the specified model.
+        """
+        if model_name is None:
+            model_name = cls._default_model
+        return LiteLLMModel.get_instance(model_name)
+
+    @classmethod
+    def set_default_model(cls, model_name: str):
+        """Set the default model name."""
+        cls._default_model = model_name
