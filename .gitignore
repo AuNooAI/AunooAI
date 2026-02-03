@@ -112,6 +112,7 @@ models/policy_llm/
 # =============================================================================
 data/evaluation/
 data/*_comparison.json
+data/training/
 
 # =============================================================================
 # Screenshots and temp files

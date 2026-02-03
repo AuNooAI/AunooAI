@@ -291,7 +291,7 @@ class FinetuningService:
                 cwd=str(BASE_DIR),
                 capture_output=True,
                 text=True,
-                timeout=3600,  # 1 hour timeout for training
+                timeout=7200,  # 2 hour timeout for training
             )
 
             if result.returncode != 0:
