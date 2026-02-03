@@ -148,10 +148,12 @@ class TrainingBootstrapService:
                 valid_values=valid_values
             )
 
-            response = model.generate(prompt, max_tokens=500, temperature=0.1)
+            response = model.generate_sync(prompt, max_tokens=500, temperature=0.1)
+            from app.ai_models import extract_content
+            response_text = extract_content(response)
 
             # Parse response
-            results = self._parse_classification_response(response, fields, valid_values)
+            results = self._parse_classification_response(response_text, fields, valid_values)
             results["model_used"] = model_name
             results["source"] = "llm_bootstrap"
 
@@ -489,8 +491,9 @@ Response:"""
                 # Calculate readiness for each field
                 readiness = await self.get_training_readiness(topic)
 
-                # Calculate total samples
-                total_samples = sum(topic_counts.values())
+                # Calculate total samples (use one field's count to avoid 4x inflation)
+                # Each article contributes 4 samples (one per field), so use min to get article count
+                total_samples = min(topic_counts.values()) if topic_counts else 0
 
                 # Determine overall status
                 statuses = list(readiness.values())
