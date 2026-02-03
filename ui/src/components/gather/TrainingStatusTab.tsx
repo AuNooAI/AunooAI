@@ -521,7 +521,17 @@ export function TrainingStatusTab() {
                   </div>
                   {feedbackStats && feedbackStats.totals.total_feedback < 1000 && (
                     <div className="pl-4 border-l border-gray-200">
-                      <div className="text-xs font-semibold text-pink-600">{1000 - feedbackStats.totals.total_feedback} more to train</div>
+                      {feedbackStats.totals.total_feedback < 500 ? (
+                        <div className="text-xs font-semibold text-pink-600">
+                          {500 - feedbackStats.totals.total_feedback} more to begin training
+                          <div className="text-[10px] text-gray-500 font-normal">500 min, 1000+ ideal</div>
+                        </div>
+                      ) : (
+                        <div className="text-xs font-semibold text-green-600">
+                          Ready to train!
+                          <div className="text-[10px] text-gray-500 font-normal">{1000 - feedbackStats.totals.total_feedback} more for ideal</div>
+                        </div>
+                      )}
                       {feedbackStats.by_topic && Object.keys(feedbackStats.by_topic).length > 0 && (
                         <div className="text-[11px] text-gray-500 mt-0.5">
                           {Object.entries(feedbackStats.by_topic).slice(0, 1).map(([topic, counts]) => (
@@ -534,7 +544,7 @@ export function TrainingStatusTab() {
                 </div>
                 <button
                   onClick={handleTriggerRelevanceTraining}
-                  disabled={relevanceTraining || !feedbackStats || feedbackStats.totals.total_feedback < 1000}
+                  disabled={relevanceTraining || !feedbackStats || feedbackStats.totals.total_feedback < 500}
                   className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                 >
                   {relevanceTraining ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
