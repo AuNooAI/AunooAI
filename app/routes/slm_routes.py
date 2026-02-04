@@ -12,6 +12,8 @@ from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from app.config.settings import TRAINING_DIR
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/slm", tags=["SLM Models"])
@@ -198,7 +200,7 @@ async def get_training_topics():
         import pandas as pd
         from pathlib import Path
 
-        data_dir = Path("/home/orochford/tenants/bugfixing.aunoo.ai/data/training")
+        data_dir = Path(TRAINING_DIR)
         train_file = data_dir / "relevance_train.json"
 
         if not train_file.exists():

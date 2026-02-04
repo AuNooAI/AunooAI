@@ -53,11 +53,22 @@ config = load_config()
 # Add this line to define DATABASE_DIR
 DATABASE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
 
+# Project root directory (parent of app/)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# Data directories
+DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
+AUSPEX_DIR = os.path.join(DATA_DIR, 'auspex')
+AUSPEX_AGENTS_DIR = os.path.join(AUSPEX_DIR, 'agents')
+TRAINING_DIR = os.path.join(DATA_DIR, 'training')
+
 # Firecrawl API key with standardized naming and backward compatibility
 FIRECRAWL_API_KEY = os.getenv('PROVIDER_FIRECRAWL_API_KEY') or os.getenv('PROVIDER_FIRECRAWL_KEY', '')
 
-# Ensure the directory exists
+# Ensure the directories exist
 os.makedirs(DATABASE_DIR, exist_ok=True)
+os.makedirs(AUSPEX_AGENTS_DIR, exist_ok=True)
+os.makedirs(TRAINING_DIR, exist_ok=True)
 
 # Get list of available topics
 AVAILABLE_TOPICS = [topic['name'] for topic in config.get('topics', [])]

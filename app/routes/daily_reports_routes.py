@@ -8,10 +8,15 @@ Provides endpoints for:
 - Exporting briefings in various formats
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List, Dict, Any
+
+
+def get_base_url(http_request: Request) -> str:
+    """Extract base URL from the request (e.g., https://wileytest.aunoo.ai)."""
+    return str(http_request.url).replace(str(http_request.url.path), "").rstrip("/")
 import json
 import logging
 import urllib.parse
@@ -826,6 +831,7 @@ async def update_themes(
 
 @router.post("/{briefing_id}/share")
 async def share_briefing_via_email(
+    http_request: Request,
     briefing_id: int,
     request: ShareBriefingEmailRequest,
     session: dict = Depends(verify_session)
@@ -837,6 +843,7 @@ async def share_briefing_via_email(
     If longer or include_pdf=True, attaches a PDF.
     """
     from app.services.email_service import get_email_service
+    base_url = get_base_url(http_request)
 
     username = _get_username_from_session(session)
     if not username:
@@ -862,7 +869,7 @@ async def share_briefing_via_email(
 
     # Build rich HTML email with all content
     try:
-        html_body = _build_full_email_body(briefing, request.message)
+        html_body = _build_full_email_body(briefing, base_url, request.message)
         subject = f"[AuNoo AI] Briefing: {briefing.get('name', 'Untitled')}"
 
         # Use the email service to send (not async)
@@ -928,7 +935,7 @@ def _build_email_summary(briefing: Dict, personal_message: Optional[str] = None)
     return '\n'.join(lines)
 
 
-def _build_full_email_body(briefing: Dict, personal_message: Optional[str] = None) -> str:
+def _build_full_email_body(briefing: Dict, base_url: str, personal_message: Optional[str] = None) -> str:
     """Build a full inline email body with rich formatting matching incident style."""
     lines = []
     lines.append('<div style="font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif; max-width: 600px; margin: 0 auto;">')
@@ -1052,7 +1059,7 @@ def _build_full_email_body(briefing: Dict, personal_message: Optional[str] = Non
             # Add explore link
             encoded_incident = urllib.parse.quote(name)
             lines.append(f'<div style="margin-top: 10px; text-align: right;">')
-            lines.append(f'<a href="https://bugfixing.aunoo.ai/explore?tab=highlights&q={encoded_incident}" style="color: #667eea; font-size: 11px; text-decoration: none;">Explore this incident →</a>')
+            lines.append(f'<a href="{base_url}/explore?tab=highlights&q={encoded_incident}" style="color: #667eea; font-size: 11px; text-decoration: none;">Explore this incident →</a>')
             lines.append('</div>')
 
             lines.append('</div>')
@@ -1243,7 +1250,7 @@ def _build_full_email_body(briefing: Dict, personal_message: Optional[str] = Non
             # Add explore link
             encoded_topic = urllib.parse.quote(label)
             lines.append(f'<div style="margin-top: 10px; text-align: right;">')
-            lines.append(f'<a href="https://bugfixing.aunoo.ai/explore?tab=emerging&q={encoded_topic}" style="color: #8b5cf6; font-size: 11px; text-decoration: none;">Explore this topic →</a>')
+            lines.append(f'<a href="{base_url}/explore?tab=emerging&q={encoded_topic}" style="color: #8b5cf6; font-size: 11px; text-decoration: none;">Explore this topic →</a>')
             lines.append('</div>')
 
             lines.append('</div>')
@@ -1333,8 +1340,8 @@ def _build_full_email_body(briefing: Dict, personal_message: Optional[str] = Non
     lines.append('<div style="margin: 20px 0; padding: 15px; background-color: #f8f9fa; border-radius: 8px; text-align: center;">')
     lines.append('<p style="color: #666; font-size: 12px; margin: 0 0 12px 0;">Continue exploring in AuNoo AI</p>')
     # Use solid background color for email client compatibility (gradients often don't work)
-    lines.append('<a href="https://bugfixing.aunoo.ai/explore" style="display: inline-block; background-color: #8b5cf6; color: #ffffff; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin-right: 10px;">Chat with Auspex</a>')
-    lines.append('<a href="https://bugfixing.aunoo.ai/explore?tab=briefing-desk" style="display: inline-block; background-color: #ec4899; color: #ffffff; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500;">View Briefing Desk</a>')
+    lines.append(f'<a href="{base_url}/explore" style="display: inline-block; background-color: #8b5cf6; color: #ffffff; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin-right: 10px;">Chat with Auspex</a>')
+    lines.append(f'<a href="{base_url}/explore?tab=briefing-desk" style="display: inline-block; background-color: #ec4899; color: #ffffff; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500;">View Briefing Desk</a>')
     lines.append('</div>')
 
     lines.append('</div>')  # Close main content

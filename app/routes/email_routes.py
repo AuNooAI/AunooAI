@@ -2,9 +2,14 @@
 Email sharing routes for sending content via email.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr
 from typing import Optional, List, Union
+
+
+def get_base_url(http_request: Request) -> str:
+    """Extract base URL from the request (e.g., https://wileytest.aunoo.ai)."""
+    return str(http_request.url).replace(str(http_request.url.path), "").rstrip("/")
 import logging
 import os
 import urllib.parse
@@ -286,10 +291,12 @@ async def get_email_status(session=Depends(verify_session_api)):
 
 @router.post("/share/incident", response_model=ShareResponse)
 async def share_incident(
+    http_request: Request,
     request: ShareIncidentRequest,
     session=Depends(verify_session_api)
 ):
     """Share an incident via email."""
+    base_url = get_base_url(http_request)
     logger.info(f"share_incident called with incident_name={request.incident_name}, to_email={request.to_email}")
     logger.info(f"share_incident analyst_notes received: {request.analyst_notes}")
     email_service = get_email_service()
@@ -444,9 +451,9 @@ async def share_incident(
     html_parts.append('<p style="color: #666; font-size: 12px; margin: 0 0 12px 0;">Continue exploring in AuNoo AI</p>')
     html_parts.append('<div style="display: inline-block;">')
     # View Highlights button
-    html_parts.append('<a href="https://bugfixing.aunoo.ai/explore?tab=highlights" style="display: inline-block; background-color: #667eea; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">View Highlights</a>')
+    html_parts.append(f'<a href="{base_url}/explore?tab=highlights" style="display: inline-block; background-color: #667eea; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">View Highlights</a>')
     # Ask Auspex button
-    html_parts.append(f'<a href="https://bugfixing.aunoo.ai/explore?auspex_query={auspex_query}" style="display: inline-block; background: #1976d2; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">Ask Auspex</a>')
+    html_parts.append(f'<a href="{base_url}/explore?auspex_query={auspex_query}" style="display: inline-block; background: #1976d2; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">Ask Auspex</a>')
     html_parts.append('</div>')
     html_parts.append('</div>')
 
@@ -511,8 +518,8 @@ Significance: {request.significance or 'N/A'}
 
 ---
 Continue exploring in AuNoo AI:
-  View Highlights: https://bugfixing.aunoo.ai/explore?tab=highlights
-  Ask Auspex: https://bugfixing.aunoo.ai/explore?auspex_query={auspex_query}
+  View Highlights: {base_url}/explore?tab=highlights
+  Ask Auspex: {base_url}/explore?auspex_query={auspex_query}
 
 Shared from AuNoo AI
 """
@@ -775,10 +782,12 @@ async def share_incidents(
 
 @router.post("/share/narrative", response_model=ShareResponse)
 async def share_narrative(
+    http_request: Request,
     request: ShareNarrativeRequest,
     session=Depends(verify_session_api)
 ):
     """Share a narrative via email."""
+    base_url = get_base_url(http_request)
     email_service = get_email_service()
 
     if not email_service.is_available():
@@ -873,9 +882,9 @@ async def share_narrative(
     html_parts.append('<p style="color: #666; font-size: 12px; margin: 0 0 12px 0;">Continue exploring in AuNoo AI</p>')
     html_parts.append('<div style="display: inline-block;">')
     # View Narratives button
-    html_parts.append('<a href="https://bugfixing.aunoo.ai/explore?tab=narratives" style="display: inline-block; background-color: #11998e; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">View Narratives</a>')
+    html_parts.append(f'<a href="{base_url}/explore?tab=narratives" style="display: inline-block; background-color: #11998e; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">View Narratives</a>')
     # Ask Auspex button
-    html_parts.append(f'<a href="https://bugfixing.aunoo.ai/explore?auspex_query={auspex_query}" style="display: inline-block; background: #1976d2; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">Ask Auspex</a>')
+    html_parts.append(f'<a href="{base_url}/explore?auspex_query={auspex_query}" style="display: inline-block; background: #1976d2; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">Ask Auspex</a>')
     html_parts.append('</div>')
     html_parts.append('</div>')
 
@@ -908,8 +917,8 @@ async def share_narrative(
 
 ---
 Continue exploring in AuNoo AI:
-  View Narratives: https://bugfixing.aunoo.ai/explore?tab=narratives
-  Ask Auspex: https://bugfixing.aunoo.ai/explore?auspex_query={auspex_query}
+  View Narratives: {base_url}/explore?tab=narratives
+  Ask Auspex: {base_url}/explore?auspex_query={auspex_query}
 
 Shared from AuNoo AI
 """
@@ -1126,10 +1135,12 @@ Shared from AuNoo AI
 
 @router.post("/share/briefing-card", response_model=ShareResponse)
 async def share_briefing_card(
+    http_request: Request,
     request: ShareBriefingCardRequest,
     session=Depends(verify_session_api)
 ):
     """Share a single briefing card via email with all rich data."""
+    base_url = get_base_url(http_request)
     # Debug: log all fields for troubleshooting
     logger.info(f"Briefing card share request received:")
     logger.info(f"  - to_email: {request.to_email}")
@@ -1277,8 +1288,8 @@ async def share_briefing_card(
     html_parts.append('<div style="margin: 20px 0; padding: 15px; background-color: #f3f4f6; border-radius: 8px; text-align: center;">')
     html_parts.append('<p style="color: #666; font-size: 12px; margin: 0 0 12px 0;">Continue exploring in AuNoo AI</p>')
     html_parts.append('<div style="display: inline-block;">')
-    html_parts.append('<a href="https://bugfixing.aunoo.ai/explore" style="display: inline-block; background-color: #ec4899; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">View Your Briefing</a>')
-    html_parts.append(f'<a href="https://bugfixing.aunoo.ai/explore?auspex_query={auspex_query}" style="display: inline-block; background-color: #1976d2; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">Ask Auspex</a>')
+    html_parts.append(f'<a href="{base_url}/explore" style="display: inline-block; background-color: #ec4899; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">View Your Briefing</a>')
+    html_parts.append(f'<a href="{base_url}/explore?auspex_query={auspex_query}" style="display: inline-block; background-color: #1976d2; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">Ask Auspex</a>')
     html_parts.append('</div>')
     html_parts.append('</div>')
 
@@ -1347,8 +1358,8 @@ async def share_briefing_card(
 
     text_parts.append("---")
     text_parts.append("Continue exploring in AuNoo AI:")
-    text_parts.append("  View Your Briefing: https://bugfixing.aunoo.ai/explore")
-    text_parts.append(f"  Ask Auspex: https://bugfixing.aunoo.ai/explore?auspex_query={auspex_query}")
+    text_parts.append(f"  View Your Briefing: {base_url}/explore")
+    text_parts.append(f"  Ask Auspex: {base_url}/explore?auspex_query={auspex_query}")
     text_parts.append("")
     text_parts.append("Shared from AuNoo AI")
 
@@ -1375,10 +1386,12 @@ async def share_briefing_card(
 
 @router.post("/share/emerging-topic", response_model=ShareResponse)
 async def share_emerging_topic(
+    http_request: Request,
     request: ShareEmergingTopicRequest,
     session=Depends(verify_session_api)
 ):
     """Share an emerging topic via email."""
+    base_url = get_base_url(http_request)
     email_service = get_email_service()
 
     if not email_service.is_available():
@@ -1588,8 +1601,8 @@ async def share_emerging_topic(
     html_parts.append('<p style="color: #666; font-size: 12px; margin: 0 0 12px 0;">Continue exploring in AuNoo AI</p>')
     html_parts.append('<div style="display: inline-block;">')
     # View in App button - links to Emerging Themes tab
-    html_parts.append('<a href="https://bugfixing.aunoo.ai/explore?tab=emerging-topics" style="display: inline-block; background-color: #8b5cf6; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">View Emerging Themes</a>')
-    html_parts.append(f'<a href="https://bugfixing.aunoo.ai/explore?auspex_query={auspex_query}" style="display: inline-block; background: #1976d2; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">Ask Auspex</a>')
+    html_parts.append(f'<a href="{base_url}/explore?tab=emerging-topics" style="display: inline-block; background-color: #8b5cf6; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">View Emerging Themes</a>')
+    html_parts.append(f'<a href="{base_url}/explore?auspex_query={auspex_query}" style="display: inline-block; background: #1976d2; color: white; padding: 10px 20px; border-radius: 6px; text-decoration: none; font-weight: 500; margin: 0 6px;">Ask Auspex</a>')
     html_parts.append('</div>')
     html_parts.append('</div>')
 
@@ -1654,8 +1667,8 @@ async def share_emerging_topic(
         text_parts.append("")
     text_parts.append("---")
     text_parts.append("Continue exploring in AuNoo AI:")
-    text_parts.append("  View Emerging Themes: https://bugfixing.aunoo.ai/explore?tab=emerging-topics")
-    text_parts.append(f"  Ask Auspex: https://bugfixing.aunoo.ai/explore?auspex_query={auspex_query}")
+    text_parts.append(f"  View Emerging Themes: {base_url}/explore?tab=emerging-topics")
+    text_parts.append(f"  Ask Auspex: {base_url}/explore?auspex_query={auspex_query}")
     text_parts.append("")
     text_parts.append("Shared from AuNoo AI")
     body_text = "\n".join(text_parts)
@@ -1680,10 +1693,12 @@ async def share_emerging_topic(
 
 @router.post("/share/executive-summary", response_model=ShareResponse)
 async def share_executive_summary(
+    http_request: Request,
     request: ShareExecutiveSummaryRequest,
     session=Depends(verify_session_api)
 ):
     """Share an executive summary via email with all rich data."""
+    base_url = get_base_url(http_request)
     logger.info(f"Executive summary share request received for topic: {request.topic_title}")
 
     email_service = get_email_service()
@@ -1804,7 +1819,7 @@ async def share_executive_summary(
     # Action buttons - View in App (use solid color for email client compatibility)
     html_parts.append('<div style="margin: 24px 0; padding: 16px; background-color: #f3f4f6; border-radius: 8px; text-align: center;">')
     html_parts.append('<p style="color: #666; font-size: 12px; margin: 0 0 12px 0;">Continue exploring in AuNoo AI</p>')
-    html_parts.append('<a href="https://bugfixing.aunoo.ai/anticipate" style="display: inline-block; background-color: #8b5cf6; color: white; padding: 10px 24px; border-radius: 6px; text-decoration: none; font-weight: 500;">View Future Horizons</a>')
+    html_parts.append(f'<a href="{base_url}/anticipate" style="display: inline-block; background-color: #8b5cf6; color: white; padding: 10px 24px; border-radius: 6px; text-decoration: none; font-weight: 500;">View Future Horizons</a>')
     html_parts.append('</div>')
 
     html_parts.extend([
@@ -1866,7 +1881,7 @@ async def share_executive_summary(
 
     text_parts.append("---")
     text_parts.append("Continue exploring in AuNoo AI:")
-    text_parts.append("  View Future Horizons: https://bugfixing.aunoo.ai/anticipate")
+    text_parts.append(f"  View Future Horizons: {base_url}/anticipate")
     text_parts.append("")
     text_parts.append("Shared from AuNoo AI")
     body_text = "\n".join(text_parts)
