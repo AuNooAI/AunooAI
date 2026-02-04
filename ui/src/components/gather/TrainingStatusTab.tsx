@@ -45,6 +45,7 @@ import {
   type InferenceMode,
 } from '../../services/trainingApi';
 import { Alert, AlertDescription } from '../ui/alert';
+import { Tooltip, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 
 const DEBERTA_THRESHOLD = 500;
 
@@ -316,6 +317,29 @@ export function TrainingStatusTab() {
             <h3 className="font-semibold text-gray-900 flex items-center gap-2">
               <Cpu className="w-4 h-4 text-gray-400" />
               Inference Mode
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button className="text-gray-400 hover:text-gray-600 transition-colors">
+                    <Info className="w-4 h-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right" className="max-w-sm bg-gray-900 text-white p-3 text-xs leading-relaxed">
+                  <div className="space-y-2">
+                    <div>
+                      <span className="font-semibold text-pink-400">Local Only:</span> Uses DeBERTa for relevance/enrichment and Phi-3/Qwen for summarization. Fastest and free, but requires 500+ training samples per topic.
+                    </div>
+                    <div>
+                      <span className="font-semibold text-pink-400">Hybrid:</span> Uses local models when confident (DeBERTa &gt;60%), falls back to GPT for low confidence or topics with &lt;500 samples. Best balance of speed and accuracy.
+                    </div>
+                    <div>
+                      <span className="font-semibold text-green-400">External (GPT):</span> Uses OpenAI GPT for all processing. Most accurate but incurs API costs (~$0.001/article).
+                    </div>
+                    <div className="text-gray-400 pt-1 border-t border-gray-700">
+                      Training samples are collected automatically when GPT processes articles. Once 500+ samples exist, DeBERTa can handle that topic.
+                    </div>
+                  </div>
+                </TooltipContent>
+              </Tooltip>
             </h3>
             <p className="text-xs text-gray-500 mt-1">
               {inferenceMode === 'local' && 'Using local models only (DeBERTa, Phi-3, Qwen) - fastest and free'}
