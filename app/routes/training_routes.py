@@ -782,10 +782,10 @@ async def trigger_relevance_training():
         result = conn.execute(text("SELECT COUNT(*) FROM user_relevance_feedback"))
         feedback_count = result.fetchone()[0]
 
-        if feedback_count < 1000:
+        if feedback_count < 500:
             raise HTTPException(
                 status_code=400,
-                detail=f"Not enough feedback data. Have {feedback_count}, need at least 1000 samples."
+                detail=f"Not enough feedback data. Have {feedback_count}, need at least 500 samples."
             )
 
         conn.close()
@@ -982,6 +982,7 @@ class PipelineStatsResponse(BaseModel):
     articles_today: int
     relevance_passed: int
     topics_active: int
+    inference_mode: str = "hybrid"  # 'local', 'hybrid', or 'external'
 
 
 @router.get("/pipeline-stats", response_model=PipelineStatsResponse)
@@ -1024,10 +1025,18 @@ async def get_pipeline_stats():
         """))
         topics_active = result.fetchone()[0] or 0
 
+        # Get inference mode
+        result = conn.execute(text("""
+            SELECT inference_mode FROM keyword_monitor_settings WHERE id = 1
+        """))
+        row = result.fetchone()
+        inference_mode = row[0] if row else 'hybrid'
+
         return PipelineStatsResponse(
             articles_today=articles_today,
             relevance_passed=relevance_passed,
             topics_active=topics_active,
+            inference_mode=inference_mode,
         )
 
     except Exception as e:
@@ -1817,6 +1826,265 @@ async def get_article_feedback(article_uri: str):
 
     except Exception as e:
         logger.error(f"Error getting article feedback: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+
+# ============================================================================
+# Inference Mode Settings
+# ============================================================================
+
+class InferenceModeRequest(BaseModel):
+    """Request model for setting inference mode."""
+    mode: str = Field(..., description="Inference mode: 'local', 'hybrid', or 'external'")
+
+
+@router.get("/inference-mode")
+async def get_inference_mode():
+    """
+    Get the current inference mode setting.
+
+    Returns:
+        mode: 'local' (DeBERTa only), 'hybrid' (DeBERTa + GPT fallback), or 'external' (GPT only)
+    """
+    conn = None
+    try:
+        from app.database import get_database_instance
+        from sqlalchemy import text
+
+        db = get_database_instance()
+        conn = db._temp_get_connection()
+
+        result = conn.execute(text("""
+            SELECT inference_mode FROM keyword_monitor_settings WHERE id = 1
+        """))
+        row = result.fetchone()
+
+        mode = row[0] if row else 'hybrid'
+        return {"mode": mode}
+
+    except Exception as e:
+        logger.error(f"Error getting inference mode: {e}")
+        # Return default on error
+        return {"mode": "hybrid"}
+    finally:
+        if conn:
+            conn.close()
+
+
+def check_local_models_available() -> dict:
+    """
+    Check if local models are available and can be loaded.
+
+    Returns dict with:
+        available: bool - True if all critical local models are ready
+        models: dict - Status of each model
+        missing: list - Names of unavailable models
+    """
+    models_status = {}
+    missing = []
+
+    # Check relevance classifier (DeBERTa)
+    try:
+        from app.services.relevance_classifier_service import get_relevance_classifier
+        classifier = get_relevance_classifier()
+        relevance_available = classifier.is_available()
+        models_status["relevance_classifier"] = {
+            "available": relevance_available,
+            "name": "DeBERTa Relevance",
+            "error": classifier._load_error if not relevance_available else None
+        }
+        if not relevance_available:
+            missing.append("DeBERTa Relevance Classifier")
+    except Exception as e:
+        models_status["relevance_classifier"] = {"available": False, "name": "DeBERTa Relevance", "error": str(e)}
+        missing.append("DeBERTa Relevance Classifier")
+
+    # Check hybrid relevance service (embedding + classifier)
+    try:
+        from app.services.hybrid_relevance_service import get_hybrid_relevance_service
+        hybrid = get_hybrid_relevance_service()
+        hybrid_available = hybrid.is_available()
+        models_status["hybrid_relevance"] = {
+            "available": hybrid_available,
+            "name": "Hybrid Relevance (Embedding)",
+            "error": None if hybrid_available else "Embedding model not loaded"
+        }
+        if not hybrid_available:
+            missing.append("Hybrid Relevance Embedding")
+    except Exception as e:
+        models_status["hybrid_relevance"] = {"available": False, "name": "Hybrid Relevance", "error": str(e)}
+        missing.append("Hybrid Relevance")
+
+    # Check enrichment DeBERTa
+    try:
+        from app.services.enrichment_service import get_enrichment_service
+        enrichment = get_enrichment_service()
+        enrichment_available = enrichment.is_available()
+        models_status["enrichment"] = {
+            "available": enrichment_available,
+            "name": "DeBERTa Enrichment",
+            "error": None if enrichment_available else "Enrichment model not loaded"
+        }
+        if not enrichment_available:
+            missing.append("DeBERTa Enrichment")
+    except Exception as e:
+        models_status["enrichment"] = {"available": False, "name": "DeBERTa Enrichment", "error": str(e)}
+        missing.append("DeBERTa Enrichment")
+
+    # Check Phi-3 vLLM (summarization) on port 8765
+    try:
+        from app.services.summarization_service import get_summarization_service
+        summarizer = get_summarization_service()
+        # Reset cache to get fresh status
+        summarizer.reset_vllm_check()
+        status = summarizer.get_status()
+        phi3_available = status.get("vllm_available", False)
+        models_status["phi3_summarization"] = {
+            "available": phi3_available,
+            "name": "Phi-3 (Summarization)",
+            "error": None if phi3_available else "vLLM not running on port 8765"
+        }
+        if not phi3_available:
+            missing.append("Phi-3 (Summarization)")
+    except Exception as e:
+        models_status["phi3_summarization"] = {"available": False, "name": "Phi-3 (Summarization)", "error": str(e)}
+        missing.append("Phi-3 (Summarization)")
+
+    # Check Qwen vLLM (category) on port 8766
+    try:
+        from app.services.category_service import get_category_service
+        category_svc = get_category_service()
+        # Reset cache to get fresh status
+        category_svc.reset_availability_check()
+        qwen_available = category_svc.is_available()
+        models_status["qwen_category"] = {
+            "available": qwen_available,
+            "name": "Qwen (Category)",
+            "error": None if qwen_available else "vLLM not running on port 8766"
+        }
+        if not qwen_available:
+            missing.append("Qwen (Category)")
+    except Exception as e:
+        models_status["qwen_category"] = {"available": False, "name": "Qwen (Category)", "error": str(e)}
+        missing.append("Qwen (Category)")
+
+    # Check KeyBERT (tagging)
+    try:
+        from app.services.keybert_tagging_service import get_keybert_tagging_service
+        keybert_svc = get_keybert_tagging_service()
+        keybert_available = keybert_svc.is_available()
+        models_status["keybert_tagging"] = {
+            "available": keybert_available,
+            "name": "KeyBERT (Tagging)",
+            "error": None if keybert_available else "KeyBERT model not loaded"
+        }
+        if not keybert_available:
+            missing.append("KeyBERT (Tagging)")
+    except Exception as e:
+        models_status["keybert_tagging"] = {"available": False, "name": "KeyBERT (Tagging)", "error": str(e)}
+        missing.append("KeyBERT (Tagging)")
+
+    # Check External LLM (GPT) - requires valid API key
+    external_llm_available = False
+    external_llm_models = []
+    external_llm_error = None
+    try:
+        from app.ai_models import get_available_models
+        available_models = get_available_models()
+        if available_models and len(available_models) > 0:
+            external_llm_available = True
+            external_llm_models = [m.get('name') for m in available_models[:3]]  # First 3
+        else:
+            external_llm_error = "No API keys configured (OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.)"
+    except Exception as e:
+        external_llm_error = str(e)
+
+    models_status["external_llm"] = {
+        "available": external_llm_available,
+        "name": "External LLM (GPT/Claude)",
+        "error": external_llm_error,
+        "configured_models": external_llm_models
+    }
+
+    # All critical LOCAL models must be available for local mode
+    all_available = len(missing) == 0
+
+    return {
+        "available": all_available,
+        "models": models_status,
+        "missing": missing,
+        "external_llm_available": external_llm_available
+    }
+
+
+@router.get("/local-models-status")
+async def get_local_models_status():
+    """
+    Check status of all local models required for 'local' inference mode.
+
+    Returns availability status for each local model.
+    """
+    return check_local_models_available()
+
+
+@router.put("/inference-mode")
+async def set_inference_mode(request: InferenceModeRequest):
+    """
+    Set the inference mode for article processing.
+
+    Args:
+        mode: 'local' (DeBERTa only, fast/free), 'hybrid' (DeBERTa + GPT fallback), or 'external' (GPT only)
+
+    Returns:
+        Success status and the new mode
+    """
+    valid_modes = ['local', 'hybrid', 'external']
+    if request.mode not in valid_modes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid mode '{request.mode}'. Must be one of: {valid_modes}"
+        )
+
+    # If switching to local mode, verify local models are available
+    if request.mode == 'local':
+        model_check = check_local_models_available()
+        if not model_check["available"]:
+            missing_str = ", ".join(model_check["missing"])
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot switch to local mode - missing models: {missing_str}. Use 'hybrid' mode instead."
+            )
+
+    # If switching to external mode, verify API keys are configured
+    if request.mode == 'external':
+        model_check = check_local_models_available()
+        if not model_check.get("external_llm_available", False):
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot switch to external mode - no API keys configured. Set OPENAI_API_KEY or ANTHROPIC_API_KEY in environment."
+            )
+
+    conn = None
+    try:
+        from app.database import get_database_instance
+        from sqlalchemy import text
+
+        db = get_database_instance()
+        conn = db._temp_get_connection()
+
+        conn.execute(text("""
+            UPDATE keyword_monitor_settings SET inference_mode = :mode WHERE id = 1
+        """), {"mode": request.mode})
+        conn.commit()
+
+        logger.info(f"Inference mode changed to: {request.mode}")
+        return {"success": True, "mode": request.mode}
+
+    except Exception as e:
+        logger.error(f"Error setting inference mode: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn:

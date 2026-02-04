@@ -38,7 +38,7 @@ TRAINING_THRESHOLDS = {
     "yellow": 500,    # (kept for backward compatibility, same as red)
     "green": 500,     # 500+: ready for DeBERTa
     "min_per_class": 50,  # Minimum samples per class value
-    "finetune_min": 1000  # Minimum total to trigger finetuning
+    "finetune_min": 500  # Minimum total to trigger finetuning
 }
 
 # Enrichment fields we track
