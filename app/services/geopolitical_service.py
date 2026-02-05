@@ -1793,9 +1793,9 @@ class GeopoliticalService:
                     FROM articles a
                     JOIN hotspot_articles ha ON ha.article_uri = a.uri
                     WHERE ha.hotspot_id = :hotspot_id
-                      AND a.submission_date >= :older_cutoff
+                      AND a.submission_date::timestamp >= :older_cutoff
                       AND a.sentiment IS NOT NULL
-                    ORDER BY a.submission_date DESC
+                    ORDER BY a.submission_date::timestamp DESC
                 """, {
                     'hotspot_id': hotspot_id,
                     'older_cutoff': older_cutoff
@@ -1809,9 +1809,9 @@ class GeopoliticalService:
                         FROM articles
                         WHERE (title ILIKE :location_pattern
                                OR summary ILIKE :location_pattern)
-                          AND submission_date >= :older_cutoff
+                          AND submission_date::timestamp >= :older_cutoff
                           AND sentiment IS NOT NULL
-                        ORDER BY submission_date DESC
+                        ORDER BY submission_date::timestamp DESC
                         LIMIT 100
                     """, {
                         'location_pattern': f'%{location_name}%',

@@ -1839,7 +1839,7 @@ async def _regenerate_highlights_internal(topic: Optional[str] = None):
         if not topic:
             db = get_database_instance()
             conn = db._temp_get_connection()
-            result = conn.execute(text("SELECT DISTINCT name FROM topics WHERE name IS NOT NULL LIMIT 25"))
+            result = conn.execute(text("SELECT DISTINCT topic FROM keyword_groups WHERE topic IS NOT NULL LIMIT 25"))
             topics_list = [row[0] for row in result.fetchall()]
             conn.close()
         else:
@@ -1891,7 +1891,7 @@ async def _regenerate_narratives_internal(topic: Optional[str] = None):
         # Get all topics if none specified
         if not topic:
             conn = db._temp_get_connection()
-            result = conn.execute(text("SELECT DISTINCT name FROM topics WHERE name IS NOT NULL LIMIT 25"))
+            result = conn.execute(text("SELECT DISTINCT topic FROM keyword_groups WHERE topic IS NOT NULL LIMIT 25"))
             topics_list = [row[0] for row in result.fetchall()]
             conn.close()
         else:
