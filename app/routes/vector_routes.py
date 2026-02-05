@@ -4320,9 +4320,7 @@ Write the complete podcast script:
 
                         if voice_id:
                             try:
-                                import os
                                 import re
-                                import uuid
                                 from datetime import datetime
                                 from elevenlabs import ElevenLabs
                                 from app.utils.audio import AUDIO_DIR, ensure_audio_directory
@@ -4683,7 +4681,7 @@ async def _run_signals_background(
                 result = await _run_signal_instruction_internal(
                     instruction_id=instruction['id'],
                     days_back=req.days_back,
-                    tag_articles=req.tag_articles,
+                    tag_articles=req.tag_flagged_articles,
                     model=req.model
                 )
                 if result.get('success'):
@@ -4773,33 +4771,9 @@ async def _run_signal_instruction_internal(
         # Get instruction topic
         topic = instruction.get('topic')
 
-        # Query articles
-        query = """
-        SELECT uri, title, summary, news_source, publication_date, category, sentiment,
-               tags, extracted_article_topics, extracted_article_keywords
-        FROM articles
-        WHERE publication_date >= ? AND publication_date <= ?
-        AND category IS NOT NULL AND sentiment IS NOT NULL
-        """
-
-        params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
-
-        if topic:
-            query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
-            topic_pattern = f"%{topic}%"
-            params.extend([topic, topic_pattern, topic_pattern])
-
         config = instruction.get('config') or {}
         max_articles = config.get('max_articles', 100)
-
-        query += " ORDER BY publication_date DESC LIMIT ?"
-        params.append(max_articles)
-
-        articles = db.fetch_all(query, params)
-
-        if not articles:
-            logger.info(f"No articles found for instruction {instruction['name']} in last {days_back} days")
-            return {"success": True, "alerts_created": 0, "message": "No articles found"}
+        search_strategy = config.get('search_strategy', 'recent')
 
         # Initialize LLM
         from app.ai_models import LiteLLMModel
@@ -4822,36 +4796,168 @@ async def _run_signal_instruction_internal(
                 f"Date: {get_field(article, 'publication_date')}\n"
                 f"Category: {get_field(article, 'category', 'Unknown')}\n"
                 f"Sentiment: {get_field(article, 'sentiment', 'Unknown')}\n"
+                f"Tags: {get_field(article, 'tags', 'None')}\n"
+                f"Topics: {get_field(article, 'extracted_article_topics', 'None')}\n"
+                f"Keywords: {get_field(article, 'extracted_article_keywords', 'None')}\n"
                 f"Summary: {get_field(article, 'summary')}\n"
                 f"URI: {get_field(article, 'uri')}"
                 for i, article in enumerate(article_batch)
             ])
 
+        # Select articles based on search strategy (matching inline runner logic)
+        if search_strategy == 'semantic':
+            # Use vector search to find relevant articles
+            try:
+                from app.vector_store import search_articles as vector_search_articles
+
+                search_query = f"{instruction['name']} {instruction['instruction']}"
+                entities = config.get('entities_to_monitor', [])
+                if entities:
+                    search_query += " " + " ".join(entities[:5])
+                search_query = search_query[:500]
+
+                metadata_filter = {"topic": topic} if topic else None
+
+                vector_results = vector_search_articles(
+                    query=search_query,
+                    top_k=min(max_articles, 200),
+                    metadata_filter=metadata_filter
+                )
+
+                articles = []
+                for result in vector_results or []:
+                    metadata = result.get('metadata', {})
+                    articles.append({
+                        'uri': metadata.get('uri'),
+                        'title': metadata.get('title', ''),
+                        'summary': metadata.get('summary', ''),
+                        'news_source': metadata.get('news_source', ''),
+                        'publication_date': metadata.get('publication_date', ''),
+                        'category': metadata.get('category', ''),
+                        'sentiment': metadata.get('sentiment', ''),
+                        'tags': metadata.get('tags', ''),
+                        'extracted_article_topics': metadata.get('extracted_article_topics', ''),
+                        'extracted_article_keywords': metadata.get('extracted_article_keywords', ''),
+                    })
+
+                logger.info(f"Semantic search found {len(articles)} relevant articles for {instruction['name']}")
+
+                # Also do text search for entities to catch articles not in vector store
+                entities = config.get('entities_to_monitor', [])
+                if entities:
+                    seen_uris = {a['uri'] for a in articles}
+                    entity_conditions = " OR ".join(["title ILIKE ? OR summary ILIKE ?" for _ in entities])
+                    entity_params = []
+                    for entity in entities:
+                        pattern = f"%{entity}%"
+                        entity_params.extend([pattern, pattern])
+
+                    entity_query = f"""
+                    SELECT uri, title, summary, news_source, publication_date, category, sentiment,
+                           tags, extracted_article_topics, extracted_article_keywords
+                    FROM articles
+                    WHERE ({entity_conditions})
+                    AND publication_date >= ? AND publication_date <= ?
+                    AND category IS NOT NULL AND sentiment IS NOT NULL
+                    ORDER BY publication_date DESC LIMIT ?
+                    """
+                    entity_params.extend([start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S'), max_articles])
+                    entity_articles = db.fetch_all(entity_query, entity_params)
+
+                    added = 0
+                    for ea in entity_articles:
+                        uri = ea.get('uri') if hasattr(ea, 'get') else ea['uri']
+                        if uri and uri not in seen_uris:
+                            articles.append(dict(ea))
+                            seen_uris.add(uri)
+                            added += 1
+                    if added:
+                        logger.info(f"Entity text search added {added} more articles for {instruction['name']}")
+
+            except Exception as vs_error:
+                logger.error(f"Vector search failed, falling back to recent: {vs_error}")
+                search_strategy = 'recent'  # Fall through to date query below
+
+        if search_strategy != 'semantic':
+            # Standard date-range query
+            query = """
+            SELECT uri, title, summary, news_source, publication_date, category, sentiment,
+                   tags, extracted_article_topics, extracted_article_keywords
+            FROM articles
+            WHERE publication_date >= ? AND publication_date <= ?
+            AND category IS NOT NULL AND sentiment IS NOT NULL
+            """
+            params = [start_date_dt.strftime('%Y-%m-%d'), end_date_dt.strftime('%Y-%m-%d %H:%M:%S')]
+
+            if topic:
+                query += " AND (topic = ? OR title LIKE ? OR summary LIKE ?)"
+                topic_pattern = f"%{topic}%"
+                params.extend([topic, topic_pattern, topic_pattern])
+
+            query += " ORDER BY publication_date DESC LIMIT ?"
+            params.append(max_articles)
+
+            articles = db.fetch_all(query, params)
+
+        if not articles:
+            logger.info(f"No articles found for instruction {instruction['name']} in last {days_back} days")
+            return {"success": True, "alerts_created": 0, "message": "No articles found"}
+
+        # Build entities section (matching inline runner)
+        entities = config.get('entities_to_monitor', [])
+        entities_section = ""
+        if entities:
+            entities_text = ", ".join(entities)
+            entities_section = f"""
+ENTITIES TO MONITOR:
+{entities_text}
+
+IMPORTANT: Prioritize articles that mention any of these specific entities. If an entity appears in an article, flag it with higher confidence and explicitly mention which entity was found in your reasoning.
+"""
+
         # Process in batches
-        batch_size = config.get('batch_size', 20)
+        BATCH_SIZE = 50
+        if search_strategy == 'chunked' and len(articles) > BATCH_SIZE:
+            article_batches = [articles[i:i+BATCH_SIZE] for i in range(0, len(articles), BATCH_SIZE)]
+        else:
+            article_batches = [articles[:BATCH_SIZE]] if search_strategy != 'semantic' else [articles[i:i+BATCH_SIZE] for i in range(0, len(articles), BATCH_SIZE)]
+
         alerts_created = 0
-        created_alert_details = []  # Track alerts created in THIS run for notifications
+        created_alert_details = []
 
         # Build article lookup by URI for later
         article_lookup = {get_field(a, 'uri'): a for a in articles}
 
-        for batch_start in range(0, len(articles), batch_size):
-            batch_articles = articles[batch_start:batch_start + batch_size]
+        for batch_articles in article_batches:
+            if not batch_articles:
+                continue
             articles_text = format_articles_for_llm(batch_articles)
 
             system_prompt = f"""You are a threat intelligence analyst. Analyze the provided articles using this signal instruction:
 
-SIGNAL NAME: {instruction['name']}
-SIGNAL DESCRIPTION: {instruction.get('description', 'No description')}
-DETECTION CRITERIA: {instruction['instruction']}
+SIGNAL: {instruction['name']}
+DESCRIPTION: {instruction.get('description', 'No description')}
+INSTRUCTION: {instruction['instruction']}
+{entities_section}
+Each article includes: Title, Source, Date, Category, Sentiment, Tags, Topics, Keywords, and Summary.
+Use ALL of these fields when evaluating matches - Tags, Topics, and Keywords are especially useful for entity matching.
 
-For each article that matches the signal criteria, output a JSON object with:
-- "match": true/false
-- "uri": the article URI
-- "reason": brief explanation of why it matches (or null if no match)
-- "severity": "low", "medium", "high", or "critical"
+For EACH article that matches the signal, return a separate JSON object:
+{{
+    "article_uri": "exact_uri_from_input",
+    "signal_detected": true,
+    "confidence": 0.0-1.0,
+    "summary": "Brief summary of what was detected",
+    "reasoning": "Detailed explanation of why this article is relevant and matches the signal criteria",
+    "threat_level": "low"|"medium"|"high",
+    "recommended_action": "What analysts should do"
+}}
 
-Return a JSON array of match objects. Only include articles that match the criteria."""
+IMPORTANT: The "reasoning" field should explain WHY this article is relevant - what specific content,
+entities, tags, keywords, or patterns in the article triggered the match. Reference the specific Tags/Keywords that matched.
+
+Return a JSON array of all matching articles: [{{}}, {{}}, ...]
+If no articles match, return an empty array: []"""
 
             user_prompt = f"Analyze these articles for the signal '{instruction['name']}':\n\n{articles_text}"
 
@@ -4874,17 +4980,25 @@ Return a JSON array of match objects. Only include articles that match the crite
                     if json_match:
                         matches = json.loads(json_match.group())
                         for match in matches:
-                            if match.get('match') and match.get('uri'):
-                                article_uri = match['uri']
+                            if isinstance(match, dict) and match.get('signal_detected'):
+                                article_uri = match.get('article_uri')
+                                if not article_uri:
+                                    continue
                                 # Create alert in database
                                 try:
-                                    db.facade.create_signal_alert(
+                                    confidence = match.get('confidence', 0.5)
+                                    threat_level = match.get('threat_level', 'medium')
+                                    summary = match.get('summary', '')
+                                    reasoning = match.get('reasoning', '')
+
+                                    db.facade.save_signal_alert(
+                                        article_uri=article_uri,
                                         instruction_id=instruction_id,
                                         instruction_name=instruction['name'],
-                                        article_uri=article_uri,
-                                        match_reason=match.get('reason', ''),
-                                        severity=match.get('severity', 'medium'),
-                                        topic=topic
+                                        confidence=confidence,
+                                        threat_level=threat_level,
+                                        summary=summary,
+                                        reasoning=reasoning
                                     )
                                     alerts_created += 1
 
@@ -4894,8 +5008,10 @@ Return a JSON array of match objects. Only include articles that match the crite
                                         'article_uri': article_uri,
                                         'instruction_id': instruction_id,
                                         'instruction_name': instruction['name'],
-                                        'summary': match.get('reason', ''),
-                                        'threat_level': match.get('severity', 'medium'),
+                                        'confidence': confidence,
+                                        'summary': summary,
+                                        'threat_level': threat_level,
+                                        'reasoning': reasoning,
                                         'article_title': get_field(article, 'title', 'Unknown'),
                                         'article_source': get_field(article, 'news_source', 'Unknown'),
                                         'article_publication_date': get_field(article, 'publication_date', ''),
@@ -4920,6 +5036,64 @@ Return a JSON array of match objects. Only include articles that match the crite
             # Use the alerts we tracked during processing (not from DB query)
             instruction_alerts = created_alert_details
 
+            # Generate report if instruction has generate_report enabled
+            report_content = None
+            report_id = None
+            if instruction.get('generate_report') and instruction_alerts:
+                try:
+                    report_prompt = instruction.get('report_prompt') or """
+Analyze the following signal matches and create a brief intelligence summary.
+Summarize key findings, significance, and any recommended actions.
+Format as a concise markdown report.
+"""
+                    alerts_summary = "\n\n".join([
+                        f"**Article:** {a['article_uri']}\n"
+                        f"**Threat Level:** {a['threat_level']}\n"
+                        f"**Confidence:** {a.get('confidence', 0.5)}\n"
+                        f"**Summary:** {a['summary']}\n"
+                        f"**Reasoning:** {a.get('reasoning', '')}"
+                        for a in instruction_alerts[:10]
+                    ])
+                    full_prompt = f"""
+{report_prompt}
+
+## Signal: {instruction['name']}
+{instruction.get('instruction', '')}
+
+## Matched Articles ({len(instruction_alerts)} matches)
+{alerts_summary}
+"""
+                    report_messages = [
+                        {"role": "system", "content": "You are an intelligence analyst creating comprehensive reports from signal detection data."},
+                        {"role": "user", "content": full_prompt}
+                    ]
+                    report_content = await run_in_threadpool(ai_model.generate_response, report_messages)
+
+                    if report_content and not ("⚠️" in report_content or "unavailable" in report_content.lower()):
+                        from datetime import datetime as dt_now
+                        report_name = f"Signal Report - {instruction['name']} - {dt_now.now().strftime('%Y-%m-%d %H:%M')}"
+                        report_id = db.facade.create_saved_signal_report(
+                            instruction_id=instruction_id,
+                            instruction_name=instruction['name'],
+                            name=report_name,
+                            topic=topic,
+                            description=f"Auto-generated report from {len(instruction_alerts)} signal matches",
+                            report_prompt=report_prompt,
+                            report_content=report_content,
+                            alerts_data=instruction_alerts,
+                            article_uris=[a['article_uri'] for a in instruction_alerts],
+                            articles_used=len(instruction_alerts),
+                            config={'days_back': days_back},
+                            model_used=model
+                        )
+                        logger.info(f"Generated signal report ID: {report_id} for {instruction['name']}")
+                    else:
+                        report_content = None
+                        logger.warning(f"Report generation returned empty response for {instruction['name']}")
+                except Exception as report_error:
+                    report_content = None
+                    logger.error(f"Error generating report for {instruction['name']}: {report_error}")
+
             # Send Email if configured
             if config.get('send_email') and instruction_alerts and meets_threshold:
                 try:
@@ -4939,9 +5113,9 @@ Return a JSON array of match objects. Only include articles that match the crite
                                 instruction_name=instruction['name'],
                                 matches=instruction_alerts,
                                 topic=topic,
-                                report_content=None,
+                                report_content=report_content,
                                 podcast_url=None,
-                                report_id=None
+                                report_id=report_id
                             )
                             if success:
                                 email_sent = True

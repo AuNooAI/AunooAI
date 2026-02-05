@@ -187,10 +187,15 @@ class EnrichmentService:
             from scripts.train_enrichment_model import MultiTaskModel
             self.model = MultiTaskModel(base_config, self._task_configs)
 
-            # Load weights
+            # Load weights (support both pytorch_model.bin and model.safetensors)
             weights_path = Path(model_path) / "pytorch_model.bin"
+            safetensors_path = Path(model_path) / "model.safetensors"
             if weights_path.exists():
-                state_dict = torch.load(weights_path, map_location=self.device)
+                state_dict = torch.load(weights_path, map_location=self.device, weights_only=True)
+                self.model.load_state_dict(state_dict)
+            elif safetensors_path.exists():
+                from safetensors.torch import load_file
+                state_dict = load_file(str(safetensors_path), device=self.device)
                 self.model.load_state_dict(state_dict)
 
             self.model.to(self.device)
@@ -412,13 +417,15 @@ Respond in JSON format:
 
 JSON response:"""
 
-            response = ai.generate(prompt, max_tokens=200, temperature=0.1)
+            response = ai.generate_sync(prompt, max_tokens=200, temperature=0.1)
+            from app.ai_models import extract_content
+            response_text = extract_content(response)
 
             # Parse JSON response
             try:
                 # Try to extract JSON from response
                 import re
-                json_match = re.search(r'\{[^}]+\}', response)
+                json_match = re.search(r'\{[^}]+\}', response_text)
                 if json_match:
                     result = json.loads(json_match.group())
                     result['source'] = 'llm'
@@ -428,7 +435,7 @@ JSON response:"""
 
             # Fallback: return raw response
             return {
-                'raw_response': response,
+                'raw_response': response_text,
                 'source': 'llm',
                 'parse_error': True,
             }

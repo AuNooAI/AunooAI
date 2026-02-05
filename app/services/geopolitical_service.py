@@ -1789,7 +1789,7 @@ class GeopoliticalService:
 
                 # Get articles linked to this hotspot
                 cursor.execute("""
-                    SELECT a.sentiment, a.submission_date
+                    SELECT a.sentiment, a.submission_date::timestamp as submission_date
                     FROM articles a
                     JOIN hotspot_articles ha ON ha.article_uri = a.uri
                     WHERE ha.hotspot_id = :hotspot_id
@@ -1805,7 +1805,7 @@ class GeopoliticalService:
                 if not articles:
                     # Try matching by location name in article content
                     cursor.execute("""
-                        SELECT sentiment, submission_date
+                        SELECT sentiment, submission_date::timestamp as submission_date
                         FROM articles
                         WHERE (title ILIKE :location_pattern
                                OR summary ILIKE :location_pattern)

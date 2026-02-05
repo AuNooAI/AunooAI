@@ -202,24 +202,26 @@ export function ResearchAgentsSection({
   };
 
   const handleRunConfirm = async (options: RunAgentOptions) => {
+    // Close modal immediately — progress shows on agent cards via runningAgents spinners
+    setIsRunModalOpen(false);
+
     if (runModalAgent) {
-      // Run single agent
-      await onRunAgent(runModalAgent.id, { daysBack: options.daysBack, tagArticles: options.tagArticles });
+      // Run single agent (fire-and-forget, hook manages runningAgents state)
+      const agentId = runModalAgent.id;
+      setRunModalAgent(null);
+      onRunAgent(agentId, { daysBack: options.daysBack, tagArticles: options.tagArticles });
     } else {
       // Run all agents
+      setRunModalAgent(null);
       setRunningAll(true);
-      try {
-        await onRunAllAgents({
-          daysBack: options.daysBack,
-          tagArticles: options.tagArticles,
-          generateUnifiedReport: options.generateUnifiedReport,
-        });
-      } finally {
+      onRunAllAgents({
+        daysBack: options.daysBack,
+        tagArticles: options.tagArticles,
+        generateUnifiedReport: options.generateUnifiedReport,
+      }).finally(() => {
         setRunningAll(false);
-      }
+      });
     }
-    setIsRunModalOpen(false);
-    setRunModalAgent(null);
   };
 
   const getThreatLevelColor = (level: string) => {

@@ -349,7 +349,9 @@ Content:
 
 Summary:"""
 
-            summary = ai.generate(prompt, max_tokens=200, temperature=0.3)
+            response = ai.generate_sync(prompt, max_tokens=200, temperature=0.3)
+            from app.ai_models import extract_content
+            summary = extract_content(response)
 
             return {
                 'summary': summary.strip(),
