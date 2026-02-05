@@ -5800,7 +5800,8 @@ class DatabaseQueryFacade:
             articles.c.bias,
             articles.c.factual_reporting,
             articles.c.mbfc_credibility_rating,
-            articles.c.bias_country
+            articles.c.bias_country,
+            articles.c.user_preference,
         ).where(
             and_(*where_conditions)
         ).order_by(

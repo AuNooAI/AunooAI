@@ -329,7 +329,8 @@ export function ArticleListView({
   const handlePreviousPage = () => {
     if (page > 1) {
       setPage(page - 1);
-      // Scroll to top of page and any scrollable parent containers
+      // Scroll to top of the main content area (.gather-main has overflow-y: auto)
+      document.querySelector('.gather-main')?.scrollTo({ top: 0, behavior: 'smooth' });
       window.scrollTo({ top: 0, behavior: 'smooth' });
       document.querySelector('.article-list-container')?.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -338,7 +339,8 @@ export function ArticleListView({
   const handleNextPage = () => {
     if (page < totalPages) {
       setPage(page + 1);
-      // Scroll to top of page and any scrollable parent containers
+      // Scroll to top of the main content area (.gather-main has overflow-y: auto)
+      document.querySelector('.gather-main')?.scrollTo({ top: 0, behavior: 'smooth' });
       window.scrollTo({ top: 0, behavior: 'smooth' });
       document.querySelector('.article-list-container')?.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -1016,6 +1018,9 @@ function ArticleListItem({
 }: ArticleListItemProps) {
   const [showMenu, setShowMenu] = useState(false);
   const [preferenceLoading, setPreferenceLoading] = useState(false);
+  const [preference, setPreference] = useState<'more' | 'less' | null>(
+    article.user_preference === 'more' || article.user_preference === 'less' ? article.user_preference : null
+  );
   const menuRef = useRef<HTMLDivElement>(null);
 
   // Close menu when clicking outside
@@ -1062,7 +1067,14 @@ function ArticleListItem({
     if (action === 'more' || action === 'less') {
       try {
         setPreferenceLoading(true);
-        await recordArticlePreference(article.uri, action);
+        const prefAction = action as 'more' | 'less';
+        if (preference === prefAction) {
+          await recordArticlePreference(article.uri, 'clear');
+          setPreference(null);
+        } else {
+          await recordArticlePreference(article.uri, prefAction);
+          setPreference(prefAction);
+        }
       } catch (err) {
         console.error(`Failed to record preference: ${err}`);
       } finally {
@@ -1136,17 +1148,25 @@ function ArticleListItem({
             <div className="absolute right-0 top-full mt-1 w-40 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 z-50">
               <button
                 onClick={() => handleMenuAction('more')}
-                className="w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2"
+                className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 ${
+                  preference === 'more'
+                    ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                }`}
               >
-                <ThumbsUp className="w-3.5 h-3.5 text-green-500" />
-                More like this
+                <ThumbsUp className={`w-3.5 h-3.5 ${preference === 'more' ? 'text-green-600 fill-green-600' : 'text-green-500'}`} />
+                {preference === 'more' ? 'More like this ✓' : 'More like this'}
               </button>
               <button
                 onClick={() => handleMenuAction('less')}
-                className="w-full px-3 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2"
+                className={`w-full px-3 py-2 text-left text-sm flex items-center gap-2 ${
+                  preference === 'less'
+                    ? 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                }`}
               >
-                <ThumbsDown className="w-3.5 h-3.5 text-red-500" />
-                Less like this
+                <ThumbsDown className={`w-3.5 h-3.5 ${preference === 'less' ? 'text-red-600 fill-red-600' : 'text-red-500'}`} />
+                {preference === 'less' ? 'Less like this ✓' : 'Less like this'}
               </button>
               <button
                 onClick={() => handleMenuAction('share')}
@@ -1184,7 +1204,7 @@ function ArticleListItem({
 
       {/* Content with optional left padding for checkbox */}
       <div className={selectMode ? 'pl-6' : ''}>
-        {/* Top row: Category + Topic badges */}
+        {/* Top row: Category + Topic badges + Preference badge */}
         <div className="flex items-center gap-2 mb-1.5 pr-8">
           {article.category && (
             <span
@@ -1199,6 +1219,18 @@ function ArticleListItem({
             <span className="text-xs text-gray-500 dark:text-gray-300 flex items-center gap-1">
               <TrendingUp className="w-3 h-3" />
               {article.topic}
+            </span>
+          )}
+          {preference === 'more' && (
+            <span className="inline-flex items-center gap-0.5 text-[10px] bg-green-100 dark:bg-green-900/50 text-green-700 dark:text-green-300 px-1.5 py-0.5 rounded">
+              <ThumbsUp className="w-2.5 h-2.5 fill-current" />
+              More
+            </span>
+          )}
+          {preference === 'less' && (
+            <span className="inline-flex items-center gap-0.5 text-[10px] bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300 px-1.5 py-0.5 rounded">
+              <ThumbsDown className="w-2.5 h-2.5 fill-current" />
+              Less
             </span>
           )}
         </div>

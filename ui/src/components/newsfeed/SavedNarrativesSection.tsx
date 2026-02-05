@@ -16,10 +16,12 @@ import {
   FileText,
   Table,
   Loader2,
+  FolderPlus,
 } from 'lucide-react';
 import { Card, CardContent } from '../ui/card';
 import { ShareModal, type ShareNarrativeData } from '../ShareModal';
 import { ExportService } from '../../services/exportService';
+import { AddToBriefingModal } from './AddToBriefingModal';
 import {
   getSavedNarratives as fetchSavedNarratives,
   deleteSavedNarrative,
@@ -54,6 +56,8 @@ export function SavedNarrativesSection({
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareData, setShareData] = useState<ShareNarrativeData | null>(null);
+  const [showAddToBriefingModal, setShowAddToBriefingModal] = useState(false);
+  const [selectedNarrativeForBriefing, setSelectedNarrativeForBriefing] = useState<SavedNarrative | null>(null);
 
   // Load saved narratives from database API
   useEffect(() => {
@@ -247,6 +251,18 @@ export function SavedNarrativesSection({
                             <Share2 className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                             Share
                           </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setMenuOpenId(null);
+                              setSelectedNarrativeForBriefing(narrative);
+                              setShowAddToBriefingModal(true);
+                            }}
+                            className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                          >
+                            <FolderPlus className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                            Add to Briefing
+                          </button>
                           <div className="h-px bg-gray-200 dark:bg-gray-700 my-1" />
                           <button
                             onClick={(e) => {
@@ -329,6 +345,26 @@ export function SavedNarrativesSection({
           open={showShareModal}
           onOpenChange={setShowShareModal}
           data={shareData}
+        />
+      )}
+
+      {/* Add to Briefing Modal */}
+      {selectedNarrativeForBriefing && (
+        <AddToBriefingModal
+          isOpen={showAddToBriefingModal}
+          onClose={() => {
+            setShowAddToBriefingModal(false);
+            setSelectedNarrativeForBriefing(null);
+          }}
+          itemType="emerging_topic"
+          emergingTopic={{
+            name: selectedNarrativeForBriefing.name,
+            summary: selectedNarrativeForBriefing.description,
+            description: selectedNarrativeForBriefing.description,
+            article_count: selectedNarrativeForBriefing.article_count,
+            key_entities: selectedNarrativeForBriefing.key_entities,
+            topic: selectedNarrativeForBriefing.topic,
+          }}
         />
       )}
     </section>

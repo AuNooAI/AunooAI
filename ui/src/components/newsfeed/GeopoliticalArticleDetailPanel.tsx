@@ -7,6 +7,7 @@ import { X, ExternalLink, Clock, Building2, MapPin, TrendingUp, AlertTriangle, C
 import { useState, useRef, useEffect } from 'react';
 import type { LinkedArticle, RiskLevel } from '../../services/geopoliticalHotspotsApi';
 import { RISK_COLORS } from '../../services/geopoliticalHotspotsApi';
+import { recordArticlePreference } from '../../services/newsFeedApi';
 import { openAuspexWithQuery } from '../../utils/auspexEvents';
 import { ShareModal, type ShareArticleData } from '../ShareModal';
 import { PromoteToIncidentModal } from './PromoteToIncidentModal';
@@ -25,9 +26,16 @@ export function GeopoliticalArticleDetailPanel({
   const [copied, setCopied] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
   const [preferenceLoading, setPreferenceLoading] = useState(false);
+  const [preference, setPreference] = useState<'more' | 'less' | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showPromoteModal, setShowPromoteModal] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // Initialize preference from article data when article changes
+  useEffect(() => {
+    const artPref = (article as any)?.user_preference;
+    setPreference(artPref === 'more' || artPref === 'less' ? artPref : null);
+  }, [article?.uri]);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -94,8 +102,15 @@ export function GeopoliticalArticleDetailPanel({
     if (action === 'more' || action === 'less') {
       try {
         setPreferenceLoading(true);
-        // TODO: Add preference recording API if needed
-        console.log(`Preference "${action}" recorded for: ${article.title}`);
+        const prefAction = action as 'more' | 'less';
+        // Toggle: if clicking the same preference, clear it
+        if (preference === prefAction) {
+          await recordArticlePreference(article.uri, 'clear');
+          setPreference(null);
+        } else {
+          await recordArticlePreference(article.uri, prefAction);
+          setPreference(prefAction);
+        }
       } catch (err) {
         console.error(`Failed to record preference: ${err}`);
       } finally {
@@ -180,18 +195,26 @@ Please provide:
                     <button
                       onClick={() => handleMenuAction('more')}
                       disabled={preferenceLoading}
-                      className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 disabled:opacity-50"
+                      className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 disabled:opacity-50 ${
+                        preference === 'more'
+                          ? 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-300'
+                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                      }`}
                     >
-                      {preferenceLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsUp className="w-4 h-4" />}
-                      More like this
+                      {preferenceLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsUp className={`w-4 h-4 ${preference === 'more' ? 'text-green-600 dark:text-green-400 fill-green-600 dark:fill-green-400' : ''}`} />}
+                      {preference === 'more' ? 'More like this ✓' : 'More like this'}
                     </button>
                     <button
                       onClick={() => handleMenuAction('less')}
                       disabled={preferenceLoading}
-                      className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2 disabled:opacity-50"
+                      className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 disabled:opacity-50 ${
+                        preference === 'less'
+                          ? 'bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300'
+                          : 'text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                      }`}
                     >
-                      {preferenceLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsDown className="w-4 h-4" />}
-                      Less like this
+                      {preferenceLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsDown className={`w-4 h-4 ${preference === 'less' ? 'text-red-600 dark:text-red-400 fill-red-600 dark:fill-red-400' : ''}`} />}
+                      {preference === 'less' ? 'Less like this ✓' : 'Less like this'}
                     </button>
                     <button
                       onClick={() => handleMenuAction('copy')}

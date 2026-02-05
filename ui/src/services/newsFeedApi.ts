@@ -32,6 +32,7 @@ export interface NewsArticle {
   time_to_impact?: string;
   future_signal?: string;
   tags: string[];
+  user_preference?: 'more' | 'less' | null;
 }
 
 export interface RelatedArticle {
@@ -149,6 +150,7 @@ interface BackendArticle {
   factual_reporting?: string;
   mbfc_credibility_rating?: string;
   bias_country?: string;
+  user_preference?: string;
 }
 
 // Backend returns: { "articles": { "items": [...], "total_items": N, ... } }
@@ -197,6 +199,7 @@ function transformArticle(backendArticle: BackendArticle): NewsArticle {
     time_to_impact: backendArticle.time_to_impact,
     future_signal: backendArticle.future_signal,
     tags,
+    user_preference: (backendArticle.user_preference === 'more' || backendArticle.user_preference === 'less') ? backendArticle.user_preference : null,
   };
 }
 

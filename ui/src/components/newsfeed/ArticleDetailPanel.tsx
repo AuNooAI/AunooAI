@@ -42,11 +42,18 @@ export function ArticleDetailPanel({
   const [activeTab, setActiveTab] = useState<'details' | 'related'>('details');
   const [showMenu, setShowMenu] = useState(false);
   const [preferenceLoading, setPreferenceLoading] = useState(false);
+  const [preference, setPreference] = useState<'more' | 'less' | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showPromoteModal, setShowPromoteModal] = useState(false);
   const [showAddToBriefingModal, setShowAddToBriefingModal] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const hasRelated = relatedArticles.length > 0;
+
+  // Initialize preference from article data when article changes
+  useEffect(() => {
+    const artPref = article?.user_preference;
+    setPreference(artPref === 'more' || artPref === 'less' ? artPref : null);
+  }, [article?.uri]);
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -69,8 +76,15 @@ export function ArticleDetailPanel({
     if (action === 'more' || action === 'less') {
       try {
         setPreferenceLoading(true);
-        await recordArticlePreference(article.uri, action);
-        console.log(`Preference "${action}" recorded for: ${article.title}`);
+        const prefAction = action as 'more' | 'less';
+        // Toggle: if clicking the same preference, clear it
+        if (preference === prefAction) {
+          await recordArticlePreference(article.uri, 'clear');
+          setPreference(null);
+        } else {
+          await recordArticlePreference(article.uri, prefAction);
+          setPreference(prefAction);
+        }
       } catch (err) {
         console.error(`Failed to record preference: ${err}`);
       } finally {
@@ -218,18 +232,26 @@ Please provide:
                     <button
                       onClick={() => handleMenuAction('more')}
                       disabled={preferenceLoading}
-                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
+                      className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 disabled:opacity-50 ${
+                        preference === 'more'
+                          ? 'bg-green-50 text-green-700'
+                          : 'text-gray-700 hover:bg-gray-50'
+                      }`}
                     >
-                      {preferenceLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsUp className="w-4 h-4" />}
-                      More like this
+                      {preferenceLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsUp className={`w-4 h-4 ${preference === 'more' ? 'text-green-600 fill-green-600' : ''}`} />}
+                      {preference === 'more' ? 'More like this ✓' : 'More like this'}
                     </button>
                     <button
                       onClick={() => handleMenuAction('less')}
                       disabled={preferenceLoading}
-                      className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50"
+                      className={`w-full px-4 py-2 text-left text-sm flex items-center gap-2 disabled:opacity-50 ${
+                        preference === 'less'
+                          ? 'bg-red-50 text-red-700'
+                          : 'text-gray-700 hover:bg-gray-50'
+                      }`}
                     >
-                      {preferenceLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsDown className="w-4 h-4" />}
-                      Less like this
+                      {preferenceLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <ThumbsDown className={`w-4 h-4 ${preference === 'less' ? 'text-red-600 fill-red-600' : ''}`} />}
+                      {preference === 'less' ? 'Less like this ✓' : 'Less like this'}
                     </button>
                     <button
                       onClick={() => handleMenuAction('copy')}

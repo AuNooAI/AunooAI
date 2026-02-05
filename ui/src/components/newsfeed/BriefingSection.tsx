@@ -36,6 +36,7 @@ import {
   ThumbsUp,
   ThumbsDown,
   EyeOff,
+  FolderPlus,
 } from 'lucide-react';
 import { extractErrorMessage } from '../../services/api';
 import { type NewsArticle, type SixArticlesReport, type TopStory, type Persona, type SixArticlesConfig, extractArticleUrl, toArray } from '../../services/newsFeedApi';
@@ -54,6 +55,7 @@ import { ExportService } from '../../services/exportService';
 import { PodcastScriptModal } from '../PodcastScriptModal';
 import { ShareModal, type ShareBriefingData, type ShareBriefingCardData } from '../ShareModal';
 import { DetailedReportModal } from './DetailedReportModal';
+import { AddToBriefingModal } from './AddToBriefingModal';
 
 // Default personas (fallback if config not loaded)
 const DEFAULT_PERSONAS: { value: string; label: string; description: string }[] = [
@@ -228,6 +230,9 @@ export function BriefingSection({
   // Detailed report modal state
   const [showDetailedReportModal, setShowDetailedReportModal] = useState(false);
   const [detailedReportStory, setDetailedReportStory] = useState<TopStory | null>(null);
+  // Add to Briefing modal state
+  const [showAddToBriefingModal, setShowAddToBriefingModal] = useState(false);
+  const [selectedStoryForBriefing, setSelectedStoryForBriefing] = useState<TopStory | null>(null);
 
   // Load preferences and hidden briefings on mount
   useEffect(() => {
@@ -281,6 +286,12 @@ export function BriefingSection({
       next.add(headline);
       return next;
     });
+  };
+
+  // Handler for adding a briefing story to a briefing desk
+  const handleAddToBriefing = (story: TopStory) => {
+    setSelectedStoryForBriefing(story);
+    setShowAddToBriefingModal(true);
   };
 
   // Handler for sharing individual briefing card via email
@@ -811,6 +822,7 @@ export function BriefingSection({
                     onPreferenceChange={handlePreferenceChange}
                     onHide={handleHideBriefing}
                     onShare={handleShareCard}
+                    onAddToBriefing={handleAddToBriefing}
                   />
                 </div>
                 {/* Expanded detail appears right after the clicked card, spanning full width */}
@@ -961,6 +973,39 @@ export function BriefingSection({
         }}
         story={detailedReportStory}
       />
+
+      {/* Add to Briefing Modal */}
+      {selectedStoryForBriefing && (() => {
+        const s = selectedStoryForBriefing as any;
+        return (
+          <AddToBriefingModal
+            isOpen={showAddToBriefingModal}
+            onClose={() => {
+              setShowAddToBriefingModal(false);
+              setSelectedStoryForBriefing(null);
+            }}
+            itemType="article"
+            article={{
+              uri: s.url || s.uri || s.primary_article?.uri || '',
+              title: s.title || s.headline || s.primary_article?.title || '',
+              summary: s.summary || s.executive_takeaway,
+              source: s.source || s.primary_article?.source?.name,
+              topic: s.category,
+              category: s.category,
+              url: extractArticleUrl(s),
+              analysis: {
+                key_insight: s.executive_takeaway,
+                executive_takeaway: s.executive_takeaway,
+                strategic_relevance: s.strategic_relevance,
+                category: s.category,
+                time_horizon: s.time_horizon,
+                risk_opportunity: s.risk_opportunity,
+                signal_strength: s.signal_strength,
+              },
+            }}
+          />
+        );
+      })()}
     </section>
   );
 }
@@ -977,9 +1022,10 @@ interface CompactBriefingCardProps {
   onPreferenceChange?: (headline: string, preference: 'more' | 'less' | null) => void;
   onHide?: (headline: string) => void;
   onShare?: (story: TopStory) => void;
+  onAddToBriefing?: (story: TopStory) => void;
 }
 
-function CompactBriefingCard({ story, onClick, isExpanded, preference, onPreferenceChange, onHide, onShare }: CompactBriefingCardProps) {
+function CompactBriefingCard({ story, onClick, isExpanded, preference, onPreferenceChange, onHide, onShare, onAddToBriefing }: CompactBriefingCardProps) {
   const [hoveredBadge, setHoveredBadge] = useState<string | null>(null);
   const [badgeTooltipPos, setBadgeTooltipPos] = useState({ top: 0, left: 0 });
   const [showMenu, setShowMenu] = useState(false);
@@ -1172,6 +1218,13 @@ function CompactBriefingCard({ story, onClick, isExpanded, preference, onPrefere
                   >
                     <EyeOff className="w-4 h-4 text-gray-700 dark:text-gray-300" />
                     Hide
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setShowMenu(false); onAddToBriefing?.(story); }}
+                    className="w-full px-3 py-2 text-left text-sm text-gray-900 dark:text-gray-100 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                  >
+                    <FolderPlus className="w-4 h-4 text-gray-700 dark:text-gray-300" />
+                    Add to Briefing
                   </button>
                   <div className="h-px bg-gray-200 dark:bg-gray-700 my-1" />
                   <button
