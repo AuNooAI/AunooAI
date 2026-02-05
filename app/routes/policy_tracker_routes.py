@@ -1008,7 +1008,7 @@ async def get_policy_stats(
 ):
     """
     Get overview statistics for the policy tracker.
-    Uses stored categorizations when available, falls back to real-time classification.
+    Uses efficient SQL aggregation instead of loading all articles into memory.
     """
     db = get_database_instance()
     conn = db._temp_get_connection()
@@ -1016,62 +1016,52 @@ async def get_policy_stats(
     try:
         start_date, end_date = get_date_range_filter(days_back)
 
-        # Get articles for the topic within date range
-        result = conn.execute(text("""
-            SELECT uri, title, summary, publication_date
-            FROM articles
-            WHERE topic = :topic
-            AND publication_date >= :start_date
-            AND publication_date <= :end_date
-            ORDER BY publication_date DESC
+        # Get category counts using efficient JOIN and GROUP BY
+        category_result = conn.execute(text("""
+            SELECT pac.category, COUNT(DISTINCT pac.article_uri) as count
+            FROM policy_article_categories pac
+            JOIN articles a ON pac.article_uri = a.uri
+            WHERE pac.topic = :topic
+            AND a.publication_date >= :start_date
+            AND a.publication_date <= :end_date
+            GROUP BY pac.category
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
 
-        articles = result.fetchall()
-        article_uris = [a[0] for a in articles]
-
-        # Get stored categories
-        stored_categories = get_stored_categories(conn, article_uris)
-
-        # Categorize each article
         category_counts: Dict[str, int] = {cat: 0 for cat in POLICY_CATEGORIES.keys()}
-        multi_category_count = 0
-        new_categorizations = []
+        for row in category_result.fetchall():
+            category, count = row
+            if category in category_counts:
+                category_counts[category] = count
 
-        classified_articles = []
-        for article in articles:
-            uri, title, summary, pub_date = article
+        # Get total articles with categories and multi-category count
+        stats_result = conn.execute(text("""
+            SELECT
+                COUNT(DISTINCT a.uri) as total_articles,
+                MIN(a.publication_date) as date_start,
+                MAX(a.publication_date) as date_end,
+                SUM(CASE WHEN cat_counts.cat_count >= 3 THEN 1 ELSE 0 END) as multi_category_count
+            FROM articles a
+            JOIN (
+                SELECT article_uri, COUNT(*) as cat_count
+                FROM policy_article_categories
+                WHERE topic = :topic
+                GROUP BY article_uri
+            ) cat_counts ON a.uri = cat_counts.article_uri
+            WHERE a.publication_date >= :start_date
+            AND a.publication_date <= :end_date
+        """), {"topic": topic, "start_date": start_date, "end_date": end_date})
 
-            # Only count articles with stored categories
-            if uri not in stored_categories:
-                continue
-
-            classified_articles.append(article)
-            categories = stored_categories[uri]
-
-            for cat in categories:
-                if cat in category_counts:
-                    category_counts[cat] += 1
-
-            if len(categories) >= 3:
-                multi_category_count += 1
-
-        # Use only classified articles for stats
-        articles = classified_articles
+        stats_row = stats_result.fetchone()
+        total_articles = stats_row[0] or 0
+        actual_start = str(stats_row[1]) if stats_row[1] else None
+        actual_end = str(stats_row[2]) if stats_row[2] else None
+        multi_category_count = stats_row[3] or 0
 
         # Find most active category
         most_active = max(category_counts.items(), key=lambda x: x[1]) if category_counts else (None, 0)
 
-        # Get actual date range from articles
-        actual_start = None
-        actual_end = None
-        if articles:
-            dates = [a[3] for a in articles if a[3]]
-            if dates:
-                actual_start = str(min(dates))
-                actual_end = str(max(dates))
-
         return PolicyStatsResponse(
-            total_articles=len(articles),
+            total_articles=total_articles,
             date_range_start=actual_start,
             date_range_end=actual_end,
             most_active_category=most_active[0] if most_active[1] > 0 else None,
@@ -1098,81 +1088,100 @@ async def get_policy_articles(
 ):
     """
     Get paginated list of articles for the policy tracker.
-    Uses stored categorizations when available.
+    Uses efficient SQL with JOINs and pagination.
     """
     db = get_database_instance()
     conn = db._temp_get_connection()
 
     try:
         start_date, end_date = get_date_range_filter(days_back)
-
-        # Get articles for the topic
-        result = conn.execute(text("""
-            SELECT uri, title, summary, news_source, publication_date,
-                   sentiment, bias, factual_reporting
-            FROM articles
-            WHERE topic = :topic
-            AND publication_date >= :start_date
-            AND publication_date <= :end_date
-            ORDER BY publication_date DESC
-        """), {"topic": topic, "start_date": start_date, "end_date": end_date})
-
-        all_articles = result.fetchall()
-        article_uris = [a[0] for a in all_articles]
-
-        # Get stored categories
-        stored_categories = get_stored_categories(conn, article_uris)
-
-        # Process and categorize articles
-        processed_articles = []
         category_filter = [c.strip() for c in categories.split(',')] if categories else None
-        new_categorizations = []
+        offset = (page - 1) * per_page
 
-        for article in all_articles:
-            uri, title, summary, source, pub_date, sentiment, bias, factual = article
-
-            # Only show articles with stored categories
-            if uri not in stored_categories:
-                continue
-
-            article_categories = stored_categories[uri]
-
-            # Filter by category if specified
-            if category_filter:
-                if not any(cat in article_categories for cat in category_filter):
-                    continue
-
-            processed_articles.append({
-                'uri': uri,
-                'title': title,
-                'summary': summary,
-                'news_source': source,
-                'publication_date': str(pub_date) if pub_date else None,
-                'categories': article_categories,
-                'sentiment': sentiment,
-                'bias': bias,
-                'factual_reporting': factual,
-                'category_count': len(article_categories)
-            })
-
-        # Sort
-        if sort_by == "category_count":
-            processed_articles.sort(key=lambda x: x['category_count'], reverse=True)
-        elif sort_by == "date":
-            processed_articles.sort(
-                key=lambda x: x['publication_date'] or '',
-                reverse=True
+        # Build the base query with category counts
+        base_query = """
+            WITH article_cats AS (
+                SELECT a.uri, a.title, a.summary, a.news_source, a.publication_date,
+                       a.sentiment, a.bias, a.factual_reporting,
+                       ARRAY_AGG(pac.category) as categories,
+                       COUNT(pac.category) as category_count
+                FROM articles a
+                JOIN policy_article_categories pac ON a.uri = pac.article_uri
+                WHERE pac.topic = :topic
+                AND a.publication_date >= :start_date
+                AND a.publication_date <= :end_date
+                {category_filter_clause}
+                GROUP BY a.uri, a.title, a.summary, a.news_source, a.publication_date,
+                         a.sentiment, a.bias, a.factual_reporting
             )
+        """
 
-        # Paginate
-        total_count = len(processed_articles)
-        total_pages = (total_count + per_page - 1) // per_page
-        start_idx = (page - 1) * per_page
-        end_idx = start_idx + per_page
-        paginated = processed_articles[start_idx:end_idx]
+        # Add category filter if specified
+        if category_filter:
+            # Filter articles that have at least one of the specified categories
+            category_placeholders = ', '.join([f':cat_{i}' for i in range(len(category_filter))])
+            category_filter_clause = f"AND pac.category IN ({category_placeholders})"
+            params = {
+                "topic": topic,
+                "start_date": start_date,
+                "end_date": end_date,
+                "per_page": per_page,
+                "offset": offset
+            }
+            for i, cat in enumerate(category_filter):
+                params[f'cat_{i}'] = cat
+        else:
+            category_filter_clause = ""
+            params = {
+                "topic": topic,
+                "start_date": start_date,
+                "end_date": end_date,
+                "per_page": per_page,
+                "offset": offset
+            }
+
+        base_query = base_query.format(category_filter_clause=category_filter_clause)
+
+        # Get total count
+        count_query = base_query + "SELECT COUNT(*) FROM article_cats"
+        count_result = conn.execute(text(count_query), params)
+        total_count = count_result.scalar() or 0
+        total_pages = (total_count + per_page - 1) // per_page if total_count > 0 else 0
+
+        # Determine sort order
+        if sort_by == "category_count":
+            order_clause = "ORDER BY category_count DESC, publication_date DESC"
+        else:  # date
+            order_clause = "ORDER BY publication_date DESC"
+
+        # Get paginated articles
+        articles_query = base_query + f"""
+            SELECT uri, title, summary, news_source, publication_date,
+                   sentiment, bias, factual_reporting, categories, category_count
+            FROM article_cats
+            {order_clause}
+            LIMIT :per_page OFFSET :offset
+        """
+
+        result = conn.execute(text(articles_query), params)
+
+        articles = []
+        for row in result.fetchall():
+            uri, title, summary, source, pub_date, sentiment, bias, factual, cats, cat_count = row
+            articles.append(PolicyArticleResponse(
+                uri=uri,
+                title=title,
+                summary=summary,
+                news_source=source,
+                publication_date=str(pub_date) if pub_date else None,
+                categories=list(cats) if cats else [],
+                sentiment=sentiment,
+                bias=bias,
+                factual_reporting=factual
+            ))
 
         return PolicyArticlesListResponse(
-            articles=[PolicyArticleResponse(**a) for a in paginated],
+            articles=articles,
             total_count=total_count,
             page=page,
             per_page=per_page,
@@ -1288,6 +1297,7 @@ async def get_temporal_data(
 ):
     """
     Get monthly article counts by category for time series charts.
+    Uses efficient SQL aggregation.
     """
     db = get_database_instance()
     conn = db._temp_get_connection()
@@ -1295,79 +1305,51 @@ async def get_temporal_data(
     try:
         start_date, end_date = get_date_range_filter(days_back)
 
-        # Get articles with dates
-        result = conn.execute(text("""
-            SELECT title, summary, publication_date
-            FROM articles
-            WHERE topic = :topic
-            AND publication_date >= :start_date
-            AND publication_date <= :end_date
-            ORDER BY publication_date ASC
+        # Get monthly totals (articles with categories)
+        totals_result = conn.execute(text("""
+            SELECT TO_CHAR(a.publication_date::timestamp, 'YYYY-MM') as month,
+                   COUNT(DISTINCT a.uri) as total
+            FROM articles a
+            JOIN policy_article_categories pac ON a.uri = pac.article_uri
+            WHERE pac.topic = :topic
+            AND a.publication_date >= :start_date
+            AND a.publication_date <= :end_date
+            GROUP BY TO_CHAR(a.publication_date::timestamp, 'YYYY-MM')
+            ORDER BY month
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
 
-        articles = result.fetchall()
+        monthly_totals = {row[0]: row[1] for row in totals_result.fetchall()}
 
-        # Get stored categories for these articles
-        article_uris_result = conn.execute(text("""
-            SELECT uri FROM articles
-            WHERE topic = :topic
-            AND publication_date >= :start_date
-            AND publication_date <= :end_date
+        # Get monthly category counts
+        category_result = conn.execute(text("""
+            SELECT TO_CHAR(a.publication_date::timestamp, 'YYYY-MM') as month,
+                   pac.category,
+                   COUNT(DISTINCT pac.article_uri) as count
+            FROM policy_article_categories pac
+            JOIN articles a ON pac.article_uri = a.uri
+            WHERE pac.topic = :topic
+            AND a.publication_date >= :start_date
+            AND a.publication_date <= :end_date
+            GROUP BY TO_CHAR(a.publication_date::timestamp, 'YYYY-MM'), pac.category
+            ORDER BY month
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
-        article_uris = [r[0] for r in article_uris_result.fetchall()]
-        stored_categories = get_stored_categories(conn, article_uris)
 
-        # Group by month
+        # Build monthly data structure
         monthly_data: Dict[str, Dict[str, int]] = {}
-
-        # Also get URIs for each article
-        uri_result = conn.execute(text("""
-            SELECT uri, title, summary, publication_date
-            FROM articles
-            WHERE topic = :topic
-            AND publication_date >= :start_date
-            AND publication_date <= :end_date
-            ORDER BY publication_date ASC
-        """), {"topic": topic, "start_date": start_date, "end_date": end_date})
-
-        for uri, title, summary, pub_date in uri_result.fetchall():
-            if not pub_date:
-                continue
-
-            # Extract year-month
-            try:
-                if isinstance(pub_date, str):
-                    month_key = pub_date[:7]  # YYYY-MM
-                else:
-                    month_key = pub_date.strftime('%Y-%m')
-            except:
-                continue
-
-            if month_key not in monthly_data:
-                monthly_data[month_key] = {cat: 0 for cat in POLICY_CATEGORIES.keys()}
-                monthly_data[month_key]['_total'] = 0
-
-            # Use stored categories if available
-            if uri in stored_categories:
-                categories = stored_categories[uri]
-            else:
-                categories = categorize_article(title or '', summary or '')
-
-            monthly_data[month_key]['_total'] += 1
-
-            for cat in categories:
-                if cat in monthly_data[month_key]:
-                    monthly_data[month_key][cat] += 1
+        for row in category_result.fetchall():
+            month, category, count = row
+            if month not in monthly_data:
+                monthly_data[month] = {cat: 0 for cat in POLICY_CATEGORIES.keys()}
+            if category in POLICY_CATEGORIES:
+                monthly_data[month][category] = count
 
         # Build response
         response = []
         for month in sorted(monthly_data.keys()):
-            data = monthly_data[month].copy()
-            total = data.pop('_total')
             response.append(TemporalDataResponse(
                 month=month,
-                total=total,
-                by_category=data
+                total=monthly_totals.get(month, 0),
+                by_category=monthly_data[month]
             ))
 
         return response
@@ -2423,13 +2405,13 @@ async def get_daily_intensity(
         start_date, end_date = get_date_range_filter(days_back)
 
         result = conn.execute(text("""
-            SELECT DATE(a.publication_date) as pub_date, COUNT(DISTINCT a.uri) as count
+            SELECT DATE(a.publication_date::timestamp) as pub_date, COUNT(DISTINCT a.uri) as count
             FROM articles a
             INNER JOIN policy_article_categories pac ON a.uri = pac.article_uri
             WHERE a.topic = :topic
             AND a.publication_date >= :start_date
             AND a.publication_date <= :end_date
-            GROUP BY DATE(a.publication_date)
+            GROUP BY DATE(a.publication_date::timestamp)
             ORDER BY pub_date ASC
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
 

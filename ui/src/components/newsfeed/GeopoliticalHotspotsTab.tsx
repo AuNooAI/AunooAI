@@ -139,7 +139,7 @@ export function GeopoliticalHotspotsTab({ onArticleClick, model = 'gpt-4o-mini' 
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           {/* Tab Navigation */}
           <GeopoliticalHotspotsTabs activeTab={activeTab} onTabChange={setActiveTab} />
 
@@ -159,20 +159,20 @@ export function GeopoliticalHotspotsTab({ onArticleClick, model = 'gpt-4o-mini' 
           {/* Update Button */}
           <button
             onClick={() => setShowImportModal(true)}
-            className="flex items-center gap-2 px-3 py-2 text-sm bg-pink-500 text-white rounded-lg hover:bg-pink-600 transition-colors"
+            className="p-2 bg-pink-500 text-white rounded-lg hover:bg-pink-600 transition-colors"
+            title="Update hotspots"
           >
             <Download className="w-4 h-4" />
-            Update
           </button>
 
           {/* Refresh Button */}
           <button
             onClick={refresh}
             disabled={loading}
-            className="flex items-center gap-2 px-3 py-2 text-sm bg-pink-50 dark:bg-pink-900/20 text-pink-700 dark:text-pink-300 rounded-lg hover:bg-pink-100 dark:hover:bg-pink-900/30 disabled:opacity-50 transition-colors"
+            className="p-2 bg-pink-50 dark:bg-pink-900/20 text-pink-700 dark:text-pink-300 rounded-lg hover:bg-pink-100 dark:hover:bg-pink-900/30 disabled:opacity-50 transition-colors"
+            title="Refresh data"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
           </button>
         </div>
       </div>

@@ -497,7 +497,8 @@ t_keyword_monitor_settings = Table(
     Column('default_llm_model', Text, nullable=True, default=None),  # NULL = use first available model
     Column('llm_temperature', REAL, nullable=False, default=text('0.2')),  # Temperature 0.2 default
     Column('llm_max_tokens', Integer, nullable=False, default=text('1000')),
-    Column('auto_regenerate_reports', Boolean, nullable=True, default=True)  # Auto-regenerate ON by default
+    Column('auto_regenerate_reports', Boolean, nullable=True, default=True),  # Auto-regenerate ON by default
+    Column('inference_mode', Text, nullable=False, default=text("'hybrid'")),  # 'local', 'hybrid', or 'external'
 )
 
 t_keyword_monitor_status = Table(

@@ -25,6 +25,27 @@ from app.exceptions import LLMErrorClassifier, ErrorSeverity, PipelineError
 from app.utils.retry import retry_sync_with_backoff, RetryConfig
 from app.utils.circuit_breaker import CircuitBreaker, CircuitBreakerOpen
 
+
+def extract_content(response) -> str:
+    """Extract text content from LLM response.
+
+    Handles various response formats from litellm/OpenAI API.
+
+    Args:
+        response: LLM response object (Choice, Message, or string)
+
+    Returns:
+        Extracted text content as string
+    """
+    # Handle Choice object (from response.choices[0])
+    if hasattr(response, 'message') and hasattr(response.message, 'content'):
+        return response.message.content
+    # Handle Message object directly
+    if hasattr(response, 'content'):
+        return response.content
+    # Fallback to string conversion
+    return str(response)
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)  # Set the default logging level
 logger = logging.getLogger(__name__)
@@ -147,7 +168,8 @@ class AIModel:
         # ``LiteLLMModel`` uses ``model_name`` so we mirror that here.
         self.model_name = self.model  # type: ignore[attr-defined]
 
-    async def generate(self, prompt: str, max_tokens: int = None, temperature: float = None) -> Any:
+    def generate_sync(self, prompt: str, max_tokens: int = None, temperature: float = None) -> Any:
+        """Synchronous version of generate() for use in sync contexts."""
         try:
             # Set API key if provided
             if self.api_key:
@@ -170,6 +192,10 @@ class AIModel:
         except Exception as e:
             logger.error(f"Error generating with model {self.model}: {str(e)}")
             raise
+
+    async def generate(self, prompt: str, max_tokens: int = None, temperature: float = None) -> Any:
+        """Async wrapper - delegates to sync implementation."""
+        return self.generate_sync(prompt, max_tokens=max_tokens, temperature=temperature)
 
     def generate_response(self, messages):
         """Generate a response from a list of chat *messages*.
@@ -862,6 +888,25 @@ class LiteLLMModel(AIModel):
                 logger.warning(f"⚠️ No fallback available - returning error message to user")
 
             return f"⚠️ An error occurred while using {self.model_name}. Please try again or select a different model. Error: {error_message}"
+
+    def generate_sync(self, prompt: str, max_tokens: int = None, temperature: float = None) -> str:
+        """
+        Synchronous generation using the router with full error handling.
+
+        This overrides the base AIModel.generate_sync to use the LiteLLM router
+        with circuit breaker, retry logic, and fallback handling.
+
+        Args:
+            prompt: The prompt to send to the model
+            max_tokens: Maximum tokens to generate (currently ignored, uses router defaults)
+            temperature: Temperature for generation (currently ignored, uses router defaults)
+
+        Returns:
+            Generated text content as string
+        """
+        # Wrap prompt in messages format for generate_response
+        messages = [{"role": "user", "content": prompt}]
+        return self.generate_response(messages)
 
     def _extract_user_friendly_error(self, error_message, model_name):
         """Extract user-friendly error messages from common errors."""

@@ -3,7 +3,7 @@
  * Interactive Leaflet map for displaying geopolitical hotspots
  */
 
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import L from 'leaflet';
@@ -34,8 +34,6 @@ if (!document.getElementById('leaflet-tailwind-fix-v2')) {
     img.leaflet-tile {
       max-width: none !important;
       max-height: none !important;
-      width: auto !important;
-      height: auto !important;
     }
     /* Ensure tiles have absolute positioning */
     .leaflet-tile-pane .leaflet-tile {
@@ -97,8 +95,6 @@ const fixTileStyles = (container: HTMLElement | null) => {
   tiles.forEach((tile) => {
     tile.style.maxWidth = 'none';
     tile.style.maxHeight = 'none';
-    tile.style.width = 'auto';
-    tile.style.height = 'auto';
   });
 };
 
@@ -191,7 +187,13 @@ function TileFixer() {
     const container = map.getContainer();
     if (!container) return;
 
-    // Initial fix
+    // ResizeObserver for any future container resizes
+    const resizeObserver = new ResizeObserver(() => {
+      map.invalidateSize();
+    });
+    resizeObserver.observe(container);
+
+    // Initial Tailwind fix
     fixTileStyles(container);
 
     // Use MutationObserver to fix tiles as they load
@@ -202,15 +204,11 @@ function TileFixer() {
             if (node instanceof HTMLImageElement && node.classList.contains('leaflet-tile')) {
               node.style.maxWidth = 'none';
               node.style.maxHeight = 'none';
-              node.style.width = 'auto';
-              node.style.height = 'auto';
             } else if (node instanceof HTMLElement) {
               const tiles = node.querySelectorAll<HTMLImageElement>('.leaflet-tile');
               tiles.forEach((tile) => {
                 tile.style.maxWidth = 'none';
                 tile.style.maxHeight = 'none';
-                tile.style.width = 'auto';
-                tile.style.height = 'auto';
               });
             }
           });
@@ -230,6 +228,7 @@ function TileFixer() {
     map.on('zoomend', handleTileLoad);
 
     return () => {
+      resizeObserver.disconnect();
       observer.disconnect();
       map.off('load', handleTileLoad);
       map.off('moveend', handleTileLoad);
@@ -247,7 +246,7 @@ function MapUpdater({ hotspots }: { hotspots: Hotspot[] }) {
   useEffect(() => {
     if (hotspots.length > 0) {
       const bounds = L.latLngBounds(hotspots.map((h) => [h.latitude, h.longitude]));
-      map.fitBounds(bounds, { padding: [50, 50], maxZoom: 6 });
+      map.fitBounds(bounds, { padding: [20, 20], maxZoom: 6 });
     }
   }, [hotspots, map]);
 
@@ -274,6 +273,13 @@ export function HotspotMap({
   fillContainer = false,
 }: HotspotMapProps) {
   const mapRef = useRef<L.Map | null>(null);
+  const [mapReady, setMapReady] = useState(false);
+
+  // Delay MapContainer mount until outer div is in the DOM with final dimensions
+  // This prevents Leaflet from measuring a 0x0 or incorrect container size
+  useEffect(() => {
+    requestAnimationFrame(() => setMapReady(true));
+  }, []);
 
   // Center on selected hotspot
   useEffect(() => {
@@ -295,9 +301,12 @@ export function HotspotMap({
 
   return (
     <div className="relative" style={{ height: containerHeight, minHeight }}>
+      {mapReady && (
       <MapContainer
         center={[20, 0]}
-        zoom={2}
+        zoom={3}
+        minZoom={3}
+        zoomSnap={0.5}
         style={{ height: '100%', width: '100%', borderRadius: '0.5rem' }}
         ref={mapRef}
         zoomControl={true}
@@ -426,6 +435,7 @@ export function HotspotMap({
           ))}
         </MarkerClusterGroup>
       </MapContainer>
+      )}
 
       {showLegend && <MapLegend />}
     </div>

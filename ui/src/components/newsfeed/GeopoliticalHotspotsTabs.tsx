@@ -14,7 +14,7 @@ interface GeopoliticalHotspotsTabsProps {
 
 const tabs: { id: GeopoliticalTab; label: string; icon: React.ElementType }[] = [
   { id: 'overview', label: 'Overview', icon: Globe },
-  { id: 'map', label: 'Map', icon: Map },
+  { id: 'map', label: 'Global View', icon: Map },
   { id: 'timeline', label: 'Timeline', icon: Clock },
   { id: 'regions', label: 'Regions', icon: MapPin },
   { id: 'themes', label: 'Themes', icon: Layers },

@@ -154,8 +154,8 @@ export function useResearchAgents(initialTopic?: string): UseResearchAgentsState
     agentIds: number[],
     topic?: string
   ): Promise<boolean> => {
-    const pollInterval = 2000; // 2 seconds
-    const maxWait = 300000; // 5 minutes
+    const pollInterval = 3000; // 3 seconds
+    const maxWait = 900000; // 15 minutes
     const startTime = Date.now();
 
     while (Date.now() - startTime < maxWait) {
@@ -180,8 +180,9 @@ export function useResearchAgents(initialTopic?: string): UseResearchAgentsState
       }
     }
 
-    setError('Signal run timed out');
-    return false;
+    // Don't show error — agents continue running in background and will send emails
+    await fetchAlerts({ topic });
+    return true;
   }, [fetchAlerts]);
 
   // Run a single agent

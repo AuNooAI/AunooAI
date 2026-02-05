@@ -4140,7 +4140,7 @@ Format your response as a structured markdown report with clear sections.
 """
 
                 report_messages = [
-                    {"role": "system", "content": "You are an intelligence analyst creating comprehensive reports from signal detection data."},
+                    {"role": "system", "content": "You are an intelligence analyst creating comprehensive reports from signal detection data. Always format reports as readable markdown with headers, bullet points, and paragraphs. Never return raw JSON in reports."},
                     {"role": "user", "content": full_prompt}
                 ]
 
@@ -5064,7 +5064,7 @@ Format as a concise markdown report.
 {alerts_summary}
 """
                     report_messages = [
-                        {"role": "system", "content": "You are an intelligence analyst creating comprehensive reports from signal detection data."},
+                        {"role": "system", "content": "You are an intelligence analyst creating comprehensive reports from signal detection data. Always format reports as readable markdown with headers, bullet points, and paragraphs. Never return raw JSON in reports."},
                         {"role": "user", "content": full_prompt}
                     ]
                     report_content = await run_in_threadpool(ai_model.generate_response, report_messages)
