@@ -19,6 +19,12 @@ export interface TopicTrainingStatus {
   field_counts: Record<string, number>;
   field_readiness: Record<string, 'red' | 'yellow' | 'green'>;
   overall_status: 'ready' | 'partial' | 'marginal' | 'not_ready';
+  latest_run: {
+    run_id: string;
+    status: 'pending' | 'running' | 'exporting' | 'training' | 'completed' | 'failed' | 'deployed';
+    completed_at: string | null;
+    started_at: string | null;
+  } | null;
 }
 
 export interface FieldDistribution {
@@ -676,6 +682,103 @@ export async function getLocalModelsStatus(): Promise<LocalModelsStatus> {
   const response = await fetch(`${API_BASE}/local-models-status`);
   if (!response.ok) {
     throw new Error(`Failed to get local models status: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+// ============================================================================
+// Preclassifier Training
+// ============================================================================
+
+export interface PreclassifierInfo {
+  id: string;
+  display_name: string;
+  description: string;
+  model_available: boolean;
+  training_status: 'idle' | 'training' | 'completed' | 'failed' | 'interrupted' | 'error';
+  total_samples: number;
+  category_counts: Record<string, number>;
+  categories_ready: number;
+  categories_total: number;
+  overall_readiness: 'ready' | 'partial' | 'not_ready';
+  min_samples_per_category: number;
+  last_trained: string | null;
+  error: string | null;
+}
+
+export interface PreclassifierDetailedStatus extends PreclassifierInfo {
+  model_status: Record<string, unknown> | null;
+  pid: number | null;
+  last_train_started: string | null;
+  last_train_completed: string | null;
+  sample_count: number | null;
+}
+
+export interface TrainPreclassifierResult {
+  status: string;
+  pid: number;
+  message: string;
+}
+
+export interface ReloadPreclassifierResult {
+  status: string;
+  model_available: boolean;
+  model_status: Record<string, unknown> | null;
+}
+
+/**
+ * List all preclassifiers with sample counts and readiness
+ */
+export async function getPreclassifiers(): Promise<{ preclassifiers: PreclassifierInfo[] }> {
+  const response = await fetch(`${API_BASE}/preclassifiers`);
+  if (!response.ok) {
+    throw new Error(`Failed to get preclassifiers: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Get detailed status for a specific preclassifier
+ */
+export async function getPreclassifierStatus(id: string): Promise<PreclassifierDetailedStatus> {
+  const response = await fetch(`${API_BASE}/preclassifiers/${encodeURIComponent(id)}/status`);
+  if (!response.ok) {
+    throw new Error(`Failed to get preclassifier status: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Trigger data export and training for a preclassifier
+ */
+export async function trainPreclassifier(
+  id: string,
+  options?: { epochs?: number; batch_size?: number }
+): Promise<TrainPreclassifierResult> {
+  const response = await fetch(`${API_BASE}/preclassifiers/${encodeURIComponent(id)}/train`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options || {}),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Failed to train preclassifier: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
+ * Force-reload a preclassifier model
+ */
+export async function reloadPreclassifier(id: string): Promise<ReloadPreclassifierResult> {
+  const response = await fetch(`${API_BASE}/preclassifiers/${encodeURIComponent(id)}/reload`, {
+    method: 'POST',
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || `Failed to reload preclassifier: ${response.statusText}`);
   }
   return response.json();
 }

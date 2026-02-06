@@ -102,6 +102,23 @@ _register(AnalysisModule(
     frontend_tab_icon="Microscope",
 ))
 
+# --- Brand Watcher ------------------------------------------------------------
+_register(AnalysisModule(
+    id="brand_watcher",
+    name="Brand Watcher",
+    description="Multi-brand intelligence tracking with sentiment, competitive analysis, and reputation monitoring.",
+    route_module="app.routes.brand_watcher_routes",
+    route_prefix="/api/brand-watcher",
+    task_module=None,
+    task_function=None,
+    task_delay=50,
+    model_path="models/brand_watcher_classifier/final",
+    migration_prefix="bw_",
+    frontend_tab_id="brand_watcher",
+    frontend_tab_label="Brand Watcher",
+    frontend_tab_icon="Target",
+))
+
 
 # ---------------------------------------------------------------------------
 # DB helpers — module_config table

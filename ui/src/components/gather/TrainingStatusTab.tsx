@@ -10,7 +10,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { RefreshCw, Zap, AlertCircle, CheckCircle2, Info, Cpu, Play, Loader2, XCircle, Trash2, FileText, Download, Target, Folder, FlaskConical, Tag, Database, FolderOpen, Rss, Check, Hash, HelpCircle, Star, CheckCircle, AlertTriangle } from 'lucide-react';
+import { RefreshCw, Zap, AlertCircle, CheckCircle2, Info, Cpu, Play, Loader2, XCircle, Trash2, FileText, Download, Target, Folder, FlaskConical, Tag, Database, FolderOpen, Rss, Check, Hash, HelpCircle, Star, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, RotateCw } from 'lucide-react';
 import { TopicTrainingCard } from './TopicTrainingCard';
 import {
   getTopicsTrainingStatus,
@@ -31,7 +31,11 @@ import {
   getInferenceMode,
   setInferenceMode,
   getLocalModelsStatus,
+  getPreclassifiers,
+  trainPreclassifier,
+  reloadPreclassifier,
   type TopicTrainingStatus,
+  type PreclassifierInfo,
   type LocalModelsStatus,
   type TrainingReadiness,
   type TrainingRun,
@@ -79,6 +83,10 @@ export function TrainingStatusTab() {
   const [costSavings, setCostSavings] = useState<CostSavingsStats | null>(null);
   const [inferenceMode, setInferenceModeState] = useState<InferenceMode>('hybrid');
   const [localModelsStatus, setLocalModelsStatus] = useState<LocalModelsStatus | null>(null);
+  const [preclassifiers, setPreclassifiers] = useState<PreclassifierInfo[]>([]);
+  const [trainingClassifier, setTrainingClassifier] = useState<string | null>(null);
+  const [reloadingClassifier, setReloadingClassifier] = useState<string | null>(null);
+  const [expandedClassifiers, setExpandedClassifiers] = useState<Set<string>>(new Set());
   const [savingMode, setSavingMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -92,7 +100,7 @@ export function TrainingStatusTab() {
     setError(null);
 
     try {
-      const [topicsData, readinessData, thresholdsData, runsData, confidenceData, relevanceConfData, feedbackData, statusData, pipelineData, modelConfigData, costSavingsData, inferenceModeData, localModelsData] = await Promise.all([
+      const [topicsData, readinessData, thresholdsData, runsData, confidenceData, relevanceConfData, feedbackData, statusData, pipelineData, modelConfigData, costSavingsData, inferenceModeData, localModelsData, preclassifiersData] = await Promise.all([
         getTopicsTrainingStatus(),
         checkReadiness(),
         getThresholds(),
@@ -106,6 +114,7 @@ export function TrainingStatusTab() {
         getCostSavings().catch(() => null),
         getInferenceMode().catch(() => ({ mode: 'hybrid' as InferenceMode })),
         getLocalModelsStatus().catch(() => null),
+        getPreclassifiers().catch(() => ({ preclassifiers: [] })),
       ]);
 
       setTopics(topicsData);
@@ -121,6 +130,7 @@ export function TrainingStatusTab() {
       setCostSavings(costSavingsData);
       setInferenceModeState(inferenceModeData.mode);
       setLocalModelsStatus(localModelsData);
+      setPreclassifiers(preclassifiersData.preclassifiers);
     } catch (err) {
       console.error('Failed to load training data:', err);
       setError(err instanceof Error ? err.message : 'Failed to load training data');
@@ -138,30 +148,38 @@ export function TrainingStatusTab() {
     };
   }, [loadData]);
 
-  // Poll for active run status updates
+  // Poll for active run status updates (enrichment training runs + preclassifier training)
   useEffect(() => {
     const hasActiveRun = recentRuns.some(r =>
       ['pending', 'running', 'exporting', 'training'].includes(r.status)
     );
+    const hasActivePreclassifier = preclassifiers.some(p => p.training_status === 'training');
 
-    if (hasActiveRun && !pollIntervalRef.current) {
+    if ((hasActiveRun || hasActivePreclassifier) && !pollIntervalRef.current) {
       pollIntervalRef.current = setInterval(async () => {
-        const runs = await getTrainingRuns(undefined, 10);
+        const [runs, pcData] = await Promise.all([
+          getTrainingRuns(undefined, 10),
+          getPreclassifiers().catch(() => ({ preclassifiers: [] })),
+        ]);
         setRecentRuns(runs);
+        setPreclassifiers(pcData.preclassifiers);
 
-        if (!runs.some(r => ['pending', 'running', 'exporting', 'training'].includes(r.status))) {
+        const stillActiveRuns = runs.some(r => ['pending', 'running', 'exporting', 'training'].includes(r.status));
+        const stillActivePC = pcData.preclassifiers.some(p => p.training_status === 'training');
+
+        if (!stillActiveRuns && !stillActivePC) {
           if (pollIntervalRef.current) {
             clearInterval(pollIntervalRef.current);
             pollIntervalRef.current = null;
           }
           loadData();
         }
-      }, 3000);
-    } else if (!hasActiveRun && pollIntervalRef.current) {
+      }, 5000);
+    } else if (!hasActiveRun && !hasActivePreclassifier && pollIntervalRef.current) {
       clearInterval(pollIntervalRef.current);
       pollIntervalRef.current = null;
     }
-  }, [recentRuns, loadData]);
+  }, [recentRuns, preclassifiers, loadData]);
 
   const handleTriggerFinetune = async (topic?: string) => {
     setTriggering(true);
@@ -222,6 +240,46 @@ export function TrainingStatusTab() {
       console.error('Failed to delete run:', err);
       setError(err instanceof Error ? err.message : 'Failed to delete run');
     }
+  };
+
+  const handleTrainPreclassifier = async (id: string) => {
+    setTrainingClassifier(id);
+    setError(null);
+    try {
+      const result = await trainPreclassifier(id);
+      const pcData = await getPreclassifiers().catch(() => ({ preclassifiers: [] }));
+      setPreclassifiers(pcData.preclassifiers);
+      alert(result.message);
+    } catch (err) {
+      console.error('Failed to train preclassifier:', err);
+      setError(err instanceof Error ? err.message : 'Failed to train preclassifier');
+    } finally {
+      setTrainingClassifier(null);
+    }
+  };
+
+  const handleReloadPreclassifier = async (id: string) => {
+    setReloadingClassifier(id);
+    setError(null);
+    try {
+      await reloadPreclassifier(id);
+      const pcData = await getPreclassifiers().catch(() => ({ preclassifiers: [] }));
+      setPreclassifiers(pcData.preclassifiers);
+    } catch (err) {
+      console.error('Failed to reload preclassifier:', err);
+      setError(err instanceof Error ? err.message : 'Failed to reload preclassifier');
+    } finally {
+      setReloadingClassifier(null);
+    }
+  };
+
+  const toggleClassifierExpand = (id: string) => {
+    setExpandedClassifiers(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const handleInferenceModeChange = async (mode: InferenceMode) => {
@@ -379,7 +437,7 @@ export function TrainingStatusTab() {
                   : 'text-gray-600 hover:text-gray-900 hover:bg-gray-200'
               }`}
             >
-              External (GPT)
+              External
             </button>
           </div>
         </div>
@@ -860,11 +918,182 @@ export function TrainingStatusTab() {
                 topic={topic}
                 thresholdGreen={thresholds?.green || DEBERTA_THRESHOLD}
                 onTriggerFinetune={handleTriggerFinetune}
+                onDeploy={handleDeploy}
               />
             ))}
           </div>
         )}
       </div>
+
+      {/* Preclassifiers Section */}
+      {preclassifiers.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-base font-semibold text-gray-900">
+              Preclassifiers <span className="font-normal text-gray-500">({preclassifiers.length})</span>
+            </h3>
+          </div>
+          <div className="space-y-4">
+            {preclassifiers.map((pc) => {
+              const isTraining = pc.training_status === 'training';
+              const isActive = pc.model_available;
+              const isFailed = pc.training_status === 'failed';
+              const isCompleted = pc.training_status === 'completed';
+              const isExpanded = expandedClassifiers.has(pc.id);
+              const sortedCategories = [...pc.categories_total > 0
+                ? Object.entries(pc.category_counts).sort((a, b) => b[1] - a[1])
+                : []
+              ];
+              const visibleCategories = isExpanded ? sortedCategories : sortedCategories.slice(0, 4);
+              const canTrain = pc.overall_readiness !== 'not_ready' && !isTraining;
+
+              return (
+                <div key={pc.id} className="bg-white rounded-xl border border-gray-200 p-5">
+                  {/* Header */}
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${
+                        isTraining ? 'bg-pink-50 text-pink-500' :
+                        isActive ? 'bg-green-50 text-green-500' :
+                        isFailed ? 'bg-red-50 text-red-500' :
+                        'bg-gray-50 text-gray-400'
+                      }`}>
+                        {isTraining ? <Loader2 className="w-5 h-5 animate-spin" /> :
+                         isActive ? <Cpu className="w-5 h-5" /> :
+                         isFailed ? <XCircle className="w-5 h-5" /> :
+                         <FlaskConical className="w-5 h-5" />}
+                      </div>
+                      <div>
+                        <h4 className="font-semibold text-gray-900">{pc.display_name}</h4>
+                        <p className="text-xs text-gray-500">{pc.description}</p>
+                      </div>
+                    </div>
+                    <span className={`px-2.5 py-1 rounded text-xs font-semibold ${
+                      isTraining ? 'bg-pink-50 text-pink-700 animate-pulse' :
+                      isActive ? 'bg-green-50 text-green-700' :
+                      isFailed ? 'bg-red-50 text-red-700' :
+                      'bg-gray-100 text-gray-600'
+                    }`}>
+                      {isTraining ? 'Training...' :
+                       isActive ? 'Active' :
+                       isFailed ? 'Failed' :
+                       isCompleted ? 'Trained' :
+                       'Not trained'}
+                    </span>
+                  </div>
+
+                  {/* Summary stats row */}
+                  {isActive && pc.last_trained ? (
+                    <div className="flex items-center gap-4 text-xs text-gray-600 mb-3 px-1">
+                      <span><strong>{pc.total_samples.toLocaleString()}</strong> samples</span>
+                      <span className="text-gray-300">|</span>
+                      <span>Trained: {new Date(pc.last_trained).toLocaleDateString()}</span>
+                      <span className="text-gray-300">|</span>
+                      <span className="text-pink-600">SLM &rarr; LLM fallback</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-4 text-xs text-gray-600 mb-3 px-1">
+                      <span><strong>{pc.total_samples.toLocaleString()}</strong> LLM samples collected</span>
+                      <span className="text-gray-300">|</span>
+                      <span><strong>{pc.categories_ready}</strong> of <strong>{pc.categories_total}</strong> categories ready</span>
+                    </div>
+                  )}
+
+                  {/* Per-category progress bars (only when not yet active or training) */}
+                  {(!isActive || isTraining) && sortedCategories.length > 0 && (
+                    <div className="space-y-1.5 mb-3">
+                      {visibleCategories.map(([cat, count]) => {
+                        const pct = Math.min((count / pc.min_samples_per_category) * 100, 100);
+                        const isReady = count >= pc.min_samples_per_category;
+                        return (
+                          <div key={cat} className="flex items-center gap-2">
+                            <span className="text-[11px] text-gray-600 w-[180px] truncate" title={cat}>{cat}</span>
+                            <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${isReady ? 'bg-green-500' : 'bg-pink-400'}`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                            <span className={`text-[10px] font-mono w-[60px] text-right ${isReady ? 'text-green-600' : 'text-gray-500'}`}>
+                              {count}/{pc.min_samples_per_category}
+                            </span>
+                          </div>
+                        );
+                      })}
+                      {sortedCategories.length > 4 && (
+                        <button
+                          onClick={() => toggleClassifierExpand(pc.id)}
+                          className="flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-700 mt-1"
+                        >
+                          {isExpanded ? (
+                            <><ChevronUp className="w-3 h-3" /> Show less</>
+                          ) : (
+                            <><ChevronDown className="w-3 h-3" /> Show all {sortedCategories.length} categories</>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Training progress bar */}
+                  {isTraining && (
+                    <div className="mb-3">
+                      <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden mb-1">
+                        <div className="h-full rounded-full bg-pink-500 animate-pulse" style={{ width: '65%' }} />
+                      </div>
+                      <div className="text-[10px] text-gray-500">Training DeBERTa model...</div>
+                    </div>
+                  )}
+
+                  {/* Error message */}
+                  {pc.error && !isTraining && (
+                    <div className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2 mb-3">
+                      {pc.error}
+                    </div>
+                  )}
+
+                  {/* Action buttons */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleTrainPreclassifier(pc.id)}
+                      disabled={!canTrain || trainingClassifier === pc.id}
+                      className="px-3 py-1.5 bg-pink-500 hover:bg-pink-600 disabled:bg-gray-300 text-white text-xs font-semibold rounded-lg transition-colors disabled:cursor-not-allowed"
+                    >
+                      {trainingClassifier === pc.id ? (
+                        <span className="flex items-center gap-1.5">
+                          <Loader2 className="w-3 h-3 animate-spin" /> Exporting...
+                        </span>
+                      ) : isTraining ? (
+                        'Training...'
+                      ) : (
+                        'Trigger Finetuning'
+                      )}
+                    </button>
+                    {(isActive || isCompleted) && (
+                      <button
+                        onClick={() => handleReloadPreclassifier(pc.id)}
+                        disabled={reloadingClassifier === pc.id || isTraining}
+                        className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                      >
+                        {reloadingClassifier === pc.id ? (
+                          <><Loader2 className="w-3 h-3 animate-spin" /> Reloading...</>
+                        ) : (
+                          <><RotateCw className="w-3 h-3" /> Reload Model</>
+                        )}
+                      </button>
+                    )}
+                    {!canTrain && !isTraining && pc.overall_readiness === 'not_ready' && (
+                      <span className="text-[10px] text-gray-400 ml-2">
+                        Need {pc.min_samples_per_category}+ LLM samples per category to train
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Training Runs */}
       {recentRuns.length > 0 && (

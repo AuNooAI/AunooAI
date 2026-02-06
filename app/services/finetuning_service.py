@@ -258,6 +258,7 @@ class FinetuningService:
             export_cmd = [
                 python_path, "scripts/export_training_data_for_deberta.py",
                 "--min-samples", "20",
+                "--max-samples-per-topic", "3000",
             ]
             if topics:
                 export_cmd.extend(["--topics"] + topics)

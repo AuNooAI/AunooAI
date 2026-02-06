@@ -18,6 +18,7 @@ interface TopicTrainingCardProps {
   topic: TopicTrainingStatus;
   thresholdGreen: number;
   onTriggerFinetune?: (topic: string) => void;
+  onDeploy?: (runId: string) => void;
 }
 
 // Field display names
@@ -86,6 +87,7 @@ export function TopicTrainingCard({
   topic,
   thresholdGreen,
   onTriggerFinetune,
+  onDeploy,
 }: TopicTrainingCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [selectedField, setSelectedField] = useState<string | null>(null);
@@ -152,11 +154,25 @@ export function TopicTrainingCard({
             <div className="flex items-center justify-between">
               <h3 className="font-semibold text-sm text-gray-900 truncate pr-2">{topic.topic}</h3>
               <span className={`px-2 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap ${
-                isFullyReady
-                  ? 'bg-green-50 text-green-700'
-                  : 'bg-gray-100 text-gray-500'
+                (() => {
+                  const runStatus = topic.latest_run?.status;
+                  if (runStatus === 'deployed') return 'bg-green-50 text-green-700';
+                  if (runStatus && ['pending','running','exporting','training'].includes(runStatus)) return 'bg-pink-50 text-pink-700 animate-pulse';
+                  if (runStatus === 'completed') return 'bg-blue-50 text-blue-700';
+                  if (runStatus === 'failed' && isFullyReady) return 'bg-red-50 text-red-700';
+                  if (isFullyReady) return 'bg-amber-50 text-amber-700';
+                  return 'bg-gray-100 text-gray-500';
+                })()
               }`}>
-                {isFullyReady ? 'DeBERTa Ready' : `${debertaReadyFields.length}/${fields.length} ready`}
+                {(() => {
+                  const runStatus = topic.latest_run?.status;
+                  if (runStatus === 'deployed') return 'Deployed';
+                  if (runStatus && ['pending','running','exporting','training'].includes(runStatus)) return 'Training...';
+                  if (runStatus === 'completed') return 'Trained';
+                  if (runStatus === 'failed' && isFullyReady) return 'Failed';
+                  if (isFullyReady) return 'Ready to Train';
+                  return `${debertaReadyFields.length}/${fields.length} ready`;
+                })()}
               </span>
             </div>
             <p className="text-xs text-gray-500 mt-0.5">
@@ -175,7 +191,15 @@ export function TopicTrainingCard({
           </div>
           <div className="flex items-center justify-between mt-1.5">
             <span className="text-[10px] text-gray-500">
-              {isFullyReady ? 'Training complete' : 'Collecting samples'}
+              {(() => {
+                const runStatus = topic.latest_run?.status;
+                if (runStatus === 'deployed') return 'DeBERTa active';
+                if (runStatus && ['pending','running','exporting','training'].includes(runStatus)) return 'Training DeBERTa...';
+                if (runStatus === 'completed') return 'Ready to deploy';
+                if (runStatus === 'failed') return 'Last training failed';
+                if (isFullyReady) return 'Ready for finetuning';
+                return 'Collecting samples';
+              })()}
             </span>
             <span className="text-[10px] font-medium text-gray-600">{avgProgress}%</span>
           </div>
@@ -270,17 +294,30 @@ export function TopicTrainingCard({
           )}
 
           {/* Actions */}
-          {isFullyReady && onTriggerFinetune && (
-            <div className="mt-4 pt-3 border-t border-gray-100">
-              <button
-                className="w-full px-4 py-2 bg-pink-500 hover:bg-pink-600 text-white text-xs font-semibold rounded-lg transition-colors"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onTriggerFinetune(topic.topic);
-                }}
-              >
-                Trigger Finetuning
-              </button>
+          {isFullyReady && (
+            <div className="mt-4 pt-3 border-t border-gray-100 flex gap-2">
+              {onTriggerFinetune && (
+                <button
+                  className="flex-1 px-4 py-2 bg-pink-500 hover:bg-pink-600 text-white text-xs font-semibold rounded-lg transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTriggerFinetune(topic.topic);
+                  }}
+                >
+                  Trigger Finetuning
+                </button>
+              )}
+              {topic.latest_run?.status === 'completed' && onDeploy && (
+                <button
+                  className="flex-1 px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-xs font-semibold rounded-lg transition-colors"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeploy(topic.latest_run!.run_id);
+                  }}
+                >
+                  Deploy
+                </button>
+              )}
             </div>
           )}
 

@@ -25,6 +25,7 @@ import {
   Scale,
   Globe,
   Microscope,
+  Target,
 } from 'lucide-react';
 import { useNewsFeed } from '../hooks/useNewsFeed';
 import { useNarrativeExplorer } from '../hooks/useNarrativeExplorer';
@@ -53,6 +54,8 @@ const GeopoliticalHotspotsTab = React.lazy(() =>
   import('../components/newsfeed/GeopoliticalHotspotsTab').then(m => ({ default: m.GeopoliticalHotspotsTab })));
 const ScienceFundingTab = React.lazy(() =>
   import('../components/newsfeed/ScienceFundingTab').then(m => ({ default: m.ScienceFundingTab })));
+const BrandWatcherTab = React.lazy(() =>
+  import('../components/newsfeed/BrandWatcherTab').then(m => ({ default: m.BrandWatcherTab })));
 import { BriefingDeskSection } from '../components/newsfeed/BriefingDeskSection';
 import { fetchDraftBriefingsCount } from '../services/briefingDeskApi';
 import { TopicCluster, getCategoryIcon } from '../components/newsfeed/TopicCluster';
@@ -198,7 +201,7 @@ export function NewsFeedPage() {
   const { modules: allModules, isEnabled: isModuleEnabled, toggleModule } = useModules();
 
   // UI State
-  const [currentTab, setCurrentTab] = useState<'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science'>('feed');
+  const [currentTab, setCurrentTab] = useState<'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science' | 'brand_watcher'>('feed');
   const [viewMode, setViewMode] = useState<'clustered' | 'list'>('list');
   const [emergingTopicsCount, setEmergingTopicsCount] = useState(0);
   const [reportsCount, setReportsCount] = useState(0);
@@ -864,6 +867,15 @@ export function NewsFeedPage() {
             ScienceWatch
           </button>
           )}
+          {isModuleEnabled('brand_watcher') && (
+          <button
+            className={`explore-tab-btn ${currentTab === 'brand_watcher' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('brand_watcher')}
+          >
+            <Target className="w-4 h-4" />
+            Brand Watcher
+          </button>
+          )}
           <button
             className={`explore-tab-btn ${currentTab === 'emerging' ? 'active' : ''}`}
             onClick={() => setCurrentTab('emerging')}
@@ -1200,6 +1212,15 @@ export function NewsFeedPage() {
             {currentTab === 'science' && isModuleEnabled('science') && (
               <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-pink-500" /></div>}>
                 <ScienceFundingTab
+                  onArticleClick={handleArticleClick}
+                />
+              </Suspense>
+            )}
+
+            {/* Brand Watcher Tab Content */}
+            {currentTab === 'brand_watcher' && isModuleEnabled('brand_watcher') && (
+              <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>}>
+                <BrandWatcherTab
                   onArticleClick={handleArticleClick}
                 />
               </Suspense>

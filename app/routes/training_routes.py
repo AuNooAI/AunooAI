@@ -554,6 +554,7 @@ class TopicTrainingStatus(BaseModel):
     field_counts: dict
     field_readiness: dict
     overall_status: str  # 'ready', 'partial', 'marginal', 'not_ready'
+    latest_run: Optional[dict] = None
 
 
 class FieldDistribution(BaseModel):
@@ -656,11 +657,47 @@ async def get_topics_status():
     """
     Get training status for all topics.
 
-    Returns list of topics with sample counts, field readiness, and overall status.
+    Returns list of topics with sample counts, field readiness, overall status,
+    and the latest training run that included each topic.
     """
     try:
         service = get_bootstrap_service()
         status = await service.get_all_topics_status()
+
+        # Enrich with latest training run per topic
+        conn = None
+        try:
+            from app.database import get_database_instance
+            from sqlalchemy import text
+            db = get_database_instance()
+            conn = db._temp_get_connection()
+
+            result = conn.execute(text("""
+                SELECT run_id, status, topics_included, completed_at, started_at
+                FROM training_runs
+                ORDER BY created_at DESC
+            """))
+            runs = result.fetchall()
+
+            for topic_data in status:
+                topic_name = topic_data["topic"]
+                topic_data["latest_run"] = None
+                for run in runs:
+                    topics_in_run = run[2] or []
+                    if topic_name in topics_in_run:
+                        topic_data["latest_run"] = {
+                            "run_id": run[0],
+                            "status": run[1],
+                            "completed_at": run[3].isoformat() if run[3] else None,
+                            "started_at": run[4].isoformat() if run[4] else None,
+                        }
+                        break
+        except Exception as e:
+            logger.warning(f"Could not enrich topics with run status: {e}")
+        finally:
+            if conn:
+                conn.close()
+
         return status
     except Exception as e:
         logger.error(f"Error getting topics status: {e}")
@@ -1785,6 +1822,92 @@ async def get_cost_savings(hours: int = 24):
     finally:
         if conn:
             conn.close()
+
+
+# ============================================================================
+# Preclassifier Training Endpoints
+# ============================================================================
+
+def get_preclassifier_service():
+    from app.services.preclassifier_training_service import get_preclassifier_training_service
+    return get_preclassifier_training_service()
+
+
+class TrainPreclassifierRequest(BaseModel):
+    """Optional parameters for preclassifier training."""
+    epochs: Optional[int] = None
+    batch_size: Optional[int] = None
+
+
+@router.get("/preclassifiers")
+async def list_preclassifiers():
+    """
+    List all preclassifiers with sample counts, readiness, and model status.
+    """
+    try:
+        service = get_preclassifier_service()
+        preclassifiers = service.list_all()
+        return {"preclassifiers": preclassifiers}
+    except Exception as e:
+        logger.error(f"Error listing preclassifiers: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/preclassifiers/{classifier_id}/status")
+async def get_preclassifier_status(classifier_id: str):
+    """
+    Get detailed status for a specific preclassifier.
+    """
+    try:
+        service = get_preclassifier_service()
+        status = service.get_status(classifier_id)
+        return status
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error getting preclassifier status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/preclassifiers/{classifier_id}/train")
+async def train_preclassifier(classifier_id: str, request: TrainPreclassifierRequest = None):
+    """
+    Export data and trigger training for a preclassifier.
+    """
+    try:
+        service = get_preclassifier_service()
+        req = request or TrainPreclassifierRequest()
+        result = service.train(
+            classifier_id,
+            epochs=req.epochs,
+            batch_size=req.batch_size,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error training preclassifier: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/preclassifiers/{classifier_id}/reload")
+async def reload_preclassifier(classifier_id: str):
+    """
+    Force-reload a preclassifier model after training.
+    """
+    try:
+        service = get_preclassifier_service()
+        result = service.reload_model(classifier_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error reloading preclassifier: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/relevance-feedback/article/{article_uri:path}")

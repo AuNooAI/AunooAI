@@ -47,6 +47,8 @@ def parse_args():
                         help='Test split ratio (default: 0.1)')
     parser.add_argument('--val-size', type=float, default=0.1,
                         help='Validation split ratio (default: 0.1)')
+    parser.add_argument('--max-samples-per-topic', type=int, default=3000,
+                        help='Max samples per topic to cap training size (default: 3000)')
     parser.add_argument('--topics', type=str, nargs='*',
                         help='Specific topics to include (default: all)')
     return parser.parse_args()
@@ -57,6 +59,7 @@ def export_training_data(
     test_size: float = 0.1,
     val_size: float = 0.1,
     topics: list = None,
+    max_samples_per_topic: int = 3000,
 ):
     """Export training samples from database to JSON files."""
     db = Database()
@@ -119,6 +122,20 @@ def export_training_data(
         df = df[df[field].notna() & (df[field] != '')]
 
     logger.info(f"After filtering incomplete records: {len(df)} articles")
+
+    # Cap samples per topic to avoid training timeouts
+    if max_samples_per_topic and 'topic' in df.columns:
+        before = len(df)
+        capped_dfs = []
+        for topic_name, group in df.groupby('topic'):
+            if len(group) > max_samples_per_topic:
+                logger.info(f"Topic '{topic_name}': capping {len(group)} -> {max_samples_per_topic} samples")
+                capped_dfs.append(group.sample(n=max_samples_per_topic, random_state=42))
+            else:
+                capped_dfs.append(group)
+        df = pd.concat(capped_dfs, ignore_index=True)
+        if len(df) < before:
+            logger.info(f"After capping at {max_samples_per_topic}/topic: {len(df)} articles (was {before})")
 
     # Build label mappings and filter rare labels
     label_mappings = {}
@@ -191,6 +208,7 @@ def main():
         test_size=args.test_size,
         val_size=args.val_size,
         topics=args.topics,
+        max_samples_per_topic=args.max_samples_per_topic,
     )
 
 
