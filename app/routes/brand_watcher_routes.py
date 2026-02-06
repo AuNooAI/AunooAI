@@ -279,6 +279,7 @@ class BrandResponse(BaseModel):
     competitor_keywords: Optional[List[str]] = None
     enabled: bool = True
     color: Optional[str] = None
+    config: Optional[Dict[str, Any]] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -541,6 +542,12 @@ def _update_daily_stats(conn, brand_id: int, category: str, stat_date: date, cou
 
 
 def _brand_row_to_dict(row) -> dict:
+    config_val = row[12] if len(row) > 12 else {}
+    if isinstance(config_val, str):
+        try:
+            config_val = json.loads(config_val)
+        except (json.JSONDecodeError, TypeError):
+            config_val = {}
     return {
         "id": row[0],
         "name": row[1],
@@ -554,12 +561,13 @@ def _brand_row_to_dict(row) -> dict:
         "color": row[9],
         "created_at": str(row[10]) if row[10] else None,
         "updated_at": str(row[11]) if row[11] else None,
+        "config": config_val if isinstance(config_val, dict) else {},
     }
 
 
 BRAND_SELECT_COLS = """id, name, display_name, description,
     brand_keywords, product_keywords, people_keywords, competitor_keywords,
-    enabled, color, created_at, updated_at"""
+    enabled, color, created_at, updated_at, COALESCE(config, '{}') as config"""
 
 
 # ============================================================================
@@ -789,6 +797,37 @@ async def toggle_brand(brand_id: int, session=Depends(verify_session)):
     except Exception as e:
         conn.rollback()
         logger.error(f"Error toggling brand {brand_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.put("/brands/{brand_id}/config")
+async def update_brand_config(brand_id: int, config_update: dict, session=Depends(verify_session)):
+    """Update brand-specific config (e.g., slm_confidence_threshold)."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        # Merge with existing config
+        existing = conn.execute(text(
+            "SELECT COALESCE(config, '{}') FROM bw_brands WHERE id = :id"
+        ), {"id": brand_id}).fetchone()
+        if not existing:
+            raise HTTPException(status_code=404, detail="Brand not found")
+
+        current_config = existing[0] if isinstance(existing[0], dict) else json.loads(existing[0] or '{}')
+        current_config.update(config_update)
+
+        conn.execute(text("""
+            UPDATE bw_brands SET config = :config, updated_at = NOW() WHERE id = :id
+        """), {"id": brand_id, "config": json.dumps(current_config)})
+        conn.commit()
+        return {"config": current_config}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error updating brand config: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
@@ -1131,8 +1170,22 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
                 """), {**base_params, "bid": bid})
 
             articles = art_result.fetchall()
+
+            # Log skip count for incremental runs
+            if run_type != "full":
+                already_count = conn.execute(text(f"""
+                    SELECT COUNT(*) FROM articles a
+                    JOIN bw_article_categories bac ON a.uri = bac.article_uri AND bac.brand_id = :bid
+                    WHERE a.publication_date >= :start AND a.publication_date <= :end
+                    AND a.category IS NOT NULL AND a.category != ''
+                    {topic_filter}
+                    {brand_filter}
+                """), {**base_params, "bid": bid}).scalar() or 0
+                if already_count > 0:
+                    logger.info(f"BW Run {run_id}: Skipping {already_count} already-classified articles for brand '{brand['display_name']}'")
+
             logger.info(f"BW Run {run_id}: brand '{brand['display_name']}' (id={bid}): "
-                        f"{len(articles)} articles found matching {search_terms}")
+                        f"{len(articles)} new articles to classify matching {search_terms}")
 
             for uri, title, summary in articles:
                 title = title or ''
@@ -1144,10 +1197,11 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
                 method = "keyword"
                 confidence = None
 
-                # Step 1: SLM
+                # Step 1: SLM (with per-brand threshold)
+                brand_threshold = brand.get("config", {}).get("slm_confidence_threshold")
                 if slm_available:
                     try:
-                        slm_result = slm.classify(text_input, return_scores=True)
+                        slm_result = slm.classify(text_input, threshold=brand_threshold, return_scores=True)
                         categories = slm_result.get("categories", [])
                         if categories:
                             method = "slm"
@@ -1217,6 +1271,28 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
         conn.commit()
         logger.info(f"Brand Watcher run {run_id}: {articles_processed} processed, {articles_categorized} categorized")
 
+        # Send notification on completion
+        if articles_categorized > 0:
+            try:
+                brand_names = [b["display_name"] for b in brands]
+                topic_msg = f" across {len(topics)} topics" if topics else ""
+                db.facade.create_notification(
+                    username=None,
+                    type='brand_watcher',
+                    title=f'Brand Watcher: {", ".join(brand_names[:3])}{"..." if len(brand_names) > 3 else ""}',
+                    message=f'Classified {articles_categorized} articles{topic_msg}',
+                    link='/newsfeed?tab=brand-watcher'
+                )
+            except Exception as notif_err:
+                logger.warning(f"Failed to send classification notification: {notif_err}")
+
+        # Auto-generate narrative clusters for brands with enough data
+        for brand in brands:
+            try:
+                _auto_generate_narrative_clusters(db, brand["id"], brand["display_name"])
+            except Exception as cluster_err:
+                logger.warning(f"Auto narrative clustering failed for {brand['display_name']}: {cluster_err}")
+
     except Exception as e:
         logger.error(f"Brand Watcher run {run_id} failed: {e}")
         conn.execute(text("""
@@ -1224,6 +1300,87 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
             WHERE id = :run_id
         """), {"run_id": run_id, "err": str(e)})
         conn.commit()
+    finally:
+        conn.close()
+
+
+def _auto_generate_narrative_clusters(db, brand_id: int, brand_name: str):
+    """Auto-detect article clusters by category + date proximity and create narratives."""
+    conn = db._temp_get_connection()
+    try:
+        # Find clusters: articles grouped by category within 3-day windows, having 3+ articles
+        result = conn.execute(text("""
+            WITH clustered AS (
+                SELECT bac.category,
+                       DATE_TRUNC('day', a.publication_date::timestamp)::date as pub_date,
+                       COUNT(DISTINCT bac.article_uri) as cnt,
+                       ARRAY_AGG(DISTINCT a.title ORDER BY a.title) as titles
+                FROM bw_article_categories bac
+                JOIN articles a ON bac.article_uri = a.uri
+                WHERE bac.brand_id = :bid
+                AND a.publication_date >= (NOW() - INTERVAL '7 days')::text
+                AND a.category IS NOT NULL AND a.category != ''
+                GROUP BY bac.category, DATE_TRUNC('day', a.publication_date::timestamp)::date
+                HAVING COUNT(DISTINCT bac.article_uri) >= 3
+            )
+            SELECT category, pub_date, cnt, titles
+            FROM clustered
+            ORDER BY cnt DESC
+            LIMIT 5
+        """), {"bid": brand_id})
+
+        clusters = result.fetchall()
+        if not clusters:
+            conn.close()
+            return
+
+        for category, pub_date, count, titles in clusters:
+            # Check if a narrative already exists for this cluster
+            existing = conn.execute(text("""
+                SELECT id FROM bw_tracker_narratives
+                WHERE brand_id = :bid
+                AND data_summary->>'cluster_category' = :cat
+                AND date_range_start = :pub_date
+                AND generated_at >= NOW() - INTERVAL '7 days'
+            """), {"bid": brand_id, "cat": category, "pub_date": pub_date}).fetchone()
+
+            if existing:
+                continue
+
+            # Build a simple auto-narrative from the cluster
+            title_list = titles[:5] if isinstance(titles, list) else []
+            title_summary = "\n".join(f"- {t}" for t in title_list)
+
+            narrative_text = (
+                f"## Event Cluster: {category}\n\n"
+                f"**{count} related articles** detected around {pub_date} for {brand_name}.\n\n"
+                f"### Key Headlines\n{title_summary}\n\n"
+                f"*Auto-detected cluster — generate a full narrative for deeper analysis.*"
+            )
+
+            data_summary = {
+                "cluster_category": category,
+                "article_count": count,
+                "auto_generated": True,
+                "titles": title_list,
+            }
+
+            conn.execute(text("""
+                INSERT INTO bw_tracker_narratives
+                (brand_id, narrative, data_summary, days_back, date_range_start, date_range_end)
+                VALUES (:bid, :narrative, :data, 7, :start, :end)
+            """), {
+                "bid": brand_id,
+                "narrative": narrative_text,
+                "data": json.dumps(data_summary),
+                "start": pub_date,
+                "end": pub_date,
+            })
+
+        conn.commit()
+        logger.info(f"Auto-generated {len(clusters)} narrative clusters for {brand_name}")
+    except Exception as e:
+        logger.warning(f"Narrative cluster generation error: {e}")
     finally:
         conn.close()
 
@@ -1575,17 +1732,31 @@ async def get_temporal_data(
 @router.get("/comparison", response_model=List[ComparisonDataResponse])
 async def get_brand_comparison(
     topics: Optional[str] = Query(None),
+    brand_ids: Optional[str] = Query(None, description="Comma-separated brand IDs to compare"),
     days_back: int = Query(365, ge=0, le=730),
     session=Depends(verify_session),
 ):
-    """Cross-brand category comparison."""
+    """Cross-brand category comparison. Optionally filter to specific brand_ids."""
     db = get_database_instance()
     conn = db._temp_get_connection()
     try:
         start_date, end_date = _get_date_range(days_back)
         topic_filter, topic_params = _build_topics_filter(topics)
 
-        brands_result = conn.execute(text(f"SELECT {BRAND_SELECT_COLS} FROM bw_brands WHERE enabled = true ORDER BY display_name"))
+        if brand_ids:
+            bid_list = [int(x.strip()) for x in brand_ids.split(",") if x.strip().isdigit()]
+            if bid_list:
+                placeholders = ", ".join(f":cmp_bid_{i}" for i in range(len(bid_list)))
+                brand_filter_sql = f"AND id IN ({placeholders})"
+                bid_params = {f"cmp_bid_{i}": b for i, b in enumerate(bid_list)}
+                brands_result = conn.execute(
+                    text(f"SELECT {BRAND_SELECT_COLS} FROM bw_brands WHERE enabled = true {brand_filter_sql} ORDER BY display_name"),
+                    bid_params
+                )
+            else:
+                brands_result = conn.execute(text(f"SELECT {BRAND_SELECT_COLS} FROM bw_brands WHERE enabled = true ORDER BY display_name"))
+        else:
+            brands_result = conn.execute(text(f"SELECT {BRAND_SELECT_COLS} FROM bw_brands WHERE enabled = true ORDER BY display_name"))
         brands = [_brand_row_to_dict(row) for row in brands_result.fetchall()]
 
         response = []
@@ -1662,6 +1833,221 @@ async def get_share_of_voice(
         ]
     except Exception as e:
         logger.error(f"Error fetching share of voice: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+# ============================================================================
+# Sentiment Trends Endpoint
+# ============================================================================
+
+@router.get("/brands/{brand_id}/sentiment-trends")
+async def get_sentiment_trends(
+    brand_id: int,
+    topics: Optional[str] = Query(None),
+    days_back: int = Query(365, ge=0, le=730),
+    session=Depends(verify_session),
+):
+    """Weekly sentiment trends per category for a brand."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        start_date, end_date = _get_date_range(days_back)
+        topic_filter, topic_params = _build_topics_filter(topics)
+        params = {"bid": brand_id, "start": start_date, "end": end_date, **topic_params}
+
+        result = conn.execute(text(f"""
+            SELECT DATE_TRUNC('week', a.publication_date::timestamp)::date as week,
+                   bac.category,
+                   a.sentiment,
+                   COUNT(*) as cnt
+            FROM bw_article_categories bac
+            JOIN articles a ON bac.article_uri = a.uri
+            WHERE bac.brand_id = :bid
+            AND a.publication_date >= :start AND a.publication_date <= :end
+            AND a.category IS NOT NULL AND a.category != ''
+            AND a.sentiment IS NOT NULL AND a.sentiment != ''
+            {topic_filter}
+            GROUP BY week, bac.category, a.sentiment
+            ORDER BY week
+        """), params)
+
+        # Build structured response
+        weekly_data: Dict[str, Dict[str, Dict[str, int]]] = {}
+        for row in result.fetchall():
+            week_str = str(row[0])
+            category = row[1]
+            sentiment = row[2]
+            count = row[3]
+
+            if week_str not in weekly_data:
+                weekly_data[week_str] = {}
+            if category not in weekly_data[week_str]:
+                weekly_data[week_str][category] = {}
+            weekly_data[week_str][category][sentiment] = count
+
+        trends = []
+        for week, cats in sorted(weekly_data.items()):
+            for category, sentiments in cats.items():
+                total = sum(sentiments.values())
+                trends.append({
+                    "week": week,
+                    "category": category,
+                    "sentiments": sentiments,
+                    "total": total,
+                })
+
+        return {"trends": trends}
+    except Exception as e:
+        logger.error(f"Error fetching sentiment trends: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+# ============================================================================
+# Category Alerts Endpoint
+# ============================================================================
+
+@router.get("/brands/{brand_id}/alerts")
+async def get_brand_alerts(
+    brand_id: int,
+    days_back: int = Query(30, ge=1, le=365),
+    session=Depends(verify_session),
+):
+    """Get recent spike alerts for a brand by checking category counts vs rolling average."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        # Recent 7-day counts
+        recent = conn.execute(text("""
+            SELECT bac.category, COUNT(DISTINCT bac.article_uri) as cnt
+            FROM bw_article_categories bac
+            JOIN articles a ON bac.article_uri = a.uri
+            WHERE bac.brand_id = :bid
+            AND a.publication_date >= (NOW() - INTERVAL '7 days')::text
+            GROUP BY bac.category
+        """), {"bid": brand_id})
+        recent_counts = {row[0]: row[1] for row in recent.fetchall()}
+
+        # 30-day avg (per week, excluding last 7 days)
+        avg_result = conn.execute(text("""
+            SELECT bac.category, COUNT(DISTINCT bac.article_uri) / 4.0 as avg_weekly
+            FROM bw_article_categories bac
+            JOIN articles a ON bac.article_uri = a.uri
+            WHERE bac.brand_id = :bid
+            AND a.publication_date >= (NOW() - INTERVAL '30 days')::text
+            AND a.publication_date < (NOW() - INTERVAL '7 days')::text
+            GROUP BY bac.category
+        """), {"bid": brand_id})
+        avg_counts = {row[0]: float(row[1]) for row in avg_result.fetchall()}
+
+        alerts = []
+        for category, count in recent_counts.items():
+            avg = avg_counts.get(category, 0)
+            if avg > 0 and count >= avg * 2 and count >= 3:
+                alerts.append({
+                    "category": category,
+                    "current_count": count,
+                    "average_count": round(avg, 1),
+                    "spike_ratio": round(count / avg, 1),
+                    "severity": "high" if count >= avg * 3 else "medium",
+                })
+
+        return {"alerts": sorted(alerts, key=lambda a: a["spike_ratio"], reverse=True)}
+    except Exception as e:
+        logger.error(f"Error fetching brand alerts: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+# ============================================================================
+# Export Endpoint
+# ============================================================================
+
+@router.get("/brands/{brand_id}/export")
+async def export_brand_data(
+    brand_id: int,
+    format: str = Query("csv", description="Export format: csv or json"),
+    start_date: Optional[str] = Query(None),
+    end_date: Optional[str] = Query(None),
+    days_back: int = Query(365, ge=0, le=730),
+    session=Depends(verify_session),
+):
+    """Export classified articles for a brand as CSV or JSON."""
+    from fastapi.responses import StreamingResponse
+    import io
+    import csv
+
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        if start_date and end_date:
+            sd, ed = start_date, end_date
+        else:
+            sd, ed = _get_date_range(days_back)
+
+        result = conn.execute(text("""
+            SELECT a.publication_date, a.title, bac.category,
+                   a.sentiment, a.news_source, bac.confidence,
+                   bac.classification_method, a.uri
+            FROM bw_article_categories bac
+            JOIN articles a ON bac.article_uri = a.uri
+            WHERE bac.brand_id = :bid
+            AND a.publication_date >= :start AND a.publication_date <= :end
+            AND a.category IS NOT NULL AND a.category != ''
+            ORDER BY a.publication_date DESC
+        """), {"bid": brand_id, "start": sd, "end": ed})
+
+        rows = result.fetchall()
+
+        # Get brand name for filename
+        brand_row = conn.execute(text("SELECT display_name FROM bw_brands WHERE id = :id"), {"id": brand_id}).fetchone()
+        brand_name = brand_row[0] if brand_row else "brand"
+        safe_name = re.sub(r'[^a-zA-Z0-9_-]', '_', brand_name)
+
+        if format == "json":
+            data = [
+                {
+                    "date": str(r[0]) if r[0] else None,
+                    "title": r[1],
+                    "category": r[2],
+                    "sentiment": r[3],
+                    "source": r[4],
+                    "confidence": float(r[5]) if r[5] else None,
+                    "method": r[6],
+                    "uri": r[7],
+                }
+                for r in rows
+            ]
+            return {"brand": brand_name, "export_date": datetime.now().isoformat(), "articles": data, "total": len(data)}
+
+        # CSV export
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["Date", "Title", "Category", "Sentiment", "Source", "Confidence", "Method", "URI"])
+        for r in rows:
+            writer.writerow([
+                str(r[0]) if r[0] else "",
+                r[1] or "",
+                r[2] or "",
+                r[3] or "",
+                r[4] or "",
+                f"{r[5]:.2f}" if r[5] else "",
+                r[6] or "",
+                r[7] or "",
+            ])
+
+        output.seek(0)
+        return StreamingResponse(
+            iter([output.getvalue()]),
+            media_type="text/csv",
+            headers={"Content-Disposition": f"attachment; filename=brand_watcher_{safe_name}_{sd}_{ed}.csv"},
+        )
+    except Exception as e:
+        logger.error(f"Error exporting brand data: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
@@ -2054,6 +2440,62 @@ async def slm_classify_text(request: dict, session=Depends(verify_session)):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/classifier/retrain")
+async def retrain_classifier(
+    background_tasks: BackgroundTasks,
+    session=Depends(verify_session),
+):
+    """Trigger SLM classifier retraining."""
+    import subprocess
+
+    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    train_script = os.path.join(base_dir, "scripts", "train_brand_watcher_classifier.py")
+
+    if not os.path.exists(train_script):
+        raise HTTPException(status_code=404, detail="Training script not found")
+
+    # Check article count
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        count = conn.execute(text("SELECT COUNT(*) FROM bw_article_categories")).scalar() or 0
+    finally:
+        conn.close()
+
+    if count < 50:
+        raise HTTPException(status_code=400, detail=f"Only {count} classified articles. Need at least 50 for training.")
+
+    def _run_training():
+        try:
+            result = subprocess.run(
+                ["python", train_script],
+                cwd=base_dir,
+                capture_output=True, text=True, timeout=3600,
+            )
+            marker_file = os.path.join(base_dir, "models", "brand_watcher_classifier", ".last_train_timestamp")
+            os.makedirs(os.path.dirname(marker_file), exist_ok=True)
+            with open(marker_file, 'w') as f:
+                f.write(datetime.now().isoformat())
+
+            db.facade.create_notification(
+                username=None,
+                type='brand_watcher',
+                title='Brand Watcher: SLM Retrain Complete',
+                message=f'Classifier retrained with {count} classified articles.',
+                link='/newsfeed?tab=brand-watcher'
+            )
+            logger.info(f"SLM retrain complete: {result.returncode}")
+        except Exception as e:
+            logger.error(f"SLM retrain failed: {e}")
+
+    background_tasks.add_task(_run_training)
+
+    return {
+        "status": "started",
+        "message": f"Retraining started with {count} classified articles",
+    }
 
 
 # ============================================================================

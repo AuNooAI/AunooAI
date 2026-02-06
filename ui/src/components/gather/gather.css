@@ -2467,9 +2467,8 @@
 
 .explore-tab-navigation {
   display: flex;
-  gap: 4px;
-  padding: 8px 24px;
-  background-color: var(--gather-mauve-2);
+  gap: 2px;
+  padding: 0 24px;
   border-bottom: 1px solid var(--gather-mauve-6);
 }
 
@@ -2477,26 +2476,25 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 20px;
+  padding: 10px 16px;
   font-size: 14px;
   font-weight: 500;
   color: var(--gather-mauve-11);
   background: transparent;
   border: none;
-  border-radius: 8px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .explore-tab-btn:hover {
   color: var(--gather-mauve-12);
-  background-color: var(--gather-mauve-3);
 }
 
 .explore-tab-btn.active {
   color: var(--gather-pink-9);
-  background-color: var(--gather-card-bg);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  border-bottom-color: var(--gather-pink-9);
 }
 
 .explore-tab-badge {
@@ -2963,7 +2961,6 @@
 
 /* Explore Tab Navigation - Dark Mode */
 .dark .explore-tab-navigation {
-  background-color: var(--gather-mauve-3);
   border-bottom-color: var(--gather-mauve-12);
 }
 
@@ -2973,13 +2970,11 @@
 
 .dark .explore-tab-btn:hover {
   color: var(--gather-mauve-6);
-  background-color: var(--gather-mauve-12);
 }
 
 .dark .explore-tab-btn.active {
   color: var(--gather-pink-9);
-  background-color: var(--gather-mauve-12);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  border-bottom-color: var(--gather-pink-9);
 }
 
 /* Research Agents - Dark Mode */

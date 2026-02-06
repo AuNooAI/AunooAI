@@ -385,23 +385,25 @@ export function BriefingDeskSection({ isFullTab = false, model, organizationalPr
   return (
     <div className={`${isFullTab ? '' : 'p-4'}`}>
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <Newspaper className="w-5 h-5 text-pink-500" />
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+            <Newspaper className="w-5 h-5 text-pink-500" />
             Briefing Desk
           </h2>
-          <span className="text-sm text-gray-500 dark:text-gray-400">
-            ({briefings.length} briefings)
-          </span>
+          <p className="text-sm text-gray-500 dark:text-gray-300 mt-1">
+            {briefings.length} briefing{briefings.length !== 1 ? 's' : ''} curated
+          </p>
         </div>
-        <button
-          onClick={() => setShowCreateForm(true)}
-          className="flex items-center gap-2 px-3 py-2 bg-pink-500 text-white rounded-lg hover:bg-pink-600 transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          New Briefing
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowCreateForm(true)}
+            title="New Briefing"
+            className="p-2 text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg hover:bg-emerald-100"
+          >
+            <Plus className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Error display */}

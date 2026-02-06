@@ -8,14 +8,16 @@ import {
   RefreshCw, AlertCircle, X, Loader2, Target, Plus, Settings, Sparkles,
   BarChart3, TrendingUp, Users, FileText, ChevronDown, ChevronRight,
   Trash2, Edit2, ToggleLeft, ToggleRight, Zap, Clock, Play, Calendar,
+  Download, AlertTriangle, Eye,
 } from 'lucide-react';
 import { useBrandWatcher } from '../../hooks/useBrandWatcher';
 import {
   classifyArticles, getClassifyStatus, generateNarrative, getLatestNarrative,
   generateCategoryInsight, suggestKeywords, setupBrandMonitoring, getSchedules, createSchedule, deleteSchedule,
-  runScheduleNow, CATEGORY_COLORS, CATEGORY_SHORT_NAMES,
+  runScheduleNow, getSentimentTrends, getBrandAlerts, exportBrandData, updateBrandConfig,
+  retrainClassifier, CATEGORY_COLORS, CATEGORY_SHORT_NAMES,
   type Brand, type BrandCreate, type BWArticle, type BWSavedNarrative,
-  type BWCategoryInsightResponse, type BWSchedule,
+  type BWCategoryInsightResponse, type BWSchedule, type BWSentimentTrend, type BWAlert,
 } from '../../services/brandWatcherApi';
 
 // Extracted outside the component to prevent re-creation on every render (which causes focus loss)
@@ -86,6 +88,10 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [generatingNarrative, setGeneratingNarrative] = useState(false);
   const [categoryInsight, setCategoryInsight] = useState<BWCategoryInsightResponse | null>(null);
   const [loadingInsight, setLoadingInsight] = useState(false);
+  const [sentimentTrends, setSentimentTrends] = useState<BWSentimentTrend[]>([]);
+  const [brandAlerts, setBrandAlerts] = useState<BWAlert[]>([]);
+  const [drillDownCategory, setDrillDownCategory] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   // Brand form state
   const [brandForm, setBrandForm] = useState<Partial<BrandCreate>>({});
@@ -135,7 +141,37 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         .catch(console.error)
         .finally(() => setLoadingNarrative(false));
     }
-  }, [config.selectedBrandId, fetchComparison, fetchShareOfVoice]);
+    if (tab === 'analysis' && config.selectedBrandId) {
+      getSentimentTrends(config.selectedBrandId, config.daysBack)
+        .then(d => setSentimentTrends(d.trends))
+        .catch(console.error);
+      getBrandAlerts(config.selectedBrandId)
+        .then(d => setBrandAlerts(d.alerts))
+        .catch(console.error);
+    }
+  }, [config.selectedBrandId, config.daysBack, fetchComparison, fetchShareOfVoice]);
+
+  // --- Export ---
+  const handleExport = useCallback(async (format: 'csv' | 'json' = 'csv') => {
+    if (!config.selectedBrandId) return;
+    setExporting(true);
+    try {
+      await exportBrandData(config.selectedBrandId, format, config.daysBack);
+    } catch (err) {
+      console.error('Export error:', err);
+    } finally {
+      setExporting(false);
+    }
+  }, [config.selectedBrandId, config.daysBack]);
+
+  // --- Category drill-down ---
+  const handleCategoryDrillDown = useCallback((category: string) => {
+    setDrillDownCategory(prev => prev === category ? null : category);
+    if (category !== drillDownCategory) {
+      updateConfig({ selectedCategories: [category], page: 1 });
+      setActiveTab('articles');
+    }
+  }, [drillDownCategory, updateConfig]);
 
   // --- Classify ---
   const handleClassify = useCallback(async (runType: string = 'incremental', daysBack: number = 30) => {
@@ -309,6 +345,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [schedules, setSchedules] = useState<BWSchedule[]>([]);
   const [loadingSchedules, setLoadingSchedules] = useState(false);
   const [showScheduleForm, setShowScheduleForm] = useState(false);
+  const [scheduleTopics, setScheduleTopics] = useState<string[]>([]);
   const [scheduleForm, setScheduleForm] = useState({
     name: '', run_type: 'incremental', days_back: 30,
     schedule_type: 'interval', schedule_interval: 24, schedule_unit: 'hours',
@@ -332,7 +369,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       await createSchedule({
         name: scheduleForm.name || `${selectedBrand?.display_name || 'All brands'} - ${scheduleForm.schedule_type}`,
         brand_id: config.selectedBrandId || undefined,
-        topics: config.selectedTopics.length > 0 ? config.selectedTopics : undefined,
+        topics: scheduleTopics.length > 0 ? scheduleTopics : undefined,
         run_type: scheduleForm.run_type,
         days_back: scheduleForm.days_back,
         schedule_type: scheduleForm.schedule_type,
@@ -341,12 +378,13 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         schedule_time: scheduleForm.schedule_type === 'daily' ? scheduleForm.schedule_time : undefined,
       });
       setShowScheduleForm(false);
+      setScheduleTopics([]);
       setScheduleForm({ name: '', run_type: 'incremental', days_back: 30, schedule_type: 'interval', schedule_interval: 24, schedule_unit: 'hours', schedule_time: '02:00' });
       fetchSchedules();
     } catch (err) {
       console.error('Error creating schedule:', err);
     }
-  }, [scheduleForm, config.selectedBrandId, selectedBrand, fetchSchedules]);
+  }, [scheduleForm, scheduleTopics, config.selectedBrandId, selectedBrand, fetchSchedules]);
 
   const handleDeleteSchedule = useCallback(async (id: number) => {
     try {
@@ -498,7 +536,65 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             </div>
           </div>
 
-          {/* Category distribution */}
+          {/* Multi-brand overview cards (when no brand selected) */}
+          {!config.selectedBrandId && brands.filter(b => b.enabled).length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {brands.filter(b => b.enabled).map(brand => {
+                const brandCats = Object.entries(stats?.category_breakdown || {})
+                  .filter(([, v]) => v > 0)
+                  .sort(([, a], [, b]) => b - a)
+                  .slice(0, 3);
+                return (
+                  <div key={brand.id}
+                    className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700 cursor-pointer transition-colors"
+                    onClick={() => updateConfig({ selectedBrandId: brand.id })}
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      {brand.color && <div className="w-3 h-3 rounded-full" style={{ backgroundColor: brand.color }} />}
+                      <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{brand.display_name}</h4>
+                    </div>
+                    {brand.description && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-2 line-clamp-1">{brand.description}</p>
+                    )}
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {brandCats.map(([cat]) => (
+                        <span key={cat} className="text-[10px] px-1.5 py-0.5 rounded" style={{
+                          backgroundColor: (CATEGORY_COLORS[cat] || '#6b7280') + '20',
+                          color: CATEGORY_COLORS[cat] || '#6b7280',
+                        }}>
+                          {CATEGORY_SHORT_NAMES[cat] || cat}
+                        </span>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-2 mt-3">
+                      <button onClick={e => { e.stopPropagation(); updateConfig({ selectedBrandId: brand.id }); }}
+                        className="text-xs px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded hover:bg-blue-100">
+                        <Eye className="w-3 h-3 inline mr-1" />View
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Export button */}
+          {config.selectedBrandId && (stats?.total_articles ?? 0) > 0 && (
+            <div className="flex gap-2">
+              <button onClick={() => handleExport('csv')} disabled={exporting}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50">
+                <Download className="w-3.5 h-3.5" />
+                {exporting ? 'Exporting...' : 'Export CSV'}
+              </button>
+              <button onClick={() => handleExport('json')} disabled={exporting}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50">
+                <Download className="w-3.5 h-3.5" />
+                Export JSON
+              </button>
+            </div>
+          )}
+
+          {/* Category distribution - clickable for drill-down */}
           {loadingCategories ? (
             <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-blue-500" /></div>
           ) : categories.length > 0 ? (
@@ -506,7 +602,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
               <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Category Distribution</h3>
               <div className="space-y-3">
                 {categories.filter(c => c.article_count > 0).map(cat => (
-                  <div key={cat.category} className="flex items-center gap-3">
+                  <div key={cat.category}
+                    className="flex items-center gap-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-750 rounded-lg p-1 -m-1 transition-colors"
+                    onClick={() => handleCategoryDrillDown(cat.category)}
+                    title={`Click to view ${cat.article_count} articles in ${cat.category}`}
+                  >
                     <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[cat.category] || '#6b7280' }} />
                     <span className="text-sm text-gray-700 dark:text-gray-300 w-48 truncate">{cat.category}</span>
                     <div className="flex-1 h-5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
@@ -525,6 +625,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                     }`}>
                       {cat.recent_trend === 'up' ? '↑' : cat.recent_trend === 'down' ? '↓' : '—'}
                     </span>
+                    <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
                   </div>
                 ))}
               </div>
@@ -605,6 +706,94 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                   <p className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap">{categoryInsight.insight}</p>
                 </div>
               )}
+
+              {/* Spike Alerts */}
+              {brandAlerts.length > 0 && (
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-orange-200 dark:border-orange-800 p-6">
+                  <h3 className="text-sm font-semibold text-orange-700 dark:text-orange-300 mb-3 flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4" /> Category Spike Alerts
+                  </h3>
+                  <div className="space-y-2">
+                    {brandAlerts.map(alert => (
+                      <div key={alert.category}
+                        className={`flex items-center gap-3 p-2 rounded-lg ${
+                          alert.severity === 'high'
+                            ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
+                            : 'bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800'
+                        }`}
+                      >
+                        <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[alert.category] || '#6b7280' }} />
+                        <span className="text-sm text-gray-700 dark:text-gray-300 flex-1">{alert.category}</span>
+                        <span className="text-xs font-mono text-gray-600 dark:text-gray-400">
+                          {alert.current_count} this week (avg: {alert.average_count})
+                        </span>
+                        <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+                          alert.severity === 'high' ? 'bg-red-200 text-red-800 dark:bg-red-800 dark:text-red-200' : 'bg-orange-200 text-orange-800 dark:bg-orange-800 dark:text-orange-200'
+                        }`}>
+                          {alert.spike_ratio}x
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Sentiment Trends */}
+              {sentimentTrends.length > 0 && (
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Sentiment by Category (Weekly)</h3>
+                  <div className="space-y-2">
+                    {(() => {
+                      // Group by category, show latest week's sentiment distribution
+                      const byCat: Record<string, Record<string, number>> = {};
+                      for (const t of sentimentTrends) {
+                        if (!byCat[t.category]) byCat[t.category] = {};
+                        for (const [sent, cnt] of Object.entries(t.sentiments)) {
+                          byCat[t.category][sent] = (byCat[t.category][sent] || 0) + cnt;
+                        }
+                      }
+                      return Object.entries(byCat).map(([cat, sents]) => {
+                        const total = Object.values(sents).reduce((a, b) => a + b, 0);
+                        return (
+                          <div key={cat} className="flex items-center gap-3">
+                            <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[cat] || '#6b7280' }} />
+                            <span className="text-xs text-gray-700 dark:text-gray-300 w-36 truncate">{CATEGORY_SHORT_NAMES[cat] || cat}</span>
+                            <div className="flex-1 h-4 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden flex">
+                              {Object.entries(sents).map(([sent, cnt]) => {
+                                const pct = (cnt / total) * 100;
+                                const sentColors: Record<string, string> = {
+                                  'Optimistic': '#16a34a', 'Cautious': '#d97706', 'Neutral': '#6b7280',
+                                  'Concerned': '#ea580c', 'Pessimistic': '#dc2626',
+                                };
+                                return pct > 0 ? (
+                                  <div key={sent} className="h-full" title={`${sent}: ${cnt} (${pct.toFixed(0)}%)`}
+                                    style={{ width: `${pct}%`, backgroundColor: sentColors[sent] || '#6b7280' }} />
+                                ) : null;
+                              })}
+                            </div>
+                            <span className="text-xs text-gray-500 w-8 text-right">{total}</span>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                  <div className="flex items-center gap-3 mt-3 flex-wrap">
+                    {[
+                      { label: 'Optimistic', color: '#16a34a' },
+                      { label: 'Cautious', color: '#d97706' },
+                      { label: 'Neutral', color: '#6b7280' },
+                      { label: 'Concerned', color: '#ea580c' },
+                      { label: 'Pessimistic', color: '#dc2626' },
+                    ].map(s => (
+                      <span key={s.label} className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400">
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
+                        {s.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
             </>
           )}
         </div>
@@ -1141,6 +1330,33 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                             className="w-full px-2 py-1.5 text-sm border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800 dark:text-gray-100" />
                         </div>
                       )}
+                    </div>
+                    {/* Topic selector for schedule */}
+                    <div>
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">
+                        Topics ({scheduleTopics.length} selected)
+                      </label>
+                      <div className="max-h-32 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-800 p-1.5 space-y-0.5">
+                        {topics.map(t => (
+                          <label key={t.topic} className="flex items-center gap-2 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-750 rounded px-1 py-0.5 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={scheduleTopics.includes(t.topic)}
+                              onChange={e => {
+                                setScheduleTopics(prev =>
+                                  e.target.checked ? [...prev, t.topic] : prev.filter(s => s !== t.topic)
+                                );
+                              }}
+                              className="rounded border-gray-300 dark:border-gray-600"
+                            />
+                            <span className="flex-1 truncate">{t.topic}</span>
+                            <span className="text-[10px] text-gray-400">{t.article_count}</span>
+                          </label>
+                        ))}
+                        {topics.length === 0 && (
+                          <p className="text-xs text-gray-400 italic">No topics available</p>
+                        )}
+                      </div>
                     </div>
                     <button onClick={handleCreateSchedule}
                       className="w-full px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">

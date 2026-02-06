@@ -18,8 +18,24 @@ export interface Brand {
   competitor_keywords: string[] | null;
   enabled: boolean;
   color: string | null;
+  config?: Record<string, any>;
   created_at: string | null;
   updated_at: string | null;
+}
+
+export interface BWSentimentTrend {
+  week: string;
+  category: string;
+  sentiments: Record<string, number>;
+  total: number;
+}
+
+export interface BWAlert {
+  category: string;
+  current_count: number;
+  average_count: number;
+  spike_ratio: number;
+  severity: 'high' | 'medium';
 }
 
 export interface BrandCreate {
@@ -496,6 +512,66 @@ export async function runScheduleNow(id: number): Promise<{ run_id: number }> {
     method: 'POST', credentials: 'include',
   });
   if (!res.ok) throw new Error(`Failed to run schedule: ${res.status}`);
+  return res.json();
+}
+
+// --- Sentiment Trends ---
+
+export async function getSentimentTrends(brandId: number, daysBack: number = 365, topics?: string[]): Promise<{ trends: BWSentimentTrend[] }> {
+  const params = new URLSearchParams({ days_back: daysBack.toString() });
+  if (topics?.length) params.append('topics', topics.join(','));
+  const res = await fetch(`${BASE}/brands/${brandId}/sentiment-trends?${params}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to get sentiment trends: ${res.status}`);
+  return res.json();
+}
+
+// --- Alerts ---
+
+export async function getBrandAlerts(brandId: number, daysBack: number = 30): Promise<{ alerts: BWAlert[] }> {
+  const params = new URLSearchParams({ days_back: daysBack.toString() });
+  const res = await fetch(`${BASE}/brands/${brandId}/alerts?${params}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to get alerts: ${res.status}`);
+  return res.json();
+}
+
+// --- Export ---
+
+export async function exportBrandData(brandId: number, format: 'csv' | 'json' = 'csv', daysBack: number = 365): Promise<any> {
+  const params = new URLSearchParams({ format, days_back: daysBack.toString() });
+  const res = await fetch(`${BASE}/brands/${brandId}/export?${params}`, { credentials: 'include' });
+  if (!res.ok) throw new Error(`Failed to export: ${res.status}`);
+  if (format === 'csv') {
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `brand_watcher_export.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    return null;
+  }
+  return res.json();
+}
+
+// --- Brand Config ---
+
+export async function updateBrandConfig(brandId: number, config: Record<string, any>): Promise<{ config: Record<string, any> }> {
+  const res = await fetch(`${BASE}/brands/${brandId}/config`, {
+    method: 'PUT', credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(config),
+  });
+  if (!res.ok) throw new Error(`Failed to update brand config: ${res.status}`);
+  return res.json();
+}
+
+// --- Retrain ---
+
+export async function retrainClassifier(): Promise<{ status: string; message: string }> {
+  const res = await fetch(`${BASE}/classifier/retrain`, {
+    method: 'POST', credentials: 'include',
+  });
+  if (!res.ok) throw new Error(`Failed to trigger retrain: ${res.status}`);
   return res.json();
 }
 

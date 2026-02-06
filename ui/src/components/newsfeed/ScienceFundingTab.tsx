@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { RefreshCw, AlertCircle, X, Loader2, Download } from 'lucide-react';
+import { RefreshCw, AlertCircle, X, Loader2, Download, Microscope } from 'lucide-react';
 import { useScienceFunding } from '../../hooks/useScienceFunding';
 import { ScienceFundingTabs, type ScienceTab } from './ScienceFundingTabs';
 import { ScienceOverviewTab } from './ScienceOverviewTab';
@@ -149,7 +149,8 @@ export function ScienceFundingTab({ onArticleClick }: ScienceFundingTabProps) {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+            <Microscope className="w-5 h-5 text-emerald-500" />
             ScienceWatch
           </h2>
           <p className="text-sm text-gray-500 dark:text-gray-300 mt-1">
@@ -158,9 +159,6 @@ export function ScienceFundingTab({ onArticleClick }: ScienceFundingTabProps) {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Tab Navigation */}
-          <ScienceFundingTabs activeTab={activeTab} onTabChange={setActiveTab} />
-
           {/* Days Back Selector */}
           <select
             value={config.daysBack}
@@ -200,6 +198,9 @@ export function ScienceFundingTab({ onArticleClick }: ScienceFundingTabProps) {
           </button>
         </div>
       </div>
+
+      {/* Sub-tab navigation */}
+      <ScienceFundingTabs activeTab={activeTab} onTabChange={setActiveTab} />
 
       {/* Error Alert */}
       {error && (

@@ -260,39 +260,37 @@ export function ResearchAgentsSection({
   return (
     <section className="research-agents-section mb-8">
       {/* Section Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <Bot className="w-5 h-5 text-pink-500" />
-          <h2 className="text-xl font-semibold text-gray-900">Observer Agents</h2>
-          {unacknowledgedCount > 0 && (
-            <span className="ml-2 px-2 py-0.5 text-xs font-semibold bg-red-500 text-white rounded-full">
-              {unacknowledgedCount} alert{unacknowledgedCount !== 1 ? 's' : ''}
-            </span>
-          )}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-4">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+            <Bot className="w-5 h-5 text-pink-500" />
+            Observer Agents
+          </h2>
+          <p className="text-sm text-gray-500 dark:text-gray-300 mt-1">
+            {agents.length} agent{agents.length !== 1 ? 's' : ''} configured
+            {unacknowledgedCount > 0 && ` — ${unacknowledgedCount} unread alert${unacknowledgedCount !== 1 ? 's' : ''}`}
+          </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
+          <button
             onClick={handleRunAll}
             disabled={runningAll || runningAgents.size > 0 || agents.filter(a => a.is_active).length === 0}
+            title="Run all agents"
+            className="p-2 text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-900/20 rounded-lg hover:bg-teal-100 disabled:opacity-50"
           >
             {runningAll || runningAgents.size > 0 ? (
-              <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+              <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              <Play className="w-4 h-4 mr-1" />
+              <Play className="w-4 h-4" />
             )}
-            Run All
-          </Button>
-          <Button
-            variant="default"
-            size="sm"
+          </button>
+          <button
             onClick={() => setIsAddModalOpen(true)}
-            className="bg-pink-500 hover:bg-pink-600"
+            title="Add agent"
+            className="p-2 text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg hover:bg-emerald-100"
           >
-            <Plus className="w-4 h-4 mr-1" />
-            Add Agent
-          </Button>
+            <Plus className="w-4 h-4" />
+          </button>
         </div>
       </div>
 

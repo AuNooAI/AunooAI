@@ -4,7 +4,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { RefreshCw, AlertCircle, X, Loader2, Download } from 'lucide-react';
+import { RefreshCw, AlertCircle, X, Loader2, Download, Scale } from 'lucide-react';
 import { usePolicyTracker } from '../../hooks/usePolicyTracker';
 import { PolicyTrackerTabs, type PolicyTab } from './PolicyTrackerTabs';
 import { PolicyOverviewTab } from './PolicyOverviewTab';
@@ -149,7 +149,8 @@ export function PolicyTrackerTab({ onArticleClick }: PolicyTrackerTabProps) {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
+            <Scale className="w-5 h-5 text-violet-500" />
             Policy Tracker
           </h2>
           <p className="text-sm text-gray-500 dark:text-gray-300 mt-1">
@@ -157,50 +158,49 @@ export function PolicyTrackerTab({ onArticleClick }: PolicyTrackerTabProps) {
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
-          {/* Tab Navigation */}
-          <PolicyTrackerTabs activeTab={activeTab} onTabChange={setActiveTab} />
-
+        <div className="flex items-center gap-2">
           {/* Days Back Selector */}
           <select
             value={config.daysBack}
             onChange={(e) => handleDaysBackChange(Number(e.target.value))}
-            className="px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-pink-500 dark:text-gray-100"
+            className="px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg dark:text-gray-100"
           >
-            <option value={7}>Last 7 days</option>
-            <option value={30}>Last 30 days</option>
-            <option value={90}>Last 90 days</option>
-            <option value={180}>Last 6 months</option>
-            <option value={365}>Last year</option>
+            <option value={7}>7 days</option>
+            <option value={30}>30 days</option>
+            <option value={90}>90 days</option>
+            <option value={180}>6 months</option>
+            <option value={365}>1 year</option>
             <option value={0}>All Time</option>
           </select>
 
           {/* Update Button */}
           <button
             onClick={() => setShowImportModal(true)}
-            className="flex items-center gap-2 px-3 py-2 text-sm bg-violet-50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 rounded-lg hover:bg-violet-100 dark:hover:bg-violet-900/30 transition-colors"
+            title="Update data"
+            className="p-2 text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-900/20 rounded-lg hover:bg-teal-100"
           >
             <Download className="w-4 h-4" />
-            Update
           </button>
 
           {/* Refresh Button */}
           <button
             onClick={() => {
               refresh();
-              // Trigger narrative regeneration when on insights tab
               if (activeTab === 'insights') {
                 setRefreshTrigger(prev => prev + 1);
               }
             }}
             disabled={loading}
-            className="flex items-center gap-2 px-3 py-2 text-sm bg-pink-50 dark:bg-pink-900/20 text-pink-700 dark:text-pink-300 rounded-lg hover:bg-pink-100 dark:hover:bg-pink-900/30 disabled:opacity-50 transition-colors"
+            title="Refresh"
+            className="p-2 text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg hover:bg-emerald-100 disabled:opacity-50"
           >
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
           </button>
         </div>
       </div>
+
+      {/* Sub-tab navigation */}
+      <PolicyTrackerTabs activeTab={activeTab} onTabChange={setActiveTab} />
 
       {/* Error Alert */}
       {error && (

@@ -1122,49 +1122,44 @@ Please provide:
   return (
     <div className="space-y-6 p-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-xl font-semibold text-gray-900 dark:text-gray-100 flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-amber-500" />
             Emerging Themes
           </h2>
-          <p className="text-sm text-gray-700 dark:text-gray-300 dark:text-gray-300 mt-1">
+          <p className="text-sm text-gray-500 dark:text-gray-300 mt-1">
             Emerging developments from your article corpus
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
+          <button
             onClick={() => setIsScheduleOpen(true)}
             title="Schedule automatic detection"
             disabled={detecting}
+            className="p-2 text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
           >
             <Clock className="w-4 h-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
+          </button>
+          <button
             onClick={() => setIsConfigOpen(true)}
             title="Configure detection settings"
             disabled={detecting}
+            className="p-2 text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-800 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
           >
             <Settings2 className="w-4 h-4" />
-          </Button>
+          </button>
           {/* Export dropdown */}
           {emergingTopics.length > 0 && (
             <div className="relative" ref={exportMenuRef}>
-              <Button
-                variant="outline"
-                size="sm"
+              <button
                 onClick={() => setExportMenuOpen(!exportMenuOpen)}
                 disabled={detecting}
                 title="Export all trending themes"
+                className="p-2 text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20 rounded-lg hover:bg-blue-100 disabled:opacity-50"
               >
-                <Download className="w-4 h-4 mr-1" />
-                Export
-                <ChevronDown className="w-3 h-3 ml-1" />
-              </Button>
+                <Download className="w-4 h-4" />
+              </button>
               {exportMenuOpen && (
                 <div className="absolute right-0 top-full mt-1 w-44 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
                   <button
@@ -1202,35 +1197,27 @@ Please provide:
             </div>
           )}
           {(emergingTopics.length > 0 || highNoveltyArticles.length > 0) && (
-            <Button
-              variant="outline"
-              size="sm"
+            <button
               onClick={() => setShowClearConfirm(true)}
               disabled={detecting}
-              title="Clear all detected topics from database"
+              title="Clear all detected topics"
+              className="p-2 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 rounded-lg hover:bg-red-100 disabled:opacity-50"
             >
-              <Trash2 className="w-4 h-4 mr-1" />
-              Clear
-            </Button>
+              <Trash2 className="w-4 h-4" />
+            </button>
           )}
-          <Button
+          <button
             onClick={runDetection}
             disabled={detecting}
-            className="bg-pink-500 hover:bg-pink-600 text-white"
             title={topic ? `Scan ${topic}` : 'Scan all configured topics'}
+            className="p-2 text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-900/20 rounded-lg hover:bg-teal-100 disabled:opacity-50"
           >
             {detecting ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Scanning...
-              </>
+              <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              <>
-                <Play className="w-4 h-4 mr-2" />
-                Scan
-              </>
+              <Play className="w-4 h-4" />
             )}
-          </Button>
+          </button>
         </div>
       </div>
 
