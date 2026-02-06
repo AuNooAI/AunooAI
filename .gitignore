@@ -97,6 +97,7 @@ models/comparison_test/
 models/summarizer/
 models/policy_classifier/
 models/policy_llm/
+models/science_funding_classifier/
 
 # HuggingFace cache (downloaded on-demand)
 .cache/huggingface/
@@ -110,6 +111,13 @@ models/policy_llm/
 # =============================================================================
 # Data files (evaluation, comparison outputs)
 # =============================================================================
+# Large binary archives
+local-models-package.tar.gz
+*.tar.gz
+
+# Node modules (frontend build deps)
+ui/node_modules/
+
 data/evaluation/
 data/*_comparison.json
 data/training/

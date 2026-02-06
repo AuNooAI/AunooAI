@@ -186,6 +186,21 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(delayed_policy_tracker_monitor_start())
         logger.info("Scheduled policy tracker monitor to start in 40 seconds")
 
+        # Start the science funding monitor background task with a delay
+        async def delayed_science_funding_monitor_start():
+            """Start science funding monitor after other monitors"""
+            await asyncio.sleep(45)  # Wait 45 seconds after startup
+            try:
+                from app.tasks.science_funding_monitor import run_science_funding_monitor
+                logger.info("Starting science funding monitor background task...")
+                asyncio.create_task(run_science_funding_monitor())
+                logger.info("Science funding monitor background task started successfully")
+            except Exception as e:
+                logger.error(f"Failed to start science funding monitor: {str(e)}")
+
+        asyncio.create_task(delayed_science_funding_monitor_start())
+        logger.info("Scheduled science funding monitor to start in 45 seconds")
+
     except Exception as e:
         logging.error(f"Error during startup: {str(e)}", exc_info=True)
         raise

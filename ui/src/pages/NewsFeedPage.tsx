@@ -24,6 +24,7 @@ import {
   ChevronRight,
   Scale,
   Globe,
+  Microscope,
 } from 'lucide-react';
 import { useNewsFeed } from '../hooks/useNewsFeed';
 import { useNarrativeExplorer } from '../hooks/useNarrativeExplorer';
@@ -45,6 +46,7 @@ import { SignalReportsTab } from '../components/newsfeed/SignalReportsTab';
 import { EmergingTopicsTab } from '../components/newsfeed/EmergingTopicsTab';
 import { PolicyTrackerTab } from '../components/newsfeed/PolicyTrackerTab';
 import { GeopoliticalHotspotsTab } from '../components/newsfeed/GeopoliticalHotspotsTab';
+import { ScienceFundingTab } from '../components/newsfeed/ScienceFundingTab';
 import { BriefingDeskSection } from '../components/newsfeed/BriefingDeskSection';
 import { fetchDraftBriefingsCount } from '../services/briefingDeskApi';
 import { TopicCluster, getCategoryIcon } from '../components/newsfeed/TopicCluster';
@@ -187,7 +189,7 @@ export function NewsFeedPage() {
   };
 
   // UI State
-  const [currentTab, setCurrentTab] = useState<'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical'>('feed');
+  const [currentTab, setCurrentTab] = useState<'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science'>('feed');
   const [viewMode, setViewMode] = useState<'clustered' | 'list'>('list');
   const [emergingTopicsCount, setEmergingTopicsCount] = useState(0);
   const [reportsCount, setReportsCount] = useState(0);
@@ -776,7 +778,7 @@ export function NewsFeedPage() {
             <span className="gather-top-bar-title">Explore</span>
             <span className="gather-top-bar-separator">/</span>
             <span className="gather-top-bar-subtitle">
-              {currentTab === 'agents' ? 'Observer Agents' : currentTab === 'emerging' ? 'Emerging Topics' : currentTab === 'saved' ? 'Saved' : currentTab === 'briefing-desk' ? 'Briefing Desk' : currentTab === 'policy' ? 'US Crisis Tracker' : currentTab === 'geopolitical' ? 'GeoHotSpots' : 'News Feed'}
+              {currentTab === 'agents' ? 'Observer Agents' : currentTab === 'emerging' ? 'Emerging Topics' : currentTab === 'saved' ? 'Saved' : currentTab === 'briefing-desk' ? 'Briefing Desk' : currentTab === 'policy' ? 'US Crisis Tracker' : currentTab === 'geopolitical' ? 'GeoHotSpots' : currentTab === 'science' ? 'ScienceWatch' : 'News Feed'}
             </span>
           </div>
           <div className="gather-top-bar-right">
@@ -838,6 +840,13 @@ export function NewsFeedPage() {
           >
             <Scale className="w-4 h-4" />
             US Crisis Tracker
+          </button>
+          <button
+            className={`explore-tab-btn ${currentTab === 'science' ? 'active' : ''}`}
+            onClick={() => setCurrentTab('science')}
+          >
+            <Microscope className="w-4 h-4" />
+            ScienceWatch
           </button>
           <button
             className={`explore-tab-btn ${currentTab === 'emerging' ? 'active' : ''}`}
@@ -1153,6 +1162,13 @@ export function NewsFeedPage() {
               <GeopoliticalHotspotsTab
                 onArticleClick={handleArticleClick}
                 model={config.model}
+              />
+            )}
+
+            {/* ScienceWatch Tab Content */}
+            {currentTab === 'science' && (
+              <ScienceFundingTab
+                onArticleClick={handleArticleClick}
               />
             )}
 

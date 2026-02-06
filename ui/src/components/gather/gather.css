@@ -1489,6 +1489,8 @@
 .gather-modal {
   max-width: 600px !important;
   max-height: 85vh;
+  display: flex !important;
+  flex-direction: column;
 }
 
 .gather-autocollect-modal {
@@ -1576,7 +1578,8 @@
 .gather-modal-content {
   padding: 0 24px;
   overflow-y: auto;
-  max-height: 80vh;
+  flex: 1;
+  min-height: 0;
 }
 
 .gather-modal-section {

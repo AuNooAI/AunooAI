@@ -54,6 +54,7 @@ def register_routers(app: FastAPI):
     from app.routes.rss_feeds_routes import router as rss_feeds_router
     from app.routes.policy_tracker_routes import router as policy_tracker_router
     from app.routes.geopolitical_hotspots_routes import router as geopolitical_hotspots_router
+    from app.routes.science_funding_routes import router as science_funding_router
     from app.routes.daily_reports_routes import router as desk_briefings_router
     from app.routes.slm_routes import router as slm_router
     from app.routes.training_routes import router as training_router
@@ -186,6 +187,9 @@ def register_routers(app: FastAPI):
 
     # Geopolitical Hotspots dashboard routes
     app.include_router(geopolitical_hotspots_router)
+
+    # Science Funding (ScienceWatch) dashboard routes
+    app.include_router(science_funding_router)
 
     # Desk Briefings (Briefing Desk feature)
     app.include_router(desk_briefings_router)
