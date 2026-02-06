@@ -1,6 +1,6 @@
 # Analysis Module Packaging System - Specification
 
-> **Status**: Draft
+> **Status**: Implemented
 > **Date**: 2026-02-06
 > **Scope**: Backend module registry, conditional routing/tasks, frontend dynamic tabs
 
@@ -18,56 +18,59 @@ A single Python registry file (`app/core/modules.py`) defines all available modu
 
 ## Step 1: Create Module Registry
 
-**New file**: `app/core/modules.py`
+**File**: `app/core/modules.py`
 
 ```python
+@dataclass
+class ModuleTask:
+    """A background task associated with an analysis module."""
+    module: str       # "app.tasks.geopolitical_hotspots_monitor"
+    function: str     # "run_hotspot_trend_updates"
+    delay: int        # startup delay seconds
+
 @dataclass
 class AnalysisModule:
     id: str                    # "science_funding"
     name: str                  # "ScienceWatch"
     description: str
     route_module: str          # "app.routes.science_funding_routes"
+    route_prefix: str          # "/api/science-funding" — for middleware/RBAC lookups
     route_attr: str = "router"
     task_module: str | None    # "app.tasks.science_funding_monitor"
     task_function: str | None  # "run_science_funding_monitor"
     task_delay: int = 45       # startup delay seconds
-    extra_tasks: list[dict]    # additional background tasks
+    extra_tasks: list[ModuleTask]  # typed — not list[dict]
     model_path: str | None     # "models/science_funding_classifier/final"
-    migration_prefix: str | None  # "sf_"
+    migration_prefix: str | None  # informational only — migrations always run unconditionally
     frontend_tab_id: str | None   # "science"
     frontend_tab_label: str | None # "ScienceWatch"
     frontend_tab_icon: str | None  # "Microscope"
 ```
 
-Register three modules:
-- `policy_tracker` (US Crisis Tracker) - delay 40s
-- `geopolitical_hotspots` (GeoHotSpots) - delay 30s, extra task: `run_hotspot_trend_updates` at 35s
-- `science_funding` (ScienceWatch) - delay 45s, has SLM model
+**Design notes:**
+- `extra_tasks` uses a typed `ModuleTask` dataclass (not `list[dict]`) to prevent silent key typos at runtime.
+- `route_prefix` records the URL prefix for potential middleware/RBAC use; not functionally required for routing.
+- `migration_prefix` is informational metadata only — migrations always run via `alembic upgrade head`.
+
+Registered modules:
+- `geopolitical_hotspots` (GeoHotSpots) — delay 30s, extra task: `run_hotspot_trend_updates` at 35s
+- `policy_tracker` (US Crisis Tracker) — delay 40s
+- `science_funding` (ScienceWatch) — delay 45s, has SLM model
 
 Functions:
-- `get_enabled_module_ids()` - reads `ENABLED_MODULES` env var (default `*`)
-- `get_enabled_modules()` - returns list of enabled `AnalysisModule` objects
-- `is_module_enabled(id)` - check a single module
+- `get_enabled_module_ids()` — reads `ENABLED_MODULES` env var (default `*`)
+- `get_enabled_modules()` — returns list of enabled `AnalysisModule` objects
+- `is_module_enabled(id)` — check a single module
+- `get_all_modules()` — returns all registered modules regardless of enablement
 
 ---
 
 ## Step 2: Module-Aware Router Registration
 
-**Modify**: `app/core/routers.py`
+**Modified**: `app/core/routers.py`
 
-Remove the 3 static imports + registrations (lines 55-57, 186-192):
-```python
-# REMOVE these:
-from app.routes.policy_tracker_routes import router as policy_tracker_router
-from app.routes.geopolitical_hotspots_routes import router as geopolitical_hotspots_router
-from app.routes.science_funding_routes import router as science_funding_router
-...
-app.include_router(policy_tracker_router)
-app.include_router(geopolitical_hotspots_router)
-app.include_router(science_funding_router)
-```
+Removed 3 static imports and registrations for policy_tracker, geopolitical_hotspots, science_funding. Replaced with:
 
-Replace with a dynamic loop at the end of `register_routers()`:
 ```python
 import importlib
 from app.core.modules import get_enabled_modules
@@ -82,21 +85,16 @@ for module in get_enabled_modules():
         logger.error(f"Failed to register module '{module.id}': {e}")
 ```
 
-All other ~38 core routers remain unconditional.
+Also added always-on import of `module_routes.py` for the `/api/modules` endpoint. All other ~38 core routers remain unconditional.
 
 ---
 
 ## Step 3: Module-Aware Background Tasks
 
-**Modify**: `app/core/app_factory.py`
+**Modified**: `app/core/app_factory.py`
 
-Remove the 4 hardcoded monitor blocks (lines 144-202):
-- `delayed_geopolitical_hotspots_monitor_start` (30s)
-- `delayed_hotspot_trend_update_start` (35s)
-- `delayed_policy_tracker_monitor_start` (40s)
-- `delayed_science_funding_monitor_start` (45s)
+Removed 4 hardcoded monitor blocks. Replaced with a generic helper + loop:
 
-Replace with a helper + loop:
 ```python
 import importlib
 from app.core.modules import get_enabled_modules
@@ -118,21 +116,23 @@ for module in get_enabled_modules():
         _schedule_module_task(module.task_module, module.task_function,
                              module.task_delay, module.name)
         for extra in module.extra_tasks:
-            _schedule_module_task(extra["module"], extra["function"],
-                                 extra["delay"], f"{module.name} extra")
+            _schedule_module_task(extra.module, extra.function,
+                                 extra.delay, f"{module.name} ({extra.function})")
 ```
 
 The 5 core monitors (keyword, emerging_topics, observer_agent, newsfeed_dashboard, rss_feed) remain hardcoded — they are not optional analysis modules.
+
+**Note on SLM model loading**: Module services (e.g., `science_funding_classifier_service.py`) load models lazily on first API call, not at import time. Since disabled modules have no routes registered, their classifiers are never imported or loaded — no additional gating is needed.
 
 ---
 
 ## Step 4: Modules API Endpoint
 
-**New file**: `app/routes/module_routes.py`
+**File**: `app/routes/module_routes.py`
 
 ```python
 @router.get("/api/modules")
-async def get_modules(session=Depends(verify_session)):
+async def list_modules(session=Depends(verify_session)):
     return {"modules": [
         {"id": m.id, "name": m.name, "tab_id": m.frontend_tab_id,
          "tab_label": m.frontend_tab_label, "tab_icon": m.frontend_tab_icon,
@@ -142,20 +142,20 @@ async def get_modules(session=Depends(verify_session)):
     ]}
 ```
 
-Register this route in `routers.py` (core, always-on).
+Registered as a core (always-on) route in `routers.py`.
 
 ---
 
 ## Step 5: Frontend Dynamic Tabs
 
-**New file**: `ui/src/hooks/useModules.ts`
+**File**: `ui/src/hooks/useModules.ts`
 - Fetches `/api/modules` on mount
 - Returns `{ modules, isEnabled(tabId) }`
-- Fallback: if API fails, show all tabs (backwards compat)
+- Fallback: if API fails, `modules` is `null` and `isEnabled()` returns `true` for all (backwards compat)
 
-**Modify**: `ui/src/pages/NewsFeedPage.tsx`
+**Modified**: `ui/src/pages/NewsFeedPage.tsx`
 
-1. Replace static imports with `React.lazy()`:
+1. Static imports replaced with `React.lazy()`:
 ```tsx
 const PolicyTrackerTab = React.lazy(() =>
   import('../components/newsfeed/PolicyTrackerTab').then(m => ({ default: m.PolicyTrackerTab })));
@@ -165,9 +165,18 @@ const ScienceFundingTab = React.lazy(() =>
   import('../components/newsfeed/ScienceFundingTab').then(m => ({ default: m.ScienceFundingTab })));
 ```
 
-2. Use `useModules()` hook to dynamically render tab buttons and content
-3. Wrap tab content in `<Suspense>` for lazy loading
-4. Update the breadcrumb subtitle ternary to use modules array
+2. Tab buttons conditionally rendered: `{isModuleEnabled('geopolitical') && <button .../>}`
+
+3. Tab content wrapped in `<Suspense>` with spinner fallback:
+```tsx
+{currentTab === 'policy' && isModuleEnabled('policy') && (
+  <Suspense fallback={<Loader2 spinner />}>
+    <PolicyTrackerTab ... />
+  </Suspense>
+)}
+```
+
+4. Breadcrumb subtitle uses a lookup object instead of nested ternaries.
 
 Benefits: disabled modules add zero bundle size (Vite code-splits lazy imports automatically).
 
@@ -198,6 +207,8 @@ ENABLED_MODULES=*
 2. Restart service
 3. Tables + data remain (harmless, re-enable later)
 
+**Multi-tenant note:** Update `.env` and restart on **each** tenant independently.
+
 ---
 
 ## Migrations: No Changes Needed
@@ -210,13 +221,13 @@ Keep current approach: all migrations always run via `alembic upgrade head`. Emp
 
 | # | File | Action |
 |---|------|--------|
-| 1 | `app/core/modules.py` | **Create** — module registry with 3 modules |
-| 2 | `app/core/routers.py` | **Edit** — remove 3 static module imports, add dynamic loop |
-| 3 | `app/core/app_factory.py` | **Edit** — replace 4 hardcoded monitor blocks with loop |
-| 4 | `app/routes/module_routes.py` | **Create** — `/api/modules` endpoint |
-| 5 | `ui/src/hooks/useModules.ts` | **Create** — frontend modules hook |
-| 6 | `ui/src/pages/NewsFeedPage.tsx` | **Edit** — lazy imports + dynamic tab rendering |
-| 7 | `.env` (all tenants) | **Edit** — add `ENABLED_MODULES=*` |
+| 1 | `app/core/modules.py` | **Create** — module registry with `AnalysisModule` + `ModuleTask` dataclasses, 3 modules |
+| 2 | `app/core/routers.py` | **Edit** — remove 3 static module imports, add dynamic loop + module_routes import |
+| 3 | `app/core/app_factory.py` | **Edit** — replace 4 hardcoded monitor blocks with `_schedule_module_task` loop |
+| 4 | `app/routes/module_routes.py` | **Create** — `/api/modules` endpoint (always-on) |
+| 5 | `ui/src/hooks/useModules.ts` | **Create** — frontend modules hook with fallback |
+| 6 | `ui/src/pages/NewsFeedPage.tsx` | **Edit** — `React.lazy` imports, conditional tabs, `<Suspense>` wrappers |
+| 7 | `.env` (per tenant) | **Edit** — add `ENABLED_MODULES=*` |
 
 ---
 
@@ -256,5 +267,3 @@ A complete analysis module consists of:
 5. Create frontend tab component, hook, and API service
 6. Add `_register(AnalysisModule(...))` call to `app/core/modules.py`
 7. Add module ID to `ENABLED_MODULES` in tenant `.env`
-
-## Estimated Implementation Time: ~1.5 hours (AI)

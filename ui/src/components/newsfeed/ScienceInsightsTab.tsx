@@ -7,7 +7,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   Sparkles, FileText, Loader2, AlertCircle, Download, Calendar, BarChart3, Clock, Tag,
   TrendingUp, Target, AlertTriangle, Lightbulb, ChevronRight, Zap, Globe, Users,
-  ArrowUpRight, ArrowDownRight, Minus, BookOpen, Flag, Eye, Info, Bot
+  ArrowUpRight, ArrowDownRight, Minus, BookOpen, Flag, Eye, Info, Bot, RefreshCw
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -539,8 +539,7 @@ export function ScienceInsightsTab({ categories, topic, daysBack, refreshTrigger
 
 **Generated:** ${new Date(narrative.generated_at).toLocaleString()}
 **Date Range:** ${narrative.data_summary.date_range.start} to ${narrative.data_summary.date_range.end}
-**Articles Analyzed:** ${narrative.data_summary.total_articles}
-**Articles with Categories:** ${narrative.data_summary.total_categorized}
+**Articles Analyzed:** ${narrative.data_summary.total_categorized}
 
 ---
 
@@ -608,13 +607,27 @@ ${Object.entries(narrative.data_summary.escalation || {})
           </div>
           <div className="flex items-center gap-2">
             {narrative && (
-              <button
-                onClick={handleDownloadNarrative}
-                className="flex items-center gap-2 px-3 py-2 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-              >
-                <Download className="w-3.5 h-3.5" />
-                Export
-              </button>
+              <>
+                <button
+                  onClick={handleGenerateNarrative}
+                  disabled={loadingNarrative}
+                  className="flex items-center gap-2 px-3 py-2 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50 transition-colors"
+                >
+                  {loadingNarrative ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  )}
+                  Regenerate
+                </button>
+                <button
+                  onClick={handleDownloadNarrative}
+                  className="flex items-center gap-2 px-3 py-2 text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Export
+                </button>
+              </>
             )}
             {!loadingSavedNarrative && !narrative && (
               <button
@@ -692,18 +705,11 @@ ${Object.entries(narrative.data_summary.escalation || {})
           {narrative && (
             <div className="space-y-6">
               {/* Stats Row */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="grid grid-cols-3 gap-3">
                 <div className="relative overflow-hidden p-4 bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl text-white">
                   <BarChart3 className="absolute -right-2 -bottom-2 w-16 h-16 text-emerald-400/30" />
                   <div className="relative">
                     <span className="text-xs font-medium text-emerald-100 uppercase tracking-wide">Articles</span>
-                    <p className="text-2xl font-bold mt-1">{narrative.data_summary.total_articles.toLocaleString()}</p>
-                  </div>
-                </div>
-                <div className="relative overflow-hidden p-4 bg-gradient-to-br from-teal-500 to-teal-600 rounded-xl text-white">
-                  <Tag className="absolute -right-2 -bottom-2 w-16 h-16 text-teal-400/30" />
-                  <div className="relative">
-                    <span className="text-xs font-medium text-teal-100 uppercase tracking-wide">Categorized</span>
                     <p className="text-2xl font-bold mt-1">{narrative.data_summary.total_categorized.toLocaleString()}</p>
                   </div>
                 </div>

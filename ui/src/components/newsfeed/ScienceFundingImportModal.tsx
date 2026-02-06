@@ -23,6 +23,7 @@ interface ScienceFundingImportModalProps {
   onClose: () => void;
   onImportComplete?: () => void;
   topic?: string;
+  daysBack?: number;
 }
 
 type ImportTab = 'file' | 'url' | 'database';
@@ -32,6 +33,7 @@ export function ScienceFundingImportModal({
   onClose,
   onImportComplete,
   topic = DEFAULT_SCIENCE_TOPIC,
+  daysBack = 365,
 }: ScienceFundingImportModalProps) {
   const [activeTab, setActiveTab] = useState<ImportTab>('url');
   const [file, setFile] = useState<File | null>(null);
@@ -117,7 +119,7 @@ export function ScienceFundingImportModal({
       const loadGroups = async () => {
         setLoadingGroups(true);
         try {
-          const response = await getFeedKeywordGroups();
+          const response = await getFeedKeywordGroups(daysBack);
           setFeedKeywordGroups(response.groups);
           // Auto-select the group matching the current topic, fallback to first group
           if (response.groups.length > 0) {
@@ -605,7 +607,7 @@ export function ScienceFundingImportModal({
                   >
                     {feedKeywordGroups.map((group) => (
                       <option key={group.id} value={group.id}>
-                        {group.name} ({(group.total_feed_items - group.already_imported).toLocaleString()} uncategorized / {group.total_feed_items.toLocaleString()} total)
+                        {group.name} ({(group.total_feed_items - group.already_imported).toLocaleString()} unclassified / {group.total_feed_items.toLocaleString()} enriched)
                       </option>
                     ))}
                   </select>
@@ -622,10 +624,10 @@ export function ScienceFundingImportModal({
                     return (
                       <div className="text-sm">
                         <p className="text-emerald-700 dark:text-emerald-300">
-                          <span className="font-medium">{uncategorized.toLocaleString()}</span> articles to categorize
+                          <span className="font-medium">{uncategorized.toLocaleString()}</span> enriched articles to classify
                         </p>
                         <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-1">
-                          {group.already_imported.toLocaleString()} already categorized of {group.total_feed_items.toLocaleString()} total
+                          {group.already_imported.toLocaleString()} already classified of {group.total_feed_items.toLocaleString()} enriched
                         </p>
                       </div>
                     );

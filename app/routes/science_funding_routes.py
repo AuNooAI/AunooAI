@@ -760,18 +760,19 @@ async def run_classification_task(run_id: int, topic: str, run_type: str, days_b
     try:
         start_date, end_date = get_date_range_filter(days_back)
 
-        # Get articles to classify
+        # Get articles to classify (only enriched articles that passed relevance scoring)
         if run_type == "full":
-            # Get all articles
+            # Get all enriched articles
             result = conn.execute(text("""
                 SELECT uri, title, summary
                 FROM articles
                 WHERE topic = :topic
                 AND publication_date >= :start_date
                 AND publication_date <= :end_date
+                AND category IS NOT NULL AND category != ''
             """), {"topic": topic, "start_date": start_date, "end_date": end_date})
         else:
-            # Get only uncategorized articles
+            # Get only uncategorized enriched articles
             result = conn.execute(text("""
                 SELECT a.uri, a.title, a.summary
                 FROM articles a
@@ -779,6 +780,7 @@ async def run_classification_task(run_id: int, topic: str, run_type: str, days_b
                 WHERE a.topic = :topic
                 AND a.publication_date >= :start_date
                 AND a.publication_date <= :end_date
+                AND a.category IS NOT NULL AND a.category != ''
                 AND sac.id IS NULL
             """), {"topic": topic, "start_date": start_date, "end_date": end_date})
 
@@ -1073,6 +1075,7 @@ async def get_science_stats(
             WHERE sac.topic = :topic
             AND a.publication_date >= :start_date
             AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
             GROUP BY sac.category
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
 
@@ -1098,6 +1101,7 @@ async def get_science_stats(
             ) cat_counts ON a.uri = cat_counts.article_uri
             WHERE a.publication_date >= :start_date
             AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
 
         stats_row = stats_result.fetchone()
@@ -1159,6 +1163,7 @@ async def get_science_articles(
                 WHERE sac.topic = :topic
                 AND a.publication_date >= :start_date
                 AND a.publication_date <= :end_date
+                AND a.category IS NOT NULL AND a.category != ''
                 {category_filter_clause}
                 GROUP BY a.uri, a.title, a.summary, a.news_source, a.publication_date,
                          a.sentiment, a.bias, a.factual_reporting
@@ -1267,6 +1272,7 @@ async def get_category_distribution(
             WHERE sac.topic = :topic
             AND a.publication_date >= :start_date
             AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
             GROUP BY sac.category
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
 
@@ -1286,6 +1292,7 @@ async def get_category_distribution(
             WHERE sac.topic = :topic
             AND a.publication_date >= :prev_start
             AND a.publication_date < :start_date
+            AND a.category IS NOT NULL AND a.category != ''
             GROUP BY sac.category
         """), {"topic": topic, "prev_start": prev_start, "start_date": start_date})
 
@@ -1345,6 +1352,7 @@ async def get_temporal_data(
             WHERE sac.topic = :topic
             AND a.publication_date >= :start_date
             AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
             GROUP BY TO_CHAR(a.publication_date::timestamp, 'YYYY-MM')
             ORDER BY month
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
@@ -1361,6 +1369,7 @@ async def get_temporal_data(
             WHERE sac.topic = :topic
             AND a.publication_date >= :start_date
             AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
             GROUP BY TO_CHAR(a.publication_date::timestamp, 'YYYY-MM'), sac.category
             ORDER BY month
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
@@ -1529,6 +1538,7 @@ async def get_category_cooccurrence(
             WHERE sac.topic = :topic
             AND a.publication_date >= :start_date
             AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
 
         # Build article -> categories mapping
@@ -1603,6 +1613,7 @@ async def get_escalation_analysis(
             WHERE sac.topic = :topic
             AND a.publication_date >= :start_date
             AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
             ORDER BY a.publication_date
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
 
@@ -1813,11 +1824,13 @@ async def get_themes(
         start_date, end_date = get_date_range_filter(days_back)
 
         result = conn.execute(text("""
-            SELECT uri, title, summary
-            FROM articles
-            WHERE topic = :topic
-            AND publication_date >= :start_date
-            AND publication_date <= :end_date
+            SELECT DISTINCT a.uri, a.title, a.summary
+            FROM articles a
+            JOIN science_article_categories sac ON a.uri = sac.article_uri
+            WHERE sac.topic = :topic
+            AND a.publication_date >= :start_date
+            AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
 
         articles = result.fetchall()
@@ -1861,12 +1874,14 @@ async def get_themes_evolution(
         start_date, end_date = get_date_range_filter(days_back)
 
         result = conn.execute(text("""
-            SELECT title, summary, publication_date
-            FROM articles
-            WHERE topic = :topic
-            AND publication_date >= :start_date
-            AND publication_date <= :end_date
-            ORDER BY publication_date ASC
+            SELECT DISTINCT a.title, a.summary, a.publication_date
+            FROM articles a
+            JOIN science_article_categories sac ON a.uri = sac.article_uri
+            WHERE sac.topic = :topic
+            AND a.publication_date >= :start_date
+            AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
+            ORDER BY a.publication_date ASC
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
 
         monthly_data: Dict[str, Dict[str, int]] = {}
@@ -1920,11 +1935,13 @@ async def get_entities(
         start_date, end_date = get_date_range_filter(days_back)
 
         result = conn.execute(text("""
-            SELECT title, summary
-            FROM articles
-            WHERE topic = :topic
-            AND publication_date >= :start_date
-            AND publication_date <= :end_date
+            SELECT DISTINCT a.title, a.summary
+            FROM articles a
+            JOIN science_article_categories sac ON a.uri = sac.article_uri
+            WHERE sac.topic = :topic
+            AND a.publication_date >= :start_date
+            AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
 
         articles = result.fetchall()
@@ -1968,11 +1985,13 @@ async def get_geography(
         start_date, end_date = get_date_range_filter(days_back)
 
         result = conn.execute(text("""
-            SELECT title, summary
-            FROM articles
-            WHERE topic = :topic
-            AND publication_date >= :start_date
-            AND publication_date <= :end_date
+            SELECT DISTINCT a.title, a.summary
+            FROM articles a
+            JOIN science_article_categories sac ON a.uri = sac.article_uri
+            WHERE sac.topic = :topic
+            AND a.publication_date >= :start_date
+            AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
 
         domestic_counts: Dict[str, int] = {loc: 0 for loc in US_LOCATIONS}
@@ -2028,11 +2047,13 @@ async def get_escalation_markers(
         start_date, end_date = get_date_range_filter(days_back)
 
         result = conn.execute(text("""
-            SELECT title, summary
-            FROM articles
-            WHERE topic = :topic
-            AND publication_date >= :start_date
-            AND publication_date <= :end_date
+            SELECT DISTINCT a.title, a.summary
+            FROM articles a
+            JOIN science_article_categories sac ON a.uri = sac.article_uri
+            WHERE sac.topic = :topic
+            AND a.publication_date >= :start_date
+            AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
 
         articles = result.fetchall()
@@ -2076,12 +2097,14 @@ async def get_escalation_marker_trends(
         start_date, end_date = get_date_range_filter(days_back)
 
         result = conn.execute(text("""
-            SELECT title, summary, publication_date
-            FROM articles
-            WHERE topic = :topic
-            AND publication_date >= :start_date
-            AND publication_date <= :end_date
-            ORDER BY publication_date ASC
+            SELECT DISTINCT a.title, a.summary, a.publication_date
+            FROM articles a
+            JOIN science_article_categories sac ON a.uri = sac.article_uri
+            WHERE sac.topic = :topic
+            AND a.publication_date >= :start_date
+            AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
+            ORDER BY a.publication_date ASC
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
 
         monthly_data: Dict[str, Dict[str, int]] = {}
@@ -2141,11 +2164,13 @@ async def get_day_of_week_distribution(
         start_date, end_date = get_date_range_filter(days_back)
 
         result = conn.execute(text("""
-            SELECT publication_date
-            FROM articles
-            WHERE topic = :topic
-            AND publication_date >= :start_date
-            AND publication_date <= :end_date
+            SELECT DISTINCT a.publication_date
+            FROM articles a
+            JOIN science_article_categories sac ON a.uri = sac.article_uri
+            WHERE sac.topic = :topic
+            AND a.publication_date >= :start_date
+            AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
 
         day_counts = {i: 0 for i in range(7)}  # 0=Monday, 6=Sunday
@@ -2204,6 +2229,7 @@ async def get_daily_intensity(
             WHERE a.topic = :topic
             AND a.publication_date >= :start_date
             AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
             GROUP BY DATE(a.publication_date::timestamp)
             ORDER BY pub_date ASC
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
@@ -2267,6 +2293,7 @@ async def get_cooccurrence_matrix(
             WHERE sac.topic = :topic
             AND a.publication_date >= :start_date
             AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
 
         # Build article -> categories mapping
@@ -2571,18 +2598,19 @@ async def run_semantic_batch_classification(
         start_date, end_date = get_date_range_filter(days_back)
 
         if reprocess:
-            # Get all articles
+            # Get all enriched articles
             result = conn.execute(text("""
                 SELECT uri, title, summary
                 FROM articles
                 WHERE topic = :topic
                 AND publication_date >= :start_date
                 AND publication_date <= :end_date
+                AND category IS NOT NULL AND category != ''
                 ORDER BY publication_date DESC
                 LIMIT :limit
             """), {"topic": topic, "start_date": start_date, "end_date": end_date, "limit": limit})
         else:
-            # Get only uncategorized articles (by LLM method)
+            # Get only uncategorized enriched articles (by LLM method)
             result = conn.execute(text("""
                 SELECT a.uri, a.title, a.summary
                 FROM articles a
@@ -2592,6 +2620,7 @@ async def run_semantic_batch_classification(
                 WHERE a.topic = :topic
                 AND a.publication_date >= :start_date
                 AND a.publication_date <= :end_date
+                AND a.category IS NOT NULL AND a.category != ''
                 AND sac.id IS NULL
                 ORDER BY a.publication_date DESC
                 LIMIT :limit
@@ -2701,7 +2730,7 @@ async def generate_narrative_analysis(
 
         # Gather all the data for the narrative
 
-        # 1. Get category counts
+        # 1. Get category counts (only enriched articles)
         result = conn.execute(text("""
             SELECT sac.category, COUNT(DISTINCT sac.article_uri) as count
             FROM science_article_categories sac
@@ -2709,22 +2738,14 @@ async def generate_narrative_analysis(
             WHERE sac.topic = :topic
             AND a.publication_date >= :start_date
             AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
             GROUP BY sac.category
             ORDER BY count DESC
         """), {"topic": request.topic, "start_date": start_date, "end_date": end_date})
 
         category_data = {row[0]: row[1] for row in result.fetchall()}
 
-        # Get total articles and unique categorized articles count
-        result = conn.execute(text("""
-            SELECT COUNT(*) FROM articles
-            WHERE topic = :topic
-            AND publication_date >= :start_date
-            AND publication_date <= :end_date
-        """), {"topic": request.topic, "start_date": start_date, "end_date": end_date})
-        total_articles = result.fetchone()[0]
-
-        # Count unique articles that have at least one category (not sum of category counts)
+        # Count classified articles (enriched + has science categories)
         result = conn.execute(text("""
             SELECT COUNT(DISTINCT sac.article_uri)
             FROM science_article_categories sac
@@ -2732,21 +2753,25 @@ async def generate_narrative_analysis(
             WHERE sac.topic = :topic
             AND a.publication_date >= :start_date
             AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
         """), {"topic": request.topic, "start_date": start_date, "end_date": end_date})
-        total_categorized = result.fetchone()[0]
+        total_articles = result.fetchone()[0]
+        total_categorized = total_articles
 
         category_breakdown = "\n".join([
             f"- {cat}: {count} articles ({round(count/total_articles*100, 1)}%)"
             for cat, count in sorted(category_data.items(), key=lambda x: x[1], reverse=True)
-        ])
+        ]) if total_articles > 0 else "No classified articles found"
 
-        # 2. Get theme data
+        # 2. Get theme data (classified articles only)
         result = conn.execute(text("""
-            SELECT title, summary
-            FROM articles
-            WHERE topic = :topic
-            AND publication_date >= :start_date
-            AND publication_date <= :end_date
+            SELECT DISTINCT a.title, a.summary
+            FROM articles a
+            JOIN science_article_categories sac ON a.uri = sac.article_uri
+            WHERE sac.topic = :topic
+            AND a.publication_date >= :start_date
+            AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
         """), {"topic": request.topic, "start_date": start_date, "end_date": end_date})
 
         theme_counts = {theme: 0 for theme in THEMES.keys()}
@@ -2912,17 +2937,19 @@ async def generate_category_insight(
             AND sac.topic = :topic
             AND a.publication_date >= :start_date
             AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
         """), {"category": request.category, "topic": request.topic, "start_date": start_date, "end_date": end_date})
 
         article_count = result.fetchone()[0]
 
-        # Get total for percentage
+        # Get total for percentage (enriched articles only)
         result = conn.execute(text("""
             SELECT COUNT(*)
             FROM articles
             WHERE topic = :topic
             AND publication_date >= :start_date
             AND publication_date <= :end_date
+            AND category IS NOT NULL AND category != ''
         """), {"topic": request.topic, "start_date": start_date, "end_date": end_date})
 
         total_articles = result.fetchone()[0]
@@ -2939,6 +2966,7 @@ async def generate_category_insight(
             AND sac.topic = :topic
             AND a.publication_date >= :prev_start
             AND a.publication_date < :start_date
+            AND a.category IS NOT NULL AND a.category != ''
         """), {"category": request.category, "topic": request.topic, "prev_start": prev_start, "start_date": start_date})
 
         prev_count = result.fetchone()[0]
@@ -2961,6 +2989,7 @@ async def generate_category_insight(
             AND sac.topic = :topic
             AND a.publication_date >= :start_date
             AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
             ORDER BY a.publication_date DESC
             LIMIT 10
         """), {"category": request.category, "topic": request.topic, "start_date": start_date, "end_date": end_date})
@@ -3398,7 +3427,7 @@ async def save_narrative_to_db(topic: str, days_back: int, conn=None) -> int:
     try:
         start_date, end_date = get_date_range_filter(days_back)
 
-        # Gather data for narrative (same as generate_narrative_analysis)
+        # Gather data for narrative (only enriched articles)
         result = conn.execute(text("""
             SELECT sac.category, COUNT(DISTINCT sac.article_uri) as count
             FROM science_article_categories sac
@@ -3406,21 +3435,14 @@ async def save_narrative_to_db(topic: str, days_back: int, conn=None) -> int:
             WHERE sac.topic = :topic
             AND a.publication_date >= :start_date
             AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
             GROUP BY sac.category
             ORDER BY count DESC
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
 
         category_data = {row[0]: row[1] for row in result.fetchall()}
 
-        result = conn.execute(text("""
-            SELECT COUNT(*) FROM articles
-            WHERE topic = :topic
-            AND publication_date >= :start_date
-            AND publication_date <= :end_date
-        """), {"topic": topic, "start_date": start_date, "end_date": end_date})
-        total_articles = result.fetchone()[0]
-
-        # Count unique articles that have at least one category
+        # Count classified articles (enriched + has science categories)
         result = conn.execute(text("""
             SELECT COUNT(DISTINCT sac.article_uri)
             FROM science_article_categories sac
@@ -3428,21 +3450,25 @@ async def save_narrative_to_db(topic: str, days_back: int, conn=None) -> int:
             WHERE sac.topic = :topic
             AND a.publication_date >= :start_date
             AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
-        total_categorized = result.fetchone()[0]
+        total_articles = result.fetchone()[0]
+        total_categorized = total_articles
 
         category_breakdown = "\n".join([
             f"- {cat}: {count} articles ({round(count/total_articles*100, 1)}%)"
             for cat, count in sorted(category_data.items(), key=lambda x: x[1], reverse=True)
-        ]) if total_articles > 0 else "No articles found"
+        ]) if total_articles > 0 else "No classified articles found"
 
-        # Get theme, entity, escalation data
+        # Get theme, entity, escalation data (classified articles only)
         result = conn.execute(text("""
-            SELECT title, summary
-            FROM articles
-            WHERE topic = :topic
-            AND publication_date >= :start_date
-            AND publication_date <= :end_date
+            SELECT DISTINCT a.title, a.summary
+            FROM articles a
+            JOIN science_article_categories sac ON a.uri = sac.article_uri
+            WHERE sac.topic = :topic
+            AND a.publication_date >= :start_date
+            AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
         """), {"topic": topic, "start_date": start_date, "end_date": end_date})
 
         theme_counts = {theme: 0 for theme in THEMES.keys()}
@@ -3642,12 +3668,46 @@ async def get_latest_narrative(
         if not row:
             return None
 
+        data_summary = row[3] if isinstance(row[3], dict) else json.loads(row[3]) if row[3] else {}
+        days_back = row[4]
+        saved_topic = row[1]
+
+        # Recompute article count live — only classified articles matter
+        start_date, end_date = get_date_range_filter(days_back or 365)
+
+        classified_result = conn.execute(text("""
+            SELECT COUNT(DISTINCT sac.article_uri)
+            FROM science_article_categories sac
+            JOIN articles a ON sac.article_uri = a.uri
+            WHERE sac.topic = :topic
+            AND a.publication_date >= :start_date
+            AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
+        """), {"topic": saved_topic, "start_date": start_date, "end_date": end_date})
+        article_count = classified_result.fetchone()[0]
+        data_summary["total_articles"] = article_count
+        data_summary["total_categorized"] = article_count
+
+        # Recompute per-category breakdown live
+        cat_result = conn.execute(text("""
+            SELECT sac.category, COUNT(DISTINCT sac.article_uri) as count
+            FROM science_article_categories sac
+            JOIN articles a ON sac.article_uri = a.uri
+            WHERE sac.topic = :topic
+            AND a.publication_date >= :start_date
+            AND a.publication_date <= :end_date
+            AND a.category IS NOT NULL AND a.category != ''
+            GROUP BY sac.category
+            ORDER BY count DESC
+        """), {"topic": saved_topic, "start_date": start_date, "end_date": end_date})
+        data_summary["categories"] = {row[0]: row[1] for row in cat_result.fetchall()}
+
         return SavedNarrativeResponse(
             id=row[0],
-            topic=row[1],
+            topic=saved_topic,
             narrative=row[2],
-            data_summary=row[3] if isinstance(row[3], dict) else json.loads(row[3]) if row[3] else {},
-            days_back=row[4],
+            data_summary=data_summary,
+            days_back=days_back,
             date_range_start=str(row[5]) if row[5] else None,
             date_range_end=str(row[6]) if row[6] else None,
             generated_at=str(row[7]) if row[7] else None
@@ -3746,16 +3806,21 @@ class ImportFromFeedResponse(BaseModel):
 
 
 @router.get("/feed-keyword-groups", response_model=FeedKeywordGroupsResponse)
-async def get_feed_keyword_groups(session=Depends(verify_session)):
+async def get_feed_keyword_groups(
+    days_back: int = 365,
+    session=Depends(verify_session)
+):
     """
-    Get keyword groups with article counts.
-    Returns total articles per group and how many are already categorized in science tracker.
+    Get keyword groups with article counts filtered by date range.
+    Returns enriched articles per group and how many are already categorized in science tracker.
     """
     db = get_database_instance()
     conn = db._temp_get_connection()
 
     try:
-        # Get keyword groups with enriched article counts (only articles with category)
+        start_date, end_date = get_date_range_filter(days_back)
+
+        # Get keyword groups with enriched article counts (only articles with category) within date range
         result = conn.execute(text("""
             SELECT
                 kg.id,
@@ -3766,10 +3831,12 @@ async def get_feed_keyword_groups(session=Depends(verify_session)):
             FROM keyword_groups kg
             LEFT JOIN articles a ON a.topic = kg.topic
                 AND a.category IS NOT NULL AND a.category != ''
+                AND a.publication_date >= :start_date
+                AND a.publication_date <= :end_date
             LEFT JOIN science_article_categories sac ON a.uri = sac.article_uri
             GROUP BY kg.id, kg.name, kg.topic
             ORDER BY kg.name
-        """))
+        """), {"start_date": start_date, "end_date": end_date})
 
         groups = []
         for row in result.fetchall():
@@ -4088,7 +4155,7 @@ async def _run_batch_classification_task(topic: str, days_back: int, limit: int,
         try:
             start_date, end_date = get_date_range_filter(days_back)
 
-            # Get articles to classify
+            # Get articles to classify (only enriched articles)
             if reprocess:
                 result = conn.execute(text("""
                     SELECT uri, title, summary
@@ -4096,6 +4163,7 @@ async def _run_batch_classification_task(topic: str, days_back: int, limit: int,
                     WHERE topic = :topic
                     AND publication_date >= :start_date
                     AND publication_date <= :end_date
+                    AND category IS NOT NULL AND category != ''
                     LIMIT :limit
                 """), {"topic": topic, "start_date": start_date, "end_date": end_date, "limit": limit})
             else:
@@ -4106,6 +4174,7 @@ async def _run_batch_classification_task(topic: str, days_back: int, limit: int,
                     WHERE a.topic = :topic
                     AND a.publication_date >= :start_date
                     AND a.publication_date <= :end_date
+                    AND a.category IS NOT NULL AND a.category != ''
                     AND sac.article_uri IS NULL
                     LIMIT :limit
                 """), {"topic": topic, "start_date": start_date, "end_date": end_date, "limit": limit})

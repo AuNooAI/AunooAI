@@ -1,7 +1,10 @@
 """Router registration for the application."""
 
+import importlib
 import logging
 from fastapi import FastAPI
+
+from app.core.modules import get_enabled_modules
 
 logger = logging.getLogger(__name__)
 
@@ -52,9 +55,7 @@ def register_routers(app: FastAPI):
     from app.routes.email_routes import router as email_router
     from app.routes.emerging_topics_routes import router as emerging_topics_router
     from app.routes.rss_feeds_routes import router as rss_feeds_router
-    from app.routes.policy_tracker_routes import router as policy_tracker_router
-    from app.routes.geopolitical_hotspots_routes import router as geopolitical_hotspots_router
-    from app.routes.science_funding_routes import router as science_funding_router
+    from app.routes.module_routes import router as module_routes_router
     from app.routes.daily_reports_routes import router as desk_briefings_router
     from app.routes.slm_routes import router as slm_router
     from app.routes.training_routes import router as training_router
@@ -182,14 +183,18 @@ def register_routers(app: FastAPI):
     # RSS Feed management routes
     app.include_router(rss_feeds_router)
 
-    # Policy Tracker dashboard routes
-    app.include_router(policy_tracker_router)
+    # Module metadata API (always-on)
+    app.include_router(module_routes_router)
 
-    # Geopolitical Hotspots dashboard routes
-    app.include_router(geopolitical_hotspots_router)
-
-    # Science Funding (ScienceWatch) dashboard routes
-    app.include_router(science_funding_router)
+    # Dynamically register enabled analysis modules
+    for module in get_enabled_modules():
+        try:
+            mod = importlib.import_module(module.route_module)
+            router = getattr(mod, module.route_attr)
+            app.include_router(router)
+            logger.info(f"Registered module: {module.name}")
+        except Exception as e:
+            logger.error(f"Failed to register module '{module.id}': {e}")
 
     # Desk Briefings (Briefing Desk feature)
     app.include_router(desk_briefings_router)

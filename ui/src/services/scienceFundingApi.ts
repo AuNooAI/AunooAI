@@ -36,8 +36,9 @@ export interface ImportFromFeedResponse {
 /**
  * Get feed keyword groups with article counts
  */
-export async function getFeedKeywordGroups(): Promise<FeedKeywordGroupsResponse> {
-  const response = await fetch('/api/science-funding/feed-keyword-groups', {
+export async function getFeedKeywordGroups(daysBack: number = 365): Promise<FeedKeywordGroupsResponse> {
+  const params = new URLSearchParams({ days_back: daysBack.toString() });
+  const response = await fetch(`/api/science-funding/feed-keyword-groups?${params}`, {
     credentials: 'include',
   });
 

@@ -4,7 +4,7 @@
  * Section order: Highlights → Narratives → Your Topics
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import {
   Loader2,
   AlertCircle,
@@ -44,9 +44,15 @@ import { NarrativeInsightsSection } from '../components/newsfeed/NarrativeInsigh
 import { ResearchAgentsSection } from '../components/newsfeed/ResearchAgentsSection';
 import { SignalReportsTab } from '../components/newsfeed/SignalReportsTab';
 import { EmergingTopicsTab } from '../components/newsfeed/EmergingTopicsTab';
-import { PolicyTrackerTab } from '../components/newsfeed/PolicyTrackerTab';
-import { GeopoliticalHotspotsTab } from '../components/newsfeed/GeopoliticalHotspotsTab';
-import { ScienceFundingTab } from '../components/newsfeed/ScienceFundingTab';
+import { useModules } from '../hooks/useModules';
+import { ModuleConfigModal } from '../components/newsfeed/ModuleConfigModal';
+
+const PolicyTrackerTab = React.lazy(() =>
+  import('../components/newsfeed/PolicyTrackerTab').then(m => ({ default: m.PolicyTrackerTab })));
+const GeopoliticalHotspotsTab = React.lazy(() =>
+  import('../components/newsfeed/GeopoliticalHotspotsTab').then(m => ({ default: m.GeopoliticalHotspotsTab })));
+const ScienceFundingTab = React.lazy(() =>
+  import('../components/newsfeed/ScienceFundingTab').then(m => ({ default: m.ScienceFundingTab })));
 import { BriefingDeskSection } from '../components/newsfeed/BriefingDeskSection';
 import { fetchDraftBriefingsCount } from '../services/briefingDeskApi';
 import { TopicCluster, getCategoryIcon } from '../components/newsfeed/TopicCluster';
@@ -188,6 +194,9 @@ export function NewsFeedPage() {
     setDismissedPodcasts(prev => new Set(prev).add(index));
   };
 
+  // Analysis modules
+  const { modules: allModules, isEnabled: isModuleEnabled, toggleModule } = useModules();
+
   // UI State
   const [currentTab, setCurrentTab] = useState<'feed' | 'emerging' | 'agents' | 'saved' | 'briefing-desk' | 'policy' | 'geopolitical' | 'science'>('feed');
   const [viewMode, setViewMode] = useState<'clustered' | 'list'>('list');
@@ -195,6 +204,7 @@ export function NewsFeedPage() {
   const [reportsCount, setReportsCount] = useState(0);
   const [draftBriefingsCount, setDraftBriefingsCount] = useState(0);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [isModuleConfigOpen, setIsModuleConfigOpen] = useState(false);
   const [isScheduleModalOpen, setIsScheduleModalOpen] = useState(false);
   const [isNarrativesConfigOpen, setIsNarrativesConfigOpen] = useState(false);
   const [isBriefingConfigOpen, setIsBriefingConfigOpen] = useState(false);
@@ -778,7 +788,7 @@ export function NewsFeedPage() {
             <span className="gather-top-bar-title">Explore</span>
             <span className="gather-top-bar-separator">/</span>
             <span className="gather-top-bar-subtitle">
-              {currentTab === 'agents' ? 'Observer Agents' : currentTab === 'emerging' ? 'Emerging Topics' : currentTab === 'saved' ? 'Saved' : currentTab === 'briefing-desk' ? 'Briefing Desk' : currentTab === 'policy' ? 'US Crisis Tracker' : currentTab === 'geopolitical' ? 'GeoHotSpots' : currentTab === 'science' ? 'ScienceWatch' : 'News Feed'}
+              {{ feed: 'News Feed', agents: 'Observer Agents', emerging: 'Emerging Topics', saved: 'Saved', 'briefing-desk': 'Briefing Desk', policy: 'US Crisis Tracker', geopolitical: 'GeoHotSpots', science: 'ScienceWatch' }[currentTab] ?? 'News Feed'}
             </span>
           </div>
           <div className="gather-top-bar-right">
@@ -827,6 +837,7 @@ export function NewsFeedPage() {
             <Rss className="w-4 h-4" />
             News Feed
           </button>
+          {isModuleEnabled('geopolitical') && (
           <button
             className={`explore-tab-btn ${currentTab === 'geopolitical' ? 'active' : ''}`}
             onClick={() => setCurrentTab('geopolitical')}
@@ -834,6 +845,8 @@ export function NewsFeedPage() {
             <Globe className="w-4 h-4" />
             GeoHotSpots
           </button>
+          )}
+          {isModuleEnabled('policy') && (
           <button
             className={`explore-tab-btn ${currentTab === 'policy' ? 'active' : ''}`}
             onClick={() => setCurrentTab('policy')}
@@ -841,6 +854,8 @@ export function NewsFeedPage() {
             <Scale className="w-4 h-4" />
             US Crisis Tracker
           </button>
+          )}
+          {isModuleEnabled('science') && (
           <button
             className={`explore-tab-btn ${currentTab === 'science' ? 'active' : ''}`}
             onClick={() => setCurrentTab('science')}
@@ -848,6 +863,7 @@ export function NewsFeedPage() {
             <Microscope className="w-4 h-4" />
             ScienceWatch
           </button>
+          )}
           <button
             className={`explore-tab-btn ${currentTab === 'emerging' ? 'active' : ''}`}
             onClick={() => setCurrentTab('emerging')}
@@ -888,6 +904,17 @@ export function NewsFeedPage() {
               <span className="explore-tab-badge">{draftBriefingsCount}</span>
             )}
           </button>
+
+          {/* Module config gear */}
+          <div className="ml-auto">
+            <button
+              className="explore-tab-btn"
+              onClick={() => setIsModuleConfigOpen(true)}
+              title="Configure analysis modules"
+            >
+              <Settings2 className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Error Alerts */}
@@ -1151,25 +1178,31 @@ export function NewsFeedPage() {
             )}
 
             {/* Policy Tracker Tab Content */}
-            {currentTab === 'policy' && (
-              <PolicyTrackerTab
-                onArticleClick={handleArticleClick}
-              />
+            {currentTab === 'policy' && isModuleEnabled('policy') && (
+              <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-pink-500" /></div>}>
+                <PolicyTrackerTab
+                  onArticleClick={handleArticleClick}
+                />
+              </Suspense>
             )}
 
             {/* Geopolitical Hotspots Tab Content */}
-            {currentTab === 'geopolitical' && (
-              <GeopoliticalHotspotsTab
-                onArticleClick={handleArticleClick}
-                model={config.model}
-              />
+            {currentTab === 'geopolitical' && isModuleEnabled('geopolitical') && (
+              <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-pink-500" /></div>}>
+                <GeopoliticalHotspotsTab
+                  onArticleClick={handleArticleClick}
+                  model={config.model}
+                />
+              </Suspense>
             )}
 
             {/* ScienceWatch Tab Content */}
-            {currentTab === 'science' && (
-              <ScienceFundingTab
-                onArticleClick={handleArticleClick}
-              />
+            {currentTab === 'science' && isModuleEnabled('science') && (
+              <Suspense fallback={<div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-pink-500" /></div>}>
+                <ScienceFundingTab
+                  onArticleClick={handleArticleClick}
+                />
+              </Suspense>
             )}
 
             {/* Saved Tab Content - Articles, Incidents, Emerging Topics, and Podcasts */}
@@ -1274,6 +1307,14 @@ export function NewsFeedPage() {
       <NarrativesConfigModal
         open={isNarrativesConfigOpen}
         onClose={() => setIsNarrativesConfigOpen(false)}
+      />
+
+      {/* Module Config Modal */}
+      <ModuleConfigModal
+        open={isModuleConfigOpen}
+        onOpenChange={setIsModuleConfigOpen}
+        modules={allModules || []}
+        onToggle={toggleModule}
       />
 
       {/* Six Articles / Briefing Config Modal */}

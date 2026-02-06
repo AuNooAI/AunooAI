@@ -389,6 +389,7 @@ export function ScienceFundingTab({ onArticleClick }: ScienceFundingTabProps) {
         onClose={() => setShowImportModal(false)}
         onImportComplete={refresh}
         topic={config.topic}
+        daysBack={config.daysBack}
       />
     </div>
   );
