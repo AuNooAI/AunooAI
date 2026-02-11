@@ -140,6 +140,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     setActiveTab(tab);
     if (tab === 'overview') {
       fetchShareOfVoice();
+      fetchComparison();
       if (primarySelectedId) {
         getSentimentTrends(primarySelectedId, config.daysBack)
           .then(d => setSentimentTrends(d.trends)).catch(console.error);
@@ -176,6 +177,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   useEffect(() => {
     if (activeTab !== 'overview') return;
     fetchShareOfVoice();
+    fetchComparison();
     if (primarySelectedId) {
       getSentimentTrends(primarySelectedId, config.daysBack)
         .then(d => setSentimentTrends(d.trends)).catch(console.error);
@@ -185,7 +187,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       setSentimentTrends([]);
       setBrandAlerts([]);
     }
-  }, [activeTab, primarySelectedId, config.daysBack, fetchShareOfVoice]);
+  }, [activeTab, primarySelectedId, config.daysBack, fetchShareOfVoice, fetchComparison]);
 
   // --- Export ---
   const handleExport = useCallback(async (format: 'csv' | 'json' = 'csv') => {
@@ -704,29 +706,66 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             </div>
           )}
 
-          {/* Share of Voice (no brand selected) */}
-          {config.selectedBrandIds.length === 0 && shareOfVoice.length > 0 && (
+          {/* Sentiment by Brand Tracker (multi-brand / all brands view only) */}
+          {!primarySelectedId && comparison.length > 0 && comparison.some(c => Object.keys(c.sentiment_breakdown || {}).length > 0) && (
             <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Share of Voice</h3>
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Sentiment by Brand</h3>
               <div className="space-y-3">
-                {shareOfVoice.map(sov => (
-                  <div key={sov.brand_id}
-                    className="flex items-center gap-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-750 rounded-lg p-1 -m-1 transition-colors"
-                    onClick={() => updateConfig({ selectedBrandIds: [sov.brand_id] })}
-                    title={`Click to view ${sov.brand_name}`}
-                  >
-                    <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: sov.color || '#3b82f6' }} />
-                    <span className="text-sm text-gray-700 dark:text-gray-300 w-32 truncate">{sov.brand_name}</span>
-                    <div className="flex-1 h-5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full transition-all" style={{
-                        width: `${Math.max(sov.percentage, 2)}%`,
-                        backgroundColor: sov.color || '#3b82f6',
-                      }} />
+                {comparison.map(comp => {
+                  const sentCounts = { positive: 0, neutral: 0, negative: 0 };
+                  for (const [label, count] of Object.entries(comp.sentiment_breakdown || {})) {
+                    const lo = label.toLowerCase();
+                    if (lo === 'positive' || lo === 'optimistic' || lo === 'positive development') sentCounts.positive += count;
+                    else if (lo === 'negative' || lo === 'pessimistic' || lo === 'concerning' || lo === 'concerned' || lo === 'critical' || lo === 'alarming') sentCounts.negative += count;
+                    else sentCounts.neutral += count;
+                  }
+                  const total = sentCounts.positive + sentCounts.neutral + sentCounts.negative || 1;
+                  const positivePct = (sentCounts.positive / total) * 100;
+                  const negativePct = (sentCounts.negative / total) * 100;
+                  // Trend indicator
+                  const trendIcon = positivePct > 50 ? '↑' : negativePct > 20 ? '↓' : '—';
+                  const trendColor = positivePct > 50
+                    ? 'text-green-600 dark:text-green-400'
+                    : negativePct > 20
+                    ? 'text-red-600 dark:text-red-400'
+                    : 'text-gray-400';
+                  return (
+                    <div key={comp.brand_id} className="flex items-center gap-3">
+                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: comp.color || '#6b7280' }} />
+                      <span className="text-sm text-gray-700 dark:text-gray-300 w-28 truncate">{comp.brand_name}</span>
+                      <div className="flex-1 h-4 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden flex">
+                        {sentCounts.positive > 0 && (
+                          <div className="h-full bg-green-500" style={{ width: `${positivePct}%` }} />
+                        )}
+                        {sentCounts.neutral > 0 && (
+                          <div className="h-full bg-gray-400" style={{ width: `${(sentCounts.neutral / total) * 100}%` }} />
+                        )}
+                        {sentCounts.negative > 0 && (
+                          <div className="h-full bg-red-500" style={{ width: `${negativePct}%` }} />
+                        )}
+                      </div>
+                      <span className={`text-sm font-bold ${trendColor}`}>{trendIcon}</span>
+                      <div className="flex items-center gap-1.5 text-[10px] w-28 justify-end font-mono">
+                        <span className="text-green-600">{sentCounts.positive}</span>
+                        <span className="text-gray-400">/</span>
+                        <span className="text-gray-500">{sentCounts.neutral}</span>
+                        <span className="text-gray-400">/</span>
+                        <span className="text-red-600">{sentCounts.negative}</span>
+                      </div>
                     </div>
-                    <span className="text-sm font-medium text-gray-600 dark:text-gray-400 w-28 text-right">
-                      {sov.mention_count} ({sov.percentage.toFixed(1)}%)
-                    </span>
-                  </div>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-4 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                {[
+                  { label: 'Positive', color: 'bg-green-500', icon: '↑' },
+                  { label: 'Neutral', color: 'bg-gray-400', icon: '—' },
+                  { label: 'Negative', color: 'bg-red-500', icon: '↓' },
+                ].map(s => (
+                  <span key={s.label} className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400">
+                    <div className={`w-2 h-2 rounded-full ${s.color}`} />
+                    {s.label}
+                  </span>
                 ))}
               </div>
             </div>
@@ -1023,92 +1062,6 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             </div>
           )}
 
-          {/* Category distribution — recharts horizontal bar + hover detail */}
-          {loadingCategories ? (
-            <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-blue-500" /></div>
-          ) : categories.length > 0 ? (() => {
-            const activeCats = categories.filter(c => c.article_count > 0);
-            const chartHeight = Math.max(activeCats.length * 36, 120);
-            const catData = activeCats.map(c => ({
-              name: CATEGORY_SHORT_NAMES[c.category] || c.category,
-              fullName: c.category,
-              articles: c.article_count,
-              percentage: c.percentage,
-              trend: c.recent_trend,
-              fill: CATEGORY_COLORS[c.category] || '#6b7280',
-            }));
-
-            return (
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Category Distribution</h3>
-                  <span className="text-[10px] text-gray-400">Click a bar to view articles</span>
-                </div>
-                <ResponsiveContainer width="100%" height={chartHeight}>
-                  <BarChart data={catData} layout="vertical" margin={{ top: 0, right: 10, bottom: 0, left: 5 }}
-                    onClick={(data) => {
-                      if (data?.activePayload?.[0]?.payload?.fullName) {
-                        handleCategoryDrillDown(data.activePayload[0].payload.fullName);
-                      }
-                    }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} horizontal={false} />
-                    <XAxis type="number" stroke="#9CA3AF" fontSize={11} />
-                    <YAxis type="category" dataKey="name" stroke="#9CA3AF" fontSize={11} width={85} tick={{ fill: '#9CA3AF' }} />
-                    <Tooltip
-                      cursor={{ fill: 'rgba(59,130,246,0.08)' }}
-                      content={({ active, payload }) => {
-                        if (!active || !payload?.length) return null;
-                        const d = payload[0].payload;
-                        return (
-                          <div className="bg-gray-900 text-white text-xs rounded-lg shadow-lg px-3 py-2 max-w-xs">
-                            <p className="font-semibold mb-1">{d.fullName}</p>
-                            <p>{d.articles.toLocaleString()} articles ({d.percentage}%)</p>
-                            <p className="mt-0.5">
-                              Trend: {d.trend === 'up' ? '↑ Increasing' : d.trend === 'down' ? '↓ Decreasing' : '— Stable'}
-                            </p>
-                            <p className="text-gray-400 mt-1">Click to drill down</p>
-                          </div>
-                        );
-                      }}
-                    />
-                    <Bar dataKey="articles" radius={[0, 4, 4, 0]} cursor="pointer">
-                      {catData.map((entry, i) => (
-                        <Cell key={i} fill={entry.fill} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-                {/* Trend badges below chart */}
-                <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
-                  {activeCats.map(cat => (
-                    <button key={cat.category}
-                      onClick={() => handleCategoryDrillDown(cat.category)}
-                      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors"
-                    >
-                      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[cat.category] || '#6b7280' }} />
-                      <span className="text-gray-600 dark:text-gray-400">{CATEGORY_SHORT_NAMES[cat.category] || cat.category}</span>
-                      <span className="font-medium text-gray-700 dark:text-gray-300">{cat.article_count}</span>
-                      <span className={`text-[10px] px-1 py-0.5 rounded ${
-                        cat.recent_trend === 'up' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
-                        cat.recent_trend === 'down' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
-                        'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
-                      }`}>
-                        {cat.recent_trend === 'up' ? '↑' : cat.recent_trend === 'down' ? '↓' : '—'}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            );
-          })() : (
-            <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-              <Target className="w-12 h-12 mx-auto mb-3 opacity-30" />
-              <p>No classified articles yet.</p>
-              <p className="text-sm mt-1">Add brands and run classification to get started.</p>
-            </div>
-          )}
-
           {/* Monthly Volume — stacked recharts BarChart */}
           {temporalData.length > 0 && (() => {
             const topCats = categories.slice(0, 5).map(c => c.category);
@@ -1191,6 +1144,106 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 className="mt-3 text-xs text-blue-600 dark:text-blue-400 hover:underline">
                 View all articles →
               </button>
+            </div>
+          )}
+
+          {/* Category Distribution — Treemap-style Grid */}
+          {loadingCategories ? (
+            <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-blue-500" /></div>
+          ) : categories.length > 0 ? (() => {
+            const activeCats = categories.filter(c => c.article_count > 0);
+            const totalArticles = activeCats.reduce((sum, c) => sum + c.article_count, 0);
+
+            return (
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Category Distribution</h3>
+                  <span className="text-[10px] text-gray-400">Click a category to view articles</span>
+                </div>
+                {activeCats.length <= 2 ? (
+                  /* Simple full-width rows for 1-2 categories */
+                  <div className="space-y-2">
+                    {activeCats.map(cat => {
+                      const pct = totalArticles > 0 ? (cat.article_count / totalArticles) * 100 : 0;
+                      return (
+                        <button key={cat.category}
+                          onClick={() => handleCategoryDrillDown(cat.category)}
+                          className="w-full text-left p-4 rounded-lg transition-all hover:opacity-90 hover:scale-[1.01]"
+                          style={{ backgroundColor: (CATEGORY_COLORS[cat.category] || '#6b7280') + '18' }}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <div className="w-3 h-3 rounded-full" style={{ backgroundColor: CATEGORY_COLORS[cat.category] || '#6b7280' }} />
+                              <span className="text-sm font-medium text-gray-800 dark:text-gray-200">
+                                {CATEGORY_SHORT_NAMES[cat.category] || cat.category}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-bold text-gray-700 dark:text-gray-300">{cat.article_count.toLocaleString()}</span>
+                              <span className="text-xs text-gray-500">({pct.toFixed(1)}%)</span>
+                              <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+                                cat.recent_trend === 'up' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                                cat.recent_trend === 'down' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                                'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+                              }`}>
+                                {cat.recent_trend === 'up' ? '↑' : cat.recent_trend === 'down' ? '↓' : '—'}
+                              </span>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  /* Treemap-style proportional grid */
+                  <div className="flex flex-wrap gap-2">
+                    {activeCats.map(cat => {
+                      const pct = totalArticles > 0 ? (cat.article_count / totalArticles) * 100 : 0;
+                      const basisPct = Math.max(pct, 15); // min 15% for readability
+                      const bgColor = CATEGORY_COLORS[cat.category] || '#6b7280';
+                      return (
+                        <button key={cat.category}
+                          onClick={() => handleCategoryDrillDown(cat.category)}
+                          className="relative rounded-lg p-3 transition-all hover:opacity-90 hover:scale-[1.02] cursor-pointer text-left overflow-hidden group"
+                          style={{
+                            flexBasis: `calc(${basisPct}% - 8px)`,
+                            flexGrow: 1,
+                            minHeight: '64px',
+                            backgroundColor: bgColor + '18',
+                            borderLeft: `3px solid ${bgColor}`,
+                          }}
+                        >
+                          <div className="relative z-10">
+                            <p className="text-xs font-semibold text-gray-800 dark:text-gray-200 leading-tight">
+                              {CATEGORY_SHORT_NAMES[cat.category] || cat.category}
+                            </p>
+                            <div className="flex items-center gap-1.5 mt-1">
+                              <span className="text-sm font-bold text-gray-700 dark:text-gray-300">{cat.article_count.toLocaleString()}</span>
+                              <span className="text-[10px] text-gray-500 dark:text-gray-400">({pct.toFixed(1)}%)</span>
+                              <span className={`text-[10px] font-bold px-1 py-0.5 rounded ${
+                                cat.recent_trend === 'up' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                                cat.recent_trend === 'down' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                                'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+                              }`}>
+                                {cat.recent_trend === 'up' ? '↑' : cat.recent_trend === 'down' ? '↓' : '—'}
+                              </span>
+                            </div>
+                          </div>
+                          {/* Background fill proportional indicator */}
+                          <div className="absolute bottom-0 left-0 h-1 rounded-b-lg transition-all"
+                            style={{ width: `${pct}%`, backgroundColor: bgColor, opacity: 0.4 }} />
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })() : (
+            <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+              <Target className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p>No classified articles yet.</p>
+              <p className="text-sm mt-1">Add brands and run classification to get started.</p>
             </div>
           )}
         </div>
