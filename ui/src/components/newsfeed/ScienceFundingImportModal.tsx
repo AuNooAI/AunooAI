@@ -1,21 +1,26 @@
 /**
- * ScienceWatch Import Modal Component
- * Provides classification and import functionality matching Brand Watcher style
+ * ScienceWatch Classify Articles Modal
+ * Matches the Brand Watcher classify modal pattern exactly
  */
 
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { X, Loader2, AlertCircle, Clock, Zap, Calendar, Upload, Globe, FileText, ChevronDown, ChevronRight } from 'lucide-react';
 import { ScienceScheduleModal } from './ScienceScheduleModal';
 import {
+  runClassification,
+  getClassifyStatus,
   uploadCSVFile,
   importFromURL,
   getImportStatus,
-  getFeedKeywordGroups,
-  importFromFeed,
   type ImportStatus,
-  type FeedKeywordGroup,
+  type ClassificationRun,
   DEFAULT_SCIENCE_TOPIC,
 } from '../../services/scienceFundingApi';
+
+interface TopicItem {
+  topic: string;
+  article_count: number;
+}
 
 interface ScienceFundingImportModalProps {
   isOpen: boolean;
@@ -29,19 +34,16 @@ export function ScienceFundingImportModal({
   isOpen,
   onClose,
   onImportComplete,
-  topic = DEFAULT_SCIENCE_TOPIC,
+  topic: defaultTopic = DEFAULT_SCIENCE_TOPIC,
   daysBack = 365,
 }: ScienceFundingImportModalProps) {
-  // Keyword group state
-  const [feedKeywordGroups, setFeedKeywordGroups] = useState<FeedKeywordGroup[]>([]);
-  const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
-  const [loadingGroups, setLoadingGroups] = useState(false);
+  // Topics state
+  const [topics, setTopics] = useState<TopicItem[]>([]);
+  const [selectedTopics, setSelectedTopics] = useState<string[]>([]);
 
-  // Processing state
+  // Classification state
+  const [classifyStatus, setClassifyStatus] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
-  const [statusMessage, setStatusMessage] = useState('');
-  const [importId, setImportId] = useState<number | null>(null);
-  const [importStatus, setImportStatus] = useState<ImportStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Import data section (collapsed by default)
@@ -53,32 +55,36 @@ export function ScienceFundingImportModal({
   const [endDate, setEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [file, setFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [importId, setImportId] = useState<number | null>(null);
+  const [importStatus, setImportStatus] = useState<ImportStatus | null>(null);
 
-  // Schedule & other modals
+  // Schedule modal
   const [showScheduleModal, setShowScheduleModal] = useState(false);
 
-  const groupsLoadedRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load keyword groups on open
+  // Fetch topics when modal opens
   useEffect(() => {
-    if (isOpen && !groupsLoadedRef.current && !loadingGroups) {
-      groupsLoadedRef.current = true;
-      loadGroups();
+    if (isOpen) {
+      fetch('/api/brand-watcher/topics', { credentials: 'include' })
+        .then(r => r.ok ? r.json() : [])
+        .then((data: TopicItem[]) => setTopics(data))
+        .catch(() => setTopics([]));
     }
-  }, [isOpen, loadingGroups]);
+  }, [isOpen]);
 
   // Reset on close
   useEffect(() => {
     if (!isOpen) {
-      groupsLoadedRef.current = false;
-      setImportId(null);
-      setImportStatus(null);
+      setClassifyStatus('');
       setError(null);
-      setStatusMessage('');
       setFile(null);
       setShowImportSection(false);
+      setImportId(null);
+      setImportStatus(null);
+      setIsProcessing(false);
+      setSelectedTopics([]);
       if (pollIntervalRef.current) {
         clearInterval(pollIntervalRef.current);
         pollIntervalRef.current = null;
@@ -86,14 +92,13 @@ export function ScienceFundingImportModal({
     }
   }, [isOpen]);
 
-  // Poll for import status
+  // Poll for import status (for URL/file imports)
   useEffect(() => {
     if (importId && isProcessing) {
       const pollStatus = async () => {
         try {
           const status = await getImportStatus(importId);
           setImportStatus(status);
-
           if (status.status === 'completed' || status.status === 'failed') {
             setIsProcessing(false);
             if (pollIntervalRef.current) {
@@ -101,127 +106,109 @@ export function ScienceFundingImportModal({
               pollIntervalRef.current = null;
             }
             if (status.status === 'completed') {
-              setStatusMessage(`Done: ${status.articles_created} articles created, ${status.categories_added} categories added`);
+              setClassifyStatus(`Done: ${status.articles_created} articles created, ${status.categories_added} categories added`);
               if (onImportComplete) onImportComplete();
             } else {
-              setStatusMessage('Import failed');
+              setClassifyStatus('Import failed');
             }
           } else {
-            setStatusMessage(`Processing... ${status.rows_processed} rows processed`);
+            setClassifyStatus(`Processing... ${status.rows_processed} rows processed`);
           }
         } catch (err) {
           console.error('Failed to poll import status:', err);
         }
       };
-
       pollIntervalRef.current = setInterval(pollStatus, 2000);
       pollStatus();
-
-      return () => {
-        if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-      };
+      return () => { if (pollIntervalRef.current) clearInterval(pollIntervalRef.current); };
     }
   }, [importId, isProcessing, onImportComplete]);
 
   // Cleanup on unmount
   useEffect(() => {
-    return () => {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
-    };
+    return () => { if (pollIntervalRef.current) clearInterval(pollIntervalRef.current); };
   }, []);
 
-  const loadGroups = async () => {
-    setLoadingGroups(true);
-    try {
-      const response = await getFeedKeywordGroups(daysBack);
-      setFeedKeywordGroups(response.groups);
-      if (response.groups.length > 0) {
-        const topicGroup = response.groups.find(g => g.name === topic);
-        setSelectedGroupId(topicGroup?.id ?? response.groups[0].id);
-      }
-    } catch (err) {
-      console.error('Failed to load feed keyword groups:', err);
-      setError('Failed to load keyword groups');
-      groupsLoadedRef.current = false;
-    } finally {
-      setLoadingGroups(false);
-    }
-  };
-
-  const selectedGroup = feedKeywordGroups.find(g => g.id === selectedGroupId);
-  const unclassifiedCount = selectedGroup ? (selectedGroup.total_feed_items - selectedGroup.already_imported) : 0;
-  const totalCount = selectedGroup?.total_feed_items || 0;
-
-  // Run classification from database (primary action)
-  const handleClassify = useCallback(async (mode: 'incremental' | 'full', batchSize?: number) => {
-    if (!selectedGroupId) return;
+  // --- Classify (matches Brand Watcher pattern) ---
+  const handleClassify = useCallback(async (runType: string = 'incremental', days: number = 30) => {
+    const topicsToRun = selectedTopics.length > 0 ? selectedTopics : [defaultTopic];
     setError(null);
     setIsProcessing(true);
-    setImportStatus(null);
-    const modeLabel = mode === 'full' ? 'full reclassification' : 'incremental';
-    setStatusMessage(`Starting ${modeLabel}...`);
+    setClassifyStatus(`running ${topicsToRun.length} topic(s)...`);
+
+    let totalProcessed = 0;
+    let totalCategorized = 0;
 
     try {
-      const feedResult = await importFromFeed({
-        group_id: selectedGroupId,
-        run_llm_classification: true,
-        regenerate_narrative: false,
-        topic,
-      });
+      for (let i = 0; i < topicsToRun.length; i++) {
+        const t = topicsToRun[i];
+        setClassifyStatus(`Running topic ${i + 1}/${topicsToRun.length}: ${t}...`);
 
-      if (feedResult.status === 'processing') {
-        setImportId(feedResult.import_id);
-        setStatusMessage('Classification running in background...');
-      } else {
-        setStatusMessage(`Done: ${feedResult.articles_imported} classified, ${feedResult.articles_skipped} skipped`);
-        setIsProcessing(false);
-        if (onImportComplete) onImportComplete();
+        const res = await runClassification({
+          topic: t,
+          run_type: runType,
+          days_back: days,
+        });
+
+        // Poll until this topic completes
+        await new Promise<void>((resolve, reject) => {
+          const poll = setInterval(async () => {
+            try {
+              const status = await getClassifyStatus(res.run_id);
+              setClassifyStatus(`Topic ${i + 1}/${topicsToRun.length} "${t}": ${status.status} - ${status.articles_processed} processed, ${status.articles_categorized} categorized`);
+              if (status.status === 'completed' || status.status === 'failed') {
+                clearInterval(poll);
+                totalProcessed += status.articles_processed;
+                totalCategorized += status.articles_categorized;
+                resolve();
+              }
+            } catch {
+              clearInterval(poll);
+              reject(new Error(`Failed to get status for topic ${t}`));
+            }
+          }, 2000);
+          pollIntervalRef.current = poll;
+        });
       }
+
+      setClassifyStatus(`Done: ${totalProcessed} processed, ${totalCategorized} categorized across ${topicsToRun.length} topic(s)`);
+      setIsProcessing(false);
+      if (onImportComplete) onImportComplete();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Classification failed');
       setIsProcessing(false);
+      setClassifyStatus('');
     }
-  }, [selectedGroupId, topic, onImportComplete]);
+  }, [selectedTopics, defaultTopic, onImportComplete]);
 
   // Handle URL/File import (secondary action)
   const handleImportData = useCallback(async () => {
     setError(null);
     setIsProcessing(true);
-    setImportStatus(null);
-    setStatusMessage('Starting import...');
+    setClassifyStatus('Starting import...');
 
     try {
       let result;
-
       if (importMode === 'file') {
-        if (!file) {
-          setError('Please select a CSV file');
-          setIsProcessing(false);
-          return;
-        }
-        result = await uploadCSVFile(file, {
-          topic,
-          runLlmClassification: true,
-          regenerateNarrative: false,
-        });
+        if (!file) { setError('Please select a CSV file'); setIsProcessing(false); return; }
+        result = await uploadCSVFile(file, { topic: defaultTopic, runLlmClassification: true, regenerateNarrative: false });
       } else {
         result = await importFromURL({
           url: fetchFromTracker ? undefined : customUrl || undefined,
           start_date: fetchFromTracker ? startDate : undefined,
           end_date: fetchFromTracker ? endDate : undefined,
-          topic,
+          topic: defaultTopic,
           run_llm_classification: true,
           regenerate_narrative: false,
         });
       }
-
       setImportId(result.import_id);
-      setStatusMessage('Import started...');
+      setClassifyStatus('Import started...');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Import failed');
       setIsProcessing(false);
     }
-  }, [importMode, file, fetchFromTracker, customUrl, startDate, endDate, topic]);
+  }, [importMode, file, fetchFromTracker, customUrl, startDate, endDate, defaultTopic]);
 
   const handleFileSelect = useCallback((selectedFile: File) => {
     if (selectedFile.type === 'text/csv' || selectedFile.name.endsWith('.csv')) {
@@ -244,43 +231,52 @@ export function ScienceFundingImportModal({
       <div className="relative bg-white dark:bg-gray-800 rounded-lg shadow-xl w-full max-w-lg max-h-[85vh] overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
-          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Update ScienceWatch</h3>
-          <button onClick={handleClose} disabled={isProcessing}
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">Classify Articles</h3>
+          <button onClick={() => { handleClose(); setClassifyStatus(''); }}
             className="text-gray-500 hover:text-gray-600 disabled:opacity-50"><X className="w-5 h-5" /></button>
         </div>
 
         <div className="p-4 overflow-y-auto max-h-[70vh] space-y-5">
           {/* Description */}
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Classify articles into science funding categories using ML ensemble.
-            {selectedGroup && ` ${unclassifiedCount} unclassified of ${totalCount} enriched articles.`}
+            Run ML classification on ScienceWatch articles to categorize them into science funding topics.
+            {selectedTopics.length > 0 && ` | ${selectedTopics.length} topic${selectedTopics.length !== 1 ? 's' : ''} selected`}
           </p>
 
-          {/* Keyword Group selector */}
+          {/* Topic multi-select */}
           <div>
-            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Keyword Group</label>
-            {loadingGroups ? (
-              <div className="flex items-center gap-2 px-3 py-2 text-sm text-gray-500 dark:text-gray-300">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Loading keyword groups...
-              </div>
-            ) : feedKeywordGroups.length === 0 ? (
-              <p className="text-sm text-gray-500 dark:text-gray-300 px-3 py-2">
-                No keyword groups found. Create one in the Gather section first.
-              </p>
-            ) : (
-              <select
-                value={selectedGroupId || ''}
-                onChange={(e) => setSelectedGroupId(Number(e.target.value))}
-                disabled={isProcessing}
-                className="w-full px-3 py-2 text-sm bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg dark:text-gray-100"
+            <label className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">
+              Topics to classify ({selectedTopics.length} selected)
+            </label>
+            <div className="max-h-40 overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 p-2 space-y-1">
+              {topics.map(t => (
+                <label key={t.topic} className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-750 rounded px-1 py-0.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={selectedTopics.includes(t.topic)}
+                    onChange={e => {
+                      const next = e.target.checked
+                        ? [...selectedTopics, t.topic]
+                        : selectedTopics.filter(s => s !== t.topic);
+                      setSelectedTopics(next);
+                    }}
+                    className="rounded border-gray-300 dark:border-gray-600"
+                  />
+                  <span className="flex-1 truncate">{t.topic}</span>
+                  <span className="text-xs text-gray-400 flex-shrink-0">{t.article_count}</span>
+                </label>
+              ))}
+              {topics.length === 0 && (
+                <p className="text-xs text-gray-400 dark:text-gray-500 italic">Loading topics...</p>
+              )}
+            </div>
+            {selectedTopics.length > 0 && (
+              <button
+                onClick={() => setSelectedTopics([])}
+                className="mt-1 text-xs text-blue-500 hover:text-blue-700"
               >
-                {feedKeywordGroups.map((group) => (
-                  <option key={group.id} value={group.id}>
-                    {group.name} ({(group.total_feed_items - group.already_imported).toLocaleString()} unclassified / {group.total_feed_items.toLocaleString()} enriched)
-                  </option>
-                ))}
-              </select>
+                Clear all
+              </button>
             )}
           </div>
 
@@ -290,32 +286,34 @@ export function ScienceFundingImportModal({
               <Zap className="w-4 h-4" /> Run Now
             </h4>
             <div className="space-y-2">
-              <button onClick={() => handleClassify('incremental')}
-                disabled={isProcessing || !selectedGroupId || unclassifiedCount === 0}
+              <button onClick={() => handleClassify('incremental', 30)}
+                disabled={isProcessing}
                 className="w-full px-4 py-2.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 flex items-center justify-center gap-2">
-                <Clock className="w-4 h-4" /> Incremental — {unclassifiedCount} New Articles
+                <Clock className="w-4 h-4" /> Incremental (last 30 days)
               </button>
-              <button onClick={() => handleClassify('full')}
-                disabled={isProcessing || !selectedGroupId || totalCount === 0}
+              <button onClick={() => handleClassify('incremental', 90)}
+                disabled={isProcessing}
+                className="w-full px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                Incremental (last 90 days)
+              </button>
+              <button onClick={() => handleClassify('incremental', 365)}
+                disabled={isProcessing}
+                className="w-full px-4 py-2 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50">
+                Incremental (last year)
+              </button>
+              <button onClick={() => handleClassify('full', 365)}
+                disabled={isProcessing}
                 className="w-full px-4 py-2 text-sm bg-orange-500 text-white rounded-lg hover:bg-orange-600 disabled:opacity-50">
-                Full Reclassify ({totalCount} articles)
+                Full Reclassify (last year)
               </button>
             </div>
           </div>
 
-          {/* Status / progress */}
-          {(statusMessage || isProcessing) && (
+          {/* Status */}
+          {classifyStatus && (
             <div className="p-3 bg-gray-50 dark:bg-gray-750 rounded-lg text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2">
-              {isProcessing && <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />}
-              {statusMessage}
-              {importStatus && importStatus.status === 'processing' && importStatus.rows_processed > 0 && (
-                <div className="flex-1">
-                  <div className="w-full bg-blue-200 dark:bg-blue-800 rounded-full h-1.5 ml-2">
-                    <div className="bg-blue-500 h-1.5 rounded-full transition-all duration-300"
-                      style={{ width: `${Math.min(100, (importStatus.rows_processed / Math.max(importStatus.rows_processed + 10, 1)) * 100)}%` }} />
-                  </div>
-                </div>
-              )}
+              {classifyStatus.includes('running') && <Loader2 className="w-4 h-4 animate-spin flex-shrink-0" />}
+              {classifyStatus}
             </div>
           )}
 
@@ -342,7 +340,6 @@ export function ScienceFundingImportModal({
 
             {showImportSection && (
               <div className="mt-3 space-y-3 ml-6">
-                {/* Mode toggle */}
                 <div className="flex gap-2">
                   <button onClick={() => setImportMode('url')}
                     className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg transition-colors ${
@@ -442,12 +439,11 @@ export function ScienceFundingImportModal({
         </div>
       </div>
 
-      {/* Schedule Modal */}
       <ScienceScheduleModal
         isOpen={showScheduleModal}
         onClose={() => setShowScheduleModal(false)}
         onScheduleRun={onImportComplete}
-        topic={topic}
+        topic={defaultTopic}
       />
     </div>
   );

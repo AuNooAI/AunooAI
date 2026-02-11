@@ -279,6 +279,7 @@ class BrandResponse(BaseModel):
     competitor_keywords: Optional[List[str]] = None
     enabled: bool = True
     color: Optional[str] = None
+    is_primary: bool = False
     config: Optional[Dict[str, Any]] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -349,6 +350,7 @@ class ComparisonDataResponse(BaseModel):
     brand_name: str
     total_articles: int
     category_breakdown: Dict[str, int] = {}
+    sentiment_breakdown: Dict[str, int] = {}
     color: Optional[str] = None
 
 
@@ -562,12 +564,14 @@ def _brand_row_to_dict(row) -> dict:
         "created_at": str(row[10]) if row[10] else None,
         "updated_at": str(row[11]) if row[11] else None,
         "config": config_val if isinstance(config_val, dict) else {},
+        "is_primary": bool(row[13]) if len(row) > 13 else False,
     }
 
 
 BRAND_SELECT_COLS = """id, name, display_name, description,
     brand_keywords, product_keywords, people_keywords, competitor_keywords,
-    enabled, color, created_at, updated_at, COALESCE(config, '{}') as config"""
+    enabled, color, created_at, updated_at, COALESCE(config, '{}') as config,
+    COALESCE(is_primary, false) as is_primary"""
 
 
 # ============================================================================
@@ -797,6 +801,30 @@ async def toggle_brand(brand_id: int, session=Depends(verify_session)):
     except Exception as e:
         conn.rollback()
         logger.error(f"Error toggling brand {brand_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.put("/brands/{brand_id}/set-primary")
+async def set_primary_brand(brand_id: int, session=Depends(verify_session)):
+    """Set a brand as the primary brand (unsets all others)."""
+    db = get_database_instance()
+    conn = db._temp_get_connection()
+    try:
+        # Verify brand exists
+        exists = conn.execute(text("SELECT id FROM bw_brands WHERE id = :id"), {"id": brand_id}).fetchone()
+        if not exists:
+            raise HTTPException(status_code=404, detail="Brand not found")
+        conn.execute(text("UPDATE bw_brands SET is_primary = false"))
+        conn.execute(text("UPDATE bw_brands SET is_primary = true WHERE id = :id"), {"id": brand_id})
+        conn.commit()
+        return {"id": brand_id, "is_primary": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Error setting primary brand {brand_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
@@ -1148,12 +1176,12 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
                 for i, t in enumerate(topics):
                     base_params[f"topic_{i}"] = t
 
-            # Query articles that mention this brand
+            # Query articles that mention this brand (only enriched/analyzed articles)
             if run_type == "full":
                 art_result = conn.execute(text(f"""
                     SELECT a.uri, a.title, a.summary FROM articles a
                     WHERE a.publication_date >= :start AND a.publication_date <= :end
-                    AND a.category IS NOT NULL AND a.category != ''
+                    AND a.analyzed = true
                     {topic_filter}
                     {brand_filter}
                 """), base_params)
@@ -1163,7 +1191,7 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
                     SELECT a.uri, a.title, a.summary FROM articles a
                     LEFT JOIN bw_article_categories bac ON a.uri = bac.article_uri AND bac.brand_id = :bid
                     WHERE a.publication_date >= :start AND a.publication_date <= :end
-                    AND a.category IS NOT NULL AND a.category != ''
+                    AND a.analyzed = true
                     AND bac.id IS NULL
                     {topic_filter}
                     {brand_filter}
@@ -1177,7 +1205,6 @@ async def _run_classification_task(run_id: int, brand_id: Optional[int], run_typ
                     SELECT COUNT(*) FROM articles a
                     JOIN bw_article_categories bac ON a.uri = bac.article_uri AND bac.brand_id = :bid
                     WHERE a.publication_date >= :start AND a.publication_date <= :end
-                    AND a.category IS NOT NULL AND a.category != ''
                     {topic_filter}
                     {brand_filter}
                 """), {**base_params, "bid": bid}).scalar() or 0
@@ -1319,7 +1346,6 @@ def _auto_generate_narrative_clusters(db, brand_id: int, brand_name: str):
                 JOIN articles a ON bac.article_uri = a.uri
                 WHERE bac.brand_id = :bid
                 AND a.publication_date >= (NOW() - INTERVAL '7 days')::text
-                AND a.category IS NOT NULL AND a.category != ''
                 GROUP BY bac.category, DATE_TRUNC('day', a.publication_date::timestamp)::date
                 HAVING COUNT(DISTINCT bac.article_uri) >= 3
             )
@@ -1500,6 +1526,21 @@ async def list_classification_runs(
         conn.close()
 
 
+def _build_brand_ids_filter(brand_id: Optional[int], brand_ids: Optional[str], alias: str = "bac") -> tuple:
+    """Build SQL brand filter from single brand_id or comma-separated brand_ids.
+    Returns (sql_fragment, params_dict).
+    brand_ids takes precedence over brand_id when both provided."""
+    if brand_ids:
+        bid_list = [int(x.strip()) for x in brand_ids.split(",") if x.strip().isdigit()]
+        if bid_list:
+            placeholders = ", ".join(f":_bid_{i}" for i in range(len(bid_list)))
+            params = {f"_bid_{i}": b for i, b in enumerate(bid_list)}
+            return f"AND {alias}.brand_id IN ({placeholders})", params
+    if brand_id:
+        return f"AND {alias}.brand_id = :brand_id", {"brand_id": brand_id}
+    return "", {}
+
+
 def _build_topics_filter(topics_param: Optional[str], alias: str = "a") -> tuple:
     """Parse comma-separated topics param into SQL filter and params dict.
     Returns (sql_fragment, params_dict)."""
@@ -1520,6 +1561,7 @@ def _build_topics_filter(topics_param: Optional[str], alias: str = "a") -> tuple
 @router.get("/stats", response_model=StatsResponse)
 async def get_stats(
     brand_id: Optional[int] = Query(None, description="Filter by brand ID"),
+    brand_ids: Optional[str] = Query(None, description="Comma-separated brand IDs"),
     topics: Optional[str] = Query(None, description="Comma-separated topics"),
     days_back: int = Query(365, ge=0, le=730),
     session=Depends(verify_session),
@@ -1529,11 +1571,9 @@ async def get_stats(
     conn = db._temp_get_connection()
     try:
         start_date, end_date = _get_date_range(days_back)
-        brand_filter = "AND bac.brand_id = :brand_id" if brand_id else ""
+        brand_filter, brand_params = _build_brand_ids_filter(brand_id, brand_ids)
         topic_filter, topic_params = _build_topics_filter(topics)
-        params = {"start": start_date, "end": end_date, **topic_params}
-        if brand_id:
-            params["brand_id"] = brand_id
+        params = {"start": start_date, "end": end_date, **brand_params, **topic_params}
 
         # Category counts
         cat_result = conn.execute(text(f"""
@@ -1541,7 +1581,6 @@ async def get_stats(
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE a.publication_date >= :start AND a.publication_date <= :end
-            AND a.category IS NOT NULL AND a.category != ''
             {brand_filter} {topic_filter}
             GROUP BY bac.category
         """), params)
@@ -1551,8 +1590,9 @@ async def get_stats(
             if row[0] in cat_counts:
                 cat_counts[row[0]] = row[1]
 
-        # Aggregate stats
-        brand_sub_where = "WHERE brand_id = :brand_id" if brand_id else ""
+        # Aggregate stats — inner sub-query needs its own brand filter without table alias
+        brand_sub_filter = brand_filter.replace("bac.", "")  # strip alias for unqualified column
+        brand_sub_where = f"WHERE 1=1 {brand_sub_filter}" if brand_sub_filter else ""
         stats_result = conn.execute(text(f"""
             SELECT COUNT(DISTINCT a.uri),
                    MIN(a.publication_date), MAX(a.publication_date),
@@ -1564,7 +1604,6 @@ async def get_stats(
                 GROUP BY article_uri
             ) cc ON a.uri = cc.article_uri
             WHERE a.publication_date >= :start AND a.publication_date <= :end
-            AND a.category IS NOT NULL AND a.category != ''
             {topic_filter}
         """), params)
         sr = stats_result.fetchone()
@@ -1594,6 +1633,7 @@ async def get_stats(
 @router.get("/categories", response_model=List[CategoryDistribution])
 async def get_category_distribution(
     brand_id: Optional[int] = Query(None),
+    brand_ids: Optional[str] = Query(None, description="Comma-separated brand IDs"),
     topics: Optional[str] = Query(None),
     days_back: int = Query(365, ge=0, le=730),
     session=Depends(verify_session),
@@ -1603,18 +1643,15 @@ async def get_category_distribution(
     conn = db._temp_get_connection()
     try:
         start_date, end_date = _get_date_range(days_back)
-        brand_filter = "AND bac.brand_id = :brand_id" if brand_id else ""
+        brand_filter, brand_params = _build_brand_ids_filter(brand_id, brand_ids)
         topic_filter, topic_params = _build_topics_filter(topics)
-        params = {"start": start_date, "end": end_date, **topic_params}
-        if brand_id:
-            params["brand_id"] = brand_id
+        params = {"start": start_date, "end": end_date, **brand_params, **topic_params}
 
         result = conn.execute(text(f"""
             SELECT bac.category, COUNT(DISTINCT bac.article_uri) as count
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE a.publication_date >= :start AND a.publication_date <= :end
-            AND a.category IS NOT NULL AND a.category != ''
             {brand_filter} {topic_filter}
             GROUP BY bac.category
         """), params)
@@ -1624,15 +1661,12 @@ async def get_category_distribution(
 
         # Trend calculation
         prev_start = (datetime.strptime(start_date, '%Y-%m-%d') - timedelta(days=days_back)).strftime('%Y-%m-%d')
-        prev_params = {"prev_start": prev_start, "start": start_date, **topic_params}
-        if brand_id:
-            prev_params["brand_id"] = brand_id
+        prev_params = {"prev_start": prev_start, "start": start_date, **brand_params, **topic_params}
         prev_result = conn.execute(text(f"""
             SELECT bac.category, COUNT(DISTINCT bac.article_uri) as count
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE a.publication_date >= :prev_start AND a.publication_date < :start
-            AND a.category IS NOT NULL AND a.category != ''
             {brand_filter} {topic_filter}
             GROUP BY bac.category
         """), prev_params)
@@ -1666,6 +1700,7 @@ async def get_category_distribution(
 @router.get("/temporal", response_model=List[TemporalDataResponse])
 async def get_temporal_data(
     brand_id: Optional[int] = Query(None),
+    brand_ids: Optional[str] = Query(None, description="Comma-separated brand IDs"),
     topics: Optional[str] = Query(None),
     days_back: int = Query(365, ge=0, le=730),
     session=Depends(verify_session),
@@ -1675,11 +1710,9 @@ async def get_temporal_data(
     conn = db._temp_get_connection()
     try:
         start_date, end_date = _get_date_range(days_back)
-        brand_filter = "AND bac.brand_id = :brand_id" if brand_id else ""
+        brand_filter, brand_params = _build_brand_ids_filter(brand_id, brand_ids)
         topic_filter, topic_params = _build_topics_filter(topics)
-        params = {"start": start_date, "end": end_date, **topic_params}
-        if brand_id:
-            params["brand_id"] = brand_id
+        params = {"start": start_date, "end": end_date, **brand_params, **topic_params}
 
         # Monthly totals
         totals_result = conn.execute(text(f"""
@@ -1688,7 +1721,6 @@ async def get_temporal_data(
             FROM articles a
             JOIN bw_article_categories bac ON a.uri = bac.article_uri
             WHERE a.publication_date >= :start AND a.publication_date <= :end
-            AND a.category IS NOT NULL AND a.category != ''
             {brand_filter} {topic_filter}
             GROUP BY TO_CHAR(a.publication_date::timestamp, 'YYYY-MM')
             ORDER BY month
@@ -1702,7 +1734,6 @@ async def get_temporal_data(
             FROM bw_article_categories bac
             JOIN articles a ON bac.article_uri = a.uri
             WHERE a.publication_date >= :start AND a.publication_date <= :end
-            AND a.category IS NOT NULL AND a.category != ''
             {brand_filter} {topic_filter}
             GROUP BY TO_CHAR(a.publication_date::timestamp, 'YYYY-MM'), bac.category
             ORDER BY month
@@ -1769,7 +1800,6 @@ async def get_brand_comparison(
                 JOIN articles a ON bac.article_uri = a.uri
                 WHERE bac.brand_id = :bid
                 AND a.publication_date >= :start AND a.publication_date <= :end
-                AND a.category IS NOT NULL AND a.category != ''
                 {topic_filter}
                 GROUP BY bac.category
             """), params)
@@ -1777,11 +1807,24 @@ async def get_brand_comparison(
             breakdown = {row[0]: row[1] for row in cat_result.fetchall()}
             total = sum(breakdown.values())
 
+            # Sentiment breakdown for this brand
+            sent_result = conn.execute(text(f"""
+                SELECT COALESCE(a.sentiment, 'Unknown') as sentiment, COUNT(DISTINCT bac.article_uri)
+                FROM bw_article_categories bac
+                JOIN articles a ON bac.article_uri = a.uri
+                WHERE bac.brand_id = :bid
+                AND a.publication_date >= :start AND a.publication_date <= :end
+                {topic_filter}
+                GROUP BY COALESCE(a.sentiment, 'Unknown')
+            """), params)
+            sentiment_breakdown = {row[0]: row[1] for row in sent_result.fetchall()}
+
             response.append(ComparisonDataResponse(
                 brand_id=bid,
                 brand_name=brand["display_name"],
                 total_articles=total,
                 category_breakdown=breakdown,
+                sentiment_breakdown=sentiment_breakdown,
                 color=brand.get("color"),
             ))
         return response
@@ -1813,7 +1856,6 @@ async def get_share_of_voice(
             JOIN articles a ON bac.article_uri = a.uri
             JOIN bw_brands b ON bac.brand_id = b.id
             WHERE a.publication_date >= :start AND a.publication_date <= :end
-            AND a.category IS NOT NULL AND a.category != ''
             AND b.enabled = true
             {topic_filter}
             GROUP BY bac.brand_id, b.display_name, b.color
@@ -1866,7 +1908,6 @@ async def get_sentiment_trends(
             JOIN articles a ON bac.article_uri = a.uri
             WHERE bac.brand_id = :bid
             AND a.publication_date >= :start AND a.publication_date <= :end
-            AND a.category IS NOT NULL AND a.category != ''
             AND a.sentiment IS NOT NULL AND a.sentiment != ''
             {topic_filter}
             GROUP BY week, bac.category, a.sentiment
@@ -1997,7 +2038,6 @@ async def export_brand_data(
             JOIN articles a ON bac.article_uri = a.uri
             WHERE bac.brand_id = :bid
             AND a.publication_date >= :start AND a.publication_date <= :end
-            AND a.category IS NOT NULL AND a.category != ''
             ORDER BY a.publication_date DESC
         """), {"bid": brand_id, "start": sd, "end": ed})
 
@@ -2060,6 +2100,7 @@ async def export_brand_data(
 @router.get("/articles", response_model=ArticlesListResponse)
 async def get_articles(
     brand_id: Optional[int] = Query(None),
+    brand_ids: Optional[str] = Query(None, description="Comma-separated brand IDs"),
     topics: Optional[str] = Query(None),
     categories: Optional[str] = Query(None, description="Comma-separated categories"),
     days_back: int = Query(365, ge=0, le=730),
@@ -2076,11 +2117,9 @@ async def get_articles(
         cat_filter_list = [c.strip() for c in categories.split(',')] if categories else None
         offset = (page - 1) * per_page
 
-        brand_clause = "AND bac.brand_id = :brand_id" if brand_id else ""
+        brand_clause, brand_params = _build_brand_ids_filter(brand_id, brand_ids)
         topic_clause, topic_params = _build_topics_filter(topics)
-        params: dict = {"start": start_date, "end": end_date, "per_page": per_page, "offset": offset, **topic_params}
-        if brand_id:
-            params["brand_id"] = brand_id
+        params: dict = {"start": start_date, "end": end_date, "per_page": per_page, "offset": offset, **brand_params, **topic_params}
 
         cat_clause = ""
         if cat_filter_list:
@@ -2099,7 +2138,7 @@ async def get_articles(
                 JOIN bw_article_categories bac ON a.uri = bac.article_uri
                 JOIN bw_brands b ON bac.brand_id = b.id
                 WHERE a.publication_date >= :start AND a.publication_date <= :end
-                AND a.category IS NOT NULL AND a.category != ''
+                AND a.analyzed = true
                 {brand_clause} {cat_clause} {topic_clause}
                 GROUP BY a.uri, a.title, a.summary, a.news_source,
                          a.publication_date, a.sentiment, bac.brand_id, b.display_name
@@ -2180,7 +2219,6 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
             JOIN articles a ON bac.article_uri = a.uri
             WHERE bac.brand_id = :bid
             AND a.publication_date >= :start AND a.publication_date <= :end
-            AND a.category IS NOT NULL AND a.category != ''
             GROUP BY bac.category ORDER BY COUNT(DISTINCT bac.article_uri) DESC
         """), {"bid": request.brand_id, "start": start_date, "end": end_date})
         category_data = {row[0]: row[1] for row in cat_result.fetchall()}
@@ -2200,7 +2238,6 @@ async def generate_narrative(request: NarrativeRequest, session=Depends(verify_s
                 JOIN bw_article_categories bac ON a.uri = bac.article_uri
                 WHERE bac.brand_id = :bid
                 AND a.publication_date >= :start AND a.publication_date <= :end
-                AND a.category IS NOT NULL AND a.category != ''
             """), {"bid": request.brand_id, "start": start_date, "end": end_date})
             for atitle, asumm in art_result.fetchall():
                 combined = f"{atitle or ''} {asumm or ''}".lower()
@@ -2298,7 +2335,6 @@ async def get_latest_narrative(
             JOIN articles a ON bac.article_uri = a.uri
             WHERE bac.brand_id = :bid
             AND a.publication_date >= :start AND a.publication_date <= :end
-            AND a.category IS NOT NULL AND a.category != ''
         """), {"bid": brand_id, "start": start_date, "end": end_date}).fetchone()[0]
         data_summary["total_articles"] = live_count
 
@@ -2309,7 +2345,6 @@ async def get_latest_narrative(
             JOIN articles a ON bac.article_uri = a.uri
             WHERE bac.brand_id = :bid
             AND a.publication_date >= :start AND a.publication_date <= :end
-            AND a.category IS NOT NULL AND a.category != ''
             GROUP BY bac.category ORDER BY COUNT(DISTINCT bac.article_uri) DESC
         """), {"bid": brand_id, "start": start_date, "end": end_date})
         data_summary["categories"] = {r[0]: r[1] for r in cat_result.fetchall()}
@@ -2353,7 +2388,6 @@ async def generate_category_insight(request: CategoryInsightRequest, session=Dep
             JOIN articles a ON bac.article_uri = a.uri
             WHERE bac.brand_id = :bid AND bac.category = :cat
             AND a.publication_date >= :start AND a.publication_date <= :end
-            AND a.category IS NOT NULL AND a.category != ''
         """), {"bid": request.brand_id, "cat": request.category, "start": start_date, "end": end_date})
         article_count = count_result.fetchone()[0]
 
@@ -2364,7 +2398,6 @@ async def generate_category_insight(request: CategoryInsightRequest, session=Dep
             JOIN articles a ON bac.article_uri = a.uri
             WHERE bac.brand_id = :bid
             AND a.publication_date >= :start AND a.publication_date <= :end
-            AND a.category IS NOT NULL AND a.category != ''
         """), {"bid": request.brand_id, "start": start_date, "end": end_date})
         total = total_result.fetchone()[0] or 1
         percentage = round(article_count / total * 100, 1)
@@ -2375,7 +2408,6 @@ async def generate_category_insight(request: CategoryInsightRequest, session=Dep
             JOIN bw_article_categories bac ON a.uri = bac.article_uri
             WHERE bac.brand_id = :bid AND bac.category = :cat
             AND a.publication_date >= :start AND a.publication_date <= :end
-            AND a.category IS NOT NULL AND a.category != ''
             ORDER BY a.publication_date DESC LIMIT 10
         """), {"bid": request.brand_id, "cat": request.category, "start": start_date, "end": end_date})
         sample_titles = "\n".join([f"- {row[0]}" for row in sample_result.fetchall()])
@@ -2511,7 +2543,7 @@ async def get_topics(session=Depends(verify_session)):
         result = conn.execute(text("""
             SELECT topic, COUNT(*) as article_count
             FROM articles
-            WHERE category IS NOT NULL AND category != ''
+            WHERE topic IS NOT NULL AND topic != ''
             GROUP BY topic
             ORDER BY article_count DESC
         """))

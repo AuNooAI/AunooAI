@@ -438,18 +438,21 @@ export function NewsFeedPage() {
     console.log(`[NewsFeedPage] handleArticleClick - related articles:`, relatedArticles?.length || 0, relatedArticles);
     setSelectedArticleRelated(relatedArticles || []);
 
-    // If it's already a full NewsArticle with summary, use it directly
-    if ('summary' in article && article.summary && article.summary !== '') {
+    const hasBWData = Array.isArray((article as any).categories);
+
+    // If it's already a full NewsArticle with summary and not from BW, use directly
+    if (!hasBWData && 'summary' in article && article.summary && article.summary !== '') {
       setSelectedArticle(article as NewsArticle);
       return;
     }
 
-    // Otherwise, fetch full article data by URI
+    // Fetch full article data by URI to get all enrichment fields
+    // For BW articles, merge BW-specific fields (categories, brand_name, matched_keywords) on top
     setLoadingArticleDetail(true);
     try {
       const fullArticle = await getArticleByUri(article.uri);
       if (fullArticle) {
-        setSelectedArticle(fullArticle);
+        setSelectedArticle(hasBWData ? { ...fullArticle, categories: (article as any).categories, brand_name: (article as any).brand_name, matched_keywords: (article as any).matched_keywords } : fullArticle);
       } else {
         // Fallback to partial data if fetch fails
         setSelectedArticle({

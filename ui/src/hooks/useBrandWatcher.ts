@@ -9,6 +9,7 @@ import {
   updateBrand,
   deleteBrand,
   toggleBrand,
+  setPrimaryBrand,
   setupBrandMonitoring,
   getStats,
   getCategories,
@@ -30,7 +31,7 @@ import {
 
 export interface BrandWatcherConfig {
   daysBack: number;
-  selectedBrandId: number | null;
+  selectedBrandIds: number[];
   selectedTopics: string[];
   selectedCategories: string[];
   sortBy: 'date' | 'category_count';
@@ -40,7 +41,7 @@ export interface BrandWatcherConfig {
 
 const DEFAULT_CONFIG: BrandWatcherConfig = {
   daysBack: 365,
-  selectedBrandId: null,
+  selectedBrandIds: [],
   selectedTopics: [],
   selectedCategories: [],
   sortBy: 'date',
@@ -60,6 +61,11 @@ export function useBrandWatcher() {
         if (parsed.selectedTopic && !parsed.selectedTopics) {
           parsed.selectedTopics = [parsed.selectedTopic];
           delete parsed.selectedTopic;
+        }
+        // Migrate legacy selectedBrandId -> selectedBrandIds
+        if (parsed.selectedBrandId !== undefined && !parsed.selectedBrandIds) {
+          parsed.selectedBrandIds = parsed.selectedBrandId ? [parsed.selectedBrandId] : [];
+          delete parsed.selectedBrandId;
         }
         return { ...DEFAULT_CONFIG, ...parsed };
       }
@@ -97,6 +103,7 @@ export function useBrandWatcher() {
   const loading = loadingStats || loadingCategories || loadingArticles;
 
   const topicsOrUndefined = config.selectedTopics.length > 0 ? config.selectedTopics : undefined;
+  const brandIdsOrUndefined = config.selectedBrandIds.length > 0 ? config.selectedBrandIds : undefined;
 
   // Save config
   useEffect(() => {
@@ -144,22 +151,38 @@ export function useBrandWatcher() {
   const handleDeleteBrand = useCallback(async (id: number, cleanupMonitoring: boolean = false) => {
     await deleteBrand(id, cleanupMonitoring || undefined);
     setBrands(prev => prev.filter(b => b.id !== id));
-    if (config.selectedBrandId === id) {
-      setConfig(prev => ({ ...prev, selectedBrandId: null }));
+    if (config.selectedBrandIds.includes(id)) {
+      setConfig(prev => ({ ...prev, selectedBrandIds: prev.selectedBrandIds.filter(bid => bid !== id) }));
     }
-  }, [config.selectedBrandId]);
+  }, [config.selectedBrandIds]);
 
   const handleToggleBrand = useCallback(async (id: number) => {
     const result = await toggleBrand(id);
     setBrands(prev => prev.map(b => b.id === id ? { ...b, enabled: result.enabled } : b));
   }, []);
 
+  // Set primary brand
+  const handleSetPrimary = useCallback(async (id: number) => {
+    await setPrimaryBrand(id);
+    setBrands(prev => prev.map(b => ({ ...b, is_primary: b.id === id })));
+  }, []);
+
+  // Auto-select primary brand on initial load when no brands are selected
+  useEffect(() => {
+    if (brands.length > 0 && config.selectedBrandIds.length === 0) {
+      const primary = brands.find(b => b.is_primary && b.enabled);
+      if (primary) {
+        setConfig(prev => ({ ...prev, selectedBrandIds: [primary.id] }));
+      }
+    }
+  }, [brands]);
+
   // Fetch stats
   const fetchStats = useCallback(async () => {
     setLoadingStats(true);
     setError(null);
     try {
-      const data = await getStats(config.selectedBrandId || undefined, config.daysBack, topicsOrUndefined);
+      const data = await getStats(brandIdsOrUndefined, config.daysBack, topicsOrUndefined);
       setStats(data);
     } catch (err) {
       console.error('Error fetching stats:', err);
@@ -167,40 +190,40 @@ export function useBrandWatcher() {
     } finally {
       setLoadingStats(false);
     }
-  }, [config.selectedBrandId, config.daysBack, topicsOrUndefined]);
+  }, [brandIdsOrUndefined, config.daysBack, topicsOrUndefined]);
 
   // Fetch categories
   const fetchCategories = useCallback(async () => {
     setLoadingCategories(true);
     try {
-      const data = await getCategories(config.selectedBrandId || undefined, config.daysBack, topicsOrUndefined);
+      const data = await getCategories(brandIdsOrUndefined, config.daysBack, topicsOrUndefined);
       setCategories(data);
     } catch (err) {
       console.error('Error fetching categories:', err);
     } finally {
       setLoadingCategories(false);
     }
-  }, [config.selectedBrandId, config.daysBack, topicsOrUndefined]);
+  }, [brandIdsOrUndefined, config.daysBack, topicsOrUndefined]);
 
   // Fetch temporal
   const fetchTemporal = useCallback(async () => {
     setLoadingTemporal(true);
     try {
-      const data = await getTemporal(config.selectedBrandId || undefined, Math.max(config.daysBack, 90), topicsOrUndefined);
+      const data = await getTemporal(brandIdsOrUndefined, Math.max(config.daysBack, 90), topicsOrUndefined);
       setTemporalData(data);
     } catch (err) {
       console.error('Error fetching temporal:', err);
     } finally {
       setLoadingTemporal(false);
     }
-  }, [config.selectedBrandId, config.daysBack, topicsOrUndefined]);
+  }, [brandIdsOrUndefined, config.daysBack, topicsOrUndefined]);
 
   // Fetch articles
   const fetchArticles = useCallback(async () => {
     setLoadingArticles(true);
     try {
       const res = await getArticles({
-        brand_id: config.selectedBrandId || undefined,
+        brand_ids: brandIdsOrUndefined,
         topics: topicsOrUndefined,
         categories: config.selectedCategories.length > 0 ? config.selectedCategories : undefined,
         days_back: config.daysBack,
@@ -249,7 +272,7 @@ export function useBrandWatcher() {
     setConfig(prev => {
       const next = { ...prev, ...updates };
       if (updates.selectedCategories !== undefined || updates.sortBy !== undefined ||
-          updates.daysBack !== undefined || updates.selectedBrandId !== undefined ||
+          updates.daysBack !== undefined || updates.selectedBrandIds !== undefined ||
           updates.selectedTopics !== undefined) {
         next.page = 1;
       }
@@ -267,9 +290,9 @@ export function useBrandWatcher() {
   // Initial load
   useEffect(() => { fetchBrands(); fetchTopics(); }, []);
   useEffect(() => { fetchStats(); fetchCategories(); fetchTemporal(); },
-    [config.selectedBrandId, config.daysBack, config.selectedTopics]);
+    [config.selectedBrandIds, config.daysBack, config.selectedTopics]);
   useEffect(() => { fetchArticles(); },
-    [config.selectedBrandId, config.selectedTopics, config.selectedCategories, config.daysBack, config.sortBy, config.page, config.perPage]);
+    [config.selectedBrandIds, config.selectedTopics, config.selectedCategories, config.daysBack, config.sortBy, config.page, config.perPage]);
 
   return {
     brands, topics, stats, categories, temporalData, articles,
@@ -283,5 +306,6 @@ export function useBrandWatcher() {
     fetchArticles, fetchComparison, fetchShareOfVoice,
     createBrand: handleCreateBrand, updateBrand: handleUpdateBrand,
     deleteBrand: handleDeleteBrand, toggleBrand: handleToggleBrand,
+    setPrimary: handleSetPrimary,
   };
 }

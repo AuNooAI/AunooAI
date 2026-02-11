@@ -206,8 +206,6 @@ export function GeopoliticalImportModal({
         body: JSON.stringify({
           batch_size: batchSize,
           model,
-          run_llm_extraction: true,
-          regenerate_narrative: false,
           topic: selectedTopic || undefined,
           process_all: processAll,
         }),
@@ -240,7 +238,8 @@ export function GeopoliticalImportModal({
           if (onImportComplete) onImportComplete();
         }
       } else {
-        setError(result.detail || 'Processing failed');
+        const detail = result.detail;
+        setError(typeof detail === 'string' ? detail : Array.isArray(detail) ? detail.map((d: any) => d.msg || JSON.stringify(d)).join('; ') : 'Processing failed');
         setIsProcessing(false);
       }
     } catch (err) {

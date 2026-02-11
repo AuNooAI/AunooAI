@@ -3,13 +3,14 @@
  * Main container for brand intelligence dashboard
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   RefreshCw, AlertCircle, X, Loader2, Target, Plus, Settings, Sparkles,
   BarChart3, TrendingUp, Users, FileText, ChevronDown, ChevronRight,
   Trash2, Edit2, ToggleLeft, ToggleRight, Zap, Clock, Play, Calendar,
-  Download, AlertTriangle, Eye,
+  Download, AlertTriangle, Eye, Star,
 } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, AreaChart, Area, PieChart, Pie } from 'recharts';
 import { useBrandWatcher } from '../../hooks/useBrandWatcher';
 import {
   classifyArticles, getClassifyStatus, generateNarrative, getLatestNarrative,
@@ -76,6 +77,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     updateConfig, clearError, refresh,
     fetchComparison, fetchShareOfVoice,
     createBrand, updateBrand: updateBrandFn, deleteBrand: deleteBrandFn, toggleBrand: toggleBrandFn,
+    setPrimary,
   } = useBrandWatcher();
 
   const [activeTab, setActiveTab] = useState<SubTab>('overview');
@@ -92,6 +94,10 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [brandAlerts, setBrandAlerts] = useState<BWAlert[]>([]);
   const [drillDownCategory, setDrillDownCategory] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [selectedCompetitor, setSelectedCompetitor] = useState<number | null>(null);
+  const [showBrandDropdown, setShowBrandDropdown] = useState(false);
+  const [compCategoryFilter, setCompCategoryFilter] = useState<string | null>(null);
+  const [showCompCatDropdown, setShowCompCatDropdown] = useState(false);
 
   // Brand form state
   const [brandForm, setBrandForm] = useState<Partial<BrandCreate>>({});
@@ -104,7 +110,9 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [setupMonitoring, setSetupMonitoring] = useState(true);
   const [monitoringStatus, setMonitoringStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const selectedBrand = brands.find(b => b.id === config.selectedBrandId);
+  const selectedBrands = brands.filter(b => config.selectedBrandIds.includes(b.id));
+  const selectedBrand = selectedBrands[0] || undefined;
+  const primarySelectedId = config.selectedBrandIds[0] || null;
 
   // --- Suggest Keywords via LLM ---
   const handleSuggestKeywords = useCallback(async () => {
@@ -130,39 +138,67 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   // --- Tab change with data loading ---
   const handleTabChange = useCallback((tab: SubTab) => {
     setActiveTab(tab);
+    if (tab === 'overview') {
+      fetchShareOfVoice();
+      if (primarySelectedId) {
+        getSentimentTrends(primarySelectedId, config.daysBack)
+          .then(d => setSentimentTrends(d.trends)).catch(console.error);
+        getBrandAlerts(primarySelectedId)
+          .then(d => setBrandAlerts(d.alerts)).catch(console.error);
+      }
+    }
     if (tab === 'comparison') {
       fetchComparison();
       fetchShareOfVoice();
     }
-    if (tab === 'insights' && config.selectedBrandId) {
+    if (tab === 'insights' && primarySelectedId) {
       setLoadingNarrative(true);
-      getLatestNarrative(config.selectedBrandId)
+      getLatestNarrative(primarySelectedId)
         .then(n => setNarrative(n))
         .catch(console.error)
         .finally(() => setLoadingNarrative(false));
     }
-    if (tab === 'analysis' && config.selectedBrandId) {
-      getSentimentTrends(config.selectedBrandId, config.daysBack)
+    if (tab === 'analysis' && primarySelectedId) {
+      getSentimentTrends(primarySelectedId, config.daysBack)
         .then(d => setSentimentTrends(d.trends))
         .catch(console.error);
-      getBrandAlerts(config.selectedBrandId)
+      getBrandAlerts(primarySelectedId)
         .then(d => setBrandAlerts(d.alerts))
         .catch(console.error);
+      getLatestNarrative(primarySelectedId)
+        .then(n => setNarrative(n))
+        .catch(console.error);
+      fetchComparison();
     }
-  }, [config.selectedBrandId, config.daysBack, fetchComparison, fetchShareOfVoice]);
+  }, [primarySelectedId, config.daysBack, fetchComparison, fetchShareOfVoice]);
+
+  // --- Refresh overview data when brand/period changes ---
+  useEffect(() => {
+    if (activeTab !== 'overview') return;
+    fetchShareOfVoice();
+    if (primarySelectedId) {
+      getSentimentTrends(primarySelectedId, config.daysBack)
+        .then(d => setSentimentTrends(d.trends)).catch(console.error);
+      getBrandAlerts(primarySelectedId)
+        .then(d => setBrandAlerts(d.alerts)).catch(console.error);
+    } else {
+      setSentimentTrends([]);
+      setBrandAlerts([]);
+    }
+  }, [activeTab, primarySelectedId, config.daysBack, fetchShareOfVoice]);
 
   // --- Export ---
   const handleExport = useCallback(async (format: 'csv' | 'json' = 'csv') => {
-    if (!config.selectedBrandId) return;
+    if (!primarySelectedId) return;
     setExporting(true);
     try {
-      await exportBrandData(config.selectedBrandId, format, config.daysBack);
+      await exportBrandData(primarySelectedId, format, config.daysBack);
     } catch (err) {
       console.error('Export error:', err);
     } finally {
       setExporting(false);
     }
-  }, [config.selectedBrandId, config.daysBack]);
+  }, [primarySelectedId, config.daysBack]);
 
   // --- Category drill-down ---
   const handleCategoryDrillDown = useCallback((category: string) => {
@@ -177,7 +213,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const handleClassify = useCallback(async (runType: string = 'incremental', daysBack: number = 30) => {
     try {
       const res = await classifyArticles({
-        brand_id: config.selectedBrandId || undefined,
+        brand_id: primarySelectedId || undefined,
         topics: config.selectedTopics.length > 0 ? config.selectedTopics : undefined,
         run_type: runType,
         days_back: daysBack,
@@ -201,19 +237,19 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     } catch (err) {
       console.error('Classification error:', err);
     }
-  }, [config.selectedBrandId, config.selectedTopics, refresh]);
+  }, [primarySelectedId, config.selectedTopics, refresh]);
 
   // --- Generate narrative ---
   const handleGenerateNarrative = useCallback(async () => {
-    if (!config.selectedBrandId) return;
+    if (!primarySelectedId) return;
     setGeneratingNarrative(true);
     try {
       const res = await generateNarrative({
-        brand_id: config.selectedBrandId,
+        brand_id: primarySelectedId,
         days_back: config.daysBack,
       });
       setNarrative({
-        id: 0, brand_id: config.selectedBrandId,
+        id: 0, brand_id: primarySelectedId,
         brand_name: selectedBrand?.display_name || null,
         narrative: res.narrative,
         data_summary: res.data_summary as any,
@@ -227,16 +263,16 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     } finally {
       setGeneratingNarrative(false);
     }
-  }, [config.selectedBrandId, config.daysBack, selectedBrand]);
+  }, [primarySelectedId, config.daysBack, selectedBrand]);
 
   // --- Category insight ---
   const handleCategoryInsight = useCallback(async (category: string) => {
-    if (!config.selectedBrandId) return;
+    if (!primarySelectedId) return;
     setLoadingInsight(true);
     setCategoryInsight(null);
     try {
       const res = await generateCategoryInsight({
-        brand_id: config.selectedBrandId,
+        brand_id: primarySelectedId,
         category,
         days_back: config.daysBack,
       });
@@ -246,7 +282,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     } finally {
       setLoadingInsight(false);
     }
-  }, [config.selectedBrandId, config.daysBack]);
+  }, [primarySelectedId, config.daysBack]);
 
   // --- Brand form helpers ---
   const addKeyword = (field: 'brand_keywords' | 'product_keywords' | 'people_keywords' | 'competitor_keywords', value: string) => {
@@ -368,7 +404,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     try {
       await createSchedule({
         name: scheduleForm.name || `${selectedBrand?.display_name || 'All brands'} - ${scheduleForm.schedule_type}`,
-        brand_id: config.selectedBrandId || undefined,
+        brand_id: primarySelectedId || undefined,
         topics: scheduleTopics.length > 0 ? scheduleTopics : undefined,
         run_type: scheduleForm.run_type,
         days_back: scheduleForm.days_back,
@@ -384,7 +420,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     } catch (err) {
       console.error('Error creating schedule:', err);
     }
-  }, [scheduleForm, scheduleTopics, config.selectedBrandId, selectedBrand, fetchSchedules]);
+  }, [scheduleForm, scheduleTopics, primarySelectedId, selectedBrand, fetchSchedules]);
 
   const handleDeleteSchedule = useCallback(async (id: number) => {
     try {
@@ -427,22 +463,66 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           </h2>
           <p className="text-sm text-gray-500 dark:text-gray-300 mt-1">
             {brands.length} brand{brands.length !== 1 ? 's' : ''} tracked
-            {selectedBrand && ` — viewing: ${selectedBrand.display_name}`}
+            {selectedBrands.length === 1 && ` — viewing: ${selectedBrands[0].display_name}`}
+            {selectedBrands.length > 1 && ` — viewing: ${selectedBrands.length} brands`}
           </p>
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Brand selector */}
-          <select
-            value={config.selectedBrandId || ''}
-            onChange={e => updateConfig({ selectedBrandId: e.target.value ? Number(e.target.value) : null })}
-            className="px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg dark:text-gray-100"
-          >
-            <option value="">All Brands</option>
-            {brands.filter(b => b.enabled).map(b => (
-              <option key={b.id} value={b.id}>{b.display_name}</option>
-            ))}
-          </select>
+          {/* Brand selector - multiselect dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowBrandDropdown(!showBrandDropdown)}
+              className="flex items-center gap-2 px-3 py-2 text-sm bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg dark:text-gray-100 min-w-[160px]"
+            >
+              <span className="truncate">
+                {config.selectedBrandIds.length === 0
+                  ? 'All Brands'
+                  : config.selectedBrandIds.length === 1
+                  ? (brands.find(b => b.id === config.selectedBrandIds[0])?.display_name || 'Brand')
+                  : `${config.selectedBrandIds.length} brands`}
+              </span>
+              <ChevronDown className="w-4 h-4 flex-shrink-0" />
+            </button>
+            {showBrandDropdown && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setShowBrandDropdown(false)} />
+                <div className="absolute top-full left-0 mt-1 w-64 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1 max-h-60 overflow-y-auto">
+                  <button
+                    onClick={() => { updateConfig({ selectedBrandIds: [] }); setShowBrandDropdown(false); }}
+                    className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 dark:hover:bg-gray-750 text-left ${
+                      config.selectedBrandIds.length === 0 ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-700 dark:text-gray-300'
+                    }`}
+                  >
+                    All Brands
+                  </button>
+                  {brands.filter(b => b.enabled).map(b => {
+                    const isSelected = config.selectedBrandIds.includes(b.id);
+                    return (
+                      <label key={b.id}
+                        className="flex items-center gap-2 px-3 py-2 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-750 cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => {
+                            const next = isSelected
+                              ? config.selectedBrandIds.filter(id => id !== b.id)
+                              : [...config.selectedBrandIds, b.id];
+                            updateConfig({ selectedBrandIds: next });
+                          }}
+                          className="rounded border-gray-300 dark:border-gray-600"
+                        />
+                        {b.color && <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: b.color }} />}
+                        <span className="flex-1 truncate">{b.display_name}</span>
+                        {b.is_primary && <span className="text-[10px] text-yellow-500">★</span>}
+                      </label>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </div>
 
           {/* Days back */}
           <select
@@ -514,72 +594,421 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       {/* ---- OVERVIEW TAB ---- */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
-          {/* Stats cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-              <p className="text-xs text-gray-500 dark:text-gray-400">Articles</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats?.total_articles ?? 0}</p>
-            </div>
-            <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-              <p className="text-xs text-gray-500 dark:text-gray-400">Brands</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats?.total_brands ?? 0}</p>
-            </div>
-            <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-              <p className="text-xs text-gray-500 dark:text-gray-400">Top Category</p>
-              <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
-                {stats?.most_active_category ? CATEGORY_SHORT_NAMES[stats.most_active_category] || stats.most_active_category : '—'}
-              </p>
-            </div>
-            <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
-              <p className="text-xs text-gray-500 dark:text-gray-400">Multi-category</p>
-              <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats?.multi_category_count ?? 0}</p>
-            </div>
-          </div>
+          {/* Stat cards */}
+          {(() => {
+            // Aggregate sentiment from sentimentTrends — normalize labels
+            const sentAgg: Record<string, number> = { Positive: 0, Neutral: 0, Negative: 0 };
+            let sentTotal = 0;
+            for (const t of sentimentTrends) {
+              for (const [s, cnt] of Object.entries(t.sentiments)) {
+                const lo = s.toLowerCase();
+                if (lo === 'positive' || lo === 'optimistic' || lo === 'positive development') sentAgg.Positive += cnt;
+                else if (lo === 'negative' || lo === 'pessimistic' || lo === 'concerning' || lo === 'concerned' || lo === 'critical' || lo === 'alarming') sentAgg.Negative += cnt;
+                else sentAgg.Neutral += cnt;
+                sentTotal += cnt;
+              }
+            }
+            const positivePct = sentTotal > 0 ? Math.round((sentAgg.Positive / sentTotal) * 100) : null;
+            const negativePct = sentTotal > 0 ? Math.round((sentAgg.Negative / sentTotal) * 100) : null;
 
-          {/* Multi-brand overview cards (when no brand selected) */}
-          {!config.selectedBrandId && brands.filter(b => b.enabled).length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {brands.filter(b => b.enabled).map(brand => {
-                const brandCats = Object.entries(stats?.category_breakdown || {})
-                  .filter(([, v]) => v > 0)
-                  .sort(([, a], [, b]) => b - a)
-                  .slice(0, 3);
-                return (
-                  <div key={brand.id}
-                    className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700 cursor-pointer transition-colors"
-                    onClick={() => updateConfig({ selectedBrandId: brand.id })}
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      {brand.color && <div className="w-3 h-3 rounded-full" style={{ backgroundColor: brand.color }} />}
-                      <h4 className="text-sm font-semibold text-gray-900 dark:text-gray-100">{brand.display_name}</h4>
+            return (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Articles</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{stats?.total_articles ?? 0}</p>
+                </div>
+                <div className={`p-4 bg-white dark:bg-gray-800 rounded-lg border ${
+                  primarySelectedId && (negativePct || 0) >= 15
+                    ? 'border-red-300 dark:border-red-700'
+                    : 'border-gray-200 dark:border-gray-700'
+                }`}>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Sentiment</p>
+                  {primarySelectedId && positivePct !== null ? (
+                    <div>
+                      {(negativePct || 0) >= 15 ? (
+                        <p className="text-2xl font-bold text-red-600 dark:text-red-400">
+                          {negativePct}% <span className="text-sm font-normal text-red-500 dark:text-red-400">Neg</span>
+                          <AlertTriangle className="w-4 h-4 inline ml-1 -mt-1 text-red-500" />
+                        </p>
+                      ) : (
+                        <p className="text-2xl font-bold text-green-600 dark:text-green-400">{positivePct}% <span className="text-sm font-normal text-gray-500">Pos</span></p>
+                      )}
+                      <div className="flex mt-1 h-2 rounded-full overflow-hidden bg-gray-100 dark:bg-gray-700">
+                        {sentAgg.Positive > 0 && <div className="h-full bg-green-500" style={{ width: `${positivePct}%` }} />}
+                        {sentAgg.Neutral > 0 && <div className="h-full bg-slate-400" style={{ width: `${100 - (positivePct || 0) - (negativePct || 0)}%` }} />}
+                        {sentAgg.Negative > 0 && <div className="h-full bg-red-500" style={{ width: `${negativePct}%` }} />}
+                      </div>
                     </div>
-                    {brand.description && (
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-2 line-clamp-1">{brand.description}</p>
-                    )}
-                    <div className="flex flex-wrap gap-1 mt-2">
-                      {brandCats.map(([cat]) => (
-                        <span key={cat} className="text-[10px] px-1.5 py-0.5 rounded" style={{
-                          backgroundColor: (CATEGORY_COLORS[cat] || '#6b7280') + '20',
-                          color: CATEGORY_COLORS[cat] || '#6b7280',
-                        }}>
-                          {CATEGORY_SHORT_NAMES[cat] || cat}
-                        </span>
-                      ))}
-                    </div>
-                    <div className="flex items-center gap-2 mt-3">
-                      <button onClick={e => { e.stopPropagation(); updateConfig({ selectedBrandId: brand.id }); }}
-                        className="text-xs px-2 py-1 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded hover:bg-blue-100">
-                        <Eye className="w-3 h-3 inline mr-1" />View
-                      </button>
-                    </div>
+                  ) : (
+                    <p className="text-2xl font-bold text-gray-400">—</p>
+                  )}
+                </div>
+                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Top Category</p>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+                    {stats?.most_active_category ? CATEGORY_SHORT_NAMES[stats.most_active_category] || stats.most_active_category : '—'}
+                  </p>
+                </div>
+                <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700">
+                  <p className="text-xs text-gray-500 dark:text-gray-400">Alerts</p>
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2.5 h-2.5 rounded-full ${
+                      !primarySelectedId ? 'bg-gray-300 dark:bg-gray-600'
+                      : brandAlerts.some(a => a.severity === 'high') ? 'bg-red-500'
+                      : brandAlerts.length > 0 ? 'bg-orange-500'
+                      : 'bg-green-500'
+                    }`} />
+                    <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+                      {primarySelectedId ? brandAlerts.length : 0}
+                    </p>
                   </div>
-                );
-              })}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Spike Alerts Banner (brand selected, if alerts exist) */}
+          {primarySelectedId && brandAlerts.length > 0 && (
+            <div className="bg-white dark:bg-gray-800 rounded-lg border border-orange-200 dark:border-orange-800 p-4">
+              <h3 className="text-sm font-semibold text-orange-700 dark:text-orange-300 mb-3 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" /> Category Spike Alerts
+              </h3>
+              <div className="space-y-2">
+                {[...brandAlerts].sort((a, b) => b.spike_ratio - a.spike_ratio).slice(0, 3).map(alert => (
+                  <div key={alert.category}
+                    className={`flex items-center gap-3 p-2 rounded-lg ${
+                      alert.severity === 'high'
+                        ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
+                        : 'bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800'
+                    }`}
+                  >
+                    <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[alert.category] || '#6b7280' }} />
+                    <span className="text-sm text-gray-700 dark:text-gray-300 flex-1">{alert.category}</span>
+                    <span className="text-xs font-mono text-gray-600 dark:text-gray-400">
+                      {alert.current_count} this week (avg: {alert.average_count})
+                    </span>
+                    <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+                      alert.severity === 'high' ? 'bg-red-200 text-red-800 dark:bg-red-800 dark:text-red-200' : 'bg-orange-200 text-orange-800 dark:bg-orange-800 dark:text-orange-200'
+                    }`}>
+                      {alert.spike_ratio}x
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {brandAlerts.length > 3 && (
+                <button onClick={() => handleTabChange('analysis')}
+                  className="mt-2 text-xs text-orange-600 dark:text-orange-400 hover:underline">
+                  View all {brandAlerts.length} alerts in Analysis →
+                </button>
+              )}
             </div>
           )}
 
+          {/* Share of Voice (no brand selected) */}
+          {config.selectedBrandIds.length === 0 && shareOfVoice.length > 0 && (
+            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Share of Voice</h3>
+              <div className="space-y-3">
+                {shareOfVoice.map(sov => (
+                  <div key={sov.brand_id}
+                    className="flex items-center gap-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-750 rounded-lg p-1 -m-1 transition-colors"
+                    onClick={() => updateConfig({ selectedBrandIds: [sov.brand_id] })}
+                    title={`Click to view ${sov.brand_name}`}
+                  >
+                    <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: sov.color || '#3b82f6' }} />
+                    <span className="text-sm text-gray-700 dark:text-gray-300 w-32 truncate">{sov.brand_name}</span>
+                    <div className="flex-1 h-5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
+                      <div className="h-full rounded-full transition-all" style={{
+                        width: `${Math.max(sov.percentage, 2)}%`,
+                        backgroundColor: sov.color || '#3b82f6',
+                      }} />
+                    </div>
+                    <span className="text-sm font-medium text-gray-600 dark:text-gray-400 w-28 text-right">
+                      {sov.mention_count} ({sov.percentage.toFixed(1)}%)
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Sentiment Breakdown (brand selected) */}
+          {primarySelectedId && sentimentTrends.length > 0 && (() => {
+            // Normalize into 3 buckets
+            const sentBuckets = { Positive: 0, Neutral: 0, Negative: 0 };
+            let sentTotal = 0;
+            for (const t of sentimentTrends) {
+              for (const [s, cnt] of Object.entries(t.sentiments)) {
+                const lo = s.toLowerCase();
+                if (lo === 'positive' || lo === 'optimistic' || lo === 'positive development') sentBuckets.Positive += cnt;
+                else if (lo === 'negative' || lo === 'pessimistic' || lo === 'concerning' || lo === 'concerned' || lo === 'critical' || lo === 'alarming') sentBuckets.Negative += cnt;
+                else sentBuckets.Neutral += cnt;
+                sentTotal += cnt;
+              }
+            }
+            const bucketColors: Record<string, string> = {
+              Positive: '#16a34a', Neutral: '#94a3b8', Negative: '#dc2626',
+            };
+            const bucketOrder: Array<'Positive' | 'Neutral' | 'Negative'> = ['Positive', 'Neutral', 'Negative'];
+            const negPct = sentTotal > 0 ? (sentBuckets.Negative / sentTotal) * 100 : 0;
+            const hasRisk = negPct >= 15;
+            return (
+              <div className={`bg-white dark:bg-gray-800 rounded-lg border p-6 ${
+                hasRisk ? 'border-red-300 dark:border-red-700' : 'border-gray-200 dark:border-gray-700'
+              }`}>
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
+                  Sentiment Overview — {selectedBrand?.display_name}
+                </h3>
+                {/* Risk banner */}
+                {hasRisk && (
+                  <div className="flex items-center gap-2 mb-3 p-2.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                    <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                    <span className="text-xs text-red-700 dark:text-red-300">
+                      <strong>{negPct.toFixed(0)}% negative sentiment</strong> — {sentBuckets.Negative.toLocaleString()} of {sentTotal.toLocaleString()} articles are negative or concerning
+                    </span>
+                  </div>
+                )}
+                <div className="h-7 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden flex">
+                  {bucketOrder.map(sent => {
+                    const cnt = sentBuckets[sent];
+                    const pct = sentTotal > 0 ? (cnt / sentTotal) * 100 : 0;
+                    return pct > 0 ? (
+                      <div key={sent} className="h-full relative group"
+                        style={{ width: `${pct}%`, backgroundColor: bucketColors[sent] }}>
+                        {pct >= 8 && (
+                          <span className="absolute inset-0 flex items-center justify-center text-[11px] font-semibold text-white drop-shadow-sm">
+                            {pct.toFixed(0)}%
+                          </span>
+                        )}
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded shadow-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10">
+                          {sent}: {cnt.toLocaleString()} articles ({pct.toFixed(1)}%)
+                        </div>
+                      </div>
+                    ) : null;
+                  })}
+                </div>
+                <div className="flex items-center gap-5 mt-3">
+                  {bucketOrder.map(sent => {
+                    const cnt = sentBuckets[sent];
+                    const rawPct = sentTotal > 0 ? (cnt / sentTotal) * 100 : 0;
+                    const pct = cnt > 0 && rawPct < 0.5 ? '<1' : rawPct.toFixed(0);
+                    return (
+                      <span key={sent} className={`flex items-center gap-1.5 text-xs ${
+                        sent === 'Negative' && hasRisk
+                          ? 'text-red-600 dark:text-red-400 font-semibold'
+                          : 'text-gray-600 dark:text-gray-400'
+                      }`}>
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: bucketColors[sent] }} />
+                        {sent}: {cnt.toLocaleString()} ({pct}%)
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* Sentiment Over Time + Brand Risk (brand selected) */}
+          {primarySelectedId && sentimentTrends.length > 0 && (() => {
+            // Build weekly time series — normalize sentiment labels
+            const weeklyMap: Record<string, { Positive: number; Neutral: number; Negative: number; total: number }> = {};
+            for (const t of sentimentTrends) {
+              if (!weeklyMap[t.week]) weeklyMap[t.week] = { Positive: 0, Neutral: 0, Negative: 0, total: 0 };
+              for (const [s, cnt] of Object.entries(t.sentiments)) {
+                const lo = s.toLowerCase();
+                if (lo === 'positive' || lo === 'optimistic' || lo === 'positive development') weeklyMap[t.week].Positive += cnt;
+                else if (lo === 'negative' || lo === 'pessimistic' || lo === 'concerning' || lo === 'concerned' || lo === 'critical' || lo === 'alarming') weeklyMap[t.week].Negative += cnt;
+                else weeklyMap[t.week].Neutral += cnt;
+                weeklyMap[t.week].total += cnt;
+              }
+            }
+            const weeks = Object.keys(weeklyMap).sort();
+            const timeData = weeks.map(w => ({
+              week: w.slice(5), // MM-DD
+              Positive: weeklyMap[w].Positive,
+              Neutral: weeklyMap[w].Neutral,
+              Negative: weeklyMap[w].Negative,
+              total: weeklyMap[w].total,
+              negPct: weeklyMap[w].total > 0 ? Math.round((weeklyMap[w].Negative / weeklyMap[w].total) * 100) : 0,
+            }));
+
+            // Brand Risk Score: compare recent 4 weeks vs previous 4 weeks negative %
+            const recentWeeks = timeData.slice(-4);
+            const olderWeeks = timeData.slice(-8, -4);
+            const recentNeg = recentWeeks.reduce((a, w) => a + w.Negative, 0);
+            const recentTotal = recentWeeks.reduce((a, w) => a + w.total, 0);
+            const olderNeg = olderWeeks.reduce((a, w) => a + w.Negative, 0);
+            const olderTotal = olderWeeks.reduce((a, w) => a + w.total, 0);
+            const recentNegPct = recentTotal > 0 ? (recentNeg / recentTotal) * 100 : 0;
+            const olderNegPct = olderTotal > 0 ? (olderNeg / olderTotal) * 100 : 0;
+            const negTrend = recentNegPct - olderNegPct; // positive = worsening
+            const alertCount = brandAlerts.length;
+            const highAlerts = brandAlerts.filter(a => a.severity === 'high').length;
+
+            // Composite risk: 0-100 scale
+            const riskScore = Math.min(100, Math.round(
+              (recentNegPct * 1.5) + // base negative level
+              (negTrend > 0 ? negTrend * 2 : 0) + // worsening trend penalty
+              (alertCount * 5) + // spike alerts
+              (highAlerts * 10) // high-severity bonus
+            ));
+            const riskLevel = riskScore >= 60 ? 'High' : riskScore >= 30 ? 'Elevated' : 'Low';
+            const riskColor = riskScore >= 60 ? 'red' : riskScore >= 30 ? 'orange' : 'green';
+
+            return (
+              <>
+                {/* Brand Risk Score */}
+                <div className={`bg-white dark:bg-gray-800 rounded-lg border p-5 ${
+                  riskColor === 'red' ? 'border-red-300 dark:border-red-700'
+                  : riskColor === 'orange' ? 'border-orange-300 dark:border-orange-700'
+                  : 'border-gray-200 dark:border-gray-700'
+                }`}>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                      Brand Risk Assessment
+                      {riskColor !== 'green' && <AlertTriangle className={`w-4 h-4 ${riskColor === 'red' ? 'text-red-500' : 'text-orange-500'}`} />}
+                    </h3>
+                    <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
+                      riskColor === 'red' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+                      : riskColor === 'orange' ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+                      : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                    }`}>
+                      {riskLevel} Risk
+                    </span>
+                  </div>
+                  {/* Risk meter */}
+                  <div className="relative h-3 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden mb-3">
+                    <div className="absolute inset-y-0 left-0 rounded-full transition-all" style={{
+                      width: `${riskScore}%`,
+                      background: riskScore >= 60 ? 'linear-gradient(90deg, #f87171, #dc2626)'
+                        : riskScore >= 30 ? 'linear-gradient(90deg, #fb923c, #ea580c)'
+                        : 'linear-gradient(90deg, #4ade80, #16a34a)',
+                    }} />
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                    <div>
+                      <span className="text-gray-500 dark:text-gray-400">Risk Score</span>
+                      <p className={`font-bold text-base ${
+                        riskColor === 'red' ? 'text-red-600 dark:text-red-400'
+                        : riskColor === 'orange' ? 'text-orange-600 dark:text-orange-400'
+                        : 'text-green-600 dark:text-green-400'
+                      }`}>{riskScore}/100</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 dark:text-gray-400">Recent Neg %</span>
+                      <p className="font-semibold text-gray-800 dark:text-gray-200">{recentNegPct.toFixed(1)}%</p>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 dark:text-gray-400">Neg Trend (4wk)</span>
+                      <p className={`font-semibold ${negTrend > 2 ? 'text-red-600 dark:text-red-400' : negTrend < -2 ? 'text-green-600 dark:text-green-400' : 'text-gray-800 dark:text-gray-200'}`}>
+                        {negTrend > 0 ? '+' : ''}{negTrend.toFixed(1)}pp {negTrend > 2 ? '↑' : negTrend < -2 ? '↓' : '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 dark:text-gray-400">Active Alerts</span>
+                      <p className="font-semibold text-gray-800 dark:text-gray-200">{alertCount}{highAlerts > 0 ? ` (${highAlerts} high)` : ''}</p>
+                    </div>
+                  </div>
+                  {/* Risk factors */}
+                  {riskScore >= 30 && (
+                    <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                      <p className="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1.5">Contributing Factors</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {recentNegPct >= 15 && (
+                          <span className="text-[10px] px-2 py-0.5 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-full border border-red-200 dark:border-red-800">
+                            High negative volume ({recentNegPct.toFixed(0)}%)
+                          </span>
+                        )}
+                        {negTrend > 2 && (
+                          <span className="text-[10px] px-2 py-0.5 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 rounded-full border border-orange-200 dark:border-orange-800">
+                            Negative sentiment rising (+{negTrend.toFixed(1)}pp)
+                          </span>
+                        )}
+                        {highAlerts > 0 && (
+                          <span className="text-[10px] px-2 py-0.5 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 rounded-full border border-red-200 dark:border-red-800">
+                            {highAlerts} high-severity spike{highAlerts !== 1 ? 's' : ''}
+                          </span>
+                        )}
+                        {alertCount > 0 && highAlerts === 0 && (
+                          <span className="text-[10px] px-2 py-0.5 bg-orange-50 dark:bg-orange-900/20 text-orange-700 dark:text-orange-400 rounded-full border border-orange-200 dark:border-orange-800">
+                            {alertCount} category spike{alertCount !== 1 ? 's' : ''}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Sentiment Over Time — area chart */}
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Sentiment Over Time</h3>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <AreaChart data={timeData} margin={{ top: 5, right: 5, bottom: 5, left: -15 }}>
+                      <defs>
+                        <linearGradient id="gradPos" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#16a34a" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#16a34a" stopOpacity={0.05} />
+                        </linearGradient>
+                        <linearGradient id="gradNeu" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#94a3b8" stopOpacity={0.3} />
+                          <stop offset="95%" stopColor="#94a3b8" stopOpacity={0.05} />
+                        </linearGradient>
+                        <linearGradient id="gradNeg" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#dc2626" stopOpacity={0.4} />
+                          <stop offset="95%" stopColor="#dc2626" stopOpacity={0.05} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
+                      <XAxis dataKey="week" stroke="#9CA3AF" fontSize={11} />
+                      <YAxis stroke="#9CA3AF" fontSize={11} />
+                      <Tooltip
+                        content={({ active, payload, label }) => {
+                          if (!active || !payload?.length) return null;
+                          const d = payload[0]?.payload;
+                          if (!d) return null;
+                          return (
+                            <div className="bg-gray-900 text-white text-xs rounded-lg shadow-lg px-3 py-2">
+                              <p className="font-semibold mb-1">Week of {label}</p>
+                              <div className="space-y-0.5">
+                                <p><span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1.5" />Positive: {d.Positive}</p>
+                                <p><span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ backgroundColor: '#94a3b8' }} />Neutral: {d.Neutral}</p>
+                                <p><span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1.5" />Negative: {d.Negative}</p>
+                              </div>
+                              <p className="text-gray-400 mt-1">Total: {d.total} | Neg: {d.negPct}%</p>
+                            </div>
+                          );
+                        }}
+                      />
+                      <Area type="monotone" dataKey="Positive" stackId="1" stroke="#16a34a" fill="url(#gradPos)" strokeWidth={2} />
+                      <Area type="monotone" dataKey="Neutral" stackId="1" stroke="#94a3b8" fill="url(#gradNeu)" strokeWidth={1.5} />
+                      <Area type="monotone" dataKey="Negative" stackId="1" stroke="#dc2626" fill="url(#gradNeg)" strokeWidth={0} />
+                      <Legend wrapperStyle={{ fontSize: '11px' }} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                  {/* Negative trend annotation */}
+                  {negTrend > 2 && (
+                    <div className="flex items-center gap-2 mt-3 p-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                      <TrendingUp className="w-4 h-4 text-red-500 flex-shrink-0" />
+                      <span className="text-xs text-red-700 dark:text-red-300">
+                        Negative sentiment is trending up — <strong>+{negTrend.toFixed(1)} percentage points</strong> over the last 4 weeks vs prior 4 weeks
+                      </span>
+                    </div>
+                  )}
+                  {negTrend < -2 && (
+                    <div className="flex items-center gap-2 mt-3 p-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                      <TrendingUp className="w-4 h-4 text-green-500 flex-shrink-0 rotate-180" />
+                      <span className="text-xs text-green-700 dark:text-green-300">
+                        Negative sentiment is improving — <strong>{negTrend.toFixed(1)} percentage points</strong> over the last 4 weeks vs prior 4 weeks
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </>
+            );
+          })()}
+
           {/* Export button */}
-          {config.selectedBrandId && (stats?.total_articles ?? 0) > 0 && (
+          {primarySelectedId && (stats?.total_articles ?? 0) > 0 && (
             <div className="flex gap-2">
               <button onClick={() => handleExport('csv')} disabled={exporting}
                 className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50">
@@ -594,43 +1023,85 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             </div>
           )}
 
-          {/* Category distribution - clickable for drill-down */}
+          {/* Category distribution — recharts horizontal bar + hover detail */}
           {loadingCategories ? (
             <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-blue-500" /></div>
-          ) : categories.length > 0 ? (
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Category Distribution</h3>
-              <div className="space-y-3">
-                {categories.filter(c => c.article_count > 0).map(cat => (
-                  <div key={cat.category}
-                    className="flex items-center gap-3 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-750 rounded-lg p-1 -m-1 transition-colors"
-                    onClick={() => handleCategoryDrillDown(cat.category)}
-                    title={`Click to view ${cat.article_count} articles in ${cat.category}`}
+          ) : categories.length > 0 ? (() => {
+            const activeCats = categories.filter(c => c.article_count > 0);
+            const chartHeight = Math.max(activeCats.length * 36, 120);
+            const catData = activeCats.map(c => ({
+              name: CATEGORY_SHORT_NAMES[c.category] || c.category,
+              fullName: c.category,
+              articles: c.article_count,
+              percentage: c.percentage,
+              trend: c.recent_trend,
+              fill: CATEGORY_COLORS[c.category] || '#6b7280',
+            }));
+
+            return (
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Category Distribution</h3>
+                  <span className="text-[10px] text-gray-400">Click a bar to view articles</span>
+                </div>
+                <ResponsiveContainer width="100%" height={chartHeight}>
+                  <BarChart data={catData} layout="vertical" margin={{ top: 0, right: 10, bottom: 0, left: 5 }}
+                    onClick={(data) => {
+                      if (data?.activePayload?.[0]?.payload?.fullName) {
+                        handleCategoryDrillDown(data.activePayload[0].payload.fullName);
+                      }
+                    }}
                   >
-                    <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[cat.category] || '#6b7280' }} />
-                    <span className="text-sm text-gray-700 dark:text-gray-300 w-48 truncate">{cat.category}</span>
-                    <div className="flex-1 h-5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full transition-all" style={{
-                        width: `${Math.max(cat.percentage, 2)}%`,
-                        backgroundColor: CATEGORY_COLORS[cat.category] || '#6b7280',
-                      }} />
-                    </div>
-                    <span className="text-sm font-medium text-gray-600 dark:text-gray-400 w-16 text-right">
-                      {cat.article_count} ({cat.percentage}%)
-                    </span>
-                    <span className={`text-xs px-1.5 py-0.5 rounded ${
-                      cat.recent_trend === 'up' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
-                      cat.recent_trend === 'down' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
-                      'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
-                    }`}>
-                      {cat.recent_trend === 'up' ? '↑' : cat.recent_trend === 'down' ? '↓' : '—'}
-                    </span>
-                    <ChevronRight className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                  </div>
-                ))}
+                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} horizontal={false} />
+                    <XAxis type="number" stroke="#9CA3AF" fontSize={11} />
+                    <YAxis type="category" dataKey="name" stroke="#9CA3AF" fontSize={11} width={85} tick={{ fill: '#9CA3AF' }} />
+                    <Tooltip
+                      cursor={{ fill: 'rgba(59,130,246,0.08)' }}
+                      content={({ active, payload }) => {
+                        if (!active || !payload?.length) return null;
+                        const d = payload[0].payload;
+                        return (
+                          <div className="bg-gray-900 text-white text-xs rounded-lg shadow-lg px-3 py-2 max-w-xs">
+                            <p className="font-semibold mb-1">{d.fullName}</p>
+                            <p>{d.articles.toLocaleString()} articles ({d.percentage}%)</p>
+                            <p className="mt-0.5">
+                              Trend: {d.trend === 'up' ? '↑ Increasing' : d.trend === 'down' ? '↓ Decreasing' : '— Stable'}
+                            </p>
+                            <p className="text-gray-400 mt-1">Click to drill down</p>
+                          </div>
+                        );
+                      }}
+                    />
+                    <Bar dataKey="articles" radius={[0, 4, 4, 0]} cursor="pointer">
+                      {catData.map((entry, i) => (
+                        <Cell key={i} fill={entry.fill} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                {/* Trend badges below chart */}
+                <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                  {activeCats.map(cat => (
+                    <button key={cat.category}
+                      onClick={() => handleCategoryDrillDown(cat.category)}
+                      className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-xs hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors"
+                    >
+                      <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[cat.category] || '#6b7280' }} />
+                      <span className="text-gray-600 dark:text-gray-400">{CATEGORY_SHORT_NAMES[cat.category] || cat.category}</span>
+                      <span className="font-medium text-gray-700 dark:text-gray-300">{cat.article_count}</span>
+                      <span className={`text-[10px] px-1 py-0.5 rounded ${
+                        cat.recent_trend === 'up' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' :
+                        cat.recent_trend === 'down' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' :
+                        'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+                      }`}>
+                        {cat.recent_trend === 'up' ? '↑' : cat.recent_trend === 'down' ? '↓' : '—'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-          ) : (
+            );
+          })() : (
             <div className="text-center py-12 text-gray-500 dark:text-gray-400">
               <Target className="w-12 h-12 mx-auto mb-3 opacity-30" />
               <p>No classified articles yet.</p>
@@ -638,23 +1109,88 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             </div>
           )}
 
-          {/* Temporal trends (simple monthly chart) */}
-          {temporalData.length > 0 && (
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Monthly Article Volume</h3>
-              <div className="flex items-end gap-1" style={{ height: '128px' }}>
-                {temporalData.slice(-12).map(d => {
-                  const maxTotal = Math.max(...temporalData.slice(-12).map(t => t.total), 1);
-                  const barHeight = Math.max((d.total / maxTotal) * 100, 4);
-                  return (
-                    <div key={d.month} className="flex-1 flex flex-col items-center justify-end" style={{ height: '100%' }} title={`${d.month}: ${d.total} articles`}>
-                      <span className="text-[10px] text-gray-600 dark:text-gray-400 mb-1">{d.total}</span>
-                      <div className="w-full bg-blue-500 rounded-t" style={{ height: `${barHeight}%` }} />
-                      <span className="text-[10px] text-gray-400 mt-1 whitespace-nowrap">{d.month.slice(5)}</span>
-                    </div>
-                  );
-                })}
+          {/* Monthly Volume — stacked recharts BarChart */}
+          {temporalData.length > 0 && (() => {
+            const topCats = categories.slice(0, 5).map(c => c.category);
+            const chartData = temporalData.slice(-12).map(d => ({
+              month: d.month.slice(5),
+              ...Object.fromEntries(topCats.map(cat => [CATEGORY_SHORT_NAMES[cat] || cat, d.by_category?.[cat] || 0])),
+              total: d.total,
+            }));
+
+            return (
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Monthly Article Volume</h3>
+                <ResponsiveContainer width="100%" height={220}>
+                  <BarChart data={chartData} margin={{ top: 5, right: 5, bottom: 5, left: -15 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
+                    <XAxis dataKey="month" stroke="#9CA3AF" fontSize={12} />
+                    <YAxis stroke="#9CA3AF" fontSize={12} />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#1F2937',
+                        border: 'none',
+                        borderRadius: '8px',
+                        color: '#F3F4F6',
+                        fontSize: '12px',
+                      }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: '11px' }} />
+                    {topCats.map(cat => (
+                      <Bar key={cat} dataKey={CATEGORY_SHORT_NAMES[cat] || cat}
+                        stackId="a" fill={CATEGORY_COLORS[cat] || '#6b7280'} />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
+            );
+          })()}
+
+          {/* Top Recent Articles Preview (brand selected) */}
+          {config.selectedBrandIds.length > 0 && articles.length > 0 && (
+            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Recent Articles</h3>
+              <div className="space-y-2">
+                {articles.slice(0, 3).map(article => (
+                  <div key={`${article.uri}-${article.brand_id}`}
+                    className="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-750 cursor-pointer transition-colors"
+                    onClick={() => onArticleClick?.({ ...article })}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-gray-800 dark:text-gray-200 line-clamp-1">{article.title}</p>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        {article.categories.slice(0, 2).map(c => (
+                          <span key={c} className="text-[10px] px-1.5 py-0.5 rounded" style={{
+                            backgroundColor: (CATEGORY_COLORS[c] || '#6b7280') + '20',
+                            color: CATEGORY_COLORS[c] || '#6b7280',
+                          }}>{CATEGORY_SHORT_NAMES[c] || c}</span>
+                        ))}
+                        {article.sentiment && (
+                          <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded ${
+                            article.sentiment.toLowerCase() === 'positive' || article.sentiment.toLowerCase() === 'optimistic'
+                              ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
+                              : article.sentiment.toLowerCase() === 'negative' || article.sentiment.toLowerCase() === 'pessimistic'
+                              ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+                              : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${
+                              article.sentiment.toLowerCase() === 'positive' || article.sentiment.toLowerCase() === 'optimistic' ? 'bg-green-500' :
+                              article.sentiment.toLowerCase() === 'negative' || article.sentiment.toLowerCase() === 'pessimistic' ? 'bg-red-500' :
+                              'bg-gray-400'
+                            }`} />
+                            {article.sentiment}
+                          </span>
+                        )}
+                        {article.publication_date && <span className="text-[10px] text-gray-400">{article.publication_date.slice(0, 10)}</span>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <button onClick={() => handleTabChange('articles')}
+                className="mt-3 text-xs text-blue-600 dark:text-blue-400 hover:underline">
+                View all articles →
+              </button>
             </div>
           )}
         </div>
@@ -663,135 +1199,386 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       {/* ---- ANALYSIS TAB ---- */}
       {activeTab === 'analysis' && (
         <div className="space-y-6">
-          {!config.selectedBrandId ? (
+          {config.selectedBrandIds.length === 0 ? (
             <div className="text-center py-12 text-gray-500 dark:text-gray-400">
               <p>Select a brand above to see detailed analysis.</p>
             </div>
           ) : (
             <>
-              {/* Per-brand category breakdown with click for insight */}
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">
-                  Category Breakdown for {selectedBrand?.display_name}
-                </h3>
-                <div className="space-y-2">
-                  {categories.filter(c => c.article_count > 0).map(cat => (
-                    <div key={cat.category}
-                      className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-750 cursor-pointer transition-colors"
-                      onClick={() => handleCategoryInsight(cat.category)}
+              {/* Competitor sub-tabs (real brands) */}
+              {(() => {
+                const competitorBrands = brands.filter(b => b.enabled && !config.selectedBrandIds.includes(b.id));
+                if (competitorBrands.length === 0) return null;
+                return (
+                  <div className="flex items-center gap-1 flex-wrap border-b border-gray-200 dark:border-gray-700 pb-2">
+                    <button
+                      onClick={() => setSelectedCompetitor(null)}
+                      className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
+                        selectedCompetitor === null
+                          ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                          : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700'
+                      }`}
                     >
-                      <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[cat.category] || '#6b7280' }} />
-                      <span className="text-sm text-gray-700 dark:text-gray-300 flex-1">{cat.category}</span>
-                      <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
-                        {cat.article_count} ({cat.percentage}%)
-                      </span>
-                      <ChevronRight className="w-4 h-4 text-gray-400" />
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Category insight panel */}
-              {loadingInsight && (
-                <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-blue-500" /></div>
-              )}
-              {categoryInsight && !loadingInsight && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                  <div className="flex items-center justify-between mb-3">
-                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
-                      {categoryInsight.category} — AI Insight
-                    </h3>
-                    <button onClick={() => setCategoryInsight(null)} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+                      {selectedBrand?.display_name}
+                    </button>
+                    {competitorBrands.map(compBrand => {
+                      const compData = comparison.find(c => c.brand_id === compBrand.id);
+                      return (
+                        <button key={compBrand.id}
+                          onClick={() => setSelectedCompetitor(prev => prev === compBrand.id ? null : compBrand.id)}
+                          className={`px-3 py-1.5 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
+                            selectedCompetitor === compBrand.id
+                              ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                              : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700'
+                          }`}
+                        >
+                          {compBrand.display_name}
+                          {compData && <span className="ml-1 text-[10px] text-gray-400">({compData.total_articles})</span>}
+                        </button>
+                      );
+                    })}
                   </div>
-                  <p className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap">{categoryInsight.insight}</p>
-                </div>
-              )}
+                );
+              })()}
 
-              {/* Spike Alerts */}
-              {brandAlerts.length > 0 && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg border border-orange-200 dark:border-orange-800 p-6">
-                  <h3 className="text-sm font-semibold text-orange-700 dark:text-orange-300 mb-3 flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4" /> Category Spike Alerts
-                  </h3>
-                  <div className="space-y-2">
-                    {brandAlerts.map(alert => (
-                      <div key={alert.category}
-                        className={`flex items-center gap-3 p-2 rounded-lg ${
-                          alert.severity === 'high'
-                            ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
-                            : 'bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800'
-                        }`}
-                      >
-                        <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[alert.category] || '#6b7280' }} />
-                        <span className="text-sm text-gray-700 dark:text-gray-300 flex-1">{alert.category}</span>
-                        <span className="text-xs font-mono text-gray-600 dark:text-gray-400">
-                          {alert.current_count} this week (avg: {alert.average_count})
-                        </span>
-                        <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
-                          alert.severity === 'high' ? 'bg-red-200 text-red-800 dark:bg-red-800 dark:text-red-200' : 'bg-orange-200 text-orange-800 dark:bg-orange-800 dark:text-orange-200'
-                        }`}>
-                          {alert.spike_ratio}x
-                        </span>
+              {/* Competitor detail view — side-by-side comparison */}
+              {selectedCompetitor !== null && (() => {
+                const compBrand = brands.find(b => b.id === selectedCompetitor);
+                const compData = comparison.find(c => c.brand_id === selectedCompetitor);
+                const primaryData = comparison.find(c => c.brand_id === primarySelectedId);
+                const compArticles = articles.filter(a => a.brand_id === selectedCompetitor);
+                const primaryArticles = articles.filter(a => a.brand_id === primarySelectedId);
+
+                // Merge all categories from both brands
+                const allCats = new Set<string>();
+                if (compData) Object.entries(compData.category_breakdown).forEach(([k, v]) => { if (v > 0) allCats.add(k); });
+                if (primaryData) Object.entries(primaryData.category_breakdown).forEach(([k, v]) => { if (v > 0) allCats.add(k); });
+                const sortedCats = [...allCats].sort((a, b) => {
+                  const aTotal = (primaryData?.category_breakdown[a] || 0) + (compData?.category_breakdown[a] || 0);
+                  const bTotal = (primaryData?.category_breakdown[b] || 0) + (compData?.category_breakdown[b] || 0);
+                  return bTotal - aTotal;
+                });
+
+                // Sentiment for both
+                const calcSentiment = (brandArticles: BWArticle[]) => {
+                  const counts = { positive: 0, neutral: 0, negative: 0 };
+                  for (const a of brandArticles) {
+                    const s = (a.sentiment || '').toLowerCase();
+                    if (s === 'positive' || s === 'optimistic') counts.positive++;
+                    else if (s === 'negative' || s === 'pessimistic' || s === 'concerned') counts.negative++;
+                    else counts.neutral++;
+                  }
+                  return counts;
+                };
+                const primarySent = calcSentiment(primaryArticles);
+                const compSent = calcSentiment(compArticles);
+
+                // Grouped bar chart data
+                const chartData = sortedCats.slice(0, 8).map(cat => ({
+                  category: CATEGORY_SHORT_NAMES[cat] || cat,
+                  [selectedBrand?.display_name || 'You']: primaryData?.category_breakdown[cat] || 0,
+                  [compBrand?.display_name || 'Competitor']: compData?.category_breakdown[cat] || 0,
+                }));
+
+                return (
+                  <div className="space-y-4">
+                    {/* Head-to-head stat cards */}
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
+                        <div className="flex items-center justify-center gap-2 mb-2">
+                          {selectedBrand?.color && <div className="w-3 h-3 rounded-full" style={{ backgroundColor: selectedBrand.color }} />}
+                          <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{selectedBrand?.display_name}</p>
+                        </div>
+                        <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{primaryData?.total_articles || 0}</p>
+                        <p className="text-[10px] text-gray-400">articles</p>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+                      <div className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 text-center">
+                        <div className="flex items-center justify-center gap-2 mb-2">
+                          {compBrand?.color && <div className="w-3 h-3 rounded-full" style={{ backgroundColor: compBrand.color }} />}
+                          <p className="text-xs font-medium text-gray-500 dark:text-gray-400">{compBrand?.display_name}</p>
+                        </div>
+                        <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{compData?.total_articles || 0}</p>
+                        <p className="text-[10px] text-gray-400">articles</p>
+                      </div>
+                    </div>
 
-              {/* Sentiment Trends */}
-              {sentimentTrends.length > 0 && (
-                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Sentiment by Category (Weekly)</h3>
-                  <div className="space-y-2">
-                    {(() => {
-                      // Group by category, show latest week's sentiment distribution
-                      const byCat: Record<string, Record<string, number>> = {};
-                      for (const t of sentimentTrends) {
-                        if (!byCat[t.category]) byCat[t.category] = {};
-                        for (const [sent, cnt] of Object.entries(t.sentiments)) {
-                          byCat[t.category][sent] = (byCat[t.category][sent] || 0) + cnt;
-                        }
-                      }
-                      return Object.entries(byCat).map(([cat, sents]) => {
-                        const total = Object.values(sents).reduce((a, b) => a + b, 0);
+                    {/* Sentiment comparison */}
+                    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-5">
+                      <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-3">Sentiment Comparison</h4>
+                      {[
+                        { label: selectedBrand?.display_name || 'You', color: selectedBrand?.color || '#3b82f6', sent: primarySent, total: primaryArticles.length },
+                        { label: compBrand?.display_name || 'Competitor', color: compBrand?.color || '#6b7280', sent: compSent, total: compArticles.length },
+                      ].map(row => {
+                        const t = row.total || 1;
                         return (
-                          <div key={cat} className="flex items-center gap-3">
-                            <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[cat] || '#6b7280' }} />
-                            <span className="text-xs text-gray-700 dark:text-gray-300 w-36 truncate">{CATEGORY_SHORT_NAMES[cat] || cat}</span>
-                            <div className="flex-1 h-4 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden flex">
-                              {Object.entries(sents).map(([sent, cnt]) => {
-                                const pct = (cnt / total) * 100;
-                                const sentColors: Record<string, string> = {
-                                  'Optimistic': '#16a34a', 'Cautious': '#d97706', 'Neutral': '#6b7280',
-                                  'Concerned': '#ea580c', 'Pessimistic': '#dc2626',
-                                };
-                                return pct > 0 ? (
-                                  <div key={sent} className="h-full" title={`${sent}: ${cnt} (${pct.toFixed(0)}%)`}
-                                    style={{ width: `${pct}%`, backgroundColor: sentColors[sent] || '#6b7280' }} />
-                                ) : null;
-                              })}
+                          <div key={row.label} className="mb-2.5 last:mb-0">
+                            <div className="flex items-center gap-2 mb-1">
+                              <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: row.color }} />
+                              <span className="text-xs text-gray-700 dark:text-gray-300 flex-1">{row.label}</span>
+                              <div className="flex items-center gap-2 text-[10px]">
+                                <span className="text-green-600">{row.sent.positive}</span>
+                                <span className="text-gray-400">{row.sent.neutral}</span>
+                                <span className="text-red-600">{row.sent.negative}</span>
+                              </div>
                             </div>
-                            <span className="text-xs text-gray-500 w-8 text-right">{total}</span>
+                            <div className="h-3 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden flex">
+                              {row.sent.positive > 0 && <div className="h-full bg-green-500" style={{ width: `${(row.sent.positive / t) * 100}%` }} />}
+                              {row.sent.neutral > 0 && <div className="h-full bg-gray-400" style={{ width: `${(row.sent.neutral / t) * 100}%` }} />}
+                              {row.sent.negative > 0 && <div className="h-full bg-red-500" style={{ width: `${(row.sent.negative / t) * 100}%` }} />}
+                            </div>
                           </div>
                         );
-                      });
-                    })()}
+                      })}
+                    </div>
+
+                    {/* Category comparison — grouped bar chart */}
+                    {chartData.length > 0 && (
+                      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                        <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-3">Category Comparison</h4>
+                        <ResponsiveContainer width="100%" height={Math.max(chartData.length * 40, 160)}>
+                          <BarChart data={chartData} layout="vertical" margin={{ top: 0, right: 10, bottom: 0, left: 5 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} horizontal={false} />
+                            <XAxis type="number" stroke="#9CA3AF" fontSize={11} />
+                            <YAxis type="category" dataKey="category" stroke="#9CA3AF" fontSize={11} width={85} tick={{ fill: '#9CA3AF' }} />
+                            <Tooltip contentStyle={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px', color: '#F3F4F6', fontSize: '12px' }} />
+                            <Legend wrapperStyle={{ fontSize: '11px' }} />
+                            <Bar dataKey={selectedBrand?.display_name || 'You'} fill={selectedBrand?.color || '#3b82f6'} radius={[0, 4, 4, 0]} />
+                            <Bar dataKey={compBrand?.display_name || 'Competitor'} fill={compBrand?.color || '#6b7280'} radius={[0, 4, 4, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+
+                    {/* Recent competitor articles */}
+                    {compArticles.length > 0 && (
+                      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                        <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-3">
+                          Recent {compBrand?.display_name} Articles
+                        </h4>
+                        <div className="space-y-2">
+                          {compArticles.slice(0, 5).map(a => (
+                            <div key={a.uri}
+                              className="flex items-start gap-2 p-2 rounded hover:bg-gray-50 dark:hover:bg-gray-750 cursor-pointer"
+                              onClick={() => onArticleClick?.({ ...a })}
+                            >
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm text-gray-800 dark:text-gray-200 line-clamp-1">{a.title}</p>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  {a.categories.slice(0, 2).map(c => (
+                                    <span key={c} className="text-[10px] px-1 py-0.5 rounded" style={{
+                                      backgroundColor: (CATEGORY_COLORS[c] || '#6b7280') + '20',
+                                      color: CATEGORY_COLORS[c] || '#6b7280',
+                                    }}>{CATEGORY_SHORT_NAMES[c] || c}</span>
+                                  ))}
+                                  {a.publication_date && <span className="text-[10px] text-gray-400">{a.publication_date.slice(0, 10)}</span>}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex items-center gap-3 mt-3 flex-wrap">
-                    {[
-                      { label: 'Optimistic', color: '#16a34a' },
-                      { label: 'Cautious', color: '#d97706' },
-                      { label: 'Neutral', color: '#6b7280' },
-                      { label: 'Concerned', color: '#ea580c' },
-                      { label: 'Pessimistic', color: '#dc2626' },
-                    ].map(s => (
-                      <span key={s.label} className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400">
-                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
-                        {s.label}
-                      </span>
-                    ))}
-                  </div>
-                </div>
+                );
+              })()}
+
+              {/* Main brand analysis (shown when no competitor selected) */}
+              {!selectedCompetitor && (
+                <>
+                  {/* Latest Narrative Preview */}
+                  {narrative && (
+                    <div className="bg-white dark:bg-gray-800 rounded-lg border border-blue-200 dark:border-blue-800 p-5">
+                      <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
+                          <Sparkles className="w-4 h-4 text-blue-500" /> Latest AI Narrative
+                        </h3>
+                        <span className="text-[10px] text-gray-400">
+                          {narrative.generated_at ? new Date(narrative.generated_at).toLocaleDateString() : ''}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-600 dark:text-gray-300 line-clamp-3 whitespace-pre-wrap">{narrative.narrative}</p>
+                      <button
+                        onClick={() => handleTabChange('insights')}
+                        className="mt-2 text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
+                      >
+                        View full in Insights &rarr;
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Category Trends Over Time — with clickable legend for AI insights */}
+                  {temporalData.length > 1 && categories.length > 0 && (() => {
+                    const topCats = categories.filter(c => c.article_count > 0).slice(0, 6).map(c => c.category);
+                    const trendData = temporalData.map(d => ({
+                      month: d.month.slice(5),
+                      ...Object.fromEntries(topCats.map(cat => [CATEGORY_SHORT_NAMES[cat] || cat, d.by_category?.[cat] || 0])),
+                    }));
+                    return (
+                      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Category Trends Over Time</h3>
+                        <ResponsiveContainer width="100%" height={220}>
+                          <AreaChart data={trendData} margin={{ top: 5, right: 5, bottom: 5, left: -15 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
+                            <XAxis dataKey="month" stroke="#9CA3AF" fontSize={11} />
+                            <YAxis stroke="#9CA3AF" fontSize={11} />
+                            <Tooltip
+                              contentStyle={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px', color: '#F3F4F6', fontSize: '12px' }}
+                            />
+                            {topCats.map(cat => (
+                              <Area key={cat} type="monotone" dataKey={CATEGORY_SHORT_NAMES[cat] || cat}
+                                stroke={CATEGORY_COLORS[cat] || '#6b7280'} fill={CATEGORY_COLORS[cat] || '#6b7280'}
+                                fillOpacity={0.1} strokeWidth={1.5} dot={false} />
+                            ))}
+                          </AreaChart>
+                        </ResponsiveContainer>
+                        {/* Clickable category legend — triggers AI insight */}
+                        <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                          <span className="text-[10px] text-gray-400 self-center mr-1">Click for AI insight:</span>
+                          {topCats.map(cat => {
+                            const catInfo = categories.find(c => c.category === cat);
+                            return (
+                              <button key={cat}
+                                onClick={() => handleCategoryInsight(cat)}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors border border-transparent hover:border-gray-200 dark:hover:border-gray-600"
+                                title={`Generate AI insight for ${cat}`}
+                              >
+                                <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[cat] || '#6b7280' }} />
+                                <span className="text-gray-600 dark:text-gray-400">{CATEGORY_SHORT_NAMES[cat] || cat}</span>
+                                {catInfo && <span className="font-medium text-gray-700 dark:text-gray-300">{catInfo.article_count}</span>}
+                                <Sparkles className="w-3 h-3 text-gray-400" />
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Category insight panel */}
+                  {loadingInsight && (
+                    <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-blue-500" /></div>
+                  )}
+                  {categoryInsight && !loadingInsight && (
+                    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                          {categoryInsight.category} — AI Insight
+                        </h3>
+                        <button onClick={() => setCategoryInsight(null)} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+                      </div>
+                      <p className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap">{categoryInsight.insight}</p>
+                      {/* Top articles in this category */}
+                      {(() => {
+                        const catArticles = articles
+                          .filter(a => a.categories.includes(categoryInsight.category))
+                          .slice(0, 3);
+                        return catArticles.length > 0 ? (
+                          <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700">
+                            <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2">Recent Articles</h4>
+                            <div className="space-y-1.5">
+                              {catArticles.map(a => (
+                                <div key={a.uri}
+                                  className="flex items-center gap-2 p-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-750 cursor-pointer"
+                                  onClick={() => onArticleClick?.({ ...a })}
+                                >
+                                  <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[categoryInsight.category] || '#6b7280' }} />
+                                  <span className="text-xs text-gray-700 dark:text-gray-300 flex-1 line-clamp-1">{a.title}</span>
+                                  {a.publication_date && <span className="text-[10px] text-gray-400 flex-shrink-0">{a.publication_date.slice(0, 10)}</span>}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null;
+                      })()}
+                    </div>
+                  )}
+
+                  {/* Spike Alerts */}
+                  {brandAlerts.length > 0 && (
+                    <div className="bg-white dark:bg-gray-800 rounded-lg border border-orange-200 dark:border-orange-800 p-6">
+                      <h3 className="text-sm font-semibold text-orange-700 dark:text-orange-300 mb-3 flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4" /> Category Spike Alerts
+                      </h3>
+                      <div className="space-y-2">
+                        {brandAlerts.map(alert => (
+                          <div key={alert.category}
+                            className={`flex items-center gap-3 p-2 rounded-lg ${
+                              alert.severity === 'high'
+                                ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800'
+                                : 'bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-800'
+                            }`}
+                          >
+                            <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[alert.category] || '#6b7280' }} />
+                            <span className="text-sm text-gray-700 dark:text-gray-300 flex-1">{alert.category}</span>
+                            <span className="text-xs font-mono text-gray-600 dark:text-gray-400">
+                              {alert.current_count} this week (avg: {alert.average_count})
+                            </span>
+                            <span className={`text-xs font-bold px-1.5 py-0.5 rounded ${
+                              alert.severity === 'high' ? 'bg-red-200 text-red-800 dark:bg-red-800 dark:text-red-200' : 'bg-orange-200 text-orange-800 dark:bg-orange-800 dark:text-orange-200'
+                            }`}>
+                              {alert.spike_ratio}x
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Sentiment Trends */}
+                  {sentimentTrends.length > 0 && (
+                    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Sentiment by Category (Weekly)</h3>
+                      <div className="space-y-2">
+                        {(() => {
+                          const byCat: Record<string, { Positive: number; Neutral: number; Negative: number }> = {};
+                          for (const t of sentimentTrends) {
+                            if (!byCat[t.category]) byCat[t.category] = { Positive: 0, Neutral: 0, Negative: 0 };
+                            for (const [s, cnt] of Object.entries(t.sentiments)) {
+                              const lo = s.toLowerCase();
+                              if (lo === 'positive' || lo === 'optimistic' || lo === 'positive development') byCat[t.category].Positive += cnt;
+                              else if (lo === 'negative' || lo === 'pessimistic' || lo === 'concerning' || lo === 'concerned' || lo === 'critical' || lo === 'alarming') byCat[t.category].Negative += cnt;
+                              else byCat[t.category].Neutral += cnt;
+                            }
+                          }
+                          const sentBucketOrder: Array<'Positive' | 'Neutral' | 'Negative'> = ['Positive', 'Neutral', 'Negative'];
+                          const sentBucketColors: Record<string, string> = { Positive: '#16a34a', Neutral: '#94a3b8', Negative: '#dc2626' };
+                          return Object.entries(byCat).map(([cat, sents]) => {
+                            const total = sents.Positive + sents.Neutral + sents.Negative;
+                            return (
+                              <div key={cat} className="flex items-center gap-3">
+                                <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[cat] || '#6b7280' }} />
+                                <span className="text-xs text-gray-700 dark:text-gray-300 w-36 truncate">{CATEGORY_SHORT_NAMES[cat] || cat}</span>
+                                <div className="flex-1 h-4 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden flex">
+                                  {sentBucketOrder.map(sent => {
+                                    const cnt = sents[sent];
+                                    const pct = total > 0 ? (cnt / total) * 100 : 0;
+                                    return pct > 0 ? (
+                                      <div key={sent} className="h-full" title={`${sent}: ${cnt} (${pct.toFixed(0)}%)`}
+                                        style={{ width: `${pct}%`, backgroundColor: sentBucketColors[sent] }} />
+                                    ) : null;
+                                  })}
+                                </div>
+                                <span className="text-xs text-gray-500 w-8 text-right">{total}</span>
+                              </div>
+                            );
+                          });
+                        })()}
+                      </div>
+                      <div className="flex items-center gap-3 mt-3 flex-wrap">
+                        {[
+                          { label: 'Positive', color: '#16a34a' },
+                          { label: 'Neutral', color: '#94a3b8' },
+                          { label: 'Negative', color: '#dc2626' },
+                        ].map(s => (
+                          <span key={s.label} className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400">
+                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: s.color }} />
+                            {s.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
 
             </>
@@ -802,29 +1589,144 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       {/* ---- COMPARISON TAB ---- */}
       {activeTab === 'comparison' && (
         <div className="space-y-6">
-          {/* Share of Voice */}
-          {shareOfVoice.length > 0 && (
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Share of Voice</h3>
-              <div className="space-y-3">
-                {shareOfVoice.map(sov => (
-                  <div key={sov.brand_id} className="flex items-center gap-3">
-                    <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: sov.color || '#6b7280' }} />
-                    <span className="text-sm text-gray-700 dark:text-gray-300 w-32 truncate">{sov.brand_name}</span>
-                    <div className="flex-1 h-5 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden">
-                      <div className="h-full rounded-full" style={{
-                        width: `${Math.max(sov.percentage, 2)}%`,
-                        backgroundColor: sov.color || '#6b7280',
-                      }} />
-                    </div>
-                    <span className="text-sm font-medium text-gray-600 dark:text-gray-400 w-24 text-right">
-                      {sov.mention_count} ({sov.percentage}%)
-                    </span>
+          {/* Share of Voice — Pie Chart */}
+          {shareOfVoice.length > 0 && (() => {
+            const pieData = shareOfVoice.map(sov => ({
+              name: sov.brand_name,
+              value: sov.mention_count,
+              percentage: sov.percentage,
+              fill: sov.color || '#6b7280',
+            }));
+            return (
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Share of Voice</h3>
+                <div className="flex flex-col md:flex-row items-center gap-6">
+                  <ResponsiveContainer width="100%" height={240} className="md:max-w-[280px]">
+                    <PieChart>
+                      <Pie
+                        data={pieData}
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={100}
+                        innerRadius={50}
+                        dataKey="value"
+                        paddingAngle={2}
+                        stroke="none"
+                      >
+                        {pieData.map((entry, i) => (
+                          <Cell key={i} fill={entry.fill} />
+                        ))}
+                      </Pie>
+                      <Tooltip
+                        content={({ active, payload }) => {
+                          if (!active || !payload?.length) return null;
+                          const d = payload[0].payload;
+                          return (
+                            <div className="bg-gray-900 text-white text-xs rounded-lg shadow-lg px-3 py-2">
+                              <p className="font-semibold">{d.name}</p>
+                              <p>{d.value} articles ({d.percentage.toFixed(1)}%)</p>
+                            </div>
+                          );
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <div className="flex-1 space-y-2">
+                    {shareOfVoice.map(sov => (
+                      <div key={sov.brand_id} className="flex items-center gap-3">
+                        <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: sov.color || '#6b7280' }} />
+                        <span className="text-sm text-gray-700 dark:text-gray-300 flex-1 truncate">{sov.brand_name}</span>
+                        <span className="text-sm font-bold text-gray-900 dark:text-gray-100">{sov.percentage.toFixed(1)}%</span>
+                        <span className="text-xs text-gray-400 w-20 text-right">{sov.mention_count} articles</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
+
+          {/* Category Breakdown by Brand — stacked bar chart with category dropdown */}
+          {comparison.length > 0 && (() => {
+            // Collect all categories across all brands
+            const allCatsSet = new Set<string>();
+            comparison.forEach(comp => {
+              Object.entries(comp.category_breakdown).forEach(([k, v]) => { if (v > 0) allCatsSet.add(k); });
+            });
+            const allCats = [...allCatsSet].sort((a, b) => {
+              const aTotal = comparison.reduce((sum, c) => sum + (c.category_breakdown[a] || 0), 0);
+              const bTotal = comparison.reduce((sum, c) => sum + (c.category_breakdown[b] || 0), 0);
+              return bTotal - aTotal;
+            });
+
+            // If a category is selected, show only that category
+            const displayCats = compCategoryFilter ? [compCategoryFilter] : allCats.slice(0, 8);
+
+            const chartData = displayCats.map(cat => {
+              const row: Record<string, string | number> = { category: CATEGORY_SHORT_NAMES[cat] || cat };
+              comparison.forEach(comp => {
+                row[comp.brand_name] = comp.category_breakdown[cat] || 0;
+              });
+              return row;
+            });
+
+            return (
+              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Category Breakdown</h3>
+                  {/* Category filter dropdown */}
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowCompCatDropdown(!showCompCatDropdown)}
+                      className="flex items-center gap-2 px-3 py-1.5 text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg dark:text-gray-100"
+                    >
+                      <span>{compCategoryFilter ? (CATEGORY_SHORT_NAMES[compCategoryFilter] || compCategoryFilter) : 'All categories'}</span>
+                      <ChevronDown className="w-3.5 h-3.5" />
+                    </button>
+                    {showCompCatDropdown && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setShowCompCatDropdown(false)} />
+                        <div className="absolute top-full right-0 mt-1 w-56 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1 max-h-60 overflow-y-auto">
+                          <button
+                            onClick={() => { setCompCategoryFilter(null); setShowCompCatDropdown(false); }}
+                            className={`w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-750 text-left ${
+                              !compCategoryFilter ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-700 dark:text-gray-300'
+                            }`}
+                          >
+                            All categories (top 8)
+                          </button>
+                          {allCats.map(cat => (
+                            <button key={cat}
+                              onClick={() => { setCompCategoryFilter(cat); setShowCompCatDropdown(false); }}
+                              className={`w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-750 text-left ${
+                                compCategoryFilter === cat ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-700 dark:text-gray-300'
+                              }`}
+                            >
+                              <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[cat] || '#6b7280' }} />
+                              <span className="flex-1 truncate">{CATEGORY_SHORT_NAMES[cat] || cat}</span>
+                              <span className="text-gray-400">{comparison.reduce((s, c) => s + (c.category_breakdown[cat] || 0), 0)}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <ResponsiveContainer width="100%" height={Math.max(displayCats.length * 44, 120)}>
+                  <BarChart data={chartData} layout="vertical" margin={{ top: 0, right: 10, bottom: 0, left: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} horizontal={false} />
+                    <XAxis type="number" stroke="#9CA3AF" fontSize={11} />
+                    <YAxis type="category" dataKey="category" stroke="#9CA3AF" fontSize={11} width={85} tick={{ fill: '#9CA3AF' }} />
+                    <Tooltip contentStyle={{ backgroundColor: '#1F2937', border: 'none', borderRadius: '8px', color: '#F3F4F6', fontSize: '12px' }} />
+                    <Legend wrapperStyle={{ fontSize: '11px' }} />
+                    {comparison.map(comp => (
+                      <Bar key={comp.brand_id} dataKey={comp.brand_name} fill={comp.color || '#6b7280'} radius={[0, 4, 4, 0]} />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            );
+          })()}
 
           {/* Cross-brand comparison table */}
           {comparison.length > 0 && (
@@ -836,26 +1738,106 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                     <th className="text-left py-2 px-2 text-gray-500 dark:text-gray-400">Brand</th>
                     <th className="text-right py-2 px-2 text-gray-500 dark:text-gray-400">Total</th>
                     {Object.keys(CATEGORY_SHORT_NAMES).map(cat => (
-                      <th key={cat} className="text-right py-2 px-1 text-gray-500 dark:text-gray-400 text-xs">
+                      <th key={cat} title={cat} className="text-right py-2 px-1 text-gray-500 dark:text-gray-400 text-xs">
                         {CATEGORY_SHORT_NAMES[cat]}
                       </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {comparison.map(comp => (
-                    <tr key={comp.brand_id} className="border-b border-gray-100 dark:border-gray-700/50">
-                      <td className="py-2 px-2 font-medium text-gray-700 dark:text-gray-300">{comp.brand_name}</td>
-                      <td className="py-2 px-2 text-right font-bold text-gray-700 dark:text-gray-300">{comp.total_articles}</td>
-                      {Object.keys(CATEGORY_SHORT_NAMES).map(cat => (
-                        <td key={cat} className="py-2 px-1 text-right text-gray-600 dark:text-gray-400">
-                          {comp.category_breakdown[cat] || 0}
+                  {comparison.map(comp => {
+                    // Find which category this brand leads in
+                    const maxCat = Object.entries(comp.category_breakdown).sort(([, a], [, b]) => b - a)[0]?.[0];
+                    return (
+                      <tr key={comp.brand_id} className="border-b border-gray-100 dark:border-gray-700/50">
+                        <td className="py-2 px-2">
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: comp.color || '#6b7280' }} />
+                            <span className="font-medium text-gray-700 dark:text-gray-300">{comp.brand_name}</span>
+                          </div>
                         </td>
-                      ))}
-                    </tr>
-                  ))}
+                        <td className="py-2 px-2 text-right font-bold text-gray-700 dark:text-gray-300">{comp.total_articles}</td>
+                        {Object.keys(CATEGORY_SHORT_NAMES).map(cat => {
+                          const count = comp.category_breakdown[cat] || 0;
+                          const isLeading = cat === maxCat && count > 0;
+                          return (
+                            <td key={cat}
+                              className={`py-2 px-1 text-right cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors ${
+                                isLeading ? 'font-bold text-gray-800 dark:text-gray-200' : 'text-gray-600 dark:text-gray-400'
+                              }`}
+                              title={`View ${comp.brand_name} — ${cat} articles`}
+                              onClick={() => {
+                                updateConfig({ selectedBrandIds: [comp.brand_id], selectedCategories: [cat], page: 1 });
+                                setActiveTab('articles');
+                              }}
+                            >
+                              {count > 0 ? count : <span className="text-gray-300 dark:text-gray-600">—</span>}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
+              <p className="text-[10px] text-gray-400 mt-2">Click any cell to drill down to those articles. Bold = top category for that brand.</p>
+            </div>
+          )}
+
+          {/* Sentiment Summary — uses sentiment_breakdown from comparison API */}
+          {comparison.length > 0 && comparison.some(c => Object.keys(c.sentiment_breakdown || {}).length > 0) && (
+            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Sentiment Summary by Brand</h3>
+              <div className="space-y-3">
+                {comparison.map(comp => {
+                  // Normalize sentiment labels into 3 buckets
+                  const sentCounts = { positive: 0, neutral: 0, negative: 0 };
+                  for (const [label, count] of Object.entries(comp.sentiment_breakdown || {})) {
+                    const lo = label.toLowerCase();
+                    if (lo === 'positive' || lo === 'optimistic' || lo === 'positive development') sentCounts.positive += count;
+                    else if (lo === 'negative' || lo === 'pessimistic' || lo === 'concerning' || lo === 'concerned' || lo === 'critical' || lo === 'alarming') sentCounts.negative += count;
+                    else sentCounts.neutral += count;
+                  }
+                  const total = sentCounts.positive + sentCounts.neutral + sentCounts.negative || 1;
+                  return (
+                    <div key={comp.brand_id} className="flex items-center gap-3">
+                      <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: comp.color || '#6b7280' }} />
+                      <span className="text-sm text-gray-700 dark:text-gray-300 w-28 truncate">{comp.brand_name}</span>
+                      <div className="flex-1 h-4 bg-gray-100 dark:bg-gray-700 rounded-full overflow-hidden flex">
+                        {sentCounts.positive > 0 && (
+                          <div className="h-full bg-green-500" title={`Positive: ${sentCounts.positive}`}
+                            style={{ width: `${(sentCounts.positive / total) * 100}%` }} />
+                        )}
+                        {sentCounts.neutral > 0 && (
+                          <div className="h-full bg-gray-400" title={`Neutral: ${sentCounts.neutral}`}
+                            style={{ width: `${(sentCounts.neutral / total) * 100}%` }} />
+                        )}
+                        {sentCounts.negative > 0 && (
+                          <div className="h-full bg-red-500" title={`Negative: ${sentCounts.negative}`}
+                            style={{ width: `${(sentCounts.negative / total) * 100}%` }} />
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px] w-36 justify-end">
+                        <span className="text-green-600">{sentCounts.positive}</span>
+                        <span className="text-gray-400">{sentCounts.neutral}</span>
+                        <span className="text-red-600">{sentCounts.negative}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex items-center gap-3 mt-2">
+                {[
+                  { label: 'Positive', color: 'bg-green-500' },
+                  { label: 'Neutral', color: 'bg-gray-400' },
+                  { label: 'Negative', color: 'bg-red-500' },
+                ].map(s => (
+                  <span key={s.label} className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400">
+                    <div className={`w-2 h-2 rounded-full ${s.color}`} />
+                    {s.label}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
 
@@ -870,7 +1852,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       {/* ---- INSIGHTS TAB ---- */}
       {activeTab === 'insights' && (
         <div className="space-y-6">
-          {!config.selectedBrandId ? (
+          {config.selectedBrandIds.length === 0 ? (
             <div className="text-center py-12 text-gray-500 dark:text-gray-400">
               <p>Select a brand above to view or generate insights.</p>
             </div>
@@ -891,6 +1873,72 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                   <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">{selectedBrand?.display_name || '—'}</p>
                 </div>
               </div>
+
+              {/* Company Profile Card */}
+              {selectedBrand && (
+                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                  <div className="flex items-center gap-3 mb-4">
+                    {selectedBrand.color && (
+                      <div className="w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold text-lg" style={{ backgroundColor: selectedBrand.color }}>
+                        {selectedBrand.display_name.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <div>
+                      <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">{selectedBrand.display_name}</h3>
+                      {selectedBrand.description && (
+                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{selectedBrand.description}</p>
+                      )}
+                    </div>
+                    {selectedBrand.is_primary && (
+                      <span className="ml-auto text-[10px] px-2 py-0.5 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400 rounded-full border border-yellow-200 dark:border-yellow-800 flex items-center gap-1">
+                        <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" /> Primary
+                      </span>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {(selectedBrand.brand_keywords?.length ?? 0) > 0 && (
+                      <div>
+                        <p className="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Brand Keywords</p>
+                        <div className="flex flex-wrap gap-1">
+                          {selectedBrand.brand_keywords!.map(kw => (
+                            <span key={kw} className="text-xs px-2 py-0.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 rounded">{kw}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {(selectedBrand.product_keywords?.length ?? 0) > 0 && (
+                      <div>
+                        <p className="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Products</p>
+                        <div className="flex flex-wrap gap-1">
+                          {selectedBrand.product_keywords!.map(kw => (
+                            <span key={kw} className="text-xs px-2 py-0.5 bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 rounded">{kw}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {(selectedBrand.people_keywords?.length ?? 0) > 0 && (
+                      <div>
+                        <p className="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">People</p>
+                        <div className="flex flex-wrap gap-1">
+                          {selectedBrand.people_keywords!.map(kw => (
+                            <span key={kw} className="text-xs px-2 py-0.5 bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 rounded">{kw}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {(selectedBrand.competitor_keywords?.length ?? 0) > 0 && (
+                      <div>
+                        <p className="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">Competitors</p>
+                        <div className="flex flex-wrap gap-1">
+                          {selectedBrand.competitor_keywords!.map(kw => (
+                            <span key={kw} className="text-xs px-2 py-0.5 bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 rounded">{kw}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Generate / Regenerate button */}
               <button
@@ -970,7 +2018,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
               {articles.map(article => (
                 <div key={`${article.uri}-${article.brand_id}`}
                   className="p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer hover:border-blue-300 dark:hover:border-blue-700 transition-colors"
-                  onClick={() => onArticleClick?.({ uri: article.uri, title: article.title })}
+                  onClick={() => onArticleClick?.({ ...article })}
                 >
                   <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 line-clamp-2">{article.title}</h4>
                   {article.summary && (
@@ -983,13 +2031,27 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                       </span>
                     )}
                     {article.categories.map(cat => (
-                      <span key={cat} className="text-xs px-2 py-0.5 rounded" style={{
+                      <span key={cat} title={cat} className="text-xs px-2 py-0.5 rounded" style={{
                         backgroundColor: (CATEGORY_COLORS[cat] || '#6b7280') + '20',
                         color: CATEGORY_COLORS[cat] || '#6b7280',
                       }}>
                         {CATEGORY_SHORT_NAMES[cat] || cat}
                       </span>
                     ))}
+                    {article.sentiment && (
+                      <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded ${
+                        article.sentiment.toLowerCase() === 'positive' ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400' :
+                        article.sentiment.toLowerCase() === 'negative' ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400' :
+                        'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
+                      }`}>
+                        <span className={`w-1.5 h-1.5 rounded-full ${
+                          article.sentiment.toLowerCase() === 'positive' ? 'bg-green-500' :
+                          article.sentiment.toLowerCase() === 'negative' ? 'bg-red-500' :
+                          'bg-gray-400'
+                        }`} />
+                        {article.sentiment}
+                      </span>
+                    )}
                     {article.matched_keywords?.length > 0 && (
                       <span className="text-xs px-2 py-0.5 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400 rounded border border-yellow-200 dark:border-yellow-800">
                         Matched: {article.matched_keywords.join(', ')}
@@ -1071,6 +2133,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                             {(brand.brand_keywords || []).join(', ')}
                           </p>
                         </div>
+                        <button onClick={() => setPrimary(brand.id)}
+                          title={brand.is_primary ? 'Primary brand' : 'Set as primary brand for Analysis & Insights'}
+                          className="text-gray-400 hover:text-yellow-500 transition-colors">
+                          <Star className={`w-4 h-4 ${brand.is_primary ? 'fill-yellow-400 text-yellow-400' : ''}`} />
+                        </button>
                         <button onClick={() => toggleBrandFn(brand.id)} title={brand.enabled ? 'Disable' : 'Enable'}
                           className="text-gray-400 hover:text-gray-600">
                           {brand.enabled ? <ToggleRight className="w-5 h-5 text-green-500" /> : <ToggleLeft className="w-5 h-5" />}
@@ -1187,7 +2254,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             <div className="p-4 overflow-y-auto max-h-[70vh] space-y-5">
               <p className="text-sm text-gray-500 dark:text-gray-400">
                 Run classification on articles matching your brand keywords.
-                {config.selectedBrandId ? ` Targeting: ${selectedBrand?.display_name}` : ' Targeting: All brands'}
+                {primarySelectedId ? ` Targeting: ${selectedBrand?.display_name}` : ' Targeting: All brands'}
                 {config.selectedTopics.length > 0 && ` | ${config.selectedTopics.length} topic${config.selectedTopics.length !== 1 ? 's' : ''} selected`}
               </p>
 

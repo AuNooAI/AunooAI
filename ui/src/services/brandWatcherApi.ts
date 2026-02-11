@@ -18,6 +18,7 @@ export interface Brand {
   competitor_keywords: string[] | null;
   enabled: boolean;
   color: string | null;
+  is_primary: boolean;
   config?: Record<string, any>;
   created_at: string | null;
   updated_at: string | null;
@@ -108,6 +109,7 @@ export interface BWComparison {
   brand_name: string;
   total_articles: number;
   category_breakdown: Record<string, number>;
+  sentiment_breakdown: Record<string, number>;
   color: string | null;
 }
 
@@ -273,6 +275,14 @@ export async function toggleBrand(id: number): Promise<{ id: number; enabled: bo
   return res.json();
 }
 
+export async function setPrimaryBrand(brandId: number): Promise<{ id: number; is_primary: boolean }> {
+  const res = await fetch(`${BASE}/brands/${brandId}/set-primary`, {
+    method: 'PUT', credentials: 'include',
+  });
+  if (!res.ok) throw new Error(`Failed to set primary brand: ${res.status}`);
+  return res.json();
+}
+
 export async function setupBrandMonitoring(brandId: number): Promise<{
   brand_id: number;
   topic_name: string;
@@ -347,27 +357,27 @@ export async function getClassifyRuns(limit: number = 10): Promise<{ runs: BWCla
 
 // --- Stats & Analytics ---
 
-export async function getStats(brandId?: number, daysBack: number = 365, topics?: string[]): Promise<BWStats> {
+export async function getStats(brandIds?: number[], daysBack: number = 365, topics?: string[]): Promise<BWStats> {
   const params = new URLSearchParams({ days_back: daysBack.toString() });
-  if (brandId) params.append('brand_id', brandId.toString());
+  if (brandIds?.length) params.append('brand_ids', brandIds.join(','));
   if (topics?.length) params.append('topics', topics.join(','));
   const res = await fetch(`${BASE}/stats?${params}`, { credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to get stats: ${res.status}`);
   return res.json();
 }
 
-export async function getCategories(brandId?: number, daysBack: number = 365, topics?: string[]): Promise<BWCategory[]> {
+export async function getCategories(brandIds?: number[], daysBack: number = 365, topics?: string[]): Promise<BWCategory[]> {
   const params = new URLSearchParams({ days_back: daysBack.toString() });
-  if (brandId) params.append('brand_id', brandId.toString());
+  if (brandIds?.length) params.append('brand_ids', brandIds.join(','));
   if (topics?.length) params.append('topics', topics.join(','));
   const res = await fetch(`${BASE}/categories?${params}`, { credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to get categories: ${res.status}`);
   return res.json();
 }
 
-export async function getTemporal(brandId?: number, daysBack: number = 365, topics?: string[]): Promise<BWTemporalData[]> {
+export async function getTemporal(brandIds?: number[], daysBack: number = 365, topics?: string[]): Promise<BWTemporalData[]> {
   const params = new URLSearchParams({ days_back: daysBack.toString() });
-  if (brandId) params.append('brand_id', brandId.toString());
+  if (brandIds?.length) params.append('brand_ids', brandIds.join(','));
   if (topics?.length) params.append('topics', topics.join(','));
   const res = await fetch(`${BASE}/temporal?${params}`, { credentials: 'include' });
   if (!res.ok) throw new Error(`Failed to get temporal data: ${res.status}`);
@@ -393,7 +403,7 @@ export async function getShareOfVoice(daysBack: number = 365, topics?: string[])
 // --- Articles ---
 
 export async function getArticles(params: {
-  brand_id?: number;
+  brand_ids?: number[];
   topics?: string[];
   categories?: string[];
   days_back?: number;
@@ -402,7 +412,7 @@ export async function getArticles(params: {
   per_page?: number;
 }): Promise<BWArticlesResponse> {
   const q = new URLSearchParams();
-  if (params.brand_id) q.append('brand_id', params.brand_id.toString());
+  if (params.brand_ids?.length) q.append('brand_ids', params.brand_ids.join(','));
   if (params.topics?.length) q.append('topics', params.topics.join(','));
   if (params.categories?.length) q.append('categories', params.categories.join(','));
   if (params.days_back) q.append('days_back', params.days_back.toString());
@@ -597,7 +607,7 @@ export const CATEGORY_SHORT_NAMES: Record<string, string> = {
   'Product & Innovation': 'Product',
   'Financial Performance': 'Financial',
   'Leadership & Governance': 'Leadership',
-  'Brand Sentiment & Perception': 'Sentiment',
+  'Brand Sentiment & Perception': 'Perception',
   'Competitive Landscape': 'Competition',
   'Legal & Regulatory': 'Legal',
   'Partnerships & Alliances': 'Partnerships',

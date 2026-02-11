@@ -928,6 +928,14 @@ export async function runClassification(params: {
   return response.json();
 }
 
+export async function getClassifyStatus(runId: number): Promise<ClassificationRun> {
+  const response = await fetch(`/api/science-funding/classify/status/${runId}`, {
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error(`Failed to get classify status: ${response.status}`);
+  return response.json();
+}
+
 // ============================================================================
 // Scheduling Types & API Functions
 // ============================================================================

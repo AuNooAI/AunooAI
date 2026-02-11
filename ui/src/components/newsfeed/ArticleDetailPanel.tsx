@@ -397,6 +397,67 @@ Please provide:
             )}
           </div>
 
+          {/* Brand Watcher Classifications (shown when BW data is present) */}
+          {(article as any).categories?.length > 0 && (
+            <div className="mt-6">
+              <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2">Brand Classifications</h3>
+              <div className="flex flex-wrap gap-2">
+                {(article as any).categories.map((cat: string) => {
+                  const colors: Record<string, string> = {
+                    'Product & Innovation': '#2563eb',
+                    'Financial Performance': '#16a34a',
+                    'Leadership & Governance': '#7c3aed',
+                    'Brand Sentiment & Perception': '#db2777',
+                    'Competitive Landscape': '#d97706',
+                    'Legal & Regulatory': '#dc2626',
+                    'Partnerships & Alliances': '#0891b2',
+                    'ESG & Social Responsibility': '#059669',
+                    'Customer & Product Issues': '#e11d48',
+                    'Market Strategy & Expansion': '#4f46e5',
+                    'Media & Advertising': '#9333ea',
+                  };
+                  const shortNames: Record<string, string> = {
+                    'Product & Innovation': 'Product',
+                    'Financial Performance': 'Financial',
+                    'Leadership & Governance': 'Leadership',
+                    'Brand Sentiment & Perception': 'Perception',
+                    'Competitive Landscape': 'Competition',
+                    'Legal & Regulatory': 'Legal',
+                    'Partnerships & Alliances': 'Partnerships',
+                    'ESG & Social Responsibility': 'ESG',
+                    'Customer & Product Issues': 'Issues',
+                    'Market Strategy & Expansion': 'Strategy',
+                    'Media & Advertising': 'Media',
+                  };
+                  const color = colors[cat] || '#6b7280';
+                  return (
+                    <span key={cat} title={cat} className="px-2 py-1 text-sm rounded" style={{
+                      backgroundColor: color + '20',
+                      color: color,
+                    }}>
+                      {shortNames[cat] || cat}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {(article as any).brand_name && (
+            <div className="mt-4 grid grid-cols-2 gap-4">
+              <MetadataItem label="Brand" value={(article as any).brand_name} />
+            </div>
+          )}
+          {(article as any).matched_keywords?.length > 0 && (
+            <div className="mt-4">
+              <h3 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-2">Matched Keywords</h3>
+              <div className="flex flex-wrap gap-1">
+                {(article as any).matched_keywords.map((kw: string) => (
+                  <span key={kw} className="px-2 py-0.5 text-xs bg-yellow-100 text-yellow-700 rounded">{kw}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Tags */}
           {article.tags && (Array.isArray(article.tags) ? article.tags.length > 0 : article.tags) && (
             <div className="mt-6">
