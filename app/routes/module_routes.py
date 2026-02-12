@@ -52,6 +52,7 @@ async def toggle_module(module_id: str, body: ToggleRequest, session=Depends(ver
     if module_id not in all_ids:
         raise HTTPException(status_code=404, detail=f"Unknown module: {module_id}")
 
-    username = session.get("user") if isinstance(session, dict) else None
+    user = session.get("user") if isinstance(session, dict) else None
+    username = user.get("username") if isinstance(user, dict) else user
     set_module_enabled(module_id, body.enabled, username)
     return {"modules": _build_module_list()}
