@@ -3,7 +3,7 @@
  * Overview statistics and mini map for geopolitical hotspots
  */
 
-import { AlertTriangle, TrendingUp, TrendingDown, MapPin, Newspaper, Globe, Flame } from 'lucide-react';
+import { AlertTriangle, TrendingUp, TrendingDown, MapPin, Newspaper, Globe, Flame, Info } from 'lucide-react';
 import { HotspotMap } from './map';
 import type { OverviewStats, Hotspot } from '../../services/geopoliticalHotspotsApi';
 import { RISK_COLORS, type RiskLevel, THREAT_CATEGORIES } from '../../services/geopoliticalHotspotsApi';
@@ -122,12 +122,14 @@ export function GeopoliticalOverviewTab({
           label="Escalating"
           value={stats.escalating_count}
           color="text-red-500"
+          infoTooltip="Compares article sentiment from the last 7 days vs the prior 30 days. A hotspot is escalating when recent sentiment shifts negative (>0.2 drop) or article volume spikes 1.5x with negative tone. Updated every 6 hours."
         />
         <StatCard
           icon={<TrendingDown className="w-5 h-5" />}
           label="De-escalating"
           value={stats.de_escalating_count}
           color="text-emerald-500"
+          infoTooltip="Compares article sentiment from the last 7 days vs the prior 30 days. A hotspot is de-escalating when recent sentiment shifts positive (>0.2 rise) or article volume drops below 0.5x with neutral/positive tone. Updated every 6 hours."
         />
         {mostActiveCategory && (
           <button
@@ -357,12 +359,23 @@ interface StatCardProps {
   value: number;
   subtitle?: string;
   color: string;
+  infoTooltip?: string;
 }
 
-function StatCard({ icon, label, value, subtitle, color }: StatCardProps) {
+function StatCard({ icon, label, value, subtitle, color, infoTooltip }: StatCardProps) {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-      <div className={`${color} mb-2`}>{icon}</div>
+      <div className="flex items-center justify-between mb-2">
+        <div className={color}>{icon}</div>
+        {infoTooltip && (
+          <div className="relative group">
+            <Info className="w-3.5 h-3.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-help" />
+            <div className="absolute bottom-full right-0 mb-2 w-64 p-2.5 bg-gray-900 text-white text-[11px] leading-relaxed rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+              {infoTooltip}
+            </div>
+          </div>
+        )}
+      </div>
       <div className="text-2xl font-bold text-gray-900 dark:text-gray-100">{value.toLocaleString()}</div>
       <div className="text-sm text-gray-600 dark:text-gray-400">{label}</div>
       {subtitle && <div className="text-xs text-gray-500 dark:text-gray-500">{subtitle}</div>}

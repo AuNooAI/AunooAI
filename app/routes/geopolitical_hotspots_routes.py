@@ -941,7 +941,7 @@ async def generate_narrative(
 class GeopoliticalScheduleCreate(BaseModel):
     name: str = Field(..., description="Name for the schedule")
     topic: Optional[str] = Field(None, description="Topic to process (default: Geopolitical Hotspots)")
-    batch_size: int = Field(50, ge=1, le=500, description="Number of articles per run")
+    batch_size: int = Field(50, ge=0, le=2000, description="Number of articles per run (0 = adaptive)")
     model: str = Field("gpt-4o-mini", description="LLM model to use")
     process_all: bool = Field(False, description="Reprocess already-processed articles")
     schedule_enabled: bool = Field(True, description="Enable scheduling")
@@ -956,7 +956,7 @@ class GeopoliticalScheduleCreate(BaseModel):
 class GeopoliticalScheduleUpdate(BaseModel):
     name: Optional[str] = None
     topic: Optional[str] = None
-    batch_size: Optional[int] = Field(None, ge=1, le=500)
+    batch_size: Optional[int] = Field(None, ge=0, le=2000)
     model: Optional[str] = None
     process_all: Optional[bool] = None
     schedule_enabled: Optional[bool] = None
