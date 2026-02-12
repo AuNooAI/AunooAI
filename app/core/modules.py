@@ -164,9 +164,9 @@ def _seed_from_env() -> None:
         cursor = conn.cursor()
         for mid in _MODULES:
             cursor.execute(
-                "INSERT INTO module_config (module_id, enabled) VALUES (%s, %s) "
+                "INSERT INTO module_config (module_id, enabled) VALUES (:module_id, :enabled) "
                 "ON CONFLICT (module_id) DO NOTHING",
-                (mid, mid in env_ids),
+                {"module_id": mid, "enabled": mid in env_ids},
             )
         conn.commit()
     except Exception:
@@ -194,10 +194,10 @@ def set_module_enabled(module_id: str, enabled: bool, username: str | None = Non
 
         cursor.execute(
             "INSERT INTO module_config (module_id, enabled, updated_at, updated_by) "
-            "VALUES (%s, %s, NOW(), %s) "
+            "VALUES (:module_id, :enabled, NOW(), :updated_by) "
             "ON CONFLICT (module_id) DO UPDATE SET enabled = EXCLUDED.enabled, "
             "updated_at = EXCLUDED.updated_at, updated_by = EXCLUDED.updated_by",
-            (module_id, enabled, username),
+            {"module_id": module_id, "enabled": enabled, "updated_by": username},
         )
         conn.commit()
     except Exception:
