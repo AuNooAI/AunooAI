@@ -3,15 +3,16 @@
  * Main container for brand intelligence dashboard
  */
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   RefreshCw, AlertCircle, X, Loader2, Target, Plus, Settings, Sparkles,
   BarChart3, TrendingUp, Users, FileText, ChevronDown, ChevronRight,
   Trash2, Edit2, ToggleLeft, ToggleRight, Zap, Clock, Play, Calendar,
-  Download, AlertTriangle, Eye, Star,
+  Download, AlertTriangle, Eye, Star, Image, FileDown,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, AreaChart, Area, PieChart, Pie } from 'recharts';
 import { useBrandWatcher } from '../../hooks/useBrandWatcher';
+import { ExportService } from '../../services/exportService';
 import {
   classifyArticles, getClassifyStatus, generateNarrative, getLatestNarrative,
   generateCategoryInsight, suggestKeywords, setupBrandMonitoring, getSchedules, createSchedule, deleteSchedule,
@@ -94,6 +95,9 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
   const [brandAlerts, setBrandAlerts] = useState<BWAlert[]>([]);
   const [drillDownCategory, setDrillDownCategory] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [exportingReport, setExportingReport] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
   const [selectedCompetitor, setSelectedCompetitor] = useState<number | null>(null);
   const [showBrandDropdown, setShowBrandDropdown] = useState(false);
   const [compCategoryFilter, setCompCategoryFilter] = useState<string | null>(null);
@@ -189,6 +193,19 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
     }
   }, [activeTab, primarySelectedId, config.daysBack, fetchShareOfVoice, fetchComparison]);
 
+  // --- Click-outside to close export menu ---
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setExportMenuOpen(false);
+      }
+    };
+    if (exportMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [exportMenuOpen]);
+
   // --- Export ---
   const handleExport = useCallback(async (format: 'csv' | 'json' = 'csv') => {
     if (!primarySelectedId) return;
@@ -201,6 +218,46 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       setExporting(false);
     }
   }, [primarySelectedId, config.daysBack]);
+
+  // --- Full PDF Report Export (with charts) ---
+  const handleExportPDFReport = useCallback(async () => {
+    setExportingReport(true);
+    try {
+      // Pre-fetch all tab data in parallel
+      const fetches: Promise<any>[] = [fetchComparison(), fetchShareOfVoice()];
+      if (primarySelectedId) {
+        fetches.push(
+          getSentimentTrends(primarySelectedId, config.daysBack)
+            .then(d => setSentimentTrends(d.trends)).catch(console.error),
+          getBrandAlerts(primarySelectedId)
+            .then(d => setBrandAlerts(d.alerts)).catch(console.error),
+          getLatestNarrative(primarySelectedId)
+            .then(n => setNarrative(n)).catch(console.error),
+        );
+      }
+      await Promise.allSettled(fetches);
+
+      // Wait for Recharts SVGs to render
+      await new Promise<void>(resolve => {
+        requestAnimationFrame(() => setTimeout(resolve, 800));
+      });
+
+      // Strip dark mode for capture
+      const hadDark = document.documentElement.classList.contains('dark');
+      if (hadDark) document.documentElement.classList.remove('dark');
+
+      try {
+        const filename = `brand-report-${(selectedBrand?.display_name || 'all').toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
+        await ExportService.exportPDFSectionAware('brand-watcher-export', filename);
+      } finally {
+        if (hadDark) document.documentElement.classList.add('dark');
+      }
+    } catch (err) {
+      console.error('PDF report export error:', err);
+    } finally {
+      setExportingReport(false);
+    }
+  }, [primarySelectedId, config.daysBack, selectedBrand, fetchComparison, fetchShareOfVoice]);
 
   // --- Category drill-down ---
   const handleCategoryDrillDown = useCallback((category: string) => {
@@ -552,6 +609,76 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             <Zap className="w-4 h-4" />
           </button>
 
+          {/* Export dropdown */}
+          <div className="relative" ref={exportMenuRef}>
+            <button
+              onClick={() => setExportMenuOpen(!exportMenuOpen)}
+              disabled={loading}
+              title="Export report"
+              className="p-2 text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/20 rounded-lg hover:bg-blue-100 disabled:opacity-50"
+            >
+              <Download className="w-4 h-4" />
+            </button>
+            {exportMenuOpen && (
+              <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1">
+                <button
+                  onClick={() => {
+                    ExportService.exportBrandWatcherMarkdown({
+                      brandName: selectedBrand?.display_name,
+                      daysBack: config.daysBack, stats, categories,
+                      sentimentTrends, comparison, shareOfVoice,
+                      alerts: brandAlerts, narrative, articles,
+                      temporalData, selectedBrand,
+                    });
+                    setExportMenuOpen(false);
+                  }}
+                  className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                >
+                  <FileText className="w-4 h-4 text-blue-500" />
+                  Export Markdown
+                </button>
+                <button
+                  onClick={() => {
+                    setExportMenuOpen(false);
+                    handleExportPDFReport();
+                  }}
+                  className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                >
+                  <FileDown className="w-4 h-4 text-red-500" />
+                  Export PDF (full report)
+                </button>
+                <button
+                  onClick={async () => {
+                    setExportMenuOpen(false);
+                    try { await ExportService.exportImage('brand-watcher-export', `brand-watcher-${(selectedBrand?.display_name || 'all').toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`); }
+                    catch (err) { console.error('PNG export error:', err); }
+                  }}
+                  className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                >
+                  <Image className="w-4 h-4 text-green-500" />
+                  Export PNG
+                </button>
+                <div className="border-t border-gray-200 dark:border-gray-700 my-1" />
+                <button
+                  onClick={() => { handleExport('csv'); setExportMenuOpen(false); }}
+                  disabled={!primarySelectedId || exporting}
+                  className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 disabled:opacity-40"
+                >
+                  <Download className="w-4 h-4 text-gray-500" />
+                  {exporting ? 'Exporting...' : 'Export CSV (articles)'}
+                </button>
+                <button
+                  onClick={() => { handleExport('json'); setExportMenuOpen(false); }}
+                  disabled={!primarySelectedId || exporting}
+                  className="w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2 disabled:opacity-40"
+                >
+                  <Download className="w-4 h-4 text-gray-500" />
+                  Export JSON (articles)
+                </button>
+              </div>
+            )}
+          </div>
+
           {/* Refresh */}
           <button onClick={refresh} disabled={loading} title="Refresh"
             className="p-2 text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-900/20 rounded-lg hover:bg-emerald-100 disabled:opacity-50">
@@ -593,9 +720,39 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
         ))}
       </div>
 
+      {/* Loading overlay during report generation */}
+      {exportingReport && (
+        <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center">
+          <div className="bg-white rounded-lg p-6 flex items-center gap-3 shadow-xl">
+            <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+            <span className="text-gray-700 font-medium">Generating report...</span>
+          </div>
+        </div>
+      )}
+
+      {/* Wrap all tab content for export */}
+      <div id="brand-watcher-export" className={exportingReport ? 'bg-white text-gray-900 p-8 flex flex-col' : ''}>
+
+      {/* Report title block (only during export) */}
+      {exportingReport && (
+        <div className="order-1 text-center mb-8 pb-6 border-b-2 border-gray-300">
+          <h1 className="text-3xl font-bold text-gray-900">Brand Intelligence Report</h1>
+          <p className="text-lg text-gray-600 mt-2">{selectedBrand?.display_name || 'All Brands'}</p>
+          <p className="text-sm text-gray-400 mt-1">
+            Generated: {new Date().toLocaleString()} | Period: {config.daysBack === 0 ? 'All Time' : `Last ${config.daysBack} days`}
+          </p>
+          <p className="text-xs text-gray-400 mt-3 italic">
+            AI Technology Disclosure: This report uses AI for article classification, sentiment analysis, and narrative generation. All content should be reviewed and validated.
+          </p>
+        </div>
+      )}
+
       {/* ---- OVERVIEW TAB ---- */}
-      {activeTab === 'overview' && (
-        <div className="space-y-6">
+      {(activeTab === 'overview' || exportingReport) && (
+        <div className={`space-y-6 ${exportingReport ? 'order-3' : ''}`}>
+          {exportingReport && (
+            <h2 className="text-2xl font-bold text-gray-900 border-b-2 border-blue-500 pb-2 pt-6">2. Overview</h2>
+          )}
           {/* Stat cards */}
           {(() => {
             // Aggregate sentiment from sentimentTrends — normalize labels
@@ -697,7 +854,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                   </div>
                 ))}
               </div>
-              {brandAlerts.length > 3 && (
+              {!exportingReport && brandAlerts.length > 3 && (
                 <button onClick={() => handleTabChange('analysis')}
                   className="mt-2 text-xs text-orange-600 dark:text-orange-400 hover:underline">
                   View all {brandAlerts.length} alerts in Analysis →
@@ -1046,22 +1203,6 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             );
           })()}
 
-          {/* Export button */}
-          {primarySelectedId && (stats?.total_articles ?? 0) > 0 && (
-            <div className="flex gap-2">
-              <button onClick={() => handleExport('csv')} disabled={exporting}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50">
-                <Download className="w-3.5 h-3.5" />
-                {exporting ? 'Exporting...' : 'Export CSV'}
-              </button>
-              <button onClick={() => handleExport('json')} disabled={exporting}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-50">
-                <Download className="w-3.5 h-3.5" />
-                Export JSON
-              </button>
-            </div>
-          )}
-
           {/* Monthly Volume — stacked recharts BarChart */}
           {temporalData.length > 0 && (() => {
             const topCats = categories.slice(0, 5).map(c => c.category);
@@ -1140,10 +1281,12 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                   </div>
                 ))}
               </div>
-              <button onClick={() => handleTabChange('articles')}
-                className="mt-3 text-xs text-blue-600 dark:text-blue-400 hover:underline">
-                View all articles →
-              </button>
+              {!exportingReport && (
+                <button onClick={() => handleTabChange('articles')}
+                  className="mt-3 text-xs text-blue-600 dark:text-blue-400 hover:underline">
+                  View all articles →
+                </button>
+              )}
             </div>
           )}
 
@@ -1158,7 +1301,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
               <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Category Distribution</h3>
-                  <span className="text-[10px] text-gray-400">Click a category to view articles</span>
+                  {!exportingReport && <span className="text-[10px] text-gray-400">Click a category to view articles</span>}
                 </div>
                 {activeCats.length <= 2 ? (
                   /* Simple full-width rows for 1-2 categories */
@@ -1250,8 +1393,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       )}
 
       {/* ---- ANALYSIS TAB ---- */}
-      {activeTab === 'analysis' && (
-        <div className="space-y-6">
+      {(activeTab === 'analysis' || exportingReport) && (
+        <div className={`space-y-6 ${exportingReport ? 'order-4' : ''}`}>
+          {exportingReport && (
+            <h2 className="text-2xl font-bold text-gray-900 border-b-2 border-blue-500 pb-2 pt-6">3. Brand Analysis</h2>
+          )}
           {config.selectedBrandIds.length === 0 ? (
             <div className="text-center py-12 text-gray-500 dark:text-gray-400">
               <p>Select a brand above to see detailed analysis.</p>
@@ -1449,13 +1595,15 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                           {narrative.generated_at ? new Date(narrative.generated_at).toLocaleDateString() : ''}
                         </span>
                       </div>
-                      <p className="text-sm text-gray-600 dark:text-gray-300 line-clamp-3 whitespace-pre-wrap">{narrative.narrative}</p>
-                      <button
-                        onClick={() => handleTabChange('insights')}
-                        className="mt-2 text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
-                      >
-                        View full in Insights &rarr;
-                      </button>
+                      <p className={`text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap ${exportingReport ? '' : 'line-clamp-3'}`}>{narrative.narrative}</p>
+                      {!exportingReport && (
+                        <button
+                          onClick={() => handleTabChange('insights')}
+                          className="mt-2 text-xs text-blue-500 hover:text-blue-600 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
+                        >
+                          View full in Insights &rarr;
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -1484,25 +1632,27 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                             ))}
                           </AreaChart>
                         </ResponsiveContainer>
-                        {/* Clickable category legend — triggers AI insight */}
-                        <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
-                          <span className="text-[10px] text-gray-400 self-center mr-1">Click for AI insight:</span>
-                          {topCats.map(cat => {
-                            const catInfo = categories.find(c => c.category === cat);
-                            return (
-                              <button key={cat}
-                                onClick={() => handleCategoryInsight(cat)}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors border border-transparent hover:border-gray-200 dark:hover:border-gray-600"
-                                title={`Generate AI insight for ${cat}`}
-                              >
-                                <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[cat] || '#6b7280' }} />
-                                <span className="text-gray-600 dark:text-gray-400">{CATEGORY_SHORT_NAMES[cat] || cat}</span>
-                                {catInfo && <span className="font-medium text-gray-700 dark:text-gray-300">{catInfo.article_count}</span>}
-                                <Sparkles className="w-3 h-3 text-gray-400" />
-                              </button>
-                            );
-                          })}
-                        </div>
+                        {/* Clickable category legend — triggers AI insight (hidden during export) */}
+                        {!exportingReport && (
+                          <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
+                            <span className="text-[10px] text-gray-400 self-center mr-1">Click for AI insight:</span>
+                            {topCats.map(cat => {
+                              const catInfo = categories.find(c => c.category === cat);
+                              return (
+                                <button key={cat}
+                                  onClick={() => handleCategoryInsight(cat)}
+                                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors border border-transparent hover:border-gray-200 dark:hover:border-gray-600"
+                                  title={`Generate AI insight for ${cat}`}
+                                >
+                                  <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[cat] || '#6b7280' }} />
+                                  <span className="text-gray-600 dark:text-gray-400">{CATEGORY_SHORT_NAMES[cat] || cat}</span>
+                                  {catInfo && <span className="font-medium text-gray-700 dark:text-gray-300">{catInfo.article_count}</span>}
+                                  <Sparkles className="w-3 h-3 text-gray-400" />
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
@@ -1517,7 +1667,7 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                         <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
                           {categoryInsight.category} — AI Insight
                         </h3>
-                        <button onClick={() => setCategoryInsight(null)} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>
+                        {!exportingReport && <button onClick={() => setCategoryInsight(null)} className="text-gray-400 hover:text-gray-600"><X className="w-4 h-4" /></button>}
                       </div>
                       <p className="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap">{categoryInsight.insight}</p>
                       {/* Top articles in this category */}
@@ -1640,8 +1790,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       )}
 
       {/* ---- COMPARISON TAB ---- */}
-      {activeTab === 'comparison' && (
-        <div className="space-y-6">
+      {(activeTab === 'comparison' || exportingReport) && (
+        <div className={`space-y-6 ${exportingReport ? 'order-5' : ''}`}>
+          {exportingReport && (
+            <h2 className="text-2xl font-bold text-gray-900 border-b-2 border-blue-500 pb-2 pt-6">4. Competitive Comparison</h2>
+          )}
           {/* Share of Voice — Pie Chart */}
           {shareOfVoice.length > 0 && (() => {
             const pieData = shareOfVoice.map(sov => ({
@@ -1727,43 +1880,45 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
               <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Category Breakdown</h3>
-                  {/* Category filter dropdown */}
-                  <div className="relative">
-                    <button
-                      onClick={() => setShowCompCatDropdown(!showCompCatDropdown)}
-                      className="flex items-center gap-2 px-3 py-1.5 text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg dark:text-gray-100"
-                    >
-                      <span>{compCategoryFilter ? (CATEGORY_SHORT_NAMES[compCategoryFilter] || compCategoryFilter) : 'All categories'}</span>
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    </button>
-                    {showCompCatDropdown && (
-                      <>
-                        <div className="fixed inset-0 z-40" onClick={() => setShowCompCatDropdown(false)} />
-                        <div className="absolute top-full right-0 mt-1 w-56 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1 max-h-60 overflow-y-auto">
-                          <button
-                            onClick={() => { setCompCategoryFilter(null); setShowCompCatDropdown(false); }}
-                            className={`w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-750 text-left ${
-                              !compCategoryFilter ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-700 dark:text-gray-300'
-                            }`}
-                          >
-                            All categories (top 8)
-                          </button>
-                          {allCats.map(cat => (
-                            <button key={cat}
-                              onClick={() => { setCompCategoryFilter(cat); setShowCompCatDropdown(false); }}
+                  {/* Category filter dropdown (hidden during export) */}
+                  {!exportingReport && (
+                    <div className="relative">
+                      <button
+                        onClick={() => setShowCompCatDropdown(!showCompCatDropdown)}
+                        className="flex items-center gap-2 px-3 py-1.5 text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg dark:text-gray-100"
+                      >
+                        <span>{compCategoryFilter ? (CATEGORY_SHORT_NAMES[compCategoryFilter] || compCategoryFilter) : 'All categories'}</span>
+                        <ChevronDown className="w-3.5 h-3.5" />
+                      </button>
+                      {showCompCatDropdown && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setShowCompCatDropdown(false)} />
+                          <div className="absolute top-full right-0 mt-1 w-56 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg z-50 py-1 max-h-60 overflow-y-auto">
+                            <button
+                              onClick={() => { setCompCategoryFilter(null); setShowCompCatDropdown(false); }}
                               className={`w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-750 text-left ${
-                                compCategoryFilter === cat ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-700 dark:text-gray-300'
+                                !compCategoryFilter ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-700 dark:text-gray-300'
                               }`}
                             >
-                              <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[cat] || '#6b7280' }} />
-                              <span className="flex-1 truncate">{CATEGORY_SHORT_NAMES[cat] || cat}</span>
-                              <span className="text-gray-400">{comparison.reduce((s, c) => s + (c.category_breakdown[cat] || 0), 0)}</span>
+                              All categories (top 8)
                             </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
+                            {allCats.map(cat => (
+                              <button key={cat}
+                                onClick={() => { setCompCategoryFilter(cat); setShowCompCatDropdown(false); }}
+                                className={`w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-gray-50 dark:hover:bg-gray-750 text-left ${
+                                  compCategoryFilter === cat ? 'text-blue-600 dark:text-blue-400 font-medium' : 'text-gray-700 dark:text-gray-300'
+                                }`}
+                              >
+                                <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: CATEGORY_COLORS[cat] || '#6b7280' }} />
+                                <span className="flex-1 truncate">{CATEGORY_SHORT_NAMES[cat] || cat}</span>
+                                <span className="text-gray-400">{comparison.reduce((s, c) => s + (c.category_breakdown[cat] || 0), 0)}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <ResponsiveContainer width="100%" height={Math.max(displayCats.length * 44, 120)}>
                   <BarChart data={chartData} layout="vertical" margin={{ top: 0, right: 10, bottom: 0, left: 5 }}>
@@ -1903,8 +2058,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       )}
 
       {/* ---- INSIGHTS TAB ---- */}
-      {activeTab === 'insights' && (
-        <div className="space-y-6">
+      {(activeTab === 'insights' || exportingReport) && (
+        <div className={`space-y-6 ${exportingReport ? 'order-2' : ''}`}>
+          {exportingReport && (
+            <h2 className="text-2xl font-bold text-gray-900 border-b-2 border-blue-500 pb-2 pt-6">1. Executive Summary</h2>
+          )}
           {config.selectedBrandIds.length === 0 ? (
             <div className="text-center py-12 text-gray-500 dark:text-gray-400">
               <p>Select a brand above to view or generate insights.</p>
@@ -1993,15 +2151,17 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 </div>
               )}
 
-              {/* Generate / Regenerate button */}
-              <button
-                onClick={handleGenerateNarrative}
-                disabled={generatingNarrative}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
-              >
-                {generatingNarrative ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-                {narrative ? 'Regenerate Narrative' : 'Generate Narrative'}
-              </button>
+              {/* Generate / Regenerate button (hidden during export) */}
+              {!exportingReport && (
+                <button
+                  onClick={handleGenerateNarrative}
+                  disabled={generatingNarrative}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {generatingNarrative ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                  {narrative ? 'Regenerate Narrative' : 'Generate Narrative'}
+                </button>
+              )}
 
               {/* Narrative display */}
               {loadingNarrative && (
@@ -2026,37 +2186,42 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
       )}
 
       {/* ---- ARTICLES TAB ---- */}
-      {activeTab === 'articles' && (
-        <div className="space-y-4">
-          {/* Category filter chips */}
-          <div className="flex flex-wrap gap-2">
-            {categories.filter(c => c.article_count > 0).map(cat => {
-              const selected = config.selectedCategories.includes(cat.category);
-              return (
-                <button key={cat.category}
-                  onClick={() => {
-                    const next = selected
-                      ? config.selectedCategories.filter(c => c !== cat.category)
-                      : [...config.selectedCategories, cat.category];
-                    updateConfig({ selectedCategories: next });
-                  }}
-                  className={`px-3 py-1 text-xs rounded-full border transition-colors ${
-                    selected
-                      ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
-                      : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-750'
-                  }`}
-                >
-                  {CATEGORY_SHORT_NAMES[cat.category] || cat.category} ({cat.article_count})
+      {(activeTab === 'articles' || exportingReport) && (
+        <div className={`space-y-4 ${exportingReport ? 'order-6' : ''}`}>
+          {exportingReport && (
+            <h2 className="text-2xl font-bold text-gray-900 border-b-2 border-blue-500 pb-2 pt-6">5. Articles</h2>
+          )}
+          {/* Category filter chips (hidden during export) */}
+          {!exportingReport && (
+            <div className="flex flex-wrap gap-2">
+              {categories.filter(c => c.article_count > 0).map(cat => {
+                const selected = config.selectedCategories.includes(cat.category);
+                return (
+                  <button key={cat.category}
+                    onClick={() => {
+                      const next = selected
+                        ? config.selectedCategories.filter(c => c !== cat.category)
+                        : [...config.selectedCategories, cat.category];
+                      updateConfig({ selectedCategories: next });
+                    }}
+                    className={`px-3 py-1 text-xs rounded-full border transition-colors ${
+                      selected
+                        ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
+                        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-750'
+                    }`}
+                  >
+                    {CATEGORY_SHORT_NAMES[cat.category] || cat.category} ({cat.article_count})
+                  </button>
+                );
+              })}
+              {config.selectedCategories.length > 0 && (
+                <button onClick={() => updateConfig({ selectedCategories: [] })}
+                  className="px-3 py-1 text-xs text-red-500 hover:text-red-700">
+                  Clear filters
                 </button>
-              );
-            })}
-            {config.selectedCategories.length > 0 && (
-              <button onClick={() => updateConfig({ selectedCategories: [] })}
-                className="px-3 py-1 text-xs text-red-500 hover:text-red-700">
-                Clear filters
-              </button>
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
           {/* Article list */}
           {loadingArticles ? (
@@ -2120,8 +2285,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 </div>
               ))}
 
-              {/* Pagination */}
-              {totalPages > 1 && (
+              {/* Pagination (hidden during export) */}
+              {!exportingReport && totalPages > 1 && (
                 <div className="flex justify-center gap-2 pt-4">
                   <button disabled={config.page <= 1}
                     onClick={() => updateConfig({ page: config.page - 1 })}
@@ -2142,6 +2307,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
           )}
         </div>
       )}
+
+      </div>{/* end brand-watcher-export */}
 
       {/* ---- BRAND CONFIG MODAL ---- */}
       {showBrandConfig && (
