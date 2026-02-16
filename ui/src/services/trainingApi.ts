@@ -189,6 +189,31 @@ export async function initializeTopicSamples(
 }
 
 /**
+ * Auto-bootstrap relevance feedback from existing keyword_relevance_score data.
+ * High-scoring articles → "more_like_this", low-scoring → "less_like_this".
+ */
+export async function initializeRelevanceFeedback(
+  topic: string,
+  limit: number = 500
+): Promise<{
+  topic: string;
+  more_like_this_added: number;
+  less_like_this_added: number;
+  total_added: number;
+  total_feedback: number;
+  message: string;
+}> {
+  const response = await fetch(
+    `${API_BASE}/topics/${encodeURIComponent(topic)}/initialize-relevance-feedback?limit=${limit}`,
+    { method: 'POST' }
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to initialize relevance feedback: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
  * Get value distribution for a specific field
  */
 export async function getFieldDistribution(
@@ -699,6 +724,53 @@ export async function getLocalModelsStatus(): Promise<LocalModelsStatus> {
   const response = await fetch(`${API_BASE}/local-models-status`);
   if (!response.ok) {
     throw new Error(`Failed to get local models status: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+// ============================================================================
+// Relevance Triage
+// ============================================================================
+
+export interface TriageArticle {
+  uri: string;
+  title: string;
+  summary: string | null;
+  news_source: string | null;
+  publication_date: string | null;
+  category: string | null;
+  topic: string | null;
+  sentiment: string | null;
+  tags: string | null;
+  keyword_relevance_score: number | null;
+}
+
+export interface TriageArticlesResponse {
+  articles: TriageArticle[];
+  total_available: number;
+  total_feedback: number;
+  available_topics: string[];
+  limit: number;
+  offset: number;
+}
+
+/**
+ * Get analyzed articles that haven't been reviewed yet for relevance triage
+ */
+export async function getTriageArticles(params?: {
+  topic?: string;
+  limit?: number;
+  offset?: number;
+}): Promise<TriageArticlesResponse> {
+  const searchParams = new URLSearchParams();
+  if (params?.topic) searchParams.set('topic', params.topic);
+  if (params?.limit) searchParams.set('limit', params.limit.toString());
+  if (params?.offset) searchParams.set('offset', params.offset.toString());
+
+  const url = `${API_BASE}/triage-articles?${searchParams}`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Failed to get triage articles: ${response.statusText}`);
   }
   return response.json();
 }

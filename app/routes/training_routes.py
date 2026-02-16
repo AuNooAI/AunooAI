@@ -740,12 +740,11 @@ async def initialize_topic_samples(
     try:
         service = get_bootstrap_service()
         from app.database import get_database_instance
-        from sqlalchemy import text
         db = get_database_instance()
 
         # Find analyzed articles for this topic that lack training samples
         with db.get_connection() as conn:
-            result = conn.execute(text("""
+            result = conn.execute("""
                 SELECT a.uri, a.title, COALESCE(a.summary, '') as summary
                 FROM articles a
                 LEFT JOIN enrichment_training_samples ets
@@ -755,15 +754,15 @@ async def initialize_topic_samples(
                   AND a.uri IS NOT NULL
                   AND ets.article_uri IS NULL
                 LIMIT :lim
-            """), {"topic": topic, "lim": limit})
+            """, {"topic": topic, "lim": limit})
             articles = result.fetchall()
 
         if not articles:
             # Check if topic exists at all
             with db.get_connection() as conn:
-                result = conn.execute(text(
-                    "SELECT COUNT(*) FROM articles WHERE topic = :topic"
-                ), {"topic": topic})
+                result = conn.execute(
+                    "SELECT COUNT(*) FROM articles WHERE topic = :topic",
+                    {"topic": topic})
                 total = result.scalar()
 
             if total == 0:
@@ -807,6 +806,111 @@ async def initialize_topic_samples(
         raise
     except Exception as e:
         logger.error(f"Error initializing samples for topic {topic}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/topics/{topic}/initialize-relevance-feedback")
+async def initialize_relevance_feedback(
+    topic: str,
+    high_threshold: float = Query(default=0.7, description="Score >= this → more_like_this"),
+    low_threshold: float = Query(default=0.3, description="Score < this → less_like_this"),
+    limit: int = Query(default=500, description="Max feedback entries to create"),
+):
+    """
+    Auto-bootstrap relevance feedback from existing keyword_relevance_score values.
+
+    Articles with high scores are marked 'more_like_this',
+    articles with low scores are marked 'less_like_this'.
+    """
+    from app.database import get_database_instance
+    db = get_database_instance()
+
+    try:
+        # Insert high-relevance articles as "more_like_this"
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            # Count existing auto-bootstrapped feedback for this topic
+            cursor.execute(
+                "SELECT COUNT(*) FROM user_relevance_feedback WHERE topic = :topic AND user_id = 'auto_bootstrap'",
+                {"topic": topic}
+            )
+            existing = cursor.fetchone()[0]
+
+            more_count = 0
+            less_count = 0
+
+            # Insert "more_like_this" for high-scoring articles
+            cursor.execute("""
+                INSERT INTO user_relevance_feedback
+                    (article_uri, topic, user_id, feedback_type, relevance_score, article_metadata)
+                SELECT
+                    a.uri,
+                    :topic,
+                    'auto_bootstrap',
+                    'more_like_this',
+                    a.keyword_relevance_score,
+                    jsonb_build_object('title', a.title, 'source', 'auto_bootstrap')
+                FROM articles a
+                LEFT JOIN user_relevance_feedback urf
+                    ON a.uri = urf.article_uri AND urf.user_id = 'auto_bootstrap'
+                WHERE a.topic = :topic
+                  AND a.analyzed = true
+                  AND a.uri IS NOT NULL
+                  AND a.keyword_relevance_score >= :high_thresh
+                  AND urf.article_uri IS NULL
+                ORDER BY a.keyword_relevance_score DESC
+                LIMIT :lim
+            """, {"topic": topic, "high_thresh": high_threshold, "lim": limit})
+            more_count = cursor.rowcount
+
+            # Insert "less_like_this" for low-scoring articles
+            cursor.execute("""
+                INSERT INTO user_relevance_feedback
+                    (article_uri, topic, user_id, feedback_type, relevance_score, article_metadata)
+                SELECT
+                    a.uri,
+                    :topic,
+                    'auto_bootstrap',
+                    'less_like_this',
+                    a.keyword_relevance_score,
+                    jsonb_build_object('title', a.title, 'source', 'auto_bootstrap')
+                FROM articles a
+                LEFT JOIN user_relevance_feedback urf
+                    ON a.uri = urf.article_uri AND urf.user_id = 'auto_bootstrap'
+                WHERE a.topic = :topic
+                  AND a.analyzed = true
+                  AND a.uri IS NOT NULL
+                  AND a.keyword_relevance_score < :low_thresh
+                  AND a.keyword_relevance_score IS NOT NULL
+                  AND urf.article_uri IS NULL
+                ORDER BY a.keyword_relevance_score ASC
+                LIMIT :lim
+            """, {"topic": topic, "low_thresh": low_threshold, "lim": limit})
+            less_count = cursor.rowcount
+
+            conn.commit()
+
+        # Get new total
+        with db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT COUNT(*) FROM user_relevance_feedback WHERE topic = :topic",
+                {"topic": topic}
+            )
+            total = cursor.fetchone()[0]
+
+        return {
+            "topic": topic,
+            "more_like_this_added": more_count,
+            "less_like_this_added": less_count,
+            "total_added": more_count + less_count,
+            "previously_existing": existing,
+            "total_feedback": total,
+            "message": f"Added {more_count} 'more' + {less_count} 'less' feedback entries for '{topic}' (total: {total})"
+        }
+    except Exception as e:
+        logger.error(f"Error initializing relevance feedback for topic {topic}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -2293,6 +2397,102 @@ async def set_inference_mode(request: InferenceModeRequest):
 
     except Exception as e:
         logger.error(f"Error setting inference mode: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if conn:
+            conn.close()
+
+
+# ============================================================================
+# Relevance Triage - Rapid Article Classification
+# ============================================================================
+
+@router.get("/triage-articles")
+async def get_triage_articles(
+    topic: Optional[str] = Query(None, description="Filter by topic"),
+    limit: int = Query(50, ge=1, le=200, description="Max articles to return"),
+    offset: int = Query(0, ge=0, description="Offset for pagination"),
+):
+    """Get analyzed articles that haven't been reviewed yet for relevance triage.
+
+    Returns articles where user_preference IS NULL, ordered by publication_date DESC.
+    """
+    conn = None
+    try:
+        from app.database import get_database_instance
+        from sqlalchemy import text
+
+        db = get_database_instance()
+        conn = db._temp_get_connection()
+
+        # Build WHERE clause
+        where_clauses = ["analyzed = TRUE", "user_preference IS NULL"]
+        params = {"limit": limit, "offset": offset}
+
+        if topic:
+            where_clauses.append("topic = :topic")
+            params["topic"] = topic
+
+        where_sql = " AND ".join(where_clauses)
+
+        # Get total count of unreviewed articles
+        count_result = conn.execute(
+            text(f"SELECT COUNT(*) FROM articles WHERE {where_sql}"),
+            params,
+        ).fetchone()
+        total_available = count_result[0] if count_result else 0
+
+        # Get total existing feedback count (for progress tracking)
+        feedback_count_result = conn.execute(
+            text("SELECT COUNT(*) FROM articles WHERE user_preference IS NOT NULL")
+        ).fetchone()
+        total_feedback = feedback_count_result[0] if feedback_count_result else 0
+
+        # Fetch articles
+        rows = conn.execute(
+            text(f"""
+                SELECT uri, title, summary, news_source, publication_date,
+                       category, topic, sentiment, tags, keyword_relevance_score
+                FROM articles
+                WHERE {where_sql}
+                ORDER BY publication_date DESC
+                LIMIT :limit OFFSET :offset
+            """),
+            params,
+        ).fetchall()
+
+        articles = []
+        for row in rows:
+            articles.append({
+                "uri": row[0],
+                "title": row[1],
+                "summary": row[2],
+                "news_source": row[3],
+                "publication_date": row[4],
+                "category": row[5],
+                "topic": row[6],
+                "sentiment": row[7],
+                "tags": row[8],
+                "keyword_relevance_score": row[9],
+            })
+
+        # Get distinct topics for filter dropdown
+        topic_rows = conn.execute(
+            text("SELECT DISTINCT topic FROM articles WHERE analyzed = TRUE AND user_preference IS NULL AND topic IS NOT NULL ORDER BY topic")
+        ).fetchall()
+        available_topics = [r[0] for r in topic_rows]
+
+        return {
+            "articles": articles,
+            "total_available": total_available,
+            "total_feedback": total_feedback,
+            "available_topics": available_topics,
+            "limit": limit,
+            "offset": offset,
+        }
+
+    except Exception as e:
+        logger.error(f"Error fetching triage articles: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         if conn:

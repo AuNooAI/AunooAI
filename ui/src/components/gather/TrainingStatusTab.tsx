@@ -12,6 +12,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { RefreshCw, Zap, AlertCircle, CheckCircle2, Info, Cpu, Play, Loader2, XCircle, Trash2, FileText, Download, Target, Folder, FlaskConical, Tag, Database, FolderOpen, Rss, Check, Hash, HelpCircle, Star, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, RotateCw } from 'lucide-react';
 import { TopicTrainingCard } from './TopicTrainingCard';
+import { RelevanceTriageOverlay } from './RelevanceTriageOverlay';
 import {
   getTopicsTrainingStatus,
   checkReadiness,
@@ -34,6 +35,7 @@ import {
   getPreclassifiers,
   trainPreclassifier,
   reloadPreclassifier,
+  initializeRelevanceFeedback,
   type TopicTrainingStatus,
   type PreclassifierInfo,
   type LocalModelsStatus,
@@ -92,7 +94,9 @@ export function TrainingStatusTab() {
   const [error, setError] = useState<string | null>(null);
   const [triggering, setTriggering] = useState(false);
   const [relevanceTraining, setRelevanceTraining] = useState(false);
+  const [initializingFeedback, setInitializingFeedback] = useState(false);
   const [deploying, setDeploying] = useState<string | null>(null);
+  const [showTriage, setShowTriage] = useState(false);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const loadData = useCallback(async () => {
@@ -209,6 +213,31 @@ export function TrainingStatusTab() {
       setError(err instanceof Error ? err.message : 'Failed to trigger relevance training');
     } finally {
       setRelevanceTraining(false);
+    }
+  };
+
+  const handleInitializeRelevanceFeedback = async () => {
+    setInitializingFeedback(true);
+    setError(null);
+    try {
+      // Initialize feedback for all topics that have analyzed articles
+      const topicsToInit = topics.filter(t => t.article_count > 0);
+      let totalAdded = 0;
+      for (const t of topicsToInit) {
+        const result = await initializeRelevanceFeedback(t.topic, 500);
+        totalAdded += result.total_added;
+      }
+      await loadData();
+      if (totalAdded > 0) {
+        alert(`Auto-initialized ${totalAdded} relevance feedback entries across ${topicsToInit.length} topics`);
+      } else {
+        alert('No new feedback entries to initialize — all scored articles already have feedback');
+      }
+    } catch (err) {
+      console.error('Failed to initialize relevance feedback:', err);
+      setError(err instanceof Error ? err.message : 'Failed to initialize relevance feedback');
+    } finally {
+      setInitializingFeedback(false);
     }
   };
 
@@ -772,14 +801,33 @@ export function TrainingStatusTab() {
                     </div>
                   )}
                 </div>
-                <button
-                  onClick={handleTriggerRelevanceTraining}
-                  disabled={relevanceTraining || !feedbackStats || feedbackStats.totals.total_feedback < 500}
-                  className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-                >
-                  {relevanceTraining ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
-                  Train Relevance Model
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowTriage(true)}
+                    className="px-4 py-2 bg-pink-500 hover:bg-pink-600 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5"
+                  >
+                    <Target className="w-3.5 h-3.5" />
+                    Start Triage
+                  </button>
+                  {feedbackStats && feedbackStats.totals.total_feedback < 500 && (
+                    <button
+                      onClick={handleInitializeRelevanceFeedback}
+                      disabled={initializingFeedback}
+                      className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                    >
+                      {initializingFeedback ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Database className="w-3.5 h-3.5" />}
+                      {initializingFeedback ? 'Initializing...' : 'Auto-Initialize'}
+                    </button>
+                  )}
+                  <button
+                    onClick={handleTriggerRelevanceTraining}
+                    disabled={relevanceTraining || !feedbackStats || feedbackStats.totals.total_feedback < 500}
+                    className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                  >
+                    {relevanceTraining ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                    Train Relevance Model
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -1203,6 +1251,17 @@ export function TrainingStatusTab() {
           <span className="text-gray-600">Collecting samples</span>
         </div>
       </div>
+
+      {/* Relevance Triage Overlay */}
+      {showTriage && (
+        <RelevanceTriageOverlay
+          totalExistingFeedback={feedbackStats?.totals.total_feedback ?? 0}
+          onClose={() => {
+            setShowTriage(false);
+            loadData();
+          }}
+        />
+      )}
     </div>
   );
 }
