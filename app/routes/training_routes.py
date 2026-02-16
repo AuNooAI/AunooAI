@@ -725,6 +725,91 @@ async def get_topic_status(topic: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/topics/{topic}/initialize-samples")
+async def initialize_topic_samples(
+    topic: str,
+    limit: int = Query(default=100, description="Max articles to bootstrap per call"),
+):
+    """
+    Initialize training samples for a topic from its existing analyzed articles.
+
+    Finds articles that have been analyzed but don't yet have training samples,
+    and runs bootstrap_classification on them to generate samples.
+    """
+    import asyncio
+    try:
+        service = get_bootstrap_service()
+        from app.database import get_database_instance
+        from sqlalchemy import text
+        db = get_database_instance()
+
+        # Find analyzed articles for this topic that lack training samples
+        with db.get_connection() as conn:
+            result = conn.execute(text("""
+                SELECT a.uri, a.title, COALESCE(a.summary, '') as summary
+                FROM articles a
+                LEFT JOIN enrichment_training_samples ets
+                    ON a.uri = ets.article_uri AND ets.topic = :topic
+                WHERE a.topic = :topic
+                  AND a.analyzed = true
+                  AND a.uri IS NOT NULL
+                  AND ets.article_uri IS NULL
+                LIMIT :lim
+            """), {"topic": topic, "lim": limit})
+            articles = result.fetchall()
+
+        if not articles:
+            # Check if topic exists at all
+            with db.get_connection() as conn:
+                result = conn.execute(text(
+                    "SELECT COUNT(*) FROM articles WHERE topic = :topic"
+                ), {"topic": topic})
+                total = result.scalar()
+
+            if total == 0:
+                raise HTTPException(status_code=404, detail=f"No articles found for topic '{topic}'")
+
+            return {
+                "topic": topic,
+                "message": "All analyzed articles already have training samples",
+                "bootstrapped": 0,
+                "errors": 0,
+            }
+
+        bootstrapped = 0
+        errors = 0
+        for row in articles:
+            uri, title, summary = row[0], row[1], row[2]
+            if not title:
+                continue
+            try:
+                await service.bootstrap_classification(
+                    article_uri=uri,
+                    title=title,
+                    summary=summary or title,
+                    topic=topic,
+                )
+                bootstrapped += 1
+            except Exception as e:
+                logger.warning(f"Bootstrap failed for {uri[:60]}: {e}")
+                errors += 1
+            # Brief pause to avoid hammering the LLM API
+            await asyncio.sleep(0.1)
+
+        return {
+            "topic": topic,
+            "bootstrapped": bootstrapped,
+            "errors": errors,
+            "remaining": len(articles) - bootstrapped - errors,
+            "message": f"Initialized {bootstrapped} training samples for '{topic}'"
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error initializing samples for topic {topic}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/field-distribution/{topic}/{field}", response_model=FieldDistribution)
 async def get_field_distribution(topic: str, field: str):
     """

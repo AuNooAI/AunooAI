@@ -10,15 +10,16 @@
  */
 
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Zap, Cpu, Bot, Globe, GraduationCap, BookOpen, Shield, Lock, Landmark, FlaskConical, Newspaper, FileText, TrendingUp, Users, Microscope, Building2, Scale, Lightbulb, Activity } from 'lucide-react';
+import { ChevronDown, ChevronUp, Zap, Cpu, Bot, Globe, GraduationCap, BookOpen, Shield, Lock, Landmark, FlaskConical, Newspaper, FileText, TrendingUp, Users, Microscope, Building2, Scale, Lightbulb, Activity, Loader2, Play } from 'lucide-react';
 import type { TopicTrainingStatus, FieldDistribution } from '../../services/trainingApi';
-import { getFieldDistribution } from '../../services/trainingApi';
+import { getFieldDistribution, initializeTopicSamples } from '../../services/trainingApi';
 
 interface TopicTrainingCardProps {
   topic: TopicTrainingStatus;
   thresholdGreen: number;
   onTriggerFinetune?: (topic: string) => void;
   onDeploy?: (runId: string) => void;
+  onRefresh?: () => void;
 }
 
 // Field display names
@@ -88,11 +89,14 @@ export function TopicTrainingCard({
   thresholdGreen,
   onTriggerFinetune,
   onDeploy,
+  onRefresh,
 }: TopicTrainingCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [selectedField, setSelectedField] = useState<string | null>(null);
   const [fieldDistribution, setFieldDistribution] = useState<FieldDistribution | null>(null);
   const [loadingDistribution, setLoadingDistribution] = useState(false);
+  const [initializing, setInitializing] = useState(false);
+  const [initResult, setInitResult] = useState<string | null>(null);
 
   // Calculate fields ready for DeBERTa vs still using GPT
   const fields = Object.keys(topic.field_counts);
@@ -126,6 +130,21 @@ export function TopicTrainingCard({
       console.error('Failed to load field distribution:', err);
     } finally {
       setLoadingDistribution(false);
+    }
+  };
+
+  const handleInitializeSamples = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setInitializing(true);
+    setInitResult(null);
+    try {
+      const result = await initializeTopicSamples(topic.topic, 100);
+      setInitResult(`${result.bootstrapped} samples initialized`);
+      onRefresh?.();
+    } catch (err) {
+      setInitResult(err instanceof Error ? err.message : 'Failed to initialize');
+    } finally {
+      setInitializing(false);
     }
   };
 
@@ -324,9 +343,31 @@ export function TopicTrainingCard({
           {/* Info for non-ready topics */}
           {!isFullyReady && (
             <div className="mt-4 pt-3 border-t border-gray-100">
-              <p className="text-[10px] text-gray-500 text-center">
-                Collecting samples using GPT. DeBERTa activates at 500 samples per field.
-              </p>
+              {topic.article_count > 0 && topic.total_samples === 0 ? (
+                <div className="text-center space-y-2">
+                  <p className="text-[10px] text-amber-600">
+                    {topic.article_count} articles exist but no training samples yet.
+                  </p>
+                  <button
+                    onClick={handleInitializeSamples}
+                    disabled={initializing}
+                    className="px-4 py-2 bg-pink-500 hover:bg-pink-600 text-white text-xs font-semibold rounded-lg transition-colors disabled:opacity-50 flex items-center gap-1.5 mx-auto"
+                  >
+                    {initializing ? (
+                      <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Initializing...</>
+                    ) : (
+                      <><Play className="w-3.5 h-3.5" /> Initialize Samples</>
+                    )}
+                  </button>
+                  {initResult && (
+                    <p className="text-[10px] text-green-600">{initResult}</p>
+                  )}
+                </div>
+              ) : (
+                <p className="text-[10px] text-gray-500 text-center">
+                  Collecting samples using GPT. DeBERTa activates at 500 samples per field.
+                </p>
+              )}
             </div>
           )}
         </div>

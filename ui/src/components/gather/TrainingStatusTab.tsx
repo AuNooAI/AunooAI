@@ -919,6 +919,7 @@ export function TrainingStatusTab() {
                 thresholdGreen={thresholds?.green || DEBERTA_THRESHOLD}
                 onTriggerFinetune={handleTriggerFinetune}
                 onDeploy={handleDeploy}
+                onRefresh={loadData}
               />
             ))}
           </div>

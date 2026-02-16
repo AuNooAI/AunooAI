@@ -172,6 +172,23 @@ export async function getTopicStatus(topic: string): Promise<TopicTrainingStatus
 }
 
 /**
+ * Initialize training samples for a topic from its existing analyzed articles
+ */
+export async function initializeTopicSamples(
+  topic: string,
+  limit: number = 100
+): Promise<{ topic: string; bootstrapped: number; errors: number; message: string }> {
+  const response = await fetch(
+    `${API_BASE}/topics/${encodeURIComponent(topic)}/initialize-samples?limit=${limit}`,
+    { method: 'POST' }
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to initialize samples: ${response.statusText}`);
+  }
+  return response.json();
+}
+
+/**
  * Get value distribution for a specific field
  */
 export async function getFieldDistribution(
