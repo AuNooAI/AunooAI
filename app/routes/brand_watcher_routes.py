@@ -421,6 +421,7 @@ def _get_brand_search_terms(brand: dict) -> list:
 def _build_brand_filter_sql(search_terms: list, param_prefix: str = "bterm", alias: str = "a") -> tuple:
     """Build SQL WHERE clause for brand keyword matching.
 
+    Searches title, summary, tags, and extracted_article_keywords.
     Short terms (<=4 chars) use PostgreSQL regex word boundaries (\\y)
     to avoid false positives like 'WLY' matching 'newly'.
     Longer terms use LIKE for simplicity.
@@ -434,13 +435,19 @@ def _build_brand_filter_sql(search_terms: list, param_prefix: str = "bterm", ali
         if len(term) <= 4 and ' ' not in term:
             # Use regex word boundaries for short single-word terms
             conditions.append(
-                f"({alias}.title ~* {':' + pkey} OR COALESCE({alias}.summary, '') ~* {':' + pkey})"
+                f"({alias}.title ~* {':' + pkey}"
+                f" OR COALESCE({alias}.summary, '') ~* {':' + pkey}"
+                f" OR COALESCE({alias}.tags, '') ~* {':' + pkey}"
+                f" OR COALESCE({alias}.extracted_article_keywords, '') ~* {':' + pkey})"
             )
             escaped = re.escape(term)
             params[pkey] = f"\\y{escaped}\\y"
         else:
             conditions.append(
-                f"(LOWER({alias}.title) LIKE {':' + pkey} OR LOWER(COALESCE({alias}.summary, '')) LIKE {':' + pkey})"
+                f"(LOWER({alias}.title) LIKE {':' + pkey}"
+                f" OR LOWER(COALESCE({alias}.summary, '')) LIKE {':' + pkey}"
+                f" OR LOWER(COALESCE({alias}.tags, '')) LIKE {':' + pkey}"
+                f" OR LOWER(COALESCE({alias}.extracted_article_keywords, '')) LIKE {':' + pkey})"
             )
             params[pkey] = f"%{term}%"
     if not conditions:
@@ -448,19 +455,23 @@ def _build_brand_filter_sql(search_terms: list, param_prefix: str = "bterm", ali
     return f"AND ({' OR '.join(conditions)})", params
 
 
-def _find_matched_keywords(title: str, summary: str, search_terms: list) -> list:
+def _find_matched_keywords(title: str, summary: str, search_terms: list, tags: str = None, keywords: str = None) -> list:
     """Find which brand search terms actually appear in the article text.
+    Searches title, summary, tags, and extracted_article_keywords.
     Uses word boundary matching for short terms to stay consistent with SQL."""
     matched = []
     title_lower = (title or '').lower()
     summary_lower = (summary or '').lower()
+    tags_lower = (tags or '').lower()
+    keywords_lower = (keywords or '').lower()
+    fields = [title_lower, summary_lower, tags_lower, keywords_lower]
     for term in search_terms:
         if len(term) <= 4 and ' ' not in term:
             pattern = r'\b' + re.escape(term) + r'\b'
-            if re.search(pattern, title_lower) or re.search(pattern, summary_lower):
+            if any(re.search(pattern, f) for f in fields):
                 matched.append(term)
         else:
-            if term in title_lower or term in summary_lower:
+            if any(term in f for f in fields):
                 matched.append(term)
     return matched
 
@@ -2133,7 +2144,8 @@ async def get_articles(
                 SELECT a.uri, a.title, a.summary, a.news_source, a.publication_date,
                        a.sentiment, bac.brand_id, b.display_name as brand_name,
                        ARRAY_AGG(DISTINCT bac.category) as categories,
-                       COUNT(DISTINCT bac.category) as cat_count
+                       COUNT(DISTINCT bac.category) as cat_count,
+                       a.tags, a.extracted_article_keywords
                 FROM articles a
                 JOIN bw_article_categories bac ON a.uri = bac.article_uri
                 JOIN bw_brands b ON bac.brand_id = b.id
@@ -2141,7 +2153,8 @@ async def get_articles(
                 AND a.analyzed = true
                 {brand_clause} {cat_clause} {topic_clause}
                 GROUP BY a.uri, a.title, a.summary, a.news_source,
-                         a.publication_date, a.sentiment, bac.brand_id, b.display_name
+                         a.publication_date, a.sentiment, bac.brand_id, b.display_name,
+                         a.tags, a.extracted_article_keywords
             )
         """
 
@@ -2168,7 +2181,7 @@ async def get_articles(
                 if br:
                     brand_terms_cache[row_brand_id] = _get_brand_search_terms(_brand_row_to_dict(br))
             search_terms = brand_terms_cache.get(row_brand_id, [])
-            matched = _find_matched_keywords(row[1], row[2], search_terms) if search_terms else []
+            matched = _find_matched_keywords(row[1], row[2], search_terms, tags=row[10], keywords=row[11]) if search_terms else []
             articles.append(ArticleResponse(
                 uri=row[0], title=row[1], summary=row[2],
                 news_source=row[3],

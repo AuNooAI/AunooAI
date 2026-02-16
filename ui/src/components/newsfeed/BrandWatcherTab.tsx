@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend, Cell, AreaChart, Area, PieChart, Pie } from 'recharts';
 import { useBrandWatcher } from '../../hooks/useBrandWatcher';
+import { ChartDownloadButton } from './ChartDownloadButton';
 import { ExportService } from '../../services/exportService';
 import {
   classifyArticles, getClassifyStatus, generateNarrative, getLatestNarrative,
@@ -865,8 +866,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
 
           {/* Sentiment by Brand Tracker (multi-brand / all brands view only) */}
           {!primarySelectedId && comparison.length > 0 && comparison.some(c => Object.keys(c.sentiment_breakdown || {}).length > 0) && (
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Sentiment by Brand</h3>
+            <div id="chart-brand-sentiment-by-brand" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Sentiment by Brand</h3>
+                <ChartDownloadButton targetId="chart-brand-sentiment-by-brand" filename="sentiment-by-brand" />
+              </div>
               <div className="space-y-3">
                 {comparison.map(comp => {
                   const sentCounts = { positive: 0, neutral: 0, negative: 0 };
@@ -949,12 +953,15 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             const negPct = sentTotal > 0 ? (sentBuckets.Negative / sentTotal) * 100 : 0;
             const hasRisk = negPct >= 15;
             return (
-              <div className={`bg-white dark:bg-gray-800 rounded-lg border p-6 ${
+              <div id="chart-brand-sentiment-overview" className={`bg-white dark:bg-gray-800 rounded-lg border p-6 ${
                 hasRisk ? 'border-red-300 dark:border-red-700' : 'border-gray-200 dark:border-gray-700'
               }`}>
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">
-                  Sentiment Overview — {selectedBrand?.display_name}
-                </h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">
+                    Sentiment Overview — {selectedBrand?.display_name}
+                  </h3>
+                  <ChartDownloadButton targetId="chart-brand-sentiment-overview" filename="sentiment-overview" />
+                </div>
                 {/* Risk banner */}
                 {hasRisk && (
                   <div className="flex items-center gap-2 mb-3 p-2.5 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
@@ -1136,8 +1143,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                 </div>
 
                 {/* Sentiment Over Time — area chart */}
-                <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Sentiment Over Time</h3>
+                <div id="chart-brand-sentiment" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Sentiment Over Time</h3>
+                    <ChartDownloadButton targetId="chart-brand-sentiment" filename="sentiment-over-time" />
+                  </div>
                   <ResponsiveContainer width="100%" height={220}>
                     <AreaChart data={timeData} margin={{ top: 5, right: 5, bottom: 5, left: -15 }}>
                       <defs>
@@ -1213,8 +1223,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             }));
 
             return (
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Monthly Article Volume</h3>
+              <div id="chart-brand-monthly-volume" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Monthly Article Volume</h3>
+                  <ChartDownloadButton targetId="chart-brand-monthly-volume" filename="monthly-article-volume" />
+                </div>
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={chartData} margin={{ top: 5, right: 5, bottom: 5, left: -15 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.3} />
@@ -1298,10 +1311,13 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             const totalArticles = activeCats.reduce((sum, c) => sum + c.article_count, 0);
 
             return (
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+              <div id="chart-brand-category-dist" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Category Distribution</h3>
-                  {!exportingReport && <span className="text-[10px] text-gray-400">Click a category to view articles</span>}
+                  <div className="flex items-center gap-2">
+                    {!exportingReport && <span className="text-[10px] text-gray-400">Click a category to view articles</span>}
+                    <ChartDownloadButton targetId="chart-brand-category-dist" filename="category-distribution" />
+                  </div>
                 </div>
                 {activeCats.length <= 2 ? (
                   /* Simple full-width rows for 1-2 categories */
@@ -1589,13 +1605,15 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                     <div className="bg-white dark:bg-gray-800 rounded-lg border border-blue-200 dark:border-blue-800 p-5">
                       <div className="flex items-center justify-between mb-2">
                         <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 flex items-center gap-2">
-                          <Sparkles className="w-4 h-4 text-blue-500" /> Latest AI Narrative
+                          <Sparkles className="w-4 h-4 text-blue-500" /> Latest Insights
                         </h3>
                         <span className="text-[10px] text-gray-400">
                           {narrative.generated_at ? new Date(narrative.generated_at).toLocaleDateString() : ''}
                         </span>
                       </div>
-                      <p className={`text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap ${exportingReport ? '' : 'line-clamp-3'}`}>{narrative.narrative}</p>
+                      <div className={`prose prose-sm dark:prose-invert max-w-none text-sm text-gray-600 dark:text-gray-300 ${exportingReport ? '' : 'line-clamp-3'}`}
+                        dangerouslySetInnerHTML={{ __html: markdownToHtml(narrative.narrative) }}
+                      />
                       {!exportingReport && (
                         <button
                           onClick={() => handleTabChange('insights')}
@@ -1615,8 +1633,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                       ...Object.fromEntries(topCats.map(cat => [CATEGORY_SHORT_NAMES[cat] || cat, d.by_category?.[cat] || 0])),
                     }));
                     return (
-                      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Category Trends Over Time</h3>
+                      <div id="chart-brand-category-trends" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Category Trends Over Time</h3>
+                          <ChartDownloadButton targetId="chart-brand-category-trends" filename="category-trends" />
+                        </div>
                         <ResponsiveContainer width="100%" height={220}>
                           <AreaChart data={trendData} margin={{ top: 5, right: 5, bottom: 5, left: -15 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#374151" opacity={0.2} />
@@ -1729,8 +1750,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
 
                   {/* Sentiment Trends */}
                   {sentimentTrends.length > 0 && (
-                    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                      <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Sentiment by Category (Weekly)</h3>
+                    <div id="chart-brand-sentiment-by-category" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Sentiment by Category (Weekly)</h3>
+                        <ChartDownloadButton targetId="chart-brand-sentiment-by-category" filename="sentiment-by-category" />
+                      </div>
                       <div className="space-y-2">
                         {(() => {
                           const byCat: Record<string, { Positive: number; Neutral: number; Negative: number }> = {};
@@ -1804,8 +1828,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
               fill: sov.color || '#6b7280',
             }));
             return (
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Share of Voice</h3>
+              <div id="chart-brand-share-of-voice" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Share of Voice</h3>
+                  <ChartDownloadButton targetId="chart-brand-share-of-voice" filename="share-of-voice" />
+                </div>
                 <div className="flex flex-col md:flex-row items-center gap-6">
                   <ResponsiveContainer width="100%" height={240} className="md:max-w-[280px]">
                     <PieChart>
@@ -1877,9 +1904,10 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
             });
 
             return (
-              <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+              <div id="chart-brand-category-breakdown" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Category Breakdown</h3>
+                  <div className="flex items-center gap-2">
                   {/* Category filter dropdown (hidden during export) */}
                   {!exportingReport && (
                     <div className="relative">
@@ -1919,6 +1947,8 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
                       )}
                     </div>
                   )}
+                  <ChartDownloadButton targetId="chart-brand-category-breakdown" filename="category-breakdown" />
+                  </div>
                 </div>
                 <ResponsiveContainer width="100%" height={Math.max(displayCats.length * 44, 120)}>
                   <BarChart data={chartData} layout="vertical" margin={{ top: 0, right: 10, bottom: 0, left: 5 }}>
@@ -1994,8 +2024,11 @@ export function BrandWatcherTab({ onArticleClick }: BrandWatcherTabProps) {
 
           {/* Sentiment Summary — uses sentiment_breakdown from comparison API */}
           {comparison.length > 0 && comparison.some(c => Object.keys(c.sentiment_breakdown || {}).length > 0) && (
-            <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
-              <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-4">Sentiment Summary by Brand</h3>
+            <div id="chart-brand-sentiment-summary" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Sentiment Summary by Brand</h3>
+                <ChartDownloadButton targetId="chart-brand-sentiment-summary" filename="sentiment-summary-by-brand" />
+              </div>
               <div className="space-y-3">
                 {comparison.map(comp => {
                   // Normalize sentiment labels into 3 buckets

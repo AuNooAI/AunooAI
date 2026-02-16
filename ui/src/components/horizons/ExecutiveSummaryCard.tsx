@@ -9,7 +9,8 @@ import { createPortal } from 'react-dom';
 import { Card, CardContent } from '@/components/ui/card';
 import { TopicExecutiveSummary, HORIZON_CONFIG, HorizonType } from '@/types/horizonsExecutiveSummary';
 import ShareModal, { ShareExecutiveSummaryData } from '../ShareModal';
-import { MoreVertical, Mail, Check, TrendingUp } from 'lucide-react';
+import { MoreVertical, Mail, Check, TrendingUp, Download, FileText } from 'lucide-react';
+import html2canvas from 'html2canvas';
 import './executive-summary.css';
 
 interface ExecutiveSummaryCardProps {
@@ -74,7 +75,7 @@ const ExecutiveSummaryCard: React.FC<ExecutiveSummaryCardProps> = ({ summary, in
   // Get horizon display label
   const getHorizonLabel = (horizon: HorizonType): string => {
     const config = HORIZON_CONFIG[horizon];
-    return `${config.label}`;
+    return config?.label || horizon || 'Unknown';
   };
 
   // Build share data
@@ -104,9 +105,124 @@ const ExecutiveSummaryCard: React.FC<ExecutiveSummaryCardProps> = ({ summary, in
     setShowShareModal(true);
   };
 
+  const cardId = `exec-summary-card-${index}`;
+
+  const handleDownloadPng = async () => {
+    setMenuOpen(false);
+    const el = document.getElementById(cardId);
+    if (!el) return;
+    try {
+      // Expand any collapsed <details> so source scenarios are visible
+      const detailsEls = el.querySelectorAll('details');
+      const wasOpen: boolean[] = [];
+      detailsEls.forEach((d) => {
+        wasOpen.push(d.open);
+        d.open = true;
+      });
+
+      // Force dark text for export — CSS variables don't resolve well in html2canvas
+      const style = document.createElement('style');
+      style.id = 'png-export-override';
+      style.textContent = `
+        #${cardId}, #${cardId} * {
+          color: #111827 !important;
+          border-color: #d1d5db !important;
+        }
+        #${cardId} .text-muted-foreground,
+        #${cardId} .text-muted-foreground * {
+          color: #4b5563 !important;
+        }
+        #${cardId} .text-green-600, #${cardId} .text-green-400 { color: #16a34a !important; }
+        #${cardId} .text-amber-600, #${cardId} .text-amber-400 { color: #d97706 !important; }
+        #${cardId} .text-orange-600, #${cardId} .text-orange-400 { color: #ea580c !important; }
+        #${cardId} .border-green-500 { border-color: #22c55e !important; }
+        #${cardId} .border-orange-500 { border-color: #f97316 !important; }
+        #${cardId} .bg-muted\\/30 { background-color: #f3f4f6 !important; }
+        #${cardId} { overflow: visible !important; }
+      `;
+      document.head.appendChild(style);
+
+      // Allow layout to reflow after opening details
+      await new Promise(r => setTimeout(r, 50));
+
+      const canvas = await html2canvas(el, {
+        backgroundColor: '#ffffff',
+        scale: 2,
+        logging: false,
+        useCORS: true,
+        height: el.scrollHeight,
+        windowHeight: el.scrollHeight + 100,
+      });
+
+      // Restore collapsed state and remove override
+      style.remove();
+      detailsEls.forEach((d, i) => { d.open = wasOpen[i]; });
+
+      const link = document.createElement('a');
+      link.download = `${summary.topic_title.replace(/[^a-zA-Z0-9]/g, '_')}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (err) {
+      console.error('PNG download failed:', err);
+      document.getElementById('png-export-override')?.remove();
+    }
+  };
+
+  const handleDownloadMarkdown = () => {
+    setMenuOpen(false);
+    const horizonLabel = `${HORIZON_CONFIG[summary.primary_horizon]?.label || summary.primary_horizon || 'Unknown'} — ${summary.horizon_label || ''}`;
+    const lines: string[] = [
+      `# ${summary.topic_title}`,
+      `**Horizon:** ${horizonLabel}`,
+      '',
+      summary.opening_statement,
+      '',
+    ];
+
+    if (summary.minority_view) {
+      lines.push(`> *Minority view (${summary.minority_view.percentage_range}):* ${summary.minority_view.statement}`);
+      lines.push('');
+    }
+
+    lines.push(`## Primary Signal (${summary.consensus_percentage}% Consensus)`);
+    lines.push(summary.primary_signal);
+    lines.push('');
+
+    lines.push('## Decision Fork');
+    lines.push(`- **If** ${summary.decision_fork.condition_a.condition}: ${summary.decision_fork.condition_a.outcome}`);
+    lines.push(`- **If** ${summary.decision_fork.condition_b.condition}: ${summary.decision_fork.condition_b.outcome}`);
+    lines.push('');
+
+    lines.push('## Your Window');
+    lines.push(`- **${summary.action_window.assessment.timeframe}** to ${summary.action_window.assessment.action}`);
+    lines.push(`- **${summary.action_window.positioning.timeframe}** to ${summary.action_window.positioning.action}`);
+    lines.push('');
+
+    if (summary.source_scenarios && summary.source_scenarios.length > 0) {
+      lines.push('## Source Scenarios');
+      summary.source_scenarios.forEach(s => {
+        const title = typeof s === 'string' ? s : s.title;
+        const horizon = typeof s === 'string' ? '' : ` [${HORIZON_CONFIG[s.horizon]?.label || s.horizon}]`;
+        lines.push(`- ${title}${horizon}`);
+      });
+      lines.push('');
+    }
+
+    lines.push('---');
+    lines.push(`*Generated by Aunoo AI — ${footerDate}*`);
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+    const link = document.createElement('a');
+    link.download = `${summary.topic_title.replace(/[^a-zA-Z0-9]/g, '_')}.md`;
+    link.href = URL.createObjectURL(blob);
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
   return (
     <>
       <Card
+        id={cardId}
         className="executive-summary-card bg-card shadow-md border border-border"
         data-testid={`exec-summary-card-${index}`}
       >
@@ -259,6 +375,23 @@ const ExecutiveSummaryCard: React.FC<ExecutiveSummaryCardProps> = ({ summary, in
             zIndex: 9999,
           }}
         >
+          <button
+            onClick={handleDownloadPng}
+            className="flex items-center w-full px-3 py-2 text-sm text-left hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            type="button"
+          >
+            <Download className="mr-2 h-4 w-4" />
+            Download as PNG
+          </button>
+          <button
+            onClick={handleDownloadMarkdown}
+            className="flex items-center w-full px-3 py-2 text-sm text-left hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+            type="button"
+          >
+            <FileText className="mr-2 h-4 w-4" />
+            Download as Markdown
+          </button>
+          <div className="border-t border-border my-1" />
           <button
             onClick={handleShareClick}
             className="flex items-center w-full px-3 py-2 text-sm text-left hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"

@@ -1688,7 +1688,7 @@ class GeopoliticalService:
             # Clear existing stats
             cursor.execute("DELETE FROM country_hotspot_stats")
 
-            # Recalculate from hotspots
+            # Recalculate from hotspots — aggregate across all topics per country
             cursor.execute("""
                 INSERT INTO country_hotspot_stats
                 (country_code, country_name, total_hotspots, total_articles, heat_value,
@@ -1705,11 +1705,22 @@ class GeopoliticalService:
                     (SELECT primary_category FROM geopolitical_hotspots gh2
                      WHERE gh2.country_code = gh.country_code
                      GROUP BY primary_category ORDER BY COUNT(*) DESC LIMIT 1) as primary_category,
-                    topic,
+                    (SELECT topic FROM geopolitical_hotspots gh2
+                     WHERE gh2.country_code = gh.country_code
+                     ORDER BY article_count DESC LIMIT 1) as topic,
                     CURRENT_TIMESTAMP
                 FROM geopolitical_hotspots gh
                 WHERE country_code IS NOT NULL
-                GROUP BY country_code, country_name, topic
+                GROUP BY country_code, country_name
+                ON CONFLICT (country_code) DO UPDATE SET
+                    country_name = EXCLUDED.country_name,
+                    total_hotspots = EXCLUDED.total_hotspots,
+                    total_articles = EXCLUDED.total_articles,
+                    heat_value = EXCLUDED.heat_value,
+                    max_risk_level = EXCLUDED.max_risk_level,
+                    primary_category = EXCLUDED.primary_category,
+                    topic = EXCLUDED.topic,
+                    updated_at = EXCLUDED.updated_at
             """)
             conn.commit()
 

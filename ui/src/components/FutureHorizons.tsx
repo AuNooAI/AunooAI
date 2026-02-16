@@ -331,7 +331,7 @@ export function FutureHorizons({
           </svg>
 
           {/* Horizon labels on left with tooltips - positioned at wave start points */}
-          <div className="absolute left-3 top-0 bottom-0 text-xs font-medium pointer-events-auto z-20">
+          <div className="absolute left-3 top-0 bottom-0 text-xs font-medium pointer-events-auto z-[5]">
             {horizons.map(({ key, label, tooltip, bgClass }) => {
               // Position badges at wave starting points
               const topPosition =

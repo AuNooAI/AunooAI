@@ -4,6 +4,7 @@
  */
 
 import { AlertTriangle, TrendingUp, TrendingDown, MapPin, Newspaper, Globe, Flame, Info } from 'lucide-react';
+import { ChartDownloadButton } from './ChartDownloadButton';
 import { HotspotMap } from './map';
 import type { OverviewStats, Hotspot } from '../../services/geopoliticalHotspotsApi';
 import { RISK_COLORS, type RiskLevel, THREAT_CATEGORIES } from '../../services/geopoliticalHotspotsApi';
@@ -256,10 +257,13 @@ export function GeopoliticalOverviewTab({
       </div>
 
       {/* Risk Level Pie Chart - Full Width */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-        <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">
-          Risk Level Distribution
-        </h3>
+      <div id="chart-geo-risk-distribution" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+            Risk Level Distribution
+          </h3>
+          <ChartDownloadButton targetId="chart-geo-risk-distribution" filename="risk-level-distribution" />
+        </div>
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-2 -mt-2">
           Click a segment to filter by risk level
         </p>

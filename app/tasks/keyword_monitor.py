@@ -339,9 +339,14 @@ class KeywordMonitor:
             # Check if counter needs reset before starting
             self.check_and_reset_counter()
 
-            if not self._init_collector():
-                logger.error("Failed to initialize collector, skipping check")
-                return {"success": False, "error": "Failed to initialize collector", "new_articles": 0}
+            # Skip re-initializing collectors if already set by check_single_group (per-group providers)
+            if not self.collectors:
+                if not self._init_collector():
+                    logger.error("Failed to initialize collector, skipping check")
+                    return {"success": False, "error": "Failed to initialize collector", "new_articles": 0}
+            elif not self.collector:
+                # Set legacy single-collector reference from group collectors
+                self.collector = list(self.collectors.values())[0]
         except Exception as e:
             logger.error(f"Error in pre-check setup: {str(e)}", exc_info=True)
             return {"success": False, "error": f"Setup error: {str(e)}", "new_articles": 0}
@@ -850,7 +855,12 @@ class KeywordMonitor:
                 logger.info(f"📝 Sample content length: {len(formatted_articles[0].get('content', ''))} chars")
 
             # Process articles through the automated pipeline
-            results = await self.auto_ingest_service.process_articles_batch(formatted_articles, topic, keywords)
+            # Pass per-group relevance threshold if set (e.g. Brand Watch groups use 0.1)
+            threshold_override = getattr(self, '_group_relevance_threshold', None)
+            results = await self.auto_ingest_service.process_articles_batch(
+                formatted_articles, topic, keywords,
+                relevance_threshold_override=threshold_override
+            )
 
             # Update job status
             job.status = "completed"
@@ -985,6 +995,9 @@ class KeywordMonitor:
         original_search_date_range = self.search_date_range
         self.search_date_range = effective['search_date_range']
 
+        # Store per-group relevance threshold override (used by auto_ingest_pipeline)
+        self._group_relevance_threshold = effective.get('min_relevance_threshold')
+
         try:
             # Run the check for this specific group
             result = await self.check_keywords(
@@ -1015,9 +1028,10 @@ class KeywordMonitor:
             return {"success": False, "error": error_msg, "new_articles": 0}
 
         finally:
-            # Restore original collectors
+            # Restore original collectors and settings
             self.collectors = original_collectors
             self.search_date_range = original_search_date_range
+            self._group_relevance_threshold = None
 
     async def check_due_groups(self) -> Dict:
         """Check all keyword groups that are due for collection.

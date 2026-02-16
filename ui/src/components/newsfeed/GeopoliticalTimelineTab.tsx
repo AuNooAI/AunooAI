@@ -21,6 +21,7 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { Calendar, TrendingUp, Activity, Clock } from 'lucide-react';
+import { ChartDownloadButton } from './ChartDownloadButton';
 import {
   getTimelineData,
   getDailyCounts,
@@ -185,10 +186,13 @@ export function GeopoliticalTimelineTab({
 
       {/* Daily Intensity with Rolling Average */}
       {dailyChartData.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1">
-            Daily Article Activity
-          </h3>
+        <div id="chart-geo-daily-activity" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1">
+              Daily Article Activity
+            </h3>
+            <ChartDownloadButton targetId="chart-geo-daily-activity" filename="daily-article-activity" />
+          </div>
           <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
             Bars show daily count, line shows 7-day rolling average
           </p>
@@ -257,10 +261,13 @@ export function GeopoliticalTimelineTab({
 
       {/* Day of Week Distribution */}
       {dayOfWeekData.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1">
-            Day of Week Distribution
-          </h3>
+        <div id="chart-geo-day-of-week" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1">
+              Day of Week Distribution
+            </h3>
+            <ChartDownloadButton targetId="chart-geo-day-of-week" filename="day-of-week-distribution" />
+          </div>
           <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
             Article count by day of the week over the selected period
           </p>
@@ -297,10 +304,13 @@ export function GeopoliticalTimelineTab({
       )}
 
       {/* Activity Over Time (Original Chart) */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-        <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">
-          Article Activity Over Time
-        </h3>
+      <div id="chart-geo-monthly-activity" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+            Article Activity Over Time
+          </h3>
+          <ChartDownloadButton targetId="chart-geo-monthly-activity" filename="article-activity-over-time" />
+        </div>
         <ResponsiveContainer width="100%" height={300}>
           <AreaChart data={chartData}>
             <defs>
@@ -341,10 +351,13 @@ export function GeopoliticalTimelineTab({
       </div>
 
       {/* Intensity Trend */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-        <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">
-          Average Intensity Trend
-        </h3>
+      <div id="chart-geo-intensity-trend" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+            Average Intensity Trend
+          </h3>
+          <ChartDownloadButton targetId="chart-geo-intensity-trend" filename="intensity-trend" />
+        </div>
         <ResponsiveContainer width="100%" height={300}>
           <LineChart data={chartData}>
             <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
@@ -382,10 +395,13 @@ export function GeopoliticalTimelineTab({
       </div>
 
       {/* Active Hotspots Over Time */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-        <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">
-          Active Hotspots Over Time
-        </h3>
+      <div id="chart-geo-active-hotspots" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+            Active Hotspots Over Time
+          </h3>
+          <ChartDownloadButton targetId="chart-geo-active-hotspots" filename="active-hotspots" />
+        </div>
         <ResponsiveContainer width="100%" height={300}>
           <AreaChart data={chartData}>
             <defs>

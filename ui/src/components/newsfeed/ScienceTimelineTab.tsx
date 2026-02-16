@@ -19,6 +19,7 @@ import {
   Area,
 } from 'recharts';
 import { Loader2 } from 'lucide-react';
+import { ChartDownloadButton } from './ChartDownloadButton';
 import type { DayOfWeekData, DailyIntensityData, TemporalData } from '../../services/scienceFundingApi';
 
 interface ScienceTimelineTabProps {
@@ -64,11 +65,14 @@ export function ScienceTimelineTab({
   return (
     <div className="space-y-6">
       {/* View Selector */}
-      <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+      <div id="chart-science-timeline" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">
-            Temporal Analysis
-          </h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">
+              Temporal Analysis
+            </h3>
+            <ChartDownloadButton targetId="chart-science-timeline" filename="science-temporal-analysis" />
+          </div>
           <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
             <button
               onClick={() => setActiveView('daily')}

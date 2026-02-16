@@ -17,6 +17,7 @@ import {
   Cell,
 } from 'recharts';
 import type { RegionData, CategoryData } from '../../services/geopoliticalHotspotsApi';
+import { ChartDownloadButton } from './ChartDownloadButton';
 
 interface GeopoliticalRegionsTabProps {
   regions: RegionData[];
@@ -90,10 +91,13 @@ export function GeopoliticalRegionsTab({
       {/* Regional Overview */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Regions Bar Chart */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">
-            Hotspots by Region
-          </h3>
+        <div id="chart-geo-hotspots-by-region" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+              Hotspots by Region
+            </h3>
+            <ChartDownloadButton targetId="chart-geo-hotspots-by-region" filename="hotspots-by-region" />
+          </div>
           <ResponsiveContainer width="100%" height={350}>
             <BarChart data={regionData} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
@@ -122,10 +126,13 @@ export function GeopoliticalRegionsTab({
         </div>
 
         {/* Regions Pie Chart */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">
-            Regional Distribution
-          </h3>
+        <div id="chart-geo-regional-distribution" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+              Regional Distribution
+            </h3>
+            <ChartDownloadButton targetId="chart-geo-regional-distribution" filename="regional-distribution" />
+          </div>
           <ResponsiveContainer width="100%" height={350}>
             <PieChart>
               <Pie
@@ -194,10 +201,13 @@ export function GeopoliticalRegionsTab({
       {/* Category Analysis */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Categories Bar Chart */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">
-            Threat Categories
-          </h3>
+        <div id="chart-geo-threat-categories" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+              Threat Categories
+            </h3>
+            <ChartDownloadButton targetId="chart-geo-threat-categories" filename="threat-categories" />
+          </div>
           <ResponsiveContainer width="100%" height={350}>
             <BarChart data={categoryData} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
@@ -222,10 +232,13 @@ export function GeopoliticalRegionsTab({
         </div>
 
         {/* Category Intensity */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-4">
-            Average Intensity by Category
-          </h3>
+        <div id="chart-geo-avg-intensity" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100">
+              Average Intensity by Category
+            </h3>
+            <ChartDownloadButton targetId="chart-geo-avg-intensity" filename="avg-intensity-by-category" />
+          </div>
           <ResponsiveContainer width="100%" height={350}>
             <BarChart data={categoryData} layout="vertical">
               <CartesianGrid strokeDasharray="3 3" opacity={0.3} />

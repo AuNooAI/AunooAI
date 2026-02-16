@@ -19,6 +19,7 @@ import {
   Area,
 } from 'recharts';
 import type { ScienceCategory, TemporalData } from '../../services/scienceFundingApi';
+import { ChartDownloadButton } from './ChartDownloadButton';
 import { CATEGORY_COLORS, CATEGORY_SHORT_NAMES, CATEGORY_DESCRIPTIONS } from '../../services/scienceFundingApi';
 
 interface ScienceFundingChartsProps {
@@ -69,12 +70,15 @@ export function ScienceFundingCharts({
   }
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 mb-6">
+    <div id="chart-science-funding" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4 mb-6">
       {/* Chart Tabs */}
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">
-          Science Funding Category Analysis
-        </h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-medium text-gray-900 dark:text-gray-100">
+            Science Funding Category Analysis
+          </h3>
+          <ChartDownloadButton targetId="chart-science-funding" filename="science-funding-analysis" />
+        </div>
         <div className="flex gap-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-0.5">
           <button
             onClick={() => setActiveView('categories')}

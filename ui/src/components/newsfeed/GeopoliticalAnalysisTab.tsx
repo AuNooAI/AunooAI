@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { BarChart2, Grid3X3, TrendingUp, Users, List, ArrowUpRight, ArrowDownRight, ArrowRight } from 'lucide-react';
+import { ChartDownloadButton } from './ChartDownloadButton';
 import {
   BarChart,
   Bar,
@@ -412,10 +413,13 @@ export function GeopoliticalAnalysisTab({ onCategoryFilter }: GeopoliticalAnalys
 
       {/* Category Intensity Chart - Heatmap View */}
       {activeView === 'heatmap' && intensityData.length > 0 && (
-        <div className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
-          <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1">
-            Category by Average Intensity
-          </h3>
+        <div id="chart-geo-category-intensity" className="bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-semibold text-gray-900 dark:text-gray-100 mb-1">
+              Category by Average Intensity
+            </h3>
+            <ChartDownloadButton targetId="chart-geo-category-intensity" filename="category-avg-intensity" />
+          </div>
           <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
             Categories ranked by their average threat intensity score
           </p>
