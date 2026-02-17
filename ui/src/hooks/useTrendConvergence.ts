@@ -5,6 +5,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   generateTrendConvergence,
+  loadCachedTrendConvergence,
   getTopics,
   getOrganizationalProfiles,
   getAvailableModels,
@@ -43,9 +44,11 @@ export interface UseTrendConvergenceReturn {
   // State
   loading: boolean;
   error: string | null;
+  needsGeneration: boolean;
 
   // Actions
   generateAnalysis: (forceRefresh?: boolean) => Promise<void>;
+  loadCached: () => Promise<void>;
   updateConfig: (updates: Partial<AnalysisConfig>) => void;
   clearError: () => void;
 }
@@ -112,6 +115,7 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
   const [config, setConfig] = useState<AnalysisConfig>(loadStoredConfig);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [needsGeneration, setNeedsGeneration] = useState(false);
 
   // Save config to localStorage whenever it changes
   useEffect(() => {
@@ -167,6 +171,45 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
     }
   };
 
+  // Load cached analysis only (localStorage then backend cache, never generates)
+  const loadCached = useCallback(async () => {
+    if (!config.topic || !config.tab) return;
+
+    // 1. Check localStorage
+    const tabKey = `${STORAGE_KEYS.DATA_PREFIX}${config.tab}`;
+    const localData = localStorage.getItem(tabKey);
+    if (localData) {
+      try {
+        setData(JSON.parse(localData));
+        setNeedsGeneration(false);
+        return;
+      } catch (err) {
+        console.error('Error parsing cached data:', err);
+      }
+    }
+
+    // 2. Try backend cache_only endpoint
+    try {
+      const result = await loadCachedTrendConvergence(config);
+      if (result) {
+        setData(result);
+        setNeedsGeneration(false);
+        // Save to localStorage for next time
+        try {
+          localStorage.setItem(tabKey, JSON.stringify(result));
+        } catch (err) {
+          console.error('Error saving cached data to localStorage:', err);
+        }
+        return;
+      }
+    } catch (err) {
+      console.error('Error loading cached analysis from backend:', err);
+    }
+
+    // 3. No cache anywhere — user needs to generate
+    setNeedsGeneration(true);
+  }, [config]);
+
   // Generate analysis
   const generateAnalysis = useCallback(async (forceRefresh: boolean = false, skipQualityFallback: boolean = false) => {
     if (!config.topic) {
@@ -182,6 +225,7 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
 
     setLoading(true);
     setError(null);
+    setNeedsGeneration(false);
 
     try {
       let result: TrendConvergenceData | MarketSignalsData;
@@ -320,7 +364,9 @@ export function useTrendConvergence(): UseTrendConvergenceReturn {
     config,
     loading,
     error,
+    needsGeneration,
     generateAnalysis,
+    loadCached,
     updateConfig,
     clearError,
   };

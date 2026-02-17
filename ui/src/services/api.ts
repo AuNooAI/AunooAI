@@ -431,6 +431,67 @@ export async function generateTrendConvergence(params: {
 }
 
 /**
+ * Load cached trend convergence analysis without triggering generation.
+ * Returns null if no cached data exists (404).
+ */
+export async function loadCachedTrendConvergence(params: {
+  topic: string;
+  timeframe_days?: number;
+  model: string;
+  source_quality?: string;
+  sample_size_mode?: string;
+  custom_limit?: number;
+  consistency_mode?: string;
+  profile_id?: number;
+  tab?: string;
+}): Promise<TrendConvergenceData | null> {
+  const queryParams = new URLSearchParams();
+  queryParams.append('model', params.model);
+  queryParams.append('timeframe_days', String(params.timeframe_days || 365));
+  queryParams.append('source_quality', params.source_quality || 'all');
+  queryParams.append('sample_size_mode', params.sample_size_mode || 'auto');
+  queryParams.append('consistency_mode', params.consistency_mode || 'balanced');
+  queryParams.append('cache_only', 'true');
+
+  if (params.custom_limit) {
+    queryParams.append('custom_limit', String(params.custom_limit));
+  }
+  if (params.profile_id) {
+    queryParams.append('profile_id', String(params.profile_id));
+  }
+  if (params.tab) {
+    queryParams.append('tab', params.tab);
+  }
+
+  const url = `${API_BASE_URL}/api/trend-convergence/${encodeURIComponent(params.topic)}?${queryParams}`;
+
+  try {
+    const response = await fetch(url, {
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      window.location.href = '/login';
+      throw new Error('Authentication required');
+    }
+
+    if (response.status === 404) {
+      return null;
+    }
+
+    if (!response.ok) {
+      return null;
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error loading cached analysis:', error);
+    return null;
+  }
+}
+
+/**
  * Get all available topics
  */
 export async function getTopics(): Promise<Topic[]> {

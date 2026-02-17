@@ -562,11 +562,12 @@ async def generate_trend_convergence(
     cache_duration_hours: int = Query(24, description="Cache validity period"),
     profile_id: int = Query(None, description="Organizational profile ID for context"),
     tab: str = Query(None, description="Specific tab to generate: consensus, strategic, signals, timeline, horizons, or None for all"),
+    cache_only: bool = Query(False, description="Return cached data only, never generate new analysis"),
     db: Database = Depends(get_database_instance),
     session: dict = Depends(verify_session)
 ):
     """Generate trend convergence analysis with improved consistency and tab-specific generation"""
-    
+
     try:
         logger.info(f"Generating trend convergence analysis for topic: {topic}, model: {model}, consistency: {consistency_mode.value}")
 
@@ -579,6 +580,23 @@ async def generate_trend_convergence(
             topic, timeframe_days, model, source_quality, sample_size_mode,
             custom_limit, profile_id, consistency_mode, persona, customer_type, tab
         )
+
+        # cache_only mode: return any cached result regardless of age, never generate
+        if cache_only:
+            result = (DatabaseQueryFacade(db, logger)).get_cached_trend_analysis(cache_key)
+            if result:
+                analysis_data = json.loads(result['version_data'])
+                created_at = datetime.fromisoformat(result['created_at'])
+                age_hours = (datetime.now() - created_at).total_seconds() / 3600
+                analysis_data['_cache_info'] = {
+                    'cached': True,
+                    'age_hours': round(age_hours, 2),
+                    'cache_key': cache_key,
+                    'created_at': created_at.isoformat(),
+                    'last_updated': created_at.strftime('%d.%m.%Y')
+                }
+                return analysis_data
+            raise HTTPException(status_code=404, detail="No cached analysis available")
 
         # Try to get cached result first if caching is enabled
         if enable_caching:

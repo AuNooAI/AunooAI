@@ -2,7 +2,7 @@
  * Trend Convergence Dashboard - Figma Design Implementation
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTrendConvergence } from './hooks/useTrendConvergence';
 import { SharedNavigation } from './components/SharedNavigation';
 import { TabNavigation, TabSettingsDropdown } from './components/TabNavigation';
@@ -62,7 +62,9 @@ function App() {
     config,
     loading,
     error,
+    needsGeneration,
     generateAnalysis,
+    loadCached,
     updateConfig,
     clearError,
   } = useTrendConvergence();
@@ -235,99 +237,103 @@ function App() {
     setTabOrder(newOrder);
   };
 
-  // Load saved SIO config on mount
-  useEffect(() => {
-    const loadSioConfig = async () => {
-      try {
-        const response = await fetch('/api/sio/config', { credentials: 'include' });
-        if (response.ok) {
-          const config = await response.json();
-          setSioCredibilityThreshold(config.credibility_threshold ?? 60);
-          setSioHoursBack(config.hours_back ?? 24);
-          setSioMaxEvents(config.max_events ?? 30);
-        }
-      } catch (err) {
-        console.error('Failed to load SIO config:', err);
-      }
-    };
-    loadSioConfig();
-  }, []);
+  // Deferred tab config loading — only fetch when the relevant tab is active
+  const sioConfigLoaded = useRef(false);
+  const eosConfigLoaded = useRef(false);
+  const newsletterConfigLoaded = useRef(false);
+  const fgConfigLoaded = useRef(false);
+  const ebConfigLoaded = useRef(false);
 
-  // Load saved EOS config on mount
   useEffect(() => {
-    const loadEosConfig = async () => {
-      try {
-        const response = await fetch('/api/eos/config', { credentials: 'include' });
-        if (response.ok) {
-          const config = await response.json();
-          setEosScenarioCount(config.scenario_count ?? 5);
-          setEosIncludeBlackSwans(config.include_black_swans ?? true);
-          setEosIncludeContrarian(config.include_contrarian ?? true);
-          setEosIncludeWildCards(config.include_wild_cards ?? true);
-          setEosTimeHorizon(config.time_horizon ?? 'mid');
+    if (activeTab === 'intelligence-brief' && !sioConfigLoaded.current) {
+      sioConfigLoaded.current = true;
+      (async () => {
+        try {
+          const response = await fetch('/api/sio/config', { credentials: 'include' });
+          if (response.ok) {
+            const cfg = await response.json();
+            setSioCredibilityThreshold(cfg.credibility_threshold ?? 60);
+            setSioHoursBack(cfg.hours_back ?? 24);
+            setSioMaxEvents(cfg.max_events ?? 30);
+          }
+        } catch (err) {
+          console.error('Failed to load SIO config:', err);
         }
-      } catch (err) {
-        console.error('Failed to load EOS config:', err);
-      }
-    };
-    loadEosConfig();
-  }, []);
+      })();
+    }
 
-  // Load saved Newsletter config on mount
-  useEffect(() => {
-    const loadNewsletterConfig = async () => {
-      try {
-        const response = await fetch('/api/newsletter/config', { credentials: 'include' });
-        if (response.ok) {
-          const config = await response.json();
-          setNewsletterTitle(config.title ?? 'Intelligence Newsletter');
-          setNewsletterIntro(config.intro ?? '');
-          setNewsletterDaysBack(config.days_back ?? 7);
-          setNewsletterDeepDiveTopic(config.deep_dive_topic ?? '');
+    if (activeTab === 'extreme-outliers' && !eosConfigLoaded.current) {
+      eosConfigLoaded.current = true;
+      (async () => {
+        try {
+          const response = await fetch('/api/eos/config', { credentials: 'include' });
+          if (response.ok) {
+            const cfg = await response.json();
+            setEosScenarioCount(cfg.scenario_count ?? 5);
+            setEosIncludeBlackSwans(cfg.include_black_swans ?? true);
+            setEosIncludeContrarian(cfg.include_contrarian ?? true);
+            setEosIncludeWildCards(cfg.include_wild_cards ?? true);
+            setEosTimeHorizon(cfg.time_horizon ?? 'mid');
+          }
+        } catch (err) {
+          console.error('Failed to load EOS config:', err);
         }
-      } catch (err) {
-        console.error('Failed to load Newsletter config:', err);
-      }
-    };
-    loadNewsletterConfig();
-  }, []);
+      })();
+    }
 
-  // Load saved Focus Group config on mount
-  useEffect(() => {
-    const loadFgConfig = async () => {
-      try {
-        const response = await fetch('/api/focus-groups/config', { credentials: 'include' });
-        if (response.ok) {
-          const config = await response.json();
-          setFgMaxPersonas(config.max_personas ?? 6);
-          setFgMinEvidenceThreshold(config.min_evidence_threshold ?? 2);
-          setFgIncludeDemographics(config.include_demographics ?? true);
-          setFgIncludePsychographics(config.include_psychographics ?? true);
-          setFgIncludeVoice(config.include_voice ?? true);
+    if (activeTab === 'newsletter' && !newsletterConfigLoaded.current) {
+      newsletterConfigLoaded.current = true;
+      (async () => {
+        try {
+          const response = await fetch('/api/newsletter/config', { credentials: 'include' });
+          if (response.ok) {
+            const cfg = await response.json();
+            setNewsletterTitle(cfg.title ?? 'Intelligence Newsletter');
+            setNewsletterIntro(cfg.intro ?? '');
+            setNewsletterDaysBack(cfg.days_back ?? 7);
+            setNewsletterDeepDiveTopic(cfg.deep_dive_topic ?? '');
+          }
+        } catch (err) {
+          console.error('Failed to load Newsletter config:', err);
         }
-      } catch (err) {
-        console.error('Failed to load Focus Group config:', err);
-      }
-    };
-    loadFgConfig();
-  }, []);
+      })();
+    }
 
-  // Load saved Executive Briefing config on mount
-  useEffect(() => {
-    const loadEbConfig = async () => {
-      try {
-        const response = await fetch('/api/executive-briefing/config', { credentials: 'include' });
-        if (response.ok) {
-          const config = await response.json();
-          setEbPersona(config.default_persona ?? 'ceo');
-          setEbArticleCount(config.default_article_count ?? 6);
+    if (activeTab === 'focus-group' && !fgConfigLoaded.current) {
+      fgConfigLoaded.current = true;
+      (async () => {
+        try {
+          const response = await fetch('/api/focus-groups/config', { credentials: 'include' });
+          if (response.ok) {
+            const cfg = await response.json();
+            setFgMaxPersonas(cfg.max_personas ?? 6);
+            setFgMinEvidenceThreshold(cfg.min_evidence_threshold ?? 2);
+            setFgIncludeDemographics(cfg.include_demographics ?? true);
+            setFgIncludePsychographics(cfg.include_psychographics ?? true);
+            setFgIncludeVoice(cfg.include_voice ?? true);
+          }
+        } catch (err) {
+          console.error('Failed to load Focus Group config:', err);
         }
-      } catch (err) {
-        console.error('Failed to load Executive Briefing config:', err);
-      }
-    };
-    loadEbConfig();
-  }, []);
+      })();
+    }
+
+    if (activeTab === 'executive-briefing' && !ebConfigLoaded.current) {
+      ebConfigLoaded.current = true;
+      (async () => {
+        try {
+          const response = await fetch('/api/executive-briefing/config', { credentials: 'include' });
+          if (response.ok) {
+            const cfg = await response.json();
+            setEbPersona(cfg.default_persona ?? 'ceo');
+            setEbArticleCount(cfg.default_article_count ?? 6);
+          }
+        } catch (err) {
+          console.error('Failed to load Executive Briefing config:', err);
+        }
+      })();
+    }
+  }, [activeTab]);
 
   // Load PAM definitions and cached report when PAM tab is selected
   useEffect(() => {
@@ -420,7 +426,7 @@ function App() {
     }
   }, []);
 
-  // Sync active tab to config and auto-load data if not cached
+  // Sync active tab to config and load cached data (never auto-generates)
   useEffect(() => {
     // Map UI tab names to backend tab parameter values
     const tabMap: { [key: string]: string } = {
@@ -435,18 +441,17 @@ function App() {
     if (backendTab) {
       updateConfig({ tab: backendTab });
 
-      // Check if we have cached data for this tab
+      // Check if we have cached data for this tab in localStorage
       const tabKey = `trendConvergence_data_${backendTab}`;
       const cachedData = localStorage.getItem(tabKey);
 
-      // If no cached data and we have a topic, auto-generate
-      // BUT: Don't auto-generate if there's already an error (prevents infinite loop)
+      // If no localStorage data and we have a topic, try backend cache (never generates)
       if (!cachedData && config.topic && !loading && !error) {
-        console.log(`No cached data for ${backendTab} tab, auto-generating...`);
-        generateAnalysis();
+        console.log(`No localStorage data for ${backendTab} tab, checking backend cache...`);
+        loadCached();
       }
     }
-  }, [activeTab, updateConfig, config.topic, loading, error, generateAnalysis]);
+  }, [activeTab, updateConfig, config.topic, loading, error, loadCached]);
 
   // Calculate context info when model or sample size changes
   useEffect(() => {
@@ -822,49 +827,24 @@ function App() {
     );
   };
 
-  // Auto-generate executive summary when horizons data is available
+  // Load cached executive summary when horizons data is available (no auto-generation)
   useEffect(() => {
-    const loadOrGenerateExecSummary = async () => {
+    const loadCachedExecSummary = async () => {
       if (activeTab === 'future-horizons' && data?.analysis_id && data?.scenarios?.length > 0 && !horizonsExecutiveSummary && !isLoadingHorizonsExecSummary) {
-        // First try to load cached summary
         try {
           const result = await getHorizonsExecutiveSummary(data.analysis_id);
           if (result.success && result.executive_summary?.summaries) {
             setHorizonsExecutiveSummary(result.executive_summary.summaries);
             setHorizonsExecSummaryGeneratedAt(result.executive_summary.generated_at || null);
-            return; // Found cached, no need to generate
           }
         } catch (err) {
-          // No cached summary - will generate below
-          console.log('No cached executive summary found, generating...');
-        }
-
-        // No cached summary found, auto-generate
-        setIsLoadingHorizonsExecSummary(true);
-        setHorizonsExecSummaryError(null);
-
-        try {
-          const result = await generateHorizonsExecutiveSummary(
-            data.analysis_id,
-            data.scenarios,
-            config.topic,
-            config.model
-          );
-
-          if (result.success && result.executive_summary?.summaries) {
-            setHorizonsExecutiveSummary(result.executive_summary.summaries);
-            setHorizonsExecSummaryGeneratedAt(result.executive_summary.generated_at || new Date().toISOString());
-          }
-        } catch (err: any) {
-          console.error('Failed to auto-generate horizons executive summary:', err);
-          setHorizonsExecSummaryError(err.message || 'Failed to generate executive summary');
-        } finally {
-          setIsLoadingHorizonsExecSummary(false);
+          // No cached summary — user can generate via the button in ExecutiveSummarySection
+          console.log('No cached executive summary found');
         }
       }
     };
 
-    loadOrGenerateExecSummary();
+    loadCachedExecSummary();
   }, [activeTab, data?.analysis_id, data?.scenarios?.length]);
 
   // Clear executive summary when topic changes
@@ -2042,13 +2022,27 @@ function App() {
           ) : !data ? (
             <div className="flex items-center justify-center h-64">
               <div className="text-center">
-                <Target className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-gray-950 mb-2">Ready to Analyze Trends</h3>
-                <p className="text-gray-600 mb-4">Configure your analysis settings to get started</p>
-                <Button onClick={() => setIsConfigOpen(true)}>
-                  <Settings className="w-4 h-4 mr-2" />
-                  Configure Analysis
-                </Button>
+                {needsGeneration && config.topic ? (
+                  <>
+                    <TrendingUp className="w-16 h-16 text-pink-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-950 mb-2">No analysis available for "{config.topic}"</h3>
+                    <p className="text-gray-600 mb-4">This will analyze articles and generate insights (30-60s)</p>
+                    <Button onClick={() => generateAnalysis()}>
+                      <Zap className="w-4 h-4 mr-2" />
+                      Generate Analysis
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Target className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-950 mb-2">Ready to Analyze Trends</h3>
+                    <p className="text-gray-600 mb-4">Configure your analysis settings to get started</p>
+                    <Button onClick={() => setIsConfigOpen(true)}>
+                      <Settings className="w-4 h-4 mr-2" />
+                      Configure Analysis
+                    </Button>
+                  </>
+                )}
               </div>
             </div>
           ) : (
